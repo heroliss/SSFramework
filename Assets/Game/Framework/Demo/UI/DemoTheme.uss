@@ -1,0 +1,220 @@
+/* ============================================================
+   SSFramework Demo —— 整体样式主题（暗色 · 简约）
+   风格与内容解耦：模块只挂 class，不写内联样式；换肤只改这一份。
+   配色：深色底 + 单一蓝色强调（accent = rgb(96,165,250)）。
+   ============================================================ */
+
+.demo-root {
+    flex-grow: 1;
+    flex-direction: column;
+    background-color: rgb(24, 25, 30);
+}
+
+/* 顶部标题条 */
+.demo-app-title {
+    height: 50px;
+    -unity-text-align: middle-left;
+    padding-left: 22px;
+    font-size: 16px;
+    -unity-font-style: bold;
+    color: rgb(236, 238, 243);
+    background-color: rgb(32, 34, 41);
+    border-bottom-width: 1px;
+    border-bottom-color: rgb(44, 47, 55);
+}
+
+/* 主体：左导航 + 右内容 */
+.demo-body {
+    flex-grow: 1;
+    flex-direction: row;
+}
+
+/* ---- 左侧导航 ---- */
+.demo-nav {
+    width: 238px;
+    background-color: rgb(30, 32, 38);
+    border-right-width: 1px;
+    border-right-color: rgb(44, 47, 55);
+    padding-top: 6px;
+    padding-bottom: 12px;
+}
+
+.demo-nav-category {
+    margin-top: 16px;
+    margin-bottom: 4px;
+    padding-left: 18px;
+    font-size: 10px;
+    -unity-font-style: bold;
+    color: rgb(120, 126, 138);
+    letter-spacing: 1px;
+}
+
+.demo-nav-item {
+    height: 34px;
+    margin: 1px 8px;
+    padding-left: 12px;
+    -unity-text-align: middle-left;
+    background-color: rgba(0, 0, 0, 0);
+    border-width: 0;
+    border-radius: 7px;
+    color: rgb(190, 195, 205);
+    font-size: 13px;
+    transition-duration: 0.08s;
+}
+
+.demo-nav-item:hover {
+    background-color: rgb(40, 43, 51);
+    color: rgb(220, 224, 232);
+}
+
+.demo-nav-item--active {
+    background-color: rgb(36, 48, 70);
+    color: rgb(120, 178, 255);
+    -unity-font-style: bold;
+}
+
+/* 规划中的章节：导航项弱化显示 */
+.demo-nav-item--soon {
+    color: rgb(110, 115, 126);
+}
+
+/* ---- 右侧内容 ---- */
+.demo-content {
+    flex-grow: 1;
+    padding: 28px 34px;
+}
+
+.demo-content-title {
+    font-size: 22px;
+    -unity-font-style: bold;
+    color: rgb(236, 238, 243);
+    margin-bottom: 6px;
+}
+
+.demo-content-summary {
+    font-size: 13px;
+    color: rgb(150, 156, 168);
+    margin-bottom: 20px;
+    white-space: normal;
+}
+
+.demo-content-body {
+    flex-grow: 1;
+}
+
+/* ---- 模块内容元素 ---- */
+.demo-section-title {
+    font-size: 14px;
+    -unity-font-style: bold;
+    color: rgb(120, 178, 255);
+    margin-top: 18px;
+    margin-bottom: 8px;
+    padding-bottom: 5px;
+    border-bottom-width: 1px;
+    border-bottom-color: rgb(44, 47, 55);
+}
+
+.demo-note {
+    font-size: 13px;
+    color: rgb(188, 193, 203);
+    margin-bottom: 5px;
+    white-space: normal;
+}
+
+.demo-tip {
+    font-size: 12px;
+    color: rgb(245, 205, 130);
+    background-color: rgba(120, 90, 30, 0.22);
+    border-left-width: 3px;
+    border-left-color: rgb(220, 170, 70);
+    border-radius: 4px;
+    padding: 9px 13px;
+    margin-top: 10px;
+    margin-bottom: 6px;
+    white-space: normal;
+}
+
+.demo-value {
+    font-size: 22px;
+    -unity-font-style: bold;
+    color: rgb(236, 238, 243);
+    margin-bottom: 12px;
+}
+
+/* 动作行：演示按钮 + 紧挨着的源码跳转 */
+.demo-action-row {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 7px;
+}
+
+.demo-btn {
+    height: 33px;
+    min-width: 90px;
+    padding: 0 18px;
+    background-color: rgb(59, 130, 246);
+    color: rgb(255, 255, 255);
+    border-width: 0;
+    border-radius: 7px;
+    font-size: 13px;
+    -unity-font-style: bold;
+    transition-duration: 0.08s;
+}
+
+.demo-btn:hover {
+    background-color: rgb(37, 99, 235);
+}
+
+.demo-btn:active {
+    background-color: rgb(29, 78, 216);
+}
+
+/* 源码跳转：低调的次级按钮，紧挨动作按钮 */
+.demo-code-link {
+    height: 27px;
+    margin-left: 9px;
+    padding: 0 11px;
+    background-color: rgb(38, 41, 49);
+    color: rgb(150, 168, 198);
+    border-width: 1px;
+    border-color: rgb(55, 60, 72);
+    border-radius: 6px;
+    font-size: 11px;
+    -unity-font-style: normal;
+    transition-duration: 0.08s;
+}
+
+.demo-code-link:hover {
+    background-color: rgb(36, 48, 70);
+    color: rgb(120, 178, 255);
+    border-color: rgb(96, 165, 250);
+}
+
+/* ---- 滚动条（暗色细条、去掉两端箭头与白色轨道）---- */
+.unity-scroller {
+    background-color: rgba(0, 0, 0, 0);
+    border-width: 0;
+}
+
+.unity-scroller__low-button,
+.unity-scroller__high-button {
+    display: none;
+}
+
+.unity-scroller .unity-base-slider__tracker {
+    background-color: rgba(0, 0, 0, 0);
+    border-width: 0;
+}
+
+.unity-scroller .unity-base-slider__dragger {
+    background-color: rgb(66, 70, 80);
+    border-width: 0;
+    border-radius: 5px;
+    width: 8px;
+    margin-left: 1px;
+    margin-right: 1px;
+}
+
+.unity-scroller .unity-base-slider__dragger:hover {
+    background-color: rgb(94, 99, 112);
+}
