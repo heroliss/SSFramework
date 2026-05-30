@@ -33,6 +33,7 @@ namespace Game.Framework.Demo.Core
             var l = new Label(text);
             l.AddToClassList("demo-note");
             l.style.whiteSpace = WhiteSpace.Normal;
+            l.enableRichText = false; // 讲解文本常含 List<int> / RP<T> 等泛型尖括号，关掉富文本免得 <T> 被当标签吞掉
             Content.Add(l);
             return l;
         }
@@ -43,8 +44,32 @@ namespace Game.Framework.Demo.Core
             var l = new Label(text);
             l.AddToClassList("demo-tip");
             l.style.whiteSpace = WhiteSpace.Normal;
+            l.enableRichText = false;
             Content.Add(l);
             return l;
+        }
+
+        /// <summary>
+        /// 概念条目：左侧加粗术语 + 右侧说明，用于"定义列表"式讲解（分层职责、概念释义等）。说明自动换行。
+        /// </summary>
+        public VisualElement AddConcept(string term, string description)
+        {
+            var row = new VisualElement();
+            row.AddToClassList("demo-concept");
+
+            var t = new Label(term);
+            t.AddToClassList("demo-concept-term");
+            t.enableRichText = false;
+            row.Add(t);
+
+            var d = new Label(description);
+            d.AddToClassList("demo-concept-desc");
+            d.style.whiteSpace = WhiteSpace.Normal;
+            d.enableRichText = false;
+            row.Add(d);
+
+            Content.Add(row);
+            return row;
         }
 
         /// <summary>

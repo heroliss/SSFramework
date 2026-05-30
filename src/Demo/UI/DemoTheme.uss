@@ -141,6 +141,35 @@
     margin-bottom: 12px;
 }
 
+/* 概念条目：术语 + 说明 的定义列表行（讲解分层职责 / 概念释义） */
+.demo-concept {
+    flex-direction: row;
+    margin-bottom: 6px;
+    padding: 9px 13px;
+    background-color: rgb(30, 32, 38);
+    border-radius: 6px;
+    border-left-width: 3px;
+    border-left-color: rgb(60, 78, 110);
+}
+
+.demo-concept-term {
+    width: 104px;
+    flex-shrink: 0;
+    margin-right: 10px;
+    white-space: nowrap;
+    -unity-font-style: bold;
+    color: rgb(120, 178, 255);
+    font-size: 13px;
+}
+
+.demo-concept-desc {
+    flex-grow: 1;
+    flex-shrink: 1;
+    white-space: normal;
+    color: rgb(190, 195, 205);
+    font-size: 13px;
+}
+
 /* 动作行：演示按钮 + 紧挨着的源码跳转 */
 .demo-action-row {
     flex-direction: row;
