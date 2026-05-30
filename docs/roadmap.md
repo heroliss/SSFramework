@@ -36,7 +36,7 @@
 - ✅ R3 响应式（`RP<T>` / `ReadOnlyReactiveProperty<T>`）+ UniTask 异步 + YooAsset 资源
 - ✅ `MonoXxxBase` 自动注册/注入 + `DisposableBag` 统一生命周期 + `AssetReference<T>` Inspector 拖拽
 - ✅ 程序集边界：`Game.Framework` / `.Editor` / `.Demo` / `.Test`
-- 🔜 自研对象池（`IPoolUtility` + Bag 自动归还，替代第三方库）
+- ✅ 自研对象池（`IPoolUtility`：C# 对象池 + GameObject/Prefab 池，`Bag.Rent` / `Bag.Spawn` 自动归还，替代第三方库）
 
 ### Phase 2 —— UI Toolkit
 
@@ -56,7 +56,7 @@ DOTS 是数据/Job/Burst 范式，与引用式 OOP 不同。框架的定位是**
 
 | 能力 | 状态 | 说明 |
 |---|---|---|
-| 自研对象池 | ✅ MVP 已落地 | `IPoolUtility` + `Bag.Rent` 自动归还；Prefab/GameObject 池待补。ADR-0007 |
+| 自研对象池 | ✅ 已落地 | `IPoolUtility`：C# 对象池（`Bag.Rent`）+ GameObject/Prefab 池（`Bag.Spawn`、分帧 `Prewarm`、`PooledObject` 自动路由），随 Bag 自动归还。ADR-0007 |
 | 资源系统（YooAsset） | ✅ 3.0 已适配 | 经 `IAssetProvider` 隔离；当前走 YooAsset 3.0 官方兼容层，原生 3.0 重写待跟进。ADR-0012 |
 | 热更新（HybridCLR） | 📐 设计完成 | AOT/热更程序集分界 + 经 `IAssetUtility` 拉 DLL 引导。ADR-0008（实现待构建管线） |
 | 配置表（Luban） | 📐 设计完成 | 构建期 CLI 生成 + 运行期经 `IAssetUtility.LoadBytes`，镜像资源系统三段式。ADR-0009（实现待 schema） |

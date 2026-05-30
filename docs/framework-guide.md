@@ -590,7 +590,32 @@ pool.Return(b);                   // 手动管理时显式归还
 - **状态在归还时清理**（`IPoolable.OnReturn` 或 `onReturn` 委托），避免脏数据被下一个租借者看到。
 - **已 `Return` 的对象不要再用**——它可能已被取走。
 - 主线程独占；Editor / Development Build 下检测"重复归还 / 归还外来实例"。
-- Prefab/GameObject 池（接 `IAssetUtility` 异步预热）为后续能力，当前先支持纯 C# 对象。
+
+#### GameObject / Prefab 池
+
+同一个 `IPoolUtility` 也按 **prefab** 管理 GameObject 池，复用实例、避免频繁 `Instantiate`/`Destroy`。最常用的是 `Bag.Spawn(prefab)`——和 `Bag.Rent` / `Bag.Load` 一样，宿主销毁 / `bag.Dispose` 时**自动 Despawn（归还）**：
+
+```csharp
+public class EnemySpawnerView : MonoViewBase
+{
+    [SerializeField] GameObject _enemyPrefab;
+
+    void SpawnAt(Vector3 pos)
+    {
+        // 取一个实例并定位；本 View 销毁时随 Bag 自动归还入池
+        var enemy = Bag.Spawn(_enemyPrefab, pos, Quaternion.identity);
+    }
+}
+```
+
+要点与心智：
+
+- **键控**：每个 prefab 对应一个池，`Spawn` 复用空闲实例（重置 local transform、`SetActive(true)`），`Despawn` 停用并挂回一个停用的 parking 节点。
+- **手动管理**：`this.GetUtility<IPoolUtility>().Spawn(prefab, parent)` 取、`.Despawn(go)` 还（实例自带 `PooledObject` 标记，归还时自动路由回源池，无需再传 prefab）。
+- **预热**：`await pool.Prewarm(n)` 分帧实例化 `n` 个，把开销摊到多帧（适合加载界面期间调用）。
+- **重置钩子**：实例上**任意组件**实现 `IPoolable`，即在 `OnRent` / `OnReturn` 收到回调（`OnReturn` 里清状态）。
+- **位置加载组合**：池本身不做按 location 的异步加载——先 `var prefab = await Bag.Load<GameObject>("...")` 取到 prefab 再 `Bag.Spawn(prefab)`，刻意让 `PoolUtility` 不依赖资源系统（保持可被父子 Context 共享、不绑 Context）。
+- 主线程独占；Editor / Dev 构建下检测"重复 Despawn / 归还非池化对象"。
 
 ---
 

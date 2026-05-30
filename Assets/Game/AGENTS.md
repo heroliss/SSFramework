@@ -324,4 +324,4 @@ protected virtual void OnDestroy()
 - **手动**：`this.GetUtility<IPoolUtility>().Rent<T>()` / `.Return(obj)`；需要自定义工厂或租借/归还钩子时先 `GetPool<T>(factory, onRent, onReturn, maxSize)` 配置一次（**首次配置生效**），之后 `pool.Rent()/Return()`。
 - **状态清理放归还时**：池化类型实现 `IPoolable.OnReturn()` 清字段/退订（或用 `GetPool` 的 `onReturn` 委托）；`OnRent()` 做激活。**已 Return 的实例不要再用**。
 - 主线程独占。Editor/Dev 构建下重复归还/归还外来实例会 LogError。
-- Prefab/GameObject 池（接 `IAssetUtility` 异步预热）尚未实现，后续补。详见 `docs/framework-guide.md` §7。
+- **GameObject/Prefab 池**：同一 `IPoolUtility` 按 prefab 管理。`Bag.Spawn(prefab, parent)` / `Bag.Spawn(prefab, pos, rot)` 取实例，宿主销毁自动 Despawn（心智同 `Bag.Rent`）；手动用 `GetUtility<IPoolUtility>().Spawn(prefab,…)` / `.Despawn(go)`（实例带 `PooledObject` 标记自动路由回源池）。`await pool.Prewarm(n)` 分帧预热。实例上**任意组件**实现 `IPoolable` 即收 OnRent/OnReturn。按 location 异步加载先 `await Bag.Load<GameObject>(loc)` 取 prefab 再 Spawn（池刻意不依赖 Context/IAssetUtility）。详见 `docs/framework-guide.md` §7。

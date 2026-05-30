@@ -1,5 +1,6 @@
 using System;
 using Game.Framework.Utility;
+using UnityEngine;
 
 namespace Game.Framework.Pool
 {
@@ -56,5 +57,22 @@ namespace Game.Framework.Pool
 
         /// <summary>把实例归还到 <typeparamref name="T"/> 的默认池（等价 <c>GetPool&lt;T&gt;().Return(instance)</c>）。</summary>
         void Return<T>(T instance) where T : class, new();
+
+        // ── GameObject / Prefab 池 ──────────────────────────────────────────
+        // 按 prefab 键控，与上面的纯 C# 对象池共用同一个工具入口。
+        // 位置加载（按 location 异步加载 prefab）不内建于此——先 Bag.Load<GameObject>(location) 取到 prefab 再建池，
+        // 以保持 PoolUtility 不依赖 Context/IAssetUtility（见 PoolUtility 注释）。
+
+        /// <summary>获取（或创建）<paramref name="prefab"/> 的 GameObject 池；同一 prefab 返回同一池（首次的 maxSize 生效）。</summary>
+        IGameObjectPool GetGameObjectPool(GameObject prefab, int maxSize = 0);
+
+        /// <summary>从 <paramref name="prefab"/> 的池取一个实例并挂到 <paramref name="parent"/>（等价 <c>GetGameObjectPool(prefab).Spawn(parent)</c>）。</summary>
+        GameObject Spawn(GameObject prefab, Transform parent = null);
+
+        /// <summary>从 <paramref name="prefab"/> 的池取一个实例，置于指定世界位置/旋转并挂到 <paramref name="parent"/>。</summary>
+        GameObject Spawn(GameObject prefab, Vector3 position, Quaternion rotation, Transform parent = null);
+
+        /// <summary>归还一个 Spawn 出来的实例（经其 <see cref="PooledObject"/> 标记自动路由回源池）。null / 非池化对象安全忽略。</summary>
+        void Despawn(GameObject instance);
     }
 }

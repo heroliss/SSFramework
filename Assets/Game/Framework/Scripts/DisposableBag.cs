@@ -316,6 +316,34 @@ namespace Game.Framework
             return instance;
         }
 
+        /// <summary>
+        /// 从 <paramref name="prefab"/> 的 GameObject 池 Spawn 一个实例并挂到 <paramref name="parent"/>；
+        /// bag.Dispose 时自动 Despawn（归还），心智同 <see cref="Rent{T}"/> / <see cref="Load{T}(string, CancellationToken)"/>。
+        /// 实例若已被外部 Destroy（如随场景卸载）则跳过归还。位置加载先 <c>await Bag.Load&lt;GameObject&gt;(location)</c> 取得 prefab。
+        /// <b>不要对交给本方法的实例再手动 Despawn</b>（与 <see cref="Rent{T}"/> 同约定）：归还由 bag 负责，手动归还会与
+        /// bag 的自动归还叠加成重复 Despawn——需要更早归还就别用 Bag.Spawn，直接走 <c>this.GetUtility&lt;IPoolUtility&gt;()</c>。
+        /// </summary>
+        public GameObject Spawn(GameObject prefab, Transform parent = null)
+        {
+            EnsurePoolUtility();
+            ThrowIfDisposed();
+            var pool = ResolvePoolUtility().GetGameObjectPool(prefab);
+            var go = pool.Spawn(parent);
+            Track(Disposable.Create(() => { if (go != null) pool.Despawn(go); }));
+            return go;
+        }
+
+        /// <summary>Spawn 一个实例并置于指定世界位置/旋转；bag.Dispose 时自动归还。见 <see cref="Spawn(GameObject, Transform)"/>。</summary>
+        public GameObject Spawn(GameObject prefab, Vector3 position, Quaternion rotation, Transform parent = null)
+        {
+            EnsurePoolUtility();
+            ThrowIfDisposed();
+            var pool = ResolvePoolUtility().GetGameObjectPool(prefab);
+            var go = pool.Spawn(position, rotation, parent);
+            Track(Disposable.Create(() => { if (go != null) pool.Despawn(go); }));
+            return go;
+        }
+
         // ── 通用挂载 / 嵌套 ─────────────────────────────────────────────────
 
         /// <summary>直接登记任意 IDisposable（订阅、handle、子 bag、自定义对象都可以）。</summary>
