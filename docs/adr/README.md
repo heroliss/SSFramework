@@ -17,4 +17,5 @@
 | [0009](0009-luban-integration.md) | Luban 配置表：构建期生成 + 运行期经资源系统加载 | Proposed |
 | [0010](0010-framework-reusability-upm.md) | 框架复用边界与 UPM 抽包路线 | Accepted |
 | [0011](0011-directory-organization.md) | 项目目录组织与第三方隔离 | Accepted |
-| [0012](0012-yooasset-3-migration.md) | YooAsset 3.0 迁移：先用官方兼容层 | Accepted |
+| [0012](0012-yooasset-3-migration.md) | YooAsset 3.0 迁移：先用官方兼容层 | Superseded by 0013 |
+| [0013](0013-yooasset-native-rewrite.md) | YooAsset 原生 3.0 重写：去兼容层 | Accepted |

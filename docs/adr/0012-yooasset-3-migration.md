@@ -1,6 +1,6 @@
 # ADR-0012：YooAsset 3.0 迁移 —— 先用官方兼容层
 
-**Status:** Accepted（兼容层方案；原生 3.0 FileSystem 重设计列为后续）
+**Status:** Superseded by [ADR-0013](0013-yooasset-native-rewrite.md)（兼容层是过渡方案；原生 3.0 重写已完成、`YOOASSET_LEGACY_API` define 已移除。本 ADR 保留为升级当时的历史记录）
 
 ## Context
 
