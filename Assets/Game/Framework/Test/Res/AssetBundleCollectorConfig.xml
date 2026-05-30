@@ -1,0 +1,10 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<root Version="v2025.8.28">
+  <Common ShowPackageView="False" ShowEditorAlias="False" UniqueBundleName="True" />
+  <Package PackageName="DefaultPackage" PackageDesc="" AutoAddressable="True" SupportExtensionless="True" LocationToLower="False" IncludeAssetGUID="True" IgnoreRuleName="NormalIgnoreRule">
+    <Group GroupActiveRule="EnableGroup" GroupName="TestGroup" GroupDesc="" AssetTags="">
+      <Collector CollectPath="Assets/Game/Framework/Test/Res" CollectGUID="763ef90f7679c824c9aaee5452f76a2a" CollectType="MainAssetCollector" AddressRule="AddressByGroupAndFileName" PackRule="PackDirectory" FilterRule="CollectPrefab" UserData="" AssetTags="" />
+      <Collector CollectPath="Assets/Game/Framework/Test/Res/Image" CollectGUID="148b51b5ee0a13b4b8c18df248eef178" CollectType="MainAssetCollector" AddressRule="AddressByFileName" PackRule="PackDirectory" FilterRule="CollectAll" UserData="" AssetTags="" />
+    </Group>
+  </Package>
+</root>

@@ -1,0 +1,309 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: be1a935a41a2dde44a9e7dcd646b8cc9, type: 3}
+  m_Name: DemoCopy
+  m_EditorClassIdentifier: Assembly-CSharp::Game.Framework.Demo.DemoCopySO
+  _chapters:
+  - _id: architecture
+    _title: "\u5206\u5C42\u67B6\u6784\uFF1A\u51CF\u5C11\u8026\u5408\uFF0C\u6E05\u6670\u804C\u8D23"
+    _oneLiner: "\u628A\u4EE3\u7801\u5206\u6210\u4E94\u5C42\uFF0C\u6BCF\u5C42\u53EA\u5173\u5FC3\u81EA\u5DF1\u2014\u2014\u8FD9\u662F\u6846\u67B6\u7684\u6839\u672C\u76EE\u7684\uFF1B\u5355\u5411\u6570\u636E\u6D41\u548C\u6743\u9650\u5206\u5C42\u53EA\u662F\u5B9E\u73B0\u624B\u6BB5\u3002"
+    _body: "\u70B9\u51FB\u4E2D\u592E\u7684 \"Click Me\" \u2192 \u770B\u56DB\u4E2A\u8272\u5757\u6309
+      View \u2192 Command \u2192 System \u2192 Model \u987A\u5E8F\u70B9\u4EAE\uFF0C\u65C1\u8FB9
+      status \u6587\u672C\u540C\u6B65\u64AD\u62A5\u5F53\u524D\u6570\u636E\u5728\u54EA\u4E00\u5C42\u3002\u6700\u540E
+      Model \u6570\u5B57 +1\uFF0CView \u7684 Count \u6587\u672C\u7ACB\u5373\u540C\u6B65\u3002\n\n\u6574\u4E2A\u52A8\u753B\u6F14\u793A\u4E00\u6B21\u5B8C\u6574\u7684\"\u5355\u5411\u6570\u636E\u6D41\"\uFF1AView
+      \u884C\u4E3A\u89E6\u53D1 IncrementCommand\uFF0CCommand \u8C03 ICounterSystem.Increment()\uFF0CSystem
+      \u5199 CounterModel.Count\uFF0CRP \u81EA\u52A8\u901A\u77E5\u8BA2\u9605\u8005\u5237\u65B0
+      View\u3002\u8BFB\u6E90\u7801\u65F6\u6CE8\u610F View \u91CC\u6CA1\u6709 [Inject]
+      Model/System\u3001\u6CA1\u6709 SendEvent\u3001\u4E5F\u6CA1\u6709 GetSystem<>()\u2014\u2014\u53EA\u53D1
+      Command\u3001\u53EA\u8BA2\u9605\u67E5\u8BE2\u547D\u4EE4\u8FD4\u56DE\u7684 RP\u3002"
+    _designRationale: "\u4F20\u7EDF MVC \u91CC Controller \u662F\u77DB\u76FE\u7684\u5B58\u5728\u2014\u2014\u65E2\u54CD\u5E94\u8F93\u5165\u53C8\u534F\u8C03\u6570\u636E\uFF0C\u968F\u9879\u76EE\u589E\u957F\u5FC5\u7136\u53D8\u6210\u5783\u573E\u6876\u3002\u672C\u6846\u67B6\u628A
+      Controller \u62C6\u6210 Command\uFF08\u58F0\u660E\u610F\u56FE\uFF09+ System\uFF08\u5B9E\u73B0\u610F\u56FE\uFF09\u2014\u2014\u89C6\u56FE\u5F00\u53D1\u8005\u5B9A\u4E49
+      Command \u63A5\u53E3\u3001\u903B\u8F91\u5F00\u53D1\u8005\u5B9E\u73B0 System\uFF0C\u4E24\u8FB9\u901A\u8FC7
+      Command \u7C7B\u578B\u5BF9\u63A5\u3001\u4E92\u4E0D\u8026\u5408\u3002\n\n\"\u5206\u5C42\"\u7531\u51E0\u6761\u5177\u4F53\u624B\u6BB5\u4FDD\u969C\uFF1A\u5355\u5411\u6570\u636E\u6D41\uFF08View
+      \u53EA\u53D1 Command\uFF09\u3001\u6743\u9650\u63A5\u53E3\uFF08\u7F16\u8BD1\u671F\u7EA6\u675F\uFF09\u3001\u9762\u5411\u63A5\u53E3\uFF08\u4F9D\u8D56\u62BD\u8C61\u4E0D\u4F9D\u8D56\u5B9E\u73B0\uFF09\u2014\u2014\u8FD9\u4E9B\u90FD\u662F\u624B\u6BB5\uFF0C\u76EE\u7684\u662F\u628A\"\u804C\u8D23\u6E05\u6670\"\u4ECE\u7EB8\u9762\u843D\u5230\u4EE3\u7801\u91CC\u3002"
+    _codeSnippets:
+    - _caption: "\u5206\u5C42\u4E0E\u6570\u636E\u6D41\u5411"
+      _code: "       \u8C03\u7528\u65B9\u5411\uFF1A\u5199\u5165\u6570\u636E\nView
+        \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2192 Command \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2192
+        System \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2192 Model\n                                                   
+        \u2502\nView \u2190\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 Command
+        \u2190\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 System \u2190\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+        Model\n       \u6570\u636E\u65B9\u5411\uFF1A\u8BFB\u53D6 / \u8BA2\u9605"
+    - _caption: "\u5206\u5C42\u5E26\u6765\u7684\u597D\u5904\u2014\u2014\u66FF\u6362\u5B9E\u73B0\u800C\u4E0D\u52A8\u4E1A\u52A1\u4EE3\u7801"
+      _code: "// \u6D4B\u8BD5\u65F6\u7528 MockPlayerSystem \u66FF\u6362\u771F\u5B9E\u7684
+        PlayerSystem\uFF0C\n// View / Command \u4EE3\u7801\u5B8C\u5168\u4E0D\u53D8\uFF0C\u56E0\u4E3A\u5B83\u4EEC\u53EA\u4F9D\u8D56
+        IPlayerSystem \u63A5\u53E3\npublic class TestContext : MonoGameContextBase\n{\n   
+        protected override void InstallBindings(ContainerBuilder builder)\n    {\n       
+        builder.RegisterValue(new MockPlayerSystem(), typeof(IPlayerSystem));\n       
+        builder.RegisterValue(new CommandSystem(), typeof(ICommandSystem));\n   
+        }\n}"
+  - _id: minimal-counter
+    _title: "\u6700\u5C0F\u53EF\u8FD0\u884C\u793A\u4F8B\uFF1ACounter"
+    _oneLiner: "30 \u884C\u4EE3\u7801\u8D70\u901A Model + Command + System + View\uFF0C\u4EB2\u773C\u770B\u5230\u5206\u5C42\u7684\u5F62\u72B6\u3002"
+    _body: "\u4E09\u4E2A\u6309\u94AE\uFF08+ / \u2212 / Reset\uFF09\u5404\u5BF9\u5E94\u4E00\u4E2A
+      struct Command\uFF1A\n- + \u2192 IncrementCommand \u2192 Count + 1\n- \u2212
+      \u2192 DecrementCommand \u2192 Count \u2212 1\n- Reset \u2192 ResetCounterCommand
+      \u2192 Count = 0\n\n\u9875\u9762\u6709\u4E24\u884C\u6587\u672C\uFF1A\u4E0A\u65B9
+      Count \u8BA2\u9605 GetCountStateCommand \u8FD4\u56DE\u7684 RP\uFF0C\u4E0B\u65B9
+      Commands \u7D2F\u8BA1\u6267\u884C\u6B21\u6570\u2014\u2014\u6BCF\u6B21\u4EFB\u610F\u6309\u94AE\u90FD\u4F1A\u8BA9\u4E24\u884C\u90FD\u66F4\u65B0\u4E00\u6B21\uFF0C\u8BC1\u660E
+      Command \u662F\u552F\u4E00\u5199\u5165\u5165\u53E3\u3002\n\n\u5728 Inspector
+      \u91CC\u5C55\u5F00 CounterModel \u8282\u70B9\uFF0C\u8FD0\u884C\u65F6\u53EF\u4EE5\u770B\u5230
+      RP<int> Count \u7684 Value \u5B9E\u65F6\u8DF3\u53D8\u3002"
+    _designRationale: "\u8BA9\"\u5206\u5C42\"\u6210\u672C\u8DB3\u591F\u4F4E\u2014\u2014MonoModelBase
+      / MonoSystemBase / MonoViewBase \u8FD9\u4E9B\u57FA\u7C7B\u5DF2\u7ECF\u66FF\u4F60\u505A\u4E86
+      Context \u67E5\u627E\u3001\u5BB9\u5668\u6CE8\u518C\u3001\u4F9D\u8D56\u6CE8\u5165\u3001Bag
+      \u91CA\u653E\u7B49\u6240\u6709\u6837\u677F\u3002\u4E1A\u52A1\u4EE3\u7801\u5C31\u5269\"\u6211\u8FD9\u5C42\u5728\u5E72\u4EC0\u4E48\"\u3002"
+    _codeSnippets:
+    - _caption: "\u5B8C\u6574 Counter\uFF08\u4E00\u5C4F\u5185\u770B\u5B8C\uFF09"
+      _code: "// Model\uFF1A\u72B6\u6001\u8F7D\u4F53\npublic class CounterModel :
+        MonoModelBase\n{\n    [field: SerializeField] public RP<int> Count { get;
+        private set; } = new(0);\n}\n\n// System\uFF1A\u4E1A\u52A1\u89C4\u5219\uFF0C\u552F\u4E00\u5408\u6CD5\u7684\u72B6\u6001\u5199\u5165\u8005\npublic
+        interface ICounterSystem : ISystem\n{\n    ReadOnlyReactiveProperty<int>
+        Count { get; }\n    void Increment();\n}\npublic class CounterSystem : MonoSystemBase,
+        ICounterSystem\n{\n    [Inject] private CounterModel _model;\n    ReadOnlyReactiveProperty<int>
+        ICounterSystem.Count => _model.Count;\n    public void Increment() => _model.Count.Value++;\n}\n\n//
+        Command\uFF1A\u7528\u6237\u610F\u56FE\uFF08\u63A8\u8350 struct\uFF0C\u96F6\u5206\u914D\uFF09\npublic
+        readonly struct IncrementCommand : ICommand\n{\n    public void Execute(ICommandContext
+        ctx) => ctx.GetSystem<ICounterSystem>().Increment();\n}\npublic readonly
+        struct GetCountCommand : ICommand<ReadOnlyReactiveProperty<int>>\n{\n   
+        public ReadOnlyReactiveProperty<int> Execute(ICommandContext ctx)\n       
+        => ctx.GetSystem<ICounterSystem>().Count;\n}\n\n// View\uFF1A\u53EA\u53D1
+        Command\u3001\u53EA\u8BA2\u9605\u72B6\u6001\npublic class CounterView : MonoViewBase\n{\n   
+        [SerializeField] private Button _btn;\n    [SerializeField] private TMP_Text
+        _label;\n    protected override void Awake()\n    {\n        base.Awake();\n       
+        Bag.Subscribe(this.ExecuteCommand(new GetCountCommand()), v => _label.text
+        = v.ToString());\n        Bag.Subscribe(_btn.onClick, () => this.ExecuteCommand(new
+        IncrementCommand()));\n    }\n}"
+  - _id: lifetime-bag
+    _title: "\u4EAE\u70B9 (1)\uFF1A\u7EDF\u4E00\u751F\u547D\u5468\u671F\uFF0C\u4E00\u5207\u7686
+      IDisposable"
+    _oneLiner: "\u8BA2\u9605\u3001\u8D44\u6E90\u3001\u5D4C\u5957\u4F5C\u7528\u57DF\u2026\u2026\u6240\u6709\"\u6709\u751F\u547D\u7684\u4E1C\u897F\"\u90FD\u8FDB
+      Bag\uFF0COnDestroy \u4E00\u6B21\u6027\u91CA\u653E\u3002"
+    _body: "\u6309\u987A\u5E8F\u64CD\u4F5C\uFF1A\n1. \u70B9 \"Spawn\" 3 \u6B21 \u2192
+      \u5217\u8868\u91CC\u51FA\u73B0 3 \u4E2A\u5B50 View\uFF0C\u6BCF\u4E2A\u90FD\u663E\u793A
+      \"Subs: 0\"\u3002\u6BCF\u4E2A\u5B50 View \u5728 Awake \u91CC Bag.Subscribe<LogEvent>
+      \u8BA2\u9605\u4E86\u4E8B\u4EF6\uFF0C\u4F46\u4EE3\u7801\u91CC\u6CA1\u6709\u4E00\u884C\u53CD\u8BA2\u9605\u3002\n2.
+      \u70B9 \"Send Ping\" \u2192 \u4E09\u4E2A\u5B50 View \u8BA1\u6570\u540C\u65F6
+      +1\uFF0C\u8BC1\u660E\u90FD\u6536\u5230\u4E86 ping\u3002\n3. \u70B9 \"Destroy
+      \u4E00\u4E2A\" \u2192 \u6700\u540E\u4E00\u4E2A\u5B50 View \u9500\u6BC1\uFF0C\u5B83\u7684
+      Bag \u81EA\u52A8 Dispose\u3002\n4. \u518D\u70B9 \"Send Ping\" \u2192 \u53EA\u6709\u5269\u4E0B\u7684\u4E24\u4E2A
+      +1\uFF1B\u88AB\u9500\u6BC1\u7684\u90A3\u4E2A\u518D\u4E5F\u4E0D\u4F1A\u54CD\u5E94\u3002\n\n\u6574\u4E2A\u6D41\u7A0B\u6CA1\u6709\u5199\u8FC7
+      -= / Unsubscribe / Dispose\u2014\u2014\u4E00\u5207\u8BA2\u9605\u751F\u547D\u5468\u671F\u90FD\u8DDF\u7740\u5BBF\u4E3B
+      GameObject\u3002\u628A\u8FD9\u4E2A\u5FC3\u667A\u63A8\u5E7F\u5230 R3 \u8BA2\u9605\u3001Framework
+      Event\u3001UnityEvent\u3001\u8D44\u6E90\u52A0\u8F7D handle\u3001\u4EFB\u610F
+      IDisposable\uFF1A\u4E00\u5F8B Bag.Add / Bag.Subscribe\uFF0C\u5BBF\u4E3B OnDestroy
+      \u65F6\u7EDF\u4E00\u91CA\u653E\u3002"
+    _designRationale: "\u4E3A\u4EC0\u4E48\u9009 IDisposable \u4F5C\u4E3A\u7EDF\u4E00\u62BD\u8C61\uFF1F\n\n\u2022
+      .NET \u5B98\u65B9\u6807\u51C6\uFF1Ausing \u8BED\u53E5\u3001IAsyncDisposable\u3001CancellationTokenSource\u3001HttpClient\u2026\u2026\u6240\u6709
+      .NET \u8D44\u6E90\u7BA1\u7406\u90FD\u57FA\u4E8E IDisposable\uFF0C\u8DE8\u5E93\u53EF\u7EC4\u5408\u3002\n\u2022
+      \u7B2C\u4E09\u65B9\u5E93\u901A\u7528\u5951\u7EA6\uFF1AR3 \u7684\u8BA2\u9605\u8FD4\u56DE
+      IDisposable\u3001UniTask \u7684 CancellationTokenRegistration \u4E5F\u662F\u3002\u6846\u67B6\u4E0D\u53D1\u660E\u65B0\u6982\u5FF5\uFF0C\u4E1A\u52A1\u4EE3\u7801\u53EF\u4EE5\u65E0\u7F1D\u63A5\u5165\u4EFB\u4F55
+      R3/UniTask/\u5176\u4ED6\u5E93\u7684\u8F93\u51FA\u2014\u2014\u76F4\u63A5 Bag.Add(anyDisposable)
+      \u5C31\u884C\u3002\n\u2022 \u907F\u514D\u5FC3\u667A\u5272\u88C2\uFF1A\u5982\u679C\"\u8BA2\u9605\u91CA\u653E\"\u548C\"\u8D44\u6E90\u91CA\u653E\"\u7528\u4E24\u5957
+      API\uFF0C\u4E1A\u52A1\u8981\u5728\u4E24\u4E2A\u5FC3\u667A\u6A21\u578B\u95F4\u5207\u6362\uFF1B\u7EDF\u4E00\u4E3A
+      IDisposable \u540E\uFF0C\u8BB0\u4E00\u53E5\"\u653E\u8FDB Bag\"\u5373\u53EF\u3002"
+    _codeSnippets:
+    - _caption: "\u4E00\u4E2A Bag \u7BA1\u6240\u6709"
+      _code: "public class HudView : MonoViewBase\n{\n    [SerializeField] private
+        TMP_Text _hpText;\n    [SerializeField] private Button _hitBtn;\n    [SerializeField]
+        private AssetReference<Sprite> _avatarRef;\n\n    protected override async
+        void Awake()\n    {\n        base.Awake();\n\n        // R3 \u54CD\u5E94\u5F0F\u8BA2\u9605\n       
+        var hp = this.ExecuteCommand(new GetHPStateCommand());\n        Bag.Subscribe(hp,
+        v => _hpText.text = v.ToString());\n\n        // Framework Event\uFF08\u5E26\u6570\u636E
+        / \u65E0\u6570\u636E / \u8BA2\u9605\u65F6\u521D\u59CB\u5316\uFF09\n       
+        Bag.Subscribe<PlayerHurtEvent>(e => PlayHurtAnim());\n        Bag.Subscribe<GoldChangedEvent>(RefreshGold,
+        invokeImmediately: true);\n\n        // UnityEvent\n        Bag.Subscribe(_hitBtn.onClick,
+        () => this.ExecuteCommand(new HitCommand()));\n\n        // \u8D44\u6E90\u52A0\u8F7D\u2014\u2014handle
+        \u81EA\u52A8\u5165 Bag\n        var icon = await Bag.Load<Sprite>(\"ui/icon\");\n\n       
+        // \u4EFB\u4F55\u7B2C\u4E09\u65B9 IDisposable\uFF08\u8FD9\u91CC\u4E3E R3
+        Disposable.Create \u4E3A\u4F8B\uFF09\n        Bag.Add(Disposable.Create(()
+        => Debug.Log(\"HudView \u9500\u6BC1\u4E86\")));\n    }\n    // \u4E0D\u5199
+        OnDestroy\u3002MonoViewBase.OnDestroy \u81EA\u52A8 Dispose Bag\u3002\n}"
+    - _caption: "\u5D4C\u5957\u4F5C\u7528\u57DF \u2014 \u4E00\u56DE\u5408\u7684\u4E34\u65F6\u8BA2\u9605"
+      _code: "public class BattleView : MonoViewBase\n{\n    private DisposableBag
+        _roundBag;\n\n    public void OnRoundStart()\n    {\n        _roundBag =
+        Bag.CreateChild();           // \u7236\u7EA7 Bag \u7684\u5B50\u4F5C\u7528\u57DF\n       
+        var targeting = this.ExecuteCommand(new GetTargetingStateCommand());\n       
+        _roundBag.Subscribe(targeting, ShowTargetMark);\n    }\n\n    public void
+        OnRoundEnd() => _roundBag?.Dispose();  // \u7236\u7EA7\u4E0D\u52A8\uFF0C\u4EC5\u6E05\u8FD9\u4E00\u56DE\u5408\n}"
+  - _id: r3-streams
+    _title: "\u4EAE\u70B9 (2)\uFF1A\u6570\u636E\u4E8C\u7EF4\u5212\u5206 + R3 \u6574\u5408"
+    _oneLiner: "\u7528\"\u6709/\u65E0\u5F53\u524D\u503C \xD7 \u53EF\u89C2\u5BDF/\u4E0D\u53EF\u89C2\u5BDF\"\u4E24\u4E2A\u7EF4\u5EA6\u7EDF\u4E00\u7406\u89E3\u6570\u636E\uFF1BR3
+      \u628A\u6240\u6709\u6570\u636E\u6E90\u8F6C\u6210 Observable\uFF0C\u4E00\u5957
+      API \u5904\u7406\u3002"
+    _body: "\u62D6\u52A8 Slider A \u548C Slider B\uFF0C\u89C2\u5BDF\u4E09\u4E2A\u6587\u672C\u540C\u6B65\u53D8\u5316\uFF1A\n-
+      Sum = A + B\uFF0C\u6BCF\u6B21\u62D6\u52A8\u90FD\u7ACB\u5373\u91CD\u7B97\uFF08a.CombineLatest(b,
+      (x,y) => x+y)\uFF09\n- Throttled Sum \u5728\u4F60\u505C\u6B62\u62D6\u52A8 500ms
+      \u540E\u624D\u66F4\u65B0\u4E00\u6B21\uFF08sum.ThrottleLast(500ms)\uFF09\n-
+      Max = Mathf.Max(A, B)\uFF0C\u540C\u6837\u5B9E\u65F6\n\n\u6574\u6BB5 View \u4EE3\u7801\u6CA1\u6709
+      Update\u3001\u6CA1\u6709\u624B\u5199\u72B6\u6001\u673A\u2014\u2014\u53EA\u6709
+      5 \u884C R3 \u94FE\u5F0F\u8868\u8FBE\uFF1AonValueChanged.AsObservable().Prepend(currentValue)
+      \u628A Slider \u4E8B\u4EF6\u8F6C\u6210 Observable \u5E76\u8865\u4E00\u4E2A\u521D\u503C\uFF0C\u4E0B\u6E38\u5168\u90E8\u7528
+      R3 \u64CD\u4F5C\u7B26\u6D3E\u751F\u3002\n\nBag.Subscribe(Observable<T>, Action<T>)
+      \u662F\u7EDF\u4E00\u7684\u8BA2\u9605\u5165\u53E3\uFF1B\u4E8B\u4EF6\u3001\u72B6\u6001\u3001UniTask\u3001UnityEvent
+      \u90FD\u80FD\u8F6C\u6210 Observable<T>\uFF0C\u914D\u5408 R3 \u64CD\u4F5C\u7B26\uFF08Where
+      / Throttle / CombineLatest / Skip / Buffer\u2026\uFF09\u5373\u53EF\u58F0\u660E\u5F0F\u8868\u8FBE\u6D3E\u751F\u5173\u7CFB\u3002"
+    _designRationale: "\u9009 R3 \u800C\u4E0D\u662F UniRx \u6216\u81EA\u9020\u54CD\u5E94\u5F0F\u7CFB\u7EDF\u2014\u2014R3
+      \u662F UniRx \u4F5C\u8005\u91CD\u65B0\u8BBE\u8BA1\u7684\u96F6\u5206\u914D\u54CD\u5E94\u5F0F\u5E93\uFF0C\u6027\u80FD\u66F4\u597D\u3001API
+      \u66F4\u73B0\u4EE3\u3001\u4E0E UniTask \u540C\u751F\u6001\u3002\n\u6846\u67B6\u4E0D\u53D1\u660E\"\u81EA\u5BB6\u54CD\u5E94\u5F0F\u6982\u5FF5\"\uFF0C\u4E1A\u52A1\u4EE3\u7801\u53EF\u4EE5\u76F4\u63A5\u4EAB\u53D7
+      R3 \u5168\u5957\u64CD\u4F5C\u7B26\u548C\u793E\u533A\u751F\u6001\u3002"
+    _codeSnippets:
+    - _caption: "\u8DE8\u539F\u8BED\u7EC4\u5408 \u2014 \u9632\u6296\u6309\u94AE +
+        \u5F02\u6B65\u4FDD\u5B58"
+      _code: "// UnityEvent \u2192 Observable \u2192 Throttle \u2192 \u5F02\u6B65
+        Command\uFF0C\u5168\u7A0B\u58F0\u660E\u5F0F\nBag.Subscribe(\n    _saveBtn.OnClickAsObservable().ThrottleFirst(TimeSpan.FromSeconds(1)),\n   
+        async _ => await this.ExecuteCommandAsync(new SaveProgressCommand()));"
+    - _caption: "\u6D3E\u751F\u72B6\u6001 \u2014 \u8840\u91CF\u6BD4\u4F8B"
+      _code: "// HP \u6216 MaxHP \u4EFB\u4E00\u53D8\u5316\u90FD\u91CD\u7B97 ratio\uFF0CUI
+        \u4E0D\u7528\u5173\u5FC3\"\u4EC0\u4E48\u65F6\u5019\u91CD\u7B97\"\nvar ratio
+        = model.HP.CombineLatest(\n    model.MaxHP,\n    (hp, max) => max > 0 ? (float)hp
+        / max : 0f);\n\nBag.Subscribe(ratio, r => _hpBar.fillAmount = r);"
+    - _caption: "\u5F02\u6B65 Command \u81EA\u52A8\u53D6\u6D88"
+      _code: "public class SaveProgressCommand : IAsyncCommand\n{\n    public async
+        UniTask ExecuteAsync(ICommandContext ctx, CancellationToken cancellationToken)\n   
+        {\n        await _save.WriteAsync(cancellationToken);   // \u552F\u4E00\u8981\u5173\u5FC3\u7684
+        token\n    }\n}\n\n// View \u9500\u6BC1\u3001Context Dispose\u3001\u5916\u90E8
+        cancel \u4EFB\u4E00\u89E6\u53D1\u90FD\u4F1A\u53D6\u6D88\nawait this.ExecuteCommandAsync(new
+        SaveProgressCommand());"
+  - _id: mono-power
+    _title: "\u4EAE\u70B9 (3)\uFF1A\u4E0E Unity \u5F15\u64CE\u6DF1\u5EA6\u878D\u5408"
+    _oneLiner: "Hierarchy \u8868\u8FBE DI \u6811\u3001Inspector \u5B9E\u65F6\u770B
+      RP<T>\u3001\u5F15\u64CE\u7EC4\u4EF6\u53EF\u8DE8\u5C42\u2014\u2014Unity \u4E0D\u662F\u7ECA\u811A\u77F3\u800C\u662F\u653E\u5927\u5668\u3002"
+    _body: "\u672C Page \u5728 Hierarchy \u4E0B\u6302\u4E86\u4E24\u4E2A\u5E76\u5217\u5B50
+      Context\uFF1ASubContextA \u548C SubContextB\uFF0C\u5404\u81EA\u6709\u72EC\u7ACB\u7684
+      CounterModel + CounterSystem \u8282\u70B9\u3002\n\n\u64CD\u4F5C\uFF1A\n- \u70B9
+      \"A +\" \u2192 \u53EA\u6709 A \u7684 Count \u8DF3\u53D8\uFF1BB \u4E0D\u53D8\u3002\n-
+      \u70B9 \"B +\" \u2192 \u53EA\u6709 B \u7684 Count \u8DF3\u53D8\uFF1BA \u4E0D\u53D8\u3002\n-
+      \u70B9 \"Reset Both\" \u2192 A \u548C B \u90FD\u5F52\u96F6\u3002\n\n\u4E09\u4E2A\u6309\u94AE\u8C03\u7528\u7684\u90FD\u662F\u540C\u6837\u7684
+      IncrementCommand / ResetCounterCommand struct\uFF0C\u533A\u522B\u53EA\u5728
+      _contextA.ExecuteCommand(...) vs _contextB.ExecuteCommand(...)\u3002Container
+      \u6309\u8C03\u7528\u5165\u53E3\u7684 Context \u8DEF\u7531\u5230\u8BE5\u5B50
+      Context \u5185\u7684 Model \u5B9E\u4F8B\u2014\u2014Hierarchy \u7236\u5B50\u5173\u7CFB\u5373\u4F5C\u7528\u57DF\uFF0C\u8C03\u6574\u4F5C\u7528\u57DF\u53EA\u9700\u8981\u5728
+      Inspector \u91CC\u62D6\u52A8\u8282\u70B9\u3002\n\n\u8FD0\u884C\u65F6\u5C55\u5F00
+      SubContextA \u2192 CounterModel \u8282\u70B9\uFF0CInspector \u76F4\u63A5\u770B\u5230
+      RP<int> Count \u7684\u5B9E\u65F6\u503C\u2014\u2014\u8FD9\u5C31\u662F Mono \u6DF1\u5EA6\u878D\u5408\u7684\u4E24\u4E2A\u6838\u5FC3\uFF1AHierarchy
+      = DI \u6811\u3001Inspector = \u8C03\u8BD5\u5668\u3002"
+    _designRationale: "\u4F20\u7EDF DI \u5BB9\u5668\u5728 Unity \u91CC\u6C34\u571F\u4E0D\u670D\u2014\u2014\u5B83\u4EEC\u5047\u8BBE\u4F9D\u8D56\u5173\u7CFB\u5728\u4EE3\u7801\u91CC\u58F0\u660E\uFF0C\u4F46\u6E38\u620F\u5F00\u53D1\u4E2D
+      GameObject \u5C42\u7EA7\u624D\u662F\u6700\u81EA\u7136\u7684\"\u4F5C\u7528\u57DF\"\u3002\u672C\u6846\u67B6\u53CD\u8FC7\u6765\u62E5\u62B1
+      Unity\uFF1A\u4F60\u5DF2\u7ECF\u5728\u62D6 GameObject \u4E86\uFF0C\u90A3\u5C31\u7528\u62D6\u52A8\u7684\u7ED3\u679C\u5F53
+      DI \u5173\u7CFB\u3002\n\u8FD9\u8BA9\"\u8C03\u6574\u4F5C\u7528\u57DF\"\u4ECE\u6539\u4EE3\u7801\u964D\u7EA7\u4E3A\u62D6\u52A8\u8282\u70B9\uFF0C\u53EF\u89C6\u5316\u8C03\u8BD5\u4E5F\u53D8\u5F97\u4E0D\u9700\u8981\u4E13\u95E8\u7684\u8C03\u8BD5\u5DE5\u5177\u2014\u2014Inspector
+      \u5C31\u662F\u3002"
+    _codeSnippets:
+    - _caption: "Hierarchy \u76F4\u63A5\u8868\u8FBE Context \u5C42\u7EA7"
+      _code: "Scene\n\u251C\u2500\u2500 MainContext (MonoGlobalContext)         \u2190
+        \u5168\u5C40\u670D\u52A1\uFF1AAudio / Save / Config\n\u2502   \u251C\u2500\u2500
+        PlayerModel\n\u2502   \u251C\u2500\u2500 PlayerSystem\n\u2502   \u2514\u2500\u2500
+        Canvas\n\u2502       \u251C\u2500\u2500 HudView                         \u2190
+        \u5C5E\u4E8E MainContext\n\u2502       \u2514\u2500\u2500 BossContext (MonoGameContextBase)
+        \u2190 \u8282\u70B9\u6811\u5185\uFF0C\u81EA\u52A8\u8BC6\u522B MainContext
+        \u4E3A\u7236\u7EA7\n\u2502           \u251C\u2500\u2500 BossModel                  
+        \u2190 \u8986\u76D6\u7236\u7EA7\u540C\u578B\u6CE8\u518C\n\u2502          
+        \u251C\u2500\u2500 BossSystem\n\u2502           \u2514\u2500\u2500 BossView                   
+        \u2190 \u64CD\u4F5C BossModel\uFF1BCommandSystem \u4ECE\u7236\u7EA7\u7EE7\u627F\n\u2502\n\u2514\u2500\u2500
+        MiniGameContext (MonoGlobalContext sibling) \u2190 \u5E73\u884C Context\uFF0C\u5B8C\u5168\u72EC\u7ACB\n   
+        \u2514\u2500\u2500 ..."
+    - _caption: "\u5F15\u64CE\u7EC4\u4EF6\u4F5C\u4E3A Model \u5B57\u6BB5\uFF08\u8DE8\u5C42\uFF09"
+      _code: "// Model \u76F4\u63A5\u6301\u6709 Rigidbody\uFF0C\u628A\u5B83\u5F53\u4F5C\u7269\u7406\u72B6\u6001\npublic
+        class ProjectileModel : MonoModelBase\n{\n    [field: SerializeField] public
+        Rigidbody Body  { get; private set; }\n    [field: SerializeField] public
+        RP<float> Damage { get; private set; } = new(10f);\n}\n\n// System \u76F4\u63A5\u5199\u5165\u5F15\u64CE\u7EC4\u4EF6\uFF0C\u6548\u679C\u7B49\u4EF7\u4E8E\u6539
+        Model \u5B57\u6BB5\npublic class ProjectileSystem : MonoSystemBase\n{\n   
+        [Inject] private ProjectileModel _model;\n    public void Launch(Vector3
+        dir, float speed)\n        => _model.Body.AddForce(dir * speed, ForceMode.Impulse);\n}\n\n//
+        View \u4EC0\u4E48\u90FD\u4E0D\u7528\u5199\u2014\u2014Unity \u6E32\u67D3\u7BA1\u7EBF\u6BCF\u5E27\u81EA\u52A8\u628A
+        Body \u7684 transform \u753B\u51FA\u6765"
+  - _id: asset-system
+    _title: "\u4EAE\u70B9 (4)\uFF1A\u8D44\u6E90\u7BA1\u7406 \u2014 AssetReference
+      + Bag.Load"
+    _oneLiner: "Inspector \u62D6\u62FD\u7528 AssetReference<T>\uFF0C\u52A8\u6001\u8DEF\u5F84\u7528
+      Bag.Load<T>\u2014\u2014\u6240\u6709\u53E5\u67C4\u7EDF\u4E00\u4EA4 Bag \u91CA\u653E\u3002"
+    _body: "\u672C Demo Context \u6CA1\u6709\u914D AssetSettingsModel + AssetUtility
+      + AssetInitSystem \u4E09\u4EF6\u5957\uFF0C\u6240\u4EE5\u8FD9\u4E00\u9875\u4E3B\u8981\u6F14\u793A\"\u65E0\u8D44\u6E90\u7CFB\u7EDF\u65F6\u6846\u67B6\u7684\u5B89\u5168\u964D\u7EA7\"\uFF1A\n\n-
+      \u70B9 \"Load Static\"\uFF1A\u672A\u62D6\u8D44\u6E90\u65F6 status \u63D0\u793A
+      AssetReference \u672A\u914D\u7F6E\uFF1B\u5373\u4F7F\u62D6\u4E86\u8D44\u6E90\uFF0C\u56E0\u4E3A\u6CA1\u6709
+      utility\uFF0C\u6846\u67B6\u4F1A\u8F93\u51FA\u4E00\u6761 warning \u5E76\u8DF3\u8FC7\uFF0C\u4E0D\u629B\u5F02\u5E38\uFF08\u8FD0\u884C\u5E93\u7684
+      AssetReferenceBinder \u8D70 TryResolve \u8DEF\u5F84\uFF09\u3002\n- \u70B9 \"Load
+      Dynamic\"\uFF1ABag.Load \u5728\u521D\u59CB\u5316\u7B49\u5F85\u65F6\u627E\u4E0D\u5230
+      utility\uFF0C\u4F1A\u4EE5\u53EF\u8BFB\u5F02\u5E38\u9000\u51FA\uFF0Cstatus \u663E\u793A
+      [FAIL] ...\u3002Page \u4E0D\u5D29\u3002\n- \u70B9 \"Clear\"\uFF1A\u628A\u5F53\u524D
+      sprite \u6E05\u7A7A\uFF1BBag \u5185\u5DF2\u6709\u7684 handle \u4ECD\u6301\u6709\uFF0C\u5BBF\u4E3B
+      OnDestroy \u65F6\u7EDF\u4E00\u91CA\u653E\u3002\n\n\u60F3\u770B\u5B8C\u6574\u6210\u529F\u8DEF\u5F84\uFF1A\u5728
+      NewDemoContext \u8282\u70B9\u4E0B\u52A0 AssetSettingsModel + AssetUtility +
+      AssetInitSystem \u4E09\u4EF6\u5957\uFF0C\u914D\u7F6E YooAsset \u5305\uFF0C\u518D\u8FDB\u8FD9\u4E00\u9875\u2014\u2014\u62D6\u62FD\u8DEF\u5F84\u4F1A\u81EA\u52A8\u52A0\u8F7D\u5E76\u663E\u793A
+      sprite\uFF0C\u52A8\u6001\u8DEF\u5F84\u4F1A\u6309 location \u52A0\u8F7D\uFF0C\u6240\u6709
+      handle \u90FD\u767B\u8BB0\u5230 Bag \u8DDF\u7740 View \u8D70\u3002"
+    _designRationale: "\u4E3A\u4EC0\u4E48\u4E0D\u76F4\u63A5\u7528 YooAsset \u7684
+      API\uFF1F\n\u2022 \u9694\u79BB\u5E95\u5C42\u6362\u5E93\u4EE3\u4EF7\uFF1A\u4E1A\u52A1\u4EE3\u7801\u4E0D\u76F4\u63A5\u4F9D\u8D56
+      YooAsset\uFF0C\u672A\u6765\u6362 Addressables \u6216\u81EA\u7814\u53EA\u9700\u91CD\u5199
+      IAssetProvider\u3002\n\u2022 \u63A5\u5165\u6846\u67B6\u751F\u547D\u5468\u671F\uFF1A\u4E1A\u52A1\u7528
+      YooAsset \u539F\u751F API \u81EA\u5DF1\u7BA1 handle \u91CA\u653E\uFF0C\u7B49\u4E8E\u5728\u6846\u67B6\u4E4B\u5916\u5F00\u4E86\u4E00\u6761\u4E0D\u53D7
+      Bag \u7EA6\u675F\u7684\u751F\u547D\u5468\u671F\u901A\u9053\u3002AssetReference<T>
+      + Bag.Load \u8BA9\u6240\u6709\u8D44\u6E90\u90FD\u5728 Bag \u4F53\u7CFB\u5185\uFF0C\u6C38\u8FDC\u4E0D\u4F1A\u5FD8\u91CA\u653E\u3002"
+    _codeSnippets:
+    - _caption: "Inspector \u62D6\u62FD + \u52A8\u6001\u8DEF\u5F84\u6DF7\u7528"
+      _code: "public class IconView : MonoViewBase\n{\n    [SerializeField] private
+        AssetReference<Sprite> _iconRef;\n    [SerializeField] private Image _image;\n\n   
+        protected override async void Awake()\n    {\n        base.Awake();\n       
+        // \u62D6\u62FD\u5F15\u7528\uFF1A\u5BBF\u4E3B OnDestroy \u65F6\u81EA\u52A8
+        Dispose\n        _image.sprite = await _iconRef.Get();\n\n        // \u52A8\u6001\u8DEF\u5F84\uFF1Ahandle
+        \u81EA\u52A8\u767B\u8BB0\u5230 Bag\n        var prefab = await Bag.Load<GameObject>(\"ui/panel_inventory\");\n       
+        Instantiate(prefab, transform);\n    }\n}"
+    - _caption: "\u4E0B\u8F7D\u8FDB\u5EA6\u4F5C\u4E3A\u54CD\u5E94\u5F0F\u6D41"
+      _code: 'var downloader = Bag.CreateTagDownloader("level1");
+
+        Bag.Subscribe(downloader.Progress,
+        r => _progressBar.value = r.Progress);
+
+        await downloader.Download(this.GetCancellationTokenOnDestroy());'
+  - _id: bootstrap-practice
+    _title: "\u5DE5\u7A0B\u5B9E\u8DF5\uFF1A\u542F\u52A8\u6D41\u7A0B + \u76EE\u5F55\u7ED3\u6784
+      + \u914D\u7F6E"
+    _oneLiner: "\u600E\u4E48\u628A\u9879\u76EE\u642D\u8D77\u6765\u2014\u2014MonoGlobalContext
+      \u4F5C\u4E3A\u6839\u3001ScriptExecutionOrder \u81EA\u52A8\u6392\u597D\u3001\u63A8\u8350\u76EE\u5F55
+      + \u5FC5\u8981\u914D\u7F6E\u4E00\u89C8\u3002"
+    _body: "\u70B9 \"Refresh\"\uFF0C\u6587\u672C\u533A\u5217\u51FA\u5F53\u524D Context
+      \u80FD\u89E3\u6790\u7684\u5C42\uFF1A\n- [OK] CounterModel / [OK] ICounterSystem
+      / [OK] IFormatterUtility / [OK] ICommandSystem \u2014\u2014\u56DB\u7C7B\u5C42\u9ED8\u8BA4\u914D\u7F6E\u5168\u90E8\u547D\u4E2D\uFF0C\u8BC1\u660E
+      InstallBindings + MonoXxxBase \u81EA\u52A8\u6CE8\u518C\u90FD\u5DF2\u751F\u6548\u3002\n-
+      \u60F3\u770B [MISS]\uFF1F\u5728 Inspector \u7684 _targets \u91CC\u8FFD\u52A0\u4E00\u4E2A\u4E0D\u5B58\u5728\u7684\u7C7B\u578B\u540D\uFF08\u5982
+      Game.Framework.Demo.Model.MissingModel\uFF09\uFF0C\u6216\u586B\u4E00\u4E2A\u672A\u6CE8\u518C\u7684\u63A5\u53E3\uFF08\u5982
+      Game.Framework.View.MonoViewBase \u2014\u2014 View \u4E0D\u8FDB\u5BB9\u5668\uFF09\uFF0C\u518D\u70B9
+      Refresh\u3002\n\n\u4EE3\u7801\u5C42\u9762\u8FD9\u4E00\u9875\u6F14\u793A\u4E24\u4EF6\u4E8B\uFF1A(1)
+      InstallBindings + MonoXxxBase \u5B9E\u9645\u628A\u4EC0\u4E48\u653E\u8FDB\u4E86
+      Container\uFF1B(2) \u8DE8\u7A0B\u5E8F\u96C6\u7C7B\u578B\u67E5\u627E\u7684\u515C\u5E95\u2014\u2014Type.GetType
+      \u547D\u4E2D\u5931\u8D25\u65F6\u4F1A\u56DE\u843D\u5230 AppDomain.GetAssemblies()
+      \u5168\u91CF\u626B\u63CF\uFF0C\u6240\u4EE5 _targets \u91CC\u7684\u5B57\u7B26\u4E32\u53EA\u5199\u7C7B\u578B\u5168\u540D\u5373\u53EF\uFF0C\u4E0D\u4F9D\u8D56\u7A0B\u5E8F\u96C6\u540D\u3002\n\n\u66F4\u6DF1\u5165\u7684\u542F\u52A8\u6D41\u7A0B\uFF08ExecutionOrder
+      / \u63A8\u8350\u76EE\u5F55 / \u914D\u7F6E\u6587\u4EF6\u6E05\u5355\uFF09\u89C1
+      docs/framework-guide.md\u3002"
+    _designRationale: "\u4E3A\u4EC0\u4E48\u4E0D\u7528\u5355\u72EC\u7684 [InitializeOnLoadMethod]
+      \u6216 RuntimeInitializeOnLoadMethod\uFF1F\u56E0\u4E3A\u5B83\u4EEC\u90FD\u662F\"\u5168\u5C40\u9759\u6001\u521D\u59CB\u5316\"\uFF0C\u65E0\u6CD5\u8868\u8FBE\"\u4F5C\u7528\u57DF\"\u3002\n\u672C\u6846\u67B6\u575A\u6301\"\u6BCF\u4E2A
+      Context \u90FD\u662F\u72EC\u7ACB\u5355\u5143\"\u2014\u2014\u5355\u5143\u6D4B\u8BD5\u65F6
+      new \u4E00\u4E2A Context \u4E0D\u6C61\u67D3\u5168\u5C40\u3001\u8DE8\u573A\u666F\u5207\u6362\u65F6\u65E7
+      Context Dispose \u5E72\u51C0\u2014\u2014\u6240\u6709\u521D\u59CB\u5316\u903B\u8F91\u90FD\u8DDF
+      Context \u8D70\uFF0C\u6CA1\u6709\u9690\u85CF\u5168\u5C40\u72B6\u6001\u3002"
+    _codeSnippets:
+    - _caption: "\u6700\u5C0F\u53EF\u8FD0\u884C\u7684 MonoGlobalContext"
+      _code: "public class GameContext : MonoGlobalContext\n{\n    protected override
+        void InstallBindings(ContainerBuilder builder)\n    {\n        // \u5FC5\u88C5\uFF1ACommandSystem\n       
+        builder.RegisterValue(new CommandSystem(), typeof(ICommandSystem));\n\n       
+        // \u9879\u76EE\u901A\u7528\u670D\u52A1\u5728\u6B64\u6CE8\u518C\uFF08\u7EAF
+        C# \u8DEF\u5F84\uFF09\n        builder.RegisterValue(new JsonUtility(),   
+        typeof(IJsonUtility));\n        builder.RegisterFactory(c => new AudioMixer(),
+        typeof(IAudioMixer));\n    }\n}"
+    - _caption: "\u542F\u52A8\u573A\u666F\u7684 Hierarchy \u6A21\u677F"
+      _code: "GameRoot                      (MonoGlobalContext)\n\u251C\u2500\u2500
+        AssetUtility              (MonoUtility, IAssetUtility)\n\u251C\u2500\u2500
+        AssetSettings             (MonoModel, AssetSettingsModel \u2014 \u5728 Inspector
+        \u914D CDN / \u5305\u540D)\n\u251C\u2500\u2500 AssetInitSystem          
+        (MonoSystem)\n\u251C\u2500\u2500 BootstrapView             (MonoView \u2014
+        \u7B49\u5F85 IAssetUtility.InitState=Ready\uFF0C\u52A0\u8F7D\u9996\u5173)\n\u2514\u2500\u2500
+        (DontDestroyOnLoad \u4FDD\u7559)"

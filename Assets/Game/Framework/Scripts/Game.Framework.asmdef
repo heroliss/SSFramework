@@ -1,0 +1,22 @@
+{
+    "name": "Game.Framework",
+    "rootNamespace": "Game.Framework",
+    "references": [
+        "YooAsset",
+        "UniTask",
+        "R3",
+        "R3.Unity",
+        "Unity.TextMeshPro",
+        "Sirenix.OdinInspector.Attributes",
+        "Sirenix.Serialization"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

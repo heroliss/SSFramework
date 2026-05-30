@@ -1,0 +1,44 @@
+# 统一换行：仓库内文本一律 LF；检出也保持 LF（Windows 下不再转成 CRLF）。
+# 二进制由 text=auto 自动探测，下方再对常见 Unity 二进制做显式兜底。
+* text=auto eol=lf
+
+# ── 显式二进制（绝不做换行/文本处理）──
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.bmp   binary
+*.tga   binary
+*.tif   binary
+*.psd   binary
+*.ico   binary
+*.fbx   binary
+*.obj   binary
+*.blend binary
+*.dll   binary
+*.pdb   binary
+*.so    binary
+*.dylib binary
+*.a     binary
+*.bytes binary
+*.wav   binary
+*.mp3   binary
+*.ogg   binary
+*.aif   binary
+*.aiff  binary
+*.ttf   binary
+*.otf   binary
+*.unitypackage binary
+*.aseprite binary
+*.cubemap binary
+
+# ── Unity YAML 资产：文本(LF) + UnityYAMLMerge 合并（未配置 merge 驱动时回退普通合并）──
+*.unity    merge=unityyamlmerge eol=lf
+*.prefab   merge=unityyamlmerge eol=lf
+*.asset    merge=unityyamlmerge eol=lf
+*.meta     merge=unityyamlmerge eol=lf
+*.mat      merge=unityyamlmerge eol=lf
+*.anim     merge=unityyamlmerge eol=lf
+*.controller merge=unityyamlmerge eol=lf
+*.physicMaterial merge=unityyamlmerge eol=lf
+*.playable merge=unityyamlmerge eol=lf
