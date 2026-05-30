@@ -1,7 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Text;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using R3;
@@ -12,11 +10,18 @@ using YooAsset;
 namespace Game.Framework
 {
     /// <summary>
-    /// 基于 YooAsset 的资源 provider 实现。
+    /// 基于 YooAsset 3.0（原生 API）的资源 provider 实现。
     ///
     /// 本类是框架内唯一直接接触 YooAsset API 的生产代码边界：全局初始化、Package 创建/复用、
     /// manifest 更新、handle 包装、下载器适配都收口在这里。上层 AssetUtility 只按 packageName
     /// 管理状态，不知道底层资源库的类型和初始化细节。
+    ///
+    /// <para>
+    /// <b>3.0 原生 API（不再依赖 YOOASSET_LEGACY_API 兼容层）：</b>初始化用 <see cref="InitializePackageOptions"/>
+    /// 分模式选项 + <c>InitializePackageAsync</c>；远端地址用 <see cref="IRemoteService"/>；解密用拆分后的
+    /// <see cref="IBundleOffsetDecryptor"/> / <see cref="IBundleMemoryDecryptor"/>（经 <see cref="EFileSystemParameter"/> 注入）；
+    /// RawFile 走 <c>LoadAssetAsync&lt;RawFileObject&gt;</c>；下载器用 <see cref="ResourceDownloaderOptions"/> + 进度事件。
+    /// </para>
     /// </summary>
     internal sealed class YooAssetProvider : IAssetProvider
     {
@@ -30,18 +35,19 @@ namespace Game.Framework
                 throw new ArgumentException("Package name is required.", nameof(packageName));
             config ??= new AssetProviderConfig();
 
-            if (!YooAssets.Initialized)
+            if (!YooAssets.IsInitialized)
                 YooAssets.Initialize();
 
-            var package = YooAssets.TryGetPackage(packageName) ?? YooAssets.CreatePackage(packageName);
+            if (!YooAssets.TryGetPackage(packageName, out var package))
+                package = YooAssets.CreatePackage(packageName);
 
-            if (package.InitializeStatus != EOperationStatus.Succeed)
+            if (package.InitializeStatus != EOperationStatus.Succeeded)
             {
-                var initOp = package.InitializeAsync(CreateInitParameters(packageName, mode, config));
+                var initOp = package.InitializePackageAsync(CreateInitOptions(packageName, mode, config));
                 await WaitOp(initOp, ct);
                 ct.ThrowIfCancellationRequested();
 
-                if (initOp.Status != EOperationStatus.Succeed)
+                if (initOp.Status != EOperationStatus.Succeeded)
                     throw new InvalidOperationException($"[YooAssetProvider] Package '{packageName}' initialize failed: {initOp.Error}");
             }
 
@@ -54,7 +60,7 @@ namespace Game.Framework
         public bool IsPackageReady(string packageName)
             => !_disposed && !string.IsNullOrEmpty(packageName) &&
                _packages.TryGetValue(packageName, out var package) &&
-               package.InitializeStatus == EOperationStatus.Succeed &&
+               package.InitializeStatus == EOperationStatus.Succeeded &&
                package.PackageValid;
 
         public async UniTask<IAssetHandle<UnityEngine.Object>> LoadAssetAsync(
@@ -71,7 +77,7 @@ namespace Game.Framework
             type ??= typeof(UnityEngine.Object);
             var loadType = typeof(Component).IsAssignableFrom(type) ? typeof(GameObject) : type;
             var assetInfo = byGuid
-                ? package.GetAssetInfoByGUID(locationOrGuid, loadType)
+                ? package.GetAssetInfoByGuid(locationOrGuid, loadType)
                 : package.GetAssetInfo(locationOrGuid, loadType);
 
             if (assetInfo == null || !assetInfo.IsValid)
@@ -83,7 +89,7 @@ namespace Game.Framework
             var handle = package.LoadAssetAsync(assetInfo);
             try
             {
-                await handle.Task.AsUniTask().AttachExternalCancellation(ct);
+                await WaitHandle(handle, ct);
             }
             catch
             {
@@ -91,9 +97,9 @@ namespace Game.Framework
                 throw;
             }
 
-            if (handle.Status != EOperationStatus.Succeed)
+            if (handle.Status != EOperationStatus.Succeeded)
             {
-                Debug.LogError($"[YooAssetProvider] Load failed in package '{packageName}': {locationOrGuid}, {handle.LastError}");
+                Debug.LogError($"[YooAssetProvider] Load failed in package '{packageName}': {locationOrGuid}, {handle.Error}");
                 handle.Release();
                 return null;
             }
@@ -125,18 +131,18 @@ namespace Game.Framework
             var handle = package.LoadSceneAsync(location, mode, LocalPhysicsMode.None, suspendLoad);
             try
             {
-                await handle.Task.AsUniTask().AttachExternalCancellation(ct);
+                await WaitHandle(handle, ct);
             }
             catch
             {
-                handle.UnloadAsync();
+                _ = handle.UnloadSceneAsync(); // fire-and-forget 清理，随后抛出
                 throw;
             }
 
-            if (handle.Status != EOperationStatus.Succeed)
+            if (handle.Status != EOperationStatus.Succeeded)
             {
-                Debug.LogError($"[YooAssetProvider] Load scene failed in package '{packageName}': {location}, {handle.LastError}");
-                handle.UnloadAsync();
+                Debug.LogError($"[YooAssetProvider] Load scene failed in package '{packageName}': {location}, {handle.Error}");
+                _ = handle.UnloadSceneAsync();
                 return null;
             }
 
@@ -145,30 +151,31 @@ namespace Game.Framework
 
         public async UniTask<string> LoadTextAsync(string packageName, string location, CancellationToken ct)
         {
-            var handle = await LoadRawFileHandle(packageName, location, ct);
+            var (handle, raw) = await LoadRawFileObjectAsync(packageName, location, ct);
             if (handle == null) return null;
-            try { return handle.GetRawFileText(); }
+            try { return raw.GetText(); }
             finally { handle.Release(); }
         }
 
         public async UniTask<byte[]> LoadBytesAsync(string packageName, string location, CancellationToken ct)
         {
-            var handle = await LoadRawFileHandle(packageName, location, ct);
+            var (handle, raw) = await LoadRawFileObjectAsync(packageName, location, ct);
             if (handle == null) return null;
-            try { return handle.GetRawFileData(); }
+            try { return raw.GetBytes(); }
             finally { handle.Release(); }
         }
 
         public bool CheckLocationValid(string packageName, string location)
         {
             if (!IsPackageReady(packageName) || string.IsNullOrEmpty(location)) return false;
-            return _packages[packageName].CheckLocationValid(location);
+            return _packages[packageName].IsLocationValid(location);
         }
 
         public bool IsNeedDownload(string packageName, string location)
         {
             if (!IsPackageReady(packageName) || string.IsNullOrEmpty(location)) return false;
-            return _packages[packageName].IsNeedDownloadFromRemote(location);
+            // 3.0 用下载尺寸代替旧的 bool 查询：>0 即表示该资源仍需从远端拉取。
+            return _packages[packageName].GetDownloadSize(location) > 0;
         }
 
         public IAssetDownloader CreateTagDownloader(
@@ -182,7 +189,7 @@ namespace Game.Framework
             var tagArray = new string[tags.Count];
             for (int i = 0; i < tags.Count; i++)
                 tagArray[i] = tags[i];
-            var op = package.CreateResourceDownloader(tagArray, maxConcurrent, retries);
+            var op = package.CreateResourceDownloader(new ResourceDownloaderOptions(tagArray, maxConcurrent, retries));
             return new AssetDownloader(op);
         }
 
@@ -193,24 +200,36 @@ namespace Game.Framework
             _packages.Clear();
         }
 
-        private async UniTask<BundleFileHandle> LoadRawFileHandle(string packageName, string location, CancellationToken ct)
+        // RawFile 在 3.0 作为 RawFileObject 资源经标准资源通道加载；调用方读完 text/bytes 后立即 Release handle。
+        private async UniTask<(AssetHandle handle, RawFileObject raw)> LoadRawFileObjectAsync(
+            string packageName, string location, CancellationToken ct)
         {
             ThrowIfDisposed();
             var package = GetReadyPackage(packageName);
             if (string.IsNullOrEmpty(location))
             {
                 Debug.LogWarning("[YooAssetProvider] RawFile location is empty.");
-                return null;
+                return (null, null);
             }
 
-            var handle = package.LoadRawFileAsync(location);
-            try { await handle.Task.AsUniTask().AttachExternalCancellation(ct); }
+            var handle = package.LoadAssetAsync<RawFileObject>(location);
+            try { await WaitHandle(handle, ct); }
             catch { handle.Release(); throw; }
 
-            if (handle.Status == EOperationStatus.Succeed) return handle;
-            Debug.LogError($"[YooAssetProvider] Load raw file failed in package '{packageName}': {location}, {handle.LastError}");
-            handle.Release();
-            return null;
+            if (handle.Status != EOperationStatus.Succeeded)
+            {
+                Debug.LogError($"[YooAssetProvider] Load raw file failed in package '{packageName}': {location}, {handle.Error}");
+                handle.Release();
+                return (null, null);
+            }
+
+            if (handle.AssetObject is not RawFileObject raw)
+            {
+                Debug.LogError($"[YooAssetProvider] '{location}' in package '{packageName}' is not a RawFile.");
+                handle.Release();
+                return (null, null);
+            }
+            return (handle, raw);
         }
 
         private ResourcePackage GetReadyPackage(string packageName)
@@ -225,67 +244,78 @@ namespace Game.Framework
             await WaitOp(versionOp, token);
             token.ThrowIfCancellationRequested();
 
-            if (versionOp.Status != EOperationStatus.Succeed)
+            if (versionOp.Status != EOperationStatus.Succeeded)
                 throw new InvalidOperationException($"[YooAssetProvider] Request package version failed for '{packageName}': {versionOp.Error}");
 
-            var manifestOp = package.UpdatePackageManifestAsync(versionOp.PackageVersion);
+            // 3.0：UpdatePackageManifestAsync(version) → LoadPackageManifestAsync(options)。第二个参数为超时秒数。
+            var manifestOp = package.LoadPackageManifestAsync(new LoadPackageManifestOptions(versionOp.PackageVersion, 60));
             await WaitOp(manifestOp, token);
             token.ThrowIfCancellationRequested();
 
-            if (manifestOp.Status != EOperationStatus.Succeed)
+            if (manifestOp.Status != EOperationStatus.Succeeded)
                 throw new InvalidOperationException($"[YooAssetProvider] Update manifest failed for '{packageName}': {manifestOp.Error}");
         }
 
-        private static InitializeParameters CreateInitParameters(string packageName, AssetPlayMode mode, AssetProviderConfig config)
+        // 按运行模式构建 3.0 初始化选项。解密器经 EFileSystemParameter 注入对应文件系统参数。
+        private static InitializePackageOptions CreateInitOptions(string packageName, AssetPlayMode mode, AssetProviderConfig config)
         {
             switch (mode)
             {
 #if UNITY_EDITOR
                 case AssetPlayMode.EditorSimulate:
                 {
-                    var simulateResult = EditorSimulateModeHelper.SimulateBuild(packageName);
-                    return new EditorSimulateModeParameters
+                    var buildResult = EditorSimulateBuildInvoker.Build(packageName, (int)EBundleType.VirtualAssetBundle);
+                    return new EditorSimulateModeOptions
                     {
                         EditorFileSystemParameters =
-                            FileSystemParameters.CreateDefaultEditorFileSystemParameters(simulateResult.PackageRootDirectory)
+                            FileSystemParameters.CreateDefaultEditorFileSystemParameters(buildResult.PackageRootDirectory)
                     };
                 }
 #endif
                 case AssetPlayMode.Offline:
-                    return new OfflinePlayModeParameters
-                    {
-                        BuildinFileSystemParameters =
-                            FileSystemParameters.CreateDefaultBuildinFileSystemParameters(new GameDecryptionServices(config.FileOffset))
-                    };
+                {
+                    var builtin = FileSystemParameters.CreateDefaultBuiltinFileSystemParameters();
+                    ApplyDecryptor(builtin, config);
+                    return new OfflinePlayModeOptions { BuiltinFileSystemParameters = builtin };
+                }
 
                 case AssetPlayMode.Host:
                 {
-                    var remoteServices = new GameRemoteServices(config.MainCdnUrl, config.FallbackCdnUrl);
-                    var decryptionServices = new GameDecryptionServices(config.FileOffset);
-                    return new HostPlayModeParameters
+                    var remoteService = new GameRemoteService(config.MainCdnUrl, config.FallbackCdnUrl);
+                    var builtin = FileSystemParameters.CreateDefaultBuiltinFileSystemParameters();
+                    var cache = FileSystemParameters.CreateDefaultSandboxFileSystemParameters(remoteService);
+                    ApplyDecryptor(builtin, config);
+                    ApplyDecryptor(cache, config);
+                    return new HostPlayModeOptions
                     {
-                        BuildinFileSystemParameters =
-                            FileSystemParameters.CreateDefaultBuildinFileSystemParameters(decryptionServices),
-                        CacheFileSystemParameters =
-                            FileSystemParameters.CreateDefaultCacheFileSystemParameters(remoteServices, decryptionServices)
+                        BuiltinFileSystemParameters = builtin,
+                        CacheFileSystemParameters = cache
                     };
                 }
 
                 case AssetPlayMode.Web:
                 {
-                    var remoteServices = new GameRemoteServices(config.MainCdnUrl, config.FallbackCdnUrl);
-                    return new WebPlayModeParameters
+                    var remoteService = new GameRemoteService(config.MainCdnUrl, config.FallbackCdnUrl);
+                    return new WebPlayModeOptions
                     {
-                        WebServerFileSystemParameters =
-                            FileSystemParameters.CreateDefaultWebServerFileSystemParameters(),
-                        WebRemoteFileSystemParameters =
-                            FileSystemParameters.CreateDefaultWebRemoteFileSystemParameters(remoteServices)
+                        WebServerFileSystemParameters = FileSystemParameters.CreateDefaultWebServerFileSystemParameters(),
+                        WebNetworkFileSystemParameters = FileSystemParameters.CreateDefaultWebNetworkFileSystemParameters(remoteService)
                     };
                 }
 
                 default:
                     throw new NotSupportedException($"Unsupported asset play mode: {mode}");
             }
+        }
+
+        // 偏移加密时把同一个解密器同时注册为 AssetBundle / Raw / 内存兜底解密器；FileOffset 为 0 不加密则跳过。
+        private static void ApplyDecryptor(FileSystemParameters fsParams, AssetProviderConfig config)
+        {
+            if (config.FileOffset == 0) return;
+            var decryptor = new GameBundleOffsetDecryptor(config.FileOffset);
+            fsParams.AddParameter(EFileSystemParameter.AssetBundleDecryptor, decryptor);
+            fsParams.AddParameter(EFileSystemParameter.RawBundleDecryptor, decryptor);
+            fsParams.AddParameter(EFileSystemParameter.AssetBundleFallbackDecryptor, decryptor);
         }
 
         private static UnityEngine.Object ResolveLoadedObject(UnityEngine.Object loaded, Type expectedType)
@@ -297,11 +327,15 @@ namespace Game.Framework
             return null;
         }
 
-        // YooAsset 3.0 的操作（InitializationOperation / RequestPackageVersionOperation 等）是 IEnumerator、
-        // 无 2.x 的 .Task 属性（兼容层只给 Handle 补了 .Task）。YooAsset 内部 PlayerLoop 驱动操作推进，
-        // 这里用 IsDone 轮询桥接到 UniTask；取消只中断等待、不取消底层操作（与 2.x AttachExternalCancellation 行为一致）。
+        // 操作（InitializePackageOperation / RequestPackageVersionOperation 等）是 AsyncOperationBase，
+        // YooAsset 内部 PlayerLoop 驱动推进；用 IsDone 轮询桥接到 UniTask。取消只中断等待、不取消底层操作。
         private static UniTask WaitOp(AsyncOperationBase op, CancellationToken ct)
             => UniTask.WaitUntil(() => op.IsDone, cancellationToken: ct);
+
+        // 资源/场景句柄不是 AsyncOperationBase，但同样有 IsDone；同样用轮询桥接（3.0 支持 await handle，
+        // 但轮询能统一附带 CancellationToken，且不依赖底层 awaiter 实现）。
+        private static UniTask WaitHandle(HandleBase handle, CancellationToken ct)
+            => UniTask.WaitUntil(() => handle.IsDone, cancellationToken: ct);
 
         private void ThrowIfDisposed()
         {
@@ -351,7 +385,14 @@ namespace Game.Framework
         public bool IsValid => _native != null && !_unloading;
 
         public bool Activate() => _native != null && _native.ActivateScene();
-        public bool UnSuspend() => _native != null && _native.UnSuspend();
+
+        // 3.0：UnSuspend → AllowSceneActivation。保留框架 ISceneHandle.UnSuspend 语义（放行挂起的场景激活）。
+        public bool UnSuspend()
+        {
+            if (_native == null) return false;
+            _native.AllowSceneActivation();
+            return true;
+        }
 
         public async UniTask Unload()
         {
@@ -360,9 +401,9 @@ namespace Game.Framework
             var native = _native;
             _native = null;
 
-            var op = native.UnloadAsync();
+            var op = native.UnloadSceneAsync();
             await UniTask.WaitUntil(() => op.IsDone);
-            if (op.Status != EOperationStatus.Succeed)
+            if (op.Status != EOperationStatus.Succeeded)
                 throw new InvalidOperationException($"[YooSceneHandle] Unload failed: {op.Error}");
         }
 
@@ -389,20 +430,14 @@ namespace Game.Framework
             _progress = new ReactiveProperty<DownloadProgressReport>(
                 new DownloadProgressReport(0f, operation.TotalDownloadCount, 0, operation.TotalDownloadBytes, 0));
 
-            _operation.DownloadUpdateCallback = data =>
-            {
-                _progress.Value = new DownloadProgressReport(
-                    data.Progress,
-                    data.TotalDownloadCount,
-                    data.CurrentDownloadCount,
-                    data.TotalDownloadBytes,
-                    data.CurrentDownloadBytes);
-            };
+            // 3.0：DownloadUpdateCallback → DownloadProgressChanged 事件。直接从 operation 读取实时计数，
+            // 不依赖事件参数的具体字段形状。
+            _operation.DownloadProgressChanged += OnProgressChanged;
         }
 
         public int TotalCount => _operation.TotalDownloadCount;
         public long TotalBytes => _operation.TotalDownloadBytes;
-        public bool IsDone => _operation.Status == EOperationStatus.Succeed || TotalCount == 0;
+        public bool IsDone => _operation.Status == EOperationStatus.Succeeded || TotalCount == 0;
         public bool IsSimulated => false;
         public ReadOnlyReactiveProperty<DownloadProgressReport> Progress => _progress;
 
@@ -418,85 +453,78 @@ namespace Game.Framework
             if (!_started)
             {
                 _started = true;
-                _operation.BeginDownload();
+                _operation.StartDownload();
             }
 
             await UniTask.WaitUntil(() => _operation.IsDone);
             if (ct.IsCancellationRequested)
                 throw new OperationCanceledException(ct);
-            if (_operation.Status != EOperationStatus.Succeed)
+            if (_operation.Status != EOperationStatus.Succeeded)
                 throw new InvalidOperationException($"[AssetDownloader] Download failed: {_operation.Error}");
+        }
+
+        private void OnProgressChanged(DownloadProgressChangedEventArgs _)
+        {
+            _progress.Value = new DownloadProgressReport(
+                _operation.Progress,
+                _operation.TotalDownloadCount,
+                _operation.CurrentDownloadCount,
+                _operation.TotalDownloadBytes,
+                _operation.CurrentDownloadBytes);
         }
     }
 
     /// <summary>
-    /// YooAsset 远端地址服务。只做 URL 规范化和拼接，主备策略沿用 YooAsset 自带机制。
+    /// YooAsset 3.0 远端地址服务（<see cref="IRemoteService"/>）。
+    /// 返回主/备两个 URL，由 YooAsset 自带主备切换机制使用。
     /// </summary>
-    internal sealed class GameRemoteServices : IRemoteServices
+    internal sealed class GameRemoteService : IRemoteService
     {
         private readonly string _mainUrl;
         private readonly string _fallbackUrl;
 
-        public GameRemoteServices(string mainUrl, string fallbackUrl)
+        public GameRemoteService(string mainUrl, string fallbackUrl)
         {
             _mainUrl = Normalize(mainUrl);
             _fallbackUrl = Normalize(fallbackUrl);
         }
 
-        public string GetRemoteMainURL(string fileName) => _mainUrl + fileName;
-        public string GetRemoteFallbackURL(string fileName) => _fallbackUrl + fileName;
+        public IReadOnlyList<string> GetRemoteUrls(string fileName)
+            => new[] { _mainUrl + fileName, _fallbackUrl + fileName };
 
         private static string Normalize(string url)
             => string.IsNullOrEmpty(url) ? string.Empty : url.TrimEnd('/') + "/";
     }
 
     /// <summary>
-    /// YooAsset 解密服务。
-    /// 当前实现支持文件头偏移式加密；FileOffset 为 0 时退化为普通 AssetBundle 文件加载。
+    /// YooAsset 3.0 偏移式解密器。
+    /// 同时实现 <see cref="IBundleOffsetDecryptor"/>（跳过文件头偏移后直接加载 AssetBundle）
+    /// 与 <see cref="IBundleMemoryDecryptor"/>（内存兜底：剥离偏移后从内存加载）。
+    /// FileOffset 为 0 时不会被注册（见 <c>YooAssetProvider.ApplyDecryptor</c>）。
     /// </summary>
-    internal sealed class GameDecryptionServices : IDecryptionServices
+    internal sealed class GameBundleOffsetDecryptor : IBundleOffsetDecryptor, IBundleMemoryDecryptor
     {
-        public ulong FileOffset { get; }
+        private readonly ulong _fileOffset;
 
-        public GameDecryptionServices(ulong fileOffset = 0) => FileOffset = fileOffset;
+        public GameBundleOffsetDecryptor(ulong fileOffset) => _fileOffset = fileOffset;
 
-        public DecryptResult LoadAssetBundle(DecryptFileInfo fileInfo) => new()
+        public long GetFileOffset(BundleDecryptArgs args) => (long)_fileOffset;
+
+        public byte[] GetDecryptedData(BundleDecryptArgs args)
         {
-            ManagedStream = null,
-            Result = AssetBundle.LoadFromFile(fileInfo.FileLoadPath, fileInfo.FileLoadCRC, FileOffset)
-        };
+            var data = args.FileData;
+            if (data == null || _fileOffset == 0) return data;
 
-        public DecryptResult LoadAssetBundleAsync(DecryptFileInfo fileInfo) => new()
-        {
-            ManagedStream = null,
-            CreateRequest = AssetBundle.LoadFromFileAsync(fileInfo.FileLoadPath, fileInfo.FileLoadCRC, FileOffset)
-        };
-
-        public DecryptResult LoadAssetBundleFallback(DecryptFileInfo fileInfo) => new()
-        {
-            Result = AssetBundle.LoadFromMemory(ReadFileData(fileInfo), fileInfo.FileLoadCRC)
-        };
-
-        public byte[] ReadFileData(DecryptFileInfo fileInfo)
-        {
-            var allBytes = File.ReadAllBytes(fileInfo.FileLoadPath);
-            if (FileOffset == 0) return allBytes;
-
-            var offset = (int)FileOffset;
-            if (offset <= 0 || offset >= allBytes.Length)
+            var offset = (int)_fileOffset;
+            if (offset <= 0 || offset >= data.Length)
             {
-                Debug.LogError($"[GameDecryption] Invalid offset {offset} for '{fileInfo.BundleName}'.");
-                return allBytes;
+                Debug.LogError($"[GameBundleOffsetDecryptor] Invalid offset {offset} for a bundle of {data.Length} bytes.");
+                return data;
             }
 
-            var decryptedBytes = new byte[allBytes.Length - offset];
-            Buffer.BlockCopy(allBytes, offset, decryptedBytes, 0, decryptedBytes.Length);
-            return decryptedBytes;
+            var result = new byte[data.Length - offset];
+            Buffer.BlockCopy(data, offset, result, 0, result.Length);
+            return result;
         }
-
-        public string ReadFileText(DecryptFileInfo fileInfo)
-            => FileOffset == 0
-                ? File.ReadAllText(fileInfo.FileLoadPath)
-                : Encoding.UTF8.GetString(ReadFileData(fileInfo));
     }
 }

@@ -273,7 +273,7 @@ Unity 对象 null 判断用 `if (x != null)`，不用 `?.`（Unity 重载了 `==
 - **Command 临时加载** `using var bag = ctx.CreateBag(); var prefab = await bag.Load<GameObject>(...);` —— using 块结束自动释放，Command 用完即净。
 - **手动卸载短期资源**：`ref.TryGetAsset(out T)` 非阻塞检查；`ref.Unload()` 释放本 ref 持有的 handle；`AssetReferenceList.GetAll()` 并行加载，类型不匹配有 error 日志。GUID 是 `AssetReference` 内部细节，不作为业务 API 暴露。
 
-> **底层库版本**：当前基于 **YooAsset 3.0.2-beta**，经官方兼容层（`YOOASSET_LEGACY_API` scripting define）保留 2.x 风格 API。所有 YooAsset 接触面收口在 `YooAssetProvider`，框架其余代码与业务都不直接依赖 YooAsset。**新增构建平台需补设 `YOOASSET_LEGACY_API` define**。详见 `docs/adr/0012-yooasset-3-migration.md`。
+> **底层库版本**：当前基于 **YooAsset 3.0.2-beta**，`YooAssetProvider` 已用**原生 3.0 API** 实现——FileSystem 化初始化（`InitializePackageOptions` 分模式选项 + `InitializePackageAsync`）、`IRemoteService`、拆分后的 `IBundleOffsetDecryptor`/`IBundleMemoryDecryptor`、`LoadAssetAsync<RawFileObject>`、`ResourceDownloaderOptions` + 进度事件。**不再依赖兼容层，`YOOASSET_LEGACY_API` define 已移除**。所有 YooAsset 接触面仍收口在 `YooAssetProvider`，框架其余代码与业务都不直接依赖 YooAsset。详见 `docs/adr/0013-yooasset-native-rewrite.md`。
 
 ## 20. MonoXxxBase 反注册必须 IsDisposed 短路
 
