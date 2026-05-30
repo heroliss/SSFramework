@@ -10,7 +10,7 @@
 
 - **第一方内容**集中在 `Assets/Game/`：`Framework`（可复用框架）+ 项目资产 + 业务代码。
 - **能转 UPM 的第三方优先转 UPM**，离开 `Assets`（R3、YooAsset 已是包；UniTask 计划转 `com.cysharp.unitask` UPM 包）。
-- **Screenshots 移出 `Assets`** 到项目根 `Screenshots/`（已 gitignore）；MCP 截图用 `manage_camera output_folder="Screenshots"`，避免被导入为纹理 / 入库。
+- **Screenshots 移出 `Assets`** 到项目根 `Screenshots/`（已 gitignore）；MCP 截图用 `unity_screenshot_game` / `unity_screenshot_scene` 并把 `path` 指到项目根 `Screenshots/`，避免被导入为纹理 / 入库。
 - **高风险/项目配置类目录暂留**：`TextMesh Pro`（与 TMP Settings 的 Resources 路径耦合）、URP `Settings` / `UI Toolkit`（被 ProjectSettings 按 GUID 引用）——搬动收益小风险高，留待需要时走 `AssetDatabase.MoveAsset` 保 GUID 并逐项 editor 验证。
 - **资源搬迁铁律**：一律走 Unity `AssetDatabase`（保 `.meta`/GUID），禁止裸文件移动；每搬一项即验证引用未断，异常立即回退。
 
