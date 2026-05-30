@@ -20,18 +20,7 @@ namespace Game.Framework.Demo.Modules
         }
     }
 
-    // ───────────── 入门 ─────────────
-
-    public sealed class OverviewModule : ComingSoonModuleBase
-    {
-        public override string Id => "overview";
-        public override string Title => "框架总览";
-        public override string Category => "入门";
-        public override int Order => 0;
-        public override string Summary =>
-            "先建立整体认知：MVCS 五层（View / Command / System / Model+Event / Utility）、单向数据流、" +
-            "编译期权限接口、自研 DI 容器、生命周期统一为 IDisposable。看完再进具体功能就不懵了。";
-    }
+    // 入门“框架总览”已实现为独立模块 OverviewModule（见 Modules/OverviewModule.cs）。
 
     // ───────────── 核心 ─────────────
 
