@@ -1,0 +1,20 @@
+{
+    "name": "Game.Framework.Editor",
+    "rootNamespace": "Game.Framework.Editor",
+    "references": [
+        "Game.Framework",
+        "R3",
+        "R3.Unity"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

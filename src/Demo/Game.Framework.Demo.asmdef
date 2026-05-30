@@ -1,0 +1,23 @@
+{
+    "name": "Game.Framework.Demo",
+    "rootNamespace": "Game.Framework.Demo",
+    "references": [
+        "Game.Framework",
+        "R3",
+        "R3.Unity",
+        "UniTask",
+        "Unity.TextMeshPro",
+        "UnityEngine.UI",
+        "Sirenix.OdinInspector.Attributes",
+        "Sirenix.Serialization"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
