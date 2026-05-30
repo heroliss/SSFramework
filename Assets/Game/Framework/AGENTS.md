@@ -24,7 +24,7 @@
 | `Game.Framework`（运行时） | `Framework/Scripts/` | 全部运行时代码 + `RP<T>`（`Scripts/Reactive/RP.cs`） |
 | `Game.Framework.Editor` | `Framework/Editor/` | 所有编辑器代码：`RPDrawer` / `AssetReferenceDrawer` / 菜单。`includePlatforms:["Editor"]` |
 | `Game.Framework.Demo` | `Framework/Demo/` | 示例，引用框架做"消费方边界"活样板 |
-| `Game.Framework.Test` | `Framework/Test/` | PlayMode 测试（`run_tests mode:PlayMode`） |
+| `Game.Framework.Test` | `Framework/Test/` | PlayMode 测试（在 Unity Test Runner 窗口手动跑） |
 
 **复用铁律：**
 - `Game.Framework` / `.Editor` **禁止引用任何项目业务代码**（Assembly-CSharp 或业务 asmdef）。依赖只能指向声明在 asmdef references 里的第三方/Unity 程序集。

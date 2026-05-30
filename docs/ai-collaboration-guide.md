@@ -162,7 +162,6 @@ Hooks、Subagents、Permissions、项目级 Skill 没有跨工具标准，统一
 └── skills/                      ← 通过 `npx skills add <name>` 安装的 skill
     ├── grill-me/
     ├── refactor/
-    ├── unity-mcp-skill/
     ├── mermaid-diagrams/
     └── improve-codebase-architecture/
 ```
