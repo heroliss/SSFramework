@@ -71,8 +71,8 @@ namespace Game.Framework.Demo.Modules
                 "class DisposableBag", "DisposableBag · 统一生命周期"));
 
             host.AddSectionTitle("怎么逛这个 demo");
-            host.AddNote("左侧章节由简入深：先从“计数器”看最小闭环，再依次是 Model + 响应式状态、Command 三种形态、" +
-                         "Event 总线、依赖注入，然后是能力层（对象池 / 资源加载 / 生命周期），最后是 UGUI View 层的真实手感。建议按顺序看。");
+            host.AddNote("左侧章节由简入深：先从“计数器”看最小闭环，再过一遍“核心”（Model + 响应式、Command 三态、Event、依赖注入、生命周期），" +
+                         "然后是“能力”（对象池 / 资源加载）与“视图”（UGUI 手感）；最后“规划中”是设计阶段的热更 / 配置表。建议按顺序看。");
             host.AddTip("每个“查看源码”按钮都能跳进真实代码：演示自身的代码用 CodeRef.Here() 指向本文件，" +
                         "跳框架源码则用显式路径。点点看，能直接落到对应的类 / 方法定义那一行。");
         }

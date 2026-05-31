@@ -64,6 +64,16 @@ namespace Game.Framework.Demo.Modules
             "RegisterValue / RegisterFactory、解析顺序、父子 Context 回退、[Inject] 字段注入。";
     }
 
+    public sealed class LifetimeModule : ComingSoonModuleBase
+    {
+        public override string Id => "lifetime";
+        public override string Title => "生命周期 · DisposableBag";
+        public override string Category => "核心";
+        public override int Order => 50;
+        public override string Summary =>
+            "订阅 / 资源句柄 / 池租借 / 子作用域统一进 Bag，宿主销毁批量释放；CreateChild 做更短作用域。";
+    }
+
     // ───────────── 能力 ─────────────
 
     public sealed class ObjectPoolModule : ComingSoonModuleBase
@@ -86,16 +96,6 @@ namespace Game.Framework.Demo.Modules
             "Bag.Load<T> / LoadScene / LoadText、AssetReference 拖拽引用、初始化状态订阅、按 tag 下载进度。";
     }
 
-    public sealed class LifetimeModule : ComingSoonModuleBase
-    {
-        public override string Id => "lifetime";
-        public override string Title => "生命周期 · DisposableBag";
-        public override string Category => "能力";
-        public override int Order => 30;
-        public override string Summary =>
-            "订阅 / 资源句柄 / 池租借 / 子作用域统一进 Bag，宿主销毁批量释放；CreateChild 做更短作用域。";
-    }
-
     // ───────────── 视图 ─────────────
 
     public sealed class UGuiViewModule : ComingSoonModuleBase
@@ -108,13 +108,13 @@ namespace Game.Framework.Demo.Modules
             "框架当前 Phase 1 的真实 View 层：MonoViewBase 自动注入 + Bag + ExecuteCommand，用一个 UGUI 小例子覆盖 View 手感。";
     }
 
-    // ───────────── 进阶 ─────────────
+    // ───────────── 规划中 ─────────────
 
     public sealed class HotUpdateModule : ComingSoonModuleBase
     {
         public override string Id => "hotupdate";
         public override string Title => "热更 · HybridCLR";
-        public override string Category => "进阶";
+        public override string Category => "规划中";
         public override int Order => 10;
         public override string Summary =>
             "AOT / 热更程序集分界、经资源系统拉取热更 DLL 的引导流程（设计阶段，见 ADR-0008）。";
@@ -124,7 +124,7 @@ namespace Game.Framework.Demo.Modules
     {
         public override string Id => "config-table";
         public override string Title => "配置表 · Luban";
-        public override string Category => "进阶";
+        public override string Category => "规划中";
         public override int Order => 20;
         public override string Summary =>
             "构建期 CLI 生成配置代码 + 数据，运行期经资源系统加载，镜像资源系统三段式（设计阶段，见 ADR-0009）。";
