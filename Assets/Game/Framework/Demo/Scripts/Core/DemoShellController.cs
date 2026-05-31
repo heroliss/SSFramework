@@ -77,7 +77,7 @@ namespace Game.Framework.Demo.Core
         }
 
         // 分类显示顺序（未列出的排到最后）。
-        private static readonly string[] CategoryOrder = { "入门", "核心", "能力", "视图", "进阶" };
+        private static readonly string[] CategoryOrder = { "入门", "核心", "能力", "视图", "规划中" };
 
         private static int CategoryIndex(string category)
         {

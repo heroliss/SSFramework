@@ -13,7 +13,7 @@ namespace Game.Framework.Demo.Modules
     public sealed class CounterDemoModule : DemoModuleBase
     {
         public override string Id => "counter";
-        public override string Title => "计数器 · Command 入门";
+        public override string Title => "计数器 · 最小闭环";
         public override string Category => "入门";
         public override int Order => 10;
         public override string Summary =>
