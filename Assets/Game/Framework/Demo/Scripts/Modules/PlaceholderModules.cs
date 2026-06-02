@@ -23,16 +23,7 @@ namespace Game.Framework.Demo.Modules
     // 入门“框架总览”已实现为独立模块 OverviewModule（见 Modules/OverviewModule.cs）。
 
     // ───────────── 核心 ─────────────
-
-    public sealed class ModelReactiveModule : ComingSoonModuleBase
-    {
-        public override string Id => "model-reactive";
-        public override string Title => "Model · 响应式状态";
-        public override string Category => "核心";
-        public override int Order => 10;
-        public override string Summary =>
-            "Model 怎么存状态、为什么用 RP<T>（响应式属性），View 如何只读订阅 ReadOnlyReactiveProperty<T> 自动刷新。";
-    }
+    // 核心“Model·响应式状态”已实现为独立模块 ModelReactiveModule（见 Modules/ModelReactiveModule.cs）。
 
     public sealed class CommandKindsModule : ComingSoonModuleBase
     {
@@ -43,6 +34,8 @@ namespace Game.Framework.Demo.Modules
         public override string Summary =>
             "struct vs class Command、同步 ExecuteCommand、异步 ExecuteCommandAsync（带取消令牌）、只读查询 Command 返回订阅源。";
     }
+
+    // 核心“System·逻辑归位”已实现为独立模块 SystemDemoModule（见 Modules/SystemDemoModule.cs）。
 
     public sealed class EventBusModule : ComingSoonModuleBase
     {
@@ -62,6 +55,16 @@ namespace Game.Framework.Demo.Modules
         public override int Order => 40;
         public override string Summary =>
             "RegisterValue / RegisterFactory、解析顺序、父子 Context 回退、[Inject] 字段注入。";
+    }
+
+    public sealed class MultiContextModule : ComingSoonModuleBase
+    {
+        public override string Id => "multi-context";
+        public override string Title => "多 Context · 作用域树";
+        public override string Category => "核心";
+        public override int Order => 45;
+        public override string Summary =>
+            "GameContext 是一棵作用域树：全局 / 场景 / 局部各成一层，子 Context 解析不到就回退父级。演示不同作用域的注册、覆盖与回退。";
     }
 
     public sealed class LifetimeModule : ComingSoonModuleBase
@@ -96,16 +99,28 @@ namespace Game.Framework.Demo.Modules
             "Bag.Load<T> / LoadScene / LoadText、AssetReference 拖拽引用、初始化状态订阅、按 tag 下载进度。";
     }
 
-    // ───────────── 视图 ─────────────
+    // ─────────── View 层（也是 MVCS 一层，归入核心） ───────────
 
     public sealed class UGuiViewModule : ComingSoonModuleBase
     {
         public override string Id => "ugui-view";
-        public override string Title => "UGUI · MonoViewBase";
-        public override string Category => "视图";
+        public override string Title => "View · MonoViewBase";
+        public override string Category => "核心";
+        public override int Order => 35;
+        public override string Summary =>
+            "View 也是 MVCS 的一层——UI 接缝，核心层对 UI 技术无关。框架 Phase 1 的真实 View 层 MonoViewBase：自动注入 + Bag + ExecuteCommand，用一个 UGUI 小例子覆盖 View 手感，并对比 demo 自身用的纯 C# view-role。";
+    }
+
+    // ───────────── 进阶 ─────────────
+
+    public sealed class R3StreamModule : ComingSoonModuleBase
+    {
+        public override string Id => "r3-streams";
+        public override string Title => "R3 · 一切皆流";
+        public override string Category => "进阶";
         public override int Order => 10;
         public override string Summary =>
-            "框架当前 Phase 1 的真实 View 层：MonoViewBase 自动注入 + Bag + ExecuteCommand，用一个 UGUI 小例子覆盖 View 手感。";
+            "进阶收束：Model 状态 / 框架 Event / UnityEvent / 按钮点击 全都能变成 Observable，再用 Where / Throttle / CombineLatest 等操作符组合。";
     }
 
     // ───────────── 规划中 ─────────────

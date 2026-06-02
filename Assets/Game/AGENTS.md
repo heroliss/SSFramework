@@ -39,7 +39,7 @@
 
 ## 4.1 尽量省略可推断的泛型实参
 
-**响应式状态用 `RP<T>`**（`using Game.Framework;`）——框架提供的 `SerializableReactiveProperty<T>` 包装类，配有专用 `[CustomPropertyDrawer]`，Inspector 直接显示值，不多套一层：
+**响应式状态用 `RP<T>`**（`using R3;`——框架的 RP 定义在 R3 命名空间下，不是 `Game.Framework`）——框架提供的 `SerializableReactiveProperty<T>` 包装类，配有专用 `[CustomPropertyDrawer]`，Inspector 直接显示值，不多套一层：
 
 ```csharp
 [field: SerializeField] public RP<int>        Count { get; private set; } = new(0);

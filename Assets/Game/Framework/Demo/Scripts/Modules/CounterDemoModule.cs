@@ -41,10 +41,12 @@ namespace Game.Framework.Demo.Modules
                 CodeRef.Here("struct ResetCountCommand", "ResetCountCommand"));
 
             host.AddSectionTitle("说明");
-            host.AddNote("• 点 +1 → 执行 IncrementCommand → 在 ICommandContext 里 GetModel<CounterModel>() 自增 Count。");
+            host.AddNote("• 点 +1 → 执行 IncrementCommand → 在 ICommandContext 里 GetModel<CounterModel>() 自增 Count。",
+                CodeRef.Here("class CounterModel", "CounterModel"));
             host.AddNote("• 标签订阅的是 GetCountCommand 返回的 ReadOnlyReactiveProperty<int>，Model 一变就自动刷新。");
             host.AddTip("注意：View 角色没有 GetModel 权限，只能经 Command 读写 Model——这正是框架强制的单向数据流。");
-            host.AddCodeLink(CodeRef.Here("class CounterModel", "CounterModel"));
+            host.AddNote("• 这里 Command 直接改 Model 是最简单的形态，逻辑简单时够用；逻辑一多就把它抽到 System，"
+                + "Command 退化成只表达意图、调用 System。别把 Command→Model 直连当成终态——见后面「System · 逻辑归位」。");
         }
     }
 
