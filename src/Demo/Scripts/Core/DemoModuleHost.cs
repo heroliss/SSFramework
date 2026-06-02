@@ -38,6 +38,26 @@ namespace Game.Framework.Demo.Core
             return l;
         }
 
+        /// <summary>
+        /// 讲解段落 + 行末紧跟一个源码跳转——让"说明"和"它的源码"待在一起，不用翻到最底下找链接。
+        /// </summary>
+        public Label AddNote(string text, CodeRef code)
+        {
+            var row = new VisualElement();
+            row.AddToClassList("demo-note-row");
+
+            var l = new Label(text);
+            l.AddToClassList("demo-note");
+            l.style.whiteSpace = WhiteSpace.Normal;
+            l.style.flexGrow = 1;
+            l.enableRichText = false;
+            row.Add(l);
+
+            AppendCodeLink(row, code);
+            Content.Add(row);
+            return l;
+        }
+
         /// <summary>提示 / 注意事项（强调样式）。自动换行。</summary>
         public Label AddTip(string text)
         {

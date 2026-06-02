@@ -1,34 +1,34 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Game.Framework;
 using Game.Framework.Context;
-using Game.Framework.Pool;
-using Game.Framework.System;
-using Game.Framework.Utility;
+using Game.Framework.Internal;
 using UnityEngine;
 using UnityEngine.UIElements;
 
 namespace Game.Framework.Demo.Core
 {
     /// <summary>
-    /// Demo 外壳。挂在带 <see cref="UIDocument"/> 的场景节点上：
-    /// 1) 反射收集本程序集所有 <see cref="IDemoModule"/>；
-    /// 2) 建一个纯 C# demo <see cref="GameContext"/>（注册 <c>CommandSystem</c> / <c>PoolUtility</c> + 各模块绑定）；
+    /// Demo 外壳。挂在带 <see cref="UIDocument"/> 和 <see cref="MonoDemoContext"/> 的场景根节点上：
+    /// 1) 从同节点的 <see cref="MonoDemoContext"/> 取已建好的共享 Context；
+    /// 2) 反射收集本程序集所有 <see cref="IDemoModule"/> 并注入该 Context；
     /// 3) 构建左侧导航 + 右侧内容区，处理选择与挂载。
     /// </summary>
     /// <remarks>
-    /// 用纯 C# Context（不挂 MonoModelBase 等组件）：demo 由 UI Toolkit 驱动，框架层注册为普通 C# 值即可，
-    /// 模块因此完全自包含（UI + 自己的层绑定 + 命令都在一个模块类里），外壳对具体主题零知识——加模块即出现。<br/>
+    /// Context 由 <see cref="MonoDemoContext"/>（一个真正的 <c>MonoGameContextBase</c> 节点）承载，而不是外壳自己建纯 C#
+    /// Context——这样既贴框架推荐的"Hierarchy 上下文"形态，又能让挂在该节点下的 Mono 层（如 <c>MonoModelBase</c>）自动注册进
+    /// 同一容器，供"纯 C# vs Mono"对比演示。<br/>
     /// 整体风格集中在 <c>DemoTheme.uss</c>（Inspector 指定到 <see cref="_theme"/>），与各模块内容解耦。
     /// </remarks>
-    [RequireComponent(typeof(UIDocument))]
+    [RequireComponent(typeof(UIDocument), typeof(MonoDemoContext))]
     public sealed class DemoShellController : MonoBehaviour
     {
         [SerializeField] private UIDocument _document;
         [Tooltip("整体样式表 DemoTheme.uss。")]
         [SerializeField] private StyleSheet _theme;
 
-        private GameContext _context;
+        private IGameContext _context;
         private readonly List<IDemoModule> _modules = new();
         private readonly Dictionary<string, Button> _navButtons = new();
         private IDemoModule _current;
@@ -54,22 +54,20 @@ namespace Game.Framework.Demo.Core
         private void OnDestroy()
         {
             _current?.Teardown();
-            _context?.Dispose();
+            // 不 Dispose _context：它由 MonoDemoContext（MonoGameContextBase）的生命周期负责释放。
         }
 
-        // 收集模块 → 建 Context（先注册公共服务，再让各模块贡献绑定）→ 注入各模块。
+        // 从同节点的 MonoDemoContext 取已建好的共享 Context（它在更早的 ExecutionOrder 里注册了公共服务 + 各模块绑定，
+        // 并自动收纳挂在它下面的 Mono 层），再把各模块注入这个 Context。
         private void BuildContext()
         {
-            var modules = DiscoverModules();
+            var contextHost = GetComponent<MonoDemoContext>();
+            if (contextHost == null)
+                throw new InvalidOperationException(
+                    "[DemoShellController] 同节点缺少 MonoDemoContext——demo 根需要它来承载共享 Context。");
+            _context = contextHost;
 
-            var builder = new ContainerBuilder();
-            builder.RegisterValue(new CommandSystem(), typeof(ICommandSystem));
-            builder.RegisterValue(new PoolUtility(), new[] { typeof(IPoolUtility), typeof(IUtility) });
-            foreach (var m in modules) m.InstallBindings(builder);
-
-            _context = new GameContext(builder.Build());
-
-            foreach (var m in modules)
+            foreach (var m in DiscoverModules())
             {
                 m.Initialize(_context);
                 _modules.Add(m);
@@ -77,7 +75,7 @@ namespace Game.Framework.Demo.Core
         }
 
         // 分类显示顺序（未列出的排到最后）。
-        private static readonly string[] CategoryOrder = { "入门", "核心", "能力", "视图", "规划中" };
+        private static readonly string[] CategoryOrder = { "入门", "核心", "能力", "进阶", "规划中" };
 
         private static int CategoryIndex(string category)
         {
@@ -86,7 +84,7 @@ namespace Game.Framework.Demo.Core
         }
 
         // 反射收集本程序集中所有非抽象、带无参构造的 IDemoModule，按 分类→Order→标题 排序（由简入深）。
-        private static List<IDemoModule> DiscoverModules()
+        internal static List<IDemoModule> DiscoverModules()
         {
             var contract = typeof(IDemoModule);
             return typeof(DemoShellController).Assembly.GetTypes()
@@ -125,11 +123,13 @@ namespace Game.Framework.Demo.Core
 
             _headerTitle = new Label();
             _headerTitle.AddToClassList("demo-content-title");
+            _headerTitle.enableRichText = false;
             contentRoot.Add(_headerTitle);
 
             _headerSummary = new Label();
             _headerSummary.AddToClassList("demo-content-summary");
             _headerSummary.style.whiteSpace = WhiteSpace.Normal;
+            _headerSummary.enableRichText = false; // 简介里可能出现 RP<T> 等泛型，关掉富文本免得 <T> 被当标签吞掉
             contentRoot.Add(_headerSummary);
 
             _contentArea = new VisualElement();
