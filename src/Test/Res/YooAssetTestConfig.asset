@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: YooAssetTestConfig
   m_EditorClassIdentifier: Game.FrameworkTest.Tests::Game.FrameworkTest.YooAssetTestConfig
   AssetPaths:
-  - TestGroup_LittleHouse
+  - LittleHouse
   PrefabReference:
     _assetGUID: 8629f93296e33c940a7e948f118595ee
     _packageName: 
