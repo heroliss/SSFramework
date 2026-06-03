@@ -14,6 +14,8 @@ namespace Game.Framework.Context
         // 与 Container._bindings 同结构：value 为实例 OR Func<Container, object> 工厂
         private readonly Dictionary<Type, object> _bindings = new();
         private readonly List<Type> _eagerSeeds = new();
+        // RegisterOwned 登记的"Context 拥有"实例：Build 时交给 Container，GameContext.Dispose 时统一 Dispose。
+        private readonly List<IDisposable> _owned = new();
         private Container _parent;
         private bool _built;
 
@@ -48,6 +50,23 @@ namespace Game.Framework.Context
 #endif
                 _bindings[contract] = value;
             }
+            return this;
+        }
+
+        /// <summary>
+        /// 注册一个由 Context <b>拥有</b>的 <see cref="IDisposable"/> 实例：除按契约注册（同 <see cref="RegisterValue"/>）外，
+        /// 还登记为"Context 拥有"，在 <c>GameContext.Dispose()</c> 时自动 Dispose（逆序释放）。
+        /// 用于生命周期应跟随 Context 的工具（如 <c>PoolUtility</c>）。普通 <see cref="RegisterValue"/> 不拥有实例
+        /// （容器不替外部传入的共享实例兜底释放）。
+        /// </summary>
+        /// <remarks>
+        /// 同一实例要注册到多个契约时<b>一次调用传多个 contract</b>（只登记一次拥有关系）；不要对同一实例多次调用本方法，
+        /// 否则它会在 Dispose 时被 Dispose 多次。owned 实例应保证 <c>Dispose</c> 幂等（与 .NET 约定一致）。
+        /// </remarks>
+        public ContainerBuilder RegisterOwned(IDisposable value, params Type[] contracts)
+        {
+            RegisterValue(value, contracts); // 复用 null/契约校验与契约写入
+            _owned.Add(value);
             return this;
         }
 
@@ -109,7 +128,7 @@ namespace Game.Framework.Context
             _built = true;
 
             var copy = new Dictionary<Type, object>(_bindings);
-            var container = new Container(copy, _parent);
+            var container = new Container(copy, _parent, _owned);
 
             // Eager 工厂在 Build 末尾立即 Resolve：失败的依赖在启动期就抛出来
             for (int i = 0; i < _eagerSeeds.Count; i++)

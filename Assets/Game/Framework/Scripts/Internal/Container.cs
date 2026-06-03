@@ -27,14 +27,19 @@ namespace Game.Framework.Internal
 
         private readonly Container _parent;
 
+        // RegisterOwned 登记的"本容器拥有"实例：仅这些在 Dispose 时释放（普通 RegisterValue/工厂实例不碰）。
+        private readonly IReadOnlyList<IDisposable> _owned;
+        private bool _disposed;
+
         // 主线程 ID 捕获：static ctor 在第一次访问 Container 时跑，正常路径下都在主线程。
         // Editor / Development Build 下 AssertMainThread 用此 ID 做断言。
         private static readonly int s_mainThreadId = Thread.CurrentThread.ManagedThreadId;
 
-        internal Container(Dictionary<Type, object> bindings, Container parent = null)
+        internal Container(Dictionary<Type, object> bindings, Container parent = null, IReadOnlyList<IDisposable> owned = null)
         {
             _bindings = bindings;
             _parent = parent;
+            _owned = owned;
         }
 
         /// <summary>
@@ -110,6 +115,23 @@ namespace Game.Framework.Internal
         {
             if (_overrides.TryGetValue(contractType, out var existing) && existing == instance)
                 _overrides.Remove(contractType);
+        }
+
+        /// <summary>
+        /// Dispose 本容器<b>拥有</b>的实例（经 <c>ContainerBuilder.RegisterOwned</c> 登记的）。逆序释放，
+        /// 单个实例抛异常不影响其余；幂等。普通 RegisterValue / 工厂实例<b>不</b>在此释放——容器不拥有外部传入实例。
+        /// 由 <c>GameContext.Dispose</c> 调用，不对外公开。
+        /// </summary>
+        internal void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            if (_owned == null) return;
+            for (int i = _owned.Count - 1; i >= 0; i--)
+            {
+                try { _owned[i].Dispose(); }
+                catch (Exception e) { Debug.LogException(e); }
+            }
         }
     }
 }

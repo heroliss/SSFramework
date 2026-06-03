@@ -1,8 +1,11 @@
+using System.Text.RegularExpressions;
 using Game.Framework.Context;
 using Game.Framework.Pool;
 using Game.Framework.System;
 using Game.Framework.Utility;
 using NUnit.Framework;
+using UnityEngine;
+using UnityEngine.TestTools;
 
 namespace Game.Framework.Test
 {
@@ -79,6 +82,20 @@ namespace Game.Framework.Test
         }
 
         [Test]
+        public void ObjectPool_Trim_ShrinksToTarget()
+        {
+            var pool = new ObjectPool<Widget>(() => new Widget());
+            pool.Prewarm(5);
+            Assert.AreEqual(5, pool.CountInactive);
+
+            pool.Trim(2);
+            Assert.AreEqual(2, pool.CountInactive, "Trim 应把空闲收缩到 targetCount");
+
+            pool.Trim(0);
+            Assert.AreEqual(0, pool.CountInactive, "Trim(0) 应清空");
+        }
+
+        [Test]
         public void PoolUtility_RentReturn_UsesDefaultPool()
         {
             IPoolUtility util = new PoolUtility();
@@ -115,6 +132,25 @@ namespace Game.Framework.Test
             Assert.AreEqual(1, pool.CountInactive, "bag.Dispose 应自动把租借的实例归还到池");
             var again = ctx.GetUtility<IPoolUtility>().Rent<Widget>();
             Assert.AreSame(rented, again, "归还的实例应被下次租借复用");
+        }
+
+        [Test]
+        public void PoolUtility_Dispose_ClearsPools_AndIsIdempotent()
+        {
+            var util = new PoolUtility();
+            var pool = util.GetPool<Widget>();
+            pool.Prewarm(3);
+            Assert.AreEqual(3, pool.CountInactive);
+
+            util.Dispose();
+
+            // Dispose 后再取池：_pools 已清，返回新空池；Editor/Dev 下伴随一条 use-after-dispose 诊断
+            LogAssert.Expect(LogType.Error, new Regex("after Dispose"));
+            var fresh = util.GetPool<Widget>();
+            Assert.AreNotSame(pool, fresh, "Dispose 应清 _pools，再取是新池实例");
+            Assert.AreEqual(0, fresh.CountInactive, "Dispose 后再取应是空池");
+
+            util.Dispose(); // 幂等：再次 Dispose 不抛、不二次释放
         }
     }
 }

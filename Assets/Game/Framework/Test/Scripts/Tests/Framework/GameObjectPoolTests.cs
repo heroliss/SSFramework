@@ -1,5 +1,9 @@
+using System;
 using System.Collections;
+using System.Collections.Generic;
+using System.Reflection;
 using System.Text.RegularExpressions;
+using System.Threading;
 using Cysharp.Threading.Tasks;
 using Game.Framework.Context;
 using Game.Framework.Pool;
@@ -330,6 +334,146 @@ namespace Game.Framework.Test
             Assert.IsTrue(b != null, "应跳过被销毁的空槽、新建实例，而非返回 null 或 NRE");
             Assert.AreNotSame(a, b);
             Assert.AreEqual(0, pool.CountInactive);
+        });
+
+        // ── 分帧收缩 / 预热节流 ──────────────────────────────────────────────
+
+        [UnityTest]
+        public IEnumerator TrimAsync_ShrinksToTarget() => UniTask.ToCoroutine(async () =>
+        {
+            var pool = new GameObjectPool(_prefab, _parking);
+            await pool.Prewarm(5);
+            Assert.AreEqual(5, pool.CountInactive);
+
+            await pool.TrimAsync(2, perFrame: 2);
+            Assert.AreEqual(2, pool.CountInactive, "TrimAsync 应分帧收缩到 targetCount");
+        });
+
+        [UnityTest]
+        public IEnumerator ClearAsync_EmptiesPool() => UniTask.ToCoroutine(async () =>
+        {
+            var pool = new GameObjectPool(_prefab, _parking);
+            await pool.Prewarm(3);
+            await pool.ClearAsync();
+            Assert.AreEqual(0, pool.CountInactive, "ClearAsync 应分帧清空");
+        });
+
+        [UnityTest]
+        public IEnumerator Prewarm_PerFrame_PopulatesAllRequested() => UniTask.ToCoroutine(async () =>
+        {
+            var pool = new GameObjectPool(_prefab, _parking);
+            await pool.Prewarm(5, perFrame: 2);
+            Assert.AreEqual(5, pool.CountInactive, "perFrame 节流的预热也应建满 count 个");
+        });
+
+        // ── Mono 版：注册 + 转发 + 随宿主销毁清池 ────────────────────────────
+
+        [UnityTest]
+        public IEnumerator MonoPoolUtility_Registers_Forwards_DisposesParkingOnDestroy() => UniTask.ToCoroutine(async () =>
+        {
+            var ctxGo = new GameObject("Ctx");
+            ctxGo.transform.SetParent(_root.transform);
+            var ctx = ctxGo.AddComponent<MonoGameContextBase>();
+
+            var poolGo = new GameObject("MonoPool");
+            poolGo.transform.SetParent(ctxGo.transform);
+            var monoPool = poolGo.AddComponent<MonoPoolUtility>();
+            await UniTask.Yield(); // 等 Awake 注册
+
+            // Mono 路径：注册为 IPoolUtility（MonoUtilityBase 注册具体类型 + 派生接口）
+            Assert.AreSame(monoPool, ctx.GetUtility<IPoolUtility>(), "MonoPoolUtility 应注册为 IPoolUtility");
+
+            // 转发：经它 Spawn/Despawn 正常路由，归还后入内部停放节点
+            var go = monoPool.Spawn(_prefab, _root.transform);
+            Assert.IsTrue(go.activeSelf);
+            monoPool.Despawn(go);
+            var parking = go.transform.parent;
+            Assert.IsTrue(parking != null, "Despawn 后应入内部停放子节点");
+            var parkingRoot = parking.parent; // [Game.Framework PooledObjects]
+            Assert.IsTrue(parkingRoot != null);
+
+            // 销毁宿主 GameObject → OnDestroy → _impl.Dispose() 销毁停放总根，不残留 DontDestroyOnLoad 节点
+            UnityEngine.Object.Destroy(poolGo);
+            await UniTask.Yield();
+            await UniTask.Yield();
+            Assert.IsTrue(parkingRoot == null, "MonoPoolUtility 销毁后应 Dispose 底层池、销毁停放总根");
+        });
+
+        // ── post-dispose 防护：Dispose 后归还不复活停放根（评审 high）────────
+        [UnityTest]
+        public IEnumerator PostDispose_Despawn_DestroysInstance_NoResurrect() => UniTask.ToCoroutine(async () =>
+        {
+            var util = new PoolUtility();
+            var pool = util.GetGameObjectPool(_prefab);   // 模拟被 Bag 闭包捕获、Dispose 后仍存活的 GameObjectPool
+            var go = pool.Spawn(_root.transform);
+
+            util.Dispose();                                // 释放池工具：标记 disposed（此例尚无停放根可销毁）
+            await UniTask.Yield();
+
+            pool.Despawn(go);                              // post-dispose 归还：不应复活停放根
+            await UniTask.Yield();
+            await UniTask.Yield();
+
+            Assert.IsTrue(go == null, "Dispose 后归还的实例应被直接销毁");
+            Assert.AreEqual(0, pool.CountInactive, "Dispose 后归还不入池（不复活停放根）");
+        });
+
+        // ── 分帧异步的取消语义（评审 medium）────────────────────────────────
+        [UnityTest]
+        public IEnumerator Prewarm_Cancellation_StopsPartwayAndKeepsBuilt() => UniTask.ToCoroutine(async () =>
+        {
+            var pool = new GameObjectPool(_prefab, _parking);
+            var cts = new CancellationTokenSource();
+            var task = pool.Prewarm(100, perFrame: 1, ct: cts.Token); // 每帧建 1 个
+            await UniTask.Yield();
+            await UniTask.Yield();
+            cts.Cancel();
+
+            var canceled = false;
+            try { await task; }
+            catch (OperationCanceledException) { canceled = true; }
+            Assert.IsTrue(canceled, "取消应抛 OperationCanceledException");
+
+            var built = pool.CountInactive;
+            Assert.Greater(built, 0, "取消前已建的实例应留在池中（部分完成，不回滚）");
+            Assert.Less(built, 100, "取消应中断，未建满");
+            cts.Dispose();
+        });
+
+        // ── MonoPoolUtility Inspector 配置预热（评审：核心新增价值此前零覆盖）──
+        [UnityTest]
+        public IEnumerator MonoPoolUtility_InspectorConfig_PrewarmsOnAwake() => UniTask.ToCoroutine(async () =>
+        {
+            var ctxGo = new GameObject("Ctx");
+            ctxGo.transform.SetParent(_root.transform);
+            ctxGo.AddComponent<MonoGameContextBase>();
+            await UniTask.Yield(); // ctx 先就绪
+
+            // 先建 inactive 节点挂组件（Awake 不跑），反射注入一条 PrewarmCount>0 的配置，再激活触发 Awake
+            var poolGo = new GameObject("MonoPool");
+            poolGo.SetActive(false);
+            poolGo.transform.SetParent(ctxGo.transform);
+            var monoPool = poolGo.AddComponent<MonoPoolUtility>();
+
+            var cfgType = typeof(MonoPoolUtility).GetNestedType("GameObjectPoolConfig");
+            var cfg = Activator.CreateInstance(cfgType);
+            cfgType.GetField("Prefab").SetValue(cfg, _prefab);
+            cfgType.GetField("MaxSize").SetValue(cfg, 0);
+            cfgType.GetField("PrewarmCount").SetValue(cfg, 3);
+            var listType = typeof(List<>).MakeGenericType(cfgType);
+            var list = (IList)Activator.CreateInstance(listType);
+            list.Add(cfg);
+            typeof(MonoPoolUtility).GetField("_prefabPools", BindingFlags.NonPublic | BindingFlags.Instance)
+                .SetValue(monoPool, list);
+
+            poolGo.SetActive(true); // 触发 Awake → ApplyInspectorConfig → 分帧预热
+            for (var i = 0; i < 8; i++) await UniTask.Yield(); // 等分帧预热完成（3 个，perFrame=1）
+
+            Assert.AreEqual(3, monoPool.GetGameObjectPool(_prefab).CountInactive,
+                "Inspector 配置的 PrewarmCount 应在 Awake 后分帧预热到位");
+
+            UnityEngine.Object.Destroy(poolGo);
+            await UniTask.Yield();
         });
     }
 }

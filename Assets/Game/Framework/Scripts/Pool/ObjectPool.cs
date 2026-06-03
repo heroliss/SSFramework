@@ -76,5 +76,12 @@ namespace Game.Framework.Pool
         }
 
         public void Clear() => _inactive.Clear();
+
+        public void Trim(int targetCount)
+        {
+            if (targetCount < 0) targetCount = 0;
+            while (_inactive.Count > targetCount)
+                _inactive.Pop(); // 丢弃多余空闲实例，交 GC（纯托管对象，无需 Destroy）
+        }
     }
 }

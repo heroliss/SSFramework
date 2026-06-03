@@ -233,6 +233,7 @@ namespace Game.Framework.Context
             foreach (var subject in _typedEvents.Values)
                 ((IDisposable)subject).Dispose();
             _typedEvents.Clear();
+            _container.Dispose(); // 释放本 Context 拥有的实例（RegisterOwned 登记的，如 PoolUtility）
         }
 
         // ---- 内部 ----
