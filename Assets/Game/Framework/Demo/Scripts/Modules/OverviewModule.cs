@@ -65,10 +65,8 @@ namespace Game.Framework.Demo.Modules
                 "interface ICanSendCommand", "编译期权限接口"));
             host.AddCodeLink(new CodeRef("Assets/Game/Framework/Scripts/Internal/IGameContext.cs",
                 "interface IGameContext", "IGameContext · 能力面"));
-            host.AddCodeLink(new CodeRef("Assets/Game/Framework/Scripts/Context/GameContext.cs",
-                "class GameContext", "GameContext · 容器 / 作用域树"));
-            host.AddCodeLink(new CodeRef("Assets/Game/Framework/Scripts/DisposableBag.cs",
-                "class DisposableBag", "DisposableBag · 统一生命周期"));
+            // 只链公共契约（接口 + 业务继承点）；GameContext / DisposableBag 等底层实现不在这里给跳转——
+            // 它们的“怎么用”分别在「多 Context」「生命周期」章里以 demo 用法行呈现。
 
             host.AddSectionTitle("怎么逛这个 demo");
             host.AddNote("左侧章节由简入深：先从“计数器”看最小闭环，再过一遍“核心”（Model + 响应式、Command 三态、Event、依赖注入、生命周期），" +

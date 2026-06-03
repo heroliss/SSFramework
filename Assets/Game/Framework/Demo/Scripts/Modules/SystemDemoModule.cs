@@ -30,8 +30,8 @@ namespace Game.Framework.Demo.Modules
         public override void Build(DemoModuleHost host)
         {
             host.AddSectionTitle("演示");
-            var goldLabel = host.AddValueDisplay();
-            var potionLabel = host.AddValueDisplay();
+            var goldLabel = host.AddValueDisplay("", CodeRef.Here("struct GetGoldCommand", "GetGoldCommand"));
+            var potionLabel = host.AddValueDisplay("", CodeRef.Here("struct GetPotionsCommand", "GetPotionsCommand"));
             Bag.Subscribe(this.ExecuteCommand(new GetGoldCommand()), v => goldLabel.text = $"金币：{v}");
             Bag.Subscribe(this.ExecuteCommand(new GetPotionsCommand()), v => potionLabel.text = $"药水：{v}");
 

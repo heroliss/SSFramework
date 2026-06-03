@@ -32,28 +32,11 @@ namespace Game.Framework.Demo.Modules
     // 核心“依赖注入·Container”已实现为独立模块 ContainerDemoModule（见 Modules/ContainerDemoModule.cs）。
 
     // 核心“多 Context·作用域树”已实现为独立模块 MultiContextDemoModule（见 Modules/MultiContextDemoModule.cs）。
-
-    public sealed class LifetimeModule : ComingSoonModuleBase
-    {
-        public override string Id => "lifetime";
-        public override string Title => "生命周期 · DisposableBag";
-        public override string Category => "核心";
-        public override int Order => 50;
-        public override string Summary =>
-            "订阅 / 资源句柄 / 池租借 / 子作用域统一进 Bag，宿主销毁批量释放；CreateChild 做更短作用域。";
-    }
+    // 核心“生命周期·DisposableBag”已实现为独立模块 LifetimeDemoModule（见 Modules/LifetimeDemoModule.cs）。
 
     // ───────────── 能力 ─────────────
-
-    public sealed class ObjectPoolModule : ComingSoonModuleBase
-    {
-        public override string Id => "object-pool";
-        public override string Title => "对象池 · C# / GameObject";
-        public override string Category => "能力";
-        public override int Order => 10;
-        public override string Summary =>
-            "Bag.Rent（C# 对象）/ Bag.Spawn（GameObject）自动归还、分帧 Prewarm 预热、IPoolable 重置钩子。";
-    }
+    // 能力“对象池·C# 对象”已实现为独立模块 PoolDemoModule（见 Modules/PoolDemoModule.cs）。
+    // GameObject/Prefab 池（Bag.Spawn）需要可见实例，并入 View 章演示。
 
     public sealed class AssetLoadingModule : ComingSoonModuleBase
     {

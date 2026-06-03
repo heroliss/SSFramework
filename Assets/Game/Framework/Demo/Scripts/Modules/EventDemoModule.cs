@@ -27,7 +27,7 @@ namespace Game.Framework.Demo.Modules
         {
             // ── 状态：Model / RP（有当前值、持久） ──
             host.AddSectionTitle("状态（Model / RP）");
-            var stateLabel = host.AddValueDisplay();
+            var stateLabel = host.AddValueDisplay("", CodeRef.Here("struct GetTickCountCommand", "GetTickCountCommand"));
             Bag.Subscribe(this.ExecuteCommand(new GetTickCountCommand()), v => stateLabel.text = $"状态计数：{v}");
             host.AddActionRow("状态 +1", () => this.ExecuteCommand(new IncTickCommand()),
                 CodeRef.Here("struct IncTickCommand", "IncTickCommand"));

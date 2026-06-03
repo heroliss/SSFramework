@@ -31,7 +31,7 @@ namespace Game.Framework.Demo.Modules
             host.AddSectionTitle("异步（带取消）");
             var statusLabel = host.AddValueDisplay();
             statusLabel.text = "状态：空闲";
-            var doneLabel = host.AddValueDisplay();
+            var doneLabel = host.AddValueDisplay("", CodeRef.Here("struct GetDoneCommand", "GetDoneCommand"));
             Bag.Subscribe(this.ExecuteCommand(new GetDoneCommand()), v => doneLabel.text = $"已完成：{v} 次");
 
             CancellationTokenSource cts = null;
