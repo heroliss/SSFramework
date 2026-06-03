@@ -51,7 +51,7 @@ namespace Game.Framework.Demo.Modules
                 if (held == null) return;
                 held.Stamp++;
                 Refresh();
-            }, CodeRef.Here("class PooledBox", "PooledBox"));
+            }, CodeRef.Here("held.Stamp++", "写数据用法"));
             host.AddActionRow("归还", () =>
             {
                 if (held == null) return;
