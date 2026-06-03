@@ -184,6 +184,29 @@
     font-size: 13px;
 }
 
+/* 对象池章：左侧控制按钮 + 右侧 UI Toolkit 占位框（UGUI 容器按该框 worldBound 对齐） */
+.demo-pool-demo-row {
+    flex-direction: row;
+    align-items: flex-start;
+    margin-top: 4px;
+    margin-bottom: 10px;
+}
+
+.demo-pool-controls {
+    width: 400px; /* 容下最宽的「动作按钮 + 行末查看源码」整行，不让链接溢出压到右侧方块容器上 */
+    flex-shrink: 0;
+    margin-right: 22px;
+}
+
+.demo-pool-anchor {
+    flex-grow: 1;
+    min-height: 132px;
+    background-color: rgba(38, 41, 49, 0.55);
+    border-width: 1px;
+    border-color: rgb(55, 60, 72);
+    border-radius: 6px;
+}
+
 /* 动作行：演示按钮 + 紧挨着的源码跳转 */
 .demo-action-row {
     flex-direction: row;

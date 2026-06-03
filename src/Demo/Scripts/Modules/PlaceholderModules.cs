@@ -35,8 +35,8 @@ namespace Game.Framework.Demo.Modules
     // 核心“生命周期·DisposableBag”已实现为独立模块 LifetimeDemoModule（见 Modules/LifetimeDemoModule.cs）。
 
     // ───────────── 能力 ─────────────
-    // 能力“对象池·C# 对象”已实现为独立模块 PoolDemoModule（见 Modules/PoolDemoModule.cs）。
-    // GameObject/Prefab 池（Bag.Spawn）需要可见实例，并入 View 章演示。
+    // 能力“对象池·C# / GameObject”已实现为独立模块 PoolDemoModule（见 Modules/PoolDemoModule.cs，
+    // 配套 DemoPoolAssets（场景持有 prefab + 显示容器）+ PooledChip prefab）。
 
     public sealed class AssetLoadingModule : ComingSoonModuleBase
     {
@@ -49,16 +49,8 @@ namespace Game.Framework.Demo.Modules
     }
 
     // ─────────── View 层（也是 MVCS 一层，归入核心） ───────────
-
-    public sealed class UGuiViewModule : ComingSoonModuleBase
-    {
-        public override string Id => "ugui-view";
-        public override string Title => "View · MonoViewBase";
-        public override string Category => "核心";
-        public override int Order => 35;
-        public override string Summary =>
-            "View 也是 MVCS 的一层——UI 接缝，核心层对 UI 技术无关。框架 Phase 1 的真实 View 层 MonoViewBase：自动注入 + Bag + ExecuteCommand，用一个 UGUI 小例子覆盖 View 手感，并对比 demo 自身用的纯 C# view-role。";
-    }
+    // 核心“View·MonoViewBase”已实现为独立模块 UGuiViewModule（见 Modules/UGuiViewModule.cs，
+    // 配套 UGuiDemoView（真实 MonoViewBase）+ DemoUGuiAssets（场景持有 prefab）+ UGUI View prefab）。
 
     // ───────────── 进阶 ─────────────
 
