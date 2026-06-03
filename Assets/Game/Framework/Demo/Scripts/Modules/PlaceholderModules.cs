@@ -24,48 +24,14 @@ namespace Game.Framework.Demo.Modules
 
     // ───────────── 核心 ─────────────
     // 核心“Model·响应式状态”已实现为独立模块 ModelReactiveModule（见 Modules/ModelReactiveModule.cs）。
-
-    public sealed class CommandKindsModule : ComingSoonModuleBase
-    {
-        public override string Id => "command-kinds";
-        public override string Title => "Command · 同步 / 异步 / 查询";
-        public override string Category => "核心";
-        public override int Order => 20;
-        public override string Summary =>
-            "struct vs class Command、同步 ExecuteCommand、异步 ExecuteCommandAsync（带取消令牌）、只读查询 Command 返回订阅源。";
-    }
-
+    // 核心“Command·三态”已实现为独立模块 CommandKindsDemoModule（见 Modules/CommandKindsDemoModule.cs）。
     // 核心“System·逻辑归位”已实现为独立模块 SystemDemoModule（见 Modules/SystemDemoModule.cs）。
 
-    public sealed class EventBusModule : ComingSoonModuleBase
-    {
-        public override string Id => "event-bus";
-        public override string Title => "Event · 事件总线";
-        public override string Category => "核心";
-        public override int Order => 30;
-        public override string Summary =>
-            "按类型订阅 / 发送事件，Bag.Subscribe 的几种重载，invokeImmediately 立即触发，谁能发、谁能收（权限分层）。";
-    }
+    // 核心“Event·事件总线”已实现为独立模块 EventDemoModule（见 Modules/EventDemoModule.cs）。
 
-    public sealed class ContainerModule : ComingSoonModuleBase
-    {
-        public override string Id => "container";
-        public override string Title => "依赖注入 · Container";
-        public override string Category => "核心";
-        public override int Order => 40;
-        public override string Summary =>
-            "RegisterValue / RegisterFactory、解析顺序、父子 Context 回退、[Inject] 字段注入。";
-    }
+    // 核心“依赖注入·Container”已实现为独立模块 ContainerDemoModule（见 Modules/ContainerDemoModule.cs）。
 
-    public sealed class MultiContextModule : ComingSoonModuleBase
-    {
-        public override string Id => "multi-context";
-        public override string Title => "多 Context · 作用域树";
-        public override string Category => "核心";
-        public override int Order => 45;
-        public override string Summary =>
-            "GameContext 是一棵作用域树：全局 / 场景 / 局部各成一层，子 Context 解析不到就回退父级。演示不同作用域的注册、覆盖与回退。";
-    }
+    // 核心“多 Context·作用域树”已实现为独立模块 MultiContextDemoModule（见 Modules/MultiContextDemoModule.cs）。
 
     public sealed class LifetimeModule : ComingSoonModuleBase
     {

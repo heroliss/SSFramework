@@ -19,7 +19,7 @@ namespace Game.Framework.Demo.Modules
         public override string Category => "核心";
         public override int Order => 25;
         public override string Summary =>
-            "一步操作 Command 直接改 Model 就够；带规则的逻辑（够钱才扣、扣钱再加道具）抽到 System，Command 只说“我要买”、调用 System——可复用、可测，意图与逻辑分离。";
+            "一步操作 Command 直接改 Model 就够；带规则的逻辑（够钱才扣、扣钱再加道具）抽到 System——System 是把一类相关逻辑聚成的、能独立运转的“系统”，Command 只说“我要买”、调用它。";
 
         public override void InstallBindings(ContainerBuilder builder)
         {
@@ -45,13 +45,12 @@ namespace Game.Framework.Demo.Modules
                 CodeRef.Here("struct EarnGoldCommand", "直接改 Model"));
             host.AddNote("• “购买药水”有规则（够钱才扣、扣钱再加道具）——逻辑抽到 ShopSystem，Command 只表达意图、调用 System。",
                 CodeRef.Here("class ShopSystem", "ShopSystem 里的逻辑"));
-            host.AddTip("迁移心智：早期可以把规则先写在 Command 里；逻辑一多、要复用、要单测，就抽到 System——"
+            host.AddTip("迁移心智：早期可以把规则先写在 Command 里；当相关逻辑变多、需要聚成一个整体来维护时，就抽到 System——"
                 + "成本很低，Command 本就是入口，抽走逻辑后它退化成一行薄壳。");
 
-            host.AddSectionTitle("为什么放 System");
-            host.AddConcept("可复用", "同一段逻辑可被多个 Command / 触发点共用，不必复制。");
-            host.AddConcept("可测", "System 是纯逻辑、不依赖 UI / Command，能直接单元测试。");
-            host.AddConcept("职责清晰", "Command = 意图入口，System = 逻辑实现，Model = 状态，各司其职。");
+            host.AddSectionTitle("System 的本质");
+            host.AddConcept("逻辑聚合（核心）", "把一类相关逻辑（买、卖、定价、库存…）聚成一个内聚、能独立运转的“系统”（可有依赖）——这正是它叫 System 的原因。");
+            host.AddConcept("意图 vs 逻辑", "Command 表达“要做什么”（薄入口），System 实现“怎么做”（厚逻辑）。逻辑从 Command 抽到 System，分工才清晰。");
             host.AddNote("说明：这个 ShopSystem 无状态，直接用传入的 ctx 取 Model 最省；需要持有状态的 System 可走 Mono（MonoSystemBase）或绑定 Context，改用 this.GetModel。");
         }
     }
