@@ -23,7 +23,7 @@ namespace Game.Framework.Command
         T GetModel<T>()   where T : class, IModel;
         T GetSystem<T>()  where T : class, ISystem;
         T GetUtility<T>() where T : class, IUtility;
-        void SendEvent<T>(T e) where T : IEvent;
+        void SendEvent<T>(T e = default) where T : IEvent;  // 默认值：无数据事件可直接 ctx.SendEvent<T>()，与 GameContext / this.SendEvent 扩展一致
         CancellationToken CancellationToken { get; }
 
         void ExecuteCommand<T>(T command) where T : ICommand;
