@@ -193,6 +193,38 @@ namespace Game.Framework.Test
             Assert.AreSame(go, again, "归还的实例应被下次 Spawn 复用");
         }
 
+        [UnityTest]
+        public IEnumerator Utility_SelfHealsParking_AfterRootDestroyedExternally() => UniTask.ToCoroutine(async () =>
+        {
+            IPoolUtility util = new PoolUtility();
+
+            // 正常归还一次，定位内部停放总根（停放子节点的父节点）。
+            var go1 = util.Spawn(_prefab, _root.transform);
+            util.Despawn(go1);
+            var parking = go1.transform.parent;
+            Assert.IsTrue(parking != null, "归还实例应挂到内部停放子节点下");
+            var parkingRoot = parking.parent;
+            Assert.IsTrue(parkingRoot != null, "停放子节点应挂在内部停放总根下");
+            Assert.AreEqual("[Game.Framework PooledObjects]", parkingRoot.name);
+
+            // 模拟用户手动删 [Game.Framework PooledObjects] 节点（连同其下空闲实例一起销毁）。
+            UnityEngine.Object.Destroy(parkingRoot.gameObject);
+            await UniTask.Yield(); // 等 Unity 完成销毁，旧节点变 fake-null
+            await UniTask.Yield();
+            Assert.IsTrue(parking == null, "总根销毁后旧停放节点应变 Unity fake-null");
+
+            // 再归还：池应自愈重建停放点，归还实例停回容器，而不是被 SetParent(已销毁) 扔到场景根。
+            var go2 = util.Spawn(_prefab, _root.transform);
+            util.Despawn(go2);
+            Assert.IsTrue(go2.transform.parent != null,
+                "自愈后归还实例应挂回重建的停放节点，而不是落到场景根（parent == null）");
+            Assert.IsFalse(go2.activeSelf, "归还实例应停用");
+
+            // 清理重建出来的总根（DontDestroyOnLoad，不在 _root 下，TearDown 不会清它）。
+            var healedRoot = go2.transform.parent != null ? go2.transform.parent.parent : null;
+            if (healedRoot != null) UnityEngine.Object.Destroy(healedRoot.gameObject);
+        });
+
         // ── DisposableBag.Spawn 自动归还 ────────────────────────────────────
 
         [Test]
