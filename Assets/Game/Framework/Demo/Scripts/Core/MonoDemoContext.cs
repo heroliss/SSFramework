@@ -21,7 +21,8 @@ namespace Game.Framework.Demo.Core
         protected override void InstallBindings(ContainerBuilder builder)
         {
             builder.RegisterValue(new CommandSystem(), typeof(ICommandSystem));
-            builder.RegisterValue(new PoolUtility(), new[] { typeof(IPoolUtility), typeof(IUtility) });
+            // 池工具用 RegisterOwned：随本 Context.Dispose 自动清池（停放节点 + 空闲实例），不靠 DontDestroyOnLoad 长留。
+            builder.RegisterOwned(new PoolUtility(), typeof(IPoolUtility), typeof(IUtility));
 
             // 各模块的纯 C# 层绑定（这里用的是临时实例，只为收集绑定；真正驱动 UI 的模块由外壳另行实例化并注入同一 Context）。
             foreach (var module in DemoShellController.DiscoverModules())

@@ -321,9 +321,9 @@ protected virtual void OnDestroy()
 
 框架自带对象池（`Game.Framework.Pool`），替代第三方池库，与 Bag 生命周期融合。
 
-- **注册**：根 Context 的 `InstallBindings` 里 `builder.RegisterValue(new PoolUtility(), typeof(IPoolUtility))`，子 Context 经父级回退共享。
+- **注册（按生命周期选）**：纯 C# 跟随 Context 用 `builder.RegisterOwned(new PoolUtility(), typeof(IPoolUtility))`（随 `GameContext.Dispose` 清池，推荐）；不关心释放用 `RegisterValue`；需 Inspector 配参数 / 跟随 GameObject 生命周期用 `MonoPoolUtility`（挂 Context 子节点，可视化配各 prefab 容量/预热）。三者复用同一套池逻辑，子 Context 经父级回退共享。
 - **Bag.Rent（首选）**：`MonoXxxBase` 子类里 `var w = Bag.Rent<Widget>();`——宿主销毁/bag.Dispose 时**自动归还**，无感知，心智同 `Bag.Load`。要求 `Widget : class, new()`。
 - **手动**：`this.GetUtility<IPoolUtility>().Rent<T>()` / `.Return(obj)`；需要自定义工厂或租借/归还钩子时先 `GetPool<T>(factory, onRent, onReturn, maxSize)` 配置一次（**首次配置生效**），之后 `pool.Rent()/Return()`。
 - **状态清理放归还时**：池化类型实现 `IPoolable.OnReturn()` 清字段/退订（或用 `GetPool` 的 `onReturn` 委托）；`OnRent()` 做激活。**已 Return 的实例不要再用**。
 - 主线程独占。Editor/Dev 构建下重复归还/归还外来实例会 LogError。
-- **GameObject/Prefab 池**：同一 `IPoolUtility` 按 prefab 管理。`Bag.Spawn(prefab, parent)` / `Bag.Spawn(prefab, pos, rot)` 取实例，宿主销毁自动 Despawn（心智同 `Bag.Rent`）；手动用 `GetUtility<IPoolUtility>().Spawn(prefab,…)` / `.Despawn(go)`（实例带 `PooledObject` 标记自动路由回源池）。`await pool.Prewarm(n)` 分帧预热。实例上**任意组件**实现 `IPoolable` 即收 OnRent/OnReturn。按 location 异步加载先 `await Bag.Load<GameObject>(loc)` 取 prefab 再 Spawn（池刻意不依赖 Context/IAssetUtility）。详见 `docs/framework-guide.md` §7。
+- **GameObject/Prefab 池**：同一 `IPoolUtility` 按 prefab 管理。`Bag.Spawn(prefab, parent)` / `Bag.Spawn(prefab, pos, rot)` 取实例，宿主销毁自动 Despawn（心智同 `Bag.Rent`）；手动用 `GetUtility<IPoolUtility>().Spawn(prefab,…)` / `.Despawn(go)`（实例带 `PooledObject` 标记自动路由回源池）。`await pool.Prewarm(n, perFrame)` 分帧预热、`TrimAsync(target, perFrame)` / `ClearAsync()` 分帧收缩/销毁（C# 池用同步 `Trim(target)`）；内部停放节点被外部删后下次归还自愈重建。实例上**任意组件**实现 `IPoolable` 即收 OnRent/OnReturn。按 location 异步加载先 `await Bag.Load<GameObject>(loc)` 取 prefab 再 Spawn（池刻意不依赖 Context/IAssetUtility）。详见 `docs/framework-guide.md` §7。
