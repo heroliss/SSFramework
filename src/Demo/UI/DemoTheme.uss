@@ -147,9 +147,17 @@
     margin-bottom: 12px;
 }
 
+/* 值显示 + 行末源码跳转：把“看到的状态”和“喂它的查询 Command”并排 */
+.demo-value-row {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
 /* 概念条目：术语 + 说明 的定义列表行（讲解分层职责 / 概念释义） */
 .demo-concept {
     flex-direction: row;
+    align-items: flex-start; /* 术语换行/说明多行时都从顶部对齐 */
     margin-bottom: 6px;
     padding: 9px 13px;
     background-color: rgb(30, 32, 38);
@@ -159,10 +167,10 @@
 }
 
 .demo-concept-term {
-    width: 104px;
+    width: 124px;
     flex-shrink: 0;
     margin-right: 10px;
-    white-space: nowrap;
+    white-space: normal; /* 长术语在列内换行，不再溢出列宽压到右侧说明上 */
     -unity-font-style: bold;
     color: rgb(120, 178, 255);
     font-size: 13px;

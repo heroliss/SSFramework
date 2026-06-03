@@ -111,12 +111,29 @@ namespace Game.Framework.Demo.Core
             return btn;
         }
 
-        /// <summary>动态值显示（如计数器当前值），返回 Label 供模块订阅后更新 <c>text</c>。</summary>
-        public Label AddValueDisplay(string initial = "")
+        /// <summary>
+        /// 动态值显示（如计数器当前值），返回 Label 供模块订阅后更新 <c>text</c>。
+        /// 传入 <paramref name="code"/> 时，值右侧紧跟一个源码跳转（通常指向喂这个值的查询 Command），
+        /// 方便从“看到的状态”一键跳到“它从哪来”。
+        /// </summary>
+        public Label AddValueDisplay(string initial = "", CodeRef code = default)
         {
             var l = new Label(initial);
             l.AddToClassList("demo-value");
-            Content.Add(l);
+
+            if (code.HasTarget && CodeNavigator.IsAvailable)
+            {
+                l.style.marginBottom = 0; // 间距交给外层行，避免链接相对文字偏上
+                var row = new VisualElement();
+                row.AddToClassList("demo-value-row");
+                row.Add(l);
+                AppendCodeLink(row, code);
+                Content.Add(row);
+            }
+            else
+            {
+                Content.Add(l);
+            }
             return l;
         }
 

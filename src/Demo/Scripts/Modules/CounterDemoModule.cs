@@ -28,7 +28,7 @@ namespace Game.Framework.Demo.Modules
         {
             host.AddSectionTitle("演示");
 
-            var valueLabel = host.AddValueDisplay();
+            var valueLabel = host.AddValueDisplay("", CodeRef.Here("struct GetCountCommand", "GetCountCommand"));
             // 只读查询 Command 返回 Model 的状态流；订阅即拿当前值（R3 内置），之后每次变化自动推送。
             var count = this.ExecuteCommand(new GetCountCommand());
             Bag.Subscribe(count, v => valueLabel.text = $"当前计数：{v}");

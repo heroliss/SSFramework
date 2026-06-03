@@ -31,7 +31,7 @@ namespace Game.Framework.Demo.Modules
         {
             // ── 纯 C# 路径：原理最透明 ──
             host.AddSectionTitle("纯 C# Model（白盒原理）");
-            var codeLabel = host.AddValueDisplay();
+            var codeLabel = host.AddValueDisplay("", CodeRef.Here("struct GetCodeScoreCommand", "GetCodeScoreCommand"));
             Bag.Subscribe(this.ExecuteCommand(new GetCodeScoreCommand()), v => codeLabel.text = $"分数：{v}");
             host.AddActionRow("分数 +1", () => this.ExecuteCommand(new RaiseCodeScoreCommand()),
                 CodeRef.Here("class CodeScoreModel", "CodeScoreModel"));
@@ -40,7 +40,7 @@ namespace Game.Framework.Demo.Modules
 
             // ── Mono 路径：Hierarchy 节点 + Inspector ──
             host.AddSectionTitle("Mono Model（Hierarchy + Inspector）");
-            var monoLabel = host.AddValueDisplay();
+            var monoLabel = host.AddValueDisplay("", CodeRef.Here("struct GetMonoScoreCommand", "GetMonoScoreCommand"));
             Bag.Subscribe(this.ExecuteCommand(new GetMonoScoreCommand()), v => monoLabel.text = $"分数：{v}");
             host.AddActionRow("分数 +1", () => this.ExecuteCommand(new RaiseMonoScoreCommand()),
                 new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/MonoScoreModel.cs", "class MonoScoreModel", "MonoScoreModel"));
@@ -55,7 +55,7 @@ namespace Game.Framework.Demo.Modules
             host.AddConcept("纯 C#", "逻辑型 / 要热更 / 要单测 / 不需要在 Inspector 配的状态。零 Unity 依赖、原理透明。");
             host.AddConcept("Mono", "需要 Inspector 可视化、策划要填初值或拖引用的状态。自动注册、所见即所得。");
             host.AddNote("两者都用同一个 RP<T> 持有状态、都经 Command 读写、都进同一个 Context——区别只在“怎么进容器”。",
-                new CodeRef("Assets/Game/Framework/Scripts/Reactive/RP.cs", "class RP", "RP<T> 源码"));
+                CodeRef.Here("class CodeScoreModel", "Model 定义"));
         }
 
 #if UNITY_EDITOR

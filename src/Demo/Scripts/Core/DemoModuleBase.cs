@@ -5,8 +5,8 @@ using Game.Framework.Internal;
 namespace Game.Framework.Demo.Core
 {
     /// <summary>
-    /// 演示模块基类。扮演框架里的 <b>"View 角色"</b>：持有 demo Context、享有 View 权限
-    /// （<see cref="ICanSendCommand"/> + <see cref="ICanRegisterEvent"/>），用 <see cref="Bag"/> 管理订阅与资源——
+    /// 演示模块基类。扮演框架里的 <b>"View 角色"</b>：持有 demo Context、享有与真实 <c>IView</c> 一致的权限
+    /// （<see cref="ICanSendCommand"/> + <see cref="ICanRegisterEvent"/> + <see cref="ICanGetUtility"/>），用 <see cref="Bag"/> 管理订阅与资源——
     /// 模块就走这条和真实 View 一样的路径调用框架，正好验证 API 手感。
     /// </summary>
     /// <remarks>
@@ -14,7 +14,7 @@ namespace Game.Framework.Demo.Core
     /// 只能用扩展方法（<c>this.ExecuteCommand(...)</c> / <c>this.RegisterEvent(...)</c> / <c>this.GetUtility(...)</c>），
     /// 受权限接口约束——模块因此无法越权 GetModel/SendEvent，教学上示范的就是"正确的 View 写法"。
     /// </remarks>
-    public abstract class DemoModuleBase : IDemoModule, IHasGameContext, ICanSendCommand, ICanRegisterEvent
+    public abstract class DemoModuleBase : IDemoModule, IHasGameContext, ICanSendCommand, ICanRegisterEvent, ICanGetUtility
     {
         private IGameContext _context;
         private DisposableBag _bag;
