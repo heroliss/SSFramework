@@ -6,6 +6,8 @@
 
 ## 1. IGameContext vs IHasGameContext
 
+> **术语口径**：对象统一叫 **Context / 上下文**（`GameContext` 实例 = 能力环境）；**作用域 / scope** 只描述「生命周期 / 解析边界」——Context 之间构成**作用域树**做解析回退、`Bag.CreateChild()` 开**更短的作用域**。别把某个 Context 实例直接叫成「作用域」。
+
 - `IGameContext` 是完整上下文能力接口，包含 Container/Inject/Resolve/GetXxx/RegisterXxx/Event/Command/CancellationToken 等能力。
 - `GameContext` 直接实现 `IGameContext`。
 - `MonoGameContextBase` 也实现 `IGameContext`，作为场景 Mono 代理转发到内部真实 `GameContext`。

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine.UIElements;
 
 namespace Game.Framework.Demo.Core
@@ -16,14 +17,50 @@ namespace Game.Framework.Demo.Core
         /// <summary>模块内容根容器。模块把自己的 UI 都加到这里。</summary>
         public VisualElement Content { get; }
 
+        // 当前 Add* 的目标容器栈：空栈时落到根 Content（默认）。用于把一段构建临时塞进子容器（如分栏布局的某一列）。
+        private readonly Stack<VisualElement> _targets = new();
+
+        // 后续 Add* 实际落到的容器：栈顶优先，否则根 Content。
+        private VisualElement Target => _targets.Count > 0 ? _targets.Peek() : Content;
+
         public DemoModuleHost(VisualElement content) => Content = content;
+
+        /// <summary>
+        /// 临时把后续 <c>Add*</c> 的目标切到 <paramref name="container"/>（如分栏布局里的某一列），
+        /// 让分栏内的按钮 / 值显示照样复用统一的样式与源码跳转约定，而不必手搓 VisualElement 重复一遍这些逻辑。
+        /// 用 <c>using</c> 包住一段构建，作用域结束自动恢复上一层目标：
+        /// <code><![CDATA[
+        /// host.Content.Add(row);          // 先搭好分栏骨架
+        /// using (host.Into(leftColumn))   // 后续 Add* 落到 leftColumn
+        ///     host.AddActionRow("做点什么", DoThing);
+        /// ]]></code>
+        /// </summary>
+        public IDisposable Into(VisualElement container)
+        {
+            _targets.Push(container);
+            return new TargetScope(this);
+        }
+
+        // Into 的配套作用域：Dispose 时弹出目标、恢复到上一层。幂等，重复 Dispose 无副作用。
+        private sealed class TargetScope : IDisposable
+        {
+            private readonly DemoModuleHost _host;
+            private bool _disposed;
+            public TargetScope(DemoModuleHost host) => _host = host;
+            public void Dispose()
+            {
+                if (_disposed) return;
+                _disposed = true;
+                _host._targets.Pop();
+            }
+        }
 
         /// <summary>小节标题。</summary>
         public Label AddSectionTitle(string text)
         {
             var l = new Label(text);
             l.AddToClassList("demo-section-title");
-            Content.Add(l);
+            Target.Add(l);
             return l;
         }
 
@@ -34,7 +71,7 @@ namespace Game.Framework.Demo.Core
             l.AddToClassList("demo-note");
             l.style.whiteSpace = WhiteSpace.Normal;
             l.enableRichText = false; // 讲解文本常含 List<int> / RP<T> 等泛型尖括号，关掉富文本免得 <T> 被当标签吞掉
-            Content.Add(l);
+            Target.Add(l);
             return l;
         }
 
@@ -54,7 +91,7 @@ namespace Game.Framework.Demo.Core
             row.Add(l);
 
             AppendCodeLink(row, code);
-            Content.Add(row);
+            Target.Add(row);
             return l;
         }
 
@@ -65,7 +102,7 @@ namespace Game.Framework.Demo.Core
             l.AddToClassList("demo-tip");
             l.style.whiteSpace = WhiteSpace.Normal;
             l.enableRichText = false;
-            Content.Add(l);
+            Target.Add(l);
             return l;
         }
 
@@ -88,7 +125,7 @@ namespace Game.Framework.Demo.Core
             d.enableRichText = false;
             row.Add(d);
 
-            Content.Add(row);
+            Target.Add(row);
             return row;
         }
 
@@ -107,7 +144,7 @@ namespace Game.Framework.Demo.Core
             row.Add(btn);
 
             AppendCodeLink(row, code);
-            Content.Add(row);
+            Target.Add(row);
             return btn;
         }
 
@@ -128,11 +165,11 @@ namespace Game.Framework.Demo.Core
                 row.AddToClassList("demo-value-row");
                 row.Add(l);
                 AppendCodeLink(row, code);
-                Content.Add(row);
+                Target.Add(row);
             }
             else
             {
-                Content.Add(l);
+                Target.Add(l);
             }
             return l;
         }
@@ -143,7 +180,7 @@ namespace Game.Framework.Demo.Core
             var row = new VisualElement();
             row.AddToClassList("demo-action-row");
             if (AppendCodeLink(row, code))
-                Content.Add(row);
+                Target.Add(row);
         }
 
         // 若 code 有效且当前可跳转，往 row 追加一个源码链接按钮。返回是否追加了。
