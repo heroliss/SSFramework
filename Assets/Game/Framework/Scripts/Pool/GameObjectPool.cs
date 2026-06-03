@@ -11,15 +11,17 @@ namespace Game.Framework.Pool
     /// </summary>
     /// <remarks>
     /// 主线程独占、不加锁。每个实例挂一个 <see cref="PooledObject"/> 标记（记录来源池 + 缓存 <see cref="IPoolable"/> 组件）。<br/>
-    /// 空闲实例统一停用并挂在 <paramref name="parkingRoot"/>（由 <see cref="PoolUtility"/> 创建的 DontDestroyOnLoad 停用节点）下，
-    /// 既隔离出场景视图、又因 parent 停用而不参与渲染/Update。<br/>
+    /// 空闲实例统一停用并挂在 <see cref="PoolUtility"/> 提供的 DontDestroyOnLoad 停用停放节点下，
+    /// 既隔离出场景视图、又因 parent 停用而不参与渲染/Update；停放点经 <c>parkingProvider</c> 按需解析——
+    /// 节点被外部销毁（如手动删 Hierarchy 里的内部停放节点）时由提供方在下次入池时重建，归还实例不会散落到场景根。<br/>
     /// <b>归还防护：</b><see cref="Despawn"/> 对"非本池实例 / 重复归还"的短路在**所有构建**生效——防止同一 live 实例被两次入栈、
     /// 进而被发给两个调用方（Release 下静默的别名 bug）；仅诊断日志放在 Editor / Development Build。
     /// </remarks>
     public sealed class GameObjectPool : IGameObjectPool
     {
         private readonly GameObject _prefab;
-        private readonly Transform _parkingRoot;
+        // 空闲实例停放点的提供者：按需解析而非缓存固定 Transform——停放节点被外部销毁时由提供方重建（见 PoolUtility.EnsureParkingFor）。
+        private readonly Func<Transform> _parkingProvider;
         private readonly int _maxSize; // 0 = 不限容量
         private readonly Stack<GameObject> _inactive = new();
 
@@ -29,20 +31,32 @@ namespace Game.Framework.Pool
         private readonly Vector3 _localScale;
 
         /// <param name="prefab">源 prefab，必填。</param>
-        /// <param name="parkingRoot">空闲实例的挂载节点（应为停用的 DontDestroyOnLoad 节点），必填。</param>
+        /// <param name="parkingProvider">
+        /// 空闲实例停放点的提供者，必填。每次入池（归还 / 预热）时调用取节点——把"停放点是否仍有效"交给提供方，
+        /// 它可在节点被外部销毁后重建，避免归还实例被 <c>SetParent</c> 到已销毁节点而散落到场景根。
+        /// </param>
         /// <param name="maxSize">池容量上限；0 表示不限。超限的归还实例被 Destroy。</param>
-        public GameObjectPool(GameObject prefab, Transform parkingRoot, int maxSize = 0)
+        public GameObjectPool(GameObject prefab, Func<Transform> parkingProvider, int maxSize = 0)
         {
             if (prefab == null) throw new ArgumentNullException(nameof(prefab));
-            if (parkingRoot == null) throw new ArgumentNullException(nameof(parkingRoot));
+            _parkingProvider = parkingProvider ?? throw new ArgumentNullException(nameof(parkingProvider));
             _prefab = prefab;
-            _parkingRoot = parkingRoot;
             _maxSize = maxSize < 0 ? 0 : maxSize;
 
             var t = prefab.transform;
             _localPosition = t.localPosition;
             _localRotation = t.localRotation;
             _localScale = t.localScale;
+        }
+
+        /// <param name="prefab">源 prefab，必填。</param>
+        /// <param name="parkingRoot">固定停放点（应为停用的 DontDestroyOnLoad 节点），必填。</param>
+        /// <param name="maxSize">池容量上限；0 表示不限。</param>
+        /// <remarks>便利重载：停放点固定不自愈，用于测试或不会动停放节点的简单场景。生产经 <see cref="PoolUtility"/> 走 provider 重载。</remarks>
+        public GameObjectPool(GameObject prefab, Transform parkingRoot, int maxSize = 0)
+            : this(prefab, () => parkingRoot, maxSize)
+        {
+            if (parkingRoot == null) throw new ArgumentNullException(nameof(parkingRoot));
         }
 
         public GameObject Prefab => _prefab;
@@ -124,7 +138,7 @@ namespace Game.Framework.Pool
             }
 
             instance.SetActive(false);
-            instance.transform.SetParent(_parkingRoot, false);
+            instance.transform.SetParent(_parkingProvider(), false);
             _inactive.Push(instance);
         }
 
@@ -135,7 +149,7 @@ namespace Game.Framework.Pool
                 if (_maxSize != 0 && _inactive.Count >= _maxSize) break;
                 var go = CreateNew(out _);
                 go.SetActive(false);
-                go.transform.SetParent(_parkingRoot, false);
+                go.transform.SetParent(_parkingProvider(), false);
                 _inactive.Push(go);
                 // 每帧一个，把实例化开销摊到多帧（通常在加载界面期间预热）。取消则中断，已建实例留在池中。
                 await UniTask.Yield(ct);
