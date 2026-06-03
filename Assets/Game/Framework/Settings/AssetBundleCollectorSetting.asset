@@ -17,7 +17,8 @@ MonoBehaviour:
   UniqueBundleName: 1
   Packages:
   - PackageName: DefaultPackage
-    PackageDesc: 
+    PackageDesc: "\u9ED8\u8BA4\u8D44\u6E90\u5305\uFF1A\u6846\u67B6\u5185\u7F6E\u8D44\u6E90
+      + demo \u8D44\u6E90 + \u6D4B\u8BD5\u56FA\u4EF6\u3002"
     EnableAddressable: 1
     SupportExtensionless: 1
     LocationToLower: 0
@@ -25,15 +26,16 @@ MonoBehaviour:
     AutoCollectShaders: 1
     IgnoreRuleName: NormalIgnoreRule
     Groups:
-    - GroupName: TestGroup
-      GroupDesc: 
-      AssetTags: 
+    - GroupName: FrameworkTestGroup
+      GroupDesc: "Framework \u6D4B\u8BD5\u56FA\u4EF6\uFF08LittleHouse prefab + \u623F\u5C4B\u6750\u8D28\uFF09\uFF0C\u4F9B
+        YooAssetLoadTests \u52A0\u8F7D\u9A8C\u8BC1\u3002"
+      AssetTags: framework-test
       ActiveRuleName: EnableGroup
       Collectors:
       - CollectPath: Assets/Game/Framework/Test/Res
         CollectorGUID: 763ef90f7679c824c9aaee5452f76a2a
         CollectorType: 0
-        AddressRuleName: AddressByGroupAndFileName
+        AddressRuleName: AddressByFileName
         PackRuleName: PackDirectory
         FilterRuleName: CollectPrefab
         AssetTags: 
@@ -43,14 +45,6 @@ MonoBehaviour:
       AssetTags: 
       ActiveRuleName: EnableGroup
       Collectors:
-      - CollectPath: Assets/Game/Framework/Demo/Res
-        CollectorGUID: f137be06a3007c246a0f7457677c5b53
-        CollectorType: 0
-        AddressRuleName: AddressByFileName
-        PackRuleName: PackDirectory
-        FilterRuleName: CollectAll
-        AssetTags: framework-demo
-        UserData: 
       - CollectPath: Assets/Game/Framework/Res
         CollectorGUID: 205d8c258a640884b959bea4bdfe1191
         CollectorType: 0
