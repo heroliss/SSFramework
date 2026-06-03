@@ -44,11 +44,20 @@ namespace Game.Framework.Pool
 
         /// <summary>
         /// 预创建 <paramref name="count"/> 个实例放入池中（受容量上限约束），避免运行期首次 Spawn 的实例化尖峰。
-        /// <b>异步分帧：</b>每帧实例化一个，把开销摊到多帧（通常在加载界面期间调用），可被 <paramref name="ct"/> 取消。
+        /// <b>异步分帧：</b>每帧实例化 <paramref name="perFrame"/> 个，把开销摊到多帧（通常在加载界面期间调用），可被 <paramref name="ct"/> 取消。
         /// </summary>
-        UniTask Prewarm(int count, CancellationToken ct = default);
+        UniTask Prewarm(int count, int perFrame = 1, CancellationToken ct = default);
 
-        /// <summary>Destroy 池中所有空闲实例（已 Spawn 出去的不受影响）。</summary>
+        /// <summary>Destroy 池中所有空闲实例（已 Spawn 出去的不受影响）。瞬时全销；要分帧用 <see cref="ClearAsync"/>。</summary>
         void Clear();
+
+        /// <summary>
+        /// 分帧把空闲实例收缩到至多 <paramref name="targetCount"/> 个：每帧 Destroy <paramref name="perFrame"/> 个，
+        /// 把销毁开销摊到多帧（避免一次性 Destroy 大量实例造成卡顿）。已 Spawn 出去的不受影响；可被 <paramref name="ct"/> 取消。
+        /// </summary>
+        UniTask TrimAsync(int targetCount, int perFrame = 1, CancellationToken ct = default);
+
+        /// <summary>分帧 Destroy 全部空闲实例（等价 <c>TrimAsync(0, …)</c>）。</summary>
+        UniTask ClearAsync(int perFrame = 1, CancellationToken ct = default);
     }
 }

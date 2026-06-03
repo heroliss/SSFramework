@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Game.Framework.Context;
 using Game.Framework.Internal;
 using Game.Framework.Model;
@@ -158,6 +159,105 @@ namespace Game.Framework.Test
             // 父级解析依然拿到父级实例
             Assert.AreSame(parentModel, parentCtx.GetModel<ModelA>(),
                 "父 Context 不受子级运行期注册影响");
+        }
+
+        // ── owned 注册：Context 拥有的 IDisposable 随 Dispose 释放，普通 RegisterValue 不动 ──
+
+        private sealed class TrackedDisposable : IDisposable
+        {
+            public int DisposeCount;
+            public void Dispose() => DisposeCount++;
+        }
+
+        [Test]
+        public void RegisterOwned_DisposedOnContextDispose()
+        {
+            var owned = new TrackedDisposable();
+            var builder = new ContainerBuilder();
+            builder.RegisterValue(new CommandSystem(), typeof(ICommandSystem));
+            builder.RegisterOwned(owned, typeof(TrackedDisposable));
+            var ctx = new GameContext(builder.Build(), inheritFromGlobal: false);
+
+            Assert.AreSame(owned, ctx.Resolve(typeof(TrackedDisposable)), "RegisterOwned 也应能正常解析");
+            Assert.AreEqual(0, owned.DisposeCount, "Dispose 前不应被释放");
+
+            ctx.Dispose();
+            Assert.AreEqual(1, owned.DisposeCount, "Context.Dispose 应释放 owned 实例");
+        }
+
+        [Test]
+        public void RegisterValue_NotDisposedOnContextDispose()
+        {
+            var notOwned = new TrackedDisposable();
+            var builder = new ContainerBuilder();
+            builder.RegisterValue(new CommandSystem(), typeof(ICommandSystem));
+            builder.RegisterValue(notOwned, typeof(TrackedDisposable));
+            var ctx = new GameContext(builder.Build(), inheritFromGlobal: false);
+
+            ctx.Dispose();
+            Assert.AreEqual(0, notOwned.DisposeCount,
+                "普通 RegisterValue 不被容器拥有，Dispose 不应释放外部实例");
+        }
+
+        [Test]
+        public void RegisterOwned_ContextDispose_Idempotent()
+        {
+            var owned = new TrackedDisposable();
+            var builder = new ContainerBuilder();
+            builder.RegisterValue(new CommandSystem(), typeof(ICommandSystem));
+            builder.RegisterOwned(owned, typeof(TrackedDisposable));
+            var ctx = new GameContext(builder.Build(), inheritFromGlobal: false);
+
+            ctx.Dispose();
+            ctx.Dispose();
+            Assert.AreEqual(1, owned.DisposeCount, "重复 Dispose 应幂等，owned 只释放一次");
+        }
+
+        private sealed class OrderedDisposable : IDisposable
+        {
+            private readonly List<string> _log;
+            private readonly string _id;
+            public OrderedDisposable(List<string> log, string id) { _log = log; _id = id; }
+            public void Dispose() => _log.Add(_id);
+        }
+
+        [Test]
+        public void RegisterOwned_DisposedInReverseRegistrationOrder()
+        {
+            var log = new List<string>();
+            var builder = new ContainerBuilder();
+            builder.RegisterValue(new CommandSystem(), typeof(ICommandSystem));
+            builder.RegisterOwned(new OrderedDisposable(log, "A"), typeof(OrderedDisposable));
+            builder.RegisterOwned(new OrderedDisposable(log, "B"), typeof(OrderedDisposable));
+            builder.RegisterOwned(new OrderedDisposable(log, "C"), typeof(OrderedDisposable));
+            var ctx = new GameContext(builder.Build(), inheritFromGlobal: false);
+
+            ctx.Dispose();
+            Assert.AreEqual(new[] { "C", "B", "A" }, log.ToArray(),
+                "owned 应逆序（LIFO）释放——后注册的先 Dispose");
+        }
+
+        [Test]
+        public void RegisterOwned_ParentAndChild_DisposeIndependently()
+        {
+            var log = new List<string>();
+            var parentBuilder = new ContainerBuilder();
+            parentBuilder.RegisterValue(new CommandSystem(), typeof(ICommandSystem));
+            parentBuilder.RegisterOwned(new OrderedDisposable(log, "parent"), typeof(OrderedDisposable));
+            var parentCtx = new GameContext(parentBuilder.Build(), inheritFromGlobal: false);
+
+            var childBuilder = new ContainerBuilder();
+            childBuilder.SetParent(ContextInternals.GetContainer(parentCtx));
+            childBuilder.RegisterOwned(new OrderedDisposable(log, "child"), typeof(OrderedDisposable));
+            var childCtx = new GameContext(childBuilder.Build(), inheritFromGlobal: false);
+
+            childCtx.Dispose();
+            Assert.AreEqual(new[] { "child" }, log.ToArray(),
+                "子 Context Dispose 只释放自己的 owned，不连带父级");
+
+            parentCtx.Dispose();
+            Assert.AreEqual(new[] { "child", "parent" }, log.ToArray(),
+                "父 Context Dispose 释放自己的 owned，不受子级影响");
         }
     }
 }

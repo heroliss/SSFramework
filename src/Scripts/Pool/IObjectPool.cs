@@ -30,6 +30,9 @@ namespace Game.Framework.Pool
 
         /// <summary>清空池中所有空闲实例（已租出的不受影响）。</summary>
         void Clear();
+
+        /// <summary>把空闲实例收缩到至多 <paramref name="targetCount"/> 个，多余的丢弃交 GC（已租出的不受影响）。</summary>
+        void Trim(int targetCount);
     }
 
     /// <summary>
@@ -37,7 +40,8 @@ namespace Game.Framework.Pool
     /// 经 <c>this.GetUtility&lt;IPoolUtility&gt;()</c> 访问；或在 <c>MonoXxxBase</c> 子类里用 <c>Bag.Rent&lt;T&gt;()</c> 租借并随宿主自动归还。
     /// </summary>
     /// <remarks>
-    /// <b>注册：</b>在 Context 的 <c>InstallBindings</c> 中 <c>builder.RegisterValue(new PoolUtility(), typeof(IPoolUtility))</c>。<br/>
+    /// <b>注册（按池生命周期选）：</b>纯 C# 跟随 Context 用 <c>builder.RegisterOwned(new PoolUtility(), typeof(IPoolUtility))</c>（随 <c>GameContext.Dispose</c> 清池）；
+    /// 不关心释放用 <c>RegisterValue</c>；需 Inspector 配参数 / 跟随 GameObject 生命周期用 <see cref="MonoPoolUtility"/>。三者复用同一套池逻辑。<br/>
     /// <b>首次配置生效：</b>同一类型的池在首次配置（带工厂/钩子的 <c>GetPool</c>）时按参数创建；之后再取返回同一池，忽略后续参数。需要自定义工厂或钩子时，在首次使用前显式配置一次。<br/>
     /// <b>线程：</b>主线程独占。
     /// </remarks>

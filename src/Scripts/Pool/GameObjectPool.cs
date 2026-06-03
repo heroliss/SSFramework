@@ -138,21 +138,35 @@ namespace Game.Framework.Pool
             }
 
             instance.SetActive(false);
-            instance.transform.SetParent(_parkingProvider(), false);
+            var parking = _parkingProvider();
+            if (parking == null) // 停放点不可用（如池工具已 Dispose）：直接销毁，不入栈——避免散落场景根或泄漏复活的停放根
+            {
+                UnityEngine.Object.Destroy(instance);
+                return;
+            }
+            instance.transform.SetParent(parking, false);
             _inactive.Push(instance);
         }
 
-        public async UniTask Prewarm(int count, CancellationToken ct = default)
+        public async UniTask Prewarm(int count, int perFrame = 1, CancellationToken ct = default)
         {
+            if (perFrame < 1) perFrame = 1;
+            var thisFrame = 0;
             for (var i = 0; i < count; i++)
             {
                 if (_maxSize != 0 && _inactive.Count >= _maxSize) break;
                 var go = CreateNew(out _);
                 go.SetActive(false);
-                go.transform.SetParent(_parkingProvider(), false);
+                var parking = _parkingProvider();
+                if (parking == null) { UnityEngine.Object.Destroy(go); break; } // 停放点不可用（池工具已 Dispose）：停止预热
+                go.transform.SetParent(parking, false);
                 _inactive.Push(go);
-                // 每帧一个，把实例化开销摊到多帧（通常在加载界面期间预热）。取消则中断，已建实例留在池中。
-                await UniTask.Yield(ct);
+                // 每帧 perFrame 个，把实例化开销摊到多帧（通常在加载界面期间预热）。取消则中断，已建实例留在池中。
+                if (++thisFrame >= perFrame)
+                {
+                    thisFrame = 0;
+                    await UniTask.Yield(ct);
+                }
             }
         }
 
@@ -164,6 +178,25 @@ namespace Game.Framework.Pool
                 if (go != null) UnityEngine.Object.Destroy(go);
             }
         }
+
+        public async UniTask TrimAsync(int targetCount, int perFrame = 1, CancellationToken ct = default)
+        {
+            if (targetCount < 0) targetCount = 0;
+            if (perFrame < 1) perFrame = 1;
+            var thisFrame = 0;
+            while (_inactive.Count > targetCount)
+            {
+                var go = _inactive.Pop();
+                if (go != null) UnityEngine.Object.Destroy(go); // 跳过已被外部销毁的空槽
+                if (++thisFrame >= perFrame)
+                {
+                    thisFrame = 0;
+                    await UniTask.Yield(ct); // 摊到多帧；取消则中断，剩余空闲实例留在池中
+                }
+            }
+        }
+
+        public UniTask ClearAsync(int perFrame = 1, CancellationToken ct = default) => TrimAsync(0, perFrame, ct);
 
         // 取一个可用实例：跳过已被外部 Destroy 的空槽，池空则新建。一并返回标记，省掉调用处再次 GetComponent。
         private GameObject TakeOrCreate(out PooledObject marker)
