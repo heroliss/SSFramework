@@ -95,6 +95,63 @@ namespace Game.Framework.Demo.Core
             return l;
         }
 
+        /// <summary>
+        /// 手把手步骤行：左侧一个序号徽标（如 <c>⓪①②③④</c>）+ 右侧步骤说明，可带行末源码跳转。
+        /// 把一串操作渲染成有序流程，比一堆同级 note 更易按顺序扫读。
+        /// </summary>
+        public Label AddStep(string badge, string text, CodeRef code = default)
+        {
+            var row = new VisualElement();
+            row.AddToClassList("demo-step");
+
+            var b = new Label(badge);
+            b.AddToClassList("demo-step-badge");
+            b.enableRichText = false;
+            row.Add(b);
+
+            var l = new Label(text);
+            l.AddToClassList("demo-step-text");
+            l.style.whiteSpace = WhiteSpace.Normal;
+            l.style.flexGrow = 1;
+            l.enableRichText = false;
+            row.Add(l);
+
+            AppendCodeLink(row, code);
+            Target.Add(row);
+            return l;
+        }
+
+        /// <summary>
+        /// 次级细节说明：缩进 + 更小更暗，用于挂在某条主干（步骤 / 说明）之下的"展开看"补充内容
+        /// （如清单文件里写了啥、某步背后的原理），与正文 note 拉开层级、缓解长文的视觉压迫。可带行末源码跳转。
+        /// </summary>
+        public Label AddSubNote(string text, CodeRef code = default)
+        {
+            if (!code.HasTarget || !CodeNavigator.IsAvailable)
+            {
+                var only = new Label(text);
+                only.AddToClassList("demo-subnote");
+                only.style.whiteSpace = WhiteSpace.Normal;
+                only.enableRichText = false;
+                Target.Add(only);
+                return only;
+            }
+
+            var row = new VisualElement();
+            row.AddToClassList("demo-note-row");
+
+            var l = new Label(text);
+            l.AddToClassList("demo-subnote");
+            l.style.whiteSpace = WhiteSpace.Normal;
+            l.style.flexGrow = 1;
+            l.enableRichText = false;
+            row.Add(l);
+
+            AppendCodeLink(row, code);
+            Target.Add(row);
+            return l;
+        }
+
         /// <summary>提示 / 注意事项（强调样式）。自动换行。</summary>
         public Label AddTip(string text)
         {

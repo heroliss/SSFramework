@@ -38,15 +38,8 @@ namespace Game.Framework.Demo.Modules
     // 能力“对象池·C# / GameObject”已实现为独立模块 PoolDemoModule（见 Modules/PoolDemoModule.cs，
     // 配套 DemoPoolAssets（场景持有 prefab + 显示容器）+ PooledChip prefab）。
 
-    public sealed class AssetLoadingModule : ComingSoonModuleBase
-    {
-        public override string Id => "asset-loading";
-        public override string Title => "资源加载 · YooAsset";
-        public override string Category => "能力";
-        public override int Order => 20;
-        public override string Summary =>
-            "Bag.Load<T> / LoadScene / LoadText、AssetReference 拖拽引用、初始化状态订阅、按 tag 下载进度。";
-    }
+    // 能力“资源加载·YooAsset”已实现为独立模块 AssetLoadingModule（见 Modules/AssetLoadingModule.cs，
+    // 配套 DemoAssetRefs（场景持有 AssetReference）+ DemoCdnBuilder（Editor 一键本地 CDN））。
 
     // ─────────── View 层（也是 MVCS 一层，归入核心） ───────────
     // 核心“View·MonoViewBase”已实现为独立模块 UGuiViewModule（见 Modules/UGuiViewModule.cs，

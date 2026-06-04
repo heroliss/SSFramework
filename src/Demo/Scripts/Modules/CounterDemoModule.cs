@@ -13,12 +13,12 @@ namespace Game.Framework.Demo.Modules
     public sealed class CounterDemoModule : DemoModuleBase
     {
         public override string Id => "counter";
-        public override string Title => "计数器 · 最小闭环";
+        public override string Title => "最小闭环";
         public override string Category => "入门";
         public override int Order => 10;
         public override string Summary =>
-            "最小闭环：View 通过 Command 表达意图，Command 改 Model，View 只读订阅 Model 的状态流刷新 UI。" +
-            "View 不直接碰 Model——所有写操作都走 Command 接缝。";
+            "以最简单的计数器为例走通一圈：View 通过 Command 表达意图，Command 改 Model，View 只读订阅 Model 的状态流刷新 UI——" +
+            "View 不直接碰 Model，所有写操作都走 Command 接缝。";
 
         // 模块自带的框架层：把 CounterModel 注册进 demo Context。
         public override void InstallBindings(ContainerBuilder builder)
@@ -47,6 +47,18 @@ namespace Game.Framework.Demo.Modules
             host.AddTip("注意：View 角色没有 GetModel 权限，只能经 Command 读写 Model——这正是框架强制的单向数据流。");
             host.AddNote("• 这里 Command 直接改 Model 是最简单的形态，逻辑简单时够用；逻辑一多就把它抽到 System，"
                 + "Command 退化成只表达意图、调用 System。别把 Command→Model 直连当成终态——见后面「System · 逻辑归位」。");
+
+            // 第一次出现 RP / ReadOnlyReactiveProperty，顺手交代清楚，后续章节不再赘述。
+            host.AddSectionTitle("概念说明：响应式属性");
+            host.AddConcept("R3",
+                "一个响应式编程库（Reactive Extensions 的 Unity 实现）：把「值 / 事件」做成可订阅的流，"
+                + "值一变就自动推给所有订阅者，省掉手动轮询和回调管理。框架的响应式状态、事件订阅都建在它之上。");
+            host.AddConcept("RP<T>",
+                "框架对 R3 响应式属性（SerializableReactiveProperty<T>）的简称：一个「可被订阅的值」。"
+                + ".Value 读写、值一变就自动通知所有订阅者。Model 用它持有可观察状态（这里就是计数）。");
+            host.AddConcept("ReadOnlyReactiveProperty<T>",
+                "RP<T> 的只读视图：只能订阅、读当前值，不能写。查询 Command 把它返回给 View——"
+                + "View 看得到、改不了，写只能走 Command；订阅时 R3 会立即推一次当前值（所以一订阅就显示）。");
         }
     }
 

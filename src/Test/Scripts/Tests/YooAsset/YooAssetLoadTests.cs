@@ -69,8 +69,9 @@ namespace Game.Framework.Test
 
             var settingsGo = new GameObject("Settings");
             settingsGo.transform.SetParent(contextGo.transform);
-            var settings = settingsGo.AddComponent<AssetSettingsModel>();
-            SetPrivateField(settings, "_defaultPackageName", "DefaultPackage");
+            var settings = settingsGo.AddComponent<AssetSystemConfigModel>();
+            // 框架样例资源已从 DefaultPackage 分到 FrameworkSamplesPackage（见 collector），测试随之指向该包。
+            SetPrivateField(settings, "_defaultPackageName", "FrameworkSamplesPackage");
             // 测试环境默认走 Editor 模拟模式；非编辑器跑测试时退到 Offline。
 #if UNITY_EDITOR
             SetPrivateField(settings, "_playMode", AssetPlayMode.EditorSimulate);
@@ -334,10 +335,10 @@ namespace Game.Framework.Test
             return true;
         }
 
-        private static void SetPrivateField<T>(AssetSettingsModel settings, string fieldName, T value)
+        private static void SetPrivateField<T>(AssetSystemConfigModel settings, string fieldName, T value)
         {
-            var field = typeof(AssetSettingsModel).GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.IsNotNull(field, $"AssetSettingsModel field '{fieldName}' not found.");
+            var field = typeof(AssetSystemConfigModel).GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.IsNotNull(field, $"AssetSystemConfigModel field '{fieldName}' not found.");
             field.SetValue(settings, value);
         }
 

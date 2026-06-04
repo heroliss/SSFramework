@@ -12,13 +12,13 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 185f6993d5150494d98da50e26cb1c25, type: 3}
   m_Name: AssetBundleCollectorSetting
   m_EditorClassIdentifier: YooAsset.Editor::YooAsset.Editor.AssetBundleCollectorSetting
-  ShowPackageView: 0
+  ShowPackageView: 1
   ShowEditorAlias: 0
   UniqueBundleName: 1
   Packages:
-  - PackageName: DefaultPackage
-    PackageDesc: "\u9ED8\u8BA4\u8D44\u6E90\u5305\uFF1A\u6846\u67B6\u5185\u7F6E\u8D44\u6E90
-      + demo \u8D44\u6E90 + \u6D4B\u8BD5\u56FA\u4EF6\u3002"
+  - PackageName: FrameworkSamplesPackage
+    PackageDesc: 'Framework samples package: demo + test resources (separated from
+      game DefaultPackage; keep or delete with the framework).'
     EnableAddressable: 1
     SupportExtensionless: 1
     LocationToLower: 0
@@ -53,3 +53,12 @@ MonoBehaviour:
         FilterRuleName: CollectAll
         AssetTags: framework-demo
         UserData: 
+  - PackageName: DefaultPackage
+    PackageDesc: Game default package (framework leaves it empty for business assets).
+    EnableAddressable: 1
+    SupportExtensionless: 1
+    LocationToLower: 0
+    IncludeAssetGUID: 0
+    AutoCollectShaders: 1
+    IgnoreRuleName: NormalIgnoreRule
+    Groups: []

@@ -60,5 +60,11 @@ namespace Game.Framework
         /// </summary>
         IAssetDownloader CreateTagDownloader(
             string packageName, IReadOnlyList<string> tags, int maxConcurrent, int retries);
+
+        /// <summary>
+        /// 清理指定包已下载到本地的 bundle 缓存（删盘 + 同步更新内存缓存记录）。
+        /// 要求包已就绪；清理失败应抛异常由上层处理。
+        /// </summary>
+        UniTask ClearCacheAsync(string packageName, AssetCacheClearMode mode, CancellationToken ct);
     }
 }

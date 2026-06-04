@@ -88,11 +88,16 @@ namespace Game.Framework.Editor
             }
 
             var current = packageProp.stringValue;
-            var text = string.IsNullOrEmpty(current) ? "(default)" : current;
-            if (!GUI.Button(rect, text, EditorStyles.popup)) return;
+            var defaultPkg = ResolveDefaultPackageName();
+            var defaultLabel = string.IsNullOrEmpty(defaultPkg) ? "(默认包)" : $"默认: {defaultPkg}";
+            var text = string.IsNullOrEmpty(current) ? defaultLabel : current;
+            var tooltip = string.IsNullOrEmpty(current)
+                ? $"留空 = 用默认包（当前默认包：{(string.IsNullOrEmpty(defaultPkg) ? "未配置" : defaultPkg)}）"
+                : $"显式指定包：{current}";
+            if (!GUI.Button(rect, new GUIContent(text, tooltip), EditorStyles.popup)) return;
 
             var menu = new GenericMenu();
-            menu.AddItem(new GUIContent("(default)"), string.IsNullOrEmpty(current), () => SetPackageName(packageProp, ""));
+            menu.AddItem(new GUIContent(defaultLabel), string.IsNullOrEmpty(current), () => SetPackageName(packageProp, ""));
             var knownPackages = EnumerateKnownPackages();
             if (knownPackages.Count > 0) menu.AddSeparator("");
             foreach (var packageName in knownPackages)
@@ -105,11 +110,20 @@ namespace Game.Framework.Editor
             menu.DropDown(rect);
         }
 
+        // 解析当前场景里 AssetSystemConfigModel 配的默认包名，用于把「留空」显示成「默认: 具体包名」。
+        private static string ResolveDefaultPackageName()
+        {
+            foreach (var setting in Resources.FindObjectsOfTypeAll<AssetSystemConfigModel>())
+                if (setting != null && !string.IsNullOrWhiteSpace(setting.DefaultPackageName))
+                    return setting.DefaultPackageName;
+            return "";
+        }
+
         private static List<string> EnumerateKnownPackages()
         {
             var result = new List<string>();
             var seen = new HashSet<string>();
-            var settings = Resources.FindObjectsOfTypeAll<AssetSettingsModel>();
+            var settings = Resources.FindObjectsOfTypeAll<AssetSystemConfigModel>();
             foreach (var setting in settings)
             {
                 if (setting == null) continue;

@@ -113,7 +113,7 @@ namespace Game.Framework.Internal
             {
                 Debug.LogWarning(
                     $"[AssetReferenceBinder] Skip '{target.GetType().Name}': IAssetUtility is null. " +
-                    "Add AssetSettingsModel + AssetUtility + AssetInitSystem under the context, or call ref.Bind() manually.");
+                    "Add AssetSystemConfigModel + AssetUtility + AssetInitSystem under the context, or call ref.Bind() manually.");
                 return;
             }
             var bag = bagFactory();

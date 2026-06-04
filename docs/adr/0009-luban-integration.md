@@ -20,7 +20,7 @@
 
 ### 3. 框架定位（镜像资源系统三段式）
 
-仿照资源系统的 `AssetSettingsModel` / `AssetInitSystem` 拆分：
+仿照资源系统的 `AssetSystemConfigModel` / `AssetInitSystem` 拆分：
 
 | 角色 | 层 | 职责 |
 |---|---|---|

@@ -1,0 +1,20 @@
+{
+    "name": "Game.Framework.Demo.Editor",
+    "rootNamespace": "Game.Framework.Demo.Editor",
+    "references": [
+        "YooAsset.Editor",
+        "YooAsset",
+        "Game.Framework"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
