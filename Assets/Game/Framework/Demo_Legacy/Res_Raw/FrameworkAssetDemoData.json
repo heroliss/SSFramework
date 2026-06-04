@@ -1,6 +1,0 @@
-﻿{
-  "name": "FrameworkAssetDemoData",
-  "source": "Asset Provider RawFile",
-  "note": "这段 JSON 来自 Demo/Res/Raw，通过统一资源入口加载。",
-  "items": ["Sprite", "Prefab", "RawFile"]
-}
