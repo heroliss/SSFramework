@@ -117,7 +117,7 @@ namespace Game.Framework.Test
         {
             var builder = new ContainerBuilder();
             builder.RegisterValue(new CommandSystem(), new[] { typeof(ICommandSystem) });
-            builder.RegisterValue(new PoolUtility(), new[] { typeof(IPoolUtility), typeof(IUtility) });
+            builder.RegisterValue(new PoolUtility(), typeof(IPoolUtility));
             using var ctx = new GameContext(builder.Build());
 
             var pool = ctx.GetUtility<IPoolUtility>().GetPool<Widget>();
