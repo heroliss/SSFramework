@@ -34,7 +34,7 @@ namespace Game.Framework.Demo.Modules
             host.AddConcept("View", "界面层。只能“发 Command 表达意图”+“只读订阅状态刷新 UI”；不直接读写 Model、不发 Event——UI 永远是状态的投影。");
             host.AddConcept("Command", "意图层。把“要做什么”封装成一次操作，是唯一能写 Model、能编排 System 的接缝。默认用 readonly struct（零分配），依赖多时才用 class。");
             host.AddConcept("System", "逻辑层。承载玩法 / 业务规则，被 Command 调用；自身不发 Command，避免出现 System 调自己的回环。");
-            host.AddConcept("Model", "数据层。持有响应式状态 RP<T>，变化经 R3 推给订阅者。配套的 Event 总线做一对多广播——Model 与 Event 都是“被动数据”，只被读取 / 订阅，不主动调别人。");
+            host.AddConcept("Model", "数据层。持有响应式状态（值一变就自动通知订阅者）。配套的 Event 总线做一对多广播——Model 与 Event 都是“被动数据”，只被读取 / 订阅，不主动调别人。");
             host.AddConcept("Utility", "工具层。与玩法无关的通用能力（资源加载、对象池、存储等），各层都能取用。");
             host.AddNote("想看层的契约可以直接跳源码：");
             host.AddCodeLink(new CodeRef("Assets/Game/Framework/Scripts/Command/ICommand.cs",

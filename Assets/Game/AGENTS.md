@@ -259,18 +259,18 @@ Unity 对象 null 判断用 `if (x != null)`，不用 `?.`（Unity 重载了 `==
 
 | 角色 | 层 | 职责 |
 |---|---|---|
-| `AssetSettingsModel` | Model | DefaultPackageName / Packages / PlayMode / CDN URL / 下载并发等配置数据，挂在 Context 节点上 Inspector 可配 |
+| `AssetSystemConfigModel` | Model | DefaultPackageName / Packages / PlayMode / CDN URL / 下载并发等配置数据，挂在 Context 节点上 Inspector 可配 |
 | `AssetInitSystem` | System | 进入游戏时的初始化编排：读取配置、逐包触发 provider 初始化、暴露状态给 Utility |
 | `AssetUtility` (`IAssetUtility`) | Utility | 加载 API：Load / LoadScene / LoadText / LoadBytes；管理多包状态，具体资源库细节交给 provider |
 
-场景搭建：同一 Context 节点下挂 `AssetSettingsModel` + `AssetUtility` + `AssetInitSystem` 三个 Mono；Awake 顺序由 ExecutionOrder 自动保证（Utility -400, Model -300, System -200）。
+场景搭建：同一 Context 节点下挂 `AssetSystemConfigModel` + `AssetUtility` + `AssetInitSystem` 三个 Mono；Awake 顺序由 ExecutionOrder 自动保证（Utility -400, Model -300, System -200）。
 
 **业务接入：**
 
 - **动态加载**走 `Bag.Load<T>(location)` / `Bag.LoadScene(...)` / `Bag.LoadText(...)` / `Bag.LoadBytes(...)`，handle 自动入 bag，宿主 OnDestroy 时统一释放。Bag 内部会等 init 完成，业务无需关心时序；跨包用 `Bag.Load<T>(packageName, location)` 等显式 package 重载。
 - **Inspector 拖拽引用**走 `AssetReference<T>.Get()`：字段在 Awake 自动绑定加载器并加入宿主 Bag，宿主 OnDestroy 时由 Bag.Dispose 调 ref.Dispose 释放。AssetReference Inspector 同行下拉可指定 package，留空走默认包。ScriptableObject 或手动创建的 ref 需要调 `ref.Bind(utility, hostToken)`，或退到 `GameContext.Main` 的 utility 兜底（会输出 error）。
 - **启动界面进度**订阅 `this.GetUtility<IAssetUtility>().InitState`（`ReadOnlyReactiveProperty<AssetInitState>`，Idle/Initializing/Ready/Failed）；或等待 `Bag.EnsureInitialized()`。
-- **多 package** 在 `AssetSettingsModel.Packages` 配置额外包名；子 Context 会通过 Container 父级回退共享父级 `AssetUtility`，不需要每个 Context 单独挂一套资源系统。
+- **多 package** 在 `AssetSystemConfigModel.Packages` 配置额外包名；子 Context 会通过 Container 父级回退共享父级 `AssetUtility`，不需要每个 Context 单独挂一套资源系统。
 - **下载进度** `var dl = Bag.CreateTagDownloader("level1");`，订阅 `dl.Progress`（R3 状态流，无需 invokeImmediately），调 `dl.Download(ct)` 启动。跨包下载器用 `Bag.CreateTagDownloader(packageName, tags)`。
 - **Command 临时加载** `using var bag = ctx.CreateBag(); var prefab = await bag.Load<GameObject>(...);` —— using 块结束自动释放，Command 用完即净。
 - **手动卸载短期资源**：`ref.TryGetAsset(out T)` 非阻塞检查；`ref.Unload()` 释放本 ref 持有的 handle；`AssetReferenceList.GetAll()` 并行加载，类型不匹配有 error 日志。GUID 是 `AssetReference` 内部细节，不作为业务 API 暴露。

@@ -304,13 +304,13 @@ public class ProjectileSystem : MonoSystemBase
 **一句话核心**：Inspector 拖拽用 `AssetReference<T>`，动态路径用 `Bag.Load<T>`——所有句柄统一交 Bag 释放。
 
 **Body**：
-本 Demo Context 没有配 AssetSettingsModel + AssetUtility + AssetInitSystem 三件套，所以这一页主要演示"无资源系统时框架的安全降级"：
+本 Demo Context 没有配 AssetSystemConfigModel + AssetUtility + AssetInitSystem 三件套，所以这一页主要演示"无资源系统时框架的安全降级"：
 
 - 点 "Load Static"：未拖资源时 status 提示 `AssetReference 未配置`；即使拖了资源，因为没有 utility，框架会输出一条 warning 并跳过，**不抛异常**（运行库的 `AssetReferenceBinder` 走 TryResolve 路径）。
 - 点 "Load Dynamic"：`Bag.Load` 在初始化等待时找不到 utility，会以可读异常退出，status 显示 `[FAIL] ...`。Page 不崩。
 - 点 "Clear"：把当前 sprite 清空；Bag 内已有的 handle 仍持有，宿主 OnDestroy 时统一释放。
 
-想看完整成功路径：在 NewDemoContext 节点下加 AssetSettingsModel + AssetUtility + AssetInitSystem 三件套，配置 YooAsset 包，再进这一页——拖拽路径会自动加载并显示 sprite，动态路径会按 location 加载，所有 handle 都登记到 Bag 跟着 View 走。
+想看完整成功路径：在 NewDemoContext 节点下加 AssetSystemConfigModel + AssetUtility + AssetInitSystem 三件套，配置 YooAsset 包，再进这一页——拖拽路径会自动加载并显示 sprite，动态路径会按 location 加载，所有 handle 都登记到 Bag 跟着 View 走。
 
 **设计考量**：为什么不直接用 YooAsset 的 API？因为：
 - **隔离底层换库代价**：业务代码不直接依赖 YooAsset，未来换 Addressables 或自研只需重写 `IAssetProvider`。
@@ -382,7 +382,7 @@ public class GameContext : MonoGlobalContext
 ```
 GameRoot                      (MonoGlobalContext)
 ├── AssetUtility              (MonoUtility, IAssetUtility)
-├── AssetSettings             (MonoModel, AssetSettingsModel — 在 Inspector 配 CDN / 包名)
+├── AssetSettings             (MonoModel, AssetSystemConfigModel — 在 Inspector 配 CDN / 包名)
 ├── AssetInitSystem           (MonoSystem)
 ├── BootstrapView             (MonoView — 等待 IAssetUtility.InitState=Ready，加载首关)
 └── (DontDestroyOnLoad 保留)

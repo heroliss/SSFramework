@@ -193,6 +193,22 @@ namespace Game.Framework
             return new AssetDownloader(op);
         }
 
+        public async UniTask ClearCacheAsync(string packageName, AssetCacheClearMode mode, CancellationToken ct)
+        {
+            ThrowIfDisposed();
+            var package = GetReadyPackage(packageName);
+            // 框架的两档清理映射到 YooAsset 3.0 的清理方式：All=清全部缓存 bundle，Unused=清未被当前清单引用的 bundle。
+            string method = mode == AssetCacheClearMode.All
+                ? ClearCacheMethods.ClearAllBundleFiles
+                : ClearCacheMethods.ClearUnusedBundleFiles;
+            var op = package.ClearCacheAsync(new ClearCacheOptions(method));
+            await WaitOp(op, ct);
+            ct.ThrowIfCancellationRequested();
+
+            if (op.Status != EOperationStatus.Succeeded)
+                throw new InvalidOperationException($"[YooAssetProvider] Clear cache failed for '{packageName}': {op.Error}");
+        }
+
         public void Dispose()
         {
             if (_disposed) return;
@@ -281,7 +297,7 @@ namespace Game.Framework
 
                 case AssetPlayMode.Host:
                 {
-                    var remoteService = new GameRemoteService(config.MainCdnUrl, config.FallbackCdnUrl);
+                    var remoteService = new GameRemoteService(packageName, config.MainCdnUrl, config.FallbackCdnUrl);
                     var builtin = FileSystemParameters.CreateDefaultBuiltinFileSystemParameters();
                     var cache = FileSystemParameters.CreateDefaultSandboxFileSystemParameters(remoteService);
                     ApplyDecryptor(builtin, config);
@@ -295,7 +311,7 @@ namespace Game.Framework
 
                 case AssetPlayMode.Web:
                 {
-                    var remoteService = new GameRemoteService(config.MainCdnUrl, config.FallbackCdnUrl);
+                    var remoteService = new GameRemoteService(packageName, config.MainCdnUrl, config.FallbackCdnUrl);
                     return new WebPlayModeOptions
                     {
                         WebServerFileSystemParameters = FileSystemParameters.CreateDefaultWebServerFileSystemParameters(),
@@ -477,16 +493,23 @@ namespace Game.Framework
     /// <summary>
     /// YooAsset 3.0 远端地址服务（<see cref="IRemoteService"/>）。
     /// 返回主/备两个 URL，由 YooAsset 自带主备切换机制使用。
+    ///
+    /// 按包分目录取址：每个包的远端文件都放在 <c>{CDN}/{包名}/</c> 子目录下，最终 URL =
+    /// <c>{CDN}/{包名}/{fileName}</c>（fileName 是 YooAsset 逐个请求的 bundle 哈希名 / 版本清单 / 版本号文件）。
+    /// 多包各自一个子目录、互不覆盖，部署结构直接镜像构建产物，比一锅烩平铺更易维护。
+    /// 服务实例本就按包创建（见 <see cref="YooAssetProvider.CreateInitOptions"/>），所以包名在构造时一次性定下。
     /// </summary>
     internal sealed class GameRemoteService : IRemoteService
     {
         private readonly string _mainUrl;
         private readonly string _fallbackUrl;
 
-        public GameRemoteService(string mainUrl, string fallbackUrl)
+        public GameRemoteService(string packageName, string mainUrl, string fallbackUrl)
         {
-            _mainUrl = Normalize(mainUrl);
-            _fallbackUrl = Normalize(fallbackUrl);
+            // 包名作为子目录前缀拼到规范化后的 CDN 根之后；包名为空则退回根目录（兼容无包名场景）。
+            string sub = string.IsNullOrEmpty(packageName) ? string.Empty : packageName + "/";
+            _mainUrl = Normalize(mainUrl) + sub;
+            _fallbackUrl = Normalize(fallbackUrl) + sub;
         }
 
         public IReadOnlyList<string> GetRemoteUrls(string fileName)

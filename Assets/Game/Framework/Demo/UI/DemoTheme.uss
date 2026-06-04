@@ -121,10 +121,51 @@
     white-space: normal;
 }
 
-/* 讲解段落 + 行末源码链接：横排，链接顶对齐贴在文字右侧 */
+/* 讲解段落 + 行末源码链接：横排，链接顶对齐贴在文字右侧；放不下时链接整体折到下一行而不是溢出右侧 */
 .demo-note-row {
     flex-direction: row;
+    flex-wrap: wrap;
     align-items: flex-start;
+}
+
+/* 手把手步骤：左侧序号徽标 + 右侧步骤说明，把一串操作变成可顺序扫读的有序流程 */
+.demo-step {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    margin-top: 9px;
+    margin-bottom: 3px;
+}
+
+.demo-step-badge {
+    flex-shrink: 0;
+    min-width: 24px;
+    height: 22px;
+    margin-right: 10px;
+    padding: 0 6px;
+    -unity-text-align: middle-center;
+    background-color: rgb(36, 48, 70);
+    color: rgb(120, 178, 255);
+    border-radius: 6px;
+    font-size: 13px;
+    -unity-font-style: bold;
+}
+
+.demo-step-text {
+    flex-grow: 1;
+    flex-shrink: 1;
+    white-space: normal;
+    color: rgb(206, 211, 221); /* 比普通 note 略亮：步骤是主干内容 */
+    font-size: 13px;
+}
+
+/* 次级细节（原理 / 补充）：缩进 + 更小更暗，作为某条主干下的“展开看”内容，与正文拉开层级 */
+.demo-subnote {
+    font-size: 12px;
+    color: rgb(138, 144, 156);
+    margin-left: 34px; /* 与 step 文字大致对齐（徽标 min-width 24 + margin 10） */
+    margin-bottom: 6px;
+    white-space: normal;
 }
 
 .demo-tip {
@@ -141,10 +182,12 @@
 }
 
 .demo-value {
-    font-size: 22px;
+    font-size: 18px;
     -unity-font-style: bold;
     color: rgb(236, 238, 243);
     margin-bottom: 12px;
+    white-space: normal;   /* 长状态文本在容器内换行，不再横向溢出屏幕 */
+    flex-shrink: 1;        /* 处在 demo-value-row（flex 行）里时也能收缩换行，而非把行撑宽 */
 }
 
 /* 值显示 + 行末源码跳转：把“看到的状态”和“喂它的查询 Command”并排 */
@@ -207,9 +250,10 @@
     border-radius: 6px;
 }
 
-/* 动作行：演示按钮 + 紧挨着的源码跳转 */
+/* 动作行：演示按钮 + 紧挨着的源码跳转；放不下时源码链接折到下一行而不是被挤出窗口右侧 */
 .demo-action-row {
     flex-direction: row;
+    flex-wrap: wrap;
     align-items: center;
     margin-bottom: 7px;
 }
@@ -237,9 +281,9 @@
 
 /* 源码跳转：低调的次级按钮，紧挨动作按钮 */
 .demo-code-link {
-    height: 27px;
+    min-height: 27px;
     margin-left: 9px;
-    padding: 0 11px;
+    padding: 4px 11px;
     background-color: rgb(38, 41, 49);
     color: rgb(150, 168, 198);
     border-width: 1px;
@@ -247,6 +291,8 @@
     border-radius: 6px;
     font-size: 11px;
     -unity-font-style: normal;
+    white-space: normal;   /* 标签很长时按钮内文字也能换行，配合行级 flex-wrap 双重兜底 */
+    flex-shrink: 1;
     transition-duration: 0.08s;
 }
 
@@ -254,6 +300,59 @@
     background-color: rgb(36, 48, 70);
     color: rgb(120, 178, 255);
     border-color: rgb(96, 165, 250);
+}
+
+/* ---- 下载进度条（默认轨道+填充都偏白，看不出进度；改成暗色轨道 + 蓝色填充 + 可读标题）---- */
+.unity-progress-bar {
+    margin-top: 2px;
+    margin-bottom: 8px;
+}
+
+.unity-progress-bar__background {
+    background-color: rgb(38, 41, 49);
+    border-width: 1px;
+    border-color: rgb(55, 60, 72);
+    border-radius: 6px;
+    min-height: 22px;
+}
+
+.unity-progress-bar__progress {
+    background-color: rgb(59, 130, 246);
+    border-radius: 5px;
+    margin: 1px;
+}
+
+.unity-progress-bar__title {
+    color: rgb(236, 238, 243);
+    font-size: 12px;
+    -unity-font-style: bold;
+}
+
+/* ---- 真/假状态徽标：把布尔结果做成一眼可辨的色块，而不只是文字 ---- */
+.demo-badge {
+    align-self: flex-start;
+    padding: 3px 10px;
+    border-radius: 5px;
+    font-size: 12px;
+    -unity-font-style: bold;
+    margin-bottom: 10px;
+    white-space: normal;
+    background-color: rgb(38, 41, 49);
+    color: rgb(160, 166, 178);
+}
+
+.demo-badge--yes {
+    background-color: rgba(34, 130, 80, 0.30);
+    border-left-width: 3px;
+    border-left-color: rgb(70, 200, 130);
+    color: rgb(130, 230, 175);
+}
+
+.demo-badge--no {
+    background-color: rgba(150, 60, 60, 0.28);
+    border-left-width: 3px;
+    border-left-color: rgb(220, 110, 110);
+    color: rgb(240, 160, 160);
 }
 
 /* ---- 滚动条（暗色细条、去掉两端箭头与白色轨道）---- */

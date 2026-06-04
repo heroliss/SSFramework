@@ -39,16 +39,19 @@ namespace Game.Framework
         private bool _disposedByDestroy;
 
 #if UNITY_EDITOR
-        private float _editorSimulateDownloadSeconds;
+        private long _editorSimulateDownloadSizeBytes;
+        private long _editorSimulateDownloadSpeedBytesPerSec;
 
         /// <summary>
-        /// EditorSimulate 模式下，无需真实下载时模拟进度动画的时长（秒）。
-        /// 由 <see cref="AssetInitSystem"/> 在 Configure 后注入，0 = 不模拟。
+        /// EditorSimulate 模式下、无需真实下载时，用「模拟大小 + 速度」驱动一段进度动画（时长 = 大小 / 速度）。
+        /// 由 <see cref="AssetInitSystem"/> 在 Configure 后注入；任一为 0 = 不模拟。
+        /// 模拟大小会作为 <see cref="DownloadProgressReport.TotalBytes"/> 暴露给 UI 显示总大小 / 已下载 / 速度。
         /// 仅编辑器生效，整字段与逻辑都在 <c>#if UNITY_EDITOR</c> 包裹之内。
         /// </summary>
-        internal float EditorSimulateDownloadSeconds
+        internal void ConfigureEditorSimulateDownload(long sizeBytes, long speedBytesPerSec)
         {
-            set => _editorSimulateDownloadSeconds = value;
+            _editorSimulateDownloadSizeBytes = sizeBytes;
+            _editorSimulateDownloadSpeedBytesPerSec = speedBytesPerSec;
         }
 #endif
 
@@ -308,6 +311,18 @@ namespace Game.Framework
             return CreateTagDownloaderInternal(packageName, tags);
         }
 
+        public UniTask ClearCacheAsync(AssetCacheClearMode mode = AssetCacheClearMode.Unused, CancellationToken ct = default)
+            => ClearCacheAsync(_defaultPackageName, mode, ct);
+
+        public async UniTask ClearCacheAsync(string packageName, AssetCacheClearMode mode = AssetCacheClearMode.Unused, CancellationToken ct = default)
+        {
+            ThrowIfDisposed();
+            packageName = NormalizePackageName(packageName);
+            // 清理「未使用」要对照该包当前清单判断哪些 bundle 该删，所以先确保初始化完成。
+            await EnsureInitialized(packageName, ct);
+            await _provider.ClearCacheAsync(packageName, mode, ct);
+        }
+
         private IAssetDownloader CreateTagDownloaderInternal(string packageName, IReadOnlyList<string> tags)
         {
             packageName = NormalizePackageName(packageName);
@@ -317,13 +332,14 @@ namespace Game.Framework
 
 #if UNITY_EDITOR
             // EditorSimulate 模式下所有资源都已就绪，downloader.TotalCount 必为 0，UI 上的下载流程会瞬间跳满。
-            // 当 _editorSimulateDownloadSeconds > 0 时包装一层 SimulatedAssetDownloader，
-            // 在配置时长内推进 Progress(0→1)，让开发者能真实体验和验证下载 UI。
-            if (_editorSimulateDownloadSeconds > 0f
+            // 配了「模拟大小 + 速度」时包装一层 SimulatedAssetDownloader，按 大小/速度 的时长推进 Progress 与字节数，
+            // 让开发者能真实体验和验证下载 UI（含总大小 / 已下载 / 速度显示）。
+            if (_editorSimulateDownloadSizeBytes > 0
+                && _editorSimulateDownloadSpeedBytesPerSec > 0
                 && CurrentPlayMode == AssetPlayMode.EditorSimulate
                 && downloader.TotalCount == 0)
             {
-                return new SimulatedAssetDownloader(_editorSimulateDownloadSeconds);
+                return new SimulatedAssetDownloader(_editorSimulateDownloadSizeBytes, _editorSimulateDownloadSpeedBytesPerSec);
             }
 #endif
             return downloader;

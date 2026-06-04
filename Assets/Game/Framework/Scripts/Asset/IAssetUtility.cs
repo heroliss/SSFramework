@@ -25,6 +25,19 @@ namespace Game.Framework
     }
 
     /// <summary>
+    /// 缓存清理方式。清理的是「已下载到本地沙盒的 bundle 缓存」（Host / Web 远端模式才有实际内容），
+    /// 跟「卸载内存里已加载的资源」是两回事——它只删盘上的下载文件并同步更新内存缓存记录，
+    /// 清理后对应资源的 <c>IsNeedDownload</c> 会重新变真，可在不重启的情况下重新下载。
+    /// </summary>
+    public enum AssetCacheClearMode
+    {
+        /// <summary>清理未被当前版本清单引用的 bundle：热更到新版本后回收旧版本残留，最常用的「省空间」清理。</summary>
+        Unused,
+        /// <summary>清理全部已缓存 bundle：用于设置里的「清除缓存」、资源损坏恢复、强制全量重下。</summary>
+        All,
+    }
+
+    /// <summary>
     /// 资源加载工具。框架统一的资源入口，业务层通过 <c>GetUtility&lt;IAssetUtility&gt;</c> 访问。
     ///
     /// 设计原则：
@@ -42,6 +55,8 @@ namespace Game.Framework
     ///   <item>把 DLC 资源全部放在独立 Context 下，Context Dispose 时所有 Bag 级联释放 handle，再由业务直接调用底层 provider 的卸载 API。</item>
     ///   <item>用 <see cref="AssetReference{T}.Unload"/> / <see cref="DisposableBag.Dispose"/> 显式释放 handle，让底层资源库的 unused-assets GC 自然回收。</item>
     /// </list>
+    /// 注意区分：上面说的是「卸载内存里已加载的资源」；要清理「已下载到磁盘的 bundle 缓存」（省空间 / 强制重下）用
+    /// <see cref="ClearCacheAsync(AssetCacheClearMode, CancellationToken)"/>，两者互不相关。
     /// </remarks>
     public interface IAssetUtility : IUtility
     {
@@ -135,5 +150,16 @@ namespace Game.Framework
 
         /// <summary>创建指定包的按 tag 统计和下载资源任务；packageName 为空时使用默认包。</summary>
         IAssetDownloader CreateTagDownloader(string packageName, IReadOnlyList<string> tags);
+
+        /// <summary>
+        /// 清理默认包「已下载到本地的 bundle 缓存」（远端模式才有实际内容）。清理后内存缓存记录同步更新，
+        /// 相关资源的 <see cref="IsNeedDownload(string)"/> 会重新变真，可在不重启的情况下重新下载。
+        /// 与「不提供 UnloadPackage」不冲突（见类型 remarks）：这只删盘上的下载文件，不动已加载到内存的资源。
+        /// 常见用途：设置里的「清除缓存」(<see cref="AssetCacheClearMode.All"/>)、热更后回收旧版本残留 (<see cref="AssetCacheClearMode.Unused"/>)。
+        /// </summary>
+        UniTask ClearCacheAsync(AssetCacheClearMode mode = AssetCacheClearMode.Unused, CancellationToken ct = default);
+
+        /// <summary>清理指定包的本地 bundle 缓存；packageName 为空时使用默认包。语义同 <see cref="ClearCacheAsync(AssetCacheClearMode, CancellationToken)"/>。</summary>
+        UniTask ClearCacheAsync(string packageName, AssetCacheClearMode mode = AssetCacheClearMode.Unused, CancellationToken ct = default);
     }
 }

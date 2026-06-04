@@ -10,16 +10,21 @@ namespace Game.Framework
     /// 资源系统配置 Model。挂在场景的 Context 节点上，由 <see cref="AssetInitSystem"/> 读取并驱动初始化流程。
     ///
     /// 配置本身属于数据层：Inspector 可视化、字段直接序列化，初始化顺序和资源库适配细节由 System / provider 负责。
-    /// 同 Context 下只允许一个 AssetSettingsModel（重复注册会被 Container 拒绝）。
+    /// 同 Context 下只允许一个 AssetSystemConfigModel（重复注册会被 Container 拒绝）。
     /// </summary>
-    public class AssetSettingsModel : MonoModelBase
+    public class AssetSystemConfigModel : MonoModelBase
     {
         [Header("基础配置")]
         [Tooltip("默认资源包名称；未显式指定 package 的加载请求都会使用它。")]
         [FormerlySerializedAs("PackageName")]
         [SerializeField] private string _defaultPackageName = "DefaultPackage";
 
-        [Tooltip("全局运行模式。WebGL 构建会强制使用 Web 模式。")]
+        [Tooltip("全局运行模式（内置首包 = 随包体打进 StreamingAssets 的资源；远端 = CDN）：\n" +
+                 "EditorSimulate = 编辑器直接读 AssetDatabase，免打包 / 免下载（开发期默认）；\n" +
+                 "Offline = 仅内置首包（StreamingAssets），完全不联网；\n" +
+                 "Host = 内置首包（StreamingAssets）+ 远端 CDN，缺的按需下载并缓存；\n" +
+                 "Web = 纯远端 HTTP（WebGL），不落地缓存。\n" +
+                 "WebGL 构建会强制 Web 模式。")]
         [FormerlySerializedAs("PlayMode")]
         [SerializeField] private AssetPlayMode _playMode = AssetPlayMode.EditorSimulate;
 
@@ -50,12 +55,16 @@ namespace Game.Framework
         [Min(0)] [SerializeField] private ulong _fileOffset = 0;
 
 #if UNITY_EDITOR
-        [Header("编辑器调试")]
-        [Tooltip("EditorSimulate 模式下，当所有资源已就绪（无需真实下载）时，模拟下载进度动画的持续时长（秒）。\n"
-               + "0 = 关闭模拟，下载器立即完成；>0 = 在此时长内推进进度从 0 到 1。\n"
+        [Header("编辑器调试 · 模拟下载")]
+        [Tooltip("EditorSimulate 模式下所有资源都在本地、不会真的下载；框架用「模拟大小 + 速度」造一段进度供你验证下载 UI。\n"
+               + "模拟总大小（KB）：会作为下载总量显示给 UI（总大小 / 已下载）。设 0 关闭模拟。")]
+        [Min(0)]
+        [SerializeField] private int _editorSimulateDownloadSizeKB = 8192;   // 8 MB
+
+        [Tooltip("模拟下载速度（KB/秒）。下载时长 = 大小 ÷ 速度（如 8192KB ÷ 2048KB/s = 4 秒）。设 0 关闭模拟。\n"
                + "仅 Unity Editor 生效，构建版本此字段不存在，框架不会执行任何模拟。")]
-        [Min(0f)]
-        [SerializeField] private float _editorSimulateDownloadSeconds = 2f;
+        [Min(0)]
+        [SerializeField] private int _editorSimulateDownloadSpeedKBps = 2048; // 2 MB/s
 #endif
 
         public string DefaultPackageName => _defaultPackageName;
@@ -68,15 +77,28 @@ namespace Game.Framework
         public ulong FileOffset => _fileOffset;
 
         /// <summary>
-        /// EditorSimulate 模式下模拟下载进度的时长（秒）。0 = 不模拟。
+        /// EditorSimulate 模拟下载的总大小（字节）。0 = 不模拟。作为下载总量暴露给 UI 显示。
         /// 生产构建始终返回 0（字段由 <c>#if UNITY_EDITOR</c> 包裹，零运行时代价）。
         /// </summary>
-        public float EditorSimulateDownloadSeconds
+        public long EditorSimulateDownloadSizeBytes
         {
 #if UNITY_EDITOR
-            get => _editorSimulateDownloadSeconds;
+            get => (long)_editorSimulateDownloadSizeKB * 1024L;
 #else
-            get => 0f;
+            get => 0L;
+#endif
+        }
+
+        /// <summary>
+        /// EditorSimulate 模拟下载的速度（字节/秒）。0 = 不模拟。下载时长 = 大小 ÷ 速度。
+        /// 生产构建始终返回 0（字段由 <c>#if UNITY_EDITOR</c> 包裹，零运行时代价）。
+        /// </summary>
+        public long EditorSimulateDownloadSpeedBytesPerSec
+        {
+#if UNITY_EDITOR
+            get => (long)_editorSimulateDownloadSpeedKBps * 1024L;
+#else
+            get => 0L;
 #endif
         }
 

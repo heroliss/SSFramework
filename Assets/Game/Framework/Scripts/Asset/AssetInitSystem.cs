@@ -11,7 +11,7 @@ namespace Game.Framework
     /// <summary>
     /// 进入游戏时的资源系统初始化流程。
     ///
-    /// System 层只负责编排：读取 <see cref="AssetSettingsModel"/>、配置 <see cref="AssetUtility"/>、按包触发初始化。
+    /// System 层只负责编排：读取 <see cref="AssetSystemConfigModel"/>、配置 <see cref="AssetUtility"/>、按包触发初始化。
     /// 具体资源库如何创建包、更新清单、处理远端地址与解密，都由 provider 适配层负责。
     ///
     /// 单个 package 初始化失败只会让对应包进入 Failed，不阻塞后续包；业务加载某个包时会等待该包自己的状态。
@@ -19,7 +19,7 @@ namespace Game.Framework
     public class AssetInitSystem : MonoSystemBase
     {
         [Inject] private AssetUtility _utility;
-        [Inject] private AssetSettingsModel _settings;
+        [Inject] private AssetSystemConfigModel _settings;
 
         private CancellationTokenSource _cts;
 
@@ -45,7 +45,7 @@ namespace Game.Framework
             if (_utility == null || _settings == null)
             {
                 var ex = new InvalidOperationException(
-                    "[AssetInitSystem] AssetUtility or AssetSettingsModel not found in Context. " +
+                    "[AssetInitSystem] AssetUtility or AssetSystemConfigModel not found in Context. " +
                     "Place both components under the same MonoGameContextBase.");
                 Debug.LogError(ex);
                 _utility?.FailDefaultInitialization(ex);
@@ -63,8 +63,10 @@ namespace Game.Framework
 
             _utility.Configure(_settings.DefaultPackageName, config);
 #if UNITY_EDITOR
-            // EditorSimulate 下载模拟时长：仅编辑器写入，AssetUtility 内部按需包装 SimulatedAssetDownloader。
-            _utility.EditorSimulateDownloadSeconds = _settings.EditorSimulateDownloadSeconds;
+            // EditorSimulate 模拟下载（大小 + 速度，时长 = 大小/速度）：仅编辑器写入，AssetUtility 内部按需包装 SimulatedAssetDownloader。
+            _utility.ConfigureEditorSimulateDownload(
+                _settings.EditorSimulateDownloadSizeBytes,
+                _settings.EditorSimulateDownloadSpeedBytesPerSec);
 #endif
 
             foreach (var packageName in _settings.EnumeratePackageNames())
