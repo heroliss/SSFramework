@@ -1,3 +1,4 @@
+using Cysharp.Threading.Tasks;
 using Game.Framework.Common;
 using Game.Framework.Demo.Core;
 using Game.Framework.Pool;
@@ -59,21 +60,11 @@ namespace Game.Framework.Demo.Modules
                 held = null;
                 Refresh();
             }, CodeRef.Here("pool.Return(held)", "归还用法"));
-            host.AddActionRow("预热 +3（Prewarm）", () =>
-            {
-                pool.Prewarm(3);              // 提前 new 3 个入池，把分配尖峰挪到加载期
-                Refresh();
-            }, CodeRef.Here("pool.Prewarm(3)", "预热用法"));
-            host.AddActionRow("收缩到 1（Trim）", () =>
-            {
-                pool.Trim(1);                 // 把空闲收缩到 1，多余的丢给 GC
-                Refresh();
-            }, CodeRef.Here("pool.Trim(1)", "收缩用法"));
 
             host.AddNote("反复「租借→归还→再租借」：构造次数几乎不涨——池命中复用，省掉了 new 和 GC。");
             host.AddNote("写过 Stamp 再归还、然后重新租借：拿到的实例 Stamp 又是 0——归还时 IPoolable.OnReturn 把状态清了，复用不会带上一手的脏数据。",
                 CodeRef.Here("class PooledBox", "PooledBox.OnReturn"));
-            host.AddNote("预热（Prewarm）提前建一批入池、把分配尖峰挪到加载期；收缩（Trim）在内存吃紧时回收过度预热的空闲实例。预热后构造次数上涨是预期——它们就是预先 new 好的。");
+            host.AddNote("池也支持 Prewarm（预热）/ Trim（收缩）运维，但预热的真实价值在「避免实例化尖峰」、对 GameObject 才明显——放到下面 GameObject 池里演示其分帧（异步）版本。");
 
             // 切走本章（Teardown→Bag.Dispose）时，把还攥在手上没手动归还的实例还回池里，
             // 免得来回切章时"构造次数"虚高、混淆"复用省 GC"的演示。
@@ -91,6 +82,12 @@ namespace Game.Framework.Demo.Modules
             }
             else
             {
+                // 状态读数整行铺开、不放进左列：值文本 + 行末「查看源码」比左列宽，放进窄列会横向溢出到右侧占位框上。
+                var spawnLabel = host.AddValueDisplay();
+                var poolLabel = host.AddValueDisplay();
+                var instLabel = host.AddValueDisplay("",
+                    new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/PooledChip.cs", "class PooledChip", "PooledChip 计数"));
+
                 // 分栏骨架：左列放控制按钮，右列是 UI Toolkit 占位框；UGUI 容器按占位框 worldBound 对齐，做出"镶嵌"效果。
                 var demoRow = new VisualElement();
                 demoRow.AddToClassList("demo-pool-demo-row");
@@ -109,27 +106,47 @@ namespace Game.Framework.Demo.Modules
                 var spawnBag = Bag.CreateChild();
                 int spawned = 0;
 
+                // 预热/收缩直接操作这个 prefab 的 GameObject 池——它和 Bag.Spawn 取的是同一个池
+                // （都走 GetUtility<IPoolUtility>().GetGameObjectPool(prefab)），所以预热出来的实例下次 Spawn 会被复用。
+                var goPool = this.GetUtility<IPoolUtility>().GetGameObjectPool(assets.ChipPrefab);
+
+                void RefreshGo()
+                {
+                    spawnLabel.text = $"本轮已生成：{spawned}";
+                    poolLabel.text = $"池中空闲：{goPool.CountInactive}";
+                    instLabel.text = $"真正实例化（Instantiate）：{PooledChip.InstantiateCount}";
+                }
+                RefreshGo();
+
                 // 把控制按钮塞进左列：用 host.Into 复用统一的按钮 / 值显示 / 源码跳转样式，不必手搓 VisualElement。
                 using (host.Into(controls))
                 {
-                    var spawnLabel = host.AddValueDisplay("已生成方块：0");
-
                     void ClearSpawned()
                     {
-                        spawnBag.Dispose();       // 归还本轮 Bag.Spawn 出来的所有 GameObject
+                        spawnBag.Dispose();       // 归还本轮 Bag.Spawn 出来的所有 GameObject（回池、不销毁）
                         spawnBag = Bag.CreateChild();
                         spawned = 0;
-                        spawnLabel.text = "已生成方块：0";
+                        RefreshGo();
                     }
 
                     host.AddActionRow("生成方块（Bag.Spawn）", () =>
                     {
                         spawnBag.Spawn(assets.ChipPrefab, assets.SpawnRoot);
                         spawned++;
-                        spawnLabel.text = $"已生成方块：{spawned}";
+                        RefreshGo();
                     }, CodeRef.Here("spawnBag.Spawn", "Bag.Spawn 用法"));
                     host.AddActionRow("清理本轮方块（自动归还）", ClearSpawned,
                         CodeRef.Here("spawnBag.Dispose()", "Bag.Dispose 归还"));
+                    host.AddActionRow("预热 +5（分帧 Prewarm）", async () =>
+                    {
+                        await goPool.Prewarm(5, perFrame: 2);   // 每帧建 2 个，把实例化开销摊到多帧（加载界面期最常用）
+                        RefreshGo();
+                    }, CodeRef.Here("goPool.Prewarm(5", "分帧预热用法"));
+                    host.AddActionRow("收缩到 2（分帧 TrimAsync）", async () =>
+                    {
+                        await goPool.TrimAsync(2, perFrame: 2);  // 每帧销毁 2 个，避免一次性 Destroy 一批造成卡顿
+                        RefreshGo();
+                    }, CodeRef.Here("goPool.TrimAsync(2", "分帧收缩用法"));
 #if UNITY_EDITOR
                     host.AddActionRow("选中对象池演示容器", () => SelectInInspector(assets.SpawnRoot.gameObject));
                     host.AddActionRow("选中池停放节点", () =>
@@ -140,7 +157,11 @@ namespace Game.Framework.Demo.Modules
 #endif
                 }
 
-                host.AddNote("Bag.Spawn 和 Bag.Rent 心智一致：借来的东西进 Bag，Bag.Dispose 时统一归还。这里是 GameObject/prefab 池——清理本轮方块或切走本章，都会自动 Despawn 归还，而不是留在场景里。右侧方块区域是 UGUI 容器通过 UI Toolkit 占位框对齐出来的“镶嵌效果”：两套 UI 不能互为子节点，但可以用占位元素同步位置。",
+                host.AddNote("方块颜色随 Spawn 逐格渐变 = OnRent 在 GameObject 上每次取出都跑（复用的旧实例也重新着色）；"
+                    + "预热后「真正实例化」涨、之后反复生成 / 清理却不再涨 = 池在复用旧实例、省掉 Instantiate。归还时 OnReturn 复位颜色，复用不带上一手的脏状态——和 C# 段 Stamp 清零同理。",
+                    new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/PooledChip.cs", "void OnRent", "PooledChip.OnRent/OnReturn"));
+                host.AddNote("预热（Prewarm）把实例化尖峰挪到加载期、收缩（Trim）在内存吃紧时回收过度预热的空闲实例；两者都分帧摊开开销（每帧 perFrame 个），避免一次性 Instantiate/Destroy 一大批造成卡顿。C# 池开销小，用同步 Prewarm/Trim 即可。");
+                host.AddNote("Bag.Spawn 和 Bag.Rent 心智一致：借来的东西进 Bag，Bag.Dispose（清理本轮 / 切走本章）统一自动 Despawn 归还，而不是留在场景里。右侧方块区是 UGUI 容器通过 UI Toolkit 占位框对齐出来的“镶嵌效果”：两套 UI 不能互为子节点，但可以用占位元素同步位置。",
                     CodeRef.Here("assets.BindAnchor", "UI Toolkit 占位对齐"));
                 host.AddNote("归还的空闲实例停在一个停用的 DontDestroyOnLoad 节点 [Game.Framework PooledObjects] 下（点上面按钮可选中它看）。该节点被外部误删后，下次归还会自愈重建，实例不会散落到场景根。");
             }

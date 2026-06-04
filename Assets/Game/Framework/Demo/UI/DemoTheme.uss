@@ -200,7 +200,7 @@
 
 .demo-pool-anchor {
     flex-grow: 1;
-    min-height: 132px;
+    min-height: 210px;
     background-color: rgba(38, 41, 49, 0.55);
     border-width: 1px;
     border-color: rgb(55, 60, 72);
