@@ -59,10 +59,21 @@ namespace Game.Framework.Demo.Modules
                 held = null;
                 Refresh();
             }, CodeRef.Here("pool.Return(held)", "归还用法"));
+            host.AddActionRow("预热 +3（Prewarm）", () =>
+            {
+                pool.Prewarm(3);              // 提前 new 3 个入池，把分配尖峰挪到加载期
+                Refresh();
+            }, CodeRef.Here("pool.Prewarm(3)", "预热用法"));
+            host.AddActionRow("收缩到 1（Trim）", () =>
+            {
+                pool.Trim(1);                 // 把空闲收缩到 1，多余的丢给 GC
+                Refresh();
+            }, CodeRef.Here("pool.Trim(1)", "收缩用法"));
 
             host.AddNote("反复「租借→归还→再租借」：构造次数几乎不涨——池命中复用，省掉了 new 和 GC。");
             host.AddNote("写过 Stamp 再归还、然后重新租借：拿到的实例 Stamp 又是 0——归还时 IPoolable.OnReturn 把状态清了，复用不会带上一手的脏数据。",
                 CodeRef.Here("class PooledBox", "PooledBox.OnReturn"));
+            host.AddNote("预热（Prewarm）提前建一批入池、把分配尖峰挪到加载期；收缩（Trim）在内存吃紧时回收过度预热的空闲实例。预热后构造次数上涨是预期——它们就是预先 new 好的。");
 
             // 切走本章（Teardown→Bag.Dispose）时，把还攥在手上没手动归还的实例还回池里，
             // 免得来回切章时"构造次数"虚高、混淆"复用省 GC"的演示。
@@ -121,17 +132,30 @@ namespace Game.Framework.Demo.Modules
                         CodeRef.Here("spawnBag.Dispose()", "Bag.Dispose 归还"));
 #if UNITY_EDITOR
                     host.AddActionRow("选中对象池演示容器", () => SelectInInspector(assets.SpawnRoot.gameObject));
+                    host.AddActionRow("选中池停放节点", () =>
+                    {
+                        var parking = FindParkingRoot();
+                        if (parking != null) SelectInInspector(parking);
+                    });
 #endif
                 }
 
                 host.AddNote("Bag.Spawn 和 Bag.Rent 心智一致：借来的东西进 Bag，Bag.Dispose 时统一归还。这里是 GameObject/prefab 池——清理本轮方块或切走本章，都会自动 Despawn 归还，而不是留在场景里。右侧方块区域是 UGUI 容器通过 UI Toolkit 占位框对齐出来的“镶嵌效果”：两套 UI 不能互为子节点，但可以用占位元素同步位置。",
                     CodeRef.Here("assets.BindAnchor", "UI Toolkit 占位对齐"));
+                host.AddNote("归还的空闲实例停在一个停用的 DontDestroyOnLoad 节点 [Game.Framework PooledObjects] 下（点上面按钮可选中它看）。该节点被外部误删后，下次归还会自愈重建，实例不会散落到场景根。");
             }
 
-            host.AddSectionTitle("两条使用路径");
-            host.AddConcept("Bag.Rent / Spawn", "自动归还路径：Bag.Rent<T>() 借 C# 对象，Bag.Spawn(prefab, parent) 借 GameObject；宿主 Bag.Dispose 时统一归还，心智同 Bag.Load。");
-            host.AddConcept("IPoolUtility", "手动控制路径：需要更早归还、自定义工厂/钩子、Prewarm 预热时，this.GetUtility<IPoolUtility>() 直接操作池。C# 池和 GameObject 池共用同一个工具入口。");
-            host.AddTip("约定：归还后别再用那个实例（它可能已被下一个租借者取走）；状态清理放归还侧（IPoolable.OnReturn 或 GetPool 的 onReturn 委托），别指望租借者每次记得清。Editor 下重复归还 / 归还外来实例会报错帮你抓 bug。");
+            host.AddSectionTitle("使用路径");
+            host.AddConcept("Bag.Rent / Spawn", "自动归还：Bag.Rent<T>() 借 C# 对象、Bag.Spawn(prefab, parent) 借 GameObject；宿主 Bag.Dispose 时统一归还，心智同 Bag.Load。");
+            host.AddConcept("IPoolUtility", "手动控制：this.GetUtility<IPoolUtility>() 直接操作池——更早归还、Prewarm 预热、Trim 收缩、配自定义工厂/钩子。C# 池和 GameObject 池共用同一入口。");
+
+            host.AddSectionTitle("注册 = 生命周期");
+            host.AddConcept("RegisterOwned", "纯 C#、随 Context.Dispose 自动清池（销毁停放节点 + 空闲实例），可安全 per-Context 注册——demo 根 Context 用的就是它。");
+            host.AddConcept("RegisterValue", "纯 C#、不被容器释放，适合全局唯一、随进程长存的池。");
+            host.AddConcept("MonoPoolUtility", "Mono：挂 Context 子节点，可在 Inspector 针对各 prefab 配容量 / 预热，随该 GameObject / 场景销毁自动清池。底层复用同一套逻辑。");
+            host.AddCodeLink(new CodeRef("Assets/Game/Framework/Demo/Scripts/Core/MonoDemoContext.cs", "RegisterOwned", "demo 注册（RegisterOwned）"));
+
+            host.AddTip("约定：归还后别再用那个实例（可能已被下一个租借者取走）；状态清理放归还侧（IPoolable.OnReturn 或 GetPool 的 onReturn 委托）。容量上限 maxSize 超限即销毁；GameObject 池可 Prewarm(n, perFrame) / TrimAsync 分帧摊开开销。Editor / Dev 下重复归还、归还外来实例、Dispose 后误用都会报错帮你抓 bug。");
         }
 
 #if UNITY_EDITOR
@@ -140,6 +164,16 @@ namespace Game.Framework.Demo.Modules
         {
             UnityEditor.Selection.activeObject = go;
             UnityEditor.EditorGUIUtility.PingObject(go);
+        }
+
+        // 找到池内部那个停用的 DontDestroyOnLoad 停放总根。它是 SetActive(false)，GameObject.Find 找不到，
+        // 故用 Resources.FindObjectsOfTypeAll（含 inactive），再用 scene.IsValid 排除 prefab/asset。
+        private static GameObject FindParkingRoot()
+        {
+            foreach (var go in Resources.FindObjectsOfTypeAll<GameObject>())
+                if (go.name == "[Game.Framework PooledObjects]" && go.transform.parent == null && go.scene.IsValid())
+                    return go;
+            return null;
         }
 #endif
     }
