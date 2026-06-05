@@ -29,6 +29,11 @@ namespace Game.Framework.Build
         [Tooltip("本地 CDN 服务端口（python -m http.server）。⚠ 必须与场景 AssetSystemConfigModel.MainCdnUrl 的端口一致，Host 才能下到东西。")]
         [Min(1)] public int LocalServePort = 8080;
 
+        [Tooltip("本地 CDN 服务限速（KB/s，模拟弱网测下载/进度 UI）。0 = 不限速（python -m http.server）。\n" +
+                 "注意：限速是【每连接】的；实际总带宽 ≈ 该值 × 并发数（AssetSystemConfigModel.DownloadingMaxNumber）。\n" +
+                 "想精确模拟把并发设 1。改了限速要先关掉已开的服务再重启才生效。")]
+        [Min(0)] public int LocalServeThrottleKBps = 0;
+
         [Header("生产产物")]
         [Tooltip("生产构建整理目录（项目根下，已 gitignore）。CI 把这里整目录同步上真实 CDN。")]
         public string ProductionOutputDir = "BuildOutput/CDN";
