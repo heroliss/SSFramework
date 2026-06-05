@@ -1,35 +1,32 @@
-using System.Collections.Generic;
 using Cysharp.Threading.Tasks;
 using Game.Framework;
 using Game.Framework.Common;
 using Game.Framework.Demo.Core;
-using R3;
 using UnityEngine;
 using UnityEngine.UIElements;
 
 namespace Game.Framework.Demo.Modules
 {
     /// <summary>
-    /// 能力·资源加载（YooAsset）：用真实 API 把资源系统跑一遍——Bag.Load 借资源随宿主自动释放、
-    /// AssetReference 拖拽引用自动绑定、订阅初始化状态、是否需下载 / 下载进度（EditorSimulate 模拟）、
-    /// 跨包加载，以及一键本地 CDN 看真实远端下载。底层是 MVCS 三层（AssetSystemConfigModel + AssetInitSystem + AssetUtility）。
+    /// 能力·资源加载（<b>框架用法</b>）：只讲与底层库无关的框架资源 API——Bag.Load 借资源随宿主自动释放、
+    /// AssetReference 拖拽自动绑定、ScriptableObject 配置加载 + 一键绑定、查询与下载、跨包加载、清缓存。
+    /// 当前默认后端 YooAsset 的底层原理（清单 / 目录 / 构建管线 / CDN / Host 流程）在「YooAsset · 底层实现」章。
     /// </summary>
     public sealed class AssetLoadingModule : DemoModuleBase
     {
         public override string Id => "asset-loading";
-        public override string Title => "资源加载 · YooAsset";
+        public override string Title => "资源加载";
         public override string Category => "能力";
         public override int Order => 20;
         public override string Summary =>
-            "Bag.Load<T> 借资源随宿主自动释放、AssetReference 拖拽引用自动绑定、订阅初始化状态、是否需下载与下载进度、跨包加载，以及一键本地 CDN 看真实远端下载。";
+            "框架统一的资源入口，与底层库解耦：Bag.Load 借资源随宿主释放、AssetReference 拖拽自动绑定、SO 配置加载 + 一键绑定、查询/下载/清缓存、跨包加载。底层 YooAsset 原理见「YooAsset · 底层实现」章。";
 
         // demo 资源都在 FrameworkSamplesPackage（见 collector）；地址 = 文件名（AddressByFileName 规则）。
         private const string LogoAddress = "SSFramework-Logo";
-        private const string LogoCardAddress = "DemoLogoCard";
+        private const string ConfigAddress = "DemoAssetConfig";
         private const string SamplesPackage = "FrameworkSamplesPackage";
 
-        // collector 给 demo 资源打的 tag（AssetBundleCollectorSetting → FrameworkDemoGroup 的 AssetTags=framework-demo）。
-        // tag 下载器按它统计需下载的 bundle——必须与 collector 实际 tag 一致，否则匹配 0 个、真实下载永远是 0。
+        // collector 给 demo 资源打的 tag（FrameworkDemoGroup 的 AssetTags=framework-demo）；tag 下载器按它统计需下载的 bundle。
         private const string DemoTag = "framework-demo";
 
         public override void Build(DemoModuleHost host)
@@ -38,24 +35,23 @@ namespace Game.Framework.Demo.Modules
             var refs = UnityEngine.Object.FindFirstObjectByType<DemoAssetRefs>();
             var settingsModel = UnityEngine.Object.FindFirstObjectByType<AssetSystemConfigModel>();
 
-            // ── 1. 初始化状态 ──
-            host.AddSectionTitle("初始化状态：Settings → InitSystem → Utility");
-            var stateLabel = host.AddValueDisplay();
-            // InitState 是状态流，订阅即得当前值；切走本章 Bag.Dispose 时自动退订。
-            Bag.Subscribe(asset.InitState, s => stateLabel.text =
-                $"默认包初始化：{s}　｜　运行模式：{asset.CurrentPlayMode}");
-            host.AddActionRow("等待初始化完成（EnsureInitialized）", async () =>
-            {
-                await Bag.EnsureInitialized();
-                stateLabel.text = $"默认包初始化：{asset.InitState.CurrentValue}　｜　运行模式：{asset.CurrentPlayMode}";
-            }, CodeRef.Here("Bag.EnsureInitialized()", "等待初始化"));
+            // ── 1. 初始化与状态 ──
+            host.AddSectionTitle("初始化与状态");
+            var stateLabel = host.AddValueDisplay("", CodeRef.Here("asset.InitState", "订阅初始化状态"));
+            // InitState 是状态流，订阅即得当前值；切走本章 Bag.Dispose 时自动退订。启动 loading 界面就订阅它驱动。
+            // Failed 时把它转成可操作的引导（而不是只显示 Failed）——常见于「切了 Host/Offline 但没先构建」。
+            Bag.Subscribe(asset.InitState, s => stateLabel.text = s == AssetInitState.Failed
+                ? $"默认包初始化失败（运行模式：{asset.CurrentPlayMode}）：Host/Offline 需先构建资源。" +
+                  "请用菜单 SSFramework/资源构建 依次「构建资源包 → 部署到本地 CDN → 启动本地 CDN 服务」后重进 Play，或改回 EditorSimulate（免构建）。详见「YooAsset · 底层实现」章。"
+                : $"默认包初始化：{s}　｜　运行模式：{asset.CurrentPlayMode}");
 #if UNITY_EDITOR
             host.AddActionRow("定位资源系统配置节点（AssetSystem）", () =>
             {
                 if (settingsModel != null) PingSceneObject(settingsModel.gameObject);
             });
 #endif
-            host.AddNote("资源系统是 MVCS 三层：AssetSystemConfigModel（配置：默认包 / PlayMode / CDN）→ AssetInitSystem（进游戏逐包初始化）→ AssetUtility（加载 API），挂在同一 Context 节点（上面按钮可定位）。业务只经 this.GetUtility<IAssetUtility>() / Bag.Load 访问；Bag.Load 内部自动等初始化完成，无需关心时序。");
+            host.AddNote("资源系统是 MVCS 三层：AssetSystemConfigModel（配置：默认包 / PlayMode / CDN）→ AssetInitSystem（进游戏逐包初始化）→ AssetUtility（加载 API），挂在同一 Context 节点（上面按钮可定位）。业务只经 this.GetUtility<IAssetUtility>() / Bag.Load 访问。");
+            host.AddSubNote("无需手动等初始化：Bag.Load 内部会自动等就绪。只有「启动 loading 界面要等资源系统就绪再进主流程」这类场景，才订阅 InitState 或 await Bag.EnsureInitialized()。");
 
             // ── 2. 按地址加载（Bag.Load）──
             host.AddSectionTitle("按地址加载：Bag.Load（借资源随宿主自动释放）");
@@ -75,44 +71,11 @@ namespace Game.Framework.Demo.Modules
                     loadLabel.text = $"已加载 Sprite：{sprite.name}（{sprite.rect.width:0}×{sprite.rect.height:0}）";
                 }
             }, CodeRef.Here("Bag.Load<Sprite>(LogoAddress)", "Bag.Load 用法"));
-            host.AddNote("Bag.Load<T>(location) 借来的资源 handle 进 Bag，切走本章（Bag.Dispose）自动释放，业务不持有句柄；跨包用带 packageName 的重载。");
-
-            // 加载 GameObject 预制体：演示资源系统不止能加载 Sprite，也能加载整个 prefab。
-            // 卡片是屏幕空间 UGUI，Instantiate 到居中 overlay 容器、盖在 UI 之上、点一下销毁——世界空间精灵会被全屏 UI 盖住故不用。
-            var spawnedCards = new List<GameObject>();
-            var cardLabel = host.AddValueDisplay("点按钮加载 Logo 卡片预制体");
-
-            host.AddActionRow("加载 Logo 卡片（prefab）并实例化（居中、点卡片销毁）", async () =>
-            {
-                if (refs == null || refs.LogoSpawnRoot == null)
-                {
-                    cardLabel.text = "没找到居中容器（DemoAssetRefs.LogoSpawnRoot 未接线）";
-                    return;
-                }
-                // 资源系统加载 prefab（Bag 缓存 handle，切走本章自动释放）。
-                var cardPrefab = await Bag.Load<GameObject>(LogoCardAddress);
-                if (cardPrefab == null)
-                {
-                    cardLabel.text = "加载失败（地址 DemoLogoCard 在 FrameworkSamplesPackage？）";
-                    return;
-                }
-                var go = Object.Instantiate(cardPrefab, refs.LogoSpawnRoot);
-                if (go.transform is RectTransform rt)               // 略微级联偏移，多张不完全叠死、便于分别点击
-                    rt.anchoredPosition = new Vector2(spawnedCards.Count % 6 * 26f, spawnedCards.Count % 6 * -26f);
-                spawnedCards.Add(go);
-                var card = go.GetComponent<DemoLogoCard>();
-                if (card != null)
-                    card.Clicked += () => { spawnedCards.Remove(go); Object.Destroy(go); cardLabel.text = $"屏幕中央 Logo 卡片：{spawnedCards.Count} 张"; };
-                cardLabel.text = $"屏幕中央 Logo 卡片：{spawnedCards.Count} 张";
-            }, CodeRef.Here("Bag.Load<GameObject>(LogoCardAddress)", "加载 prefab 并实例化"));
-            // 切走本章时销毁还留屏的卡片（prefab 的 handle 由 Bag 释放，但 Instantiate 出来的实例要自己销毁）。
-            Bag.Add(Disposable.Create(() =>
-            {
-                foreach (var go in spawnedCards) if (go != null) Object.Destroy(go);
-                spawnedCards.Clear();
-            }));
-            host.AddNote("资源系统不止能加载图片：Bag.Load<GameObject> 把整个 prefab 加载进来，再 Instantiate 到屏幕中央，点卡片销毁。实例复用（对象池）是另一回事，见「对象池」章。",
-                new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/DemoLogoCard.cs", "class DemoLogoCard", "Logo 卡片脚本"));
+#if UNITY_EDITOR
+            host.AddActionRow("定位 Logo 资产（被加载的源资源）", () =>
+                PingAsset("Assets/Game/Framework/Res/SSFramework-Logo.png"));
+#endif
+            host.AddNote("Bag.Load<T>(location) 借来的资源 handle 进 Bag，切走本章（Bag.Dispose）自动释放，业务不持有句柄。Bag.Load 是泛型：GameObject(prefab) / 场景(LoadScene) / 文本(LoadText) / 字节(LoadBytes) 同理；跨包用带 packageName 的重载（见下）。");
 
             // ── 3. AssetReference（Inspector 拖拽）──
             host.AddSectionTitle("AssetReference：Inspector 拖资源、Awake 自动绑定");
@@ -120,7 +83,7 @@ namespace Game.Framework.Demo.Modules
             if (refs == null)
             {
                 refLabel.text = "没找到 DemoAssetRefs";
-                host.AddNote("请确认 DemoApp 下挂了 DemoAssetRefs，并在 Inspector 拖好了 Logo / prefab 引用。");
+                host.AddNote("请确认 DemoApp 下挂了 DemoAssetRefs，并在 Inspector 拖好了 Logo 引用。");
             }
             else
             {
@@ -146,42 +109,42 @@ namespace Game.Framework.Demo.Modules
                     refLabel.text = "LogoRef 已 Unload（再点 Get 会重新加载）";
                 }, CodeRef.Here("refs.LogoRef.Unload()", "释放引用"));
             }
-            host.AddNote("AssetReference 在 Inspector 直接拖资源（内部存 GUID，业务不碰 GUID）；挂在 MonoView/Model/System/Utility 上的字段会在 Awake 自动绑定加载器并登记进宿主 Bag，宿主销毁统一释放——零样板。DemoAssetRefs 就是个真实 MonoModelBase（资源引用配置），这些引用是它 Awake 自动绑好的。",
+            host.AddNote("AssetReference 在 Inspector 直接拖资源（内部存 GUID，业务不碰 GUID）；挂在 MonoView/Model/System/Utility 上的字段会在 Awake 自动绑定加载器并登记进宿主 Bag，宿主销毁统一释放——零样板。DemoAssetRefs 就是个真实 MonoModelBase，这些引用是它 Awake 自动绑好的。",
                 new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/DemoAssetRefs.cs", "class DemoAssetRefs", "DemoAssetRefs 定义"));
+#if UNITY_EDITOR
+            host.AddActionRow("定位资源引用配置节点（DemoAssetRefs）", () =>
+            {
+                if (refs != null) PingSceneObject(refs.gameObject);
+            });
+#endif
 
-            // ── 3b. ScriptableObject 里的 AssetReference（手动 Bind）──
-            host.AddSectionTitle("ScriptableObject 里的 AssetReference：手动 Bind 后 Get");
-            var soLabel = host.AddValueDisplay();
-            var cfg = refs != null ? refs.AssetConfig : null;
-            if (cfg == null)
+            // ── 3b. ScriptableObject 配置：加载 + 一键绑定它的引用 ──
+            host.AddSectionTitle("ScriptableObject 配置：加载 + Bag.BindAssetReferences");
+            var soLabel = host.AddValueDisplay("点下面按钮加载配置 SO 并用它的引用");
+            host.AddActionRow("加载 DemoAssetConfig 并用它的 IconRef", async () =>
             {
-                soLabel.text = "没找到 DemoAssetConfig（DemoAssetRefs.AssetConfig 未接线）";
-                host.AddNote("请在 DemoApp 下的 DemoAssetRefs 上拖入一个 DemoAssetConfig 资产，并给它的 IconRef 配一张 Sprite。");
-            }
-            else
-            {
-                soLabel.text = $"配置资产：{cfg.name}　｜　IconRef.IsBound = {cfg.IconRef.IsBound}（SO 不会自动绑定）";
-                host.AddActionRow("手动 Bind 后 Get()（用 SO 里的引用加载）", async () =>
+                // config SO 像资源一样被加载进来（真实游戏的常见形态：配置也走资源系统下发/热更）。
+                var cfg = await Bag.Load<DemoAssetConfig>(ConfigAddress);
+                if (cfg == null) { soLabel.text = "加载失败（地址 DemoAssetConfig 在 FrameworkSamplesPackage？）"; return; }
+                // SO 不是 MonoXxxBase、字段不会自动绑定：一行把它内部所有 AssetReference 绑到本章 Bag（随本章释放）。
+                Bag.BindAssetReferences(cfg);
+                var icon = await cfg.IconRef.Get();
+                if (icon != null)
                 {
-                    // SO 不是 MonoBehaviour、没有 Awake 自动绑定：用前先把它内部的 ref 绑到本 Context 的 utility +
-                    // 本章 Bag 的销毁信号（切走本章自动取消加载），再 Get。
-                    cfg.IconRef.Bind(asset, Bag.DisposeToken);
-                    var sprite = await cfg.IconRef.Get();
-                    if (sprite != null)
-                    {
-                        spritePreview.style.backgroundImage = new StyleBackground(sprite);
-                        soLabel.text = $"已用 SO 里的 IconRef 加载：{sprite.name}　｜　IsBound = {cfg.IconRef.IsBound}";
-                    }
-                    else soLabel.text = "IconRef 未配置（在 DemoAssetConfig 资产里拖一张 Sprite）";
-                }, CodeRef.Here("cfg.IconRef.Bind", "手动 Bind + Get"));
-                // SO 是共享资产、长期存活：它内部 ref 持有的 handle 不随某个宿主销毁，切走本章时手动 Unload。
-                Bag.Add(Disposable.Create(() => cfg.IconRef.Unload()));
-            }
-            host.AddNote("和 MonoXxxBase 字段不同：ScriptableObject / 纯 C# 对象没有 Awake 自动绑定，所以 SO 里的 AssetReference 用前要手动 ref.Bind(utility, hostToken)（这里 token 传本章 Bag 的 DisposeToken）。SO 是共享资产、不随某个宿主销毁，handle 要自己决定何时 Unload。",
+                    spritePreview.style.backgroundImage = new StyleBackground(icon);
+                    soLabel.text = $"已加载配置 {cfg.name}，并用它的 IconRef 取到：{icon.name}";
+                }
+                else soLabel.text = "配置已加载，但 IconRef 未配置（在 DemoAssetConfig 资产里拖一张 Sprite）";
+            }, CodeRef.Here("Bag.BindAssetReferences(cfg)", "加载 SO + 一键绑定"));
+            host.AddNote("ScriptableObject 配置是「被加载的数据资产」，不是 Model 层（它常需像资源一样异步加载，无法在启动时注册成 Model）。它内部的 AssetReference 不会自动绑定（框架刻意不递归 SO），由加载 / 持有它的宿主一行 Bag.BindAssetReferences(配置) 把它的全部引用绑到自身生命周期——之后随本章 Bag 一起释放。",
                 new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/DemoAssetConfig.cs", "class DemoAssetConfig", "DemoAssetConfig 定义"));
+#if UNITY_EDITOR
+            host.AddActionRow("定位 DemoAssetConfig 资产（被加载的配置 SO）", () =>
+                PingAsset("Assets/Game/Framework/Res/DemoAssetConfig.asset"));
+#endif
 
-            // ── 4. 是否需下载 / 地址有效 ──
-            host.AddSectionTitle("是否需下载 / 地址有效");
+            // ── 4. 查询：地址有效 / 是否需下载 ──
+            host.AddSectionTitle("查询：地址有效 / 是否需下载");
             // 把布尔结果做成绿/红徽标，一眼可辨，比纯文字直观。
             var checkBadgeLabel = new Label("点下面按钮检测");
             checkBadgeLabel.AddToClassList("demo-badge");
@@ -197,19 +160,21 @@ namespace Game.Framework.Demo.Modules
 
             host.AddActionRow("CheckLocationValid(Logo)", () =>
             {
+                // 包未就绪时这两个查询都返回 false——先判就绪，否则会把"查不了"误显示成"地址无效/已在本地"。
+                if (!asset.IsInitialized) { SetCheckBadge(false, "资源系统未就绪（初始化失败或未完成）——查询无意义，先看上方初始化状态。"); return; }
                 bool valid = asset.CheckLocationValid(LogoAddress);
                 SetCheckBadge(valid, valid ? "地址有效 ✓（manifest 里有这个地址）" : "地址无效 ✗（manifest 里没有）");
             }, CodeRef.Here("asset.CheckLocationValid", "地址有效性"));
             host.AddActionRow("IsNeedDownload(Logo)", () =>
             {
+                if (!asset.IsInitialized) { SetCheckBadge(false, "资源系统未就绪（初始化失败或未完成）——查询无意义，先看上方初始化状态。"); return; }
                 bool need = asset.IsNeedDownload(LogoAddress);
                 SetCheckBadge(!need, need ? "需要下载 ↓（远端缺，要从 CDN 拉）" : "无需下载 ✓（已在本地）");
             }, CodeRef.Here("asset.IsNeedDownload", "是否需下载"));
-            host.AddNote("CheckLocationValid 判断 manifest 里有没有这个地址；IsNeedDownload 判断该资源是否要从远端拉。EditorSimulate / Offline 下资源都在本地，IsNeedDownload 恒为「无需下载」——真实远端缺资源时才需要（下面 Host 模式可看到）。");
+            host.AddNote("CheckLocationValid 判断 manifest 里有没有这个地址；IsNeedDownload 判断该资源要不要从远端拉。⚠ 两者在「包未就绪」（未初始化 / 初始化失败）时也返回 false——所以 false ≠「地址无效 / 无需下载 / 已在本地」，得先确认初始化 Ready（上方状态）再读结果，本 demo 已加这层判断。EditorSimulate / Offline 下资源都在本地，IsNeedDownload 恒为「无需下载」；只有远端模式（Host）才会变真，底层见「YooAsset · 底层实现」章。");
 
-            // ── 5. 下载进度（tag 下载器）──
-            host.AddSectionTitle("下载进度：tag 下载器（模拟 / 真实自动切换）");
-            // 标明当前走哪种：EditorSimulate = 模拟、Offline = 全本地不下载、Host/Web = 真实远端。
+            // ── 5. 下载与清缓存（tag 下载器）──
+            host.AddSectionTitle("下载与清缓存：tag 下载器（模拟 / 真实自动切换）");
             var dlMode = settingsModel != null ? settingsModel.PlayMode : asset.CurrentPlayMode;
             bool dlIsReal = dlMode == AssetPlayMode.Host || dlMode == AssetPlayMode.Web;
             var modeBadge = new Label(dlIsReal
@@ -230,13 +195,13 @@ namespace Game.Framework.Demo.Modules
                 var dl = Bag.CreateTagDownloader(DemoTag);
 
                 // 真实模式下「没有要下载的」是常态（已缓存命中 / 已内置 / 或 tag 没匹配到 bundle）：
-                // 此时 TotalCount=0，直接 Download() 会瞬间完成、进度恒 0，看着像“什么都没发生”。显式交代清楚，别让人困惑。
+                // 此时 TotalCount=0，直接 Download() 会瞬间完成、进度恒 0，看着像“什么都没发生”。显式交代清楚。
                 if (!dl.IsSimulated && dl.TotalCount == 0)
                 {
                     progressBar.value = 1f;
                     progressBar.title = "无需下载（0 个 / 0 MB）";
                     progressLabel.text = $"无需下载：tag「{DemoTag}」下没有要从 CDN 拉的资源（已缓存/已内置，或没匹配到 bundle）。" +
-                        "想重测真实下载：点下面「清空下载缓存（运行时）」再点本按钮即可（免停 Play）；或停 Play 手动删缓存目录后重进 Play。";
+                        "想重测：点下面「清空下载缓存」再点本按钮即可（免停 Play）。";
                     return;
                 }
 
@@ -246,13 +211,13 @@ namespace Game.Framework.Demo.Modules
                     progressBar.title = $"{r.Progress:P0}　{r.CurrentSizeMB}/{r.TotalSizeMB} MB";
                 });
                 progressLabel.text = dl.IsSimulated
-                    ? $"下载中…（EditorSimulate 模拟：总 {dl.TotalBytes / 1048576f:0.00} MB，按配置大小÷速度推进）"
+                    ? $"下载中…（EditorSimulate 模拟：总 {dl.TotalBytes / 1048576f:0.00} MB）"
                     : $"下载中…（真实远端：{dl.TotalCount} 个 / {dl.TotalBytes / 1048576f:0.00} MB）";
                 await dl.Download();
                 progressLabel.text = $"下载完成 ✓（{dl.TotalCount} 个 / {dl.TotalBytes / 1048576f:0.00} MB）";
             }, CodeRef.Here("Bag.CreateTagDownloader(DemoTag)", "下载器用法"));
 
-            // 运行时清缓存：清完内存缓存记录同步更新，IsNeedDownload 立刻变真，同一次 Play 里就能再测真实下载——免去停 Play 手删。
+            // 运行时清缓存：清完内存缓存记录同步更新，IsNeedDownload 立刻变真，同一次 Play 里就能再测真实下载——免去停 Play。
             host.AddActionRow("清空下载缓存（运行时，免停 Play 即可重测）", async () =>
             {
                 await Bag.EnsureInitialized();
@@ -260,20 +225,10 @@ namespace Game.Framework.Demo.Modules
                 progressBar.value = 0f;
                 progressBar.title = string.Empty;
                 bool need = asset.IsNeedDownload(LogoAddress);
-                progressLabel.text = $"已清空下载缓存 ✓　IsNeedDownload(Logo)={need}（远端模式下应变 true——再点上面「创建下载器并下载」即可看到真实下载）。";
+                progressLabel.text = $"已清空下载缓存 ✓　IsNeedDownload(Logo)={need}（远端模式下应变 true，可再点上面下载）。";
             }, CodeRef.Here("asset.ClearCacheAsync", "运行时清缓存"));
-            host.AddNote($"CreateTagDownloader(tags) 统计这些 tag 下需下载的资源（这里用 collector 给样例资源打的 tag「{DemoTag}」），订阅 Progress（R3 状态流，订阅即得快照）驱动进度条，Download() 启动。");
-            host.AddSubNote("EditorSimulate 下资源都在本地、真实 downloader 的 TotalCount=0、UI 会瞬间跳满。框架检测到这种情况就包一层 SimulatedAssetDownloader：用「模拟大小 ÷ 速度」算时长、按固定 50ms 间隔推进 Progress 与已下载字节，让你能真实验证下载 UI（含总大小 / 已下载 / IsSimulated「模拟」标）。大小、速度 = AssetSystemConfigModel 上「模拟下载」两项（默认 8MB ÷ 2MB/s ≈ 4 秒，任一设 0 关闭模拟）。",
-                new CodeRef("Assets/Game/Framework/Scripts/Asset/SimulatedAssetDownloader.cs", "class SimulatedAssetDownloader", "模拟下载器实现"));
-            host.AddSubNote("Host/Web（真实模式）下显示的是真要从 CDN 拉的量：tag 没匹配到 bundle、或资源已在本地缓存/内置，都会是 0。模拟只在 EditorSimulate 生效，所以切到 Host 后看到的就是真实统计。");
-            host.AddSubNote("ClearCacheAsync 不只是测试用，正式游戏也会用：All = 设置里「清除缓存」/ 资源损坏恢复 / 强制全量重下；Unused = 热更到新版本后回收旧版本残留 bundle（省空间）。它只删盘上的下载缓存并同步内存记录，不卸载已加载到内存的资源。");
-#if UNITY_EDITOR
-            host.AddActionRow("定位模拟下载配置（大小 / 速度）", () =>
-            {
-                if (settingsModel != null) PingSceneObject(settingsModel.gameObject);
-            });
-            host.AddActionRow("定位下载缓存目录（停 Play 后手动清空可重测真实下载）", RevealCacheDir);
-#endif
+            host.AddNote("CreateTagDownloader(tags) 统计这些 tag 下要下载的资源，订阅 Progress（R3 状态流）驱动进度条，Download() 启动；ClearCacheAsync 清本地已下载缓存（All 全清 / Unused 清旧版本，正式游戏也用）。");
+            host.AddSubNote("「模拟下载器」原理、下载缓存目录在哪、各清单文件、各 PlayMode 的底层差异——见「YooAsset · 底层实现」章。本节只演示框架 API 用法。");
 
             // ── 6. 跨包加载 ──
             host.AddSectionTitle("跨包加载");
@@ -285,60 +240,22 @@ namespace Game.Framework.Demo.Modules
             }, CodeRef.Here("Bag.Load<Sprite>(SamplesPackage", "跨包加载"));
             host.AddNote("默认包之外，所有加载方法都有带 packageName 的重载。多包在 AssetSystemConfigModel.Packages 配置；子 Context 经 Container 父级回退共享父级 AssetUtility，不必每个 Context 各挂一套。本 demo 把框架样例资源单独分到 FrameworkSamplesPackage，与正式游戏 DefaultPackage 分开、互不污染。");
 
-            // ── 7. 远端 CDN / Host（进阶 · 手把手）──
-            host.AddSectionTitle("远端 CDN / Host 模式（进阶 · 手把手）");
-            host.AddNote("一句话原理：把资源传到 HTTP 服务器，运行时按需下载并缓存。下面 ⓪–④ 是一条有序流程（带源码定位）；构建相关步骤在编辑器菜单 SSFramework/CDN 执行（需 Edit 模式——AssetBundle 构建不能在 Play 模式跑）。");
-
-            host.AddStep("⓪", "配置（前提）：YooAsset Collector 决定「哪些资源、按什么规则、打进哪个包/组」——构建就是按它执行的，所以得先有配置。本 demo 已把样例资源分到 FrameworkSamplesPackage（与游戏 DefaultPackage 分开）。");
-#if UNITY_EDITOR
-            host.AddActionRow("定位 Collector 分包配置（构建按它执行）", () =>
-                PingAsset("Assets/Game/Framework/Settings/AssetBundleCollectorSetting.asset"));
-#endif
-
-            host.AddStep("①", "构建：YooAsset SBP 管线把样例包打成 bundle + 版本清单（manifest）；同时往 StreamingAssets 写一份内置清单（Host 初始化要用）。菜单 SSFramework/CDN/构建并部署样例包。",
-                new CodeRef("Assets/Game/Framework/Demo/Editor/DemoCdnBuilder.cs", "BuildPackage", "① 构建实现"));
-            host.AddSubNote("产物里三类「清单」各管一事：① 版本清单（包_版本.bytes）= 每个 bundle 的名字/哈希/大小/依赖 + 「资源地址→bundle」映射，运行时据此知道要哪个包、从哪取、校验对不对；② 版本号文件（包.version）= 一行文本=当前最新版本号，Host 先拉它知道最新版、再拉对应版本清单；③ 内置清单（BuiltinCatalog.bytes）= 哪些 bundle 已随包内置在本地，Host 据此判断哪些无需下载。");
-
-            host.AddStep("②", "部署：把构建产物拷到「项目根/CDN/包名」子目录。GameRemoteService 按 {CDN}/{包名}/{文件名} 取址，每个包独占一个子目录——多包互不覆盖、部署结构直接镜像构建产物。",
-                new CodeRef("Assets/Game/Framework/Demo/Editor/DemoCdnBuilder.cs", "DeployToPackageDir", "② 部署实现"));
-#if UNITY_EDITOR
-            host.AddActionRow("定位部署目录 / 版本清单文件", RevealCdnDir);
-#endif
-
-            host.AddStep("③", "起服务：在部署目录（CDN 根）起 python -m http.server，端口取自 AssetSystemConfigModel 的 CDN URL（单一配置源）。菜单 SSFramework/CDN/启动本地服务器。",
-                new CodeRef("Assets/Game/Framework/Demo/Editor/DemoCdnBuilder.cs", "StartServer", "③ 起服务实现"));
-
-            host.AddStep("④", "切 Host 重进 Play：把 AssetSystemConfigModel.PlayMode 改 Host。运行时先查本地缓存、缺了按需从 CDN 下载并缓存——下载进度就是第 5 节那套（此时为真实），IsNeedDownload 也变真。",
-                new CodeRef("Assets/Game/Framework/Scripts/Asset/Providers/YooAssetProvider.cs", "case AssetPlayMode.Host", "④ Host 初始化实现"));
-#if UNITY_EDITOR
-            host.AddActionRow("定位 AssetSystem 配置节点（切 Host 在这）", () =>
-            {
-                if (settingsModel != null) PingSceneObject(settingsModel.gameObject);
-            });
-#endif
-            host.AddTip("两个最常踩的坑：① 平台——AssetBundle 按平台区分，且编辑器进程本身是 Windows，加载不了为 Android 等移动平台构建的 bundle。要在编辑器里测 Host，先把 Build Target 切到 Standalone Windows 再用菜单重新构建；测移动平台请上真机。② 顺序——必须先「构建+部署 CDN」再进 Play：init 只在进游戏时跑一次，先进 Play 会因 StreamingAssets 内置清单缺失而 404 失败，之后补构建也要重进 Play 才生效。");
-
-            // ── 8. 使用路径 / 注册=生命周期 ──
+            // ── 7. 使用路径 / 注册=生命周期 / 解耦 ──
             host.AddSectionTitle("使用路径");
             host.AddConcept("Bag.Load / LoadScene / LoadText", "动态加载：借来的资源进 Bag，宿主销毁自动释放，心智同 Bag.Rent / Bag.Spawn。");
-            host.AddConcept("AssetReference", "Inspector 拖拽引用：MonoXxxBase 字段 Awake 自动绑定 + 入 Bag；ScriptableObject / 手动创建的 ref 需自己 Bind(utility, token)。");
-            host.AddConcept("IAssetUtility", "手动入口：this.GetUtility<IAssetUtility>()——查初始化状态、CheckLocationValid / IsNeedDownload、建下载器、清下载缓存（ClearCacheAsync：All / Unused）。");
+            host.AddConcept("AssetReference", "Inspector 拖拽引用：MonoXxxBase 字段 Awake 自动绑定 + 入 Bag；ScriptableObject / 手动创建的 ref 由宿主 Bag.BindAssetReferences(对象) 一键绑。");
+            host.AddConcept("IAssetUtility", "手动入口：this.GetUtility<IAssetUtility>()——查初始化状态、CheckLocationValid / IsNeedDownload、建下载器、清下载缓存（ClearCacheAsync）。");
 
             host.AddSectionTitle("注册 = 生命周期");
             host.AddConcept("三层 Mono", "AssetSystemConfigModel + AssetUtility + AssetInitSystem 挂同一 Context 节点，Awake 顺序由 ExecutionOrder 保证（Utility -400 / Model -300 / System -200）。");
-            host.AddConcept("四种 PlayMode", "EditorSimulate（编辑器免打包）/ Offline（仅内置）/ Host（内置 + 远端 CDN 缓存）/ Web（HTTP 远端，不缓存）。");
-            host.AddConcept("样例分包", "框架 demo/test 资源在 FrameworkSamplesPackage，正式游戏用自己的 DefaultPackage，互不污染，可随框架保留或删除。");
-
-            host.AddNote("框架与 YooAsset 解耦：所有 YooAsset 接触面都收口在 IAssetProvider，只有 AssetProviderFactory.CreateDefault() 里 new YooAssetProvider()。换 Addressables / 自研库只需实现一个新 IAssetProvider，AssetUtility 与业务、demo 全程只认接口、零改动。",
+            host.AddNote("框架与底层库解耦：所有 YooAsset 接触面都收口在 IAssetProvider，只有 AssetProviderFactory.CreateDefault() 里 new YooAssetProvider()。换 Addressables / 自研库只需实现一个新 IAssetProvider，AssetUtility 与业务、demo 全程只认接口、零改动。当前默认后端（YooAsset）的底层原理见「YooAsset · 底层实现」章。",
                 new CodeRef("Assets/Game/Framework/Scripts/Asset/AssetProviderFactory.cs", "CreateDefault", "provider 工厂（换库就改这）"));
 
-            host.AddTip("约定：动态加载优先 Bag.Load（自动释放）；Inspector 引用优先 AssetReference（自动绑定）；跨包用带 packageName 的重载。框架不提供 UnloadPackage——要释放就 Dispose handle / 整 Context 重建。");
+            host.AddTip("约定：动态加载优先 Bag.Load（自动释放）；Inspector 引用优先 AssetReference（自动绑定）；SO/手动 ref 用 Bag.BindAssetReferences；跨包用带 packageName 的重载。框架不提供 UnloadPackage——要释放就 Dispose handle / 整 Context 重建。");
         }
 
 #if UNITY_EDITOR
-        // 「定位」系列编辑器便利：把配置文件 / 场景节点 / 部署目录一键高亮，做出手把手教学的导览感。
-
-        // 在 Project 窗口高亮定位一个工程资产（如 Collector 分包配置）。
+        // 在 Project 窗口高亮定位一个工程资产（被加载的源资源 / 配置 SO）。
         private static void PingAsset(string assetPath)
         {
             var obj = UnityEditor.AssetDatabase.LoadMainAssetAtPath(assetPath);
@@ -346,30 +263,12 @@ namespace Game.Framework.Demo.Modules
             else Debug.LogWarning("[Demo] 没找到资产：" + assetPath);
         }
 
-        // 在 Hierarchy 高亮定位一个场景节点（如 AssetSystem 资源系统配置节点）。
+        // 在 Hierarchy 高亮定位一个场景节点（AssetSystem 配置节点 / 资源引用配置节点）。
         private static void PingSceneObject(GameObject go)
         {
             if (go == null) return;
             UnityEditor.Selection.activeObject = go;
             UnityEditor.EditorGUIUtility.PingObject(go);
-        }
-
-        // 在资源管理器打开 CDN 部署目录（项目根/CDN）。从 dataPath 推项目根，避开 System.IO 与 Game.Framework.System 的命名空间冲突。
-        private static void RevealCdnDir()
-        {
-            string dataPath = Application.dataPath;                                        // .../Assets
-            string projectRoot = dataPath.Substring(0, dataPath.Length - "Assets".Length); // 末尾保留 '/'
-            UnityEditor.EditorUtility.RevealInFinder(projectRoot + "CDN");
-        }
-
-        // 在资源管理器打开 YooAsset 的下载缓存目录。编辑器下 YooAsset 把缓存放在「项目根/yoo」（见 .gitignore 的 /yoo/），
-        // 实际下载的 bundle 落在 yoo/<包名>/BundleFiles 下。停掉 Play 后删掉这里的文件，IsNeedDownload 会重新变真，即可重测真实下载。
-        // 同样用 dataPath 推项目根，避开 System.IO 与 Game.Framework.System 的命名空间冲突。
-        private static void RevealCacheDir()
-        {
-            string dataPath = Application.dataPath;                                        // .../Assets
-            string projectRoot = dataPath.Substring(0, dataPath.Length - "Assets".Length); // 末尾保留 '/'
-            UnityEditor.EditorUtility.RevealInFinder(projectRoot + "yoo");
         }
 #endif
     }

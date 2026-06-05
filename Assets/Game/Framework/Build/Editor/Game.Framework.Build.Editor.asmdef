@@ -1,10 +1,9 @@
 {
-    "name": "Game.Framework.Demo.Editor",
-    "rootNamespace": "Game.Framework.Demo.Editor",
+    "name": "Game.Framework.Build.Editor",
+    "rootNamespace": "Game.Framework.Build",
     "references": [
-        "YooAsset.Editor",
         "YooAsset",
-        "Game.Framework"
+        "YooAsset.Editor"
     ],
     "includePlatforms": [
         "Editor"

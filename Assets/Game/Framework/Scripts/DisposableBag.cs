@@ -254,6 +254,23 @@ namespace Game.Framework
             return ResolveUtility().EnsureInitialized(packageName, LinkToken(ct));
         }
 
+        /// <summary>
+        /// 把 <paramref name="target"/> 上所有 <see cref="AssetReference{T}"/> / <see cref="AssetReferenceList{T}"/> 字段
+        /// 绑定到本 bag：加载用本 bag 的 utility、取消随 <see cref="DisposeToken"/>、handle 登记进本 bag（bag.Dispose 统一释放）。
+        /// 一次绑完所有字段；<paramref name="target"/> 没有可绑定字段时为空操作。
+        /// </summary>
+        /// <remarks>
+        /// 主要用于「持有 / 加载进来的 ScriptableObject 配置」：SO 不是 <c>MonoXxxBase</c>，字段不会在 Awake 自动绑定
+        /// （框架刻意不递归 SO，见 <c>AssetReferenceBindPlan</c>），由加载 / 持有它的宿主用本方法一行把它内部的引用挂到自身生命周期。
+        /// </remarks>
+        public void BindAssetReferences(object target)
+        {
+            if (target == null) return;
+            EnsureUtility();
+            ThrowIfDisposed();
+            AssetReferenceBindPlan.For(target.GetType()).Bind(target, ResolveUtility(), DisposeToken, this);
+        }
+
         /// <summary>检查 location 是否能在当前 manifest 中解析；未初始化时返回 false。</summary>
         public bool CheckLocationValid(string location)
         {

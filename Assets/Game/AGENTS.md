@@ -268,7 +268,8 @@ Unity 对象 null 判断用 `if (x != null)`，不用 `?.`（Unity 重载了 `==
 **业务接入：**
 
 - **动态加载**走 `Bag.Load<T>(location)` / `Bag.LoadScene(...)` / `Bag.LoadText(...)` / `Bag.LoadBytes(...)`，handle 自动入 bag，宿主 OnDestroy 时统一释放。Bag 内部会等 init 完成，业务无需关心时序；跨包用 `Bag.Load<T>(packageName, location)` 等显式 package 重载。
-- **Inspector 拖拽引用**走 `AssetReference<T>.Get()`：字段在 Awake 自动绑定加载器并加入宿主 Bag，宿主 OnDestroy 时由 Bag.Dispose 调 ref.Dispose 释放。AssetReference Inspector 同行下拉可指定 package，留空走默认包。ScriptableObject 或手动创建的 ref 需要调 `ref.Bind(utility, hostToken)`，或退到 `GameContext.Main` 的 utility 兜底（会输出 error）。
+- **Inspector 拖拽引用**走 `AssetReference<T>.Get()`：字段在 Awake 自动绑定加载器并加入宿主 Bag，宿主 OnDestroy 时由 Bag.Dispose 调 ref.Dispose 释放。AssetReference Inspector 同行下拉可指定 package，留空走默认包。
+- **ScriptableObject / 纯 C# 对象的 ref 不会自动绑定**（框架刻意不递归 SO，因为共享 SO 资产不该被某个宿主生命周期接管）：由加载 / 持有它的宿主一行 `bag.BindAssetReferences(对象)` 把它内部所有 AssetReference 绑到自身生命周期（也可逐个 `ref.Bind(utility, hostToken)`，或退到 `GameContext.Main` 兜底但会输出 error）。**config SO 是「Model 持有/加载的数据」，不做 Model 层**——它常需像资源一样异步加载，无法在启动时注册成 Model。
 - **启动界面进度**订阅 `this.GetUtility<IAssetUtility>().InitState`（`ReadOnlyReactiveProperty<AssetInitState>`，Idle/Initializing/Ready/Failed）；或等待 `Bag.EnsureInitialized()`。
 - **多 package** 在 `AssetSystemConfigModel.Packages` 配置额外包名；子 Context 会通过 Container 父级回退共享父级 `AssetUtility`，不需要每个 Context 单独挂一套资源系统。
 - **下载进度** `var dl = Bag.CreateTagDownloader("level1");`，订阅 `dl.Progress`（R3 状态流，无需 invokeImmediately），调 `dl.Download(ct)` 启动。跨包下载器用 `Bag.CreateTagDownloader(packageName, tags)`。
