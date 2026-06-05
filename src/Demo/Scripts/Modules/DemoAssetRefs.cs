@@ -10,32 +10,16 @@ namespace Game.Framework.Demo.Modules
     /// 基类 Awake 会把下列 <see cref="AssetReference{T}"/> / <see cref="AssetReferenceList{T}"/> 字段
     /// 自动绑定到本 Context 的 <c>IAssetUtility</c> 并登记进本层的 Bag（销毁时统一释放 handle）。
     /// 挂在 DemoApp（demo Context 节点）下；<see cref="AssetLoadingModule"/> 经 FindFirstObjectByType 取这些引用。
-    /// <para>
-    /// 注：<see cref="LogoSpawnRoot"/> 是 section 2 spawn 用的 UI 容器引用——严格说 Model 不该引用 View 元素，
-    /// 这里属于 demo 脚手架的妥协（把"资源引用 + 它要落到哪"放一处方便取用），生产代码请分开。
-    /// </para>
     /// </summary>
     public sealed class DemoAssetRefs : MonoModelBase
     {
         [SerializeField] private AssetReference<Sprite> _logoRef = new();
         [SerializeField] private AssetReferenceList<Sprite> _logoList = new();
 
-        [Tooltip("section 2「Logo 卡片」spawn 的居中 overlay 容器：屏幕空间 Canvas 下一个居中锚定的 RectTransform。")]
-        [SerializeField] private RectTransform _logoSpawnRoot;
-
-        [Tooltip("ScriptableObject 示例：一个带 AssetReference 字段的配置资产（演示 SO 里的引用需手动 Bind 后 Get）。")]
-        [SerializeField] private DemoAssetConfig _assetConfig;
-
         /// <summary>单个 Sprite 引用（Inspector 拖入一张 Logo）。</summary>
         public AssetReference<Sprite> LogoRef => _logoRef;
 
         /// <summary>Sprite 引用列表（Inspector 拖入多张图，演示 GetAll 并行批量加载）。</summary>
         public AssetReferenceList<Sprite> LogoList => _logoList;
-
-        /// <summary>section 2 加载的 Logo 卡片预制体 Spawn 进来的居中容器（屏幕空间 Canvas 下）。</summary>
-        public RectTransform LogoSpawnRoot => _logoSpawnRoot;
-
-        /// <summary>ScriptableObject 示例配置（带 AssetReference 字段）；演示 SO 里的引用需手动 Bind 后 Get。</summary>
-        public DemoAssetConfig AssetConfig => _assetConfig;
     }
 }

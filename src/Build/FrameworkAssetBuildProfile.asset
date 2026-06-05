@@ -1,0 +1,29 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 92ec7e0e72e7b6f4287343738b8eca31, type: 3}
+  m_Name: FrameworkAssetBuildProfile
+  m_EditorClassIdentifier: Game.Framework.Build.Editor::Game.Framework.Build.FrameworkAssetBuildProfile
+  Packages:
+  - PackageName: FrameworkSamplesPackage
+    BuildEnabled: 1
+    BuiltinCopy: 2
+    BuiltinTags: 
+    GenerateBuiltinShaderBundle: 0
+  - PackageName: DefaultPackage
+    BuildEnabled: 1
+    BuiltinCopy: 2
+    BuiltinTags: 
+    GenerateBuiltinShaderBundle: 1
+  LocalCdnDirName: CDN
+  LocalServePort: 8080
+  ProductionOutputDir: BuildOutput/CDN
+  VersionFormat: yyyyMMddHHmmss

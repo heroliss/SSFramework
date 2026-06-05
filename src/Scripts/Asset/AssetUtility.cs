@@ -139,17 +139,21 @@ namespace Game.Framework
             }
             catch (OperationCanceledException ex)
             {
+                // 失败 / 取消都让 InitTcs 以「成功完成」收尾、错误另存进 InitError——
+                // 若给 InitTcs 挂异常，而失败后又没人 await 它（EnsureInitialized 在 Failed 分支直接抛 InitError、不 await），
+                // UniTask 会在该 Task 被回收时把它当 unobserved exception 再报一条。等待方醒来后按状态抛 InitError 即可。
                 state.InitError = ex;
                 state.State.Value = AssetInitState.Failed;
-                state.InitTcs.TrySetException(ex);
+                state.InitTcs.TrySetResult();
                 Debug.Log($"[AssetUtility] Package '{packageName}' initialization canceled.");
             }
             catch (Exception ex)
             {
                 state.InitError = ex;
                 state.State.Value = AssetInitState.Failed;
-                state.InitTcs.TrySetException(ex);
-                Debug.LogError($"[AssetUtility] Package '{packageName}' init failed: {ex.Message}");
+                state.InitTcs.TrySetResult(); // 同上：失败经 InitError 传递，不给 InitTcs 挂异常
+                Debug.LogError($"[AssetUtility] Package '{packageName}' 初始化失败（模式 {mode}）：{ex.Message}\n" +
+                    "若为 Host / Offline：通常是没先构建 / 部署资源（缺内置清单或远端清单）；开发期可改回 EditorSimulate 模式免构建。");
             }
         }
 
@@ -160,7 +164,7 @@ namespace Game.Framework
             var ex = exception ?? new InvalidOperationException("[AssetUtility] Asset initialization failed.");
             state.InitError = ex;
             state.State.Value = AssetInitState.Failed;
-            state.InitTcs.TrySetException(ex);
+            state.InitTcs.TrySetResult(); // 见 InitializePackageAsync：失败经 InitError 传递，不给 InitTcs 挂异常
         }
 
         public ReadOnlyReactiveProperty<AssetInitState> GetInitState(string packageName)
@@ -177,13 +181,20 @@ namespace Game.Framework
             if (state.State.Value == AssetInitState.Failed)
                 throw state.InitError ?? new InvalidOperationException($"[AssetUtility] Package '{state.Name}' initialization failed.");
 
+            // 等「初始化结束」。InitTcs 失败时也以成功完成收尾（不挂异常，见 InitializePackageAsync），
+            // 所以醒来后按状态判定：Failed 则抛 InitError。
             if (!ct.CanBeCanceled)
             {
                 await state.InitTcs.Task.AttachExternalCancellation(_disposeCts.Token);
-                return;
             }
-            using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _disposeCts.Token);
-            await state.InitTcs.Task.AttachExternalCancellation(linked.Token);
+            else
+            {
+                using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _disposeCts.Token);
+                await state.InitTcs.Task.AttachExternalCancellation(linked.Token);
+            }
+
+            if (state.State.Value == AssetInitState.Failed)
+                throw state.InitError ?? new InvalidOperationException($"[AssetUtility] Package '{state.Name}' initialization failed.");
         }
 
         public UniTask<IAssetHandle<T>> Load<T>(string location, CancellationToken ct = default)

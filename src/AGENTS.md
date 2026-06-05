@@ -22,13 +22,14 @@
 | 程序集 | 路径 | 内容 |
 |---|---|---|
 | `Game.Framework`（运行时） | `Framework/Scripts/` | 全部运行时代码 + `RP<T>`（`Scripts/Reactive/RP.cs`） |
-| `Game.Framework.Editor` | `Framework/Editor/` | 所有编辑器代码：`RPDrawer` / `AssetReferenceDrawer` / 菜单。`includePlatforms:["Editor"]` |
+| `Game.Framework.Editor` | `Framework/Editor/` | 通用编辑器代码：`RPDrawer` / `AssetReferenceDrawer` / 菜单。`includePlatforms:["Editor"]` |
+| `Game.Framework.Build.Editor` | `Framework/Build/Editor/` | 资源构建管线（`FrameworkAssetBuilder` / 统一构建菜单 / 构建配置 SO），引用 `YooAsset.Editor`。独立子程序集把 YooAsset.Editor 依赖隔离在此，不污染通用 `Game.Framework.Editor`。`includePlatforms:["Editor"]` |
 | `Game.Framework.Demo` | `Framework/Demo/` | 示例，引用框架做"消费方边界"活样板 |
 | `Game.Framework.Test` | `Framework/Test/` | PlayMode 测试（在 Unity Test Runner 窗口手动跑） |
 
 **复用铁律：**
 - `Game.Framework` / `.Editor` **禁止引用任何项目业务代码**（Assembly-CSharp 或业务 asmdef）。依赖只能指向声明在 asmdef references 里的第三方/Unity 程序集。
-- 编辑器代码一律放 `Game.Framework.Editor`，不要在运行时 asmdef 里写 `#if UNITY_EDITOR` 的 `PropertyDrawer`/`EditorWindow`（历史遗留逐步清理）。
+- 通用编辑器代码放 `Game.Framework.Editor`，不要在运行时 asmdef 里写 `#if UNITY_EDITOR` 的 `PropertyDrawer`/`EditorWindow`（历史遗留逐步清理）。**例外**：带重第三方依赖的内聚编辑器子模块（如资源构建管线依赖 `YooAsset.Editor`）单独开 editor asmdef（`Game.Framework.Build.Editor`），把第三方依赖隔离在子程序集，不让通用编辑器程序集背上——也利于将来换后端时整块替换。
 - 新增第三方依赖先加到 `Game.Framework.asmdef` 的 references，再用；优先 UPM/asmdef 名引用。
 
 ## MonoLayerBase：三层 Mono 基类的共享实现

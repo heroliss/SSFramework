@@ -39,7 +39,7 @@ namespace Game.Framework.Demo.Modules
     // 配套 DemoPoolAssets（场景持有 prefab + 显示容器）+ PooledChip prefab）。
 
     // 能力“资源加载·YooAsset”已实现为独立模块 AssetLoadingModule（见 Modules/AssetLoadingModule.cs，
-    // 配套 DemoAssetRefs（场景持有 AssetReference）+ DemoCdnBuilder（Editor 一键本地 CDN））。
+    // 配套 DemoAssetRefs（场景持有 AssetReference）；构建/部署/起服务走统一菜单 SSFramework/资源构建（Game.Framework.Build.AssetBuildMenu））。
 
     // ─────────── View 层（也是 MVCS 一层，归入核心） ───────────
     // 核心“View·MonoViewBase”已实现为独立模块 UGuiViewModule（见 Modules/UGuiViewModule.cs，

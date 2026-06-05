@@ -187,6 +187,47 @@ namespace Game.Framework.Demo.Core
         }
 
         /// <summary>
+        /// 对比表格：表头行 + 若干数据行，等宽列、单元格自动换行。用于把多项并排对比
+        /// （如各 PlayMode / 各目录 / 各清单文件 的作用差异），比一堆 note 更易横向比读。
+        /// 每个数据行的单元格数应与 <paramref name="headers"/> 一致。
+        /// </summary>
+        public VisualElement AddTable(string[] headers, params string[][] rows)
+        {
+            var table = new VisualElement();
+            table.AddToClassList("demo-table");
+
+            table.Add(BuildTableRow(headers, isHead: true));
+            if (rows != null)
+                foreach (var row in rows)
+                    table.Add(BuildTableRow(row, isHead: false));
+
+            Target.Add(table);
+            return table;
+        }
+
+        // 单行：表头或数据；单元格 Label 换行、关富文本（容 <T> 尖括号），等宽由 USS .demo-table-cell 控制。
+        private static VisualElement BuildTableRow(string[] cells, bool isHead)
+        {
+            var row = new VisualElement();
+            row.AddToClassList("demo-table-row");
+            if (isHead) row.AddToClassList("demo-table-row--head");
+
+            if (cells != null)
+            {
+                foreach (var c in cells)
+                {
+                    var cell = new Label(c ?? string.Empty);
+                    cell.AddToClassList("demo-table-cell");
+                    if (isHead) cell.AddToClassList("demo-table-cell--head");
+                    cell.style.whiteSpace = WhiteSpace.Normal;
+                    cell.enableRichText = false;
+                    row.Add(cell);
+                }
+            }
+            return row;
+        }
+
+        /// <summary>
         /// 一行动作：<c>[按钮] [&lt;/&gt; 源码(可选)]</c>。演示操作与其源码跳转紧挨着排，
         /// 看到效果就能一键跳到真实代码。Build 环境下不显示源码链接（<see cref="CodeNavigator.IsAvailable"/> 为 false）。
         /// </summary>

@@ -133,13 +133,21 @@ namespace Game.Framework
         UniTask<IAssetHandle<T>> LoadByGuid<T>(string packageName, string guid, CancellationToken ct = default)
             where T : UnityEngine.Object;
 
-        /// <summary>检查默认包中 location 是否能在 manifest 中解析；未初始化或参数为空时返回 false。</summary>
+        /// <summary>
+        /// 检查默认包中 location 是否能在 manifest 中解析。
+        /// 注意：包未就绪（未初始化 / 初始化失败）或参数为空时也返回 false——即 false 不止「地址无效」，
+        /// 也可能是「还查不了」。需要区分时先用 <see cref="IsInitialized"/> / <see cref="InitState"/> 确认就绪。
+        /// </summary>
         bool CheckLocationValid(string location);
 
         /// <summary>检查指定包中 location 是否能在 manifest 中解析；packageName 为空时使用默认包。</summary>
         bool CheckLocationValid(string packageName, string location);
 
-        /// <summary>检查默认包中指定资源是否需要从远端下载；未初始化时返回 false。</summary>
+        /// <summary>
+        /// 检查默认包中指定资源是否需要从远端下载。
+        /// 注意：包未就绪（未初始化 / 初始化失败）时也返回 false——即 false 不等于「无需下载 / 已在本地」，
+        /// 也可能是「还查不了」。需要区分时先用 <see cref="IsInitialized"/> / <see cref="InitState"/> 确认就绪。
+        /// </summary>
         bool IsNeedDownload(string location);
 
         /// <summary>检查指定包中资源是否需要从远端下载；packageName 为空时使用默认包。</summary>
