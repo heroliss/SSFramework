@@ -42,7 +42,7 @@ namespace Game.Framework.Demo.Modules
             // Failed 时把它转成可操作的引导（而不是只显示 Failed）——常见于「切了 Host/Offline 但没先构建」。
             Bag.Subscribe(asset.InitState, s => stateLabel.text = s == AssetInitState.Failed
                 ? $"默认包初始化失败（运行模式：{asset.CurrentPlayMode}）：Host/Offline 需先构建资源。" +
-                  "请用菜单 SSFramework/资源构建 依次「构建资源包 → 部署到本地 CDN → 启动本地 CDN 服务」后重进 Play，或改回 EditorSimulate（免构建）。详见「YooAsset · 底层实现」章。"
+                  "请用菜单 SSFramework/资源构建 依次「1 构建资源包 → 2 部署 → 3 启动本地 CDN 服务」后重进 Play，或改回 EditorSimulate（免构建）。详见「YooAsset · 底层实现」章。"
                 : $"默认包初始化：{s}　｜　运行模式：{asset.CurrentPlayMode}");
 #if UNITY_EDITOR
             host.AddActionRow("定位资源系统配置节点（AssetSystem）", () =>

@@ -152,10 +152,21 @@ namespace Game.Framework
                 state.InitError = ex;
                 state.State.Value = AssetInitState.Failed;
                 state.InitTcs.TrySetResult(); // 同上：失败经 InitError 传递，不给 InitTcs 挂异常
-                Debug.LogError($"[AssetUtility] Package '{packageName}' 初始化失败（模式 {mode}）：{ex.Message}\n" +
-                    "若为 Host / Offline：通常是没先构建 / 部署资源（缺内置清单或远端清单）；开发期可改回 EditorSimulate 模式免构建。");
+                Debug.LogError($"[AssetUtility] Package '{packageName}' 初始化失败（模式 {mode}）：{ex.Message}\n" + InitFailureHint(mode));
             }
         }
+
+        // 按运行模式给出最可能的失败原因。笼统地说「没构建/部署」会误导排查——例如 Host 下资源其实都对、
+        // 只是本地 CDN 服务没起（或端口和配置不一致），清单根本拉不到，此时该提示去起服务 / 对端口，而不是去重新构建。
+        private static string InitFailureHint(AssetPlayMode mode) => mode switch
+        {
+            AssetPlayMode.Host or AssetPlayMode.Web =>
+                "拉远端清单失败：确认已①构建 ②部署资源，且远端 CDN 可达——本地联调还需③启动本地 CDN 服务，且服务端口与配置的 CDN URL（AssetSystemConfigModel.MainCdnUrl）端口一致。开发期可改回 EditorSimulate 免构建。",
+            AssetPlayMode.Offline =>
+                "读内置清单失败：确认已构建、且把 bundle 内置进首包（首包 Tags）。开发期可改回 EditorSimulate 免构建。",
+            _ =>
+                "EditorSimulate 一般无需构建；若仍失败，检查资源收集器 / 包名配置。",
+        };
 
         /// <summary>配置缺失导致默认包无法开始初始化时使用，让等待默认包的业务能收到明确异常。</summary>
         internal void FailDefaultInitialization(Exception exception)

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -22,24 +23,21 @@ namespace Game.Framework.Build
         [Tooltip("逐包构建配置。包名需与 YooAsset 收集器（Bundle Collector）里的包一致。")]
         public List<PackageBuildEntry> Packages = new();
 
-        [Header("本地联调（不入库，仅本机测 Host）")]
-        [Tooltip("本地 CDN 部署目录名（项目根下，已加进 .gitignore）。「部署到本地 CDN」把构建产物平铺到这里。")]
-        public string LocalCdnDirName = "CDN";
+        [Header("构建")]
+        [Tooltip("默认版本号格式（DateTime.ToString 格式串）。CI 用 -version 显式覆盖以保证可追溯。")]
+        public string VersionFormat = "yyyyMMddHHmmss";
 
-        [Tooltip("本地 CDN 服务端口（python -m http.server）。⚠ 必须与场景 AssetSystemConfigModel.MainCdnUrl 的端口一致，Host 才能下到东西。")]
+        [Tooltip("Bundles 每个包保留最近几个版本——更旧的版本目录构建后自动删，省空间。要回滚/对比可调大。")]
+        [Min(1)] public int BundleVersionsToKeep = 2;
+
+        [Header("本地联调（不入库，仅本机测 Host）")]
+        [Tooltip("本地 CDN 服务端口（python http 服务，伺服 AssetBuild/Deploy）。⚠ 必须与场景 AssetSystemConfigModel.MainCdnUrl 的端口一致，Host 才能下到东西。")]
         [Min(1)] public int LocalServePort = 8080;
 
-        [Tooltip("本地 CDN 服务限速（KB/s，模拟弱网测下载/进度 UI）。0 = 不限速（python -m http.server）。\n" +
+        [Tooltip("本地 CDN 服务限速（KB/s，模拟弱网测下载/进度 UI）。0 = 不限速。\n" +
                  "注意：限速是【每连接】的；实际总带宽 ≈ 该值 × 并发数（AssetSystemConfigModel.DownloadingMaxNumber）。\n" +
                  "想精确模拟把并发设 1。改了限速要先关掉已开的服务再重启才生效。")]
         [Min(0)] public int LocalServeThrottleKBps = 0;
-
-        [Header("生产产物")]
-        [Tooltip("生产构建整理目录（项目根下，已 gitignore）。CI 把这里整目录同步上真实 CDN。")]
-        public string ProductionOutputDir = "BuildOutput/CDN";
-
-        [Tooltip("默认版本号格式（DateTime.ToString 格式串）。CI 用 -version 显式覆盖以保证可追溯。")]
-        public string VersionFormat = "yyyyMMddHHmmss";
 
         /// <summary>本 profile 中所有「参与构建」的包名（供构建器逐包构建）。</summary>
         public IEnumerable<string> EnabledPackageNames
@@ -124,7 +122,7 @@ namespace Game.Framework.Build
     }
 
     /// <summary>单个资源包的构建参数。内置 shader 包开关的细节见 <see cref="GenerateBuiltinShaderBundle"/>。</summary>
-    [System.Serializable]
+    [Serializable]
     public sealed class PackageBuildEntry
     {
         [Tooltip("资源包名称，需与 YooAsset 收集器里的包一致。")]

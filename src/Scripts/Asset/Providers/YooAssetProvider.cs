@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using R3;
@@ -299,7 +300,21 @@ namespace Game.Framework
                 {
                     var remoteService = new GameRemoteService(packageName, config.MainCdnUrl, config.FallbackCdnUrl);
                     var builtin = FileSystemParameters.CreateDefaultBuiltinFileSystemParameters();
+#if UNITY_EDITOR
+                    // 编辑器期把「下载缓存」和「内置解包/足迹」都收进 项目根/AssetBuild/Downloaded/<包>，
+                    // 否则根目录又会冒出 YooAsset 默认的 yoo/（每次 Host Play 重生）。两处是分开的两套根、要分别设：
+                    //   ① 下载缓存 → SandboxFileSystem 的 packageRoot 重载；
+                    //   ② 内置文件系统的解包/足迹（ApplicationFootprint、UnpackManifestFiles）→ BuiltinFileSystem 的【独立】UnpackFileSystemRoot。
+                    //      ⚠ 内置 FS 的 packageRoot 是「读 StreamingAssets 的根」，绝不能动；写出位置是另一个 UnpackFileSystemRoot（见 BuiltinFileSystem.OnCreate）。
+                    // 两个 root 都是「每包根目录」：YooAsset 仅在默认分支追加包名，这里走重载分支按原样用，需自己拼 /<包>，否则多包撞同一目录。
+                    // 这与 YooAsset 原生布局一致（默认下二者本就同在 <缓存根>/<包> 下，子目录名 Cache* / Unpack* 互不冲突）。
+                    // 真机（#else）一律用 YooAsset 各平台默认 persistentDataPath，不改变设备行为。这是 YooAsset 特有能力，换后端各自处理（见类型注释）。
+                    var editorPackageCacheRoot = Path.Combine(AssetBuildLayout.DownloadedRoot, packageName);
+                    builtin.AddParameter(EFileSystemParameter.UnpackFileSystemRoot, editorPackageCacheRoot);
+                    var cache = FileSystemParameters.CreateDefaultSandboxFileSystemParameters(remoteService, editorPackageCacheRoot);
+#else
                     var cache = FileSystemParameters.CreateDefaultSandboxFileSystemParameters(remoteService);
+#endif
                     ApplyDecryptor(builtin, config);
                     ApplyDecryptor(cache, config);
                     return new HostPlayModeOptions

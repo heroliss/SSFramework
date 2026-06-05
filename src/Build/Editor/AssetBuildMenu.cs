@@ -4,8 +4,7 @@ using System.Linq;
 using System.Diagnostics;
 using System.Net.Sockets;
 using UnityEditor;
-using UnityEngine;
-using YooAsset.Editor; // BundleBuilderHelper（构建输出 / 内置首包根目录）
+using YooAsset.Editor; // BundleBuilderHelper（内置首包根目录）
 using Debug = UnityEngine.Debug;
 
 namespace Game.Framework.Build
@@ -13,14 +12,12 @@ namespace Game.Framework.Build
     /// <summary>
     /// 统一资源构建菜单 <c>SSFramework/资源构建/*</c>——构建 / 部署 / 起服务 / 打开目录 / 配置，**步骤刻意拆开**（不捆绑）：
     /// <list type="number">
-    ///   <item>构建资源包 —— 跑 SBP，产 YooAsset 原生输出（Bundles/）。</item>
-    ///   <item>部署到本地 CDN —— 平铺最新产物到 项目根/CDN（本机联调）。</item>
-    ///   <item>启动本地 CDN 服务 —— python 起 HTTP（可限速模拟弱网）伺服 项目根/CDN。</item>
-    ///   <item>部署到生产产物目录 —— 平铺到 BuildOutput/CDN（待 CI 上传）。</item>
+    ///   <item>构建资源包 —— 跑 SBP，产 YooAsset 原生输出（AssetBuild/Bundles）。</item>
+    ///   <item>部署 —— 平铺最新产物到 AssetBuild/Deploy（本地 python 伺服 + CI 上传共用同一目录）。</item>
+    ///   <item>启动本地 CDN 服务 —— python 起 HTTP（可限速模拟弱网）伺服 AssetBuild/Deploy。</item>
     /// </list>
-    /// 一次构建、两个部署目标（本地联调 / 生产待传）。
-    /// 构建/部署逻辑全在 <see cref="FrameworkAssetBuilder"/>（菜单只是它的交互外壳）；「打哪些包 + 每包参数」读
-    /// <see cref="FrameworkAssetBuildProfile"/>。<b>demo 不在菜单里</b>——demo 的本地联调就是「把 profile 喂成样例包，走这同一套流程」。
+    /// 目录名见 <see cref="AssetBuildLayout"/>；构建/部署逻辑全在 <see cref="FrameworkAssetBuilder"/>（菜单只是交互外壳）；
+    /// 「打哪些包 + 每包参数」读 <see cref="FrameworkAssetBuildProfile"/>。<b>demo 不在菜单里</b>——demo 的本地联调就是「把 profile 喂成样例包，走这同一套流程」。
     ///
     /// <para>为什么是编辑器菜单而非运行时按钮：AssetBundle 构建管线（SBP）不能在 Play 模式跑。
     /// 「本地起服务」是开发期联调专属，正式发版里这步换成 CI 上传到真实 CDN。</para>
@@ -28,10 +25,6 @@ namespace Game.Framework.Build
     public static class AssetBuildMenu
     {
         private const string Root = "SSFramework/资源构建/";
-
-        // YooAsset 编辑器期把下载缓存放在「项目根/<YooFolderName>」（默认 yoo），方便调试查看。
-        // 内置首包根目录用 BundleBuilderHelper 的公开 API；缓存根目录无公开 API，按默认约定拼。
-        private const string YooFolderName = "yoo";
 
         // ───────────── 1/2/3：构建 → 部署 → 起服务（拆开） ─────────────
 
@@ -46,21 +39,21 @@ namespace Game.Framework.Build
 
             var (ok, message) = FrameworkAssetBuilder.Build(profile, packages, version);
             Debug.Log("[资源构建] 构建：\n" + message);
-            if (ok) EditorUtility.RevealInFinder(BundleBuilderHelper.GetDefaultBuildOutputRoot());
-            EditorUtility.DisplayDialog(ok ? "构建完成" : "构建失败", message, "好");
+            if (ok) EditorUtility.RevealInFinder(AssetBuildLayout.BundlesRoot);
+            EditorUtility.DisplayDialog(ok ? "构建完成" : "构建有失败项", message, "好");
         }
 
-        [MenuItem(Root + "2. 部署到本地 CDN（联调）", priority = 2)]
-        private static void Menu_DeployLocal()
+        [MenuItem(Root + "2. 部署（平铺到 Deploy）", priority = 2)]
+        private static void Menu_Deploy()
         {
             var profile = FrameworkAssetBuildProfile.Resolve();
             var packages = profile.EnabledPackageNames.ToList();
-            string cdnDir = LocalCdnDir(profile);
+            string deployDir = AssetBuildLayout.DeployRoot;
 
-            var (ok, message) = FrameworkAssetBuilder.Deploy(packages, cdnDir);
-            Debug.Log("[资源构建] 部署到本地 CDN：\n" + message);
-            if (ok) EditorUtility.RevealInFinder(cdnDir);
-            EditorUtility.DisplayDialog(ok ? "部署完成" : "部署失败", message, "好");
+            var (ok, message) = FrameworkAssetBuilder.Deploy(packages, deployDir);
+            Debug.Log("[资源构建] 部署：\n" + message);
+            if (ok) EditorUtility.RevealInFinder(deployDir);
+            EditorUtility.DisplayDialog(ok ? "部署完成（本地伺服 / CI 上传共用）" : "部署失败", message, "好");
         }
 
         [MenuItem(Root + "3. 启动本地 CDN 服务", priority = 3)]
@@ -68,20 +61,6 @@ namespace Game.Framework.Build
         {
             string msg = StartServer(FrameworkAssetBuildProfile.Resolve());
             Debug.Log("[资源构建] " + msg);
-        }
-
-        [MenuItem(Root + "4. 部署到生产产物目录（待 CI 上传）", priority = 4)]
-        private static void Menu_DeployProduction()
-        {
-            // 与「部署到本地 CDN」对称的 deploy-only 步骤——只换部署目标（BuildOutput/CDN）。构建仍走步骤 1，不在此重复。
-            var profile = FrameworkAssetBuildProfile.Resolve();
-            var packages = profile.EnabledPackageNames.ToList();
-            string outDir = ProjectPath(profile.ProductionOutputDir);
-
-            var (ok, message) = FrameworkAssetBuilder.Deploy(packages, outDir);
-            Debug.Log("[资源构建] 部署到生产产物目录：\n" + message);
-            if (ok) EditorUtility.RevealInFinder(outDir);
-            EditorUtility.DisplayDialog(ok ? "部署完成（待 CI 上传）" : "部署失败", message, "好");
         }
 
         // ───────────── 构建配置 ─────────────
@@ -106,50 +85,41 @@ namespace Game.Framework.Build
         }
 
         // ───────────── 打开目录（菜单名只写用途，不写死文件夹名） ─────────────
-        // Unity 的 [MenuItem] 名是编译期常量，没法跟配置动态变；而目录名要么来自 profile（本地 CDN / 生产产物）、
-        // 要么来自 YooAsset 设置（yoo / Bundles），写进菜单名都会过时。所以菜单只写「用途」，真实路径运行时解析、
-        // 在 Reveal 里 log 出来，点开直接在资源管理器看到。
+        // Unity 的 [MenuItem] 名是编译期常量、跟不了配置；真实路径运行时由 AssetBuildLayout 解析、在 Reveal 里 log，点开直接看到。
 
         [MenuItem(Root + "打开目录/构建输出", priority = 40)]
-        private static void Menu_OpenBuildOutput()
-            => Reveal(BundleBuilderHelper.GetDefaultBuildOutputRoot(), createIfMissing: true);
+        private static void Menu_OpenBuildOutput() => Reveal(AssetBuildLayout.BundlesRoot, createIfMissing: true);
 
-        [MenuItem(Root + "打开目录/内置首包", priority = 41)]
-        private static void Menu_OpenBuiltin()
-            => Reveal(BundleBuilderHelper.GetStreamingAssetsRoot(), createIfMissing: true);
+        [MenuItem(Root + "打开目录/部署", priority = 41)]
+        private static void Menu_OpenDeploy() => Reveal(AssetBuildLayout.DeployRoot, createIfMissing: true);
 
         [MenuItem(Root + "打开目录/下载缓存", priority = 42)]
-        private static void Menu_OpenCache()
-            => Reveal(ProjectPath(YooFolderName), createIfMissing: false,
-                      missingHint: "尚无下载缓存（Host/Web 模式下载资源后才会生成）。");
+        private static void Menu_OpenDownloaded()
+            => Reveal(AssetBuildLayout.DownloadedRoot, createIfMissing: false,
+                      missingHint: "尚无下载缓存（Host 模式下载资源后才会生成；仅 YooAsset 重定向到此，真机在 persistentDataPath）。");
 
-        [MenuItem(Root + "打开目录/本地 CDN", priority = 43)]
-        private static void Menu_OpenLocalCdn()
-            => Reveal(LocalCdnDir(FrameworkAssetBuildProfile.Resolve()), createIfMissing: true);
+        [MenuItem(Root + "打开目录/内置首包", priority = 43)]
+        private static void Menu_OpenBuiltin() => Reveal(BundleBuilderHelper.GetStreamingAssetsRoot(), createIfMissing: true);
 
-        [MenuItem(Root + "打开目录/生产产物", priority = 44)]
-        private static void Menu_OpenProductionOutput()
-            => Reveal(ProjectPath(FrameworkAssetBuildProfile.Resolve().ProductionOutputDir), createIfMissing: true);
-
-        // ───────────── 本地服务（联调专属，生产=CI 上传 CDN） ─────────────
+        // ───────────── 本地服务（联调专属，生产=CI 上传 CDN）─────────────
 
         /// <summary>
-        /// 在本地 CDN 目录起 HTTP 服务（端口取自 profile）。<c>LocalServeThrottleKBps</c>&gt;0 时用限速脚本模拟弱网，否则用
-        /// <c>python -m http.server</c>。端口已监听则复用现有进程（改限速要先关掉它）。Play 模式安全（不涉及构建管线）。
+        /// 在 <c>AssetBuild/Deploy</c> 起 HTTP 服务（端口取自 profile）。<c>LocalServeThrottleKBps</c>&gt;0 时用限速脚本模拟弱网，
+        /// 否则用 <c>python -m http.server</c>。端口已监听则复用现有进程（改限速要先关掉它）。Play 模式安全（不涉及构建管线）。
         /// ⚠ 端口须与场景 AssetSystemConfigModel.MainCdnUrl 一致，Host 才下得到。
         /// </summary>
         public static string StartServer(FrameworkAssetBuildProfile profile)
         {
             try
             {
-                string cdnDir = LocalCdnDir(profile);
+                string deployDir = AssetBuildLayout.DeployRoot;
                 int port = profile.LocalServePort;
                 int kbps = profile.LocalServeThrottleKBps;
 
-                if (!Directory.Exists(cdnDir))
-                    return $"③ 本地 CDN 目录不存在：{cdnDir}（先执行「构建资源包」+「部署到本地 CDN」）。";
+                if (!Directory.Exists(deployDir))
+                    return $"③ 部署目录不存在：{deployDir}（先执行「1. 构建资源包」+「2. 部署」）。";
                 if (IsPortOpen(port))
-                    return $"③ 本地服务已在 127.0.0.1:{port} 运行（复用现有进程，目录 {cdnDir}）。改限速请先关掉它再启动。";
+                    return $"③ 本地服务已在 127.0.0.1:{port} 运行（复用现有进程，目录 {deployDir}）。改限速请先关掉它再启动。";
 
                 // http.server 不支持限速：限速>0 时跑一个分块+sleep 的小脚本，否则用标准 http.server。
                 string args = kbps > 0 ? $"\"{WriteThrottleScript()}\" {port} {kbps}" : $"-m http.server {port}";
@@ -159,14 +129,14 @@ namespace Game.Framework.Build
                 {
                     FileName = "python",
                     Arguments = args,
-                    WorkingDirectory = cdnDir,
+                    WorkingDirectory = deployDir,
                     UseShellExecute = true, // 开独立控制台常驻；false 进程会随 Editor 退出
                 });
-                return $"③ 已启动本地 CDN 服务（{mode}，端口 {port}，目录 {cdnDir}）。";
+                return $"③ 已启动本地 CDN 服务（{mode}，端口 {port}，目录 {deployDir}）。";
             }
             catch (Exception e)
             {
-                return $"③ 起服务失败（{e.Message}）。确认 python 在 PATH，或手动在本地 CDN 目录起 HTTP 服务。";
+                return $"③ 起服务失败（{e.Message}）。确认 python 在 PATH，或手动在部署目录起 HTTP 服务。";
             }
         }
 
@@ -202,14 +172,6 @@ if __name__ == '__main__':
         }
 
         // ───────────── 内部工具 ─────────────
-
-        // 项目根 = <项目根>/Assets 的父目录。零绝对路径、可移植。
-        private static string ProjectRoot() => Path.GetDirectoryName(Application.dataPath);
-
-        // 项目根下的相对路径（profile 里的目录都相对项目根）。
-        private static string ProjectPath(string relative) => Path.Combine(ProjectRoot(), relative);
-
-        private static string LocalCdnDir(FrameworkAssetBuildProfile profile) => ProjectPath(profile.LocalCdnDirName);
 
         // 打开目录；createIfMissing=false 且目录不存在时只提示、不建空目录（如运行时才写的下载缓存）。
         private static void Reveal(string dir, bool createIfMissing, string missingHint = null)

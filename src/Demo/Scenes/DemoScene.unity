@@ -612,7 +612,8 @@ GameObject:
   - component: {fileID: 1007168412}
   - component: {fileID: 1007168411}
   m_Layer: 0
-  m_Name: "\u8D44\u6E90\u7CFB\u7EDF\xB7\u914D\u7F6E/\u521D\u59CB\u5316/\u52A0\u8F7D"
+  m_Name: "\u8D44\u6E90\u7CFB\u7EDF\u76F8\u5173\uFF1A\u914D\u7F6E\uFF08Model\uFF09/
+    \u521D\u59CB\u5316\u7CFB\u7EDF\uFF08System\uFF09/ \u52A0\u8F7D\u5DE5\u5177\uFF08Utility\uFF09"
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -909,7 +910,7 @@ GameObject:
   - component: {fileID: 1395205783}
   - component: {fileID: 1395205784}
   m_Layer: 0
-  m_Name: "\u8D44\u6E90\u5F15\u7528\u914D\u7F6E (Model)"
+  m_Name: "Demo\u8D44\u6E90\u5F15\u7528\u914D\u7F6E (Model)"
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0

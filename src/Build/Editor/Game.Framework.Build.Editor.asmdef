@@ -2,6 +2,7 @@
     "name": "Game.Framework.Build.Editor",
     "rootNamespace": "Game.Framework.Build",
     "references": [
+        "Game.Framework",
         "YooAsset",
         "YooAsset.Editor"
     ],
