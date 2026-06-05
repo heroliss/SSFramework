@@ -19,11 +19,12 @@ MonoBehaviour:
     BuiltinTags: 
     GenerateBuiltinShaderBundle: 0
   - PackageName: DefaultPackage
-    BuildEnabled: 1
+    BuildEnabled: 0
     BuiltinCopy: 2
     BuiltinTags: 
     GenerateBuiltinShaderBundle: 1
   LocalCdnDirName: CDN
   LocalServePort: 8080
+  LocalServeThrottleKBps: 0
   ProductionOutputDir: BuildOutput/CDN
   VersionFormat: yyyyMMddHHmmss

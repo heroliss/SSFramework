@@ -11,13 +11,14 @@ using Debug = UnityEngine.Debug;
 namespace Game.Framework.Build
 {
     /// <summary>
-    /// 统一资源构建菜单 <c>SSFramework/资源构建/*</c>——把「构建 / 部署 / 起服务 / 打开目录 / 配置」收到一棵菜单，
-    /// 三个核心步骤**刻意拆开**（不再有「一键构建+部署+起服务」的捆绑黑盒）：
+    /// 统一资源构建菜单 <c>SSFramework/资源构建/*</c>——构建 / 部署 / 起服务 / 打开目录 / 配置，**步骤刻意拆开**（不捆绑）：
     /// <list type="number">
-    ///   <item>构建资源包 —— 跑 SBP，产 YooAsset 原生输出。</item>
-    ///   <item>部署到本地 CDN —— 把最新构建产物平铺到 项目根/CDN（仅本机联调）。</item>
-    ///   <item>启动本地 CDN 服务 —— python 起 HTTP 服务伺服 项目根/CDN。</item>
+    ///   <item>构建资源包 —— 跑 SBP，产 YooAsset 原生输出（Bundles/）。</item>
+    ///   <item>部署到本地 CDN —— 平铺最新产物到 项目根/CDN（本机联调）。</item>
+    ///   <item>启动本地 CDN 服务 —— python 起 HTTP（可限速模拟弱网）伺服 项目根/CDN。</item>
+    ///   <item>部署到生产产物目录 —— 平铺到 BuildOutput/CDN（待 CI 上传）。</item>
     /// </list>
+    /// 一次构建、两个部署目标（本地联调 / 生产待传）。
     /// 构建/部署逻辑全在 <see cref="FrameworkAssetBuilder"/>（菜单只是它的交互外壳）；「打哪些包 + 每包参数」读
     /// <see cref="FrameworkAssetBuildProfile"/>。<b>demo 不在菜单里</b>——demo 的本地联调就是「把 profile 喂成样例包，走这同一套流程」。
     ///
@@ -69,26 +70,18 @@ namespace Game.Framework.Build
             Debug.Log("[资源构建] " + msg);
         }
 
-        [MenuItem(Root + "构建全部并整理生产产物（CI 同款）", priority = 4)]
-        private static void Menu_BuildProduction()
+        [MenuItem(Root + "4. 部署到生产产物目录（待 CI 上传）", priority = 4)]
+        private static void Menu_DeployProduction()
         {
-            if (!FrameworkAssetBuilder.EnsureReadyToBuild()) return;
-
+            // 与「部署到本地 CDN」对称的 deploy-only 步骤——只换部署目标（BuildOutput/CDN）。构建仍走步骤 1，不在此重复。
             var profile = FrameworkAssetBuildProfile.Resolve();
             var packages = profile.EnabledPackageNames.ToList();
-            string version = DateTime.Now.ToString(profile.VersionFormat);
-
-            var (ok, message) = FrameworkAssetBuilder.Build(profile, packages, version);
             string outDir = ProjectPath(profile.ProductionOutputDir);
-            if (ok)
-            {
-                var (deployOk, deployMsg) = FrameworkAssetBuilder.Deploy(packages, outDir);
-                ok &= deployOk;
-                message += "\n" + deployMsg;
-            }
-            Debug.Log("[资源构建] 生产构建：\n" + message);
+
+            var (ok, message) = FrameworkAssetBuilder.Deploy(packages, outDir);
+            Debug.Log("[资源构建] 部署到生产产物目录：\n" + message);
             if (ok) EditorUtility.RevealInFinder(outDir);
-            EditorUtility.DisplayDialog(ok ? "生产构建完成（待 CI 上传）" : "生产构建失败", message, "好");
+            EditorUtility.DisplayDialog(ok ? "部署完成（待 CI 上传）" : "部署失败", message, "好");
         }
 
         // ───────────── 构建配置 ─────────────
@@ -112,37 +105,38 @@ namespace Game.Framework.Build
             EditorUtility.DisplayDialog("同步完成", summary, "好");
         }
 
-        // ───────────── 打开目录（中文 + 分类） ─────────────
+        // ───────────── 打开目录（菜单名只写用途，不写死文件夹名） ─────────────
+        // Unity 的 [MenuItem] 名是编译期常量，没法跟配置动态变；而目录名要么来自 profile（本地 CDN / 生产产物）、
+        // 要么来自 YooAsset 设置（yoo / Bundles），写进菜单名都会过时。所以菜单只写「用途」，真实路径运行时解析、
+        // 在 Reveal 里 log 出来，点开直接在资源管理器看到。
 
-        [MenuItem(Root + "打开目录/构建输出 (Bundles)", priority = 40)]
+        [MenuItem(Root + "打开目录/构建输出", priority = 40)]
         private static void Menu_OpenBuildOutput()
             => Reveal(BundleBuilderHelper.GetDefaultBuildOutputRoot(), createIfMissing: true);
 
-        [MenuItem(Root + "打开目录/内置首包 (StreamingAssets·yoo)", priority = 41)]
+        [MenuItem(Root + "打开目录/内置首包", priority = 41)]
         private static void Menu_OpenBuiltin()
             => Reveal(BundleBuilderHelper.GetStreamingAssetsRoot(), createIfMissing: true);
 
-        [MenuItem(Root + "打开目录/下载缓存 (项目根·yoo)", priority = 42)]
+        [MenuItem(Root + "打开目录/下载缓存", priority = 42)]
         private static void Menu_OpenCache()
             => Reveal(ProjectPath(YooFolderName), createIfMissing: false,
                       missingHint: "尚无下载缓存（Host/Web 模式下载资源后才会生成）。");
 
-        // 下面两个目录名可配（profile.LocalCdnDirName / ProductionOutputDir）。Unity 的 [MenuItem] 名是编译期常量、
-        // 没法跟着配置动态显示，所以菜单只写「用途」、不写死具体文件夹名；实际路径由 handler 运行时读 profile 解析，
-        // 并在 Reveal 里 log 出来（点开就能在资源管理器看到真实目录）。
-        [MenuItem(Root + "打开目录/本地 CDN 部署目录", priority = 43)]
+        [MenuItem(Root + "打开目录/本地 CDN", priority = 43)]
         private static void Menu_OpenLocalCdn()
             => Reveal(LocalCdnDir(FrameworkAssetBuildProfile.Resolve()), createIfMissing: true);
 
-        [MenuItem(Root + "打开目录/生产产物目录（待 CI 上传）", priority = 44)]
+        [MenuItem(Root + "打开目录/生产产物", priority = 44)]
         private static void Menu_OpenProductionOutput()
             => Reveal(ProjectPath(FrameworkAssetBuildProfile.Resolve().ProductionOutputDir), createIfMissing: true);
 
         // ───────────── 本地服务（联调专属，生产=CI 上传 CDN） ─────────────
 
         /// <summary>
-        /// 在本地 CDN 目录起 <c>python -m http.server &lt;port&gt;</c>（端口取自 profile）。端口已监听则复用现有进程。
-        /// Play 模式安全（不涉及构建管线）。⚠ 端口须与场景 AssetSystemConfigModel.MainCdnUrl 一致，Host 才下得到。
+        /// 在本地 CDN 目录起 HTTP 服务（端口取自 profile）。<c>LocalServeThrottleKBps</c>&gt;0 时用限速脚本模拟弱网，否则用
+        /// <c>python -m http.server</c>。端口已监听则复用现有进程（改限速要先关掉它）。Play 模式安全（不涉及构建管线）。
+        /// ⚠ 端口须与场景 AssetSystemConfigModel.MainCdnUrl 一致，Host 才下得到。
         /// </summary>
         public static string StartServer(FrameworkAssetBuildProfile profile)
         {
@@ -150,25 +144,61 @@ namespace Game.Framework.Build
             {
                 string cdnDir = LocalCdnDir(profile);
                 int port = profile.LocalServePort;
+                int kbps = profile.LocalServeThrottleKBps;
 
                 if (!Directory.Exists(cdnDir))
                     return $"③ 本地 CDN 目录不存在：{cdnDir}（先执行「构建资源包」+「部署到本地 CDN」）。";
                 if (IsPortOpen(port))
-                    return $"③ 本地服务已在 127.0.0.1:{port} 运行（复用现有进程，目录 {cdnDir}）。";
+                    return $"③ 本地服务已在 127.0.0.1:{port} 运行（复用现有进程，目录 {cdnDir}）。改限速请先关掉它再启动。";
+
+                // http.server 不支持限速：限速>0 时跑一个分块+sleep 的小脚本，否则用标准 http.server。
+                string args = kbps > 0 ? $"\"{WriteThrottleScript()}\" {port} {kbps}" : $"-m http.server {port}";
+                string mode = kbps > 0 ? $"限速 {kbps} KB/s/连接" : "不限速";
 
                 Process.Start(new ProcessStartInfo
                 {
                     FileName = "python",
-                    Arguments = $"-m http.server {port}",
+                    Arguments = args,
                     WorkingDirectory = cdnDir,
                     UseShellExecute = true, // 开独立控制台常驻；false 进程会随 Editor 退出
                 });
-                return $"③ 已启动本地 CDN 服务（python -m http.server {port}，目录 {cdnDir}）。";
+                return $"③ 已启动本地 CDN 服务（{mode}，端口 {port}，目录 {cdnDir}）。";
             }
             catch (Exception e)
             {
                 return $"③ 起服务失败（{e.Message}）。确认 python 在 PATH，或手动在本地 CDN 目录起 HTTP 服务。";
             }
+        }
+
+        // 限速 HTTP 服务脚本（http.server 不支持限速）：分块发送 + 按 KB/s sleep，写到临时目录后 python &lt;脚本&gt; &lt;port&gt; &lt;kbps&gt;。
+        // 限速是每连接的（总带宽≈值×并发）；ThreadingHTTPServer 支撑 YooAsset 的并发下载。脚本内容用单引号、避免和 C# verbatim 字符串冲突。
+        private static string WriteThrottleScript()
+        {
+            string path = Path.Combine(Path.GetTempPath(), "ss_throttled_http_server.py");
+            const string py =
+@"import sys, time
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+port = int(sys.argv[1]) if len(sys.argv) > 1 else 8080
+kbps = float(sys.argv[2]) if len(sys.argv) > 2 else 0.0
+CHUNK = 16384
+class H(SimpleHTTPRequestHandler):
+    def copyfile(self, source, outputfile):
+        if kbps <= 0:
+            super().copyfile(source, outputfile)
+            return
+        rate = kbps * 1024.0
+        while True:
+            buf = source.read(CHUNK)
+            if not buf:
+                break
+            outputfile.write(buf)
+            time.sleep(len(buf) / rate)
+if __name__ == '__main__':
+    print('throttled http server on 127.0.0.1:%d @ %s KB/s' % (port, kbps))
+    ThreadingHTTPServer(('127.0.0.1', port), H).serve_forever()
+";
+            File.WriteAllText(path, py);
+            return path;
         }
 
         // ───────────── 内部工具 ─────────────
