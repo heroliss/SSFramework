@@ -120,22 +120,36 @@ namespace Game.Framework.Demo.Modules
 
             // ── 3b. ScriptableObject 配置：加载 + 一键绑定它的引用 ──
             host.AddSectionTitle("ScriptableObject 配置：加载 + Bag.BindAssetReferences");
-            var soLabel = host.AddValueDisplay("点下面按钮加载配置 SO 并用它的引用");
-            host.AddActionRow("加载 DemoAssetConfig 并用它的 IconRef", async () =>
+            var soLabel = host.AddValueDisplay("白盒三步，顺序点：① 加载配置 SO → ② 绑定它的引用 → ③ 取 IconRef");
+            // 拆三个独立按钮（加载 SO / 绑它内部的引用 / 取引用），闭包持有加载到的 cfg——
+            // 拆开正是为了让「SO 必须手动 Bind」这步显形：它不像 MonoXxxBase 字段那样 Awake 自动绑。
+            DemoAssetConfig loadedConfig = null;
+            host.AddActionRow("① 加载配置 SO（Bag.Load<DemoAssetConfig>）", async () =>
             {
                 // config SO 像资源一样被加载进来（真实游戏的常见形态：配置也走资源系统下发/热更）。
-                var cfg = await Bag.Load<DemoAssetConfig>(ConfigAddress);
-                if (cfg == null) { soLabel.text = "加载失败（地址 DemoAssetConfig 在 FrameworkSamplesPackage？）"; return; }
+                loadedConfig = await Bag.Load<DemoAssetConfig>(ConfigAddress);
+                soLabel.text = loadedConfig != null
+                    ? $"已加载配置 {loadedConfig.name}。它内部的 AssetReference 还没绑定——点②。"
+                    : "加载失败（地址 DemoAssetConfig 在 FrameworkSamplesPackage？）";
+            }, CodeRef.Here("Bag.Load<DemoAssetConfig>(ConfigAddress)", "加载配置 SO"));
+            host.AddActionRow("② 绑定它的引用（Bag.BindAssetReferences）", () =>
+            {
+                if (loadedConfig == null) { soLabel.text = "请先点①加载配置 SO。"; return; }
                 // SO 不是 MonoXxxBase、字段不会自动绑定：一行把它内部所有 AssetReference 绑到本章 Bag（随本章释放）。
-                Bag.BindAssetReferences(cfg);
-                var icon = await cfg.IconRef.Get();
+                Bag.BindAssetReferences(loadedConfig);
+                soLabel.text = $"已把 {loadedConfig.name} 的全部 AssetReference 绑到本章 Bag，现在可安全点③取引用。";
+            }, CodeRef.Here("Bag.BindAssetReferences(loadedConfig)", "一键绑定 SO 内引用"));
+            host.AddActionRow("③ 取 IconRef（IconRef.Get）", async () =>
+            {
+                if (loadedConfig == null) { soLabel.text = "请先点①加载配置 SO。"; return; }
+                var icon = await loadedConfig.IconRef.Get();
                 if (icon != null)
                 {
                     spritePreview.style.backgroundImage = new StyleBackground(icon);
-                    soLabel.text = $"已加载配置 {cfg.name}，并用它的 IconRef 取到：{icon.name}";
+                    soLabel.text = $"用 {loadedConfig.name} 的 IconRef 取到：{icon.name}";
                 }
-                else soLabel.text = "配置已加载，但 IconRef 未配置（在 DemoAssetConfig 资产里拖一张 Sprite）";
-            }, CodeRef.Here("Bag.BindAssetReferences(cfg)", "加载 SO + 一键绑定"));
+                else soLabel.text = "IconRef 未配置（在 DemoAssetConfig 资产里拖一张 Sprite）。";
+            }, CodeRef.Here("loadedConfig.IconRef.Get()", "取 SO 内引用"));
             host.AddNote("ScriptableObject 配置是「被加载的数据资产」，不是 Model 层（它常需像资源一样异步加载，无法在启动时注册成 Model）。它内部的 AssetReference 不会自动绑定（框架刻意不递归 SO），由加载 / 持有它的宿主一行 Bag.BindAssetReferences(配置) 把它的全部引用绑到自身生命周期——之后随本章 Bag 一起释放。",
                 new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/DemoAssetConfig.cs", "class DemoAssetConfig", "DemoAssetConfig 定义"));
 #if UNITY_EDITOR
