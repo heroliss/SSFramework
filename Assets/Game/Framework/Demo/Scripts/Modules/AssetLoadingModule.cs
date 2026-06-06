@@ -185,37 +185,35 @@ namespace Game.Framework.Demo.Modules
             modeBadge.AddToClassList("demo-badge");
             if (dlIsReal) modeBadge.AddToClassList("demo-badge--yes");
             host.Content.Add(modeBadge);
-            var progressLabel = host.AddValueDisplay("点下面按钮开始下载");
+            var progressLabel = host.AddValueDisplay("先点「创建下载器」统计，再点「开始下载」");
             var progressBar = new ProgressBar { lowValue = 0f, highValue = 1f };
             progressBar.style.marginBottom = 8;
             host.Content.Add(progressBar);
-            host.AddActionRow("创建下载器并下载", async () =>
+            // 白盒：创建下载器与启动下载是两个独立操作，拆两个按钮——先创建（统计要下多少），再下载，互不打包。
+            IAssetDownloader downloader = null;
+            host.AddActionRow("创建下载器（统计待下载）", async () =>
             {
                 await Bag.EnsureInitialized();
-                var dl = Bag.CreateTagDownloader(DemoTag);
-
-                // 真实模式下「没有要下载的」是常态（已缓存命中 / 已内置 / 或 tag 没匹配到 bundle）：
-                // 此时 TotalCount=0，直接 Download() 会瞬间完成、进度恒 0，看着像“什么都没发生”。显式交代清楚。
-                if (!dl.IsSimulated && dl.TotalCount == 0)
-                {
-                    progressBar.value = 1f;
-                    progressBar.title = "无需下载（0 个 / 0 MB）";
-                    progressLabel.text = $"无需下载：tag「{DemoTag}」下没有要从 CDN 拉的资源（已缓存/已内置，或没匹配到 bundle）。" +
-                        "想重测：点下面「清空下载缓存」再点本按钮即可（免停 Play）。";
-                    return;
-                }
-
-                Bag.Subscribe(dl.Progress, r =>
+                downloader = Bag.CreateTagDownloader(DemoTag);
+                Bag.Subscribe(downloader.Progress, r =>
                 {
                     progressBar.value = r.Progress;
                     progressBar.title = $"{r.Progress:P0}　{r.CurrentSizeMB}/{r.TotalSizeMB} MB";
                 });
-                progressLabel.text = dl.IsSimulated
-                    ? $"下载中…（EditorSimulate 模拟：总 {dl.TotalBytes / 1048576f:0.00} MB）"
-                    : $"下载中…（真实远端：{dl.TotalCount} 个 / {dl.TotalBytes / 1048576f:0.00} MB）";
-                await dl.Download();
-                progressLabel.text = $"下载完成 ✓（{dl.TotalCount} 个 / {dl.TotalBytes / 1048576f:0.00} MB）";
-            }, CodeRef.Here("Bag.CreateTagDownloader(DemoTag)", "下载器用法"));
+                // 真实模式下「没有要下载的」是常态（已缓存命中 / 已内置 / 或 tag 没匹配到 bundle），TotalCount=0，下载会瞬间完成。显式交代。
+                progressLabel.text = downloader.IsSimulated
+                    ? $"已创建（EditorSimulate 模拟：总 {downloader.TotalBytes / 1048576f:0.00} MB）。点「开始下载」。"
+                    : downloader.TotalCount == 0
+                        ? $"已创建：tag「{DemoTag}」下无需下载（0 个，已缓存/已内置）。想重测先点「清空下载缓存」。"
+                        : $"已创建：待下载 {downloader.TotalCount} 个 / {downloader.TotalBytes / 1048576f:0.00} MB。点「开始下载」。";
+            }, CodeRef.Here("Bag.CreateTagDownloader(DemoTag)", "创建下载器"));
+            host.AddActionRow("开始下载（Download）", async () =>
+            {
+                if (downloader == null) { progressLabel.text = "请先点「创建下载器」。"; return; }
+                progressLabel.text = "下载中…";
+                await downloader.Download();
+                progressLabel.text = $"下载完成 ✓（{downloader.TotalCount} 个 / {downloader.TotalBytes / 1048576f:0.00} MB）";
+            }, CodeRef.Here("downloader.Download()", "启动下载"));
 
             // 运行时清缓存：清完内存缓存记录同步更新，IsNeedDownload 立刻变真，同一次 Play 里就能再测真实下载——免去停 Play。
             host.AddActionRow("清空下载缓存（运行时，免停 Play 即可重测）", async () =>
@@ -225,7 +223,7 @@ namespace Game.Framework.Demo.Modules
                 progressBar.value = 0f;
                 progressBar.title = string.Empty;
                 bool need = asset.IsNeedDownload(LogoAddress);
-                progressLabel.text = $"已清空下载缓存 ✓　IsNeedDownload(Logo)={need}（远端模式下应变 true，可再点上面下载）。";
+                progressLabel.text = $"已清空下载缓存 ✓　IsNeedDownload(Logo)={need}（远端模式下应变 true，可再点上面「创建下载器」+「开始下载」重测）。";
             }, CodeRef.Here("asset.ClearCacheAsync", "运行时清缓存"));
             host.AddNote("CreateTagDownloader(tags) 统计这些 tag 下要下载的资源，订阅 Progress（R3 状态流）驱动进度条，Download() 启动；ClearCacheAsync 清本地已下载缓存（All 全清 / Unused 清旧版本，正式游戏也用）。下载中途失败由下载器自带按 AssetSystemConfigModel.FailedTryAgain（默认 3）重试 + 断点续传（已下分片不重下），业务不必手写重试循环。");
             host.AddSubNote("「模拟下载器」原理、下载缓存目录在哪、各清单文件、各 PlayMode 的底层差异——见「YooAsset · 底层实现」章。本节只演示框架 API 用法。");
