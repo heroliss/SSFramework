@@ -1,5 +1,4 @@
 using System;
-using Cysharp.Threading.Tasks;
 using Game.Framework;
 using Game.Framework.Common;
 using Game.Framework.Demo.Core;
@@ -108,20 +107,29 @@ namespace Game.Framework.Demo.Modules
                     Debug.LogException(e);
                 }
             }, CodeRef.Here("Bag.Load<Sprite>(SamplesPackage, LogoAddress)", "init 失败 → 抛"));
-            host.AddActionRow("重试初始化（RetryInitialize）", async () =>
+#if UNITY_EDITOR
+            // 一键复现「断线 → 重连」：断网 = 开框架内置「模拟断网」开关 + RetryInitialize（远端请求走不可达地址 → init 失败）；
+            // 重连 = 关开关 + RetryInitialize。替代「手动停 CDN 服务」，仅编辑器、仅远端模式有效。
+            host.AddActionRow("模拟断网（仅 Host/Web 有效）", async () =>
             {
-                initLabel.text = "重试中…";
-                try
-                {
-                    await asset.RetryInitialize(SamplesPackage); // 本身不抛，结果回写 InitState（上面徽标 + samplesState 会跟着变）
-                    initLabel.text = samplesState == AssetInitState.Ready
-                        ? "重试成功 ✓ 现在可正常加载了。"
-                        : "仍未就绪——确认本地 CDN 服务已起 + 端口一致，再点一次。";
-                }
-                catch (Exception e) { initLabel.text = "重试调用异常（不应发生：RetryInitialize 约定不抛）。"; Debug.LogException(e); }
-            }, CodeRef.Here("asset.RetryInitialize(SamplesPackage)", "重试初始化"));
+                asset.SimulateOffline = true;
+                await asset.RetryInitialize(SamplesPackage);
+                bool remote = asset.CurrentPlayMode == AssetPlayMode.Host || asset.CurrentPlayMode == AssetPlayMode.Web;
+                initLabel.text = remote
+                    ? "已模拟断网 + 重新初始化 → 应变 Failed（看上方徽标）；此时点上面的 Load 会抛。点「重连」恢复。"
+                    : $"当前 {asset.CurrentPlayMode} 模式无远端，断网开关不生效；切到 Host 模式再试。";
+            }, CodeRef.Here("asset.SimulateOffline = true", "框架内置·模拟断网"));
+            host.AddActionRow("重连（清除断网 + 重试初始化）", async () =>
+            {
+                asset.SimulateOffline = false;
+                await asset.RetryInitialize(SamplesPackage); // RetryInitialize 本身不抛，结果回写 InitState（徽标 + samplesState 跟着变）
+                initLabel.text = samplesState == AssetInitState.Ready
+                    ? "已重连 + 重新初始化 → Ready ✓ 可正常加载了。"
+                    : "重连后仍未就绪——可能本就没起服务 / 没构建（断网开关已清）。";
+            }, CodeRef.Here("asset.RetryInitialize(SamplesPackage)", "重连 + 重试初始化"));
+#endif
             host.AddNote("init 失败（CDN 不可达 / 断网）时，Load / LoadScene / ClearCacheAsync 内部的 EnsureInitialized 会上抛初始化异常——所以这一类要么 try/catch、要么先判 InitState / IsInitialized。RetryInitialize 专给「加载界面重试」：网络修好后重跑初始化、无需重启 App，本身不抛、结果回写 InitState。");
-            host.AddSubNote("复现：运行模式切 Host 但不起本地 CDN 服务 → 进 Play 即见失败；起服务后点「重试初始化」恢复。注意：「下载」中途失败不归这套——下载器自带按 FailedTryAgain 重试 + 断点续传（见「资源加载」章·下载），业务不用手写重试。");
+            host.AddSubNote("复现失败：用上面「模拟断网」按钮（框架内置开关，仅编辑器 / 仅 Host/Web，一键让远端请求失败、免手动停 CDN 服务），或把运行模式切 Host 但不起服务。注意：「下载」中途失败不归这套——下载器自带按 FailedTryAgain 重试 + 断点续传（见「资源加载」章·下载），业务不用手写重试。");
 
             // ── 小结 ──
             host.AddSectionTitle("小结：两套写法别用混");
