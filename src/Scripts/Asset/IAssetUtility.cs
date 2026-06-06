@@ -95,10 +95,14 @@ namespace Game.Framework
 
 #if UNITY_EDITOR
         /// <summary>
-        /// 编辑器「模拟断网」开关（仅 Editor）：true 时 provider 远端请求走不可达地址，使 init / 下载 / 需下载的 Load 全部失败。
-        /// 仅远端模式（Host/Web）有意义；也可在 AssetUtility 的 Inspector 勾选。
+        /// 编辑器「模拟断网」开关状态流（仅 Editor）：开启时 provider 的远端请求走不可达地址，使远端拉取失败。
+        /// 只作用于<b>新发起的</b>远端请求——已 <see cref="AssetInitState.Ready"/> 的包不会因此回退、已缓存的资源仍能加载；
+        /// 故要让某个包的<b>初始化</b>因此失败，须在该包初始化前就开启。订阅即得当前值（R3 内置），Inspector 切换同样会推送给订阅方。
         /// </summary>
-        bool SimulateOffline { get; set; }
+        ReadOnlyReactiveProperty<bool> SimulateOffline { get; }
+
+        /// <summary>设置「模拟断网」开关（仅 Editor）；值写回 <see cref="SimulateOffline"/>，订阅方与 Inspector 同步。</summary>
+        void SetSimulateOffline(bool on);
 #endif
 
         /// <summary>
