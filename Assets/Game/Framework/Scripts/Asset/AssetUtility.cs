@@ -4,6 +4,7 @@ using System.Threading;
 using Cysharp.Threading.Tasks;
 using Game.Framework.Utility;
 using R3;
+using Sirenix.OdinInspector;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
@@ -58,6 +59,36 @@ namespace Game.Framework
         public bool IsInitialized => GetState(_defaultPackageName).State.Value == AssetInitState.Ready;
         public AssetPlayMode CurrentPlayMode { get; private set; } = AssetPlayMode.EditorSimulate;
         public ReadOnlyReactiveProperty<AssetInitState> InitState => GetState(_defaultPackageName).State;
+
+        // ── 运行时诊断（只读，仅 Play 模式显示）──
+        // 摆出来的是 utility 自己的运行时状态，不是配置（配置真源在 AssetSystemConfigModel，规则 #19，故这里不回显 CDN 等 Model 字段，
+        // 只显示 utility 解析/初始化的实际结果）。排查初始化失败 / 502 / 端口不一致时直接看「各包状态」。
+        // Build 下无 Inspector，getter 不会被调用，零运行时成本。沿用 MonoLayerBase.ResolvedContext 的同一套 Odin 只读展示约定。
+        [ShowInInspector, ReadOnly, HideInEditorMode, LabelText("诊断 · 运行模式"), PropertyOrder(-90)]
+        [PropertyTooltip("当前生效的资源运行模式（首次初始化时由 AssetInitSystem 写入）。")]
+        private AssetPlayMode InspectorPlayMode => CurrentPlayMode;
+
+        [ShowInInspector, ReadOnly, HideInEditorMode, LabelText("诊断 · 默认包"), PropertyOrder(-89)]
+        [PropertyTooltip("utility 解析出的默认资源包名。真源是 AssetSystemConfigModel.DefaultPackageName，经 Configure 写入；此处仅只读回看。")]
+        private string InspectorDefaultPackage => _defaultPackageName;
+
+        [ShowInInspector, ReadOnly, HideInEditorMode, LabelText("诊断 · 各包初始化状态"), PropertyOrder(-88)]
+        [PropertyTooltip("每个已登记包的初始化状态（Idle / Initializing / Ready / Failed）。Failed 时附简短原因——排查初始化失败先看这里。")]
+        private Dictionary<string, string> InspectorPackageStates
+        {
+            get
+            {
+                var view = new Dictionary<string, string>(_packages.Count);
+                foreach (var kv in _packages)
+                {
+                    var st = kv.Value.State.Value;
+                    view[kv.Key] = st == AssetInitState.Failed && kv.Value.InitError != null
+                        ? $"{st} — {kv.Value.InitError.Message}"
+                        : st.ToString();
+                }
+                return view;
+            }
+        }
 
         protected override void Awake()
         {
@@ -206,6 +237,23 @@ namespace Game.Framework
 
             if (state.State.Value == AssetInitState.Failed)
                 throw state.InitError ?? new InvalidOperationException($"[AssetUtility] Package '{state.Name}' initialization failed.");
+        }
+
+        public async UniTask RetryInitialize(string packageName = null, CancellationToken ct = default)
+        {
+            ThrowIfDisposed();
+            var name = string.IsNullOrWhiteSpace(packageName) ? _defaultPackageName : packageName;
+            // 复用 AssetInitSystem 启动时 Configure 写入的 _config、以及上次初始化记录的 CurrentPlayMode（AssetInitSystem 总在 Awake 先跑过一轮，
+            // 此时 CurrentPlayMode 已是真实模式）。InitializePackageAsync 的 Failed/Idle 分支会重置状态并重跑、Ready 分支直接返回，故这里幂等且不抛。
+            if (ct.CanBeCanceled)
+            {
+                using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _disposeCts.Token);
+                await InitializePackageAsync(name, CurrentPlayMode, linked.Token);
+            }
+            else
+            {
+                await InitializePackageAsync(name, CurrentPlayMode, _disposeCts.Token);
+            }
         }
 
         public UniTask<IAssetHandle<T>> Load<T>(string location, CancellationToken ct = default)

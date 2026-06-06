@@ -86,6 +86,16 @@ namespace Game.Framework
         UniTask EnsureInitialized(string packageName, CancellationToken ct = default);
 
         /// <summary>
+        /// 重跑指定包的初始化（packageName 为空时为默认包）。典型用途：加载界面遇到初始化失败
+        /// （CDN 不可达 / 断网）时给用户一个「重试」按钮——网络恢复后无需重启 App。
+        /// <para>语义：包当前为 <see cref="AssetInitState.Failed"/> 或 <see cref="AssetInitState.Idle"/> 时重新初始化；
+        /// 已 <see cref="AssetInitState.Ready"/> 则直接返回（幂等，重复点不会重复初始化）；进行中则等待本次完成。</para>
+        /// <para>用最近一次的运行模式与配置重试（由 <see cref="AssetInitState"/> 流反映结果），<b>本身不抛异常</b>——
+        /// 失败照旧写回 <see cref="InitState"/>，订阅方据此更新 UI。</para>
+        /// </summary>
+        UniTask RetryInitialize(string packageName = null, CancellationToken ct = default);
+
+        /// <summary>
         /// 按 location 从默认包加载 UnityEngine.Object 资源。
         /// 返回的 <see cref="IAssetHandle{T}"/> 持有一份引用计数；调用方负责 Dispose（或交给 <see cref="DisposableBag"/> 托管）。
         /// </summary>
