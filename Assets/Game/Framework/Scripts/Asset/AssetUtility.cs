@@ -91,13 +91,15 @@ namespace Game.Framework
         }
 
 #if UNITY_EDITOR
-        // 编辑器「模拟断网」开关：勾上后 provider 远端请求走不可达地址 → init / 下载 / 需下载的 Load 全失败。
-        // 非序列化、仅 Play 显示、仅远端模式（Host/Web）有意义。
-        [FoldoutGroup(DiagGroup), ShowInInspector, HideInEditorMode, LabelText("模拟断网（仅 Host/Web）"), PropertyOrder(-85)]
-        [PropertyTooltip("勾上 = 远端请求走不可达地址，init / 下载 / 需下载的 Load 全部失败。仅编辑器、仅远端模式有意义。")]
-        private bool _simulateOffline;
+        // 编辑器「模拟断网」开关：开启后 provider 的远端请求走不可达地址，使远端拉取（初始化 / 下载 / 需下载的 Load）失败。
+        // 序列化且置于诊断折叠组外——它是可在进入 Play 前设置的「控制开关」而非「只读诊断」：已 Ready 的包不会因开关回退，
+        // 故只有在包初始化前开启才能让其初始化失败。用 RP<bool> 让 Inspector 与订阅方实时同步。
+        [SerializeField, LabelText("模拟断网（仅 Host/Web）"), PropertyOrder(-100)]
+        [PropertyTooltip("开启 = 远端请求走不可达地址，远端拉取失败。仅编辑器 / 仅远端模式有意义；进 Play 前开启才能让初始化失败，已 Ready 的包不受影响。")]
+        private RP<bool> _simulateOffline = new(false);
 
-        bool IAssetUtility.SimulateOffline { get => _simulateOffline; set => _simulateOffline = value; }
+        ReadOnlyReactiveProperty<bool> IAssetUtility.SimulateOffline => _simulateOffline;
+        void IAssetUtility.SetSimulateOffline(bool on) => _simulateOffline.Value = on;
 #endif
 
         protected override void Awake()
@@ -106,7 +108,7 @@ namespace Game.Framework
             _disposeCts = new CancellationTokenSource();
             _provider = AssetProviderFactory.CreateDefault();
 #if UNITY_EDITOR
-            _provider.SimulateOffline = () => _simulateOffline; // 把开关接到 provider（实时读取）
+            _provider.SimulateOffline = () => _simulateOffline.CurrentValue; // 把开关接到 provider（实时读取当前值）
 #endif
             GetState(_defaultPackageName);
         }
@@ -127,6 +129,9 @@ namespace Game.Framework
             }
             _packages.Clear();
 
+#if UNITY_EDITOR
+            _simulateOffline?.Dispose();
+#endif
             base.OnDestroy();
         }
 
