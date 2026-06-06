@@ -64,15 +64,15 @@ namespace Game.Framework
         // 摆出来的是 utility 自己的运行时状态，不是配置（配置真源在 AssetSystemConfigModel，规则 #19，故这里不回显 CDN 等 Model 字段，
         // 只显示 utility 解析/初始化的实际结果）。排查初始化失败 / 502 / 端口不一致时直接看「各包状态」。
         // Build 下无 Inspector，getter 不会被调用，零运行时成本。沿用 MonoLayerBase.ResolvedContext 的同一套 Odin 只读展示约定。
-        [ShowInInspector, ReadOnly, HideInEditorMode, LabelText("诊断 · 运行模式"), PropertyOrder(-90)]
+        [FoldoutGroup(DiagGroup), ShowInInspector, ReadOnly, HideInEditorMode, LabelText("运行模式"), PropertyOrder(-90)]
         [PropertyTooltip("当前生效的资源运行模式（首次初始化时由 AssetInitSystem 写入）。")]
         private AssetPlayMode InspectorPlayMode => CurrentPlayMode;
 
-        [ShowInInspector, ReadOnly, HideInEditorMode, LabelText("诊断 · 默认包"), PropertyOrder(-89)]
+        [FoldoutGroup(DiagGroup), ShowInInspector, ReadOnly, HideInEditorMode, LabelText("默认包"), PropertyOrder(-89)]
         [PropertyTooltip("utility 解析出的默认资源包名。真源是 AssetSystemConfigModel.DefaultPackageName，经 Configure 写入；此处仅只读回看。")]
         private string InspectorDefaultPackage => _defaultPackageName;
 
-        [ShowInInspector, ReadOnly, HideInEditorMode, LabelText("诊断 · 各包初始化状态"), PropertyOrder(-88)]
+        [FoldoutGroup(DiagGroup), ShowInInspector, ReadOnly, HideInEditorMode, LabelText("各包初始化状态"), PropertyOrder(-88)]
         [PropertyTooltip("每个已登记包的初始化状态（Idle / Initializing / Ready / Failed）。Failed 时附简短原因——排查初始化失败先看这里。")]
         private Dictionary<string, string> InspectorPackageStates
         {
@@ -90,11 +90,24 @@ namespace Game.Framework
             }
         }
 
+#if UNITY_EDITOR
+        // 编辑器「模拟断网」开关：勾上后 provider 远端请求走不可达地址 → init / 下载 / 需下载的 Load 全失败。
+        // 非序列化、仅 Play 显示、仅远端模式（Host/Web）有意义。
+        [FoldoutGroup(DiagGroup), ShowInInspector, HideInEditorMode, LabelText("模拟断网（仅 Host/Web）"), PropertyOrder(-85)]
+        [PropertyTooltip("勾上 = 远端请求走不可达地址，init / 下载 / 需下载的 Load 全部失败。仅编辑器、仅远端模式有意义。")]
+        private bool _simulateOffline;
+
+        bool IAssetUtility.SimulateOffline { get => _simulateOffline; set => _simulateOffline = value; }
+#endif
+
         protected override void Awake()
         {
             base.Awake();
             _disposeCts = new CancellationTokenSource();
             _provider = AssetProviderFactory.CreateDefault();
+#if UNITY_EDITOR
+            _provider.SimulateOffline = () => _simulateOffline; // 把开关接到 provider（实时读取）
+#endif
             GetState(_defaultPackageName);
         }
 

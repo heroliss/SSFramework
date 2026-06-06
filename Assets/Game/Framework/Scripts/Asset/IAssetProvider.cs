@@ -66,5 +66,14 @@ namespace Game.Framework
         /// 要求包已就绪；清理失败应抛异常由上层处理。
         /// </summary>
         UniTask ClearCacheAsync(string packageName, AssetCacheClearMode mode, CancellationToken ct);
+
+#if UNITY_EDITOR
+        /// <summary>
+        /// 编辑器期「模拟断网」开关源：provider 每次解析远端地址时<b>实时</b>读取，返回 true 时把远端地址换成不可达地址，
+        /// 使 init / 下载 / 需下载的 Load <b>全部失败</b>。仅 Editor、仅远端模式（Host/Web）有意义；
+        /// 不访问远端的 provider 可空实现（忽略此开关）。
+        /// </summary>
+        Func<bool> SimulateOffline { get; set; }
+#endif
     }
 }

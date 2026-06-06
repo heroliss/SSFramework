@@ -86,14 +86,20 @@ namespace Game.Framework
         UniTask EnsureInitialized(string packageName, CancellationToken ct = default);
 
         /// <summary>
-        /// 重跑指定包的初始化（packageName 为空时为默认包）。典型用途：加载界面遇到初始化失败
-        /// （CDN 不可达 / 断网）时给用户一个「重试」按钮——网络恢复后无需重启 App。
+        /// 重跑指定包的初始化（packageName 为空时为默认包）：初始化失败后无需重建实例即可再次尝试。
         /// <para>语义：包当前为 <see cref="AssetInitState.Failed"/> 或 <see cref="AssetInitState.Idle"/> 时重新初始化；
-        /// 已 <see cref="AssetInitState.Ready"/> 则直接返回（幂等，重复点不会重复初始化）；进行中则等待本次完成。</para>
-        /// <para>用最近一次的运行模式与配置重试（由 <see cref="AssetInitState"/> 流反映结果），<b>本身不抛异常</b>——
-        /// 失败照旧写回 <see cref="InitState"/>，订阅方据此更新 UI。</para>
+        /// 已 <see cref="AssetInitState.Ready"/> 则直接返回（幂等）；进行中则等待本次完成。</para>
+        /// <para>用最近一次的运行模式与配置重试，<b>本身不抛异常</b>——结果（成功 / 失败）写回 <see cref="InitState"/> 供订阅方读取。</para>
         /// </summary>
         UniTask RetryInitialize(string packageName = null, CancellationToken ct = default);
+
+#if UNITY_EDITOR
+        /// <summary>
+        /// 编辑器「模拟断网」开关（仅 Editor）：true 时 provider 远端请求走不可达地址，使 init / 下载 / 需下载的 Load 全部失败。
+        /// 仅远端模式（Host/Web）有意义；也可在 AssetUtility 的 Inspector 勾选。
+        /// </summary>
+        bool SimulateOffline { get; set; }
+#endif
 
         /// <summary>
         /// 按 location 从默认包加载 UnityEngine.Object 资源。
