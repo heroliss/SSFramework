@@ -94,6 +94,21 @@ namespace Game.Framework.Pool
         }
 
         /// <summary>
+        /// 诊断用：当前各池概要——GameObject 池给 <c>[GO] prefab名 空闲=N</c>，C# 对象池给 <c>[C#] 类型名</c>。
+        /// 仅供 Inspector 只读展示（<see cref="MonoPoolUtility"/>），不参与池逻辑；无池时返回空列表。
+        /// </summary>
+        public IReadOnlyList<string> GetPoolDiagnostics()
+        {
+            var list = new List<string>();
+            if (_goPools != null)
+                foreach (var kv in _goPools)
+                    list.Add($"[GO] {(kv.Key != null ? kv.Key.name : "?")} 空闲={kv.Value.CountInactive}");
+            foreach (var t in _pools.Keys)
+                list.Add($"[C#] {t.Name}");
+            return list;
+        }
+
+        /// <summary>
         /// 释放池工具：销毁 GameObject 池的停放总根（连带所有子停放节点与池中空闲实例）、清空所有池缓存。
         /// 已 Spawn 出去的活动实例挂在调用方节点下、不在停放区，<b>不</b>受影响（归调用方生命周期）。幂等。
         /// </summary>

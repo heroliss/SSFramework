@@ -118,6 +118,20 @@ namespace Game.Framework.Internal
         }
 
         /// <summary>
+        /// 诊断用：本容器<b>本地</b>注册的契约键（不含父级回退）——运行时覆盖层 + 构建时绑定的并集（override 遮蔽同名 binding，去重）。
+        /// 供 Inspector 只读展示「这个 Context 注册了什么」，不参与解析逻辑。
+        /// </summary>
+        internal IEnumerable<Type> LocalRegistrations
+        {
+            get
+            {
+                foreach (var k in _overrides.Keys) yield return k;
+                foreach (var k in _bindings.Keys)
+                    if (!_overrides.ContainsKey(k)) yield return k;
+            }
+        }
+
+        /// <summary>
         /// Dispose 本容器<b>拥有</b>的实例（经 <c>ContainerBuilder.RegisterOwned</c> 登记的）。逆序释放，
         /// 单个实例抛异常不影响其余；幂等。普通 RegisterValue / 工厂实例<b>不</b>在此释放——容器不拥有外部传入实例。
         /// 由 <c>GameContext.Dispose</c> 调用，不对外公开。

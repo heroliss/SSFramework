@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using Game.Framework.Command;
@@ -56,6 +57,22 @@ namespace Game.Framework.Context
         [ShowInInspector, ReadOnly, HideInEditorMode, LabelText("Resolved Parent"), PropertyOrder(-100)]
         [PropertyTooltip("运行时实际生效的父级上下文（Parent Context 为空且 Inherit From Parent 开启时，自动向上查找的结果）。")]
         private IGameContext ResolvedParent => _resolvedParent;
+
+        // 运行时只读诊断：本 Context 本地注册的契约键（不含父级回退）。看「这个 Context 里有什么」最直接。仅 Play 显示。
+        [ShowInInspector, ReadOnly, HideInEditorMode, LabelText("Registered (local)"), PropertyOrder(-99)]
+        [PropertyTooltip("本 Context 本地注册的契约键（不含父级回退）：运行时覆盖（MonoXxxBase / RegisterXxx）+ 构建时绑定（InstallBindings）。\nGetModel/GetSystem/GetUtility<T>() 先在这里找，未命中再回退父级。")]
+        private List<string> RegisteredServices
+        {
+            get
+            {
+                var names = new List<string>();
+                if (_container != null)
+                    foreach (var t in _container.LocalRegistrations)
+                        names.Add(t.Name);
+                names.Sort();
+                return names;
+            }
+        }
 
         /// <summary>
         /// 底层 DI 容器。<b>仅框架程序集内可访问</b>，原因见 <see cref="GameContext.Container"/>。
