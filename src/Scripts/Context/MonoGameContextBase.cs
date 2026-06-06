@@ -54,12 +54,13 @@ namespace Game.Framework.Context
         private GameContext _context;
         private bool _initialized;
 
-        [ShowInInspector, ReadOnly, HideInEditorMode, LabelText("Resolved Parent"), PropertyOrder(-100)]
+        // 运行时只读诊断统一收进「运行时诊断」可折叠框（与三层 Mono 的诊断同名同风格），仅 Play 显示。
+        [FoldoutGroup("运行时诊断"), ShowInInspector, ReadOnly, HideInEditorMode, LabelText("解析到的父级"), PropertyOrder(-100)]
         [PropertyTooltip("运行时实际生效的父级上下文（Parent Context 为空且 Inherit From Parent 开启时，自动向上查找的结果）。")]
         private IGameContext ResolvedParent => _resolvedParent;
 
-        // 运行时只读诊断：本 Context 本地注册的契约键（不含父级回退）。看「这个 Context 里有什么」最直接。仅 Play 显示。
-        [ShowInInspector, ReadOnly, HideInEditorMode, LabelText("Registered (local)"), PropertyOrder(-99)]
+        // 本 Context 本地注册的契约键（不含父级回退）。看「这个 Context 里有什么」最直接。
+        [FoldoutGroup("运行时诊断"), ShowInInspector, ReadOnly, HideInEditorMode, LabelText("本地注册"), PropertyOrder(-99)]
         [PropertyTooltip("本 Context 本地注册的契约键（不含父级回退）：运行时覆盖（MonoXxxBase / RegisterXxx）+ 构建时绑定（InstallBindings）。\nGetModel/GetSystem/GetUtility<T>() 先在这里找，未命中再回退父级。")]
         private List<string> RegisteredServices
         {

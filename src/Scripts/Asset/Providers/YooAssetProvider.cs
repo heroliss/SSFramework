@@ -29,6 +29,11 @@ namespace Game.Framework
         private readonly Dictionary<string, ResourcePackage> _packages = new();
         private bool _disposed;
 
+#if UNITY_EDITOR
+        /// <inheritdoc/>
+        public Func<bool> SimulateOffline { get; set; }
+#endif
+
         public async UniTask InitializeAsync(string packageName, AssetPlayMode mode, AssetProviderConfig config, CancellationToken ct)
         {
             ThrowIfDisposed();
@@ -274,7 +279,8 @@ namespace Game.Framework
         }
 
         // 按运行模式构建 3.0 初始化选项。解密器经 EFileSystemParameter 注入对应文件系统参数。
-        private static InitializePackageOptions CreateInitOptions(string packageName, AssetPlayMode mode, AssetProviderConfig config)
+        // 非 static：Host/Web 分支要把实例上的「模拟断网」开关源（编辑器期）注入 GameRemoteService。
+        private InitializePackageOptions CreateInitOptions(string packageName, AssetPlayMode mode, AssetProviderConfig config)
         {
             switch (mode)
             {
@@ -299,6 +305,9 @@ namespace Game.Framework
                 case AssetPlayMode.Host:
                 {
                     var remoteService = new GameRemoteService(packageName, config.MainCdnUrl, config.FallbackCdnUrl);
+#if UNITY_EDITOR
+                    remoteService.SimulateOffline = SimulateOffline; // 注入模拟断网开关源（实时读取）
+#endif
                     var builtin = FileSystemParameters.CreateDefaultBuiltinFileSystemParameters();
 #if UNITY_EDITOR
                     // 编辑器期把「下载缓存」和「内置解包/足迹」都收进 项目根/AssetBuild/Downloaded/<包>，
@@ -327,6 +336,9 @@ namespace Game.Framework
                 case AssetPlayMode.Web:
                 {
                     var remoteService = new GameRemoteService(packageName, config.MainCdnUrl, config.FallbackCdnUrl);
+#if UNITY_EDITOR
+                    remoteService.SimulateOffline = SimulateOffline; // 注入模拟断网开关源（实时读取）
+#endif
                     return new WebPlayModeOptions
                     {
                         WebServerFileSystemParameters = FileSystemParameters.CreateDefaultWebServerFileSystemParameters(),
@@ -518,6 +530,13 @@ namespace Game.Framework
     {
         private readonly string _mainUrl;
         private readonly string _fallbackUrl;
+#if UNITY_EDITOR
+        /// <summary>编辑器模拟断网开关源（由 <see cref="YooAssetProvider"/> 注入，实时读取 AssetUtility 上的开关）。</summary>
+        public Func<bool> SimulateOffline { get; set; }
+
+        // 不可达地址：端口 1 无人监听，请求必然连接失败，从而让 YooAsset 的 init / 下载失败。
+        private const string OfflineUrl = "http://127.0.0.1:1/__simulated_offline__/";
+#endif
 
         public GameRemoteService(string packageName, string mainUrl, string fallbackUrl)
         {
@@ -528,7 +547,14 @@ namespace Game.Framework
         }
 
         public IReadOnlyList<string> GetRemoteUrls(string fileName)
-            => new[] { _mainUrl + fileName, _fallbackUrl + fileName };
+        {
+#if UNITY_EDITOR
+            // 实时读开关：开着就把主备地址都换成不可达地址，本次（及后续每次）远端请求都失败。
+            if (SimulateOffline != null && SimulateOffline())
+                return new[] { OfflineUrl + fileName, OfflineUrl + fileName };
+#endif
+            return new[] { _mainUrl + fileName, _fallbackUrl + fileName };
+        }
 
         private static string Normalize(string url)
             => string.IsNullOrEmpty(url) ? string.Empty : url.TrimEnd('/') + "/";

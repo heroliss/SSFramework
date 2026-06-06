@@ -25,6 +25,9 @@ namespace Game.Framework.Internal
     /// <typeparam name="TLayer">层标记接口：<c>IModel</c> / <c>ISystem</c> / <c>IUtility</c>。</typeparam>
     public abstract class MonoLayerBase<TLayer> : SerializedMonoBehaviour, IHasGameContext where TLayer : class
     {
+        /// <summary>Odin 折叠组名：三层共享，把所有运行时只读诊断收进同一个可折叠框。派生类（如 AssetUtility）的诊断项用同一常量，渲染时合并到一处。</summary>
+        protected const string DiagGroup = "运行时诊断";
+
         [OdinSerialize, ShowInInspector, LabelText("Target Context"), DisableInPlayMode]
         [Tooltip(
             "显式指定要注册到的 Context。\n" +
@@ -41,14 +44,14 @@ namespace Game.Framework.Internal
         // 框架内部通过 IHasGameContext 拿到。
         IGameContext IHasGameContext.Context => _contextProvider;
 
-        [ShowInInspector, ReadOnly, HideInEditorMode, LabelText("Resolved Context"), PropertyOrder(-100)]
+        // 运行时只读诊断统一收进「运行时诊断」可折叠框，仅 Play 模式显示、Build 下不被调用。三层（Model/System/Utility）共享。
+        [FoldoutGroup(DiagGroup), ShowInInspector, ReadOnly, HideInEditorMode, LabelText("解析到的 Context"), PropertyOrder(-100)]
         [PropertyTooltip("运行时实际注册到的 Context（Target Context 为空时自动向上查找的结果）。")]
         private IGameContext ResolvedContext => _contextProvider;
 
-        // 运行时只读诊断：本层在容器里注册到的契约键（具体类型 + 派生自层标记的接口）。Model/System/Utility 三层共享，
-        // 按 ContainerLayerExtensions.RegisterFor 的同一套规则计算，故展示的就是「GetXxx<T>() 能用哪些 T 解析到本实例」。
-        // 仅 Play 模式显示、Build 下不被调用；用于排查 DI 注册（"我的 System 到底注册成了哪些接口"）。
-        [ShowInInspector, ReadOnly, HideInEditorMode, LabelText("Registered Contracts"), PropertyOrder(-99)]
+        // 本层在容器里注册到的契约键（具体类型 + 派生自层标记的接口），按 ContainerLayerExtensions.RegisterFor 同一套规则计算，
+        // 展示的就是「GetXxx<T>() 能用哪些 T 解析到本实例」，用于排查 DI 注册。
+        [FoldoutGroup(DiagGroup), ShowInInspector, ReadOnly, HideInEditorMode, LabelText("注册契约"), PropertyOrder(-99)]
         [PropertyTooltip("本层注册到容器的契约键：具体类型 + 所有派生自层标记接口（不含层标记自身）。\nthis.GetModel/GetSystem/GetUtility<T>() 用这些键之一即可解析到本实例。")]
         private List<string> RegisteredContracts
         {
