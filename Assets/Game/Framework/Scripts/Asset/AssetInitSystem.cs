@@ -52,16 +52,9 @@ namespace Game.Framework
                 return;
             }
 
-            var config = new AssetProviderConfig
-            {
-                MainCdnUrl = _settings.MainCdnUrl,
-                FallbackCdnUrl = _settings.FallbackCdnUrl,
-                FileOffset = _settings.FileOffset,
-                DownloadingMaxNumber = _settings.DownloadingMaxNumber,
-                FailedTryAgain = _settings.FailedTryAgain,
-            };
-
-            _utility.Configure(_settings.DefaultPackageName, config);
+            // Model→provider 配置 DTO 的映射收口在 Model.ToProviderConfig()（新增配置项只改一处）。
+            // 默认包名是「初始化身份」参数、不在 DTO 里，单独传给 Configure。
+            _utility.Configure(_settings.DefaultPackageName, _settings.ToProviderConfig());
 #if UNITY_EDITOR
             // EditorSimulate 模拟下载（大小 + 速度，时长 = 大小/速度）：仅编辑器写入，AssetUtility 内部按需包装 SimulatedAssetDownloader。
             _utility.ConfigureEditorSimulateDownload(
