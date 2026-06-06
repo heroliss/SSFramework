@@ -118,6 +118,22 @@ namespace Game.Framework
         }
 
         /// <summary>
+        /// 导出供加载层使用的运行时配置 DTO（<see cref="AssetProviderConfig"/>，框架自有、无 Unity 依赖）。
+        /// 把「Model 字段 → provider 配置」的映射<b>收口在一处</b>：新增配置项时只改这里 + 对应字段，
+        /// 不必再去 <see cref="AssetInitSystem"/> 同步手抄。
+        /// <para>注意：默认包名 / 运行模式<b>不在</b>此 DTO 里——它们是「初始化身份 / 模式」参数（标识初始化哪个包、用哪种模式），
+        /// 由 <see cref="AssetInitSystem"/> 直接传给 <c>Configure</c> / <c>InitializePackageAsync</c>，与「provider 跑起来需要的配置」是两类东西。</para>
+        /// </summary>
+        public AssetProviderConfig ToProviderConfig() => new()
+        {
+            MainCdnUrl = _mainCdnUrl,
+            FallbackCdnUrl = _fallbackCdnUrl,
+            FileOffset = _fileOffset,
+            DownloadingMaxNumber = _downloadingMaxNumber,
+            FailedTryAgain = _failedTryAgain,
+        };
+
+        /// <summary>
         /// 枚举需要初始化的包名。默认包优先，后续显式包去重；空配置会被跳过。
         /// </summary>
         public IEnumerable<string> EnumeratePackageNames()
