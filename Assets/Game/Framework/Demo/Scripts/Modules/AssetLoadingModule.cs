@@ -42,7 +42,7 @@ namespace Game.Framework.Demo.Modules
             // Failed 时把它转成可操作的引导（而不是只显示 Failed）——常见于「切了 Host/Offline 但没先构建」。
             Bag.Subscribe(asset.InitState, s => stateLabel.text = s == AssetInitState.Failed
                 ? $"默认包初始化失败（运行模式：{asset.CurrentPlayMode}）：Host/Offline 需先构建资源。" +
-                  "请用菜单 SSFramework/资源构建 依次「1 构建资源包 → 2 部署 → 3 启动本地 CDN 服务」后重进 Play，或改回 EditorSimulate（免构建）。详见「YooAsset · 底层实现」章。"
+                  "请用菜单 SSFramework/资源构建 依次「1 构建资源包 → 2 部署 → 3 启动本地 CDN 服务」后重进 Play，或改回 EditorSimulate（免构建）。底层见「YooAsset · 底层实现」章；失败的正确兜底/重试见「资源容错」章。"
                 : $"默认包初始化：{s}　｜　运行模式：{asset.CurrentPlayMode}");
 #if UNITY_EDITOR
             host.AddActionRow("定位资源系统配置节点（AssetSystem）", () =>
@@ -227,7 +227,7 @@ namespace Game.Framework.Demo.Modules
                 bool need = asset.IsNeedDownload(LogoAddress);
                 progressLabel.text = $"已清空下载缓存 ✓　IsNeedDownload(Logo)={need}（远端模式下应变 true，可再点上面下载）。";
             }, CodeRef.Here("asset.ClearCacheAsync", "运行时清缓存"));
-            host.AddNote("CreateTagDownloader(tags) 统计这些 tag 下要下载的资源，订阅 Progress（R3 状态流）驱动进度条，Download() 启动；ClearCacheAsync 清本地已下载缓存（All 全清 / Unused 清旧版本，正式游戏也用）。");
+            host.AddNote("CreateTagDownloader(tags) 统计这些 tag 下要下载的资源，订阅 Progress（R3 状态流）驱动进度条，Download() 启动；ClearCacheAsync 清本地已下载缓存（All 全清 / Unused 清旧版本，正式游戏也用）。下载中途失败由下载器自带按 AssetSystemConfigModel.FailedTryAgain（默认 3）重试 + 断点续传（已下分片不重下），业务不必手写重试循环。");
             host.AddSubNote("「模拟下载器」原理、下载缓存目录在哪、各清单文件、各 PlayMode 的底层差异——见「YooAsset · 底层实现」章。本节只演示框架 API 用法。");
 
             // ── 6. 跨包加载 ──
