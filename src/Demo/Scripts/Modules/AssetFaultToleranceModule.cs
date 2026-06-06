@@ -93,22 +93,22 @@ namespace Game.Framework.Demo.Modules
             });
             var initLabel = host.AddValueDisplay();
 #if UNITY_EDITOR
-            // 白盒：这个按钮只切「模拟断网」开关（一个操作）。是否生效由你手动点下面「重新初始化」触发——不替你打包动作。
+            // 白盒：这个按钮只切「模拟断网」开关这一个操作。开关是 RP<bool>——按钮文字订阅它，
+            // 所以无论点按钮、还是直接在 AssetUtility 的 Inspector 勾选，文字都实时同步。是否生效由你手动点「重新初始化」触发。
             Button offlineBtn = null;
-            offlineBtn = host.AddActionRow($"模拟断网：{(asset.SimulateOffline ? "开" : "关")}（点击切换，仅 Host/Web）", () =>
-            {
-                asset.SimulateOffline = !asset.SimulateOffline;
-                offlineBtn.text = $"模拟断网：{(asset.SimulateOffline ? "开" : "关")}（点击切换，仅 Host/Web）";
-                initLabel.text = $"模拟断网已{(asset.SimulateOffline ? "开" : "关")}——点下面「重新初始化」让 init 重新走，看徽标变化。";
-            }, CodeRef.Here("asset.SimulateOffline = !asset.SimulateOffline", "切换模拟断网"));
+            offlineBtn = host.AddActionRow("", () =>
+                asset.SetSimulateOffline(!asset.SimulateOffline.CurrentValue),
+                CodeRef.Here("asset.SetSimulateOffline(...)", "切换模拟断网"));
+            Bag.Subscribe(asset.SimulateOffline, on =>
+                offlineBtn.text = $"模拟断网：{(on ? "开" : "关")}（点击切换，仅 Host/Web）");
 #endif
             host.AddActionRow("重新初始化（RetryInitialize）", async () =>
             {
                 initLabel.text = "初始化中…";
                 await asset.RetryInitialize(SamplesPackage); // 不抛，结果回写 InitState（徽标 + samplesState 跟着变）
                 initLabel.text = samplesState == AssetInitState.Ready
-                    ? "初始化完成 → Ready ✓ 可正常加载了。"
-                    : $"初始化结果：{samplesState}（远端模式下「模拟断网」开着就会 Failed，看徽标 / 控制台）。";
+                    ? "已 Ready ✓ 可正常加载。（包一旦 Ready，RetryInitialize 即幂等空操作——运行时再开「模拟断网」也不会回退，见下方说明。）"
+                    : $"初始化结果：{samplesState}。要复现 Failed，须在 Play 前就于 Inspector 开「模拟断网」让样例包从一开始拉不到远端——看徽标 / 控制台。";
             }, CodeRef.Here("asset.RetryInitialize(SamplesPackage)", "重新初始化"));
             host.AddActionRow("尝试加载（init 失败时会抛，已 try/catch）", async () =>
             {
@@ -126,7 +126,7 @@ namespace Game.Framework.Demo.Modules
                 }
             }, CodeRef.Here("Bag.Load<Sprite>(SamplesPackage, LogoAddress)", "init 失败 → 抛"));
             host.AddNote("init 失败（CDN 不可达 / 断网）时，Load / LoadScene / ClearCacheAsync 内部的 EnsureInitialized 会上抛初始化异常——所以这一类要么 try/catch、要么先判 InitState / IsInitialized。RetryInitialize 重跑初始化、不抛、结果回写 InitState。");
-            host.AddSubNote("复现失败：开上面「模拟断网」开关（框架内置，仅编辑器 / 仅 Host/Web）再点「重新初始化」，或把运行模式切 Host 但不起服务。注意：「下载」中途失败不归这套——下载器自带按 FailedTryAgain 重试 + 断点续传（见「资源加载」章·下载），业务不用手写重试。");
+            host.AddSubNote("为什么运行时开「模拟断网」后样例包仍是 Ready、还能加载？因为它只拦截新发起的远端请求——已 Ready 的包不会回退、已缓存的资源照常加载，此时 RetryInitialize 是幂等空操作。要真正复现初始化失败，请在 AssetUtility 的 Inspector 里进 Play 前就勾上「模拟断网」，让样例包从一开始就拉不到远端清单；或把运行模式切 Host 但不起本地服务。注意：「下载」中途失败不归这套——下载器自带按 FailedTryAgain 重试 + 断点续传（见「资源加载」章·下载），业务不用手写重试。");
 
             // ── 小结 ──
             host.AddSectionTitle("小结：两套写法别用混");
