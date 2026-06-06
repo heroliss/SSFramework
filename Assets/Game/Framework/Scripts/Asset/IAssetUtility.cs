@@ -98,6 +98,9 @@ namespace Game.Framework
         /// <summary>
         /// 按 location 从默认包加载 UnityEngine.Object 资源。
         /// 返回的 <see cref="IAssetHandle{T}"/> 持有一份引用计数；调用方负责 Dispose（或交给 <see cref="DisposableBag"/> 托管）。
+        /// <para><b>失败语义</b>（所有 Load 重载一致，这是刻意的契约）：地址无效 / 类型不符 / 空地址 → 返回 <c>null</c>（不抛，打 warning/error）；
+        /// 包<b>初始化</b>失败（CDN 不可达 / 断网）→ <b>抛</b>初始化异常（内部会先 <see cref="EnsureInitialized(string, CancellationToken)"/>）。
+        /// 即「资源级问题给 null、系统级问题给异常」：包 Ready 后只会返 null，会抛只发生在「init 成功前就加载」。要零异常就先等 <see cref="InitState"/>=Ready 再加载。</para>
         /// </summary>
         UniTask<IAssetHandle<T>> Load<T>(string location, CancellationToken ct = default)
             where T : UnityEngine.Object;
