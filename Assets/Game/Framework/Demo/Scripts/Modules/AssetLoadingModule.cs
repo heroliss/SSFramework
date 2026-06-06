@@ -62,20 +62,31 @@ namespace Game.Framework.Demo.Modules
             spritePreview.style.backgroundColor = new Color(0.12f, 0.13f, 0.16f, 1f);
             host.Content.Add(spritePreview);
             var loadLabel = host.AddValueDisplay("点下面按钮加载");
+            // 用子 Bag 装本节借来的句柄：基类 Bag 要切走本章才释放，开个子 Bag 就能在「释放」按钮里随手 Dispose，
+            // 既演示资源释放、又方便反复测加载（AGENTS §17 的「清理一次」子 bag 用法）。
+            var logoBag = Bag.CreateChild();
             host.AddActionRow("加载 Logo（Sprite）", async () =>
             {
-                var sprite = await Bag.Load<Sprite>(LogoAddress);
+                var sprite = await logoBag.Load<Sprite>(LogoAddress);
                 if (sprite != null)
                 {
                     spritePreview.style.backgroundImage = new StyleBackground(sprite);
                     loadLabel.text = $"已加载 Sprite：{sprite.name}（{sprite.rect.width:0}×{sprite.rect.height:0}）";
                 }
-            }, CodeRef.Here("Bag.Load<Sprite>(LogoAddress)", "Bag.Load 用法"));
+            }, CodeRef.Here("logoBag.Load<Sprite>(LogoAddress)", "Bag.Load 用法"));
+            host.AddActionRow("释放 Logo（Dispose 子 Bag → 句柄释放）", () =>
+            {
+                // Dispose 子 Bag 释放它托管的全部句柄；再 CreateChild 重建，下次加载用新子 Bag（§17 既定写法）。
+                logoBag.Dispose();
+                logoBag = Bag.CreateChild();
+                spritePreview.style.backgroundImage = StyleKeyword.None;
+                loadLabel.text = "已释放本节 Logo 句柄并清空预览。再点「加载 Logo」会重新加载。";
+            }, CodeRef.Here("logoBag.Dispose()", "手动释放本节句柄"));
 #if UNITY_EDITOR
             host.AddActionRow("定位 Logo 资产（被加载的源资源）", () =>
                 PingAsset("Assets/Game/Framework/Res/SSFramework-Logo.png"));
 #endif
-            host.AddNote("Bag.Load<T>(location) 借来的资源 handle 进 Bag，切走本章（Bag.Dispose）自动释放，业务不持有句柄。Bag.Load 是泛型：GameObject(prefab) / 场景(LoadScene) / 文本(LoadText) / 字节(LoadBytes) 同理；跨包用带 packageName 的重载（见下）。");
+            host.AddNote("Bag.Load<T>(location) 借来的资源 handle 进 Bag，切走本章（Bag.Dispose）自动释放，业务不持有句柄。想提前释放某批句柄，就像本节这样开个 Bag.CreateChild() 子 Bag 装它们、需要时 Dispose（再 CreateChild 重建）。Bag.Load 是泛型：GameObject(prefab) / 场景(LoadScene) / 文本(LoadText) / 字节(LoadBytes) 同理；跨包用带 packageName 的重载（见下）。");
 
             // ── 3. AssetReference（Inspector 拖拽）──
             host.AddSectionTitle("AssetReference：Inspector 拖资源、Awake 自动绑定");
