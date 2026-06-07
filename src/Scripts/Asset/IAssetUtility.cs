@@ -192,5 +192,33 @@ namespace Game.Framework
 
         /// <summary>清理指定包的本地 bundle 缓存；packageName 为空时使用默认包。语义同 <see cref="ClearCacheAsync(AssetCacheClearMode, CancellationToken)"/>。</summary>
         UniTask ClearCacheAsync(string packageName, AssetCacheClearMode mode = AssetCacheClearMode.Unused, CancellationToken ct = default);
+
+        /// <summary>
+        /// 按 tag 清理默认包中这些 tag 标记的「已下载 bundle 缓存」：用于卸载某关卡 / DLC / 子内容的整批资源缓存
+        /// （省空间，或强制其下次重新下载）。语义同 <see cref="ClearCacheAsync(AssetCacheClearMode, CancellationToken)"/>——
+        /// 只删盘上下载文件、不动内存里已加载的资源；清理后这些资源的 <see cref="IsNeedDownload(string)"/> 重新变真。
+        /// tag 与 <see cref="CreateTagDownloader(string[])"/> 用的是同一套（资源收集时打在 bundle 上的标签）。
+        /// <para><b>多 tag 是并集（OR）</b>：命中其中<b>任意一个</b> tag 的 bundle 都会被清，<b>不是</b>「同时带所有 tag 才清」。
+        /// 传空数组会抛 <see cref="ArgumentException"/>（避免空集被误当成全清）。</para>
+        /// </summary>
+        UniTask ClearCacheByTagsAsync(IReadOnlyList<string> tags, CancellationToken ct = default);
+
+        /// <summary>按 tag 清理指定包的已下载缓存；packageName 为空时使用默认包。语义同 <see cref="ClearCacheByTagsAsync(IReadOnlyList{string}, CancellationToken)"/>（多 tag 并集）。</summary>
+        UniTask ClearCacheByTagsAsync(string packageName, IReadOnlyList<string> tags, CancellationToken ct = default);
+
+        /// <summary>
+        /// 按精确 location 清理默认包中这些资源「已下载的 bundle 缓存」：适合点名驱逐少数已知大资源。
+        /// 语义同 <see cref="ClearCacheByTagsAsync(IReadOnlyList{string}, CancellationToken)"/>——只删盘上下载文件、不动内存里已加载的资源。
+        /// <para><b>清理粒度是 bundle，不是单个资源</b>：每个 location 会解析到它所属的 bundle，整份 bundle 删掉——
+        /// 因此<b>同一 bundle 里的其他资源会被连带清掉</b>。这是磁盘缓存以 bundle 为最小单位决定的，无法只清单个资源。
+        /// 想精确隔离某资源的缓存，应在打包（AssetBundleCollector）时让它<b>独占一个 bundle</b>（pack-by-file 或独立分组），
+        /// 而不是指望此 API 做到资源级精度。逻辑内容组（关卡 / DLC）的整批清理优先用 <see cref="ClearCacheByTagsAsync(IReadOnlyList{string}, CancellationToken)"/>。</para>
+        /// <para>location 必须是 manifest 里能解析的精确地址（不支持目录前缀 / 通配）；解析不到的地址会被跳过并打 <c>warning</c>
+        /// （通常意味着拼错地址 / 传错包，不会无声吞掉）。地址有效但本就没缓存属正常 no-op，不警告。传空数组会抛 <see cref="ArgumentException"/>。</para>
+        /// </summary>
+        UniTask ClearCacheByLocationsAsync(IReadOnlyList<string> locations, CancellationToken ct = default);
+
+        /// <summary>按精确 location 清理指定包的已下载缓存；packageName 为空时使用默认包。语义同 <see cref="ClearCacheByLocationsAsync(IReadOnlyList{string}, CancellationToken)"/>（bundle 粒度，连带同 bundle 邻居）。</summary>
+        UniTask ClearCacheByLocationsAsync(string packageName, IReadOnlyList<string> locations, CancellationToken ct = default);
     }
 }

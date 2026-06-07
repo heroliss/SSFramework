@@ -67,6 +67,15 @@ namespace Game.Framework
         /// </summary>
         UniTask ClearCacheAsync(string packageName, AssetCacheClearMode mode, CancellationToken ct);
 
+        /// <summary>按 tag 清理指定包中这些 tag 标记的已下载 bundle 缓存（命中任意一个 tag 即清，并集）。要求包已就绪；清理失败应抛异常由上层处理。</summary>
+        UniTask ClearCacheByTagsAsync(string packageName, IReadOnlyList<string> tags, CancellationToken ct);
+
+        /// <summary>
+        /// 按精确 location 清理指定包中这些资源所在的 bundle 缓存：每个 location 解析到其所属 bundle 后整份删，
+        /// 同 bundle 的其他资源会被连带清掉。要求包已就绪；清理失败应抛异常由上层处理。
+        /// </summary>
+        UniTask ClearCacheByLocationsAsync(string packageName, IReadOnlyList<string> locations, CancellationToken ct);
+
 #if UNITY_EDITOR
         /// <summary>
         /// 编辑器期「模拟断网」开关源：provider 每次解析远端地址时<b>实时</b>读取，返回 true 时把远端地址换成不可达地址，
