@@ -64,9 +64,8 @@ namespace Game.Framework
         bool IsInitialized { get; }
 
         /// <summary>
-        /// 当前生效的运行模式。
+        /// 当前生效的运行模式（EditorSimulate / Offline / Host / Web），决定资源来源与是否走 CDN / 真实下载。
         /// <see cref="AssetInitSystem"/> 启动包初始化时写入；首次包初始化前为底层默认值（不要在初始化前读取做决策）。
-        /// 用于 UI 展示「当前是 EditorSimulate / Offline / Host / Web 哪种模式」，影响下载/CDN 行为的判断。
         /// </summary>
         AssetPlayMode CurrentPlayMode { get; }
 
