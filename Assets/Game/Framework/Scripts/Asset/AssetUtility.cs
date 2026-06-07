@@ -411,6 +411,32 @@ namespace Game.Framework
             await _provider.ClearCacheAsync(packageName, mode, ct);
         }
 
+        public UniTask ClearCacheByTagsAsync(IReadOnlyList<string> tags, CancellationToken ct = default)
+            => ClearCacheByTagsAsync(_defaultPackageName, tags, ct);
+
+        public async UniTask ClearCacheByTagsAsync(string packageName, IReadOnlyList<string> tags, CancellationToken ct = default)
+        {
+            ThrowIfDisposed();
+            if (tags == null || tags.Count == 0)
+                throw new ArgumentException("At least one tag is required.", nameof(tags));
+            packageName = NormalizePackageName(packageName);
+            await EnsureInitialized(packageName, ct);
+            await _provider.ClearCacheByTagsAsync(packageName, tags, ct);
+        }
+
+        public UniTask ClearCacheByLocationsAsync(IReadOnlyList<string> locations, CancellationToken ct = default)
+            => ClearCacheByLocationsAsync(_defaultPackageName, locations, ct);
+
+        public async UniTask ClearCacheByLocationsAsync(string packageName, IReadOnlyList<string> locations, CancellationToken ct = default)
+        {
+            ThrowIfDisposed();
+            if (locations == null || locations.Count == 0)
+                throw new ArgumentException("At least one location is required.", nameof(locations));
+            packageName = NormalizePackageName(packageName);
+            await EnsureInitialized(packageName, ct);
+            await _provider.ClearCacheByLocationsAsync(packageName, locations, ct);
+        }
+
         private IAssetDownloader CreateTagDownloaderInternal(string packageName, IReadOnlyList<string> tags)
         {
             packageName = NormalizePackageName(packageName);

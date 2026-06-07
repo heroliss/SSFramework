@@ -215,6 +215,40 @@ namespace Game.Framework
                 throw new InvalidOperationException($"[YooAssetProvider] Clear cache failed for '{packageName}': {op.Error}");
         }
 
+        public async UniTask ClearCacheByTagsAsync(string packageName, IReadOnlyList<string> tags, CancellationToken ct)
+        {
+            ThrowIfDisposed();
+            var package = GetReadyPackage(packageName);
+            // 按 tag 清：只清这些 tag 标记的已下载 bundle（YooAsset ClearBundleFilesByTags，clearParam 收 string/数组/List，这里传 List）。
+            var op = package.ClearCacheAsync(new ClearCacheOptions(ClearCacheMethods.ClearBundleFilesByTags, new List<string>(tags)));
+            await WaitOp(op, ct);
+            ct.ThrowIfCancellationRequested();
+
+            if (op.Status != EOperationStatus.Succeeded)
+                throw new InvalidOperationException($"[YooAssetProvider] Clear cache by tags failed for '{packageName}': {op.Error}");
+        }
+
+        public async UniTask ClearCacheByLocationsAsync(string packageName, IReadOnlyList<string> locations, CancellationToken ct)
+        {
+            ThrowIfDisposed();
+            var package = GetReadyPackage(packageName);
+            // 按地址清：YooAsset 把每个 location 解析到所属 bundle 后整份删（ClearBundleFilesByLocations，clearParam 收 string/数组/List，这里传 List）。
+            // YooAsset 对 manifest 里解析不到的地址会「静默跳过」——但传进来一个解析不到的地址几乎一定是调用方拼错地址 / 传错包，
+            // 无声跳过会让这种 bug 被掩盖，所以这里先逐个校验、对无效地址打 warning。
+            // 注意只警告「manifest 里根本没有」的地址；地址有效但本就没缓存（没下载过）是正常 no-op，不警告。
+            for (int i = 0; i < locations.Count; i++)
+            {
+                if (!package.IsLocationValid(locations[i]))
+                    Debug.LogWarning($"[YooAssetProvider] Clear cache by locations: '{locations[i]}' not found in package '{packageName}' manifest — skipped.");
+            }
+            var op = package.ClearCacheAsync(new ClearCacheOptions(ClearCacheMethods.ClearBundleFilesByLocations, new List<string>(locations)));
+            await WaitOp(op, ct);
+            ct.ThrowIfCancellationRequested();
+
+            if (op.Status != EOperationStatus.Succeeded)
+                throw new InvalidOperationException($"[YooAssetProvider] Clear cache by locations failed for '{packageName}': {op.Error}");
+        }
+
         public void Dispose()
         {
             if (_disposed) return;

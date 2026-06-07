@@ -283,12 +283,33 @@ namespace Game.Framework.Demo.Modules
             {
                 await Bag.EnsureInitialized();
                 await asset.ClearCacheAsync(AssetCacheClearMode.All);
+                downloader = null;  // 老下载器的待下载列表是创建时的快照，缓存清了它不会更新；置空逼重建，否则点「开始下载」会执行旧快照（0 个）瞬间完成。
                 progressBar.value = 0f;
                 progressBar.title = string.Empty;
                 bool need = asset.IsNeedDownload(LogoAddress);
-                progressLabel.text = $"已清空下载缓存 ✓　IsNeedDownload(Logo)={need}（远端模式下应变 true，可再点上面「创建下载器」+「开始下载」重测）。";
+                progressLabel.text = $"已清空下载缓存 ✓　IsNeedDownload(Logo)={need}（远端模式下应变 true）。下载器已重置——请重新点「创建下载器」再「开始下载」才会重新统计。";
             }, CodeRef.Here("asset.ClearCacheAsync", "运行时清缓存"));
-            host.AddNote("`CreateTagDownloader(tags)` 统计这些 tag 下要下载的资源，订阅 `Progress`（R3 状态流）驱动进度条，`Download()` 启动；`ClearCacheAsync` 清本地已下载缓存（`All` 全清 / `Unused` 清旧版本，正式游戏也用）。下载中途失败由下载器自带按 `AssetSystemConfigModel.FailedTryAgain`（默认 3）重试 + 断点续传（已下分片不重下），业务不必手写重试循环。");
+            host.AddActionRow("按 tag 清缓存（只清本 demo tag 的 bundle）", async () =>
+            {
+                await Bag.EnsureInitialized();
+                await asset.ClearCacheByTagsAsync(new[] { DemoTag });
+                downloader = null;  // 同上：清缓存后下载器快照过期，置空逼重建。
+                progressBar.value = 0f;
+                progressBar.title = string.Empty;
+                progressLabel.text = $"已按 tag「{DemoTag}」清缓存 ✓——只清这批 tag 的 bundle，正适合卸载某关卡 / DLC 的资源（其余缓存不动）。下载器已重置，重测请重新「创建下载器」。";
+            }, CodeRef.Here("asset.ClearCacheByTagsAsync(new[] { DemoTag })", "按 tag 清缓存"));
+            host.AddActionRow("按地址清缓存（清 Logo 所在的 bundle）", async () =>
+            {
+                await Bag.EnsureInitialized();
+                await asset.ClearCacheByLocationsAsync(new[] { LogoAddress });
+                downloader = null;  // 同上：清缓存后下载器快照过期，置空逼重建。
+                progressBar.value = 0f;
+                progressBar.title = string.Empty;
+                progressLabel.text = $"已按地址「{LogoAddress}」清缓存 ✓——点名清这个资源所在的 bundle；注意是 bundle 粒度，同 bundle 的邻居会被连带清。下载器已重置，重测请重新「创建下载器」。";
+            }, CodeRef.Here("asset.ClearCacheByLocationsAsync(new[] { LogoAddress })", "按地址清缓存"));
+            host.AddNote("`CreateTagDownloader(tags)` 统计这些 tag 下要下载的资源，订阅 `Progress`（R3 状态流）驱动进度条，`Download()` 启动；`ClearCacheAsync` 清本地已下载缓存（`All` 全清 / `Unused` 清旧版本，正式游戏也用），按某关卡 / DLC 的 tag 清则用 `ClearCacheByTagsAsync`，点名清少数已知资源用 `ClearCacheByLocationsAsync`。下载中途失败由下载器自带按 `AssetSystemConfigModel.FailedTryAgain`（默认 3）重试 + 断点续传（已下分片不重下），业务不必手写重试循环。");
+            host.AddSubNote("下载器是「创建那一刻的待下载快照」，不是「下载时去看缺什么补什么」：清缓存并不会更新已建好的下载器，得重新 `CreateTagDownloader` 才会按最新缓存重新统计。所以「清缓存 → 重建下载器 → 开始下载」是固定顺序。");
+            host.AddSubNote("`ClearCacheByTagsAsync` 多 tag 是并集（命中任意一个就清）；`ClearCacheByLocationsAsync` 与 tag 清一样都是 bundle 粒度——按地址清会连带同 bundle 的其他资源，想精确隔离要在打包时让该资源独占 bundle。");
             host.AddSubNote("「模拟下载器」原理、下载缓存目录在哪、各清单文件、各 `PlayMode` 的底层差异——见「YooAsset · 底层实现」章。本节只演示框架 API 用法。");
 
             // ── 6. 跨包加载 ──
