@@ -89,10 +89,12 @@ namespace Game.Framework.Demo.Modules
                 new CodeRef("Assets/Game/Framework/Build/Editor/FrameworkAssetBuildProfile.cs", "class FrameworkAssetBuildProfile", "构建配置（按包）"));
             host.AddStep("②", "部署：产物按「每个包一个子目录」拷到 项目根/`AssetBuild/Deploy`（本地联调）或 CI 上传真实 CDN。`GameRemoteService` 按 {CDN}/{包名}/{文件} 取址。",
                 new CodeRef("Assets/Game/Framework/Scripts/Asset/Providers/YooAssetProvider.cs", "class GameRemoteService", "远端取址实现"));
-            host.AddStep("③", "起服务：菜单「3. 启动本地 CDN 服务」= python -m http.server（端口取自构建 profile 的 `LocalServePort`，须与场景 CDN URL 端口一致）；生产里这步换成 CDN 厂商。",
+            host.AddStep("③", "起服务：菜单「3. 启动本地 CDN 服务」= python -m http.server（端口取自构建 profile 的 `LocalServePort`，须与场景 `AssetSystemConfigModel.CdnUrls` 第一条端口一致）；生产里这步换成 CDN 厂商。",
                 new CodeRef("Assets/Game/Framework/Build/Editor/AssetBuildMenu.cs", "StartServer", "本地起服务（仅联调）"));
             host.AddStep("④", "进 Play(`Host`)：先读 `StreamingAssets` 的 `BuiltinCatalog` → 拉 `.version` → 拉对应版本清单 → 缺的 bundle 按需从 CDN 下载并缓存到 项目根/`AssetBuild/Downloaded/<包>`。",
                 new CodeRef("Assets/Game/Framework/Scripts/Asset/Providers/YooAssetProvider.cs", "case AssetPlayMode.Host", "Host 初始化实现"));
+            host.AddSubNote("`CdnUrls` 是候选列表：本地联调通常只填 `http://127.0.0.1:8080/`，多条时版本号 / 清单请求会随 YooAsset 的失败计数轮转重试；候选必须是等价镜像。包级「禁用按需下载」只影响 Host 下未缓存 bundle 的 `Load`：开启后直接失败，强制先显式跑下载器。",
+                new CodeRef("Assets/Game/Framework/Scripts/Asset/AssetSystemConfigModel.cs", "CdnUrls", "运行时 CDN 配置"));
 #if UNITY_EDITOR
             host.AddActionRow("定位 Collector 分包配置（构建按它执行）", () =>
                 PingAsset("Assets/Game/Framework/Settings/AssetBundleCollectorSetting.asset"));

@@ -54,7 +54,7 @@ sequenceDiagram
         Prov->>Yoo: CreatePackage + InitializePackageAsync 挂文件系统
         Note over Prov,Yoo: 仅本地脚手架，尚未联网
         Prov->>Yoo: RequestPackageVersionAsync 请求版本号
-        Note right of Yoo: Host 打 CDN 拿版本<br/>Offline / Editor 读本地
+        Note right of Yoo: Host 按 CDN 候选轮转拿版本<br/>Offline / Editor 读本地
         Prov->>Yoo: LoadPackageManifestAsync(version) 拉清单
         Note right of Yoo: Host 下载清单文件<br/>⚠ 不下载 bundle 内容
         Yoo-->>Prov: 成功
@@ -70,20 +70,22 @@ sequenceDiagram
 | 请求版本号（Host 联网 CDN） | ❌ 不加载任何具体资源 |
 | 拉取并解析清单 manifest（知道远端全貌） | ❌ 不替业务决定加载什么 |
 
-→ init 后你「知道远端是什么版本、有哪些资源、各自 hash/依赖」，但**资源文件还在 CDN**，`Bag.Load` 用到才下（或下载器批量预下）。
+→ init 后你「知道远端是什么版本、有哪些资源、各自 hash/依赖」，但**资源文件还在 CDN**，`Bag.Load` 用到才下（或下载器批量预下）；
+包级勾「禁用按需下载」时则 `Load` 未缓存资源直接失败、须先显式下载。
 单包失败只把该包置 `Failed`、不抛、不阻塞后续包；业务加载该包时再感知其状态。
+Host 下版本号与清单请求都会按配置的 CDN 候选列表轮转重试（候选需是等价镜像），全部失败才算 init 失败。
 
 ---
 
 ## 3. 运行模式（PlayMode）对照
 
-一个全局 `PlayMode` 套所有包（`AssetPackageConfig` 当前只存包名，包级模式/CDN 是预留扩展点）。
+一个全局 `PlayMode` 套所有包；CDN 是全局候选列表（第一条主，其余备用，失败时轮转）。包级目前可配「禁用按需下载」（DLC 手动下载场景），包级模式/CDN 仍是预留扩展点。
 
 | 模式 | 资源来源 | 启动联网？ | 本地缓存 |
 |---|---|---|---|
 | **EditorSimulate** | 编辑器直读 AssetDatabase（免打包） | 否 | 无 |
 | **Offline** | 仅内置首包（StreamingAssets） | 否 | 无（全内置） |
-| **Host** | 内置首包 + 远端 CDN，**缺的按需下载并缓存** | 是（拉版本+清单） | 下载的落沙盒缓存 |
+| **Host** | 内置首包 + 远端 CDN，默认**缺的按需下载并缓存**；包级可禁用按需下载 | 是（拉版本+清单） | 下载的落沙盒缓存 |
 | **Web** | 纯远端 HTTP（WebGL） | 是 | 不落地 |
 
 > 「部分内置首包 + 部分远端」不需要混模式：**Host 模式本身就是首包 + CDN 混合**，哪些 bundle 进首包是**构建期**（AssetBundleCollector）决定的。
@@ -134,6 +136,7 @@ flowchart TD
 - 三种范围：按 tag（关卡/DLC 整批）、全部（整包预下）、按地址（点名含依赖）。
 - 清缓存是 **bundle 粒度**：按 tag 是并集（命中任一即清）；按地址会连带同 bundle 邻居。想精确隔离要打包时让资源独占 bundle。
 - 固定顺序：**清缓存 → 重建下载器 → 开始下载**（下载器是快照，不会自己更新）。
+- Host 默认允许 `Load` 对未缓存 bundle 当场按需下载；大型 DLC 可在 `AssetSystemConfigModel.ExtraPackages`（Inspector「额外资源包」）为该包勾「禁用按需下载」，让未缓存 `Load` 直接失败，强制先走显式下载器和进度 UI。
 
 ---
 

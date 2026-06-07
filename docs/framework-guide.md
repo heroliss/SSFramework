@@ -1134,6 +1134,26 @@ Bag.Subscribe(downloader.Progress, report => _progressBar.value = report.Progres
 await downloader.Download(this.GetCancellationTokenOnDestroy());
 ```
 
+下载器是创建时的快照：清缓存或切版本后要重新 `CreateTagDownloader` / `CreateAllDownloader` / `CreateLocationDownloader` 才会重新统计。单文件失败由配置里的 `FailedTryAgain` 自动重试；整体最终失败时 `Download()` 抛异常，业务用 `try/catch` 接住并重新创建下载器再下，已成功分片会走缓存跳过。
+
+### 初始化、缓存与卸载
+
+`AssetSystemConfigModel` + `AssetUtility` + `AssetInitSystem` 挂在同一 Context 节点。默认 `AutoInitializeOnStartup=true`，启动时立即按包初始化；若隐私同意 / 选区前不能联网，把它关掉，启动只写配置、不拉远端清单，业务同意后调用：
+
+```csharp
+await this.GetUtility<IAssetUtility>().RetryInitialize();
+```
+
+资源释放分三层，别混用：
+
+| 操作 | 清理对象 | 常见时机 |
+|---|---|---|
+| `Unload()` / `Dispose()` / `Bag.Dispose()` | 释放 handle，让 bundle 引用计数归零 | 关闭界面 / 离开功能 |
+| `UnloadUnusedAssets()` | 卸载内存中引用归零的 bundle | 场景切换 / 关卡结束 |
+| `ClearCache(...)` / `ClearCacheByTags(...)` / `ClearCacheByLocations(...)` | 删除磁盘上的已下载 bundle 缓存 | 强制重下 / 热更后省空间 / 卸 DLC 缓存 |
+
+Host 模式默认允许 `Load` 对未缓存 bundle 当场按需下载。大型 DLC 若不想“误 Load 一个资源就自动下载”，在 `AssetSystemConfigModel.ExtraPackages`（Inspector「额外资源包」）里加一条该包并勾「禁用按需下载」：之后本包未缓存资源的 `Load` 直接失败，业务必须先用下载器显式预下载并展示进度。默认包总会初始化、无需在此列出，仅当要额外初始化非默认包、或给某个包设包级策略时才在此添加。
+
 ### Inspector 行为
 
 - 拖入与字段类型匹配的资源：自动记录 GUID
