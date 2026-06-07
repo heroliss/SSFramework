@@ -128,7 +128,7 @@ flowchart TD
     P --> D["Download() 启动（自带 FailedTryAgain 重试 + 断点续传）"]
     D --> Cache["bundle 下载并缓存到本地沙盒"]
     Cache --> Done["完成 → IsNeedDownload 变假"]
-    Clr["ClearCacheAsync(All/Unused)<br/>ClearCacheByTagsAsync<br/>ClearCacheByLocationsAsync"] --> Inv["缓存清掉 → IsNeedDownload 变真<br/>⚠ 旧下载器快照过期，必须重建再下"]
+    Clr["ClearCache(All/Unused)<br/>ClearCacheByTags<br/>ClearCacheByLocations"] --> Inv["缓存清掉 → IsNeedDownload 变真<br/>⚠ 旧下载器快照过期，必须重建再下"]
 ```
 
 - 三种范围：按 tag（关卡/DLC 整批）、全部（整包预下）、按地址（点名含依赖）。

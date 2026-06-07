@@ -280,6 +280,19 @@ namespace Game.Framework
                 throw new InvalidOperationException($"[YooAssetProvider] Clear cache by locations failed for '{packageName}': {op.Error}");
         }
 
+        public async UniTask UnloadUnusedAssetsAsync(string packageName, CancellationToken ct)
+        {
+            ThrowIfDisposed();
+            var package = GetReadyPackage(packageName);
+            // YooAsset 不会自动回收引用归零的 bundle，必须显式调；内部默认循环若干次以处理依赖链。
+            var op = package.UnloadUnusedAssetsAsync();
+            await WaitOp(op, ct);
+            ct.ThrowIfCancellationRequested();
+
+            if (op.Status != EOperationStatus.Succeeded)
+                throw new InvalidOperationException($"[YooAssetProvider] Unload unused assets failed for '{packageName}': {op.Error}");
+        }
+
         public void Dispose()
         {
             if (_disposed) return;

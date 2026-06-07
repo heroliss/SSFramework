@@ -15,6 +15,14 @@
 
 注释语言保持通俗直接，优先帮助后来者理解“为什么这样设计、用错会怎样、框架替调用方兜住了什么”。
 
+## 异步方法命名：无同步版本则省略 Async 后缀
+
+框架**面向业务的公共异步 API**（Utility / Bag / 扩展方法等）一律返回 `UniTask`、且**不提供同步对应版本**，因此统一**省略 `Async` 后缀**——`Load` / `LoadScene` / `ClearCache` / `UnloadUnusedAssets` / `RetryInitialize` 等。后缀的本意是区分同名同步/异步重载；既然没有同步版本，后缀只是噪音。
+
+**例外（保留 `Async`）：适配层 / provider 内部**（`IAssetProvider`、`YooAssetProvider`）保留 `InitializeAsync` / `LoadAssetAsync` / `ClearCacheAsync` 等，与所包装的第三方库（YooAsset 的 `package.XxxAsync`）命名对齐，便于对照底层调用。
+
+**How to apply:** 新增公共异步 API 默认不加 `Async`；只有当确实同时提供同步重载、或在 provider/第三方适配层时才加。
+
 ## 程序集结构与复用边界
 
 框架目标是**多项目可复用**，第一阶段留在 `Assets/Game/Framework`，但用 asmdef 边界做成自洽模块（未来可一键抽成 UPM 包，见 `docs/adr/`）。
