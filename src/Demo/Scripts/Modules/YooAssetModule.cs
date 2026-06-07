@@ -107,7 +107,7 @@ namespace Game.Framework.Demo.Modules
             host.AddSectionTitle("两个机制：模拟下载器 / 清缓存");
             host.AddSubNote("模拟下载器：`EditorSimulate` 下资源都在本地、真实 downloader 的 `TotalCount=0`、UI 会瞬间跳满。框架检测到这种情况就包一层 `SimulatedAssetDownloader`，用「模拟大小 ÷ 速度」按固定 50ms 间隔推进进度，让你能真实验证下载 UI。大小/速度 = `AssetSystemConfigModel` 的「模拟下载」两项（默认 8MB ÷ 2MB/s，任一设 0 关闭）。",
                 new CodeRef("Assets/Game/Framework/Scripts/Asset/SimulatedAssetDownloader.cs", "class SimulatedAssetDownloader", "模拟下载器实现"));
-            host.AddSubNote("清缓存（`ClearCacheAsync`，正式游戏也用）：清的是 项目根/`AssetBuild/Downloaded` 里已下载的 bundle，同步内存缓存记录后 `IsNeedDownload` 重新变真。`All` = 设置里「清除缓存」/ 损坏恢复 / 强制全量重下；`Unused` = 热更到新版本后回收旧版本残留（省空间）。它不卸载已加载到内存的资源（那是另一回事）。");
+            host.AddSubNote("清缓存（`ClearCache`，正式游戏也用）：清的是 项目根/`AssetBuild/Downloaded` 里已下载的 bundle，同步内存缓存记录后 `IsNeedDownload` 重新变真。`All` = 设置里「清除缓存」/ 损坏恢复 / 强制全量重下；`Unused` = 热更到新版本后回收旧版本残留（省空间）。它不卸载已加载到内存的资源（那是另一回事）。");
 #if UNITY_EDITOR
             host.AddActionRow("定位模拟下载配置（大小 / 速度）", () =>
             {
