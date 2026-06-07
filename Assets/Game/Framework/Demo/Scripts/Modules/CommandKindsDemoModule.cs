@@ -53,7 +53,7 @@ namespace Game.Framework.Demo.Modules
                 }
             }, CodeRef.Here("class RunTaskCommand", "RunTaskCommand"));
             host.AddActionRow("取消", () => cts?.Cancel());
-            host.AddNote("异步命令是 class + IAsyncCommand，签名带 CancellationToken；View 用 await this.ExecuteCommandAsync(...)。"
+            host.AddNote("异步命令是 `class` + `IAsyncCommand`，签名带 `CancellationToken`；View 用 `await this.ExecuteCommandAsync(...)`。"
                 + "无参重载会自动把 View 销毁 + Context 生命周期令牌链接（任一销毁即取消）；这里另传自定义令牌演示主动取消。");
 
             // ── 查询（返回值）──
@@ -65,14 +65,14 @@ namespace Game.Framework.Demo.Modules
                 var n = this.ExecuteCommand(new CountDoneCommand());
                 snapshotLabel.text = $"快照：{n} 次";
             }, CodeRef.Here("struct CountDoneCommand", "CountDoneCommand"));
-            host.AddNote("查询 Command（ICommand<T>）同步返回值：可返回只读状态流（ReadOnlyReactiveProperty，给 View 持续订阅——本 demo 到处在用），"
-                + "也可返回一次性快照值（这里返回 int）。View 经查询读状态，不直接碰 Model。");
+            host.AddNote("查询 Command（`ICommand<T>`）同步返回值：可返回只读状态流（`ReadOnlyReactiveProperty`，给 View 持续订阅——本 demo 到处在用），"
+                + "也可返回一次性快照值（这里返回 `int`）。View 经查询读状态，不直接碰 Model。");
 
             // ── 小结 ──
             host.AddSectionTitle("三态小结");
-            host.AddConcept("同步 ICommand", "Execute(ctx) 立即完成。简单写操作首选（struct 零分配）。计数器章已演。");
-            host.AddConcept("异步 IAsyncCommand", "class + ExecuteAsync(ctx, ct)。加载 / 网络 / 动画等耗时操作，令牌可取消。");
-            host.AddConcept("查询 ICommand<T>", "Execute(ctx) 返回值。读状态：返回只读流持续订阅，或返回一次性快照。");
+            host.AddConcept("同步 ICommand", "`Execute(ctx)` 立即完成。简单写操作首选（`struct` 零分配）。计数器章已演。");
+            host.AddConcept("异步 IAsyncCommand", "`class` + `ExecuteAsync(ctx, ct)`。加载 / 网络 / 动画等耗时操作，令牌可取消。");
+            host.AddConcept("查询 ICommand<T>", "`Execute(ctx)` 返回值。读状态：返回只读流持续订阅，或返回一次性快照。");
         }
     }
 

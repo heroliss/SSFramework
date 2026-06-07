@@ -43,7 +43,7 @@ namespace Game.Framework.Demo.Modules
             host.AddSectionTitle("两种写法的分界");
             host.AddNote("• “赚金币”是一步操作——Command 直接改 Model 就够，这是简单形态。",
                 CodeRef.Here("struct EarnGoldCommand", "直接改 Model"));
-            host.AddNote("• “购买药水”有规则（够钱才扣、扣钱再加道具）——逻辑抽到 ShopSystem，Command 只表达意图、调用 System。",
+            host.AddNote("• “购买药水”有规则（够钱才扣、扣钱再加道具）——逻辑抽到 `ShopSystem`，Command 只表达意图、调用 System。",
                 CodeRef.Here("class ShopSystem", "ShopSystem 里的逻辑"));
             host.AddTip("迁移心智：早期可以把规则先写在 Command 里；当相关逻辑变多、需要聚成一个整体来维护时，就抽到 System——"
                 + "成本很低，Command 本就是入口，抽走逻辑后它退化成一行薄壳。");
@@ -51,7 +51,7 @@ namespace Game.Framework.Demo.Modules
             host.AddSectionTitle("System 的本质");
             host.AddConcept("逻辑聚合（核心）", "把一类相关逻辑（买、卖、定价、库存…）聚成一个内聚、能独立运转的“系统”（可有依赖）——这正是它叫 System 的原因。");
             host.AddConcept("意图 vs 逻辑", "Command 表达“要做什么”（薄入口），System 实现“怎么做”（厚逻辑）。逻辑从 Command 抽到 System，分工才清晰。");
-            host.AddNote("说明：这个 ShopSystem 无状态，直接用传入的 ctx 取 Model 最省；需要持有状态的 System 可走 Mono（MonoSystemBase）或绑定 Context，改用 this.GetModel。");
+            host.AddNote("说明：这个 `ShopSystem` 无状态，直接用传入的 `ctx` 取 Model 最省；需要持有状态的 System 可走 Mono（`MonoSystemBase`）或绑定 Context，改用 `this.GetModel`。");
         }
     }
 

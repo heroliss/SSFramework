@@ -41,9 +41,9 @@ namespace Game.Framework.Demo.Modules
                 CodeRef.Here("struct ResetCountCommand", "ResetCountCommand"));
 
             host.AddSectionTitle("说明");
-            host.AddNote("• 点 +1 → 执行 IncrementCommand → 在 ICommandContext 里 GetModel<CounterModel>() 自增 Count。",
+            host.AddNote("• 点 +1 → 执行 `IncrementCommand` → 在 `ICommandContext` 里 `GetModel<CounterModel>()` 自增 `Count`。",
                 CodeRef.Here("class CounterModel", "CounterModel"));
-            host.AddNote("• 标签订阅的是 GetCountCommand 返回的 ReadOnlyReactiveProperty<int>，Model 一变就自动刷新。");
+            host.AddNote("• 标签订阅的是 `GetCountCommand` 返回的 `ReadOnlyReactiveProperty<int>`，Model 一变就自动刷新。");
             host.AddTip("注意：View 角色没有 GetModel 权限，只能经 Command 读写 Model——这正是框架强制的单向数据流。");
             host.AddNote("• 这里 Command 直接改 Model 是最简单的形态，逻辑简单时够用；逻辑一多就把它抽到 System，"
                 + "Command 退化成只表达意图、调用 System。别把 Command→Model 直连当成终态——见后面「System · 逻辑归位」。");
@@ -54,10 +54,10 @@ namespace Game.Framework.Demo.Modules
                 "一个响应式编程库（Reactive Extensions 的 Unity 实现）：把「值 / 事件」做成可订阅的流，"
                 + "值一变就自动推给所有订阅者，省掉手动轮询和回调管理。框架的响应式状态、事件订阅都建在它之上。");
             host.AddConcept("RP<T>",
-                "框架对 R3 响应式属性（SerializableReactiveProperty<T>）的简称：一个「可被订阅的值」。"
-                + ".Value 读写、值一变就自动通知所有订阅者。Model 用它持有可观察状态（这里就是计数）。");
+                "框架对 R3 响应式属性（`SerializableReactiveProperty<T>`）的简称：一个「可被订阅的值」。"
+                + "`.Value` 读写、值一变就自动通知所有订阅者。Model 用它持有可观察状态（这里就是计数）。");
             host.AddConcept("ReadOnlyReactiveProperty<T>",
-                "RP<T> 的只读视图：只能订阅、读当前值，不能写。查询 Command 把它返回给 View——"
+                "`RP<T>` 的只读视图：只能订阅、读当前值，不能写。查询 Command 把它返回给 View——"
                 + "View 看得到、改不了，写只能走 Command；订阅时 R3 会立即推一次当前值（所以一订阅就显示）。");
         }
     }

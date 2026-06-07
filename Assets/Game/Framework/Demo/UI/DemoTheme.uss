@@ -197,10 +197,11 @@
     font-size: 13px;
 }
 
-/* 次级细节（原理 / 补充）：缩进 + 更小更暗，作为某条主干下的“展开看”内容，与正文拉开层级 */
+/* 次级细节（原理 / 补充）：缩进作为某条主干下的“展开看”内容，与正文拉开层级；
+   字号与正文一致、颜色仅略暗（靠缩进而非缩字号区分层级，避免太小读不清） */
 .demo-subnote {
-    font-size: 12px;
-    color: rgb(138, 144, 156);
+    font-size: 13px;
+    color: rgb(165, 172, 188);
     margin-left: 34px; /* 与 step 文字大致对齐（徽标 min-width 24 + margin 10） */
     margin-bottom: 6px;
     white-space: normal;

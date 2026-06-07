@@ -67,10 +67,10 @@ namespace Game.Framework.Demo.Core
         /// <summary>讲解段落（说明使用方法 / 设计理念）。自动换行。</summary>
         public Label AddNote(string text)
         {
-            var l = new Label(text);
+            var l = new Label(DemoRichText.Render(text));
             l.AddToClassList("demo-note");
             l.style.whiteSpace = WhiteSpace.Normal;
-            l.enableRichText = false; // 讲解文本常含 List<int> / RP<T> 等泛型尖括号，关掉富文本免得 <T> 被当标签吞掉
+            // 富文本由 DemoRichText 统一渲染：`code` 染代码色、「术语」染术语色，并把裸尖括号转义掉让 List<int>/RP<T> 照常显示
             Target.Add(l);
             return l;
         }
@@ -83,11 +83,10 @@ namespace Game.Framework.Demo.Core
             var row = new VisualElement();
             row.AddToClassList("demo-note-row");
 
-            var l = new Label(text);
+            var l = new Label(DemoRichText.Render(text));
             l.AddToClassList("demo-note");
             l.style.whiteSpace = WhiteSpace.Normal;
             l.style.flexGrow = 1;
-            l.enableRichText = false;
             row.Add(l);
 
             AppendCodeLink(row, code);
@@ -109,11 +108,10 @@ namespace Game.Framework.Demo.Core
             b.enableRichText = false;
             row.Add(b);
 
-            var l = new Label(text);
+            var l = new Label(DemoRichText.Render(text));
             l.AddToClassList("demo-step-text");
             l.style.whiteSpace = WhiteSpace.Normal;
             l.style.flexGrow = 1;
-            l.enableRichText = false;
             row.Add(l);
 
             AppendCodeLink(row, code);
@@ -129,10 +127,9 @@ namespace Game.Framework.Demo.Core
         {
             if (!code.HasTarget || !CodeNavigator.IsAvailable)
             {
-                var only = new Label(text);
+                var only = new Label(DemoRichText.Render(text));
                 only.AddToClassList("demo-subnote");
                 only.style.whiteSpace = WhiteSpace.Normal;
-                only.enableRichText = false;
                 Target.Add(only);
                 return only;
             }
@@ -140,11 +137,10 @@ namespace Game.Framework.Demo.Core
             var row = new VisualElement();
             row.AddToClassList("demo-note-row");
 
-            var l = new Label(text);
+            var l = new Label(DemoRichText.Render(text));
             l.AddToClassList("demo-subnote");
             l.style.whiteSpace = WhiteSpace.Normal;
             l.style.flexGrow = 1;
-            l.enableRichText = false;
             row.Add(l);
 
             AppendCodeLink(row, code);
@@ -176,10 +172,9 @@ namespace Game.Framework.Demo.Core
             t.enableRichText = false;
             row.Add(t);
 
-            var d = new Label(description);
+            var d = new Label(DemoRichText.Render(description));
             d.AddToClassList("demo-concept-desc");
             d.style.whiteSpace = WhiteSpace.Normal;
-            d.enableRichText = false;
             row.Add(d);
 
             Target.Add(row);
@@ -205,7 +200,7 @@ namespace Game.Framework.Demo.Core
             return table;
         }
 
-        // 单行：表头或数据；单元格 Label 换行、关富文本（容 <T> 尖括号），等宽由 USS .demo-table-cell 控制。
+        // 单行：表头或数据；单元格文本经 DemoRichText 渲染（上色 + 转义尖括号），等宽由 USS .demo-table-cell 控制。
         private static VisualElement BuildTableRow(string[] cells, bool isHead)
         {
             var row = new VisualElement();
@@ -216,11 +211,10 @@ namespace Game.Framework.Demo.Core
             {
                 foreach (var c in cells)
                 {
-                    var cell = new Label(c ?? string.Empty);
+                    var cell = new Label(DemoRichText.Render(c ?? string.Empty));
                     cell.AddToClassList("demo-table-cell");
                     if (isHead) cell.AddToClassList("demo-table-cell--head");
                     cell.style.whiteSpace = WhiteSpace.Normal;
-                    cell.enableRichText = false;
                     row.Add(cell);
                 }
             }

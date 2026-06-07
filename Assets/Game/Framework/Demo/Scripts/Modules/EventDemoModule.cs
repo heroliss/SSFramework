@@ -54,10 +54,10 @@ namespace Game.Framework.Demo.Modules
             host.AddConcept("事件 (Event)", "没有当前值，只在发生时广播给 N 个监听者。适合 受伤了 / 升级了 / 死亡 这类瞬时信号。");
             host.AddTip("一句判断：“我需要随时读到最新值吗?”→要，用 Model；“只是通知一下发生了某事吗?”→是，用 Event。"
                 + "上面切走再回来：状态计数还在、事件计数从 0 重来——这就是两者的本质区别。");
-            host.AddNote("权限：View 角色能订阅事件（ICanRegisterEvent）、但不能发——发事件在 Command/System（ICanSendEvent），所以“广播”也经 Command 发出。");
-            host.AddNote("带数据用 new MyEvent { Damage = 10 }，订阅端 Bag.Subscribe<MyEvent>(e => ...)。"
-                + "GC 提示：struct 事件（readonly record struct）永远零堆分配；只有 class 事件 new 时才有 GC。"
-                + "无参 SendEvent<T>() 两者都能编译——struct 发零值、class 发 null（所以 class 事件通常得 new 传数据）。");
+            host.AddNote("权限：View 角色能订阅事件（`ICanRegisterEvent`）、但不能发——发事件在 Command/System（`ICanSendEvent`），所以“广播”也经 Command 发出。");
+            host.AddNote("带数据用 `new MyEvent { Damage = 10 }`，订阅端 `Bag.Subscribe<MyEvent>(e => ...)`。"
+                + "GC 提示：struct 事件（`readonly record struct`）永远零堆分配；只有 class 事件 new 时才有 GC。"
+                + "无参 `SendEvent<T>()` 两者都能编译——struct 发零值、class 发 `null`（所以 class 事件通常得 new 传数据）。");
         }
     }
 
