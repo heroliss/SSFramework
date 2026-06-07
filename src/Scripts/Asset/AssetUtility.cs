@@ -136,13 +136,16 @@ namespace Game.Framework
         }
 
         /// <summary>
-        /// 由 <see cref="AssetInitSystem"/> 在初始化前写入运行时配置。重复调用会更新后续包初始化使用的配置。
+        /// 由 <see cref="AssetInitSystem"/> 在初始化前写入运行时配置、默认包名与运行模式。重复调用会更新后续包初始化使用的配置。
+        /// <para>运行模式在此即写入 <see cref="CurrentPlayMode"/>（而非等到 <see cref="InitializePackageAsync"/>）：
+        /// 关闭自动初始化、延迟到业务显式 <c>RetryInitialize</c> 触发时，仍能用正确模式初始化，而不是回落到默认值。</para>
         /// </summary>
-        internal void Configure(string defaultPackageName, AssetProviderConfig config)
+        internal void Configure(string defaultPackageName, AssetProviderConfig config, AssetPlayMode mode)
         {
             ThrowIfDisposed();
             _defaultPackageName = string.IsNullOrWhiteSpace(defaultPackageName) ? "DefaultPackage" : defaultPackageName;
             _config = config ?? new AssetProviderConfig();
+            CurrentPlayMode = mode;
             GetState(_defaultPackageName);
         }
 

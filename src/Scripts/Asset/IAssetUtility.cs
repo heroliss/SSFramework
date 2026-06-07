@@ -9,8 +9,7 @@ using UnityEngine.SceneManagement;
 namespace Game.Framework
 {
     /// <summary>
-    /// 资源系统初始化状态。
-    /// View 可以订阅 <see cref="IAssetUtility.InitState"/> 来驱动启动加载界面。
+    /// 资源系统初始化状态。通过 <see cref="IAssetUtility.InitState"/> 以状态流形式暴露，供订阅方观察初始化进展。
     /// </summary>
     public enum AssetInitState
     {
@@ -33,7 +32,7 @@ namespace Game.Framework
     {
         /// <summary>清理未被当前版本清单引用的 bundle：热更到新版本后回收旧版本残留，最常用的「省空间」清理。</summary>
         Unused,
-        /// <summary>清理全部已缓存 bundle：用于设置里的「清除缓存」、资源损坏恢复、强制全量重下。</summary>
+        /// <summary>清理全部已缓存 bundle：用于资源损坏恢复、强制全量重下、整体清空缓存。</summary>
         All,
     }
 
@@ -88,7 +87,9 @@ namespace Game.Framework
         /// 重跑指定包的初始化（packageName 为空时为默认包）：初始化失败后无需重建实例即可再次尝试。
         /// <para>语义：包当前为 <see cref="AssetInitState.Failed"/> 或 <see cref="AssetInitState.Idle"/> 时重新初始化；
         /// 已 <see cref="AssetInitState.Ready"/> 则直接返回（幂等）；进行中则等待本次完成。</para>
-        /// <para>用最近一次的运行模式与配置重试，<b>本身不抛异常</b>——结果（成功 / 失败）写回 <see cref="InitState"/> 供订阅方读取。</para>
+        /// <para>用配置写入的运行模式与配置重试，<b>本身不抛异常</b>——结果（成功 / 失败）写回 <see cref="InitState"/> 供订阅方读取。</para>
+        /// <para>也是<b>延迟初始化的触发口</b>：当 <see cref="AssetSystemConfigModel.AutoInitializeOnStartup"/> 关闭、启动未自动初始化时，
+        /// 对 <see cref="AssetInitState.Idle"/> 包调用本方法即「冷启动初始化」。</para>
         /// </summary>
         UniTask RetryInitialize(string packageName = null, CancellationToken ct = default);
 
@@ -203,7 +204,7 @@ namespace Game.Framework
         /// 清理默认包「已下载到本地的 bundle 缓存」（远端模式才有实际内容）。清理后内存缓存记录同步更新，
         /// 相关资源的 <see cref="IsNeedDownload(string)"/> 会重新变真，可在不重启的情况下重新下载。
         /// 与「不提供 UnloadPackage」不冲突（见类型 remarks）：这只删盘上的下载文件，不动已加载到内存的资源。
-        /// 常见用途：设置里的「清除缓存」(<see cref="AssetCacheClearMode.All"/>)、热更后回收旧版本残留 (<see cref="AssetCacheClearMode.Unused"/>)。
+        /// 常见用途：整体清空缓存 (<see cref="AssetCacheClearMode.All"/>)、热更后回收旧版本残留 (<see cref="AssetCacheClearMode.Unused"/>)。
         /// </summary>
         UniTask ClearCacheAsync(AssetCacheClearMode mode = AssetCacheClearMode.Unused, CancellationToken ct = default);
 
