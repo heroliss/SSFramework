@@ -43,11 +43,11 @@ namespace Game.Framework.Demo.Modules
                 SelectInInspector(go);
 #endif
             }, new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/UGuiDemoView.cs", "class UGuiDemoView", "UGuiDemoView · 真实 View"));
-            host.AddNote("弹窗里：「+1」经 Command 写、文字只读订阅查询 Command；「Close」销毁自己——Bag 随之 Dispose，订阅退订。",
+            host.AddNote("弹窗里：「+1」经 `ExecuteCommand` 写、文字只读订阅查询 Command；「Close」销毁自己——`Bag` 随之 `Dispose`，订阅退订。",
                 new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/UGuiDemoView.cs", "protected override void Awake", "View 内部接线（Awake）"));
 
             host.AddSectionTitle("它绑定到哪个 Context");
-            host.AddNote("View 实例化在 DemoApp 子树下，Awake 沿父链找到最近的 Context = DemoApp 上的 MonoDemoContext（demo 的根 Context）并绑定。注意：View 不“注册”进容器（它不被别人依赖），只是把自己注入 + 绑定 Bag。");
+            host.AddNote("View 实例化在 DemoApp 子树下，`Awake` 沿父链找到最近的 Context = DemoApp 上的 `MonoDemoContext`（demo 的根 Context）并绑定。注意：View 不“注册”进容器（它不被别人依赖），只是把自己注入 + 绑定 `Bag`。");
 #if UNITY_EDITOR
             host.AddActionRow("选中它绑定的 Context（DemoApp）", () =>
             {
@@ -58,18 +58,18 @@ namespace Game.Framework.Demo.Modules
 #endif
 
             host.AddSectionTitle("这个 View 做对了什么");
-            host.AddConcept("自动绑定", "Instantiate 到 Context 下，Awake 自动找最近的 Context 完成注入、绑定 Bag——不写一行接线代码。");
-            host.AddConcept("读写分离", "显示状态：订阅查询 Command 返回的只读流；改状态：ExecuteCommand。View 拿不到 GetModel / SendEvent 权限（编译期挡住）。");
-            host.AddConcept("Bag 自动释放", "订阅进 Bag；关闭 View → OnDestroy → Bag.Dispose 一次性清干净，不漏订阅。");
-            host.AddConcept("Awake 即可接线", "View 执行顺序 -100（最晚），Awake 时各层都已就绪，可直接 ExecuteCommand 订阅状态；覆写 Awake 切记先调 base.Awake()（基类负责注入 + 绑定 Context），漏了会 NPE。");
+            host.AddConcept("自动绑定", "`Instantiate` 到 Context 下，`Awake` 自动找最近的 Context 完成注入、绑定 `Bag`——不写一行接线代码。");
+            host.AddConcept("读写分离", "显示状态：订阅查询 Command 返回的只读流；改状态：`ExecuteCommand`。View 拿不到 `GetModel` / `SendEvent` 权限（编译期挡住）。");
+            host.AddConcept("Bag 自动释放", "订阅进 `Bag`；关闭 View → `OnDestroy` → `Bag.Dispose` 一次性清干净，不漏订阅。");
+            host.AddConcept("Awake 即可接线", "View 执行顺序 -100（最晚），`Awake` 时各层都已就绪，可直接 `ExecuteCommand` 订阅状态；覆写 `Awake` 切记先调 `base.Awake()`（基类负责注入 + 绑定 Context），漏了会 NPE。");
 
-            host.AddNote("本章的状态与读写 Command（都在本文件 UGuiViewModule.cs）：");
+            host.AddNote("本章的状态与读写 Command（都在本文件 `UGuiViewModule.cs`）：");
             host.AddCodeLink(CodeRef.Here("class ViewScoreModel", "ViewScoreModel · 状态"));
             host.AddCodeLink(CodeRef.Here("struct GetViewScoreCommand", "只读查询 Command"));
             host.AddCodeLink(CodeRef.Here("struct RaiseViewScoreCommand", "写操作 Command"));
 
             host.AddSectionTitle("View 是一层，不是一类");
-            host.AddNote("demo 其它章节扮演的“view 角色”是纯 C#（DemoModuleBase），这章是 Mono（UGUI）真实 View——两者享有相同的 View 权限，差别只是载体。核心层（Model / Command / System）对用 UGUI 还是 UI Toolkit 一无所知。");
+            host.AddNote("demo 其它章节扮演的“view 角色”是纯 C#（`DemoModuleBase`），这章是 Mono（UGUI）真实 View——两者享有相同的 View 权限，差别只是载体。核心层（Model / Command / System）对用 UGUI 还是 UI Toolkit 一无所知。");
 
             host.AddSectionTitle("authored 资产 vs 代码搭 UI");
             host.AddNote("这个弹窗是编辑器里搭好的 UGUI prefab（所见即所得、策划可改）。而本 demo 的外壳是命令式代码搭的——因为它是“按数据动态生成的目录”，不是固定布局。"

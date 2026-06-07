@@ -32,7 +32,7 @@ namespace Game.Framework.Demo.Modules
             host.AddNote("MVCS 取自四个主层的首字母：Model / View / Command / System。Event 与 Model 同属“数据层”" +
                          "（都是被动数据、只被读取或订阅），Utility 则是横切各层的通用工具。逐层来看：");
             host.AddConcept("View", "界面层。只能“发 Command 表达意图”+“只读订阅状态刷新 UI”；不直接读写 Model、不发 Event——UI 永远是状态的投影。");
-            host.AddConcept("Command", "意图层。把“要做什么”封装成一次操作，是唯一能写 Model、能编排 System 的接缝。默认用 readonly struct（零分配），依赖多时才用 class。");
+            host.AddConcept("Command", "意图层。把“要做什么”封装成一次操作，是唯一能写 Model、能编排 System 的接缝。默认用 `readonly struct`（零分配），依赖多时才用 class。");
             host.AddConcept("System", "逻辑层。承载玩法 / 业务规则，被 Command 调用；自身不发 Command，避免出现 System 调自己的回环。");
             host.AddConcept("Model", "数据层。持有响应式状态（值一变就自动通知订阅者）。配套的 Event 总线做一对多广播——Model 与 Event 都是“被动数据”，只被读取 / 订阅，不主动调别人。");
             host.AddConcept("Utility", "工具层。与玩法无关的通用能力（资源加载、对象池、存储等），各层都能取用。");
@@ -46,7 +46,7 @@ namespace Game.Framework.Demo.Modules
 
             host.AddSectionTitle("单向数据流");
             host.AddNote("写操作永远朝一个方向：View →(Command)→ Model / System。" +
-                         "View 想改状态只能发 Command；Command 在 ICommandContext 里拿 Model / System 干活；" +
+                         "View 想改状态只能发 Command；Command 在 `ICommandContext` 里拿 Model / System 干活；" +
                          "Model 变化再通过只读订阅“反向”推回 View 刷新界面。");
             host.AddCodeLink(new CodeRef("Assets/Game/Framework/Scripts/Command/ICommandContext.cs",
                 "interface ICommandContext", "ICommandContext · Command 访问层的入口"));
@@ -55,11 +55,11 @@ namespace Game.Framework.Demo.Modules
 
             host.AddSectionTitle("技术特点");
             host.AddNote("下面几点是相互独立的设计，不是一个大功能——按需各看各的。这里每点只一句，细节在框架文档与后续章节：");
-            host.AddConcept("编译期权限", "用一组空标记接口，让越权写法直接编译不过（如 View 写不出 GetModel）。它不是万能锁——反射等仍能绕过——目的是减少人为出错、降低心智负担，顺手提供便利。");
-            host.AddConcept("依赖注入", "一个轻量 DI 容器：按类型注册 / 解析依赖，[Inject] 字段自动装配。常规的小能力。");
-            host.AddConcept("多 Context", "GameContext 是一棵作用域树，子 Context 解析不到就回退父级——可分出全局 / 场景 / 局部等不同生命周期的作用域。");
-            host.AddConcept("Mono 自动绑定", "继承 MonoXxxBase 的组件在 Awake 自动找到所属 Context 并完成注册 / 注入，免去手动接线；纯 C# 对象走显式绑定。");
-            host.AddConcept("统一生命周期", "DisposableBag 把订阅 / 资源句柄 / 对象池租借 / 子作用域都登记起来，宿主销毁时批量释放，不用手写一堆退订。");
+            host.AddConcept("编译期权限", "用一组空标记接口，让越权写法直接编译不过（如 View 写不出 `GetModel`）。它不是万能锁——反射等仍能绕过——目的是减少人为出错、降低心智负担，顺手提供便利。");
+            host.AddConcept("依赖注入", "一个轻量 DI 容器：按类型注册 / 解析依赖，`[Inject]` 字段自动装配。常规的小能力。");
+            host.AddConcept("多 Context", "`GameContext` 是一棵作用域树，子 Context 解析不到就回退父级——可分出全局 / 场景 / 局部等不同生命周期的作用域。");
+            host.AddConcept("Mono 自动绑定", "继承 `MonoXxxBase` 的组件在 Awake 自动找到所属 Context 并完成注册 / 注入，免去手动接线；纯 C# 对象走显式绑定。");
+            host.AddConcept("统一生命周期", "`DisposableBag` 把订阅 / 资源句柄 / 对象池租借 / 子作用域都登记起来，宿主销毁时批量释放，不用手写一堆退订。");
             host.AddNote("想看源码（其余见各自章节）：");
             host.AddCodeLink(new CodeRef("Assets/Game/Framework/Scripts/Internal/ICanSendCommand.cs",
                 "interface ICanSendCommand", "编译期权限接口"));

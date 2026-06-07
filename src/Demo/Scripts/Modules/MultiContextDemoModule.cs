@@ -29,10 +29,10 @@ namespace Game.Framework.Demo.Modules
 
             host.AddSectionTitle("演示：覆盖 + 回退（真实场景节点）");
             host.AddValueDisplay($"子 Context 解析 ScopedTag → 「{child.GetModel<ScopedTag>().Text}」");
-            host.AddNote("子 Context 自己注册了 ScopedTag → 用子级的（覆盖父级）。",
+            host.AddNote("子 Context 自己注册了 `ScopedTag` → 用子级的（覆盖父级）。",
                 new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/DemoScopeChild.cs", "class DemoScopeChild", "DemoScopeChild"));
             host.AddValueDisplay($"子 Context 解析 ParentOnlyTag → 「{child.GetModel<ParentOnlyTag>().Text}」");
-            host.AddNote("子 Context 没注册 ParentOnlyTag → 沿作用域链逐级回退，命中父 Context。",
+            host.AddNote("子 Context 没注册 `ParentOnlyTag` → 沿作用域链逐级回退，命中父 Context。",
                 new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/DemoScopeParent.cs", "class DemoScopeParent", "DemoScopeParent"));
             host.AddValueDisplay($"父 Context 解析 ScopedTag → 「{parent.GetModel<ScopedTag>().Text}」");
             host.AddNote("回退是单向的（子 → 父）：父 Context 各自独立，看不到子 Context 注册的东西。");
@@ -46,7 +46,7 @@ namespace Game.Framework.Demo.Modules
 
             host.AddSectionTitle("作用域树");
             host.AddConcept("分层", "全局（跨场景：配置 / 音频）→ 场景（本场景）→ 局部（一个面板 / 关卡）各成一层。");
-            host.AddConcept("解析顺序", "本层运行时覆盖 → 本层 InstallBindings → 父级递归 → 全局 Main（inheritFromGlobal 时）。");
+            host.AddConcept("解析顺序", "本层运行时覆盖 → 本层 `InstallBindings` → 父级递归 → 全局 `Main`（`inheritFromGlobal` 时）。");
             host.AddConcept("覆盖 vs 回退", "子层注册同类型 → 用子层（覆盖）；子层没有 → 逐级回退父层。");
             host.AddTip("好处：切场景 / 关卡时整层 Context 一并 Dispose，临时注册随之清掉、不污染全局——这也是不在运行时单独热替换某个层的原因。");
         }

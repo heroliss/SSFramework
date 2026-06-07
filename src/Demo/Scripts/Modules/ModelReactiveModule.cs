@@ -35,7 +35,7 @@ namespace Game.Framework.Demo.Modules
             Bag.Subscribe(this.ExecuteCommand(new GetCodeScoreCommand()), v => codeLabel.text = $"分数：{v}");
             host.AddActionRow("分数 +1", () => this.ExecuteCommand(new RaiseCodeScoreCommand()),
                 CodeRef.Here("class CodeScoreModel", "CodeScoreModel"));
-            host.AddNote("代码里 new 出来、在 InstallBindings 注册进容器。原理一目了然，但它只是个普通 C# 对象——Inspector 里看不到、也没法配。",
+            host.AddNote("代码里 new 出来、在 `InstallBindings` 注册进容器。原理一目了然，但它只是个普通 C# 对象——Inspector 里看不到、也没法配。",
                 CodeRef.Here("InstallBindings", "注册代码"));
 
             // ── Mono 路径：Hierarchy 节点 + Inspector ──
@@ -54,7 +54,7 @@ namespace Game.Framework.Demo.Modules
             host.AddSectionTitle("两条路怎么选");
             host.AddConcept("纯 C#", "逻辑型 / 要热更 / 要单测 / 不需要在 Inspector 配的状态。零 Unity 依赖、原理透明。");
             host.AddConcept("Mono", "需要 Inspector 可视化、策划要填初值或拖引用的状态。自动注册、所见即所得。");
-            host.AddNote("两者都用同一个 RP<T> 持有状态、都经 Command 读写、都进同一个 Context——区别只在“怎么进容器”。",
+            host.AddNote("两者都用同一个 `RP<T>` 持有状态、都经 Command 读写、都进同一个 `Context`——区别只在“怎么进容器”。",
                 CodeRef.Here("class CodeScoreModel", "Model 定义"));
         }
 

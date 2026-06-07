@@ -62,9 +62,9 @@ namespace Game.Framework.Demo.Modules
             }, CodeRef.Here("pool.Return(held)", "归还用法"));
 
             host.AddNote("反复「租借→归还→再租借」：构造次数几乎不涨——池命中复用，省掉了 new 和 GC。");
-            host.AddNote("写过 Stamp 再归还、然后重新租借：拿到的实例 Stamp 又是 0——归还时 IPoolable.OnReturn 把状态清了，复用不会带上一手的脏数据。",
+            host.AddNote("写过 `Stamp` 再归还、然后重新租借：拿到的实例 `Stamp` 又是 0——归还时 `IPoolable.OnReturn` 把状态清了，复用不会带上一手的脏数据。",
                 CodeRef.Here("class PooledBox", "PooledBox.OnReturn"));
-            host.AddNote("池也支持 Prewarm（预热）/ Trim（收缩）运维，但预热的真实价值在「避免实例化尖峰」、对 GameObject 才明显——放到下面 GameObject 池里演示其分帧（异步）版本。");
+            host.AddNote("池也支持 `Prewarm`（预热）/ `Trim`（收缩）运维，但预热的真实价值在「避免实例化尖峰」、对 GameObject 才明显——放到下面 GameObject 池里演示其分帧（异步）版本。");
 
             // 切走本章（Teardown→Bag.Dispose）时，把还攥在手上没手动归还的实例还回池里，
             // 免得来回切章时"构造次数"虚高、混淆"复用省 GC"的演示。
@@ -157,21 +157,21 @@ namespace Game.Framework.Demo.Modules
 #endif
                 }
 
-                host.AddNote("方块颜色随 Spawn 逐格渐变 = OnRent 在 GameObject 上每次取出都跑（复用的旧实例也重新着色）；"
-                    + "预热后「真正实例化」涨、之后反复生成 / 清理却不再涨 = 池在复用旧实例、省掉 Instantiate。归还时 OnReturn 复位颜色，复用不带上一手的脏状态——和 C# 段 Stamp 清零同理。",
+                host.AddNote("方块颜色随 Spawn 逐格渐变 = `OnRent` 在 GameObject 上每次取出都跑（复用的旧实例也重新着色）；"
+                    + "预热后「真正实例化」涨、之后反复生成 / 清理却不再涨 = 池在复用旧实例、省掉 `Instantiate`。归还时 `OnReturn` 复位颜色，复用不带上一手的脏状态——和 C# 段 `Stamp` 清零同理。",
                     new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/PooledChip.cs", "void OnRent", "PooledChip.OnRent/OnReturn"));
-                host.AddNote("预热（Prewarm）把实例化尖峰挪到加载期、收缩（Trim）在内存吃紧时回收过度预热的空闲实例；两者都分帧摊开开销（每帧 perFrame 个），避免一次性 Instantiate/Destroy 一大批造成卡顿。C# 池开销小，用同步 Prewarm/Trim 即可。");
-                host.AddNote("Bag.Spawn 和 Bag.Rent 心智一致：借来的东西进 Bag，Bag.Dispose（清理本轮 / 切走本章）统一自动 Despawn 归还，而不是留在场景里。右侧方块区是 UGUI 容器通过 UI Toolkit 占位框对齐出来的“镶嵌效果”：两套 UI 不能互为子节点，但可以用占位元素同步位置。",
+                host.AddNote("预热（`Prewarm`）把实例化尖峰挪到加载期、收缩（`Trim`）在内存吃紧时回收过度预热的空闲实例；两者都分帧摊开开销（每帧 `perFrame` 个），避免一次性 `Instantiate`/`Destroy` 一大批造成卡顿。C# 池开销小，用同步 `Prewarm`/`Trim` 即可。");
+                host.AddNote("`Bag.Spawn` 和 `Bag.Rent` 心智一致：借来的东西进 `Bag`，`Bag.Dispose`（清理本轮 / 切走本章）统一自动 `Despawn` 归还，而不是留在场景里。右侧方块区是 UGUI 容器通过 UI Toolkit 占位框对齐出来的“镶嵌效果”：两套 UI 不能互为子节点，但可以用占位元素同步位置。",
                     CodeRef.Here("assets.BindAnchor", "UI Toolkit 占位对齐"));
-                host.AddNote("归还的空闲实例停在一个停用的 DontDestroyOnLoad 节点 [Game.Framework PooledObjects] 下（点上面按钮可选中它看）。该节点被外部误删后，下次归还会自愈重建，实例不会散落到场景根。");
+                host.AddNote("归还的空闲实例停在一个停用的 DontDestroyOnLoad 节点 `[Game.Framework PooledObjects]` 下（点上面按钮可选中它看）。该节点被外部误删后，下次归还会自愈重建，实例不会散落到场景根。");
             }
 
             host.AddSectionTitle("使用路径");
-            host.AddConcept("Bag.Rent / Spawn", "自动归还：Bag.Rent<T>() 借 C# 对象、Bag.Spawn(prefab, parent) 借 GameObject；宿主 Bag.Dispose 时统一归还，心智同 Bag.Load。");
-            host.AddConcept("IPoolUtility", "手动控制：this.GetUtility<IPoolUtility>() 直接操作池——更早归还、Prewarm 预热、Trim 收缩、配自定义工厂/钩子。C# 池和 GameObject 池共用同一入口。");
+            host.AddConcept("Bag.Rent / Spawn", "自动归还：`Bag.Rent<T>()` 借 C# 对象、`Bag.Spawn(prefab, parent)` 借 GameObject；宿主 `Bag.Dispose` 时统一归还，心智同 `Bag.Load`。");
+            host.AddConcept("IPoolUtility", "手动控制：`this.GetUtility<IPoolUtility>()` 直接操作池——更早归还、`Prewarm` 预热、`Trim` 收缩、配自定义工厂/钩子。C# 池和 GameObject 池共用同一入口。");
 
             host.AddSectionTitle("注册 = 生命周期");
-            host.AddConcept("RegisterOwned", "纯 C#、随 Context.Dispose 自动清池（销毁停放节点 + 空闲实例），可安全 per-Context 注册——demo 根 Context 用的就是它。");
+            host.AddConcept("RegisterOwned", "纯 C#、随 `Context.Dispose` 自动清池（销毁停放节点 + 空闲实例），可安全 per-Context 注册——demo 根 Context 用的就是它。");
             host.AddConcept("RegisterValue", "纯 C#、不被容器释放，适合全局唯一、随进程长存的池。");
             host.AddConcept("MonoPoolUtility", "Mono：挂 Context 子节点，可在 Inspector 针对各 prefab 配容量 / 预热，随该 GameObject / 场景销毁自动清池。底层复用同一套逻辑。");
             host.AddCodeLink(new CodeRef("Assets/Game/Framework/Demo/Scripts/Core/MonoDemoContext.cs", "RegisterOwned", "demo 注册（RegisterOwned）"));

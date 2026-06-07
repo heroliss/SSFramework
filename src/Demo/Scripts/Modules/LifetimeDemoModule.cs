@@ -51,14 +51,14 @@ namespace Game.Framework.Demo.Modules
                 CodeRef.Here("var child = Bag.CreateChild()", "子作用域用法"));
 
             host.AddSectionTitle("Bag 装什么");
-            host.AddConcept("订阅", "R3 / Framework Event / UnityEvent / C# event —— 都自动包成 IDisposable 入 Bag。");
-            host.AddConcept("资源句柄", "Bag.Load / LoadScene 返回资源本体、句柄留在 Bag（详见「资源加载」章）。");
-            host.AddConcept("池租借", "Bag.Rent / Bag.Spawn 借来的实例，释放时自动归还（详见「对象池」章）。");
-            host.AddConcept("子作用域 / 任意 IDisposable", "CreateChild 的子 Bag，以及 Bag.Add 进来的任何 IDisposable。");
+            host.AddConcept("订阅", "R3 / Framework Event / UnityEvent / C# event —— 都自动包成 `IDisposable` 入 `Bag`。");
+            host.AddConcept("资源句柄", "`Bag.Load` / `LoadScene` 返回资源本体、句柄留在 `Bag`（详见「资源加载」章）。");
+            host.AddConcept("池租借", "`Bag.Rent` / `Bag.Spawn` 借来的实例，释放时自动归还（详见「对象池」章）。");
+            host.AddConcept("子作用域 / 任意 IDisposable", "`CreateChild` 的子 `Bag`，以及 `Bag.Add` 进来的任何 `IDisposable`。");
 
             host.AddSectionTitle("作用域怎么分");
-            host.AddConcept("基类 Bag", "MonoView/Model/System/Utility 内置，跟宿主 OnDestroy 一起释放——最常用的一档。");
-            host.AddConcept("CreateChild", "需要比宿主更短的作用域时开：OnDisable / 一个回合 / “清理一次”按钮。子 Bag 单独 Dispose 不碰父级，父级释放自动级联子级（Dispose 幂等）。");
+            host.AddConcept("基类 Bag", "`MonoView/Model/System/Utility` 内置，跟宿主 `OnDestroy` 一起释放——最常用的一档。");
+            host.AddConcept("CreateChild", "需要比宿主更短的作用域时开：`OnDisable` / 一个回合 / “清理一次”按钮。子 `Bag` 单独 `Dispose` 不碰父级，父级释放自动级联子级（`Dispose` 幂等）。");
             host.AddTip("命名约定：按“何时清理”给子 Bag 起名 _enableBag / _roundBag / _loadedBag，在对应回调里 Dispose 后再 CreateChild 重建。"
                 + "统一进 Bag 的意义在于——只要东西进了 Bag 就不会忘记释放，宿主一销毁全部连根带走。");
         }
