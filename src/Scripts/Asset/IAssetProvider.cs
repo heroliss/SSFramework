@@ -85,6 +85,9 @@ namespace Game.Framework
         /// </summary>
         UniTask ClearCacheByLocationsAsync(string packageName, IReadOnlyList<string> locations, CancellationToken ct);
 
+        /// <summary>卸载指定包内引用计数已归零的资源 bundle，释放其内存占用（只卸零引用的，不动仍被持有的）。要求包已就绪；失败应抛异常由上层处理。</summary>
+        UniTask UnloadUnusedAssetsAsync(string packageName, CancellationToken ct);
+
 #if UNITY_EDITOR
         /// <summary>
         /// 编辑器期「模拟断网」开关源：provider 每次解析远端地址时<b>实时</b>读取，返回 true 时把远端地址换成不可达地址，

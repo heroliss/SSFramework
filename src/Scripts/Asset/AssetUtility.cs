@@ -429,10 +429,10 @@ namespace Game.Framework
             return CreateLocationDownloaderInternal(packageName, locations);
         }
 
-        public UniTask ClearCacheAsync(AssetCacheClearMode mode = AssetCacheClearMode.Unused, CancellationToken ct = default)
-            => ClearCacheAsync(_defaultPackageName, mode, ct);
+        public UniTask ClearCache(AssetCacheClearMode mode = AssetCacheClearMode.Unused, CancellationToken ct = default)
+            => ClearCache(_defaultPackageName, mode, ct);
 
-        public async UniTask ClearCacheAsync(string packageName, AssetCacheClearMode mode = AssetCacheClearMode.Unused, CancellationToken ct = default)
+        public async UniTask ClearCache(string packageName, AssetCacheClearMode mode = AssetCacheClearMode.Unused, CancellationToken ct = default)
         {
             ThrowIfDisposed();
             packageName = NormalizePackageName(packageName);
@@ -441,10 +441,10 @@ namespace Game.Framework
             await _provider.ClearCacheAsync(packageName, mode, ct);
         }
 
-        public UniTask ClearCacheByTagsAsync(IReadOnlyList<string> tags, CancellationToken ct = default)
-            => ClearCacheByTagsAsync(_defaultPackageName, tags, ct);
+        public UniTask ClearCacheByTags(IReadOnlyList<string> tags, CancellationToken ct = default)
+            => ClearCacheByTags(_defaultPackageName, tags, ct);
 
-        public async UniTask ClearCacheByTagsAsync(string packageName, IReadOnlyList<string> tags, CancellationToken ct = default)
+        public async UniTask ClearCacheByTags(string packageName, IReadOnlyList<string> tags, CancellationToken ct = default)
         {
             ThrowIfDisposed();
             if (tags == null || tags.Count == 0)
@@ -454,10 +454,10 @@ namespace Game.Framework
             await _provider.ClearCacheByTagsAsync(packageName, tags, ct);
         }
 
-        public UniTask ClearCacheByLocationsAsync(IReadOnlyList<string> locations, CancellationToken ct = default)
-            => ClearCacheByLocationsAsync(_defaultPackageName, locations, ct);
+        public UniTask ClearCacheByLocations(IReadOnlyList<string> locations, CancellationToken ct = default)
+            => ClearCacheByLocations(_defaultPackageName, locations, ct);
 
-        public async UniTask ClearCacheByLocationsAsync(string packageName, IReadOnlyList<string> locations, CancellationToken ct = default)
+        public async UniTask ClearCacheByLocations(string packageName, IReadOnlyList<string> locations, CancellationToken ct = default)
         {
             ThrowIfDisposed();
             if (locations == null || locations.Count == 0)
@@ -465,6 +465,17 @@ namespace Game.Framework
             packageName = NormalizePackageName(packageName);
             await EnsureInitialized(packageName, ct);
             await _provider.ClearCacheByLocationsAsync(packageName, locations, ct);
+        }
+
+        public UniTask UnloadUnusedAssets(CancellationToken ct = default)
+            => UnloadUnusedAssets(_defaultPackageName, ct);
+
+        public async UniTask UnloadUnusedAssets(string packageName, CancellationToken ct = default)
+        {
+            ThrowIfDisposed();
+            packageName = NormalizePackageName(packageName);
+            await EnsureInitialized(packageName, ct);
+            await _provider.UnloadUnusedAssetsAsync(packageName, ct);
         }
 
         private IAssetDownloader CreateTagDownloaderInternal(string packageName, IReadOnlyList<string> tags)

@@ -43,7 +43,7 @@ namespace Game.Framework
     /// - Utility 只管理 package 初始化状态和类型化加载 API；底层资源库细节由 provider 适配层隐藏。
     /// - 业务通常不直接调用 utility 的加载方法，而是经由 <see cref="DisposableBag"/> 的 <c>Load</c>/<c>LoadScene</c> 等同名方法。
     /// - 默认包重载兼容最常见用法；跨包资源使用带 packageName 的显式重载。
-    /// - 全部加载方法返回 <c>UniTask</c>，按“无同步对应版本”约定省略 <c>Async</c> 后缀。
+    /// - 全部异步公共方法返回 <c>UniTask</c>，按“无同步对应版本”约定统一省略 <c>Async</c> 后缀（加载 / 清缓存 / 卸载 / 重试初始化等）。
     /// </summary>
     /// <remarks>
     /// <b>包生命周期：</b>已初始化的 package 在 utility 整个生命周期内**视为全局单例**，框架不提供 <c>UnloadPackage</c> API。
@@ -52,10 +52,10 @@ namespace Game.Framework
     /// 如果项目确实需要"加载 DLC → 用完释放"的场景，按以下方式之一处理：
     /// <list type="bullet">
     ///   <item>把 DLC 资源全部放在独立 Context 下，Context Dispose 时所有 Bag 级联释放 handle，再由业务直接调用底层 provider 的卸载 API。</item>
-    ///   <item>用 <see cref="AssetReference{T}.Unload"/> / <see cref="DisposableBag.Dispose"/> 显式释放 handle，让底层资源库的 unused-assets GC 自然回收。</item>
+    ///   <item>用 <see cref="AssetReference{T}.Unload"/> / <see cref="DisposableBag.Dispose"/> 显式释放 handle 让 bundle 引用归零，再调 <see cref="UnloadUnusedAssets(CancellationToken)"/> 把零引用 bundle 从内存卸载（底层库不会自动回收、须显式调）。</item>
     /// </list>
     /// 注意区分：上面说的是「卸载内存里已加载的资源」；要清理「已下载到磁盘的 bundle 缓存」（省空间 / 强制重下）用
-    /// <see cref="ClearCacheAsync(AssetCacheClearMode, CancellationToken)"/>，两者互不相关。
+    /// <see cref="ClearCache(AssetCacheClearMode, CancellationToken)"/>，两者互不相关。
     /// </remarks>
     public interface IAssetUtility : IUtility
     {
@@ -206,37 +206,48 @@ namespace Game.Framework
         /// 与「不提供 UnloadPackage」不冲突（见类型 remarks）：这只删盘上的下载文件，不动已加载到内存的资源。
         /// 常见用途：整体清空缓存 (<see cref="AssetCacheClearMode.All"/>)、热更后回收旧版本残留 (<see cref="AssetCacheClearMode.Unused"/>)。
         /// </summary>
-        UniTask ClearCacheAsync(AssetCacheClearMode mode = AssetCacheClearMode.Unused, CancellationToken ct = default);
+        UniTask ClearCache(AssetCacheClearMode mode = AssetCacheClearMode.Unused, CancellationToken ct = default);
 
-        /// <summary>清理指定包的本地 bundle 缓存；packageName 为空时使用默认包。语义同 <see cref="ClearCacheAsync(AssetCacheClearMode, CancellationToken)"/>。</summary>
-        UniTask ClearCacheAsync(string packageName, AssetCacheClearMode mode = AssetCacheClearMode.Unused, CancellationToken ct = default);
+        /// <summary>清理指定包的本地 bundle 缓存；packageName 为空时使用默认包。语义同 <see cref="ClearCache(AssetCacheClearMode, CancellationToken)"/>。</summary>
+        UniTask ClearCache(string packageName, AssetCacheClearMode mode = AssetCacheClearMode.Unused, CancellationToken ct = default);
 
         /// <summary>
         /// 按 tag 清理默认包中这些 tag 标记的「已下载 bundle 缓存」：用于卸载某关卡 / DLC / 子内容的整批资源缓存
-        /// （省空间，或强制其下次重新下载）。语义同 <see cref="ClearCacheAsync(AssetCacheClearMode, CancellationToken)"/>——
+        /// （省空间，或强制其下次重新下载）。语义同 <see cref="ClearCache(AssetCacheClearMode, CancellationToken)"/>——
         /// 只删盘上下载文件、不动内存里已加载的资源；清理后这些资源的 <see cref="IsNeedDownload(string)"/> 重新变真。
         /// tag 与 <see cref="CreateTagDownloader(string[])"/> 用的是同一套（资源收集时打在 bundle 上的标签）。
         /// <para><b>多 tag 是并集（OR）</b>：命中其中<b>任意一个</b> tag 的 bundle 都会被清，<b>不是</b>「同时带所有 tag 才清」。
         /// 传空数组会抛 <see cref="ArgumentException"/>（避免空集被误当成全清）。</para>
         /// </summary>
-        UniTask ClearCacheByTagsAsync(IReadOnlyList<string> tags, CancellationToken ct = default);
+        UniTask ClearCacheByTags(IReadOnlyList<string> tags, CancellationToken ct = default);
 
-        /// <summary>按 tag 清理指定包的已下载缓存；packageName 为空时使用默认包。语义同 <see cref="ClearCacheByTagsAsync(IReadOnlyList{string}, CancellationToken)"/>（多 tag 并集）。</summary>
-        UniTask ClearCacheByTagsAsync(string packageName, IReadOnlyList<string> tags, CancellationToken ct = default);
+        /// <summary>按 tag 清理指定包的已下载缓存；packageName 为空时使用默认包。语义同 <see cref="ClearCacheByTags(IReadOnlyList{string}, CancellationToken)"/>（多 tag 并集）。</summary>
+        UniTask ClearCacheByTags(string packageName, IReadOnlyList<string> tags, CancellationToken ct = default);
 
         /// <summary>
         /// 按精确 location 清理默认包中这些资源「已下载的 bundle 缓存」：适合点名驱逐少数已知大资源。
-        /// 语义同 <see cref="ClearCacheByTagsAsync(IReadOnlyList{string}, CancellationToken)"/>——只删盘上下载文件、不动内存里已加载的资源。
+        /// 语义同 <see cref="ClearCacheByTags(IReadOnlyList{string}, CancellationToken)"/>——只删盘上下载文件、不动内存里已加载的资源。
         /// <para><b>清理粒度是 bundle，不是单个资源</b>：每个 location 会解析到它所属的 bundle，整份 bundle 删掉——
         /// 因此<b>同一 bundle 里的其他资源会被连带清掉</b>。这是磁盘缓存以 bundle 为最小单位决定的，无法只清单个资源。
         /// 想精确隔离某资源的缓存，应在打包（AssetBundleCollector）时让它<b>独占一个 bundle</b>（pack-by-file 或独立分组），
-        /// 而不是指望此 API 做到资源级精度。逻辑内容组（关卡 / DLC）的整批清理优先用 <see cref="ClearCacheByTagsAsync(IReadOnlyList{string}, CancellationToken)"/>。</para>
+        /// 而不是指望此 API 做到资源级精度。逻辑内容组（关卡 / DLC）的整批清理优先用 <see cref="ClearCacheByTags(IReadOnlyList{string}, CancellationToken)"/>。</para>
         /// <para>location 必须是 manifest 里能解析的精确地址（不支持目录前缀 / 通配）；解析不到的地址会被跳过并打 <c>warning</c>
         /// （通常意味着拼错地址 / 传错包，不会无声吞掉）。地址有效但本就没缓存属正常 no-op，不警告。传空数组会抛 <see cref="ArgumentException"/>。</para>
         /// </summary>
-        UniTask ClearCacheByLocationsAsync(IReadOnlyList<string> locations, CancellationToken ct = default);
+        UniTask ClearCacheByLocations(IReadOnlyList<string> locations, CancellationToken ct = default);
 
-        /// <summary>按精确 location 清理指定包的已下载缓存；packageName 为空时使用默认包。语义同 <see cref="ClearCacheByLocationsAsync(IReadOnlyList{string}, CancellationToken)"/>（bundle 粒度，连带同 bundle 邻居）。</summary>
-        UniTask ClearCacheByLocationsAsync(string packageName, IReadOnlyList<string> locations, CancellationToken ct = default);
+        /// <summary>按精确 location 清理指定包的已下载缓存；packageName 为空时使用默认包。语义同 <see cref="ClearCacheByLocations(IReadOnlyList{string}, CancellationToken)"/>（bundle 粒度，连带同 bundle 邻居）。</summary>
+        UniTask ClearCacheByLocations(string packageName, IReadOnlyList<string> locations, CancellationToken ct = default);
+
+        /// <summary>
+        /// 卸载默认包内「无用」资源——引用计数已归零（handle 都已 <c>Unload</c> / <c>Dispose</c>）的 bundle 从内存卸载，释放其 RAM。
+        /// <para>这是释放 handle 之后的「第二步」：<c>Unload</c> / <c>Dispose</c> 只让 bundle 引用归零、变「可卸载」，bundle 仍留在内存
+        /// （所以释放后仍能秒加载）；本方法才真正把零引用 bundle 从内存卸掉。底层库<b>不会</b>自动回收、须显式调——常在场景切换 / 关卡结束时调一次。</para>
+        /// <para>只卸引用归零的，仍被持有的资源不受影响。与 <see cref="ClearCache(AssetCacheClearMode, CancellationToken)"/> 是两回事：那个删盘上下载文件，这个释放内存。</para>
+        /// </summary>
+        UniTask UnloadUnusedAssets(CancellationToken ct = default);
+
+        /// <summary>卸载指定包内引用归零的 bundle 释放内存；packageName 为空时使用默认包。语义同 <see cref="UnloadUnusedAssets(CancellationToken)"/>。</summary>
+        UniTask UnloadUnusedAssets(string packageName, CancellationToken ct = default);
     }
 }
