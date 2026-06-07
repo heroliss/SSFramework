@@ -32,7 +32,10 @@ namespace Game.Framework
         /// <summary>
         /// 启动下载。
         /// 同一个 downloader 反复调用只启动一次底层 operation；后续调用复用同一个 Task。
-        /// 取消 token 触发时会取消底层下载操作并抛 <see cref="System.OperationCanceledException"/>。
+        /// <para><b>失败语义</b>：单文件失败会按下载配置（<c>FailedTryAgain</c>）自动重试若干次；最终仍失败（重试耗尽 / 远端不可达）时
+        /// <b>抛异常</b>，调用方需 <c>try/catch</c>。downloader 是一次性的——失败后再调本方法会立即重抛、不会重试，
+        /// 重试须<b>重建 downloader 再下</b>（已成功的分片已进缓存会被跳过，即断点续传）。
+        /// 取消 token 触发时取消底层下载并抛 <see cref="System.OperationCanceledException"/>。</para>
         /// </summary>
         UniTask Download(CancellationToken ct = default);
     }
