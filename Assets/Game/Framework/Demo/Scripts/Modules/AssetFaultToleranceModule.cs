@@ -41,9 +41,9 @@ namespace Game.Framework.Demo.Modules
             host.AddSectionTitle("一条规则：预期内的缺失给 null，系统性失败给异常");
             host.AddTable(
                 new[] { "失败类型", "典型场景", "框架行为", "你该怎么写" },
-                new[] { "加载期失败", "地址不在 manifest / 类型不符 / 空地址", "Bag.Load 返回 null（不抛）+ 日志", "null 检查 + 兜底" },
-                new[] { "初始化失败", "包初始化失败：CDN 不可达 / 断网 / 502", "加载方法内部 EnsureInitialized 上抛异常", "try/catch，或先判 InitState 再加载" });
-            host.AddNote("记忆点：包一旦 Ready，Bag.Load 只会返回 null（资源级问题）；会抛只发生在「init 还没成功你就加载」——它在提醒你先等资源系统就绪。所以真实项目 loading 界面先 await EnsureInitialized / 等 InitState=Ready，进主流程后 Load 基本只需 null 检查。下面两节分别演示这两套。");
+                new[] { "加载期失败", "地址不在 manifest / 类型不符 / 空地址", "`Bag.Load` 返回 `null`（不抛）+ 日志", "`null` 检查 + 兜底" },
+                new[] { "初始化失败", "包初始化失败：CDN 不可达 / 断网 / 502", "加载方法内部 `EnsureInitialized` 上抛异常", "`try/catch`，或先判 `InitState` 再加载" });
+            host.AddNote("记忆点：包一旦 `Ready`，`Bag.Load` 只会返回 `null`（资源级问题）；会抛只发生在「init 还没成功你就加载」——它在提醒你先等资源系统就绪。所以真实项目 loading 界面先 await `EnsureInitialized` / 等 `InitState=Ready`，进主流程后 `Load` 基本只需 `null` 检查。下面两节分别演示这两套。");
 
             // ── 一、加载期失败 → null ──
             host.AddSectionTitle("一、加载期失败：Bag.Load 返回 null（不抛）");
@@ -72,10 +72,17 @@ namespace Game.Framework.Demo.Modules
                 }
                 catch (Exception e) { nullLabel.text = "抛异常了——多半是资源系统没就绪，见下一节。"; Debug.LogException(e); }
             }, CodeRef.Here("Bag.Load<AudioClip>(SamplesPackage, LogoAddress)", "类型不符 → null"));
-            host.AddNote("地址无效 / 类型不符 / 空地址都走同一条：Load 返回 null + 打日志，业务 null 检查后用占位资源 / 默认值兜底即可，这一类「不需要 try/catch」。想在加载前就拦掉无效地址，用 CheckLocationValid 预检（在「资源加载」章·查询，本章不重复）。");
+            host.AddNote("地址无效 / 类型不符 / 空地址都走同一条：`Load` 返回 `null` + 打日志，业务 `null` 检查后用占位资源 / 默认值兜底即可，这一类「不需要 try/catch」。想在加载前就拦掉无效地址，用 `CheckLocationValid` 预检（在「资源加载」章·查询，本章不重复）。");
 
             // ── 二、初始化失败 → 抛异常 + 重试 ──
             host.AddSectionTitle("二、初始化失败：加载方法抛异常 + RetryInitialize 重试");
+            // 本节独立的预览框：不复用上一节那个，免得点本节「尝试加载」、图却显示到上一节去。
+            var loadPreview = new VisualElement();
+            loadPreview.style.width = 120;
+            loadPreview.style.height = 120;
+            loadPreview.style.marginBottom = 8;
+            ShowPlaceholder(loadPreview, "（预览区）");
+            host.Content.Add(loadPreview);
             var stateBadge = new Label { text = "（订阅样例包初始化状态…）" };
             stateBadge.AddToClassList("demo-badge");
             host.Content.Add(stateBadge);
@@ -115,7 +122,7 @@ namespace Game.Framework.Demo.Modules
                 try
                 {
                     var sprite = await Bag.Load<Sprite>(SamplesPackage, LogoAddress);
-                    if (sprite != null) { ShowSprite(preview, sprite); initLabel.text = $"加载成功：{sprite.name}（init 已就绪）"; }
+                    if (sprite != null) { ShowSprite(loadPreview, sprite); initLabel.text = $"加载成功：{sprite.name}（init 已就绪）"; }
                     else initLabel.text = "返回 null（init 就绪、但地址/类型有问题，属上一节）";
                 }
                 catch (Exception e)
@@ -125,13 +132,13 @@ namespace Game.Framework.Demo.Modules
                     Debug.LogException(e);
                 }
             }, CodeRef.Here("Bag.Load<Sprite>(SamplesPackage, LogoAddress)", "init 失败 → 抛"));
-            host.AddNote("init 失败（CDN 不可达 / 断网）时，Load / LoadScene / ClearCacheAsync 内部的 EnsureInitialized 会上抛初始化异常——所以这一类要么 try/catch、要么先判 InitState / IsInitialized。RetryInitialize 重跑初始化、不抛、结果回写 InitState。");
-            host.AddSubNote("为什么运行时开「模拟断网」后样例包仍是 Ready、还能加载？因为它只拦截新发起的远端请求——已 Ready 的包不会回退、已缓存的资源照常加载，此时 RetryInitialize 是幂等空操作。要真正复现初始化失败，请在 AssetUtility 的 Inspector 里进 Play 前就勾上「模拟断网」，让样例包从一开始就拉不到远端清单；或把运行模式切 Host 但不起本地服务。注意：「下载」中途失败不归这套——下载器自带按 FailedTryAgain 重试 + 断点续传（见「资源加载」章·下载），业务不用手写重试。");
+            host.AddNote("init 失败（CDN 不可达 / 断网）时，`Load` / `LoadScene` / `ClearCacheAsync` 内部的 `EnsureInitialized` 会上抛初始化异常——所以这一类要么 `try/catch`、要么先判 `InitState` / `IsInitialized`。`RetryInitialize` 重跑初始化、不抛、结果回写 `InitState`。");
+            host.AddSubNote("为什么运行时开「模拟断网」后样例包仍是 `Ready`、还能加载？因为它只拦截新发起的远端请求——已 `Ready` 的包不会回退、已缓存的资源照常加载，此时 `RetryInitialize` 是幂等空操作。要真正复现初始化失败，请在 `AssetUtility` 的 Inspector 里进 Play 前就勾上「模拟断网」，让样例包从一开始就拉不到远端清单；或把运行模式切 `Host` 但不起本地服务。注意：「下载」中途失败不归这套——下载器自带按 `FailedTryAgain` 重试 + 断点续传（见「资源加载」章·下载），业务不用手写重试。");
 
             // ── 小结 ──
             host.AddSectionTitle("小结：两套写法别用混");
-            host.AddConcept("null 检查", "对加载期失败（地址无效 / 类型不符 / 空地址）——Load 返回 null，兜底即可，不用 try/catch。");
-            host.AddConcept("try/catch + 重试", "对初始化失败（CDN 不可达）——Load 上抛初始化异常；或先判 InitState。加载界面用 RetryInitialize 重试。");
+            host.AddConcept("null 检查", "对加载期失败（地址无效 / 类型不符 / 空地址）——`Load` 返回 `null`，兜底即可，不用 `try/catch`。");
+            host.AddConcept("try/catch + 重试", "对初始化失败（CDN 不可达）——`Load` 上抛初始化异常；或先判 `InitState`。加载界面用 `RetryInitialize` 重试。");
             host.AddTip("心智：包 Ready 后 Load 不抛、只返 null；会抛 = 你在 init 成功前就加载了。所以先把流程 gate 在「资源系统就绪」上，后面就只需 null 检查。");
         }
 
