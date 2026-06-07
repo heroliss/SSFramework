@@ -31,6 +31,12 @@ namespace Game.Framework
         [Tooltip("额外资源包列表。默认包会自动加入，不需要在这里重复配置。")]
         [SerializeField] private List<AssetPackageConfig> _packages = new();
 
+        [Tooltip("进 Play 是否自动初始化所有配置的包。\n" +
+                 "开（默认）= Awake 即初始化（拉版本 / 清单，Host 模式会联网）；\n" +
+                 "关 = 启动不初始化，需业务在合适时机显式调 IAssetUtility.RetryInitialize() 触发——\n" +
+                 "用于隐私同意 / 选区 / 流量确认后再联网拉清单的启动流程。")]
+        [SerializeField] private bool _autoInitializeOnStartup = true;
+
         [Header("CDN 配置")]
         [Tooltip("主 CDN 地址，远端模式会在此地址下查找版本文件和资源包。以 / 结尾或不结尾都行，provider 内部自动规范化。")]
         [FormerlySerializedAs("MainCDNUrl")]
@@ -75,6 +81,7 @@ namespace Game.Framework
         public int DownloadingMaxNumber => _downloadingMaxNumber;
         public int FailedTryAgain => _failedTryAgain;
         public ulong FileOffset => _fileOffset;
+        public bool AutoInitializeOnStartup => _autoInitializeOnStartup;
 
         /// <summary>
         /// EditorSimulate 模拟下载的总大小（字节）。0 = 不模拟。作为下载总量暴露给 UI 显示。
