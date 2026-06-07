@@ -236,8 +236,8 @@ namespace Game.Framework.Demo.Modules
             }, CodeRef.Here("asset.IsNeedDownload", "是否需下载"));
             host.AddNote("`CheckLocationValid` 判断 manifest 里有没有这个地址；`IsNeedDownload` 判断该资源要不要从远端拉。⚠ 两者在「包未就绪」（未初始化 / 初始化失败）时也返回 `false`——所以 `false` ≠「地址无效 / 无需下载 / 已在本地」，得先确认初始化 `Ready`（上方状态）再读结果，本 demo 已加这层判断。`EditorSimulate` / `Offline` 下资源都在本地，`IsNeedDownload` 恒为「无需下载」；只有远端模式（`Host`）才会变真，底层见「YooAsset · 底层实现」章。");
 
-            // ── 5. 下载与清缓存（tag 下载器）──
-            host.AddSectionTitle("下载与清缓存：tag 下载器（模拟 / 真实自动切换）");
+            // ── 5. 下载与清缓存（三种范围的下载器）──
+            host.AddSectionTitle("下载与清缓存：下载器（按 tag / 全部 / 按地址，模拟 / 真实自动切换）");
             var dlMode = settingsModel != null ? settingsModel.PlayMode : asset.CurrentPlayMode;
             bool dlIsReal = dlMode == AssetPlayMode.Host || dlMode == AssetPlayMode.Web;
             var modeBadge = new Label(dlIsReal
@@ -252,24 +252,40 @@ namespace Game.Framework.Demo.Modules
             var progressBar = new ProgressBar { lowValue = 0f, highValue = 1f };
             progressBar.style.marginBottom = 8;
             host.Content.Add(progressBar);
-            // 白盒：创建下载器与启动下载是两个独立操作，拆两个按钮——先创建（统计要下多少），再下载，互不打包。
+            // 白盒：创建下载器与启动下载是两个独立操作，拆开。创建有三种范围——按 tag / 全部 / 按地址，建好后共用下面「开始下载」。
             IAssetDownloader downloader = null;
-            host.AddActionRow("创建下载器（统计待下载）", async () =>
+
+            // 复用：把建好的下载器接上进度条 + 写一句统计反馈。真实模式下「无需下载」是常态（已缓存 / 已内置 / 没匹配到），TotalCount=0、瞬间完成。
+            void BindDownloader(IAssetDownloader d, string scope)
             {
-                await Bag.EnsureInitialized();
-                downloader = Bag.CreateTagDownloader(DemoTag);
-                Bag.Subscribe(downloader.Progress, r =>
+                downloader = d;
+                Bag.Subscribe(d.Progress, r =>
                 {
                     progressBar.value = r.Progress;
                     progressBar.title = $"{r.Progress:P0}　{r.CurrentSizeMB}/{r.TotalSizeMB} MB";
                 });
-                // 真实模式下「没有要下载的」是常态（已缓存命中 / 已内置 / 或 tag 没匹配到 bundle），TotalCount=0，下载会瞬间完成。显式交代。
-                progressLabel.text = downloader.IsSimulated
-                    ? $"已创建（EditorSimulate 模拟：总 {downloader.TotalBytes / 1048576f:0.00} MB）。点「开始下载」。"
-                    : downloader.TotalCount == 0
-                        ? $"已创建：tag「{DemoTag}」下无需下载（0 个，已缓存/已内置）。想重测先点「清空下载缓存」。"
-                        : $"已创建：待下载 {downloader.TotalCount} 个 / {downloader.TotalBytes / 1048576f:0.00} MB。点「开始下载」。";
-            }, CodeRef.Here("Bag.CreateTagDownloader(DemoTag)", "创建下载器"));
+                progressLabel.text = d.IsSimulated
+                    ? $"已创建·{scope}（EditorSimulate 模拟：总 {d.TotalBytes / 1048576f:0.00} MB）。点「开始下载」。"
+                    : d.TotalCount == 0
+                        ? $"已创建·{scope}：无需下载（0 个，已缓存/已内置）。想重测先点「清空下载缓存」。"
+                        : $"已创建·{scope}：待下载 {d.TotalCount} 个 / {d.TotalBytes / 1048576f:0.00} MB。点「开始下载」。";
+            }
+
+            host.AddActionRow("创建下载器·按 tag", async () =>
+            {
+                await Bag.EnsureInitialized();
+                BindDownloader(Bag.CreateTagDownloader(DemoTag), $"tag「{DemoTag}」");
+            }, CodeRef.Here("Bag.CreateTagDownloader(DemoTag)", "按 tag 下载器"));
+            host.AddActionRow("创建下载器·全部（整包）", async () =>
+            {
+                await Bag.EnsureInitialized();
+                BindDownloader(Bag.CreateAllDownloader(), "全部");
+            }, CodeRef.Here("Bag.CreateAllDownloader()", "全量下载器"));
+            host.AddActionRow("创建下载器·按地址（Logo）", async () =>
+            {
+                await Bag.EnsureInitialized();
+                BindDownloader(Bag.CreateLocationDownloader(LogoAddress), $"地址「{LogoAddress}」");
+            }, CodeRef.Here("Bag.CreateLocationDownloader(LogoAddress)", "按地址下载器"));
             host.AddActionRow("开始下载（Download）", async () =>
             {
                 if (downloader == null) { progressLabel.text = "请先点「创建下载器」。"; return; }
@@ -307,7 +323,7 @@ namespace Game.Framework.Demo.Modules
                 progressBar.title = string.Empty;
                 progressLabel.text = $"已按地址「{LogoAddress}」清缓存 ✓——点名清这个资源所在的 bundle；注意是 bundle 粒度，同 bundle 的邻居会被连带清。下载器已重置，重测请重新「创建下载器」。";
             }, CodeRef.Here("asset.ClearCacheByLocationsAsync(new[] { LogoAddress })", "按地址清缓存"));
-            host.AddNote("`CreateTagDownloader(tags)` 统计这些 tag 下要下载的资源，订阅 `Progress`（R3 状态流）驱动进度条，`Download()` 启动；`ClearCacheAsync` 清本地已下载缓存（`All` 全清 / `Unused` 清旧版本，正式游戏也用），按某关卡 / DLC 的 tag 清则用 `ClearCacheByTagsAsync`，点名清少数已知资源用 `ClearCacheByLocationsAsync`。下载中途失败由下载器自带按 `AssetSystemConfigModel.FailedTryAgain`（默认 3）重试 + 断点续传（已下分片不重下），业务不必手写重试循环。");
+            host.AddNote("下载器有三种范围：`CreateTagDownloader(tags)` 按 tag（某关卡 / DLC 整批）、`CreateAllDownloader()` 全部尚未缓存的 bundle（整包预下）、`CreateLocationDownloader(locations)` 按地址点名（含依赖）——都订阅 `Progress`（R3 状态流）驱动进度条、`Download()` 启动。`ClearCacheAsync` 清本地已下载缓存（`All` 全清 / `Unused` 清旧版本），按 tag 清用 `ClearCacheByTagsAsync`、按地址清用 `ClearCacheByLocationsAsync`，与下载器三种范围一一对应。下载中途失败由下载器自带按 `AssetSystemConfigModel.FailedTryAgain`（默认 3）重试 + 断点续传（已下分片不重下），业务不必手写重试循环。");
             host.AddSubNote("下载器是「创建那一刻的待下载快照」，不是「下载时去看缺什么补什么」：清缓存并不会更新已建好的下载器，得重新 `CreateTagDownloader` 才会按最新缓存重新统计。所以「清缓存 → 重建下载器 → 开始下载」是固定顺序。");
             host.AddSubNote("`ClearCacheByTagsAsync` 多 tag 是并集（命中任意一个就清）；`ClearCacheByLocationsAsync` 与 tag 清一样都是 bundle 粒度——按地址清会连带同 bundle 的其他资源，想精确隔离要在打包时让该资源独占 bundle。");
             host.AddSubNote("「模拟下载器」原理、下载缓存目录在哪、各清单文件、各 `PlayMode` 的底层差异——见「YooAsset · 底层实现」章。本节只演示框架 API 用法。");

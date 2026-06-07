@@ -399,6 +399,33 @@ namespace Game.Framework
             return CreateTagDownloaderInternal(packageName, tags);
         }
 
+        public IAssetDownloader CreateAllDownloader()
+            => CreateAllDownloader(_defaultPackageName);
+
+        public IAssetDownloader CreateAllDownloader(string packageName)
+        {
+            ThrowIfDisposed();
+            packageName = NormalizePackageName(packageName);
+            RequireReadyForDownloader(packageName);
+            return FinishDownloader(_provider.CreateAllDownloader(packageName, _config.DownloadingMaxNumber, _config.FailedTryAgain));
+        }
+
+        public IAssetDownloader CreateLocationDownloader(params string[] locations)
+        {
+            ThrowIfDisposed();
+            if (locations == null || locations.Length == 0)
+                throw new ArgumentException("At least one location is required.", nameof(locations));
+            return CreateLocationDownloaderInternal(_defaultPackageName, locations);
+        }
+
+        public IAssetDownloader CreateLocationDownloader(string packageName, IReadOnlyList<string> locations)
+        {
+            ThrowIfDisposed();
+            if (locations == null || locations.Count == 0)
+                throw new ArgumentException("At least one location is required.", nameof(locations));
+            return CreateLocationDownloaderInternal(packageName, locations);
+        }
+
         public UniTask ClearCacheAsync(AssetCacheClearMode mode = AssetCacheClearMode.Unused, CancellationToken ct = default)
             => ClearCacheAsync(_defaultPackageName, mode, ct);
 
@@ -440,14 +467,29 @@ namespace Game.Framework
         private IAssetDownloader CreateTagDownloaderInternal(string packageName, IReadOnlyList<string> tags)
         {
             packageName = NormalizePackageName(packageName);
+            RequireReadyForDownloader(packageName);
+            return FinishDownloader(_provider.CreateTagDownloader(packageName, tags, _config.DownloadingMaxNumber, _config.FailedTryAgain));
+        }
+
+        private IAssetDownloader CreateLocationDownloaderInternal(string packageName, IReadOnlyList<string> locations)
+        {
+            packageName = NormalizePackageName(packageName);
+            RequireReadyForDownloader(packageName);
+            return FinishDownloader(_provider.CreateLocationDownloader(packageName, locations, _config.DownloadingMaxNumber, _config.FailedTryAgain));
+        }
+
+        // 三种下载器（tag / 全部 / 按地址）共用：建下载器前必须包已就绪，否则统计不出待下载清单。
+        private void RequireReadyForDownloader(string packageName)
+        {
             if (GetState(packageName).State.Value != AssetInitState.Ready)
                 throw new InvalidOperationException($"[AssetUtility] Create downloader before package '{packageName}' initialization completed.");
-            var downloader = _provider.CreateTagDownloader(packageName, tags, _config.DownloadingMaxNumber, _config.FailedTryAgain);
+        }
 
+        // 三种下载器共用的收尾：EditorSimulate 下资源都已就绪、真实 downloader.TotalCount 必为 0、UI 会瞬间跳满；
+        // 配了「模拟大小 + 速度」时包一层 SimulatedAssetDownloader，按 大小/速度 推进 Progress 与字节数，让开发者能验证下载 UI。其余原样返回。
+        private IAssetDownloader FinishDownloader(IAssetDownloader downloader)
+        {
 #if UNITY_EDITOR
-            // EditorSimulate 模式下所有资源都已就绪，downloader.TotalCount 必为 0，UI 上的下载流程会瞬间跳满。
-            // 配了「模拟大小 + 速度」时包装一层 SimulatedAssetDownloader，按 大小/速度 的时长推进 Progress 与字节数，
-            // 让开发者能真实体验和验证下载 UI（含总大小 / 已下载 / 速度显示）。
             if (_editorSimulateDownloadSizeBytes > 0
                 && _editorSimulateDownloadSpeedBytesPerSec > 0
                 && CurrentPlayMode == AssetPlayMode.EditorSimulate

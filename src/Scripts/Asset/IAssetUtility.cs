@@ -183,6 +183,24 @@ namespace Game.Framework
         IAssetDownloader CreateTagDownloader(string packageName, IReadOnlyList<string> tags);
 
         /// <summary>
+        /// 创建默认包的「全量下载器」：下载该包当前清单下全部尚未缓存的 bundle（无 tag 过滤）。
+        /// 适合「把整个包 / 整个 DLC 全量预下」。要求包已就绪。
+        /// </summary>
+        IAssetDownloader CreateAllDownloader();
+
+        /// <summary>创建指定包的全量下载器；packageName 为空时使用默认包。</summary>
+        IAssetDownloader CreateAllDownloader(string packageName);
+
+        /// <summary>
+        /// 创建默认包的「按 location 下载器」：下载这些资源所需 bundle（含依赖），适合进某功能前点名预下少数已知资源。
+        /// manifest 里解析不到的 location 跳过并打 <c>warning</c>。要求包已就绪。
+        /// </summary>
+        IAssetDownloader CreateLocationDownloader(params string[] locations);
+
+        /// <summary>创建指定包的按 location 下载器；packageName 为空时使用默认包。</summary>
+        IAssetDownloader CreateLocationDownloader(string packageName, IReadOnlyList<string> locations);
+
+        /// <summary>
         /// 清理默认包「已下载到本地的 bundle 缓存」（远端模式才有实际内容）。清理后内存缓存记录同步更新，
         /// 相关资源的 <see cref="IsNeedDownload(string)"/> 会重新变真，可在不重启的情况下重新下载。
         /// 与「不提供 UnloadPackage」不冲突（见类型 remarks）：这只删盘上的下载文件，不动已加载到内存的资源。

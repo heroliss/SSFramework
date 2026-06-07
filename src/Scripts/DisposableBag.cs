@@ -319,6 +319,34 @@ namespace Game.Framework
             return ResolveUtility().CreateTagDownloader(packageName, tags);
         }
 
+        /// <summary>创建「下载该包全部尚未缓存 bundle」的下载器（无 tag 过滤，适合整包 / 整 DLC 全量预下）。</summary>
+        public IAssetDownloader CreateAllDownloader()
+        {
+            EnsureUtility();
+            return ResolveUtility().CreateAllDownloader();
+        }
+
+        /// <summary>创建指定 package 的全量下载器；packageName 为空时使用默认包。</summary>
+        public IAssetDownloader CreateAllDownloader(string packageName)
+        {
+            EnsureUtility();
+            return ResolveUtility().CreateAllDownloader(packageName);
+        }
+
+        /// <summary>创建「下载这些 location 资源所需 bundle（含依赖）」的下载器；解析不到的 location 跳过并打 warning。</summary>
+        public IAssetDownloader CreateLocationDownloader(params string[] locations)
+        {
+            EnsureUtility();
+            return ResolveUtility().CreateLocationDownloader(locations);
+        }
+
+        /// <summary>创建指定 package 的按 location 下载器；packageName 为空时使用默认包。</summary>
+        public IAssetDownloader CreateLocationDownloader(string packageName, IReadOnlyList<string> locations)
+        {
+            EnsureUtility();
+            return ResolveUtility().CreateLocationDownloader(packageName, locations);
+        }
+
         // ── 对象池 ──────────────────────────────────────────────────────────
 
         /// <summary>

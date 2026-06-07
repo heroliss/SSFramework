@@ -61,6 +61,15 @@ namespace Game.Framework
         IAssetDownloader CreateTagDownloader(
             string packageName, IReadOnlyList<string> tags, int maxConcurrent, int retries);
 
+        /// <summary>创建「下载该包当前清单下全部尚未缓存 bundle」的下载器（无 tag 过滤）。</summary>
+        IAssetDownloader CreateAllDownloader(string packageName, int maxConcurrent, int retries);
+
+        /// <summary>
+        /// 创建「下载这些 location 资源所需 bundle（含依赖）」的下载器。
+        /// manifest 里解析不到的 location 跳过并打 warning（同 <see cref="ClearCacheByLocationsAsync"/> 的理由）。
+        /// </summary>
+        IAssetDownloader CreateLocationDownloader(string packageName, IReadOnlyList<string> locations, int maxConcurrent, int retries);
+
         /// <summary>
         /// 清理指定包已下载到本地的 bundle 缓存（删盘 + 同步更新内存缓存记录）。
         /// 要求包已就绪；清理失败应抛异常由上层处理。

@@ -199,6 +199,37 @@ namespace Game.Framework
             return new AssetDownloader(op);
         }
 
+        public IAssetDownloader CreateAllDownloader(string packageName, int maxConcurrent, int retries)
+        {
+            ThrowIfDisposed();
+            var package = GetReadyPackage(packageName);
+            // 无 tag 的 ResourceDownloaderOptions = 下载该包当前清单下全部尚未缓存的 bundle（YooAsset: Tags=null → download all required）。
+            var op = package.CreateResourceDownloader(new ResourceDownloaderOptions(maxConcurrent, retries));
+            return new AssetDownloader(op);
+        }
+
+        public IAssetDownloader CreateLocationDownloader(string packageName, IReadOnlyList<string> locations, int maxConcurrent, int retries)
+        {
+            ThrowIfDisposed();
+            var package = GetReadyPackage(packageName);
+            if (locations == null || locations.Count == 0)
+                throw new ArgumentException("At least one location is required.", nameof(locations));
+
+            // 把每个 location 解析成 AssetInfo；解析不到的（拼错地址 / 传错包）跳过并 warning，不无声吞（同 ClearCacheByLocations）。
+            var infos = new List<AssetInfo>(locations.Count);
+            for (int i = 0; i < locations.Count; i++)
+            {
+                var info = package.GetAssetInfo(locations[i]);
+                if (info == null || !info.IsValid)
+                    Debug.LogWarning($"[YooAssetProvider] Create location downloader: '{locations[i]}' not found in package '{packageName}' manifest — skipped. {info?.Error}");
+                else
+                    infos.Add(info);
+            }
+            // downloadDependencies=true：下载这些资源所在 bundle 及其依赖 bundle（业务通常要「连带依赖一起下好」）。
+            var op = package.CreateResourceDownloader(new BundleDownloaderOptions(infos.ToArray(), downloadDependencies: true, maxConcurrent, retries));
+            return new AssetDownloader(op);
+        }
+
         public async UniTask ClearCacheAsync(string packageName, AssetCacheClearMode mode, CancellationToken ct)
         {
             ThrowIfDisposed();
