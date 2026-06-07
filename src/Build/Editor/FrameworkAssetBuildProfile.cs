@@ -31,7 +31,7 @@ namespace Game.Framework.Build
         [Min(1)] public int BundleVersionsToKeep = 2;
 
         [Header("本地联调（不入库，仅本机测 Host）")]
-        [Tooltip("本地 CDN 服务端口（python http 服务，伺服 AssetBuild/Deploy）。⚠ 必须与场景 AssetSystemConfigModel.MainCdnUrl 的端口一致，Host 才能下到东西。")]
+        [Tooltip("本地 CDN 服务端口（python http 服务，伺服 AssetBuild/Deploy）。⚠ 必须与场景 AssetSystemConfigModel.CdnUrls 第一条（主）的端口一致，Host 才能下到东西。")]
         [Min(1)] public int LocalServePort = 8080;
 
         [Tooltip("本地 CDN 服务限速（KB/s，模拟弱网测下载/进度 UI）。0 = 不限速。\n" +

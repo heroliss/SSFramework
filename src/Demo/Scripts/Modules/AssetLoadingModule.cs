@@ -375,7 +375,7 @@ namespace Game.Framework.Demo.Modules
                 catch (Exception e)
                 {
                     // Download() 最终失败（自带 FailedTryAgain 重试耗尽 / CDN 不可达）会抛——和 init 失败同属「抛」那套，必须 try/catch。
-                    // 重试不是重点同一个下载器（一次性、失败即重抛），而是「重新创建下载器」再下：已下成功的分片已进缓存会被跳过（断点续传）。
+                    // 重试不是重复点同一个下载器（一次性、失败即重抛），而是「重新创建下载器」再下：已下成功的分片已进缓存会被跳过（断点续传）。
                     progressLabel.text = $"下载失败 ✗：{e.Message}　自动重试已耗尽（网络 / CDN 问题）。重试请重新「创建下载器」再下载（已下分片已缓存、会跳过）。";
                     Debug.LogException(e);
                 }
@@ -422,6 +422,7 @@ namespace Game.Framework.Demo.Modules
             host.AddNote("下载器有三种范围：`CreateTagDownloader(tags)` 按 tag（某关卡 / DLC 整批）、`CreateAllDownloader()` 全部尚未缓存的 bundle（整包预下）、`CreateLocationDownloader(locations)` 按地址点名（含依赖）——都订阅 `Progress`（R3 状态流）驱动进度条、`Download()` 启动。`ClearCache` 清本地已下载缓存（`All` 全清 / `Unused` 清旧版本），按 tag 清用 `ClearCacheByTags`、按地址清用 `ClearCacheByLocations`，与下载器三种范围一一对应。单文件下载失败由下载器自带按 `AssetSystemConfigModel.FailedTryAgain`（默认 3）重试，业务不必手写重试循环；但**整体最终失败**（重试耗尽 / 持续断网）时 `Download()` 会**抛**——和 init 失败同属「抛」那套，要 `try/catch`（见「开始下载」按钮）。重试靠**重建下载器**再下：已下分片已缓存会被跳过，即断点续传。");
             host.AddSubNote("下载器是「创建那一刻的待下载快照」，不是「下载时去看缺什么补什么」：清缓存并不会更新已建好的下载器，得重新 `CreateTagDownloader` 才会按最新缓存重新统计。所以「清缓存 → 重建下载器 → 开始下载」是固定顺序。");
             host.AddSubNote("`ClearCacheByTags` 多 tag 是并集（命中任意一个就清）；`ClearCacheByLocations` 与 tag 清一样都是 bundle 粒度——按地址清会连带同 bundle 的其他资源，想精确隔离要在打包时让该资源独占 bundle。");
+            host.AddSubNote("默认 `Load` 未缓存资源时会**当场按需下载**（Host 模式）。想避免「误 Load 一个资源就自动拖下整批」（典型如大型 DLC）：在 `AssetSystemConfigModel` 的「额外资源包（`ExtraPackages`）」里加一条该包并勾「禁用按需下载」，之后 Load 本包未缓存资源**直接失败**（不下载），强制先显式跑下载器（带进度 UI）。按包配置，基础包通常留默认（自动下载）；仅 Host 模式有意义。");
             host.AddSubNote("「模拟下载器」原理、下载缓存目录在哪、各清单文件、各 `PlayMode` 的底层差异——见「YooAsset · 底层实现」章。本节只演示框架 API 用法。");
 
             // ── 6. 跨包加载 ──
@@ -448,7 +449,7 @@ namespace Game.Framework.Demo.Modules
                 crossPreview.style.backgroundImage = StyleKeyword.None;
                 crossLabel.text = "已释放跨包加载的句柄并清空预览。";
             }, CodeRef.Here("crossBag.Dispose()", "释放本节句柄"));
-            host.AddNote("默认包之外，所有加载方法都有带 `packageName` 的重载。多包在 `AssetSystemConfigModel.Packages` 配置；子 `Context` 经 `Container` 父级回退共享父级 `AssetUtility`，不必每个 `Context` 各挂一套。本 demo 把框架样例资源单独分到 `FrameworkSamplesPackage`，与正式游戏 `DefaultPackage` 分开、互不污染。");
+            host.AddNote("默认包之外，所有加载方法都有带 `packageName` 的重载。要额外初始化的包在 `AssetSystemConfigModel` 的「额外资源包（`ExtraPackages`）」里加（默认包总会初始化、无需列）；子 `Context` 经 `Container` 父级回退共享父级 `AssetUtility`，不必每个 `Context` 各挂一套。本 demo 把框架样例资源单独分到 `FrameworkSamplesPackage`，与正式游戏 `DefaultPackage` 分开、互不污染。");
 
             // ── 7. 使用路径 / 注册=生命周期 / 解耦 ──
             host.AddSectionTitle("使用路径");

@@ -58,7 +58,7 @@ namespace Game.Framework
             }
 
             if (!package.PackageValid)
-                await UpdateManifestAsync(packageName, package, ct);
+                await UpdateManifestAsync(packageName, package, config.CdnUrls, ct);
 
             _packages[packageName] = package;
         }
@@ -338,22 +338,69 @@ namespace Game.Framework
             throw new InvalidOperationException($"[YooAssetProvider] Package '{packageName}' is not initialized or manifest is unavailable.");
         }
 
-        private static async UniTask UpdateManifestAsync(string packageName, ResourcePackage package, CancellationToken token)
+        // cdnUrls = 配置的 CDN 地址列表。YooAsset 的默认 URL 策略一次请求只选一条候选地址，
+        // 失败后递增计数、下一次请求轮到下一条；计数挂在 FileSystem 上，跨 operation 保留。
+        // 因此这里对「版本号」和「清单」都循环跑满一圈：任一镜像成功即停，全部失败才算真失败。
+        private static async UniTask UpdateManifestAsync(string packageName, ResourcePackage package, IReadOnlyList<string> cdnUrls, CancellationToken token)
         {
-            var versionOp = package.RequestPackageVersionAsync();
-            await WaitOp(versionOp, token);
-            token.ThrowIfCancellationRequested();
+            int attempts = Math.Max(1, cdnUrls?.Count ?? 1);
+            string version = null;
+            string lastVersionError = null;
+            bool versionOk = false;
+            string configured = (cdnUrls == null || cdnUrls.Count == 0) ? "(未配置)" : string.Join(", ", cdnUrls);
+            // 逐次尝试的诊断走 FrameworkLog.Verbose（开 Verbose 才打、不污染正常运行）。
+            // 失败 Error 通常已含实际 URL + HttpCode，配合开头候选清单即可定位是哪条 CDN 出问题。
+            Internal.FrameworkLog.LogVerbose(
+                $"[YooAssetProvider] '{packageName}' 拉版本：候选 CDN {attempts} 条 [{configured}]");
+            for (int i = 0; i < attempts; i++)
+            {
+                var versionOp = package.RequestPackageVersionAsync();
+                await WaitOp(versionOp, token);
+                token.ThrowIfCancellationRequested();
 
-            if (versionOp.Status != EOperationStatus.Succeeded)
-                throw new InvalidOperationException($"[YooAssetProvider] Request package version failed for '{packageName}': {versionOp.Error}");
+                if (versionOp.Status == EOperationStatus.Succeeded)
+                {
+                    version = versionOp.PackageVersion;
+                    versionOk = true;
+                    Internal.FrameworkLog.LogVerbose($"[YooAssetProvider] '{packageName}' 拉版本第 {i + 1}/{attempts} 次成功，版本 {version}。");
+                    break;
+                }
+                lastVersionError = versionOp.Error;
+                Internal.FrameworkLog.LogVerbose($"[YooAssetProvider] '{packageName}' 拉版本第 {i + 1}/{attempts} 次失败：{lastVersionError}");
+            }
+
+            if (!versionOk)
+            {
+                // 把「配置了哪些 CDN」「最终请求形如什么」一并写进异常，让 CDN 配错（端口 / 多余路径段 / 没部署）一眼可查，
+                // 不必去翻底层日志拼凑。lastVersionError 通常已含实际 URL 与 HttpCode。
+                throw new InvalidOperationException(
+                    $"[YooAssetProvider] 拉包版本失败 '{packageName}'：已尝试配置的 {attempts} 个 CDN 地址 [{configured}]，" +
+                    $"最终请求形如 <CDN地址>/{packageName}/{packageName}.version——请对照部署目录与端口核对（端口须等于 LocalServePort，服务伺服 Deploy 根、无多余路径段）。底层错误：{lastVersionError}");
+            }
 
             // 3.0：UpdatePackageManifestAsync(version) → LoadPackageManifestAsync(options)。第二个参数为超时秒数。
-            var manifestOp = package.LoadPackageManifestAsync(new LoadPackageManifestOptions(versionOp.PackageVersion, 60));
-            await WaitOp(manifestOp, token);
-            token.ThrowIfCancellationRequested();
+            // 版本请求成功后，URL 策略会先粘在刚成功的候选地址上；若该镜像清单下载失败，失败计数递增，
+            // 下一次 LoadPackageManifestAsync 就会轮到下一条 CDN。
+            string lastManifestError = null;
+            for (int i = 0; i < attempts; i++)
+            {
+                var manifestOp = package.LoadPackageManifestAsync(new LoadPackageManifestOptions(version, 60));
+                await WaitOp(manifestOp, token);
+                token.ThrowIfCancellationRequested();
 
-            if (manifestOp.Status != EOperationStatus.Succeeded)
-                throw new InvalidOperationException($"[YooAssetProvider] Update manifest failed for '{packageName}': {manifestOp.Error}");
+                if (manifestOp.Status == EOperationStatus.Succeeded)
+                {
+                    Internal.FrameworkLog.LogVerbose($"[YooAssetProvider] '{packageName}' 拉清单第 {i + 1}/{attempts} 次成功。");
+                    return;
+                }
+
+                lastManifestError = manifestOp.Error;
+                Internal.FrameworkLog.LogVerbose($"[YooAssetProvider] '{packageName}' 拉清单第 {i + 1}/{attempts} 次失败：{lastManifestError}");
+            }
+
+            throw new InvalidOperationException(
+                $"[YooAssetProvider] 拉包清单失败 '{packageName}'（版本 {version}）：已尝试配置的 {attempts} 个 CDN 地址 [{configured}]，" +
+                $"最终请求形如 <CDN地址>/{packageName}/{packageName}_{version}.bytes。底层错误：{lastManifestError}");
         }
 
         // 按运行模式构建 3.0 初始化选项。解密器经 EFileSystemParameter 注入对应文件系统参数。
@@ -382,7 +429,7 @@ namespace Game.Framework
 
                 case AssetPlayMode.Host:
                 {
-                    var remoteService = new GameRemoteService(packageName, config.MainCdnUrl, config.FallbackCdnUrl);
+                    var remoteService = new GameRemoteService(packageName, config.CdnUrls);
 #if UNITY_EDITOR
                     remoteService.SimulateOffline = SimulateOffline; // 注入模拟断网开关源（实时读取）
 #endif
@@ -404,6 +451,9 @@ namespace Game.Framework
 #endif
                     ApplyDecryptor(builtin, config);
                     ApplyDecryptor(cache, config);
+                    // 按包禁用「按需下载」：开启后 Load 未缓存的 bundle 直接失败（见 SFSLoadPackageBundleOperation），
+                    // 不偷偷下载；强制业务先显式跑下载器。未配置的包按 false（保持自动下载）。仅缓存文件系统（Host）有此语义。
+                    cache.AddParameter(EFileSystemParameter.DownloadDisableOndemand, config.ShouldDisableOnDemandDownload(packageName));
                     return new HostPlayModeOptions
                     {
                         BuiltinFileSystemParameters = builtin,
@@ -413,7 +463,7 @@ namespace Game.Framework
 
                 case AssetPlayMode.Web:
                 {
-                    var remoteService = new GameRemoteService(packageName, config.MainCdnUrl, config.FallbackCdnUrl);
+                    var remoteService = new GameRemoteService(packageName, config.CdnUrls);
 #if UNITY_EDITOR
                     remoteService.SimulateOffline = SimulateOffline; // 注入模拟断网开关源（实时读取）
 #endif
@@ -564,6 +614,7 @@ namespace Game.Framework
 
         public async UniTask Download(CancellationToken ct = default)
         {
+            ct.ThrowIfCancellationRequested();
             if (TotalCount == 0)
             {
                 _progress.Value = new DownloadProgressReport(1f, 0, 0, 0, 0);
@@ -577,7 +628,7 @@ namespace Game.Framework
                 _operation.StartDownload();
             }
 
-            await UniTask.WaitUntil(() => _operation.IsDone);
+            await UniTask.WaitUntil(() => _operation.IsDone, cancellationToken: ct);
             if (ct.IsCancellationRequested)
                 throw new OperationCanceledException(ct);
             if (_operation.Status != EOperationStatus.Succeeded)
@@ -597,7 +648,7 @@ namespace Game.Framework
 
     /// <summary>
     /// YooAsset 3.0 远端地址服务（<see cref="IRemoteService"/>）。
-    /// 返回主/备两个 URL，由 YooAsset 自带主备切换机制使用。
+    /// 返回一个 CDN 地址列表（第一条主、其余备），由 YooAsset 自带的失败轮转机制按候选顺序切换。
     ///
     /// 按包分目录取址：每个包的远端文件都放在 <c>{CDN}/{包名}/</c> 子目录下，最终 URL =
     /// <c>{CDN}/{包名}/{fileName}</c>（fileName 是 YooAsset 逐个请求的 bundle 哈希名 / 版本清单 / 版本号文件）。
@@ -606,8 +657,9 @@ namespace Game.Framework
     /// </summary>
     internal sealed class GameRemoteService : IRemoteService
     {
-        private readonly string _mainUrl;
-        private readonly string _fallbackUrl;
+        // 规范化并按包追加子目录后的候选基地址（至少一条）。空配置兜一条仅含子目录的相对址，
+        // 既避免底层 SelectUrl 因空列表抛 YooInternalException，又让请求必然失败、由上层清晰报错。
+        private readonly string[] _baseUrls;
 #if UNITY_EDITOR
         /// <summary>编辑器模拟断网开关源（由 <see cref="YooAssetProvider"/> 注入，实时读取 AssetUtility 上的开关）。</summary>
         public Func<bool> SimulateOffline { get; set; }
@@ -616,26 +668,42 @@ namespace Game.Framework
         private const string OfflineUrl = "http://127.0.0.1:1/__simulated_offline__/";
 #endif
 
-        public GameRemoteService(string packageName, string mainUrl, string fallbackUrl)
+        public GameRemoteService(string packageName, IReadOnlyList<string> cdnUrls)
         {
-            // 包名作为子目录前缀拼到规范化后的 CDN 根之后；包名为空则退回根目录（兼容无包名场景）。
+            // 包名作为子目录前缀拼到规范化后的每个 CDN 根之后；包名为空则退回根目录（兼容无包名场景）。
             string sub = string.IsNullOrEmpty(packageName) ? string.Empty : packageName + "/";
-            _mainUrl = Normalize(mainUrl) + sub;
-            _fallbackUrl = Normalize(fallbackUrl) + sub;
+            var list = new List<string>();
+            if (cdnUrls != null)
+            {
+                foreach (var url in cdnUrls)
+                {
+                    if (string.IsNullOrWhiteSpace(url)) continue; // 跳过空 / 纯空白条目
+                    list.Add(Normalize(url) + sub);
+                }
+            }
+            if (list.Count == 0) list.Add(sub); // 未配置远端：兜一条，请求必失败、上层报错
+            _baseUrls = list.ToArray();
         }
 
         public IReadOnlyList<string> GetRemoteUrls(string fileName)
         {
+            var urls = new string[_baseUrls.Length];
 #if UNITY_EDITOR
-            // 实时读开关：开着就把主备地址都换成不可达地址，本次（及后续每次）远端请求都失败。
+            // 实时读开关：开着就把所有候选地址都换成不可达地址，本次（及后续每次）远端请求都失败。
             if (SimulateOffline != null && SimulateOffline())
-                return new[] { OfflineUrl + fileName, OfflineUrl + fileName };
+            {
+                for (int i = 0; i < urls.Length; i++) urls[i] = OfflineUrl + fileName;
+                return urls;
+            }
 #endif
-            return new[] { _mainUrl + fileName, _fallbackUrl + fileName };
+            for (int i = 0; i < _baseUrls.Length; i++) urls[i] = _baseUrls[i] + fileName;
+            return urls;
         }
 
+        // 先 Trim 掉首尾空白再去尾斜杠：避免配置里不小心多敲 / 粘贴出一个尾随空格（或换行）把 URL 拼成
+        // "http://host:port/ /包名/..." 这种肉眼难察的坏地址。空白容错收口在这一处，所有候选地址统一受益。
         private static string Normalize(string url)
-            => string.IsNullOrEmpty(url) ? string.Empty : url.TrimEnd('/') + "/";
+            => string.IsNullOrWhiteSpace(url) ? string.Empty : url.Trim().TrimEnd('/') + "/";
     }
 
     /// <summary>

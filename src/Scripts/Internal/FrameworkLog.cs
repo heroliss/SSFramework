@@ -8,7 +8,7 @@ namespace Game.Framework.Internal
     ///
     /// 用法：
     /// - 代码：`FrameworkLog.Verbose = true;` 临时开启
-    /// - Editor：通过菜单 Window/Framework/Toggle Verbose Log（如有需要再加）
+    /// - Editor：菜单 SSFramework/诊断/Verbose 日志 勾选开关（本次 Editor 会话有效）
     ///
     /// 仅在 UNITY_EDITOR || DEVELOPMENT_BUILD 下产生日志；发布版直接编译期消除。
     /// </summary>

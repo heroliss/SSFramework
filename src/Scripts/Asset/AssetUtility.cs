@@ -213,7 +213,7 @@ namespace Game.Framework
         private static string InitFailureHint(AssetPlayMode mode) => mode switch
         {
             AssetPlayMode.Host or AssetPlayMode.Web =>
-                "拉远端清单失败：确认已①构建 ②部署资源，且远端 CDN 可达——本地联调还需③启动本地 CDN 服务，且服务端口与配置的 CDN URL（AssetSystemConfigModel.MainCdnUrl）端口一致。开发期可改回 EditorSimulate 免构建。",
+                "拉远端清单失败：确认已①构建 ②部署资源，且远端 CDN 可达——本地联调还需③启动本地 CDN 服务，且服务端口与配置的 CDN 列表（AssetSystemConfigModel.CdnUrls）第一条端口一致。开发期可改回 EditorSimulate 免构建。",
             AssetPlayMode.Offline =>
                 "读内置清单失败：确认已构建、且把 bundle 内置进首包（首包 Tags）。开发期可改回 EditorSimulate 免构建。",
             _ =>
