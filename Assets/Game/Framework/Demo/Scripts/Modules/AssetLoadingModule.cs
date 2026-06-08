@@ -170,7 +170,7 @@ namespace Game.Framework.Demo.Modules
             if (refs == null)
             {
                 refLabel.text = "没找到 DemoAssetRefs";
-                host.AddNote("请确认 DemoApp 下挂了 `DemoAssetRefs`，并在 Inspector 拖好了 Logo 引用。");
+                host.AddNote("请确认 demo 根节点下挂了 `DemoAssetRefs`，并在 Inspector 拖好了 Logo 引用。");
             }
             else
             {

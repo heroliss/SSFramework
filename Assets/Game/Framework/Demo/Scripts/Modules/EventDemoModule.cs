@@ -36,7 +36,7 @@ namespace Game.Framework.Demo.Modules
             // ── 事件：Event Bus（无当前值、瞬时） ──
             host.AddSectionTitle("事件（Event Bus）");
             int seen = 0;
-            var eventLabel = host.AddValueDisplay();
+            var eventLabel = host.AddValueDisplay("", CodeRef.Here("Bag.Subscribe<TickEvent>", "订阅累加"));
             eventLabel.text = "本次进入收到广播：0 次";
             Bag.Subscribe<TickEvent>(() =>
             {

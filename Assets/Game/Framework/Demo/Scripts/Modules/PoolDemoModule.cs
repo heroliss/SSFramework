@@ -78,7 +78,7 @@ namespace Game.Framework.Demo.Modules
             var assets = Object.FindFirstObjectByType<DemoPoolAssets>();
             if (assets == null || assets.ChipPrefab == null || assets.SpawnRoot == null)
             {
-                host.AddNote("没找到 DemoPoolAssets / ChipPrefab / SpawnRoot——请确认 DemoApp 下挂了 DemoPoolAssets 并接好了对象池演示 prefab 与容器。");
+                host.AddNote("没找到 DemoPoolAssets / ChipPrefab / SpawnRoot——请确认 demo 根节点下挂了 DemoPoolAssets 并接好了对象池演示 prefab 与容器。");
             }
             else
             {
@@ -168,7 +168,7 @@ namespace Game.Framework.Demo.Modules
 
             host.AddSectionTitle("使用路径");
             host.AddConcept("Bag.Rent / Spawn", "自动归还：`Bag.Rent<T>()` 借 C# 对象、`Bag.Spawn(prefab, parent)` 借 GameObject；宿主 `Bag.Dispose` 时统一归还，心智同 `Bag.Load`。");
-            host.AddConcept("IPoolUtility", "手动控制：`this.GetUtility<IPoolUtility>()` 直接操作池——更早归还、`Prewarm` 预热、`Trim` 收缩、配自定义工厂/钩子。C# 池和 GameObject 池共用同一入口。");
+            host.AddConcept("IPoolUtility", "手动控制：`this.GetUtility<IPoolUtility>().Rent<T>()` / `.Return(obj)` 一行直接借还（默认池，不必先 `GetPool`）。只有要读 `CountInactive`、反复操作同一个池、或配自定义工厂 / 钩子时，才先 `GetPool<T>(...)` 拿到池——本 demo 为显示“池中空闲”才走 `GetPool`。`Prewarm` / `Trim` 运维也在池上；C# 池与 GameObject 池共用同一入口。");
 
             host.AddSectionTitle("注册 = 生命周期");
             host.AddConcept("RegisterOwned", "纯 C#、随 `Context.Dispose` 自动清池（销毁停放节点 + 空闲实例），可安全 per-Context 注册——demo 根 Context 用的就是它。");
