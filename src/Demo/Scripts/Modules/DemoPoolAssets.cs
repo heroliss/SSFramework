@@ -5,7 +5,7 @@ namespace Game.Framework.Demo.Modules
 {
     /// <summary>
     /// 对象池章的场景资产持有者：提供 GameObject/prefab 池演示用的小方块 prefab 与显示容器。
-    /// 挂在 DemoApp 下；PoolDemoModule 由反射创建，靠 FindFirstObjectByType 找到这里取引用。
+    /// 挂在 demo 根节点下；PoolDemoModule 由反射创建，靠 FindFirstObjectByType 找到这里取引用。
     /// </summary>
     public sealed class DemoPoolAssets : MonoBehaviour
     {
