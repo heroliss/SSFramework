@@ -224,11 +224,11 @@ Bag.Subscribe(ratio, r => _hpBar.fillAmount = r);
 
 **Code Snippet 3 - caption**：异步 Command 自动取消
 ```csharp
-public class SaveProgressCommand : IAsyncCommand
+public readonly struct SaveProgressCommand : IAsyncCommand
 {
     public async UniTask ExecuteAsync(ICommandContext ctx, CancellationToken cancellationToken)
     {
-        await _save.WriteAsync(cancellationToken);   // 唯一要关心的 token
+        await ctx.GetSystem<ISaveSystem>().WriteAsync(cancellationToken);   // 唯一要关心的 token
     }
 }
 
