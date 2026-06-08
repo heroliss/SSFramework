@@ -13,6 +13,7 @@ namespace Game.Framework.System
     /// - class Command：ctx.Inject([Inject] 字段) → Execute(ctx)
     /// - struct Command：JIT 在 typeof(T).IsValueType 处消除 Inject 分支 → Execute(ctx)，零装箱零分配。
     /// 注意 struct Command 不能用 [Inject]（反射写字段只会修改装箱副本），改用 ctx.GetXxx&lt;T&gt;() 直接拿依赖。
+    /// 同步（ExecuteCommand）与异步（ExecuteCommandAsync）共用这套泛型分发，struct 在两条路径都零装箱——故异步命令默认也用 readonly struct，class 只为 [Inject] 服务。
     /// </summary>
     public sealed class CommandSystem : ICommandSystem
     {

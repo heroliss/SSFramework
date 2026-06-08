@@ -51,27 +51,33 @@ namespace Game.Framework.Demo.Modules
                 {
                     if (cts == myCts) statusLabel.text = "状态：已取消";
                 }
-            }, CodeRef.Here("class RunTaskCommand", "RunTaskCommand"));
-            host.AddActionRow("取消", () => cts?.Cancel());
-            host.AddNote("异步命令是 `class` + `IAsyncCommand`，签名带 `CancellationToken`；View 用 `await this.ExecuteCommandAsync(...)`。"
-                + "无参重载会自动把 View 销毁 + Context 生命周期令牌链接（任一销毁即取消）；这里另传自定义令牌演示主动取消。");
+            }, CodeRef.Here("struct RunTaskCommand", "RunTaskCommand"));
+            host.AddActionRow("取消", () => cts?.Cancel(),
+                CodeRef.Here("catch (OperationCanceledException)", "取消→接住"));
+            host.AddNote("异步命令实现 `IAsyncCommand`，签名带 `CancellationToken`；View 用 `await this.ExecuteCommandAsync(...)`。"
+                + "无参重载会自动把 View 销毁 + Context 生命周期令牌链接（任一销毁即取消）；这里另传自定义令牌演示主动取消。",
+                CodeRef.Here("myCts.Token", "自定义令牌"));
+            host.AddSubNote("留意 RunTaskCommand 是 `readonly struct`——异步命令默认也用 struct，不是 class："
+                + "`readonly struct` 一样能写 `async` 方法，框架对同步/异步走同一套泛型分发、struct 两边都零装箱。"
+                + "用 struct 还是 class 只看「要不要 `[Inject]` 字段注入」（struct 注入只会写进装箱副本、不生效），与同步/异步无关——需要注入再用 class。");
 
             // ── 查询（返回值）──
             host.AddSectionTitle("查询（返回值）");
             var snapshotLabel = host.AddValueDisplay();
-            snapshotLabel.text = "快照：点下面按钮查询";
+            snapshotLabel.text = "已完成次数（快照）：点按钮读一次";
             host.AddActionRow("查询一次完成数（快照）", () =>
             {
                 var n = this.ExecuteCommand(new CountDoneCommand());
-                snapshotLabel.text = $"快照：{n} 次";
+                snapshotLabel.text = $"已完成次数（快照）：{n}";
             }, CodeRef.Here("struct CountDoneCommand", "CountDoneCommand"));
             host.AddNote("查询 Command（`ICommand<T>`）同步返回值：可返回只读状态流（`ReadOnlyReactiveProperty`，给 View 持续订阅——本 demo 到处在用），"
-                + "也可返回一次性快照值（这里返回 `int`）。View 经查询读状态，不直接碰 Model。");
+                + "也可返回一次性快照值——这里返回 `int`，读的就是上方异步任务的累计完成数在“查询那一刻”的值（之后再完成任务它不会自己变，要重新点才更新）。"
+                + "View 经查询读状态，不直接碰 Model。");
 
             // ── 小结 ──
             host.AddSectionTitle("三态小结");
             host.AddConcept("同步 ICommand", "`Execute(ctx)` 立即完成。简单写操作首选（`struct` 零分配）。计数器章已演。");
-            host.AddConcept("异步 IAsyncCommand", "`class` + `ExecuteAsync(ctx, ct)`。加载 / 网络 / 动画等耗时操作，令牌可取消。");
+            host.AddConcept("异步 IAsyncCommand", "`readonly struct` + `ExecuteAsync(ctx, ct)`（struct 也能 async，默认首选）。加载 / 网络 / 动画等耗时操作，令牌可取消。");
             host.AddConcept("查询 ICommand<T>", "`Execute(ctx)` 返回值。读状态：返回只读流持续订阅，或返回一次性快照。");
         }
     }
@@ -82,8 +88,8 @@ namespace Game.Framework.Demo.Modules
         public readonly RP<int> Done = new(0);
     }
 
-    /// <summary>异步命令（class + IAsyncCommand）：模拟 1.5 秒耗时操作，完成后 Done +1，支持取消。</summary>
-    public sealed class RunTaskCommand : IAsyncCommand
+    /// <summary>异步命令（readonly struct + IAsyncCommand）：模拟 1.5 秒耗时操作，完成后 Done +1，支持取消。struct 一样能写 async。</summary>
+    public readonly struct RunTaskCommand : IAsyncCommand
     {
         public async UniTask ExecuteAsync(ICommandContext ctx, CancellationToken cancellationToken)
         {
