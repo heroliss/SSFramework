@@ -370,7 +370,8 @@ namespace Game.Framework
 
             packageName = NormalizePackageName(packageName);
             await EnsureInitialized(packageName, ct);
-            return await _provider.LoadSceneAsync(packageName, location, mode, suspendLoad, ct);
+            using var link = LinkDispose(ct, out var lct);
+            return await _provider.LoadSceneAsync(packageName, location, mode, suspendLoad, lct);
         }
 
         public UniTask<string> LoadText(string location, CancellationToken ct = default)
@@ -386,7 +387,8 @@ namespace Game.Framework
 
             packageName = NormalizePackageName(packageName);
             await EnsureInitialized(packageName, ct);
-            return await _provider.LoadTextAsync(packageName, location, ct);
+            using var link = LinkDispose(ct, out var lct);
+            return await _provider.LoadTextAsync(packageName, location, lct);
         }
 
         public UniTask<byte[]> LoadBytes(string location, CancellationToken ct = default)
@@ -402,7 +404,8 @@ namespace Game.Framework
 
             packageName = NormalizePackageName(packageName);
             await EnsureInitialized(packageName, ct);
-            return await _provider.LoadBytesAsync(packageName, location, ct);
+            using var link = LinkDispose(ct, out var lct);
+            return await _provider.LoadBytesAsync(packageName, location, lct);
         }
 
         public bool CheckLocationValid(string location)
@@ -475,7 +478,8 @@ namespace Game.Framework
             packageName = NormalizePackageName(packageName);
             // 清理「未使用」要对照该包当前清单判断哪些 bundle 该删，所以先确保初始化完成。
             await EnsureInitialized(packageName, ct);
-            await _provider.ClearCacheAsync(packageName, mode, ct);
+            using var link = LinkDispose(ct, out var lct);
+            await _provider.ClearCacheAsync(packageName, mode, lct);
         }
 
         public UniTask ClearCacheByTags(IReadOnlyList<string> tags, CancellationToken ct = default)
@@ -488,7 +492,8 @@ namespace Game.Framework
                 throw new ArgumentException("At least one tag is required.", nameof(tags));
             packageName = NormalizePackageName(packageName);
             await EnsureInitialized(packageName, ct);
-            await _provider.ClearCacheByTagsAsync(packageName, tags, ct);
+            using var link = LinkDispose(ct, out var lct);
+            await _provider.ClearCacheByTagsAsync(packageName, tags, lct);
         }
 
         public UniTask ClearCacheByLocations(IReadOnlyList<string> locations, CancellationToken ct = default)
@@ -501,7 +506,8 @@ namespace Game.Framework
                 throw new ArgumentException("At least one location is required.", nameof(locations));
             packageName = NormalizePackageName(packageName);
             await EnsureInitialized(packageName, ct);
-            await _provider.ClearCacheByLocationsAsync(packageName, locations, ct);
+            using var link = LinkDispose(ct, out var lct);
+            await _provider.ClearCacheByLocationsAsync(packageName, locations, lct);
         }
 
         public UniTask UnloadUnusedAssets(CancellationToken ct = default)
@@ -512,7 +518,8 @@ namespace Game.Framework
             ThrowIfDisposed();
             packageName = NormalizePackageName(packageName);
             await EnsureInitialized(packageName, ct);
-            await _provider.UnloadUnusedAssetsAsync(packageName, ct);
+            using var link = LinkDispose(ct, out var lct);
+            await _provider.UnloadUnusedAssetsAsync(packageName, lct);
         }
 
         private IAssetDownloader CreateTagDownloaderInternal(string packageName, IReadOnlyList<string> tags)
@@ -542,7 +549,8 @@ namespace Game.Framework
             ThrowIfDisposed();
             packageName = NormalizePackageName(packageName);
             await EnsureInitialized(packageName, ct);
-            return await _provider.LoadAssetAsync(packageName, key, byGuid, type, ct);
+            using var link = LinkDispose(ct, out var lct);
+            return await _provider.LoadAssetAsync(packageName, key, byGuid, type, lct);
         }
 
         private static IAssetHandle<T> CastHandle<T>(IAssetHandle<UnityEngine.Object> handle, string key)
@@ -580,6 +588,18 @@ namespace Game.Framework
                     "[AssetUtility] 未配置默认资源包（AssetSystemConfigModel.DefaultPackageName 为空），且本次未指定 packageName——" +
                     "请配置默认包，或改用带 packageName 的重载（如 Load(packageName, location)）。");
             return name;
+        }
+
+        // 把调用方 ct 与 utility 销毁令牌（_disposeCts）链接：加载 / 缓存操作途中 utility 被销毁
+        // （OnDestroy → _disposeCts.Cancel）时，在飞行的 provider 调用也会被取消，而非只依赖 provider.Dispose() 兜底——
+        // 与初始化路径（InitializePackageAsync / EnsureInitialized）的链接方式一致。无外部 ct 时直接用 _disposeCts.Token，不分配 CTS。
+        // 返回的 CTS 须由调用方 using 释放（无外部 ct 时返回 null，using null 为安全空操作）。
+        private CancellationTokenSource LinkDispose(CancellationToken ct, out CancellationToken linked)
+        {
+            if (!ct.CanBeCanceled) { linked = _disposeCts.Token; return null; }
+            var cts = CancellationTokenSource.CreateLinkedTokenSource(ct, _disposeCts.Token);
+            linked = cts.Token;
+            return cts;
         }
 
         private void ThrowIfDisposed()

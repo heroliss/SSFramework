@@ -8,7 +8,7 @@ namespace Game.Framework.Common
     /// System 层访问扩展：通过 <c>this.GetSystem&lt;T&gt;()</c> 按类型解析 System 实例。
     /// </summary>
     /// <remarks>
-    /// <b>谁能调：</b><see cref="ICanGetSystem"/> 实现者——Command / System（struct Command 必须用 <c>ctx</c> 参数，扩展方法会装箱）。<br/>
+    /// <b>谁能调：</b><see cref="ICanGetSystem"/> 实现者——System（持有 Context 的层）。<b>Command 不走本扩展</b>：经 <see cref="Game.Framework.Command.ICommandContext"/> 参数 <c>ctx.GetSystem&lt;T&gt;()</c> 访问（struct 用扩展会装箱、且 Command 无 <see cref="IHasGameContext"/>）。<br/>
     /// <b>上下文解析：</b>通过 <see cref="IHasGameContext"/> 拿；MonoXxxBase 已自动实现。<br/>
     /// <b>未注册时：</b>抛 <c>InvalidOperationException</c>。注意层标记接口 <see cref="ISystem"/> 本身<b>不</b>注册，要用具体类型或派生接口（如 <c>IPlayerSystem</c>）解析。
     /// </remarks>

@@ -459,8 +459,10 @@ namespace Game.Framework
                 return _cachedLinkedCts.Token;
 
             // miss：换 external 时不立即 dispose 旧 CTS——已发出去的 token 仍可能在 await 中。
-            // 旧 CTS 由 GC 回收（external 取消后回调被消费、CTS 可达性断开）；
-            // 或在 bag 自身 dispose 时由根 _disposeCts.Cancel 顺带触发其取消。
+            // 但把旧 CTS 交给 _composite，随 bag.Dispose 一并释放：否则它会作为回调挂在长寿命源
+            // （如 view destroy / ctx 令牌）上、直到该源取消才被 GC，构成「多 external 交替」场景下的隐性泄漏。
+            // CTS.Dispose 幂等，且只有被替换下来的旧 CTS 进 composite（当前 _cachedLinkedCts 在 bag.Dispose 单独释放），不会重复。
+            if (_cachedLinkedCts != null) _composite.Add(_cachedLinkedCts);
             _cachedLinkedExternal = external;
             _cachedLinkedCts = CancellationTokenSource.CreateLinkedTokenSource(external, _disposeCts.Token);
             return _cachedLinkedCts.Token;

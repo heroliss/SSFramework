@@ -19,4 +19,5 @@
 - ✅ 单向数据流被编译器保证；越权调用编译失败而非运行期排查。
 - ✅ View 与业务层通过 Command 解耦，便于测试（注册 Mock System）与替换实现。
 - ⚠️ 多一层 Command 样板；但 struct Command 零分配、查询 Command 可直接返回只读订阅源，成本可控。
+- ⚠️ **读与写共用 Command 机制**：`ICommand<T>` 既表达写意图、也表达读查询（CQS 在类型层未分离）。好处是机制统一、可审计、AI/工具友好；代价是读密集 UI 会膨胀出大量「一字段一查询」。缓解：用「只读投影」一次查询打包多个只读源（一面板一查询，见 framework-guide §8）。另注意可插拔 `CommandSystem` 装饰器（日志/回放/撤销）会同时见到查询命令，按需自行区分读/写——这是「机制统一」的对价。
 - 关联：[0002](0002-commands-receive-icommandcontext.md)（Command 为何拿受限上下文）。

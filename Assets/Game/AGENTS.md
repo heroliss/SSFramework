@@ -71,7 +71,7 @@ var count = this.ExecuteCommand(new GetCountStateCommand());
 | 访问层 | `ctx.GetSystem<T>()` 或 `[Inject]` 字段 | 只能通过 `ctx.GetSystem<T>()` |
 | 分配 | 堆分配 | 零分配 |
 | 同步/异步 | 都可，但仅在需要 `[Inject]` 时选它 | 都可（含 `async`），默认首选 |
-| struct 有返回值时 | 优先用可推断重载 `ExecuteCommand(new Cmd())` | 无可推断重载时才写双泛型避免装箱 |
+| 有返回值时 | 本就堆分配，用可推断重载 `ExecuteCommand(new Cmd())` 即可 | 可推断重载 `ExecuteCommand(new Cmd())` 会**装箱一次**（`TResult` 只在约束里、无法被推断，命中的是会装箱的 `ICommand<TResult>` 重载）；绝大多数场景够用，热路径要零装箱才写双泛型 `ExecuteCommand<TCmd, TResult>(new Cmd())` |
 
 ## 6. `Game.Framework.System` 命名空间与 `global::System` 冲突
 
@@ -108,6 +108,8 @@ await this.ExecuteCommandAsync(new MyCommand());  // ✅ 自动绑定 View + Con
 ```csharp
 await this.ExecuteCommandAsync(new MyCommand(), customCancellationToken);
 ```
+
+**命令内组合子命令**经 `ctx`（Command 不持有 `ICanSendCommand`，不能用 `this.ExecuteCommand`）：同步 `ctx.ExecuteCommand(new SubCommand())`；异步 `await ctx.ExecuteCommandAsync(new SubCommand(), cancellationToken)`——把本命令的 `cancellationToken` 透传给子命令，取消随父命令级联。子命令的价值是「能被 CommandSystem 装饰器统一拦截」（日志/回放/事务），不需要拦截时直接调 System 方法更直接。
 
 ## 9. 命名空间约定
 

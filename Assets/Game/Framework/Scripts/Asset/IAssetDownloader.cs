@@ -17,7 +17,11 @@ namespace Game.Framework
         /// <summary>本次下载的总字节数，用于展示容量提示或 Wi-Fi 确认。</summary>
         long TotalBytes { get; }
 
-        /// <summary>下载是否已经完成。没有可下载资源时也视为完成。</summary>
+        /// <summary>
+        /// 下载是否已<b>成功</b>完成（没有可下载资源时也视为完成）。
+        /// 失败<b>不</b>反映在此（失败仍为 false）——失败经 <see cref="Download"/> 抛异常暴露，且 downloader 一次性、重试须重建。
+        /// 因此判完成优先 <c>await Download()</c> + try/catch，<b>不要</b>用 <c>while(!IsDone)</c> 轮询（失败会永远停在 false）。
+        /// </summary>
         bool IsDone { get; }
 
         /// <summary>下载进度状态流。订阅即得当前快照，UI 不需要轮询。</summary>

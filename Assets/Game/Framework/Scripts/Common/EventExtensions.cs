@@ -12,8 +12,8 @@ namespace Game.Framework.Common
     /// <remarks>
     /// <b>权限：</b>
     /// <list type="bullet">
-    ///   <item>发送：<see cref="ICanSendEvent"/>——Command / System。View 不能发，因为事件本质是数据层的瞬时通知（详见 framework-guide §1.3）。</item>
-    ///   <item>监听：<see cref="ICanRegisterEvent"/>——View / Command / System。</item>
+    ///   <item>发送：<see cref="ICanSendEvent"/>——System。View 不能发，因为事件本质是数据层的瞬时通知（详见 framework-guide §1.3）。Command 不走本扩展，经 <c>ctx.SendEvent</c>。</item>
+    ///   <item>监听：<see cref="ICanRegisterEvent"/>——View / System。Command 不监听事件（瞬时、不持订阅；<see cref="Game.Framework.Command.ICommandContext"/> 也刻意不提供 RegisterEvent）。</item>
     /// </list>
     /// <b>怎么用：</b>
     /// <list type="bullet">

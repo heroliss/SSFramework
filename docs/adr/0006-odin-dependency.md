@@ -14,4 +14,5 @@
 
 - ✅ `Target Context` 可在 Inspector 拖拽，支持 `MonoGameContextBase` 与运行时赋值的纯 C# `IGameContext`。
 - ⚠️ 作为"面向广泛使用的框架"，硬依赖付费插件是复用障碍。
-- 🔮 未来解耦方向（成本不低，非当前优先）：用 `[SerializeReference]`（Unity 2019.3+ 原生支持序列化接口/抽象引用）替代 `[OdinSerialize]` 的接口字段，把 `SerializedMonoBehaviour` 降级为 `MonoBehaviour`。届时需评估对现有 Inspector 体验与既有序列化数据的影响，并补充 ADR。
+- 🔮 未来解耦方向（成本不低，非当前优先）：把 `SerializedMonoBehaviour` 降级为 `MonoBehaviour`。
+  > **方向修正（见 [ADR-0015](0015-odin-decoupling-assessment.md)）**：原先设想的 `[SerializeReference]` 替代**不适用**于 `_targetContext` / `_parentContext`——这俩字段存的是 `MonoGameContextBase`（`UnityEngine.Object`），而 `[SerializeReference]` 只适用于纯托管对象。可行路径是把字段降为具体 `MonoGameContextBase` 类型（Unity 原生拖拽）+ 运行时 `IGameContext` 覆盖分离；真正的主成本是把 `[ShowInInspector]` 运行时诊断改写成自定义 Editor。详细改动面 / 风险 / 排期建议见 ADR-0015。
