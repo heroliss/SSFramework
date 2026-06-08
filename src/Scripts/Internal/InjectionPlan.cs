@@ -24,6 +24,7 @@ namespace Game.Framework.Internal
     ///   <item>若多个 <c>[Inject]</c> 字段之间有时序耦合（例如 A 必须在 B 之前赋值），改用构造器/工厂注入，
     ///         或在 Inject 完成后的初始化方法里显式编排。</item>
     /// </list>
+    /// <b>注入权限校验：</b>把"扩展方法访问权限"镜像到注入期——见 <see cref="InjectDenyReason"/>。
     /// </remarks>
     internal sealed class InjectionPlan
     {
@@ -36,10 +37,50 @@ namespace Game.Framework.Internal
 
         private readonly Action<object, GameContext>[] _actions;
 
-        /// <summary>禁止直接注入的类型。GameContext/IGameContext 是万能门，应通过扩展方法访问层。</summary>
-        private static bool IsForbiddenType(Type type) => type == typeof(GameContext) || type == typeof(IGameContext);
-
         private InjectionPlan(Action<object, GameContext>[] actions) => _actions = actions;
+
+        /// <summary>
+        /// 判断"把 <paramref name="fieldType"/> 注入到 <paramref name="hostType"/> 的字段/属性/参数"是否越权，
+        /// 越权返回原因（用于 LogError），合法返回 <c>null</c>。
+        /// </summary>
+        /// <remarks>
+        /// 权限模型与 <c>this.GetXxx</c> 扩展方法<b>同源</b>：容器里只会注册 Model/System/Utility 三类层 + 普通服务；
+        /// 宿主能注入某层 ⟺ 它实现了对应的 <see cref="ICanGetModel"/> / <see cref="ICanGetSystem"/> / <see cref="ICanGetUtility"/>。
+        /// 这把"哪层能拿哪层"的编译期约束（缺失的 ICanXxx 让 <c>this.GetModel</c> 编译不过）延伸到 <c>[Inject]</c> 反射注入这条路——
+        /// 否则 View 写 <c>[Inject] SomeModel</c> 就能绕过只读约束。
+        /// <list type="bullet">
+        ///   <item><b>Command 例外：</b>它不实现 ICanXxx，但经 <see cref="Game.Framework.Command.ICommandContext"/> 拥有完整层访问权，故允许注入 Model/System/Utility。</item>
+        ///   <item><b>GameContext/IGameContext：</b>万能门，任何宿主都禁注，应走扩展方法访问层。</item>
+        ///   <item><b>View / Command / Event 等非层类型：</b>不受 ICanGetX 管辖、不在本校验内——能否注入只看容器是否注册（通常它们不注册，注入会自然 resolve 失败）。</item>
+        /// </list>
+        /// </remarks>
+        private static string InjectDenyReason(Type fieldType, Type hostType)
+        {
+            // 万能门：拿到完整 Context 能绕过所有权限接口，任何宿主都禁注。
+            if (fieldType == typeof(GameContext) || fieldType == typeof(IGameContext))
+                return "GameContext/IGameContext is the all-access gate; reach layers via extension methods instead";
+
+            // Command 经 ctx 有完整层访问权，等同于持有 ICanGetModel/System/Utility 全部。
+            bool hostIsCommand = typeof(Game.Framework.Command.ICommandBase).IsAssignableFrom(hostType);
+
+            // 三类层注入：宿主须具备对应的"获取"权限（与 this.GetXxx 同源）。
+            if (typeof(Game.Framework.Model.IModel).IsAssignableFrom(fieldType))
+                return hostIsCommand || typeof(ICanGetModel).IsAssignableFrom(hostType)
+                    ? null
+                    : $"'{hostType.Name}' has no GetModel permission, so it cannot inject Model '{fieldType.Name}'";
+            if (typeof(Game.Framework.System.ISystem).IsAssignableFrom(fieldType))
+                return hostIsCommand || typeof(ICanGetSystem).IsAssignableFrom(hostType)
+                    ? null
+                    : $"'{hostType.Name}' has no GetSystem permission, so it cannot inject System '{fieldType.Name}'";
+            if (typeof(Game.Framework.Utility.IUtility).IsAssignableFrom(fieldType))
+                return hostIsCommand || typeof(ICanGetUtility).IsAssignableFrom(hostType)
+                    ? null
+                    : $"'{hostType.Name}' has no GetUtility permission, so it cannot inject Utility '{fieldType.Name}'";
+
+            // 其它类型（普通服务，或 View / Command / Event 等不受 ICanGetX 管辖的角色）：不在权限模型内，允许——
+            // 能否真正注入只取决于容器是否注册了它（通常 View/Command/Event 不注册，会自然 TryResolve 失败 → LogWarning 兜底）。
+            return null;
+        }
 
 #if UNITY_EDITOR
         [InitializeOnLoadMethod]
@@ -70,18 +111,19 @@ namespace Game.Framework.Internal
         private static InjectionPlan Build(Type type)
         {
             List<Action<object, GameContext>> list = null;
+            // t 沿 BaseType 链上升用于反射取成员；hostType 始终是最派生的具体类型，权限校验按它判。
             var t = type;
             while (t != null && t != typeof(object))
             {
-                CollectFields(t, ref list);
-                CollectProperties(t, ref list);
-                CollectMethods(t, ref list);
+                CollectFields(t, type, ref list);
+                CollectProperties(t, type, ref list);
+                CollectMethods(t, type, ref list);
                 t = t.BaseType;
             }
             return new InjectionPlan(list?.ToArray() ?? _empty);
         }
 
-        private static void CollectFields(Type t, ref List<Action<object, GameContext>> list)
+        private static void CollectFields(Type t, Type hostType, ref List<Action<object, GameContext>> list)
         {
             foreach (var field in t.GetFields(Flags))
             {
@@ -90,11 +132,11 @@ namespace Game.Framework.Internal
                 var fType = field.FieldType;
                 var ownerName = t.Name;
 
-                if (IsForbiddenType(fType))
+                var deny = InjectDenyReason(fType, hostType);
+                if (deny != null)
                 {
                     Debug.LogError(
-                        $"[Inject] '{fType.Name}' cannot be injected into field '{ownerName}.{f.Name}'. " +
-                        "Use extension methods (this.GetXxx/this.ExecuteCommand) instead.");
+                        $"[Inject] cannot inject '{fType.Name}' into field '{ownerName}.{f.Name}': {deny}.");
                     continue;
                 }
 
@@ -108,7 +150,7 @@ namespace Game.Framework.Internal
             }
         }
 
-        private static void CollectProperties(Type t, ref List<Action<object, GameContext>> list)
+        private static void CollectProperties(Type t, Type hostType, ref List<Action<object, GameContext>> list)
         {
             foreach (var prop in t.GetProperties(Flags))
             {
@@ -118,11 +160,11 @@ namespace Game.Framework.Internal
                 var pType = prop.PropertyType;
                 var ownerName = t.Name;
 
-                if (IsForbiddenType(pType))
+                var deny = InjectDenyReason(pType, hostType);
+                if (deny != null)
                 {
                     Debug.LogError(
-                        $"[Inject] '{pType.Name}' cannot be injected into property '{ownerName}.{p.Name}'. " +
-                        "Use extension methods (this.GetXxx/this.ExecuteCommand) instead.");
+                        $"[Inject] cannot inject '{pType.Name}' into property '{ownerName}.{p.Name}': {deny}.");
                     continue;
                 }
 
@@ -136,7 +178,7 @@ namespace Game.Framework.Internal
             }
         }
 
-        private static void CollectMethods(Type t, ref List<Action<object, GameContext>> list)
+        private static void CollectMethods(Type t, Type hostType, ref List<Action<object, GameContext>> list)
         {
             foreach (var method in t.GetMethods(Flags))
             {
@@ -147,19 +189,19 @@ namespace Game.Framework.Internal
                 for (var i = 0; i < pars.Length; i++) paramTypes[i] = pars[i].ParameterType;
                 var ownerName = t.Name;
 
-                var hasForbidden = false;
+                var denied = false;
                 for (var i = 0; i < paramTypes.Length; i++)
                 {
-                    if (IsForbiddenType(paramTypes[i]))
+                    var deny = InjectDenyReason(paramTypes[i], hostType);
+                    if (deny != null)
                     {
                         Debug.LogError(
-                            $"[Inject] '{paramTypes[i].Name}' cannot be injected into parameter of method '{ownerName}.{m.Name}'. " +
-                            "Use extension methods (this.GetXxx/this.ExecuteCommand) instead.");
-                        hasForbidden = true;
+                            $"[Inject] cannot inject '{paramTypes[i].Name}' into parameter of method '{ownerName}.{m.Name}': {deny}.");
+                        denied = true;
                         break;
                     }
                 }
-                if (hasForbidden) continue;
+                if (denied) continue;
 
                 list ??= new List<Action<object, GameContext>>(4);
                 list.Add((target, context) =>
