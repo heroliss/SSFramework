@@ -811,14 +811,13 @@ int gold = this.ExecuteCommand(new GetGoldCommand());
 涉及 IO、网络或带延时的操作时，使用异步版本。`cancellationToken` 参数已由框架合并好——无需在命令内部再访问 `ctx.CancellationToken`，直接用这一个参数即可：
 
 ```csharp
-public class SaveProgressCommand : IAsyncCommand
+// 异步命令默认也用 readonly struct——struct 一样可以有 async 方法，经 ctx 取依赖
+public readonly struct SaveProgressCommand : IAsyncCommand
 {
-    [Inject] private ISaveSystem _save;
-
     public async UniTask ExecuteAsync(ICommandContext ctx, CancellationToken cancellationToken)
     {
         // UniTask 的异步 API 都接受 cancellationToken，直接传入
-        await _save.WriteAsync(cancellationToken);
+        await ctx.GetSystem<ISaveSystem>().WriteAsync(cancellationToken);
     }
 }
 ```
@@ -842,7 +841,7 @@ await this.ExecuteCommandAsync(new SaveProgressCommand(), customToken);
 | 绝大多数同步场景（默认） | `readonly struct` + `ctx.GetXxx` |
 | 依赖项多、需要 `[Inject]` 自动注入 | `class` + `[Inject]` |
 | 带返回值，避免装箱 | `readonly struct ICommand<T>` + 可推断调用 `ExecuteCommand(new Cmd())` |
-| 异步操作 | `class IAsyncCommand` |
+| 异步操作 | `readonly struct` + `IAsyncCommand`（同步异步同款；要 `[Inject]` 才用 `class`） |
 
 ### 可插拔 CommandSystem：日志、回放、撤销、自动化测试
 

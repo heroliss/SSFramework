@@ -12,8 +12,8 @@ namespace Game.Framework.Command
     ///         原因：struct Command 调 <c>this.GetXxx&lt;T&gt;()</c> 扩展方法必然装箱、且无 <see cref="Game.Framework.Internal.IHasGameContext"/>，会崩。<br/>
     ///         统一通过 <see cref="ICommandContext"/> 参数访问层（<c>ctx.GetSystem&lt;T&gt;()</c> / <c>ctx.SendEvent&lt;T&gt;()</c>），无装箱无分配。</item>
     ///   <item>不直接用此接口——业务实现 <see cref="ICommand"/> / <see cref="ICommand{TResult}"/> / <see cref="IAsyncCommand"/> / <see cref="IAsyncCommand{TResult}"/> 之一。</item>
-    ///   <item>同步默认 <c>readonly struct</c>（零 GC）；依赖项多时改 <c>class</c> 用 <c>[Inject]</c> 自动注入。</item>
-    ///   <item>异步统一用 <c>class</c> + <c>IAsyncCommand</c>，签名带 <c>CancellationToken cancellationToken</c>。</item>
+    ///   <item>所有 Command（同步/异步）默认 <c>readonly struct</c>（零 GC，经 <see cref="ICommandContext"/> 访问层）；仅当确实需要 <c>[Inject]</c> 字段注入时才改用 <c>class</c>——这与同步/异步无关，只取决于要不要字段注入。</item>
+    ///   <item>异步实现 <see cref="IAsyncCommand"/>，签名带 <c>CancellationToken cancellationToken</c>；<c>readonly struct</c> 同样可以有 <c>async</c> 方法（状态机捕获 this 的副本，不写回字段）。</item>
     /// </list>
     /// </remarks>
     public interface ICommandBase
