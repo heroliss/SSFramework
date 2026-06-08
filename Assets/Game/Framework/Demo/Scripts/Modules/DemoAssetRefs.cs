@@ -9,7 +9,7 @@ namespace Game.Framework.Demo.Modules
     /// 这本质是一份配置，所以归 Model 层。演示 AssetReference 的「拖资源进 Inspector → Awake 自动绑定 → Get() 加载」零样板路径：
     /// 基类 Awake 会把下列 <see cref="AssetReference{T}"/> / <see cref="AssetReferenceList{T}"/> 字段
     /// 自动绑定到本 Context 的 <c>IAssetUtility</c> 并登记进本层的 Bag（销毁时统一释放 handle）。
-    /// 挂在 DemoApp（demo Context 节点）下；<see cref="AssetLoadingModule"/> 经 FindFirstObjectByType 取这些引用。
+    /// 挂在 demo 根节点（demo Context 节点）下；<see cref="AssetLoadingModule"/> 经 FindFirstObjectByType 取这些引用。
     /// </summary>
     public sealed class DemoAssetRefs : MonoModelBase
     {
