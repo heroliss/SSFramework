@@ -297,6 +297,9 @@ namespace Game.Framework
         {
             if (_disposed) return;
             _disposed = true;
+            // 只丢弃本 provider 对各 ResourcePackage 的引用；刻意不 DestroyAsync/RemovePackage——
+            // package 在 YooAssets 全局注册表里按「进程级单例」存活（见 IAssetUtility「不提供 UnloadPackage」的理由）。
+            // 重建 provider（如 Context 重建）时 InitializeAsync 会经 YooAssets.TryGetPackage 复用已初始化的同名包。
             _packages.Clear();
         }
 

@@ -524,6 +524,25 @@ ctx.Inject(audio);    // 解析 [Inject] 字段
 ctx.AttachTo(audio);  // 回写 _ctx 字段，让扩展方法可以使用
 ```
 
+### 逐帧仿真（实时逻辑）
+
+游戏里连续推进的逻辑——AI tick、移动、技能结算、计时器、状态机轮询——**不走 Command**（Command 只表达离散用户意图）。这类逐帧逻辑归 System，用既有原语驱动，框架不另设 tick 调度器：
+
+```csharp
+// Mono 路径：MonoSystemBase 本就是 MonoBehaviour，直接写 Update / FixedUpdate / LateUpdate
+public class EnemyAISystem : MonoSystemBase, IEnemyAISystem
+{
+    [Inject] private EnemyModel _model;
+    private void Update() { /* 每帧推进 AI，直接改 _model（System 是 Model 的合法写入者） */ }
+}
+
+// 纯 C# 路径：用 R3 Observable.EveryUpdate() 订阅进 Bag，宿主 / Context 释放时自动退订
+// （MonoSystemBase 用内置 Bag；纯 C# System 用 new DisposableBag(ctx)）
+Bag.Subscribe(Observable.EveryUpdate(), _ => Tick());
+```
+
+逐帧逻辑里 System 直接改 Model、需要广播时 `SendEvent`；View 仍只订阅、不参与仿真。同类 System 的 tick 先后依赖用 `[DefaultExecutionOrder]`（Mono）或一个"编排 System"显式按序调用，别依赖注册顺序。设计理由见 `docs/adr/0014-realtime-simulation-ownership.md`。
+
 ---
 
 ## 7. Utility（工具层）
@@ -743,6 +762,42 @@ public readonly struct GetGoldCommand : ICommand<int>
 int gold = this.ExecuteCommand(new GetGoldCommand());
 ```
 
+### 读密集 UI：用只读投影打包多个状态源
+
+复杂面板往往要同时观察很多状态。逐个写「一字段一查询」的查询 Command 会膨胀成一堆近乎重复的类型。更轻的做法：**用一个查询 Command 返回一个「只读投影」对象，把这面板要的多个只读源打包进去**——一面板一查询。
+
+```csharp
+// 只读投影：只暴露 ReadOnlyReactiveProperty，View 看得到、改不了（写仍走 Command）
+// 命名用 Projection 而非 View / Model——后两者是框架层名，会引起误解（这是 CQRS 的 read projection）
+public sealed class HudProjection
+{
+    public ReadOnlyReactiveProperty<int> HP    { get; }
+    public ReadOnlyReactiveProperty<int> Gold  { get; }
+    public ReadOnlyReactiveProperty<int> Level { get; }
+    public HudProjection(IPlayerSystem p, IInventorySystem inv)
+        { HP = p.HP; Gold = inv.Gold; Level = p.Level; }   // 引用已有只读源，不持有状态
+}
+
+public readonly struct GetHudProjectionCommand : ICommand<HudProjection>
+{
+    public HudProjection Execute(ICommandContext ctx)
+        => new(ctx.GetSystem<IPlayerSystem>(), ctx.GetSystem<IInventorySystem>());
+}
+
+// View：一次查询拿到整包，再各自订阅
+var hud = this.ExecuteCommand(new GetHudProjectionCommand());
+Bag.Subscribe(hud.HP,    v => _hpText.text = v.ToString());
+Bag.Subscribe(hud.Gold,  v => _goldText.text = v.ToString());
+Bag.Subscribe(hud.Level, v => _lvText.text = v.ToString());
+```
+
+要点与权衡：
+- 命名用 `XxxProjection`，**别用 `XxxView` / `XxxReadModel`**——`View` / `Model` 是框架层名，投影既不是 View 层也不是 Model 层，沿用层名会误导。
+- 投影只暴露 `ReadOnlyReactiveProperty`（或 `Observable`），**写仍只能走 Command**——单向数据流约束不松动，只是把读路径的样板收成一处。
+- 投影是「读视图」不是 Model：在查询 Command 里现组装、只引用已有的只读源，不持有状态、不注册进容器。需要派生 / 过滤 / 组合时直接在投影里放 R3 操作符链（如 `p.HP.Select(...)`）。
+- **字段少（一两个）时直接「一字段一查询」更直白**；字段多的复杂面板才用投影收口，别为收口而收口。
+- 可运行示例见 demo「进阶 · 只读投影」（`ReadProjectionModule`）。
+
 View 在 Awake 时按以下顺序查找自己所属的 Context，通常不需要手动设置：
 
 1. Inspector 中显式设置的 `Target Context`
@@ -834,13 +889,34 @@ await this.ExecuteCommandAsync(new SaveProgressCommand(), customToken);
 
 非 View 路径（如 System / 纯 C# 持有者）调用无参版本时，只会绑定 Context 生命周期。
 
+### 命令内组合子命令
+
+Command 可以在内部调用子 Command 把行为拆小、复用——通过 `ctx` 参数发起（不是 `this.ExecuteCommand`：Command 不持有 `ICanSendCommand` 权限，统一经 `ctx`）：
+
+- 同步子命令：`ctx.ExecuteCommand(new SubCommand())`
+- 异步子命令：`await ctx.ExecuteCommandAsync(new SubCommand(), cancellationToken)`——把命令自己的 `cancellationToken` 透传给子命令，取消随父命令级联（最终随 View / Context 生命周期）
+
+```csharp
+public readonly struct CheckoutCommand : IAsyncCommand
+{
+    public async UniTask ExecuteAsync(ICommandContext ctx, CancellationToken cancellationToken)
+    {
+        ctx.ExecuteCommand(new ValidateCartCommand());                          // 同步子命令
+        await ctx.ExecuteCommandAsync(new ChargeCommand(), cancellationToken);  // 异步子命令
+    }
+}
+```
+
+> 子命令仍只能经 `ctx` 访问层。相比直接调 System 方法，走子命令的价值在于「能被可插拔 CommandSystem 装饰器统一拦截」（日志 / 回放 / 事务，见下）；不需要拦截时直接调 System 方法更直接。
+
 ### 选型建议
 
 | 场景 | 选择 |
 |---|---|
 | 绝大多数同步场景（默认） | `readonly struct` + `ctx.GetXxx` |
 | 依赖项多、需要 `[Inject]` 自动注入 | `class` + `[Inject]` |
-| 带返回值，避免装箱 | `readonly struct ICommand<T>` + 可推断调用 `ExecuteCommand(new Cmd())` |
+| 带返回值（一般） | `readonly struct ICommand<T>` + 可推断调用 `ExecuteCommand(new Cmd())`——会装箱一次，绝大多数场景（Awake 取一次订阅源等）够用 |
+| 带返回值 + 热路径要零装箱 | `readonly struct ICommand<T>` + 显式双泛型 `ExecuteCommand<TCmd, TResult>(new Cmd())`——绕开会装箱的可推断重载（`TResult` 只在约束里、无法被推断，所以必须显式写两个实参） |
 | 异步操作 | `readonly struct` + `IAsyncCommand`（同步异步同款；要 `[Inject]` 才用 `class`） |
 
 ### 可插拔 CommandSystem：日志、回放、撤销、自动化测试

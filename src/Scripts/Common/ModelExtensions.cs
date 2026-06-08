@@ -8,7 +8,7 @@ namespace Game.Framework.Common
     /// Model 层访问扩展：通过 <c>this.GetModel&lt;T&gt;()</c> 按类型解析 Model 实例。
     /// </summary>
     /// <remarks>
-    /// <b>谁能调：</b><see cref="ICanGetModel"/> 实现者——Command / System / Model（class Command 用 <c>ctx</c> 也可；struct Command <b>必须</b>用 <c>ctx</c>，扩展方法会装箱）。<br/>
+    /// <b>谁能调：</b><see cref="ICanGetModel"/> 实现者——System / Model（持有 Context 的层）。<b>Command 不走本扩展</b>：经 <see cref="Game.Framework.Command.ICommandContext"/> 参数 <c>ctx.GetModel&lt;T&gt;()</c> 访问（struct 用扩展会装箱、且 Command 无 <see cref="IHasGameContext"/>）。<br/>
     /// <b>上下文解析：</b>通过 <see cref="IHasGameContext"/> 拿；MonoXxxBase 已自动实现。<br/>
     /// <b>未注册时：</b><see cref="GameContext.Resolve"/> 抛 <c>InvalidOperationException</c>，调用方应保证 Model 已注册（Mono 路径靠 Hierarchy 父子关系，纯 C# 路径调 <c>ctx.RegisterModel</c>）。
     /// </remarks>

@@ -19,3 +19,5 @@
 | [0011](0011-directory-organization.md) | 项目目录组织与第三方隔离 | Accepted |
 | [0012](0012-yooasset-3-migration.md) | YooAsset 3.0 迁移：先用官方兼容层 | Superseded by 0013 |
 | [0013](0013-yooasset-native-rewrite.md) | YooAsset 原生 3.0 重写：去兼容层 | Accepted |
+| [0014](0014-realtime-simulation-ownership.md) | 实时仿真 / 逐帧逻辑归 System（Update / R3 EveryUpdate），不走 Command | Accepted |
+| [0015](0015-odin-decoupling-assessment.md) | Odin 解耦的可行路径与改动面评估（精化 0006 方向） | Proposed |
