@@ -51,6 +51,8 @@ namespace Game.Framework.Demo.Modules
             host.AddSectionTitle("System 的本质");
             host.AddConcept("逻辑聚合（核心）", "把一类相关逻辑（买、卖、定价、库存…）聚成一个内聚、能独立运转的“系统”（可有依赖）——这正是它叫 System 的原因。");
             host.AddConcept("意图 vs 逻辑", "Command 表达“要做什么”（薄入口），System 实现“怎么做”（厚逻辑）。逻辑从 Command 抽到 System，分工才清晰。");
+            host.AddConcept("两头设计、Command 对接", "两层常从不同方向长出来：Command 从视图层倒推——View 要能做哪些操作，就声明哪些 Command（内容可以先留空占位）；"
+                + "System 从逻辑自身的内聚出发——把相关规则聚成能独立自治、不关心谁来调的系统。两头各自定好，最后用 Command 收口对接：向下整理参数调 System、向上取数适配回 View。视图与逻辑因此能并行开发、互不耦合。");
             host.AddNote("说明：这个 `ShopSystem` 无状态，直接用传入的 `ctx` 取 Model 最省；需要持有状态的 System 可走 Mono（`MonoSystemBase`）或绑定 Context，改用 `this.GetModel`。");
         }
     }

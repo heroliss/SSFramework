@@ -48,14 +48,15 @@ namespace Game.Framework.Demo.Modules
             host.AddActionRow("选中到 Inspector", SelectMonoModelInInspector);
 #endif
             host.AddTip("MonoScoreModel 挂成 DemoRoot 下的场景节点，Awake 自动注册进同一个 Context——不用写一行注册代码。"
-                + "点「选中到 Inspector」：运行时能看它的 RP 分数实时跳动；停止运行后还能在 Inspector 直接改初值，下次运行即生效。");
+                + "点「选中到 Inspector」：运行时不仅能看 RP 分数随按钮实时跳动，还能反过来——在 Inspector 里直接改这个值，上方 UI 分数会同步刷新："
+                + "RP 的 Drawer 改的就是 ReactiveProperty.Value，所有订阅者即时收到，等于没写一行代码就发了次状态更新（双向实时，框架小亮点）。"
+                + "停止运行后改的则是序列化初值，下次运行生效。");
 
             // ── 怎么选 ──
             host.AddSectionTitle("两条路怎么选");
             host.AddConcept("纯 C#", "逻辑型 / 要热更 / 要单测 / 不需要在 Inspector 配的状态。零 Unity 依赖、原理透明。");
             host.AddConcept("Mono", "需要 Inspector 可视化、策划要填初值或拖引用的状态。自动注册、所见即所得。");
-            host.AddNote("两者都用同一个 `RP<T>` 持有状态、都经 Command 读写、都进同一个 `Context`——区别只在“怎么进容器”。",
-                CodeRef.Here("class CodeScoreModel", "Model 定义"));
+            host.AddNote("两者都用同一个 `RP<T>` 持有状态、都经 Command 读写、都进同一个 `Context`——区别只在“怎么进容器”。");
         }
 
 #if UNITY_EDITOR

@@ -28,7 +28,7 @@ namespace Game.Framework.Demo.Modules
             var assets = Object.FindFirstObjectByType<DemoUGuiAssets>();
             if (assets == null || assets.ViewPrefab == null)
             {
-                host.AddNote("没找到 DemoUGuiAssets 或它的 ViewPrefab——请确认 DemoApp 下挂了 DemoUGuiAssets 且指定了 UGUI View prefab。");
+                host.AddNote("没找到 DemoUGuiAssets 或它的 ViewPrefab——请确认 demo 根节点下挂了 DemoUGuiAssets 且指定了 UGUI View prefab。");
                 return;
             }
 
@@ -47,14 +47,14 @@ namespace Game.Framework.Demo.Modules
                 new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/UGuiDemoView.cs", "protected override void Awake", "View 内部接线（Awake）"));
 
             host.AddSectionTitle("它绑定到哪个 Context");
-            host.AddNote("View 实例化在 DemoApp 子树下，`Awake` 沿父链找到最近的 Context = DemoApp 上的 `MonoDemoContext`（demo 的根 Context）并绑定。注意：View 不“注册”进容器（它不被别人依赖），只是把自己注入 + 绑定 `Bag`。");
+            host.AddNote("View 实例化在 demo 根子树下，`Awake` 沿父链找到最近的 Context = demo 根节点上的 `MonoDemoContext`（demo 的根 Context）并绑定。注意：View 不“注册”进容器（它不被别人依赖），只是把自己注入 + 绑定 `Bag`。");
 #if UNITY_EDITOR
-            host.AddActionRow("选中它绑定的 Context（DemoApp）", () =>
+            host.AddActionRow("选中它绑定的 Context（demo 根）", () =>
             {
                 var ctx = Object.FindFirstObjectByType<MonoDemoContext>();
                 if (ctx != null) SelectInInspector(ctx.gameObject);
             });
-            host.AddTip("弹出后会自动选中这个 View——在 Inspector 顶部看 MonoViewBase 的 “Resolved Context”，就是它绑定到的 Context（正是 DemoApp 的 MonoDemoContext）。");
+            host.AddTip("弹出后会自动选中这个 View——在 Inspector 顶部看 MonoViewBase 的 “Resolved Context”，就是它绑定到的 Context（正是 demo 根的 MonoDemoContext）。");
 #endif
 
             host.AddSectionTitle("这个 View 做对了什么");
