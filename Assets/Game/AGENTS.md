@@ -63,13 +63,14 @@ var count = this.ExecuteCommand(new GetCountStateCommand());
 
 ## 5. class Command vs struct Command
 
-**同步 Command 默认用 `readonly struct`**——零分配，通过 `ctx.GetXxx<T>()` 访问层；仅当依赖项多、确实需要 `[Inject]` 时才改用 class。
+**所有 Command（同步 / 异步）默认用 `readonly struct`**——零分配，通过 `ctx.GetXxx<T>()` 访问层；仅当确实需要 `[Inject]` 字段注入时才改用 class。**struct/class 的取舍只看「要不要字段注入」，与同步/异步无关**——`readonly struct` 一样能写 `async` 方法实现 `IAsyncCommand`（状态机捕获 this 的副本，不写回字段），异步也零装箱（`CommandSystem` 同步异步共用同一套泛型分发）。
 
 | | class Command | struct Command |
 |---|---|---|
 | `[Inject]` | ✅ 支持 | ❌ 反射 SetValue 只修改装箱副本 |
 | 访问层 | `ctx.GetSystem<T>()` 或 `[Inject]` 字段 | 只能通过 `ctx.GetSystem<T>()` |
 | 分配 | 堆分配 | 零分配 |
+| 同步/异步 | 都可，但仅在需要 `[Inject]` 时选它 | 都可（含 `async`），默认首选 |
 | struct 有返回值时 | 优先用可推断重载 `ExecuteCommand(new Cmd())` | 无可推断重载时才写双泛型避免装箱 |
 
 ## 6. `Game.Framework.System` 命名空间与 `global::System` 冲突
@@ -123,7 +124,8 @@ await this.ExecuteCommandAsync(new MyCommand(), customCancellationToken);
 
 - Mono 路径：继承 `MonoViewBase`/`MonoSystemBase` 等，Awake 自动绑定到目标 `IGameContext`。
 - 纯 C# 路径：实现 `IHasGameContext`，`GameContext.AttachTo()` 反射找 `GameContext` 字段并赋值（FieldInfo 已缓存）。
-- `[Inject] GameContext` 被禁止：InjectionPlan 黑名单，运行期报错。
+- `[Inject] GameContext` / `IGameContext` 被禁止：万能门会绕过权限接口，InjectionPlan 注入期报错。
+- `[Inject]` 注入目标受层权限校验（与 `this.GetXxx` 同源）：宿主有 `ICanGetModel` / `ICanGetSystem` / `ICanGetUtility` 才能注入对应层，否则注入期 `LogError` 拦下——View 注 Model/System、Model 注 Model/System、Utility 注任何层都会被挡。Command 例外（经 `ctx` 有完整层访问权）。注入非层类型（普通服务，或偶尔注册进容器的 View 等）不受此限，能否注入只看容器有没有注册。
 
 ## 11. struct Command 的扩展方法限制
 

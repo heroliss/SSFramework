@@ -36,7 +36,7 @@ namespace Game.Framework.Demo.Modules
             host.AddNote("`RegisterFactory` 给的是工厂：首次 Resolve 才调用、结果缓存为单例。所以点几次都只构造一次，"
                 + "适合“用到才建”的重对象（音频 / 网络 / 配置）。", CodeRef.Here("InstallBindings", "注册代码"));
 
-            host.AddSectionTitle("拿依赖的两种方式：[Inject] vs ctx");
+            host.AddSectionTitle("拿依赖的几种方式：[Inject] / ctx / this.GetXxx");
             var injectLabel = host.AddValueDisplay("点下面按钮：class Command 用 [Inject] 拿同一个服务");
             host.AddActionRow("class Command + [Inject]", () =>
             {
@@ -45,15 +45,18 @@ namespace Game.Framework.Demo.Modules
             }, CodeRef.Here("class InjectServiceCommand", "InjectServiceCommand"));
             host.AddNote("class Command 把依赖声明成 `[Inject]` 字段，`CommandSystem` 在 Execute 前自动注入；前面「使用服务」是 struct Command，不能 `[Inject]`（反射只会写到装箱副本），改用 `ctx.GetUtility` 实时解析——两者拿到的是同一个单例。");
             host.AddNote("能 `[Inject]` 的：class Command + System / Model / Utility 各层（Mono 在 `Awake` 注入、纯 C# 经绑定注入）；唯独 struct Command 不行。另外禁止 `[Inject]` `GameContext` / `IGameContext`（拿到完整 Context 会绕过权限接口，框架黑名单报错）。");
+            host.AddNote("别以为只能 `[Inject]`：层（System / Model / Utility）里既能用 `[Inject]` 字段（`Awake` / 绑定时注入一次、快照到字段），也能用扩展方法 `this.GetModel<T>()` / `this.GetSystem<T>()` / `this.GetUtility<T>()` 实时解析。Command 里则是 class 用 `[Inject]`、struct / 通用用 `ctx.GetXxx`；View 没有 `GetModel` / `GetSystem` 权限，只能经 Command 间接拿（编译期挡）。");
+            host.AddNote("权限校验也覆盖 `[Inject]`：注入目标按宿主层的权限闸门校验——宿主有 `ICanGetModel` / `ICanGetSystem` / `ICanGetUtility` 才能注入对应层（与 `this.GetXxx` 同源）。所以 View 注 Model / System、Model 注 Model / System、Utility 注任何层都会在注入期 `LogError` 拦下，`[Inject]` 不是绕过权限的后门。Command 例外：它经 `ctx` 有完整层访问权，可注入三层。`GameContext` / `IGameContext` 始终禁注。");
 
             host.AddSectionTitle("注册与注入");
             host.AddConcept("RegisterValue", "直接给现成实例——前面各章注册 Model 用的就是它。");
             host.AddConcept("RegisterFactory", "给工厂，首次 Resolve 才构造、缓存为单例（也可 Eager 在 `Build` 时立即构造）。");
-            host.AddConcept("[Inject] 字段", "class Command / 层 可用 `[Inject]` 字段拿依赖（执行 / `Awake` 前注入）；struct Command 不行（反射改的是装箱副本），只能 `ctx.GetXxx`。");
+            host.AddConcept("RegisterOwned", "给一个 `IDisposable` 实例、并把它的生命周期交给容器：随 `Context.Dispose` 逆序、幂等地 `Dispose`（如 `PoolUtility`）。对比 `RegisterValue`——后者给的现成实例容器不负责释放。");
+            host.AddConcept("[Inject] / this.GetXxx", "层与 class Command 可用 `[Inject]` 字段拿依赖（执行 / `Awake` 前注入、快照）；层里也可改用 `this.GetXxx<T>()` 实时解析。struct Command 不能 `[Inject]`（反射改的是装箱副本），只能 `ctx.GetXxx`。");
             host.AddNote("Container 按精确类型键解析、不做继承扫描——注册成什么类型，就用那个类型取。"
                 + "解析顺序与父子 `Context` 回退见「多 Context · 作用域树」一章。");
 #if UNITY_EDITOR
-            host.AddActionRow("选中 demo 根 Context（DemoApp）", () =>
+            host.AddActionRow("选中 demo 根 Context 节点", () =>
             {
                 var ctx = Object.FindFirstObjectByType<MonoDemoContext>();
                 if (ctx != null) { UnityEditor.Selection.activeObject = ctx.gameObject; UnityEditor.EditorGUIUtility.PingObject(ctx.gameObject); }

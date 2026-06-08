@@ -6,6 +6,8 @@ using Game.Framework.Command;
 using Game.Framework.Event;
 using Game.Framework.System;
 using Game.Framework.Utility;
+using Game.Framework.Model;
+using Game.Framework.View;
 using NUnit.Framework;
 using UnityEngine.TestTools;
 
@@ -489,6 +491,123 @@ namespace Game.Framework.Test
             ctx.Dispose();
         }
 
+        // ---- [Inject] 注入期权限校验：宿主有对应 ICanGetX 权限才能注入该层（与 this.GetXxx 同源；Command 经 ctx 有完整访问权）----
+
+        /// <summary>View 无 ICanGetModel：注入 Model 应被拦下、字段保持 null（容器里已注册 Model，排除"解析不到"的干扰）。</summary>
+        [Test]
+        public void Inject_ViewCannotInjectModel_FieldRemainsNull()
+        {
+            var builder = new ContainerBuilder();
+            builder.RegisterValue(new TestModel(), new[] { typeof(TestModel) });
+            var ctx = new GameContext(builder.Build());
+
+            var target = new ViewInjectsModel();
+            LogAssert.ignoreFailingMessages = true;   // 越权注入会打 LogError（按类型缓存，仅首次）
+            try { Assert.DoesNotThrow(() => ctx.Inject(target)); }
+            finally { LogAssert.ignoreFailingMessages = false; }
+
+            Assert.IsNull(target.Model, "View 无 GetModel 权限，[Inject] Model 应被注入期校验拦下");
+            ctx.Dispose();
+        }
+
+        /// <summary>View 有 ICanGetUtility：注入 Utility 应放行——对照组，证明校验按权限、不是一刀切禁 View。</summary>
+        [Test]
+        public void Inject_ViewCanInjectUtility()
+        {
+            var builder = new ContainerBuilder();
+            var utility = new TestUtility { Name = "u" };
+            builder.RegisterValue(utility, new[] { typeof(TestUtility) });
+            var ctx = new GameContext(builder.Build());
+
+            var target = new ViewInjectsUtility();
+            ctx.Inject(target);
+
+            Assert.AreSame(utility, target.Utility, "View 有 GetUtility 权限，[Inject] Utility 应放行");
+            ctx.Dispose();
+        }
+
+        /// <summary>Model 无 ICanGetSystem：注入 System 应被拦下。</summary>
+        [Test]
+        public void Inject_ModelCannotInjectSystem_FieldRemainsNull()
+        {
+            var builder = new ContainerBuilder();
+            builder.RegisterValue(new TestSystem(), new[] { typeof(TestSystem) });
+            var ctx = new GameContext(builder.Build());
+
+            var target = new ModelInjectsSystem();
+            LogAssert.ignoreFailingMessages = true;
+            try { Assert.DoesNotThrow(() => ctx.Inject(target)); }
+            finally { LogAssert.ignoreFailingMessages = false; }
+
+            Assert.IsNull(target.System, "Model 无 GetSystem 权限，[Inject] System 应被拦下");
+            ctx.Dispose();
+        }
+
+        /// <summary>Model 有 ICanGetUtility：注入 Utility 应放行。</summary>
+        [Test]
+        public void Inject_ModelCanInjectUtility()
+        {
+            var builder = new ContainerBuilder();
+            var utility = new TestUtility();
+            builder.RegisterValue(utility, new[] { typeof(TestUtility) });
+            var ctx = new GameContext(builder.Build());
+
+            var target = new ModelInjectsUtility();
+            ctx.Inject(target);
+
+            Assert.AreSame(utility, target.Utility, "Model 有 GetUtility 权限，[Inject] Utility 应放行");
+            ctx.Dispose();
+        }
+
+        /// <summary>Utility 无任何 ICanGetX（IUtility 是空标记接口）：注入任何层都应被拦下——这里测注入另一个 Utility。</summary>
+        [Test]
+        public void Inject_UtilityCannotInjectUtility_FieldRemainsNull()
+        {
+            var builder = new ContainerBuilder();
+            builder.RegisterValue(new TestUtility(), new[] { typeof(TestUtility) });
+            var ctx = new GameContext(builder.Build());
+
+            var target = new UtilityInjectsUtility();
+            LogAssert.ignoreFailingMessages = true;
+            try { Assert.DoesNotThrow(() => ctx.Inject(target)); }
+            finally { LogAssert.ignoreFailingMessages = false; }
+
+            Assert.IsNull(target.Utility, "Utility 不持有任何 GetXxx 权限，[Inject] 任何层都应被拦下");
+            ctx.Dispose();
+        }
+
+        /// <summary>System 有 ICanGetModel：注入 Model 应放行。</summary>
+        [Test]
+        public void Inject_SystemCanInjectModel()
+        {
+            var builder = new ContainerBuilder();
+            var model = new TestModel { Value = "m" };
+            builder.RegisterValue(model, new[] { typeof(TestModel) });
+            var ctx = new GameContext(builder.Build());
+
+            var target = new SystemInjectsModel();
+            ctx.Inject(target);
+
+            Assert.AreSame(model, target.Model, "System 有 GetModel 权限，[Inject] Model 应放行");
+            ctx.Dispose();
+        }
+
+        /// <summary>Command 不实现 ICanXxx，但经 ctx 有完整层访问权：宿主无 ICanGetModel 也应放行 Model 注入（Command 特判）。</summary>
+        [Test]
+        public void Inject_CommandCanInjectModel_DespiteNoICanGet()
+        {
+            var builder = new ContainerBuilder();
+            var model = new TestModel { Value = "cmd" };
+            builder.RegisterValue(model, new[] { typeof(TestModel) });
+            var ctx = new GameContext(builder.Build());
+
+            var target = new CommandInjectsModel();
+            ctx.Inject(target);
+
+            Assert.AreSame(model, target.Model, "Command 经 ctx 有完整访问权，[Inject] Model 应放行");
+            ctx.Dispose();
+        }
+
         /// <summary>
         /// Container.HasBinding：本地注册时返回 true，未注册时返回 false。
         /// </summary>
@@ -543,6 +662,19 @@ namespace Game.Framework.Test
         private class ForbiddenInjectTarget
         {
             [Inject] public IGameContext Ctx;
+        }
+
+        // 注入期权限校验用：各层宿主声明一个 [Inject] 层字段（实现层标记接口即可，无需 IHasGameContext）。
+        private class ViewInjectsModel : IView { [Inject] public TestModel Model; }
+        private class ViewInjectsUtility : IView { [Inject] public TestUtility Utility; }
+        private class ModelInjectsSystem : IModel { [Inject] public TestSystem System; }
+        private class ModelInjectsUtility : IModel { [Inject] public TestUtility Utility; }
+        private class UtilityInjectsUtility : IUtility { [Inject] public TestUtility Utility; }
+        private class SystemInjectsModel : ISystem { [Inject] public TestModel Model; }
+        private class CommandInjectsModel : ICommand
+        {
+            [Inject] public TestModel Model;
+            public void Execute(ICommandContext ctx) { }
         }
     }
 }
