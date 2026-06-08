@@ -682,6 +682,8 @@ MonoBehaviour:
     - Name: _targetContext
       Entry: 6
       Data: 
+  _simulateOffline:
+    value: 0
 --- !u!114 &1007168413
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -706,16 +708,17 @@ MonoBehaviour:
     - Name: _targetContext
       Entry: 6
       Data: 
+  _packages:
+  - _name: FrameworkSamplesPackage
+    _autoInitialize: 0
+    _enableOnDemandDownload: 1
   _defaultPackageName: FrameworkSamplesPackage
   _playMode: 2
-  _packages: []
-  _mainCdnUrl: http://127.0.0.1:8080/
-  _fallbackCdnUrl: http://127.0.0.1/CDN_Fallback/
+  _cdnUrls:
+  - http://127.0.0.1:8080/
   _downloadingMaxNumber: 10
   _failedTryAgain: 3
   _fileOffset: 0
-  _editorSimulateDownloadSizeKB: 8192
-  _editorSimulateDownloadSpeedKBps: 2048
 --- !u!1 &1038919719
 GameObject:
   m_ObjectHideFlags: 0
@@ -961,7 +964,7 @@ MonoBehaviour:
   _logoList:
     _items:
     - _assetGUID: 23c87949bd2898f4c9ac58e792af981b
-      _packageName: 
+      _packageName: FrameworkSamplesPackage
     - _assetGUID: ef5962d04a38f75499352b5b5498e5bb
       _packageName: 
     - _assetGUID: 7889e1d146c5c6243b8ea85392ef68e8

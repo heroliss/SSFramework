@@ -93,7 +93,7 @@ namespace Game.Framework.Demo.Modules
                 new CodeRef("Assets/Game/Framework/Build/Editor/AssetBuildMenu.cs", "StartServer", "本地起服务（仅联调）"));
             host.AddStep("④", "进 Play(`Host`)：先读 `StreamingAssets` 的 `BuiltinCatalog` → 拉 `.version` → 拉对应版本清单 → 缺的 bundle 按需从 CDN 下载并缓存到 项目根/`AssetBuild/Downloaded/<包>`。",
                 new CodeRef("Assets/Game/Framework/Scripts/Asset/Providers/YooAssetProvider.cs", "case AssetPlayMode.Host", "Host 初始化实现"));
-            host.AddSubNote("`CdnUrls` 是候选列表：本地联调通常只填 `http://127.0.0.1:8080/`，多条时版本号 / 清单请求会随 YooAsset 的失败计数轮转重试；候选必须是等价镜像。包级「禁用按需下载」只影响 Host 下未缓存 bundle 的 `Load`：开启后直接失败，强制先显式跑下载器。",
+            host.AddSubNote("`CdnUrls` 是候选列表：本地联调通常只填 `http://127.0.0.1:8080/`，多条时版本号 / 清单请求会随 YooAsset 的失败计数轮转重试；候选必须是等价镜像。包级「启用按需下载」（默认勾选）只影响 Host 下未缓存 bundle 的 `Load`：取消勾选后直接失败，强制先显式跑下载器。",
                 new CodeRef("Assets/Game/Framework/Scripts/Asset/AssetSystemConfigModel.cs", "CdnUrls", "运行时 CDN 配置"));
 #if UNITY_EDITOR
             host.AddActionRow("定位 Collector 分包配置（构建按它执行）", () =>
@@ -105,17 +105,9 @@ namespace Game.Framework.Demo.Modules
 #endif
             host.AddTip("两个最常踩的坑：① 平台——AssetBundle 按平台区分，且编辑器进程本身是 Windows，加载不了为 Android 等移动平台构建的 bundle；要在编辑器里测 Host，先把 Build Target 切到 Standalone Windows 再重新构建，测移动平台请上真机。② 顺序——必须先「构建+部署 CDN」再进 Play：init 只在进游戏时跑一次，先进 Play 会因 StreamingAssets 内置清单缺失而 404 失败，补构建后也要重进 Play 才生效。");
 
-            // ── 机制：模拟下载器 / 清缓存 ──
-            host.AddSectionTitle("两个机制：模拟下载器 / 清缓存");
-            host.AddSubNote("模拟下载器：`EditorSimulate` 下资源都在本地、真实 downloader 的 `TotalCount=0`、UI 会瞬间跳满。框架检测到这种情况就包一层 `SimulatedAssetDownloader`，用「模拟大小 ÷ 速度」按固定 50ms 间隔推进进度，让你能真实验证下载 UI。大小/速度 = `AssetSystemConfigModel` 的「模拟下载」两项（默认 8MB ÷ 2MB/s，任一设 0 关闭）。",
-                new CodeRef("Assets/Game/Framework/Scripts/Asset/SimulatedAssetDownloader.cs", "class SimulatedAssetDownloader", "模拟下载器实现"));
+            // ── 机制：清缓存 ──
+            host.AddSectionTitle("机制：清缓存");
             host.AddSubNote("清缓存（`ClearCache`，正式游戏也用）：清的是 项目根/`AssetBuild/Downloaded` 里已下载的 bundle，同步内存缓存记录后 `IsNeedDownload` 重新变真。`All` = 设置里「清除缓存」/ 损坏恢复 / 强制全量重下；`Unused` = 热更到新版本后回收旧版本残留（省空间）。它不卸载已加载到内存的资源（那是另一回事）。");
-#if UNITY_EDITOR
-            host.AddActionRow("定位模拟下载配置（大小 / 速度）", () =>
-            {
-                if (settingsModel != null) PingSceneObject(settingsModel.gameObject);
-            });
-#endif
 
             // ── 操作：本地联调 vs 生产 ──
             host.AddSectionTitle("操作：本地联调 vs 生产构建");

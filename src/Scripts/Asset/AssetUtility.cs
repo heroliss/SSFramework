@@ -39,24 +39,10 @@ namespace Game.Framework
         private AssetProviderConfig _config = new();
         private bool _disposedByDestroy;
 
-#if UNITY_EDITOR
-        private long _editorSimulateDownloadSizeBytes;
-        private long _editorSimulateDownloadSpeedBytesPerSec;
-
-        /// <summary>
-        /// EditorSimulate 模式下、无需真实下载时，用「模拟大小 + 速度」驱动一段进度动画（时长 = 大小 / 速度）。
-        /// 由 <see cref="AssetInitSystem"/> 在 Configure 后注入；任一为 0 = 不模拟。
-        /// 模拟大小会作为 <see cref="DownloadProgressReport.TotalBytes"/> 暴露给 UI 显示总大小 / 已下载 / 速度。
-        /// 仅编辑器生效，整字段与逻辑都在 <c>#if UNITY_EDITOR</c> 包裹之内。
-        /// </summary>
-        internal void ConfigureEditorSimulateDownload(long sizeBytes, long speedBytesPerSec)
-        {
-            _editorSimulateDownloadSizeBytes = sizeBytes;
-            _editorSimulateDownloadSpeedBytesPerSec = speedBytesPerSec;
-        }
-#endif
-
-        public bool IsInitialized => GetState(_defaultPackageName).State.Value == AssetInitState.Ready;
+        // 无默认包（DefaultPackageName 留空）时恒为 false——没有「默认包」可言。
+        public bool IsInitialized =>
+            !string.IsNullOrWhiteSpace(_defaultPackageName) &&
+            GetState(_defaultPackageName).State.Value == AssetInitState.Ready;
         public AssetPlayMode CurrentPlayMode { get; private set; } = AssetPlayMode.EditorSimulate;
         public ReadOnlyReactiveProperty<AssetInitState> InitState => GetState(_defaultPackageName).State;
 
@@ -73,7 +59,7 @@ namespace Game.Framework
         private string InspectorDefaultPackage => _defaultPackageName;
 
         [FoldoutGroup(DiagGroup), ShowInInspector, ReadOnly, HideInEditorMode, LabelText("各包初始化状态"), PropertyOrder(-88)]
-        [PropertyTooltip("每个已登记包的初始化状态（Idle / Initializing / Ready / Failed）。Failed 时附简短原因——排查初始化失败先看这里。")]
+        [PropertyTooltip("每个已登记包的初始化状态（Idle / Pending / Initializing / Ready / Failed）。Failed 时附简短原因——排查初始化失败先看这里。")]
         private Dictionary<string, string> InspectorPackageStates
         {
             get
@@ -110,7 +96,7 @@ namespace Game.Framework
 #if UNITY_EDITOR
             _provider.SimulateOffline = () => _simulateOffline.CurrentValue; // 把开关接到 provider（实时读取当前值）
 #endif
-            GetState(_defaultPackageName);
+            // 默认包状态在 Configure（拿到真实默认包名后）按需建立；此处不预建，避免留下 field 默认名的「孤儿」状态。
         }
 
         protected override void OnDestroy()
@@ -138,15 +124,17 @@ namespace Game.Framework
         /// <summary>
         /// 由 <see cref="AssetInitSystem"/> 在初始化前写入运行时配置、默认包名与运行模式。重复调用会更新后续包初始化使用的配置。
         /// <para>运行模式在此即写入 <see cref="CurrentPlayMode"/>（而非等到 <see cref="InitializePackageAsync"/>）：
-        /// 关闭自动初始化、延迟到业务显式 <c>RetryInitialize</c> 触发时，仍能用正确模式初始化，而不是回落到默认值。</para>
+        /// 某些包关闭自动初始化、延迟到业务显式 <c>Initialize</c> 触发时，仍能用正确模式初始化，而不是回落到默认值。</para>
         /// </summary>
         internal void Configure(string defaultPackageName, AssetProviderConfig config, AssetPlayMode mode)
         {
             ThrowIfDisposed();
-            _defaultPackageName = string.IsNullOrWhiteSpace(defaultPackageName) ? "DefaultPackage" : defaultPackageName;
+            // 允许空默认包名（= 无默认包：不带 packageName 的便捷重载会清晰报错，而不是兜一个写死的名字）。
+            _defaultPackageName = defaultPackageName?.Trim() ?? string.Empty;
             _config = config ?? new AssetProviderConfig();
             CurrentPlayMode = mode;
-            GetState(_defaultPackageName);
+            if (!string.IsNullOrWhiteSpace(_defaultPackageName))
+                GetState(_defaultPackageName);
         }
 
         /// <summary>
@@ -164,10 +152,13 @@ namespace Game.Framework
             if (state.State.Value == AssetInitState.Ready) return;
             if (state.State.Value == AssetInitState.Initializing)
             {
+                // 别人正在初始化它：等本次完成即可。
                 await state.InitTcs.Task.AttachExternalCancellation(token);
                 return;
             }
 
+            // 走到这里只剩 Idle / Pending / Failed —— 都由本次调用负责初始化。
+            // Pending（已登记排队、尚未开跑）复用 GetState 时建的 fresh InitTcs，无需重置；只有 Failed 要重置 TCS/错误以便重试。
             if (state.State.Value == AssetInitState.Failed)
             {
                 state.InitTcs = new UniTaskCompletionSource();
@@ -223,11 +214,49 @@ namespace Game.Framework
         /// <summary>配置缺失导致默认包无法开始初始化时使用，让等待默认包的业务能收到明确异常。</summary>
         internal void FailDefaultInitialization(Exception exception)
         {
+            if (string.IsNullOrWhiteSpace(_defaultPackageName)) return; // 无默认包则无从置 Failed（业务本就该用 packageName 重载）
             var state = GetState(_defaultPackageName);
             var ex = exception ?? new InvalidOperationException("[AssetUtility] Asset initialization failed.");
             state.InitError = ex;
             state.State.Value = AssetInitState.Failed;
             state.InitTcs.TrySetResult(); // 见 InitializePackageAsync：失败经 InitError 传递，不给 InitTcs 挂异常
+        }
+
+        /// <summary>
+        /// 把这些包标记为 <see cref="AssetInitState.Pending"/>（仅当前为 <see cref="AssetInitState.Idle"/> 时）。
+        /// 由 <see cref="AssetInitSystem"/> 在批量自动初始化「逐个开跑前」统一调用：让「已登记会初始化、但还没轮到」的包
+        /// 对并发 Load 表现为「等待」（Pending）而非「未初始化报错」（Idle）——消除批次窗口内的抢跑竞态。
+        /// </summary>
+        internal void MarkPackagesPending(IEnumerable<string> packageNames)
+        {
+            ThrowIfDisposed();
+            if (packageNames == null) return;
+            foreach (var packageName in packageNames)
+            {
+                if (string.IsNullOrWhiteSpace(packageName)) continue;
+                var state = GetState(packageName);
+                if (state.State.Value == AssetInitState.Idle)
+                    state.State.Value = AssetInitState.Pending;
+            }
+        }
+
+        /// <summary>
+        /// 把仍停在 <see cref="AssetInitState.Pending"/>（已登记、但批次初始化没轮到就被中止）的包置 <see cref="AssetInitState.Failed"/>，
+        /// 并唤醒其等待者。由 <see cref="AssetInitSystem"/> 在自动初始化批次结束（含被取消）时兜底调用：
+        /// 否则这些包的 InitTcs 永不完成、后续 <c>EnsureInitialized</c> 会无限挂起——与「Pending 等待 / Idle 报错」契约相悖。
+        /// 置 Failed（而非退回 Idle）让既有等待者醒来即拿到清晰异常；之后业务可 <see cref="Initialize"/> 重试。
+        /// </summary>
+        internal void AbandonPendingPackages()
+        {
+            if (_disposedByDestroy) return;
+            foreach (var state in _packages.Values)
+            {
+                if (state.State.Value != AssetInitState.Pending) continue;
+                state.InitError = new InvalidOperationException(
+                    $"[AssetUtility] 包 '{state.Name}' 的初始化在开始前被中止；如需加载请重新 Initialize(\"{state.Name}\")。");
+                state.State.Value = AssetInitState.Failed;
+                state.InitTcs.TrySetResult(); // 见 InitializePackageAsync：失败经 InitError 传递，不给 InitTcs 挂异常
+            }
         }
 
         public ReadOnlyReactiveProperty<AssetInitState> GetInitState(string packageName)
@@ -239,13 +268,20 @@ namespace Game.Framework
         public async UniTask EnsureInitialized(string packageName, CancellationToken ct = default)
         {
             ThrowIfDisposed();
-            var state = GetState(NormalizePackageName(packageName));
-            if (state.State.Value == AssetInitState.Ready) return;
-            if (state.State.Value == AssetInitState.Failed)
-                throw state.InitError ?? new InvalidOperationException($"[AssetUtility] Package '{state.Name}' initialization failed.");
+            var name = RequirePackage(packageName);
+            var state = GetState(name);
+            var current = state.State.Value;
+            if (current == AssetInitState.Ready) return;
+            if (current == AssetInitState.Failed)
+                throw state.InitError ?? new InvalidOperationException($"[AssetUtility] Package '{name}' initialization failed.");
+            // Idle = 既没开自动初始化、也没人 Initialize 过它：没人会去完成 InitTcs，等下去就是无限挂起——直接报错引导。
+            if (current == AssetInitState.Idle)
+                throw new InvalidOperationException(
+                    $"[AssetUtility] 包 '{name}' 未初始化：它既没开启自动初始化、也没被 Initialize 触发过。" +
+                    $"请在 AssetSystemConfigModel 的包列表里为它开启「自动初始化」，或在加载前先调 Initialize(\"{name}\")。");
 
-            // 等「初始化结束」。InitTcs 失败时也以成功完成收尾（不挂异常，见 InitializePackageAsync），
-            // 所以醒来后按状态判定：Failed 则抛 InitError。
+            // 剩 Pending（已登记排队）/ Initializing（进行中）：等「初始化结束」。InitTcs 失败时也以成功完成收尾
+            // （不挂异常，见 InitializePackageAsync），所以醒来后按状态判定：Failed 则抛 InitError。
             if (!ct.CanBeCanceled)
             {
                 await state.InitTcs.Task.AttachExternalCancellation(_disposeCts.Token);
@@ -257,15 +293,16 @@ namespace Game.Framework
             }
 
             if (state.State.Value == AssetInitState.Failed)
-                throw state.InitError ?? new InvalidOperationException($"[AssetUtility] Package '{state.Name}' initialization failed.");
+                throw state.InitError ?? new InvalidOperationException($"[AssetUtility] Package '{name}' initialization failed.");
         }
 
-        public async UniTask RetryInitialize(string packageName = null, CancellationToken ct = default)
+        public async UniTask Initialize(string packageName = null, CancellationToken ct = default)
         {
             ThrowIfDisposed();
-            var name = string.IsNullOrWhiteSpace(packageName) ? _defaultPackageName : packageName;
-            // 复用 AssetInitSystem 启动时 Configure 写入的 _config、以及上次初始化记录的 CurrentPlayMode（AssetInitSystem 总在 Awake 先跑过一轮，
-            // 此时 CurrentPlayMode 已是真实模式）。InitializePackageAsync 的 Failed/Idle 分支会重置状态并重跑、Ready 分支直接返回，故这里幂等且不抛。
+            var name = RequirePackage(packageName);
+            // 复用 AssetInitSystem 启动时 Configure 写入的 _config、以及上次记录的 CurrentPlayMode（AssetInitSystem 总在 Awake 先跑过一轮 Configure，
+            // 此时 CurrentPlayMode 已是真实模式）。InitializePackageAsync 对 Idle / Pending / Failed 包会（重新）初始化、Ready 直接返回，
+            // 故这里幂等；初始化失败不抛、结果写回 InitState（仅「未指定包又无默认包」这种调用方错误会经 RequirePackage 抛）。
             if (ct.CanBeCanceled)
             {
                 using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _disposeCts.Token);
@@ -410,7 +447,7 @@ namespace Game.Framework
             ThrowIfDisposed();
             packageName = NormalizePackageName(packageName);
             RequireReadyForDownloader(packageName);
-            return FinishDownloader(_provider.CreateAllDownloader(packageName, _config.DownloadingMaxNumber, _config.FailedTryAgain));
+            return _provider.CreateAllDownloader(packageName, _config.DownloadingMaxNumber, _config.FailedTryAgain);
         }
 
         public IAssetDownloader CreateLocationDownloader(params string[] locations)
@@ -482,14 +519,14 @@ namespace Game.Framework
         {
             packageName = NormalizePackageName(packageName);
             RequireReadyForDownloader(packageName);
-            return FinishDownloader(_provider.CreateTagDownloader(packageName, tags, _config.DownloadingMaxNumber, _config.FailedTryAgain));
+            return _provider.CreateTagDownloader(packageName, tags, _config.DownloadingMaxNumber, _config.FailedTryAgain);
         }
 
         private IAssetDownloader CreateLocationDownloaderInternal(string packageName, IReadOnlyList<string> locations)
         {
             packageName = NormalizePackageName(packageName);
             RequireReadyForDownloader(packageName);
-            return FinishDownloader(_provider.CreateLocationDownloader(packageName, locations, _config.DownloadingMaxNumber, _config.FailedTryAgain));
+            return _provider.CreateLocationDownloader(packageName, locations, _config.DownloadingMaxNumber, _config.FailedTryAgain);
         }
 
         // 三种下载器（tag / 全部 / 按地址）共用：建下载器前必须包已就绪，否则统计不出待下载清单。
@@ -497,22 +534,6 @@ namespace Game.Framework
         {
             if (GetState(packageName).State.Value != AssetInitState.Ready)
                 throw new InvalidOperationException($"[AssetUtility] Create downloader before package '{packageName}' initialization completed.");
-        }
-
-        // 三种下载器共用的收尾：EditorSimulate 下资源都已就绪、真实 downloader.TotalCount 必为 0、UI 会瞬间跳满；
-        // 配了「模拟大小 + 速度」时包一层 SimulatedAssetDownloader，按 大小/速度 推进 Progress 与字节数，让开发者能验证下载 UI。其余原样返回。
-        private IAssetDownloader FinishDownloader(IAssetDownloader downloader)
-        {
-#if UNITY_EDITOR
-            if (_editorSimulateDownloadSizeBytes > 0
-                && _editorSimulateDownloadSpeedBytesPerSec > 0
-                && CurrentPlayMode == AssetPlayMode.EditorSimulate
-                && downloader.TotalCount == 0)
-            {
-                return new SimulatedAssetDownloader(_editorSimulateDownloadSizeBytes, _editorSimulateDownloadSpeedBytesPerSec);
-            }
-#endif
-            return downloader;
         }
 
         private async UniTask<IAssetHandle<UnityEngine.Object>> LoadInternal(
@@ -545,8 +566,21 @@ namespace Game.Framework
             return state;
         }
 
+        // 把空 packageName 解析成默认包（默认包也可能为空）。被动用：仅查询 / 取状态，空结果让下游自然得到 not-ready，不抛。
         private string NormalizePackageName(string packageName)
             => string.IsNullOrWhiteSpace(packageName) ? _defaultPackageName : packageName;
+
+        // 发起真正操作（加载 / 等待 / 初始化）前用：解析后若仍为空（未配置默认包且未指定 packageName），当场清晰报错，
+        // 不把空包名一路带到 provider / 状态机产生晦涩错误。
+        private string RequirePackage(string packageName)
+        {
+            var name = NormalizePackageName(packageName);
+            if (string.IsNullOrWhiteSpace(name))
+                throw new InvalidOperationException(
+                    "[AssetUtility] 未配置默认资源包（AssetSystemConfigModel.DefaultPackageName 为空），且本次未指定 packageName——" +
+                    "请配置默认包，或改用带 packageName 的重载（如 Load(packageName, location)）。");
+            return name;
+        }
 
         private void ThrowIfDisposed()
         {

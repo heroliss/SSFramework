@@ -17,7 +17,7 @@
 
 ## 异步方法命名：无同步版本则省略 Async 后缀
 
-框架**面向业务的公共异步 API**（Utility / Bag / 扩展方法等）一律返回 `UniTask`、且**不提供同步对应版本**，因此统一**省略 `Async` 后缀**——`Load` / `LoadScene` / `ClearCache` / `UnloadUnusedAssets` / `RetryInitialize` 等。后缀的本意是区分同名同步/异步重载；既然没有同步版本，后缀只是噪音。
+框架**面向业务的公共异步 API**（Utility / Bag / 扩展方法等）一律返回 `UniTask`、且**不提供同步对应版本**，因此统一**省略 `Async` 后缀**——`Load` / `LoadScene` / `ClearCache` / `UnloadUnusedAssets` / `Initialize` 等。后缀的本意是区分同名同步/异步重载；既然没有同步版本，后缀只是噪音。
 
 **例外（保留 `Async`）：适配层 / provider 内部**（`IAssetProvider`、`YooAssetProvider`）保留 `InitializeAsync` / `LoadAssetAsync` / `ClearCacheAsync` 等，与所包装的第三方库（YooAsset 的 `package.XxxAsync`）命名对齐，便于对照底层调用。
 

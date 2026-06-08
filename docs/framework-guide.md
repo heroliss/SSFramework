@@ -1138,11 +1138,14 @@ await downloader.Download(this.GetCancellationTokenOnDestroy());
 
 ### 初始化、缓存与卸载
 
-`AssetSystemConfigModel` + `AssetUtility` + `AssetInitSystem` 挂在同一 Context 节点。默认 `AutoInitializeOnStartup=true`，启动时立即按包初始化；若隐私同意 / 选区前不能联网，把它关掉，启动只写配置、不拉远端清单，业务同意后调用：
+`AssetSystemConfigModel` + `AssetUtility` + `AssetInitSystem` 挂在同一 Context 节点。所有包都登记在 `AssetSystemConfigModel.Packages` 列表里，每个包各有「自动初始化」开关：开则启动即拉清单；关则启动不碰它的网络（DLC 懒加载 / 隐私同意 / 选区前不联网的合规启动），业务在合适时机显式调用冷启动它：
 
 ```csharp
-await this.GetUtility<IAssetUtility>().RetryInitialize();
+await this.GetUtility<IAssetUtility>().Initialize();          // 默认包
+await this.GetUtility<IAssetUtility>().Initialize("DlcPack"); // 指定包
 ```
+
+> ⚠ 既没开自动初始化、也没 `Initialize` 过的包，`Load` 它会**直接抛**「未初始化」异常（fail-fast，不是无限等待）——要加载的包要么开自动初始化、要么先 `Initialize`。
 
 资源释放分三层，别混用：
 
@@ -1152,7 +1155,7 @@ await this.GetUtility<IAssetUtility>().RetryInitialize();
 | `UnloadUnusedAssets()` | 卸载内存中引用归零的 bundle | 场景切换 / 关卡结束 |
 | `ClearCache(...)` / `ClearCacheByTags(...)` / `ClearCacheByLocations(...)` | 删除磁盘上的已下载 bundle 缓存 | 强制重下 / 热更后省空间 / 卸 DLC 缓存 |
 
-Host 模式默认允许 `Load` 对未缓存 bundle 当场按需下载。大型 DLC 若不想“误 Load 一个资源就自动下载”，在 `AssetSystemConfigModel.ExtraPackages`（Inspector「额外资源包」）里加一条该包并勾「禁用按需下载」：之后本包未缓存资源的 `Load` 直接失败，业务必须先用下载器显式预下载并展示进度。默认包总会初始化、无需在此列出，仅当要额外初始化非默认包、或给某个包设包级策略时才在此添加。
+Host 模式默认允许 `Load` 对未缓存 bundle 当场按需下载。大型 DLC 若不想“误 Load 一个资源就自动下载”，在 `AssetSystemConfigModel.Packages` 列表里取消该包的「启用按需下载」：之后本包未缓存资源的 `Load` 直接失败，业务必须先用下载器显式预下载并展示进度。包级策略（自动初始化 / 启用按需下载）都在这一处按包配置。
 
 ### Inspector 行为
 

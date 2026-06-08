@@ -89,10 +89,14 @@ namespace Game.Framework.Editor
 
             var current = packageProp.stringValue;
             var defaultPkg = ResolveDefaultPackageName();
-            var defaultLabel = string.IsNullOrEmpty(defaultPkg) ? "(默认包)" : $"默认: {defaultPkg}";
+            bool noDefault = string.IsNullOrEmpty(defaultPkg);
+            // 留空 = 用默认包。没配默认包时，留空的引用 Get() 会报错——把标签/提示改成警告态，引导显式指定包。
+            var defaultLabel = noDefault ? "(无默认包!)" : $"默认: {defaultPkg}";
             var text = string.IsNullOrEmpty(current) ? defaultLabel : current;
             var tooltip = string.IsNullOrEmpty(current)
-                ? $"留空 = 用默认包（当前默认包：{(string.IsNullOrEmpty(defaultPkg) ? "未配置" : defaultPkg)}）"
+                ? (noDefault
+                    ? "⚠ 未配置默认包：留空的引用 Get() 会报错。请在此显式指定包，或给 AssetSystemConfigModel 配 Default Package。"
+                    : $"留空 = 用默认包（当前默认包：{defaultPkg}）")
                 : $"显式指定包：{current}";
             if (!GUI.Button(rect, new GUIContent(text, tooltip), EditorStyles.popup)) return;
 

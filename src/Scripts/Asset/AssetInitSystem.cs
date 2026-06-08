@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using Game.Framework.Common;
@@ -16,8 +17,9 @@ namespace Game.Framework
     ///
     /// 单个 package 初始化失败只会让对应包进入 Failed，不阻塞后续包；业务加载某个包时会等待该包自己的状态。
     ///
-    /// <see cref="AssetSystemConfigModel.AutoInitializeOnStartup"/> 关闭时，启动只写配置、不触发初始化（不联网拉清单），
-    /// 留给业务在合适时机显式调 <see cref="IAssetUtility.RetryInitialize"/>——用于隐私同意 / 选区后再联网的启动流程。
+    /// 自动初始化是<b>按包</b>的（<see cref="AssetPackageConfig.AutoInitialize"/>）：只有标了「自动初始化」的包在启动时拉清单；
+    /// 标「不自动初始化」的包（DLC 懒加载 / 合规延迟联网）保持 Idle，留给业务在合适时机显式调 <see cref="IAssetUtility.Initialize"/> 触发。
+    /// 把全部要联网的包都设为「不自动初始化」= 启动前零网络连接（隐私同意 / 选区后再联网的合规启动）。
     /// </summary>
     public class AssetInitSystem : MonoSystemBase
     {
@@ -57,24 +59,40 @@ namespace Game.Framework
 
             // Model→provider 配置 DTO 的映射收口在 Model.ToProviderConfig()（新增配置项只改一处）。
             // 默认包名 / 运行模式是「初始化身份 / 模式」参数、不在 DTO 里，单独传给 Configure。
-            // 运行模式在此写入 CurrentPlayMode：即便关掉自动初始化、延迟到业务显式 RetryInitialize 触发，也能用正确模式跑。
+            // 运行模式在此写入 CurrentPlayMode：即便某些包延迟到业务显式 Initialize 触发，也能用正确模式跑。
             _utility.Configure(_settings.DefaultPackageName, _settings.ToProviderConfig(), _settings.ActualPlayMode);
-#if UNITY_EDITOR
-            // EditorSimulate 模拟下载（大小 + 速度，时长 = 大小/速度）：仅编辑器写入，AssetUtility 内部按需包装 SimulatedAssetDownloader。
-            _utility.ConfigureEditorSimulateDownload(
-                _settings.EditorSimulateDownloadSizeBytes,
-                _settings.EditorSimulateDownloadSpeedBytesPerSec);
-#endif
 
-            // 延迟初始化：关掉自动初始化时，启动只配置、不联网拉清单；由业务在合适时机（如隐私同意 / 选区后）
-            // 调 IAssetUtility.RetryInitialize() 触发——RetryInitialize 对 Idle 包即「冷启动初始化」。
-            if (!_settings.AutoInitializeOnStartup)
-                return;
-
-            foreach (var packageName in _settings.EnumeratePackageNames())
+            // 配置校验：默认包名指向不存在的包会让所有便捷重载失效——把默认包置 Failed 让等待方收到清晰异常，但不拖垮其它包。
+            var configError = _settings.GetConfigError();
+            if (configError != null)
             {
-                if (token.IsCancellationRequested) break;
-                await _utility.InitializePackageAsync(packageName, _settings.ActualPlayMode, token);
+                var ex = new InvalidOperationException("[AssetInitSystem] " + configError);
+                Debug.LogError(ex);
+                _utility.FailDefaultInitialization(ex);
+            }
+
+            // 逐包自动初始化：先把「该自动初始化」的包统一标 Pending（消除批次窗口内 Load 抢跑竞态 → 此时 Load 等待而非报错），
+            // 再依次初始化。标「不自动初始化」的包保持 Idle，待业务 Initialize 触发；全列表都不自动初始化 = 启动零联网（合规启动）。
+            var autoInitPackages = new List<string>();
+            foreach (var packageName in _settings.EnumeratePackageNames())
+                if (_settings.ShouldAutoInitialize(packageName))
+                    autoInitPackages.Add(packageName);
+
+            _utility.MarkPackagesPending(autoInitPackages);
+
+            try
+            {
+                foreach (var packageName in autoInitPackages)
+                {
+                    if (token.IsCancellationRequested) break;
+                    await _utility.InitializePackageAsync(packageName, _settings.ActualPlayMode, token);
+                }
+            }
+            finally
+            {
+                // 批次正常跑完时这是空操作（已无 Pending）；被取消/中止而提前结束时，把还没轮到、仍停在 Pending 的包置 Failed，
+                // 避免其 InitTcs 永不完成、后续 EnsureInitialized 永久挂起。（销毁期 AssetUtility 已先 Dispose，则此调用直接短路。）
+                _utility.AbandonPendingPackages();
             }
         }
     }
