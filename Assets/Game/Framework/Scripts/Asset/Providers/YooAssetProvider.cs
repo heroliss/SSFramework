@@ -451,9 +451,9 @@ namespace Game.Framework
 #endif
                     ApplyDecryptor(builtin, config);
                     ApplyDecryptor(cache, config);
-                    // 按包禁用「按需下载」：开启后 Load 未缓存的 bundle 直接失败（见 SFSLoadPackageBundleOperation），
-                    // 不偷偷下载；强制业务先显式跑下载器。未配置的包按 false（保持自动下载）。仅缓存文件系统（Host）有此语义。
-                    cache.AddParameter(EFileSystemParameter.DownloadDisableOndemand, config.ShouldDisableOnDemandDownload(packageName));
+                    // 按包「启用按需下载」（默认启用）：关掉后 Load 未缓存的 bundle 直接失败（见 SFSLoadPackageBundleOperation），
+                    // 不偷偷下载；强制业务先显式跑下载器。YooAsset 的参数是反向的 DownloadDisableOndemand，故对「是否启用」取反传入。仅缓存文件系统（Host）有此语义。
+                    cache.AddParameter(EFileSystemParameter.DownloadDisableOndemand, !config.ShouldEnableOnDemandDownload(packageName));
                     return new HostPlayModeOptions
                     {
                         BuiltinFileSystemParameters = builtin,
@@ -609,7 +609,6 @@ namespace Game.Framework
         public int TotalCount => _operation.TotalDownloadCount;
         public long TotalBytes => _operation.TotalDownloadBytes;
         public bool IsDone => _operation.Status == EOperationStatus.Succeeded || TotalCount == 0;
-        public bool IsSimulated => false;
         public ReadOnlyReactiveProperty<DownloadProgressReport> Progress => _progress;
 
         public async UniTask Download(CancellationToken ct = default)

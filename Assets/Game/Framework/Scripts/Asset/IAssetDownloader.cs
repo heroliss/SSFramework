@@ -20,12 +20,6 @@ namespace Game.Framework
         /// <summary>下载是否已经完成。没有可下载资源时也视为完成。</summary>
         bool IsDone { get; }
 
-        /// <summary>
-        /// 是否为编辑器模拟下载（无真实文件，仅 EditorSimulate 模式下由框架包装）。
-        /// 生产构建始终为 false；UI 可据此调整提示文字。
-        /// </summary>
-        bool IsSimulated { get; }
-
         /// <summary>下载进度状态流。订阅即得当前快照，UI 不需要轮询。</summary>
         ReadOnlyReactiveProperty<DownloadProgressReport> Progress { get; }
 

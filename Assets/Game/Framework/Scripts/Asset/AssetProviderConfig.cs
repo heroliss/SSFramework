@@ -9,7 +9,7 @@ namespace Game.Framework
     /// <list type="bullet">
     ///   <item><b>EditorSimulate</b>：忽略本配置（除并发/重试外）。</item>
     ///   <item><b>Offline</b>：用 <see cref="FileOffset"/>。</item>
-    ///   <item><b>Host</b>：用 <see cref="CdnUrls"/> / <see cref="FileOffset"/> / 按包的 <see cref="ShouldDisableOnDemandDownload"/>。</item>
+    ///   <item><b>Host</b>：用 <see cref="CdnUrls"/> / <see cref="FileOffset"/> / 按包的 <see cref="ShouldEnableOnDemandDownload"/>。</item>
     ///   <item><b>Web</b>：用 <see cref="CdnUrls"/>。</item>
     /// </list>
     /// 单个 provider 实现应在初始化时校验自身需要的字段并清晰报错（而不是静默忽略）。
@@ -23,10 +23,10 @@ namespace Game.Framework
         public IReadOnlyList<string> CdnUrls { get; set; }
 
         /// <summary>
-        /// 按包名查的「禁用按需下载」开关（Host 模式）。命中且为 true 时，Load 未缓存资源直接失败（不自动下载）；
-        /// 未命中的包按 false 处理（保持自动下载）。由 <see cref="ShouldDisableOnDemandDownload"/> 读取。
+        /// 按包名查的「启用按需下载」开关（Host 模式）。命中且为 false 时，Load 未缓存资源直接失败（不自动下载）；
+        /// 未命中的包按 true 处理（默认启用按需下载）。由 <see cref="ShouldEnableOnDemandDownload"/> 读取。
         /// </summary>
-        public IReadOnlyDictionary<string, bool> DisableOnDemandDownloadByPackage { get; set; }
+        public IReadOnlyDictionary<string, bool> EnableOnDemandDownloadByPackage { get; set; }
 
         /// <summary>AssetBundle 文件头偏移字节数（Offline / Host 模式的偏移加密）。0 表示不加密。</summary>
         public ulong FileOffset { get; set; }
@@ -37,11 +37,14 @@ namespace Game.Framework
         /// <summary>下载失败重试次数。</summary>
         public int FailedTryAgain { get; set; } = 3;
 
-        /// <summary>该包是否禁用「按需下载」：true = Load 未缓存资源直接失败、不自动下载。未配置的包返回 false。</summary>
-        public bool ShouldDisableOnDemandDownload(string packageName)
-            => packageName != null
-               && DisableOnDemandDownloadByPackage != null
-               && DisableOnDemandDownloadByPackage.TryGetValue(packageName, out var disable)
-               && disable;
+        /// <summary>该包是否启用「按需下载」：false = Load 未缓存资源直接失败、不自动下载。未配置的包返回 true（默认启用）。</summary>
+        public bool ShouldEnableOnDemandDownload(string packageName)
+        {
+            if (packageName != null
+                && EnableOnDemandDownloadByPackage != null
+                && EnableOnDemandDownloadByPackage.TryGetValue(packageName, out var enable))
+                return enable;
+            return true;
+        }
     }
 }

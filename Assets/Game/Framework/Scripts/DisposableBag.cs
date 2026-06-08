@@ -133,7 +133,7 @@ namespace Game.Framework
         /// 返回 <c>T</c>，handle 自动登记到 bag；bag.Dispose 时统一释放。业务无需感知句柄。
         /// 取消传播：ct 和 <see cref="DisposeToken"/> 任一触发都会取消底层加载。
         /// <para><b>失败语义：</b>地址无效 / 类型不符 / 空地址 → 返回 <c>null</c>（不抛，打 warning/error）→ null 检查兜底；
-        /// 包<b>初始化</b>失败（CDN 不可达 / 断网）→ <b>抛</b>初始化异常（内部会先 EnsureInitialized）。
+        /// 包<b>初始化失败</b>（CDN 不可达 / 断网）或<b>尚未初始化</b>（既没开自动初始化、也没 Initialize 过）→ <b>抛</b>异常（内部会先 EnsureInitialized）。
         /// 「资源级问题给 null、系统级问题给异常」：包 Ready 后只返 null，要零异常就先 <see cref="EnsureInitialized(CancellationToken)"/> / 判 InitState=Ready 再加载。</para>
         /// </summary>
         public async UniTask<T> Load<T>(string location, CancellationToken ct = default)
@@ -241,6 +241,8 @@ namespace Game.Framework
         /// <summary>
         /// 显式等待资源系统初始化完成。
         /// 加载方法内部已自动等待，业务一般无需手动调用；启动界面等需要"等资源系统就绪再进入"的场景才显式 await 它。
+        /// <para>仅对「已自动初始化 / 已被 Initialize 触发」的包有意义：对既没开自动初始化、也没触发过的包调用会<b>抛</b>「未初始化」异常
+        /// （而非无限等待）——这类包要先 <see cref="IAssetUtility.Initialize"/>。</para>
         /// </summary>
         public UniTask EnsureInitialized(CancellationToken ct = default)
         {

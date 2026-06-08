@@ -13,9 +13,13 @@ namespace Game.Framework
     /// </summary>
     public enum AssetInitState
     {
-        /// <summary>尚未开始初始化（Awake 注册完成但 System 还没启动 pipeline）。</summary>
+        /// <summary>尚未开始、也没有任何初始化被安排：既没配自动初始化、也没人显式触发。
+        /// 此状态下 <c>Load</c> / <c>EnsureInitialized</c> 会<b>抛「未初始化」异常</b>（而非无限等待），提示先 <c>Initialize</c> 或为该包开启自动初始化。</summary>
         Idle,
-        /// <summary>初始化流程进行中。</summary>
+        /// <summary>已登记、排队中、尚未开跑（自动初始化批次里还没轮到它，或刚被请求初始化还没开始）。
+        /// 此状态下 <c>Load</c> / <c>EnsureInitialized</c> 会<b>等待</b>，直到转入 <see cref="Ready"/> / <see cref="Failed"/>。</summary>
+        Pending,
+        /// <summary>初始化流程进行中（拉版本 / 清单）。<c>Load</c> / <c>EnsureInitialized</c> 等待其完成。</summary>
         Initializing,
         /// <summary>初始化完成，可以发起加载。</summary>
         Ready,
@@ -43,7 +47,7 @@ namespace Game.Framework
     /// - Utility 只管理 package 初始化状态和类型化加载 API；底层资源库细节由 provider 适配层隐藏。
     /// - 业务通常不直接调用 utility 的加载方法，而是经由 <see cref="DisposableBag"/> 的 <c>Load</c>/<c>LoadScene</c> 等同名方法。
     /// - 默认包重载兼容最常见用法；跨包资源使用带 packageName 的显式重载。
-    /// - 全部异步公共方法返回 <c>UniTask</c>，按“无同步对应版本”约定统一省略 <c>Async</c> 后缀（加载 / 清缓存 / 卸载 / 重试初始化等）。
+    /// - 全部异步公共方法返回 <c>UniTask</c>，按“无同步对应版本”约定统一省略 <c>Async</c> 后缀（加载 / 清缓存 / 卸载 / 初始化等）。
     /// </summary>
     /// <remarks>
     /// <b>包生命周期：</b>已初始化的 package 在 utility 整个生命周期内**视为全局单例**，框架不提供 <c>UnloadPackage</c> API。
@@ -77,21 +81,25 @@ namespace Game.Framework
         /// <summary>查询指定包的初始化状态；packageName 为空时返回默认包状态。</summary>
         ReadOnlyReactiveProperty<AssetInitState> GetInitState(string packageName);
 
-        /// <summary>等待默认资源包初始化完成。加载方法内部已经隐式调用过它。</summary>
+        /// <summary>
+        /// 等待默认资源包初始化完成。加载方法内部已经隐式调用过它。
+        /// <para>包为 <see cref="AssetInitState.Idle"/>（既没配自动初始化、也没人触发）时<b>抛异常</b>而非无限等待——
+        /// 这种包需先 <see cref="Initialize"/> 或为它开启自动初始化。<see cref="AssetInitState.Failed"/> 抛初始化异常。</para>
+        /// </summary>
         UniTask EnsureInitialized(CancellationToken ct = default);
 
-        /// <summary>等待指定资源包初始化完成。初始化失败时抛出底层异常。</summary>
+        /// <summary>等待指定资源包初始化完成。语义同 <see cref="EnsureInitialized(CancellationToken)"/>：Idle/Failed 抛异常、Pending/Initializing 等待。</summary>
         UniTask EnsureInitialized(string packageName, CancellationToken ct = default);
 
         /// <summary>
-        /// 重跑指定包的初始化（packageName 为空时为默认包）：初始化失败后无需重建实例即可再次尝试。
-        /// <para>语义：包当前为 <see cref="AssetInitState.Failed"/> 或 <see cref="AssetInitState.Idle"/> 时重新初始化；
-        /// 已 <see cref="AssetInitState.Ready"/> 则直接返回（幂等）；进行中则等待本次完成。</para>
-        /// <para>用配置写入的运行模式与配置重试，<b>本身不抛异常</b>——结果（成功 / 失败）写回 <see cref="InitState"/> 供订阅方读取。</para>
-        /// <para>也是<b>延迟初始化的触发口</b>：当 <see cref="AssetSystemConfigModel.AutoInitializeOnStartup"/> 关闭、启动未自动初始化时，
-        /// 对 <see cref="AssetInitState.Idle"/> 包调用本方法即「冷启动初始化」。</para>
+        /// 初始化指定包（packageName 为空时为默认包）：既是「失败后重试」、也是「未自动初始化的包的冷启动入口」。
+        /// <para>语义：包当前为 <see cref="AssetInitState.Idle"/> / <see cref="AssetInitState.Pending"/> / <see cref="AssetInitState.Failed"/>
+        /// 时（重新）初始化；已 <see cref="AssetInitState.Ready"/> 则直接返回（幂等）；<see cref="AssetInitState.Initializing"/> 则等待本次完成。</para>
+        /// <para>用 <see cref="AssetInitSystem"/> 启动时写入的运行模式与配置执行，<b>本身不抛异常</b>——结果（成功 / 失败）写回 <see cref="InitState"/> 供订阅方读取。</para>
+        /// <para>典型用途：①初始化失败后不重建实例即可重试；②给某包配了「不自动初始化」（DLC 懒加载 / 隐私同意后再联网）时，
+        /// 在合适时机对 <see cref="AssetInitState.Idle"/> 包调用本方法做「冷启动初始化」，再用 <see cref="InitState"/> 驱动 loading。</para>
         /// </summary>
-        UniTask RetryInitialize(string packageName = null, CancellationToken ct = default);
+        UniTask Initialize(string packageName = null, CancellationToken ct = default);
 
 #if UNITY_EDITOR
         /// <summary>
@@ -109,8 +117,8 @@ namespace Game.Framework
         /// 按 location 从默认包加载 UnityEngine.Object 资源。
         /// 返回的 <see cref="IAssetHandle{T}"/> 持有一份引用计数；调用方负责 Dispose（或交给 <see cref="DisposableBag"/> 托管）。
         /// <para><b>失败语义</b>（所有 Load 重载一致，这是刻意的契约）：地址无效 / 类型不符 / 空地址 → 返回 <c>null</c>（不抛，打 warning/error）；
-        /// 包<b>初始化</b>失败（CDN 不可达 / 断网）→ <b>抛</b>初始化异常（内部会先 <see cref="EnsureInitialized(string, CancellationToken)"/>）。
-        /// 即「资源级问题给 null、系统级问题给异常」：包 Ready 后只会返 null，会抛只发生在「init 成功前就加载」。要零异常就先等 <see cref="InitState"/>=Ready 再加载。</para>
+        /// 包<b>初始化失败</b>（CDN 不可达 / 断网）或<b>尚未初始化</b>（既没开自动初始化、也没 <see cref="Initialize"/> 触发过）→ <b>抛</b>异常（内部先 <see cref="EnsureInitialized(string, CancellationToken)"/>）。
+        /// 即「资源级问题给 null、系统级问题给异常」：包 Ready 后只会返 null，会抛只发生在「init 未成功 / 未触发就加载」。要零异常就先确保该包 <see cref="InitState"/>=Ready（自动初始化或先 <see cref="Initialize"/>）再加载。</para>
         /// </summary>
         UniTask<IAssetHandle<T>> Load<T>(string location, CancellationToken ct = default)
             where T : UnityEngine.Object;
