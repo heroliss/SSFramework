@@ -1,12 +1,13 @@
 using Game.Framework.Demo.Core;
-using Game.Framework.Model;
 using UnityEngine;
 
 namespace Game.Framework.Demo.Modules
 {
     /// <summary>
-    /// 核心·多 Context：Context 构成作用域树 + 解析回退。用 DemoRoot 下真实嵌套的两级 Context 节点演示——
-    /// 子 Context 解析不到就沿作用域链回退父级；子级注册了同类型则覆盖。
+    /// 核心·多 Context：Context 构成作用域树 + 覆盖/回退。不另造父节点——demo 根 Context 就是父级，
+    /// 场景里只加一个子 Context 节点（<see cref="DemoSubContext"/>），其子树下挂第二个 <see cref="MonoScoreModel"/>：
+    /// Hierarchy 树就是作用域树——同类型 Model 挂在哪个 Context 子树下就近注册进哪个作用域（覆盖父级同类型），
+    /// 子级没有的类型沿作用域链回退父级；同一个 Command 在哪个 Context 上执行，就作用于哪个作用域的数据。
     /// </summary>
     public sealed class MultiContextDemoModule : DemoModuleBase
     {
@@ -15,34 +16,58 @@ namespace Game.Framework.Demo.Modules
         public override string Category => "核心";
         public override int Order => 45;
         public override string Summary =>
-            "GameContext 是一棵作用域树（全局 / 场景 / 局部）。子 Context 解析不到就回退父级；子级注册了同类型则用子级的（覆盖）。本章用场景里真实嵌套的两级 Context 节点演示。";
+            "GameContext 是一棵作用域树（全局 / 场景 / 局部）。demo 根 Context 就是父级，场景里只加一个子 Context 节点；"
+            + "其子树下另挂一个 MonoScoreModel——同类型就近注册形成覆盖，子级没有的类型回退父级。"
+            + "同一个 Command 在哪个 Context 上执行，就作用于哪个作用域的数据。";
 
         public override void Build(DemoModuleHost host)
         {
-            var parent = Object.FindFirstObjectByType<DemoScopeParent>();
-            var child = Object.FindFirstObjectByType<DemoScopeChild>();
-            if (parent == null || child == null)
+            var root = Object.FindFirstObjectByType<MonoDemoContext>();
+            var sub = Object.FindFirstObjectByType<DemoSubContext>();
+            if (root == null || sub == null)
             {
-                host.AddNote("没找到 Context 节点——请确认 DemoRoot 下有 DemoScopeParent，且其子节点有 DemoScopeChild。");
+                host.AddNote("没找到 Context 节点——请确认场景里有 MonoDemoContext（Main Context），DemoRoot 下有挂 DemoSubContext 的「子 Context」节点（含 MonoScoreModel 子节点）。");
                 return;
             }
 
-            host.AddSectionTitle("演示：覆盖 + 回退（真实场景节点）");
-            host.AddValueDisplay($"子 Context 解析 ScopedTag → 「{child.GetModel<ScopedTag>().Text}」");
-            host.AddNote("子 Context 自己注册了 `ScopedTag` → 用子级的（覆盖父级）。",
-                new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/DemoScopeChild.cs", "class DemoScopeChild", "DemoScopeChild"));
-            host.AddValueDisplay($"子 Context 解析 ParentOnlyTag → 「{child.GetModel<ParentOnlyTag>().Text}」");
-            host.AddNote("子 Context 没注册 `ParentOnlyTag` → 沿作用域链逐级回退，命中父 Context。",
-                new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/DemoScopeParent.cs", "class DemoScopeParent", "DemoScopeParent"));
-            host.AddValueDisplay($"父 Context 解析 ScopedTag → 「{parent.GetModel<ScopedTag>().Text}」");
-            host.AddNote("回退是单向的（子 → 父）：父 Context 各自独立，看不到子 Context 注册的东西。");
+            // ── 覆盖：同类型 Model，两个作用域各自解析到自己的实例 ──
+            host.AddSectionTitle("覆盖：同类型 Model，子 Context 用自己的");
+            // 白盒说明：本章演示容器解析本身，直接在两个 Context 上解析 / 执行；业务代码仍按层权限走（View 只 ExecuteCommand）。
+            var rootScore = root.GetModel<MonoScoreModel>();
+            var subScore = sub.GetModel<MonoScoreModel>();
+
+            var rootLabel = host.AddValueDisplay();
+            var subLabel = host.AddValueDisplay();
+            Bag.Subscribe(rootScore.Score, v => rootLabel.text = $"根 Context 解析 MonoScoreModel → 分数：{v}");
+            Bag.Subscribe(subScore.Score, v => subLabel.text = $"子 Context 解析 MonoScoreModel → 分数：{v}");
+
+            // 同一个 Command（「Model」章的 RaiseMonoScoreCommand）零改动：在哪个 Context 上执行，
+            // 命令里的 ctx.GetModel 就解析到哪个作用域的 MonoScoreModel——作用域树给业务的直接便利。
+            host.AddActionRow("在【子】Context 执行同一个 +1 命令", () => sub.ExecuteCommand(new RaiseMonoScoreCommand()),
+                CodeRef.Here("sub.ExecuteCommand(new RaiseMonoScoreCommand())", "子 Context 上执行"));
+            host.AddActionRow("在【根】Context 执行同一个 +1 命令", () => root.ExecuteCommand(new RaiseMonoScoreCommand()),
+                CodeRef.Here("root.ExecuteCommand(new RaiseMonoScoreCommand())", "根 Context 上执行"));
+            host.AddNote("两个 `MonoScoreModel` 都没写一行注册代码：挂在哪个 Context 的子树下，`Awake` 就近注册进哪个作用域——"
+                + "**Hierarchy 树就是作用域树**。同一个 `RaiseMonoScoreCommand` 在子 Context 上执行只动子级分数、在根上执行只动根级分数。",
+                new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/MonoScoreModel.cs", "class MonoScoreModel", "MonoScoreModel（零注册代码）"));
+
+            // ── 回退：子级没注册的类型，沿作用域链回退父级 ──
+            host.AddSectionTitle("回退：子 Context 没有的类型，回退父级");
+            bool same = ReferenceEquals(sub.GetModel<CodeScoreModel>(), root.GetModel<CodeScoreModel>());
+            host.AddValueDisplay(same
+                ? "子 Context 解析 CodeScoreModel → 与根 Context 同一实例 ✓（子级没注册，回退命中父级）"
+                : "子 Context 解析 CodeScoreModel → 意外：不同实例 ✗");
+            host.AddNote("`CodeScoreModel`（「Model」章注册在根）子 Context 没注册 → 沿作用域链逐级回退，命中父级同一实例。"
+                + "执行命令所需的 `ICommandSystem` 同理——子 Context 没注册它，上面两个按钮能跑就是回退在生效。"
+                + "回退是单向的（子 → 父）：父 Context 看不到子 Context 注册的东西。");
 
 #if UNITY_EDITOR
-            host.AddActionRow("选中 父 Context 到 Inspector", () => SelectInInspector(parent));
-            host.AddActionRow("选中 子 Context 到 Inspector", () => SelectInInspector(child));
+            host.AddActionRow("选中 子 Context 节点", () => SelectInInspector(sub.gameObject));
+            host.AddActionRow("选中 根 Context 的 MonoScoreModel", () => SelectInInspector(rootScore.gameObject));
+            host.AddActionRow("选中 子 Context 的 MonoScoreModel", () => SelectInInspector(subScore.gameObject));
+            host.AddTip("点上面按钮去 Hierarchy 看结构：Main Context（根 Context）→ DemoRoot 下的「子 Context」（DemoSubContext）→ 它的 MonoScoreModel。"
+                + "运行时在 Inspector 里直接改任一实例的 Score，上方对应标签实时刷新——哪个作用域的数据一目了然。");
 #endif
-            host.AddTip("这两个是 DemoRoot 下真实的 MonoGameContextBase 节点（父 Context → 子 Context 嵌套）。点上面按钮到 Hierarchy 看父子层级——"
-                + "MonoXxxBase 子节点按 Transform 父链找最近的 Context 注册，子级解析不到就沿作用域链回退。");
 
             host.AddSectionTitle("作用域树");
             host.AddConcept("分层", "全局（跨场景：配置 / 音频）→ 场景（本场景）→ 局部（一个面板 / 关卡）各成一层。");
@@ -52,26 +77,12 @@ namespace Game.Framework.Demo.Modules
         }
 
 #if UNITY_EDITOR
-        // 编辑器便利：选中并高亮场景里的 Context 节点，方便去 Hierarchy 看父子层级。非框架用法，纯 demo 导航。
-        private static void SelectInInspector(MonoBehaviour target)
+        // 编辑器便利：选中并高亮场景节点，方便去 Hierarchy / Inspector 看结构与 RP 实时值。非框架用法，纯 demo 导航。
+        private static void SelectInInspector(GameObject go)
         {
-            UnityEditor.Selection.activeObject = target.gameObject;
-            UnityEditor.EditorGUIUtility.PingObject(target.gameObject);
+            UnityEditor.Selection.activeObject = go;
+            UnityEditor.EditorGUIUtility.PingObject(go);
         }
 #endif
-    }
-
-    /// <summary>演示用标签 Model：父子 Context 都注册（子覆盖父）。</summary>
-    public sealed class ScopedTag : IModel
-    {
-        public readonly string Text;
-        public ScopedTag(string text) => Text = text;
-    }
-
-    /// <summary>演示用标签 Model：只在父 Context 注册（演示子级回退）。</summary>
-    public sealed class ParentOnlyTag : IModel
-    {
-        public readonly string Text;
-        public ParentOnlyTag(string text) => Text = text;
     }
 }
