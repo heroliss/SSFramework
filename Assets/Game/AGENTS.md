@@ -329,6 +329,7 @@ protected virtual void OnDestroy()
 
 - **注册（按生命周期选）**：纯 C# 跟随 Context 用 `builder.RegisterOwned(new PoolUtility(), typeof(IPoolUtility))`（随 `GameContext.Dispose` 清池，推荐）；不关心释放用 `RegisterValue`；需 Inspector 配参数 / 跟随 GameObject 生命周期用 `MonoPoolUtility`（挂 Context 子节点，可视化配各 prefab 容量/预热）。三者复用同一套池逻辑，子 Context 经父级回退共享。
 - **Bag.Rent（首选）**：`MonoXxxBase` 子类里 `var w = Bag.Rent<Widget>();`——宿主销毁/bag.Dispose 时**自动归还**，无感知，心智同 `Bag.Load`。要求 `Widget : class, new()`。
+- **单个提前归还**：`Bag.Rent`/`Bag.Spawn` 借出的实例在**同一 bag** 上 `Bag.Return(obj)` / `Bag.Despawn(go)` 提前归还，自动摘除归还登记（Dispose 不重复归还）；局部作用域（一波/一局）配 `Bag.CreateChild()` 整批管理。弹幕级高频热路径用领域 List + 手动池。
 - **手动**：`this.GetUtility<IPoolUtility>().Rent<T>()` / `.Return(obj)`；需要自定义工厂或租借/归还钩子时先 `GetPool<T>(factory, onRent, onReturn, maxSize)` 配置一次（**首次配置生效**），之后 `pool.Rent()/Return()`。
 - **状态清理放归还时**：池化类型实现 `IPoolable.OnReturn()` 清字段/退订（或用 `GetPool` 的 `onReturn` 委托）；`OnRent()` 做激活。**已 Return 的实例不要再用**。
 - 主线程独占。Editor/Dev 构建下重复归还/归还外来实例会 LogError。

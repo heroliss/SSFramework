@@ -272,6 +272,56 @@ namespace Game.Framework.Test
             Assert.AreEqual(1, pool.CountInactive, "bag.Dispose 应自动归还");
         }
 
+        [Test]
+        public void Bag_Despawn_ReleasesSingleEarly()
+        {
+            var builder = new ContainerBuilder();
+            builder.RegisterValue(new CommandSystem(), new[] { typeof(ICommandSystem) });
+            builder.RegisterValue(new PoolUtility(), typeof(IPoolUtility));
+            using var ctx = new GameContext(builder.Build());
+            var pool = ctx.GetUtility<IPoolUtility>().GetGameObjectPool(_prefab);
+
+            GameObject a, b;
+            using (var bag = ctx.CreateBag())
+            {
+                a = bag.Spawn(_prefab, _root.transform);
+                b = bag.Spawn(_prefab, _root.transform);
+
+                bag.Despawn(a);
+                Assert.AreEqual(1, pool.CountInactive, "提前 Despawn a 后池中应有 1 个空闲");
+                Assert.IsFalse(a.activeSelf, "a 应已停用");
+                Assert.AreEqual(1, a.GetComponent<TestPoolable>().ReturnCount);
+                Assert.IsTrue(b.activeSelf, "b 仍被 bag 持有");
+            }
+
+            // bag.Dispose 只归还剩余的 b；a 的登记已摘除，不会触发重复 Despawn 错误日志
+            Assert.AreEqual(2, pool.CountInactive);
+            Assert.AreEqual(1, a.GetComponent<TestPoolable>().ReturnCount, "a 不应被 Dispose 重复归还");
+            Assert.AreEqual(1, b.GetComponent<TestPoolable>().ReturnCount);
+        }
+
+        [UnityTest]
+        public IEnumerator Bag_Despawn_DestroyedInstance_SkipsQuietly()
+        {
+            var builder = new ContainerBuilder();
+            builder.RegisterValue(new CommandSystem(), new[] { typeof(ICommandSystem) });
+            builder.RegisterValue(new PoolUtility(), typeof(IPoolUtility));
+            var ctx = new GameContext(builder.Build());
+            var pool = ctx.GetUtility<IPoolUtility>().GetGameObjectPool(_prefab);
+
+            var bag = ctx.CreateBag();
+            var go = bag.Spawn(_prefab, _root.transform);
+            UnityEngine.Object.Destroy(go);
+            yield return null;   // Destroy 帧末生效，等一帧让实例变 fake null
+
+            bag.Despawn(go);     // 实例已死：登记被摘除，归还句柄的 null 守卫跳过入池，不报错
+            Assert.AreEqual(0, pool.CountInactive, "已销毁实例不应入池");
+
+            bag.Dispose();       // 登记已摘除：不产生重复 Despawn / 死实例归还的错误日志
+            Assert.AreEqual(0, pool.CountInactive);
+            ctx.Dispose();
+        }
+
         // ── 归还防护（Release 也生效的短路）─────────────────────────────────
 
         [Test]
