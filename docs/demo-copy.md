@@ -338,7 +338,7 @@ public class IconView : MonoViewBase
 
 **Code Snippet 2 - caption**：下载进度作为响应式流
 ```csharp
-var downloader = Bag.CreateTagDownloader("level1");
+var downloader = this.GetUtility<IAssetUtility>().CreateTagDownloader("level1");
 Bag.Subscribe(downloader.Progress, r => _progressBar.value = r.Progress);
 await downloader.Download(this.GetCancellationTokenOnDestroy());
 ```

@@ -348,21 +348,23 @@ namespace Game.Framework.Demo.Modules
                     : $"已创建·{scope}：待下载 {d.TotalCount} 个 / {d.TotalBytes / 1048576f:0.00} MB。点「开始下载」。";
             }
 
+            // 下载器从 IAssetUtility 创建（不在 Bag 上）：它是用完即弃的工厂产物、不进 bag 托管——
+            // Bag 只收「借出 + 跟随生命周期」的东西（Load / Rent / Spawn / 订阅）。
             host.AddActionRow("创建下载器·按 tag", async () =>
             {
                 await Bag.EnsureInitialized();
-                BindDownloader(Bag.CreateTagDownloader(DemoTag), $"tag「{DemoTag}」");
-            }, CodeRef.Here("Bag.CreateTagDownloader(DemoTag)", "按 tag 下载器"));
+                BindDownloader(asset.CreateTagDownloader(DemoTag), $"tag「{DemoTag}」");
+            }, CodeRef.Here("asset.CreateTagDownloader(DemoTag)", "按 tag 下载器"));
             host.AddActionRow("创建下载器·全部（整包）", async () =>
             {
                 await Bag.EnsureInitialized();
-                BindDownloader(Bag.CreateAllDownloader(), "全部");
-            }, CodeRef.Here("Bag.CreateAllDownloader()", "全量下载器"));
+                BindDownloader(asset.CreateAllDownloader(), "全部");
+            }, CodeRef.Here("asset.CreateAllDownloader()", "全量下载器"));
             host.AddActionRow("创建下载器·按地址（Logo）", async () =>
             {
                 await Bag.EnsureInitialized();
-                BindDownloader(Bag.CreateLocationDownloader(LogoAddress), $"地址「{LogoAddress}」");
-            }, CodeRef.Here("Bag.CreateLocationDownloader(LogoAddress)", "按地址下载器"));
+                BindDownloader(asset.CreateLocationDownloader(LogoAddress), $"地址「{LogoAddress}」");
+            }, CodeRef.Here("asset.CreateLocationDownloader(LogoAddress)", "按地址下载器"));
             host.AddActionRow("开始下载（Download）", async () =>
             {
                 if (downloader == null) { progressLabel.text = "请先点「创建下载器」。"; return; }

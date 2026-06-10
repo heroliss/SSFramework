@@ -220,9 +220,10 @@ var bytes = await Bag.LoadBytes("data/binary");
 var scene = await Bag.LoadScene("scenes/battle", LoadSceneMode.Additive);
 // 跨包：
 var dlcIcon = await Bag.Load<Sprite>("dlc-package", "ui/icon");
-// 也可以查询/创建下载器
-if (Bag.IsNeedDownload("ui/icon")) {
-    var dl = Bag.CreateTagDownloader("level1");
+// 查询 / 下载器走 IAssetUtility（不在 Bag 上）：纯查询无状态、下载器用完即弃，都不需要 bag 托管
+var asset = this.GetUtility<IAssetUtility>();
+if (asset.IsNeedDownload("ui/icon")) {
+    var dl = asset.CreateTagDownloader("level1");
     Bag.Subscribe(dl.Progress, r => _slider.value = r.Progress);
     await dl.Download();
 }
@@ -277,7 +278,7 @@ Unity 对象 null 判断用 `if (x != null)`，不用 `?.`（Unity 重载了 `==
 - **启动界面进度**订阅 `this.GetUtility<IAssetUtility>().InitState`（`ReadOnlyReactiveProperty<AssetInitState>`，Idle/Initializing/Ready/Failed）；或等待 `Bag.EnsureInitialized()`。
 - **多 package**：所有包（含默认包）都登记在 `AssetSystemConfigModel.Packages` 列表里，每个包配自己的「自动初始化 / 启用按需下载」策略；`DefaultPackageName` 只是指向其中一个的默认指针（留空 = 无默认包，加载须用带 packageName 的重载）。子 Context 经 Container 父级回退共享父级 `AssetUtility`，不需要每个 Context 单独挂一套资源系统。
 - **包初始化**：标了「自动初始化」的包启动即拉清单；标「不自动初始化」的包（DLC 懒加载 / 合规延迟联网）须业务在用前显式调 `IAssetUtility.Initialize("包名")`。⚠ 既没自动初始化、也没 `Initialize` 过的包，`Load` 它会**直接抛**「未初始化」异常（fail-fast，不是无限等待）。
-- **下载进度** `var dl = Bag.CreateTagDownloader("level1");`，订阅 `dl.Progress`（R3 状态流，无需 invokeImmediately），调 `dl.Download(ct)` 启动。跨包下载器用 `Bag.CreateTagDownloader(packageName, tags)`。
+- **下载进度** `var dl = this.GetUtility<IAssetUtility>().CreateTagDownloader("level1");`，订阅 `dl.Progress`（R3 状态流，无需 invokeImmediately），调 `dl.Download(ct)` 启动。跨包下载器用 `CreateTagDownloader(packageName, tags)`。下载器/查询（`CheckLocationValid` / `IsNeedDownload`）刻意不在 Bag 上——Bag 只收「借出 + 跟随生命周期」的操作。
 - **Command 临时加载** `using var bag = ctx.CreateBag(); var prefab = await bag.Load<GameObject>(...);` —— using 块结束自动释放，Command 用完即净。
 - **手动卸载短期资源**：`ref.TryGetAsset(out T)` 非阻塞检查；`ref.Unload()` 释放本 ref 持有的 handle；`AssetReferenceList.GetAll()` 并行加载，类型不匹配有 error 日志。GUID 是 `AssetReference` 内部细节，不作为业务 API 暴露。
 
