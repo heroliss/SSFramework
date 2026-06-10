@@ -23,6 +23,9 @@ namespace Game.Framework
     ///
     /// 设计要点：
     /// - 所有"持有 = 拥有生命周期"的对象都是 IDisposable，bag 是它们的根。
+    /// - <b>只有「借出 + 跟随生命周期」的操作上 Bag</b>（Load / Rent / Spawn / 订阅 / 子作用域）；
+    ///   纯查询（CheckLocationValid / IsNeedDownload）和用完即弃的工厂产物（CreateXxxDownloader）
+    ///   走 <see cref="IAssetUtility"/>，避免 Bag 退化成 utility 的全量转发门面。
     /// - 子作用域用 <see cref="CreateChild"/>：child 是 IDisposable，自动登记到 parent，parent.Dispose 级联。
     /// - <c>Load</c> 直接返回 <c>T</c>：业务无感知句柄，handle 由 bag 持有，bag.Dispose 时统一释放。
     ///   想手动管理 handle 的高级用法走 <see cref="IAssetUtility"/>。
@@ -283,78 +286,9 @@ namespace Game.Framework
             AssetReferenceBindPlan.For(target.GetType()).Bind(target, ResolveUtility(), DisposeToken, this);
         }
 
-        /// <summary>检查 location 是否能在当前 manifest 中解析；未初始化时返回 false。</summary>
-        public bool CheckLocationValid(string location)
-        {
-            EnsureUtility();
-            return ResolveUtility().CheckLocationValid(location);
-        }
-
-        /// <summary>检查指定 package 中 location 是否能在 manifest 中解析；packageName 为空时使用默认包。</summary>
-        public bool CheckLocationValid(string packageName, string location)
-        {
-            EnsureUtility();
-            return ResolveUtility().CheckLocationValid(packageName, location);
-        }
-
-        /// <summary>检查指定资源是否需要从远端下载；用于进入功能前的下载提示。</summary>
-        public bool IsNeedDownload(string location)
-        {
-            EnsureUtility();
-            return ResolveUtility().IsNeedDownload(location);
-        }
-
-        /// <summary>检查指定 package 中资源是否需要从远端下载；packageName 为空时使用默认包。</summary>
-        public bool IsNeedDownload(string packageName, string location)
-        {
-            EnsureUtility();
-            return ResolveUtility().IsNeedDownload(packageName, location);
-        }
-
-        /// <summary>
-        /// 创建按 tag 统计和下载资源的任务。
-        /// 返回的 downloader 不会自动登记到 bag——下载完成即结束，取消用 <c>Download</c> 的 ct。
-        /// </summary>
-        public IAssetDownloader CreateTagDownloader(params string[] tags)
-        {
-            EnsureUtility();
-            return ResolveUtility().CreateTagDownloader(tags);
-        }
-
-        /// <summary>创建指定 package 的按 tag 统计和下载资源任务；packageName 为空时使用默认包。</summary>
-        public IAssetDownloader CreateTagDownloader(string packageName, IReadOnlyList<string> tags)
-        {
-            EnsureUtility();
-            return ResolveUtility().CreateTagDownloader(packageName, tags);
-        }
-
-        /// <summary>创建「下载该包全部尚未缓存 bundle」的下载器（无 tag 过滤，适合整包 / 整 DLC 全量预下）。</summary>
-        public IAssetDownloader CreateAllDownloader()
-        {
-            EnsureUtility();
-            return ResolveUtility().CreateAllDownloader();
-        }
-
-        /// <summary>创建指定 package 的全量下载器；packageName 为空时使用默认包。</summary>
-        public IAssetDownloader CreateAllDownloader(string packageName)
-        {
-            EnsureUtility();
-            return ResolveUtility().CreateAllDownloader(packageName);
-        }
-
-        /// <summary>创建「下载这些 location 资源所需 bundle（含依赖）」的下载器；解析不到的 location 跳过并打 warning。</summary>
-        public IAssetDownloader CreateLocationDownloader(params string[] locations)
-        {
-            EnsureUtility();
-            return ResolveUtility().CreateLocationDownloader(locations);
-        }
-
-        /// <summary>创建指定 package 的按 location 下载器；packageName 为空时使用默认包。</summary>
-        public IAssetDownloader CreateLocationDownloader(string packageName, IReadOnlyList<string> locations)
-        {
-            EnsureUtility();
-            return ResolveUtility().CreateLocationDownloader(packageName, locations);
-        }
+        // 注意：CheckLocationValid / IsNeedDownload / CreateXxxDownloader 这类「纯查询 / 工厂」入口刻意不在 Bag 上——
+        // 它们不产生需要 bag 托管的生命周期（下载器用完即弃、查询无状态），走 this.GetUtility<IAssetUtility>()。
+        // Bag 只收「借出 + 跟随生命周期」的操作（Load / Rent / Spawn / 订阅 / 子作用域）。
 
         // ── 对象池 ──────────────────────────────────────────────────────────
 

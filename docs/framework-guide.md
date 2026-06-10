@@ -818,7 +818,7 @@ Bag.Subscribe(hud.Level, v => _lvText.text = v.ToString());
 - 投影只暴露 `ReadOnlyReactiveProperty`（或 `Observable`），**写仍只能走 Command**——单向数据流约束不松动，只是把读路径的样板收成一处。
 - 投影是「读视图」不是 Model：在查询 Command 里现组装、只引用已有的只读源，不持有状态、不注册进容器。需要派生 / 过滤 / 组合时直接在投影里放 R3 操作符链（如 `p.HP.Select(...)`）。
 - **字段少（一两个）时直接「一字段一查询」更直白**；字段多的复杂面板才用投影收口，别为收口而收口。
-- 可运行示例见 demo「进阶 · 只读投影」（`ReadProjectionModule`）。
+- 可运行示例见 demo「Command · 三态」章的「查询进阶：只读投影」一节（`CommandKindsDemoModule`）。
 
 View 在 Awake 时按以下顺序查找自己所属的 Context，通常不需要手动设置：
 
@@ -1226,7 +1226,8 @@ _avatarSet.UnloadAll();                                                       //
 下载不再通过 listener 注册回调，而是状态流：
 
 ```csharp
-var downloader = Bag.CreateTagDownloader("level1");
+// 下载器是「用完即弃」的工厂产物，不进 Bag——从 IAssetUtility 创建（Bag 只收「借出 + 跟随生命周期」的东西）
+var downloader = this.GetUtility<IAssetUtility>().CreateTagDownloader("level1");
 Bag.Subscribe(downloader.Progress, report => _progressBar.value = report.Progress);
 await downloader.Download(this.GetCancellationTokenOnDestroy());
 ```
