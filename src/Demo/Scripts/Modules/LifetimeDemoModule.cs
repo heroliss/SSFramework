@@ -53,7 +53,7 @@ namespace Game.Framework.Demo.Modules
             host.AddSectionTitle("Bag 装什么");
             host.AddConcept("订阅", "R3 / Framework Event / UnityEvent / C# event —— 都自动包成 `IDisposable` 入 `Bag`。");
             host.AddConcept("资源句柄", "`Bag.Load` / `LoadScene` 返回资源本体、句柄留在 `Bag`（详见「资源加载」章）。");
-            host.AddConcept("池租借", "`Bag.Rent` / `Bag.Spawn` 借来的实例，释放时自动归还（详见「对象池」章）。");
+            host.AddConcept("池租借", "`Bag.Rent` / `Bag.Spawn` 借来的实例，释放时自动归还；个别要提前退场的，在同一 bag 上 `Return` / `Despawn` 单个归还（详见「对象池」章）。");
             host.AddConcept("子作用域 / 任意 IDisposable", "`CreateChild` 的子 `Bag`，以及 `Bag.Add` 进来的任何 `IDisposable`。");
 
             host.AddSectionTitle("作用域怎么分");
