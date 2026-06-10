@@ -63,6 +63,15 @@ namespace Game.Framework.Test
         }
 
         [Test]
+        public void ObjectPool_UnityObjectType_LogsMisuseGuard()
+        {
+            // GameObject 满足 class/new() 约束也能进 C# 对象池，但这里不 Instantiate/SetActive——几乎必然是误用。
+            // 建池时一次性 LogError 指路 GameObject 池（Bag.Spawn / IPoolUtility.Spawn）。
+            LogAssert.Expect(LogType.Error, new Regex("UnityEngine.Object"));
+            _ = new ObjectPool<GameObject>(() => new GameObject());
+        }
+
+        [Test]
         public void ObjectPool_Prewarm_PopulatesInactive()
         {
             var pool = new ObjectPool<Widget>(() => new Widget());
