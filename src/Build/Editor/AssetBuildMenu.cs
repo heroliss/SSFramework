@@ -35,7 +35,7 @@ namespace Game.Framework.Build
 
             var profile = FrameworkAssetBuildProfile.Resolve();
             var packages = profile.EnabledPackageNames.ToList();
-            string version = DateTime.Now.ToString(profile.VersionFormat);
+            string version = profile.ResolveVersionNow();
 
             var (ok, message) = FrameworkAssetBuilder.Build(profile, packages, version);
             Debug.Log("[资源构建] 构建：\n" + message);

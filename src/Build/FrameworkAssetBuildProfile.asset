@@ -12,18 +12,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 92ec7e0e72e7b6f4287343738b8eca31, type: 3}
   m_Name: FrameworkAssetBuildProfile
   m_EditorClassIdentifier: Game.Framework.Build.Editor::Game.Framework.Build.FrameworkAssetBuildProfile
-  Packages:
-  - PackageName: FrameworkSamplesPackage
-    BuildEnabled: 1
-    BuiltinCopy: 2
-    BuiltinTags: 
-    GenerateBuiltinShaderBundle: 0
-  - PackageName: DefaultPackage
-    BuildEnabled: 1
-    BuiltinCopy: 2
-    BuiltinTags: 
-    GenerateBuiltinShaderBundle: 1
-  VersionFormat: yyyyMMddHHmmss
-  BundleVersionsToKeep: 2
-  LocalServePort: 8080
-  LocalServeThrottleKBps: 1000
+  _packages:
+  - _packageName: FrameworkSamplesPackage
+    _buildEnabled: 1
+    _builtinCopy: 2
+    _builtinTags: 
+    _generateBuiltinShaderBundle: 0
+  - _packageName: DefaultPackage
+    _buildEnabled: 1
+    _builtinCopy: 2
+    _builtinTags: 
+    _generateBuiltinShaderBundle: 1
+  _versionFormat: yyyyMMddHHmmss
+  _bundleVersionsToKeep: 2
+  _localServePort: 8080
+  _localServeThrottleKBps: 1000

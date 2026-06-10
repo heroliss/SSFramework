@@ -56,7 +56,7 @@ namespace Game.Framework.Build
             string version = GetArg("-version");
             if (string.IsNullOrEmpty(version))
             {
-                version = DateTime.Now.ToString(profile.VersionFormat);
+                version = profile.ResolveVersionNow();
                 Debug.LogWarning("[AssetBuilder] 未传 -version，回退到时间戳；生产应由 CI 显式传入可追溯版本号。");
             }
 
@@ -235,6 +235,7 @@ namespace Game.Framework.Build
                 FileNameStyle = FileNameStyle,
                 CompressOption = Compress,
                 BundledCopyOption = builtinCopy,
+                // tags 为空 = 零内置：传一个不会命中任何 bundle 的占位 tag 显式表达，不依赖 YooAsset 对空串按 ';' 切分的行为。
                 BundledCopyParams = string.IsNullOrEmpty(builtinTags) ? "__builtin_none__" : builtinTags,
                 BuiltinShadersBundleName = ResolveBuiltinShaderBundleName(packageName, genShaderBundle),
                 // MonoScriptsBundleName 保持空：与 YooAsset 窗口默认一致，避免同类 obsolete 任务（CreateMonoScriptBundle）。
