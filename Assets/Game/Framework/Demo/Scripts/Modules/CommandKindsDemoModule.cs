@@ -35,6 +35,9 @@ namespace Game.Framework.Demo.Modules
             Bag.Subscribe(this.ExecuteCommand(new GetDoneCommand()), v => doneLabel.text = $"已完成：{v} 次");
 
             CancellationTokenSource cts = null;
+            // 切走本章时取消并释放进行中的任务令牌：异步操作的生命周期也跟着 bag 走，
+            // 否则切章后任务仍在后台跑完、往已拆除的 UI 标签写文字（无害但脏）。
+            Bag.Add(Disposable.Create(() => { cts?.Cancel(); cts?.Dispose(); cts = null; }));
             host.AddActionRow("开始任务（1.5 秒）", async () =>
             {
                 cts?.Cancel();
