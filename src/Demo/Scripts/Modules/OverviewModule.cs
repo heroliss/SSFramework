@@ -60,6 +60,9 @@ namespace Game.Framework.Demo.Modules
             host.AddConcept("多 Context", "`GameContext` 是一棵作用域树，子 Context 解析不到就回退父级——可分出全局 / 场景 / 局部等不同生命周期的作用域。");
             host.AddConcept("Mono 自动绑定", "继承 `MonoXxxBase` 的组件在 Awake 自动找到所属 Context 并完成注册 / 注入，免去手动接线；纯 C# 对象走显式绑定。");
             host.AddConcept("统一生命周期", "`DisposableBag` 把订阅 / 资源句柄 / 对象池租借 / 子作用域都登记起来，宿主销毁时批量释放，不用手写一堆退订。");
+            host.AddConcept("树状组织", "上面「多 Context / Mono 自动绑定 / 统一生命周期」三条共享同一个理念：结构性问题都用「树」回答——"
+                + "Context 嵌套成作用域树（解析回退）、Hierarchy 决定注册去向（就近向上）、Bag 子作用域级联释放。"
+                + "节点放进哪个子树 = 一次说清「依赖从哪来、注册到哪去、何时被清理」。");
             host.AddNote("想看源码（其余见各自章节）：");
             host.AddCodeLink(new CodeRef("Assets/Game/Framework/Scripts/Internal/ICanSendCommand.cs",
                 "interface ICanSendCommand", "编译期权限接口"));
