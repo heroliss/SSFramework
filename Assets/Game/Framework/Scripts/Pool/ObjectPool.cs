@@ -29,6 +29,15 @@ namespace Game.Framework.Pool
         /// <param name="maxSize">池容量上限；0 表示不限。超限的归还实例被丢弃交 GC。</param>
         public ObjectPool(Func<T> factory, Action<T> onRent = null, Action<T> onReturn = null, int maxSize = 0)
         {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            // Unity 类型误用守卫：GameObject / Component 满足 class（甚至 new()）约束，也能进这个 C# 对象池——
+            // 但这里不会 Instantiate / SetActive（new GameObject() 造的是空物体、归还也不停用；new 出的 Component 是无效对象），
+            // 几乎必然是误用。一次性检查（仅建池时），指路 GameObject 池。
+            if (typeof(UnityEngine.Object).IsAssignableFrom(typeof(T)))
+                UnityEngine.Debug.LogError(
+                    $"[ObjectPool<{typeof(T).Name}>] {typeof(T).Name} is a UnityEngine.Object — this C# object pool " +
+                    "won't Instantiate/activate it. Use the GameObject pool instead (Bag.Spawn / IPoolUtility.Spawn).");
+#endif
             _factory = factory ?? throw new ArgumentNullException(nameof(factory));
             _onRent = onRent;
             _onReturn = onReturn;
