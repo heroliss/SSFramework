@@ -79,9 +79,8 @@ namespace Game.Framework
         public IReadOnlyList<AssetPackageConfig> Packages => _packages;
 
         public IReadOnlyList<string> CdnUrls => _cdnUrls;
-        public int DownloadingMaxNumber => _downloadingMaxNumber;
-        public int FailedTryAgain => _failedTryAgain;
-        public ulong FileOffset => _fileOffset;
+        // 下载并发 / 重试 / 文件偏移没有公共属性：这些纯 provider 配置只经 ToProviderConfig() 流向加载层，
+        // 运行期没有合法的外部读取方——需要读时从 DTO（AssetProviderConfig）拿，别在这里重新开洞。
 
         /// <summary>
         /// 运行期实际生效的模式。WebGL 平台强制远端 Web 模式，避免构建后误用本地或编辑器模式。
