@@ -617,6 +617,7 @@ pool.Return(b);                   // 手动管理时显式归还
 
 - **状态在归还时清理**（`IPoolable.OnReturn` 或 `onReturn` 委托），避免脏数据被下一个租借者看到。
 - **已 `Return` 的对象不要再用**——它可能已被取走。
+- **单个提前归还**：`Bag.Rent` 借出的实例在**同一 bag** 上 `bag.Return(obj)` 提前归还，自动摘除 Dispose 时的归还登记（不重复归还）；见下文「局部作用域」。
 - 主线程独占；Editor / Development Build 下检测"重复归还 / 归还外来实例"。
 
 #### GameObject / Prefab 池
@@ -646,6 +647,27 @@ public class EnemySpawnerView : MonoViewBase
 - **重置钩子**：实例上**任意组件**实现 `IPoolable`，即在 `OnRent` / `OnReturn` 收到回调（`OnReturn` 里清状态）。
 - **位置加载组合**：池本身不做按 location 的异步加载——先 `var prefab = await Bag.Load<GameObject>("...")` 取到 prefab 再 `Bag.Spawn(prefab)`，刻意让 `PoolUtility` 不依赖资源系统（保持可被父子 Context 共享、不绑 Context）。
 - 主线程独占；Editor / Dev 构建下检测"重复 Despawn / 归还非池化对象"。
+
+#### 局部作用域：整批自动归还 + 单个提前归还
+
+「一波敌人 / 一局 / 一个面板」这类局部作用域，用 `Bag.CreateChild()` 承接 live 集合：整批借进子 bag、作用域结束 `Dispose` 一次性归还。期间个别实例要提前退场（子弹命中、敌人死亡），调**同一个 bag** 的 `Return(obj)` / `Despawn(go)`——归还的同时摘除该实例的自动归还登记，`Dispose` 时不会重复归还。池缓存挂在更长寿的 Context 上跨作用域复用，live 集合跟局部子 bag 走：
+
+```csharp
+// 开一波：live 集合挂局部子 bag
+_waveBag = Bag.CreateChild();
+for (int i = 0; i < waveSize; i++)
+    _waveBag.Spawn(_enemyPrefab, SpawnPoint(i), Quaternion.identity);
+
+// 期间：单个敌人死亡，提前归还（自动摘登记，波次结束不会二次 Despawn）
+_waveBag.Despawn(enemy);
+
+// 波次结束：剩余敌人整批归还
+_waveBag.Dispose();
+```
+
+- `Return` / `Despawn` 必须在**借出实例的同一个 bag** 上调用；外来实例 / 重复归还被忽略（Editor/Dev 下 LogError）。
+- 纯 C# 对象同理：`bag.Rent<T>()` 配 `bag.Return(obj)`。
+- 弹幕级高频热路径仍建议「领域 List + 手动池」（`GetUtility<IPoolUtility>()`）——`Return`/`Despawn` 按值反查并从登记列表线性摘除，量大时这笔开销不如手动管理直接。
 
 ---
 

@@ -135,6 +135,98 @@ namespace Game.Framework.Test
         }
 
         [Test]
+        public void Bag_Return_ReleasesSingleEarly()
+        {
+            var builder = new ContainerBuilder();
+            builder.RegisterValue(new CommandSystem(), new[] { typeof(ICommandSystem) });
+            builder.RegisterValue(new PoolUtility(), typeof(IPoolUtility));
+            using var ctx = new GameContext(builder.Build());
+            var pool = ctx.GetUtility<IPoolUtility>().GetPool<Widget>();
+
+            Widget a, b;
+            using (var bag = ctx.CreateBag())
+            {
+                a = bag.Rent<Widget>();
+                b = bag.Rent<Widget>();
+
+                bag.Return(a);
+                Assert.AreEqual(1, pool.CountInactive, "提前归还 a 后池中应有 1 个空闲");
+                Assert.AreEqual(1, a.ReturnCount, "a 应被归还一次");
+                Assert.AreEqual(0, b.ReturnCount, "b 仍被 bag 持有");
+            }
+
+            Assert.AreEqual(2, pool.CountInactive, "bag.Dispose 应只归还剩余的 b");
+            Assert.AreEqual(1, a.ReturnCount, "a 不应被 Dispose 重复归还");
+            Assert.AreEqual(1, b.ReturnCount);
+        }
+
+        [Test]
+        public void Bag_Return_ForeignOrAlreadyReturned_LogsErrorAndIgnores()
+        {
+            var builder = new ContainerBuilder();
+            builder.RegisterValue(new CommandSystem(), new[] { typeof(ICommandSystem) });
+            builder.RegisterValue(new PoolUtility(), typeof(IPoolUtility));
+            using var ctx = new GameContext(builder.Build());
+            var pool = ctx.GetUtility<IPoolUtility>().GetPool<Widget>();
+
+            using var bag = ctx.CreateBag();
+
+            // 外来实例：不是本 bag 借出的
+            LogAssert.Expect(LogType.Error, new Regex("not leased by this bag"));
+            bag.Return(new Widget());
+
+            // 重复归还：第二次已不在登记表，忽略且不触达池
+            var a = bag.Rent<Widget>();
+            bag.Return(a);
+            LogAssert.Expect(LogType.Error, new Regex("not leased by this bag"));
+            bag.Return(a);
+            Assert.AreEqual(1, a.ReturnCount, "重复 Return 不应真正归还第二次");
+            Assert.AreEqual(1, pool.CountInactive);
+        }
+
+        [Test]
+        public void Bag_Return_ThenRerent_Roundtrip()
+        {
+            var builder = new ContainerBuilder();
+            builder.RegisterValue(new CommandSystem(), new[] { typeof(ICommandSystem) });
+            builder.RegisterValue(new PoolUtility(), typeof(IPoolUtility));
+            using var ctx = new GameContext(builder.Build());
+            var pool = ctx.GetUtility<IPoolUtility>().GetPool<Widget>();
+
+            Widget a;
+            using (var bag = ctx.CreateBag())
+            {
+                a = bag.Rent<Widget>();
+                bag.Return(a);
+                var again = bag.Rent<Widget>();
+                Assert.AreSame(a, again, "提前归还的实例应被同 bag 再次租出");
+                Assert.AreEqual(0, pool.CountInactive);
+            }
+
+            Assert.AreEqual(1, pool.CountInactive, "Dispose 应归还重新登记的实例，恰好一次");
+            Assert.AreEqual(2, a.ReturnCount, "两轮租借各归还一次，无重复");
+        }
+
+        [Test]
+        public void Bag_Return_AfterDispose_IsNoOp()
+        {
+            var builder = new ContainerBuilder();
+            builder.RegisterValue(new CommandSystem(), new[] { typeof(ICommandSystem) });
+            builder.RegisterValue(new PoolUtility(), typeof(IPoolUtility));
+            using var ctx = new GameContext(builder.Build());
+            var pool = ctx.GetUtility<IPoolUtility>().GetPool<Widget>();
+
+            var bag = ctx.CreateBag();
+            var a = bag.Rent<Widget>();
+            bag.Dispose();   // a 随 Dispose 自动归还
+            Assert.AreEqual(1, pool.CountInactive);
+
+            bag.Return(a);   // 已 Dispose 的 bag：静默无操作——实例已归还，不报错也不重复归还
+            Assert.AreEqual(1, a.ReturnCount, "Dispose 后 Return 不应重复归还");
+            Assert.AreEqual(1, pool.CountInactive);
+        }
+
+        [Test]
         public void PoolUtility_Dispose_ClearsPools_AndIsIdempotent()
         {
             var util = new PoolUtility();

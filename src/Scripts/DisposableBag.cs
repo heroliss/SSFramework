@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using Game.Framework.Event;
@@ -45,6 +46,12 @@ namespace Game.Framework
         // 典型 bag 在生命周期内只用 1 种 external（如 view destroy token / ctx token），命中率极高。
         private CancellationToken _cachedLinkedExternal;
         private CancellationTokenSource _cachedLinkedCts;
+
+        // Rent / Spawn 借出的实例 → 其归还登记项的反查表，供 Return / Despawn 单个提前归还时摘除登记。
+        // 惰性分配：不用池的 bag 零成本。key 用 object 同时容纳纯 C# 对象与 GameObject。
+        // 必须按引用相等比较：池化类型可能重写 Equals/GetHashCode（值相等、可变字段参与哈希），
+        // 默认 comparer 下实例状态改变后会查不到登记项。netstandard2.1 没有 ReferenceEqualityComparer（.NET 5+），自带一个。
+        private Dictionary<object, IDisposable> _leased;
 
         /// <summary>不持有 Context 的 bag。仅能用于 R3 / UnityEvent / C# event / IDisposable 这几类不依赖 Context 的能力。</summary>
         public DisposableBag() { }
@@ -354,7 +361,8 @@ namespace Game.Framework
         /// <summary>
         /// 从 <see cref="IPoolUtility"/> 的默认池租借一个实例；bag.Dispose 时自动归还。
         /// 与 <see cref="Load{T}(string, CancellationToken)"/> 的"借通道、自动释放"心智一致，业务无感知归还动作。
-        /// 需要更早归还、或自定义工厂/钩子时，直接用 <c>this.GetUtility&lt;IPoolUtility&gt;()</c> 操作池。
+        /// 作用域内单个提前归还用本 bag 的 <see cref="Return{T}(T)"/>；
+        /// 需要自定义工厂/钩子时，直接用 <c>this.GetUtility&lt;IPoolUtility&gt;()</c> 操作池。
         /// </summary>
         public T Rent<T>() where T : class, new()
         {
@@ -362,16 +370,24 @@ namespace Game.Framework
             ThrowIfDisposed();
             var pool = ResolvePoolUtility().GetPool<T>();
             var instance = pool.Rent();
-            Track(Disposable.Create(() => pool.Return(instance)));
+            TrackLeased(instance, Disposable.Create(() => pool.Return(instance)));
             return instance;
         }
+
+        /// <summary>
+        /// 把 <see cref="Rent{T}"/> 借出的实例提前归还到池，并摘除本 bag 的自动归还登记——bag.Dispose 时不会重复归还。
+        /// 适合「子 bag 整批借出、作用域内逐个提前归还」（实例提前退场，剩余的随 bag.Dispose 整批归还）。
+        /// 只对「本 bag 借出且尚未归还」的实例有效：外来实例 / 重复归还会被忽略（Editor/Dev 下 LogError）。
+        /// bag 已 Dispose 后调用为无操作（实例已在 Dispose 时自动归还）。
+        /// </summary>
+        public void Return<T>(T instance) where T : class => ReleaseLeased(instance, nameof(Return));
 
         /// <summary>
         /// 从 <paramref name="prefab"/> 的 GameObject 池 Spawn 一个实例并挂到 <paramref name="parent"/>；
         /// bag.Dispose 时自动 Despawn（归还），心智同 <see cref="Rent{T}"/> / <see cref="Load{T}(string, CancellationToken)"/>。
         /// 实例若已被外部 Destroy（如随场景卸载）则跳过归还。位置加载先 <c>await Bag.Load&lt;GameObject&gt;(location)</c> 取得 prefab。
-        /// <b>不要对交给本方法的实例再手动 Despawn</b>（与 <see cref="Rent{T}"/> 同约定）：归还由 bag 负责，手动归还会与
-        /// bag 的自动归还叠加成重复 Despawn——需要更早归还就别用 Bag.Spawn，直接走 <c>this.GetUtility&lt;IPoolUtility&gt;()</c>。
+        /// <b>不要绕过 bag 直接对实例调池的 Despawn</b>（与 <see cref="Rent{T}"/> 同约定）：bag 的自动归还会叠加成
+        /// 重复 Despawn——作用域内单个提前归还用本 bag 的 <see cref="Despawn(GameObject)"/>（归还同时摘除登记）。
         /// </summary>
         public GameObject Spawn(GameObject prefab, Transform parent = null)
         {
@@ -379,7 +395,7 @@ namespace Game.Framework
             ThrowIfDisposed();
             var pool = ResolvePoolUtility().GetGameObjectPool(prefab);
             var go = pool.Spawn(parent);
-            Track(Disposable.Create(() => { if (go != null) pool.Despawn(go); }));
+            TrackLeased(go, Disposable.Create(() => { if (go != null) pool.Despawn(go); }));
             return go;
         }
 
@@ -390,9 +406,15 @@ namespace Game.Framework
             ThrowIfDisposed();
             var pool = ResolvePoolUtility().GetGameObjectPool(prefab);
             var go = pool.Spawn(position, rotation, parent);
-            Track(Disposable.Create(() => { if (go != null) pool.Despawn(go); }));
+            TrackLeased(go, Disposable.Create(() => { if (go != null) pool.Despawn(go); }));
             return go;
         }
+
+        /// <summary>
+        /// 把 <see cref="Spawn(GameObject, Transform)"/> 借出的实例提前 Despawn 归还，并摘除本 bag 的自动归还登记。
+        /// 约定同 <see cref="Return{T}(T)"/>：仅限本 bag 借出且尚未归还的实例；bag 已 Dispose 后调用为无操作。
+        /// </summary>
+        public void Despawn(GameObject instance) => ReleaseLeased(instance, nameof(Despawn));
 
         // ── 通用挂载 / 嵌套 ─────────────────────────────────────────────────
 
@@ -429,6 +451,8 @@ namespace Game.Framework
             // 缓存的 linked CTS 已被根 _disposeCts.Cancel 触发取消，这里仅释放底层资源。
             _cachedLinkedCts?.Dispose();
             _composite.Dispose();
+            // 租借反查表随之作废（实例已全部归还）；置空让实例/句柄可被 GC——bag 引用可能仍被宿主持有。
+            _leased = null;
         }
 
         // ── 内部 ────────────────────────────────────────────────────────────
@@ -438,6 +462,49 @@ namespace Game.Framework
             if (_disposed) { d?.Dispose(); return d; }
             _composite.Add(d);
             return d;
+        }
+
+        // Rent / Spawn 共用：归还登记进 composite（Dispose 自动归还）的同时记录「实例 → 登记项」反查，
+        // 供 Return / Despawn 单个提前归还时摘除登记。
+        private void TrackLeased(object instance, IDisposable handle)
+        {
+            if (_disposed) { handle.Dispose(); return; }
+            _composite.Add(handle);
+            (_leased ??= new Dictionary<object, IDisposable>(ReferenceComparer.Instance))[instance] = handle;
+        }
+
+        // Return / Despawn 共用实现：按实例反查归还登记项 → 同时摘出 _leased 与 composite → 触发归还。
+        // 内存 O(当前借出数)：借出 +1、归还 -1，不随总租借次数增长。
+        // 注意 CompositeDisposable.Remove 是对登记列表的线性查找（O(本 bag 总登记数)）——
+        // 弹幕级高频热路径别走这里，用「领域 List + 手动池」。
+        private void ReleaseLeased(object instance, string op)
+        {
+            if (instance == null) return;
+            // Dispose 已把所有登记项归还，实例不再归本 bag 管，静默无操作。
+            if (_disposed) return;
+            if (_leased == null || !_leased.TryGetValue(instance, out var handle))
+            {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+                Debug.LogError(
+                    $"[DisposableBag] {op} target was not leased by this bag (or already returned). Ignored — " +
+                    "early return must be called on the same bag that rented/spawned the instance.");
+#endif
+                return;
+            }
+            _leased.Remove(instance);
+            // R3 CompositeDisposable.Remove 找到即移除（并按 Rx 约定 dispose）；下一行兜底 dispose 一次，
+            // 让语义不依赖 Remove 的 dispose 行为——Disposable.Create 幂等，双 dispose 安全，
+            // 最终 pool.Return / pool.Despawn 恰好执行一次。
+            _composite.Remove(handle);
+            handle.Dispose();
+        }
+
+        // 引用相等 comparer：netstandard2.1 没有 System.Collections.Generic.ReferenceEqualityComparer（.NET 5+）。
+        private sealed class ReferenceComparer : IEqualityComparer<object>
+        {
+            public static readonly ReferenceComparer Instance = new();
+            bool IEqualityComparer<object>.Equals(object x, object y) => ReferenceEquals(x, y);
+            int IEqualityComparer<object>.GetHashCode(object obj) => RuntimeHelpers.GetHashCode(obj);
         }
 
         private T TrackAsset<T>(IAssetHandle<T> handle) where T : UnityEngine.Object
