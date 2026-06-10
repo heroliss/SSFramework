@@ -74,6 +74,13 @@ namespace Game.Framework.Demo.Modules
             host.AddConcept("解析顺序", "本层运行时覆盖 → 本层 `InstallBindings` → 父级递归 → 全局 `Main`（`inheritFromGlobal` 时）。");
             host.AddConcept("覆盖 vs 回退", "子层注册同类型 → 用子层（覆盖）；子层没有 → 逐级回退父层。");
             host.AddTip("好处：切场景 / 关卡时整层 Context 一并 Dispose，临时注册随之清掉、不污染全局——这也是不在运行时单独热替换某个层的原因。");
+
+            host.AddSectionTitle("这棵树给你什么");
+            host.AddConcept("测试沙盒", "拖一个子 Context、把被测 Model / System 挂进它的子树——缺的依赖回退父级、要替换的注册 Mock 覆盖；不必启动整个游戏即可联调，测完删掉整棵子树即净，主场景零污染。");
+            host.AddConcept("局部世界", "关卡 / 副本 / 面板的状态注册在局部 Context，结束时整层 Dispose，临时注册不泄漏全局。");
+            host.AddConcept("prefab 即插即用", "内含 `MonoXxxBase` 的 prefab 实例化到哪个子树就接入哪个作用域——换挂载位置 = 换依赖来源，拖一下节点完成。");
+            host.AddNote("「树状思维」贯穿框架：Context 作用域树（解析回退）、Hierarchy 就近注册（本章演示的）、`Bag` 子作用域级联释放（「生命周期」章）——"
+                + "把节点放进哪个子树，就一次说清「依赖从哪来、注册到哪去、何时被清理」。深入见框架手册 §1「树状思维」。");
         }
 
 #if UNITY_EDITOR
