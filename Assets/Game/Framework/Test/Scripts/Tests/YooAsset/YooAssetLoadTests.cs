@@ -71,7 +71,10 @@ namespace Game.Framework.Test
             settingsGo.transform.SetParent(contextGo.transform);
             var settings = settingsGo.AddComponent<AssetSystemConfigModel>();
             // 框架样例资源已从 DefaultPackage 分到 FrameworkSamplesPackage（见 collector），测试随之指向该包。
-            SetPrivateField(settings, "_defaultPackageName", "FrameworkSamplesPackage");
+            // 多包模型下默认包必须同时登记在 Packages 列表（AssetInitSystem 启动校验默认包在列表中），两个字段都要设。
+            const string testPackage = "FrameworkSamplesPackage";
+            SetPrivateField(settings, "_packages", new List<AssetPackageConfig> { new(testPackage) });
+            SetPrivateField(settings, "_defaultPackageName", testPackage);
             // 测试环境默认走 Editor 模拟模式；非编辑器跑测试时退到 Offline。
 #if UNITY_EDITOR
             SetPrivateField(settings, "_playMode", AssetPlayMode.EditorSimulate);
