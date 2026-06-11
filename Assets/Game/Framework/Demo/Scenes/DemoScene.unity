@@ -260,7 +260,7 @@ GameObject:
   - component: {fileID: 481252686}
   - component: {fileID: 481252685}
   m_Layer: 0
-  m_Name: PoolDemoCanvas
+  m_Name: PoolCanvas
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -279,7 +279,7 @@ RectTransform:
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 549681963}
-  m_Father: {fileID: 962892730}
+  m_Father: {fileID: 1235070507}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0}
   m_AnchorMax: {x: 0, y: 0}
@@ -357,7 +357,7 @@ GameObject:
   - component: {fileID: 522623657}
   - component: {fileID: 522623658}
   m_Layer: 0
-  m_Name: "MonoScoreModel (\u5B50 Context \u7684)"
+  m_Name: ScoreModel (Sub)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -476,7 +476,7 @@ GameObject:
   - component: {fileID: 951876505}
   - component: {fileID: 951876504}
   m_Layer: 0
-  m_Name: DemoRoot
+  m_Name: DemoShell
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -531,9 +531,7 @@ Transform:
   m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
-  m_Children:
-  - {fileID: 1865890356}
-  - {fileID: 1499793786}
+  m_Children: []
   m_Father: {fileID: 962892730}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &962892728
@@ -593,10 +591,8 @@ Transform:
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 951876506}
-  - {fileID: 1038919720}
-  - {fileID: 481252684}
   - {fileID: 1007168410}
-  - {fileID: 1395205783}
+  - {fileID: 1235070507}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1007168409
@@ -612,8 +608,7 @@ GameObject:
   - component: {fileID: 1007168412}
   - component: {fileID: 1007168411}
   m_Layer: 0
-  m_Name: "\u8D44\u6E90\u7CFB\u7EDF\u76F8\u5173\uFF1A\u914D\u7F6E\uFF08Model\uFF09/
-    \u521D\u59CB\u5316\u7CFB\u7EDF\uFF08System\uFF09/ \u52A0\u8F7D\u5DE5\u5177\uFF08Utility\uFF09"
+  m_Name: AssetSystem
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -730,7 +725,7 @@ GameObject:
   - component: {fileID: 1038919720}
   - component: {fileID: 1038919721}
   m_Layer: 0
-  m_Name: DemoUGuiAssets
+  m_Name: UGuiAssets
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -744,12 +739,12 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1038919719}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
-  m_Father: {fileID: 962892730}
+  m_Father: {fileID: 1235070507}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &1038919721
 MonoBehaviour:
@@ -843,6 +838,42 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1235070506
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1235070507}
+  m_Layer: 0
+  m_Name: ChapterAssets
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1235070507
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1235070506}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children:
+  - {fileID: 1865890356}
+  - {fileID: 1499793786}
+  - {fileID: 1038919720}
+  - {fileID: 481252684}
+  - {fileID: 1395205783}
+  m_Father: {fileID: 962892730}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1395205782
 GameObject:
   m_ObjectHideFlags: 0
@@ -854,7 +885,7 @@ GameObject:
   - component: {fileID: 1395205783}
   - component: {fileID: 1395205784}
   m_Layer: 0
-  m_Name: "Demo\u8D44\u6E90\u5F15\u7528\u914D\u7F6E (Model)"
+  m_Name: AssetRefs
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -868,12 +899,12 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1395205782}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
-  m_Father: {fileID: 962892730}
+  m_Father: {fileID: 1235070507}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &1395205784
 MonoBehaviour:
@@ -921,7 +952,7 @@ GameObject:
   - component: {fileID: 1499793786}
   - component: {fileID: 1499793787}
   m_Layer: 0
-  m_Name: "\u5B50 Context (DemoSubContext)"
+  m_Name: SubContext
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -941,7 +972,7 @@ Transform:
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 522623657}
-  m_Father: {fileID: 951876506}
+  m_Father: {fileID: 1235070507}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &1499793787
 MonoBehaviour:
@@ -980,7 +1011,7 @@ GameObject:
   - component: {fileID: 1865890356}
   - component: {fileID: 1865890357}
   m_Layer: 0
-  m_Name: MonoScoreModel
+  m_Name: ScoreModel
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -994,12 +1025,12 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1865890355}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
-  m_Father: {fileID: 951876506}
+  m_Father: {fileID: 1235070507}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &1865890357
 MonoBehaviour:

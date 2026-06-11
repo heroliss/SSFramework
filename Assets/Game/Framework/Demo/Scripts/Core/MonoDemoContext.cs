@@ -5,7 +5,7 @@ using Game.Framework.System;
 namespace Game.Framework.Demo.Core
 {
     /// <summary>
-    /// Demo 的根场景上下文。挂在 DemoRoot 上，承载所有章节共享的 <c>GameContext</c>。
+    /// Demo 的根场景上下文。挂在场景的 Main Context 节点上，承载所有章节共享的 <c>GameContext</c>。
     /// </summary>
     /// <remarks>
     /// 用 <see cref="MonoGameContextBase"/> 而非 MonoGlobalContext：demo 只是别人项目里的一个场景，不该把
