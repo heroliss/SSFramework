@@ -23,10 +23,7 @@ namespace Game.Framework.Demo.Modules
             "Command 三种形态：同步（ICommand，计数器已演）、异步（IAsyncCommand，带取消令牌）、查询（ICommand<T>，返回值）。本章聚焦异步与查询，含查询的进阶形态「只读投影」（一面板一查询）。";
 
         public override void InstallBindings(ContainerBuilder builder)
-        {
-            builder.RegisterValue(new TaskModel(), typeof(TaskModel));
-            builder.RegisterValue(new StatsModel(), typeof(StatsModel));
-        }
+            => builder.RegisterValue(new TaskModel(), typeof(TaskModel));
 
         public override void Build(DemoModuleHost host)
         {
@@ -99,24 +96,14 @@ namespace Game.Framework.Demo.Modules
                 + "也可返回一次性快照值——这里返回 `int`，读的就是上方异步任务的累计完成数在“查询那一刻”的值（之后再完成任务它不会自己变，要重新点才更新）。"
                 + "View 经查询读状态，不直接碰 Model。");
 
-            // ── 查询进阶：只读投影（一面板一查询）──
+            // ── 查询进阶：只读投影（一面板一查询）——模式简单，文字说明即可，完整代码在框架手册 §8 ──
             host.AddSectionTitle("查询进阶：只读投影（一面板一查询）");
-            // 关键点：一个查询 Command 返回打包好的只读投影，而不是每个字段一个查询。
-            var stats = this.ExecuteCommand(new GetStatsProjectionCommand());
-            var hpLabel = host.AddValueDisplay("", CodeRef.Here("struct GetStatsProjectionCommand", "GetStatsProjectionCommand"));
-            var mpLabel = host.AddValueDisplay();
-            var goldLabel = host.AddValueDisplay();
-            // 投影里的每个源都是 ReadOnlyReactiveProperty：订阅即得当前值，之后自动刷新。
-            Bag.Subscribe(stats.Hp, v => hpLabel.text = $"HP：{v}");
-            Bag.Subscribe(stats.Mp, v => mpLabel.text = $"MP：{v}");
-            Bag.Subscribe(stats.Gold, v => goldLabel.text = $"金币：{v}");
-            host.AddActionRow("HP +10", () => this.ExecuteCommand(new AddHpCommand()),
-                CodeRef.Here("struct AddHpCommand", "AddHpCommand"));
-            host.AddActionRow("MP +5", () => this.ExecuteCommand(new AddMpCommand()));
-            host.AddActionRow("金币 +50", () => this.ExecuteCommand(new AddGoldCommand()));
-            host.AddNote("复杂面板要观察很多状态时，别写 N 个「一字段一查询」——用一个查询 Command 返回打包多个只读源的「只读投影」对象（`StatsProjection`），**一面板一查询**。投影只暴露 `ReadOnlyReactiveProperty`，View 看得到、改不了；写仍走 Command（上面三个按钮），单向数据流约束不变。",
-                CodeRef.Here("class StatsProjection", "StatsProjection 只读投影"));
-            host.AddSubNote("投影是「读视图」，不是 Model：在查询 Command 里现组装、只引用 Model 已有的只读源，不持有状态、不进容器；需要派生 / 过滤 / 组合时投影里直接放 R3 操作符链（如 `model.Hp.Select(...)`）。权衡：字段少（一两个）时直接「一字段一查询」更直白，复杂面板才用投影收口。深入见框架手册 §8。");
+            host.AddNote("复杂面板要观察很多状态时，别写 N 个「一字段一查询」——用一个查询 Command 返回打包多个只读源的「投影」对象"
+                + "（如 `StatsProjection` 暴露 `Hp` / `Mp` / `Gold` 三个 `ReadOnlyReactiveProperty`），**一面板一查询**。"
+                + "投影只暴露只读源，View 看得到、改不了，写仍走 Command，单向数据流约束不变。");
+            host.AddSubNote("投影是「读视图」，不是 Model：在查询 Command 里现组装、只引用 Model 已有的只读源，不持有状态、不进容器；"
+                + "需要派生 / 过滤 / 组合时投影里直接放 R3 操作符链（如 `model.Hp.Select(...)`）。"
+                + "权衡：字段少（一两个）时直接「一字段一查询」更直白，复杂面板才用投影收口。完整代码与权衡见框架手册 §8。");
 
             // ── 小结 ──
             host.AddSectionTitle("三态小结");
@@ -162,60 +149,5 @@ namespace Game.Framework.Demo.Modules
     public readonly struct CountDoneCommand : ICommand<int>
     {
         public int Execute(ICommandContext ctx) => ctx.GetModel<TaskModel>().Done.CurrentValue;
-    }
-
-    // ── 查询进阶：只读投影（一面板一查询）的配套类型 ──
-
-    /// <summary>投影演示用 Model：持有三个响应式状态（HP / MP / 金币）。</summary>
-    public sealed class StatsModel : IModel
-    {
-        public readonly RP<int> Hp = new(100);
-        public readonly RP<int> Mp = new(50);
-        public readonly RP<int> Gold = new(0);
-    }
-
-    /// <summary>
-    /// 只读投影（CQRS 的 read projection）：把一个面板要观察的多个状态源打包成一个只读对象。
-    /// 命名用 <c>Projection</c> 而非 <c>View</c> / <c>Model</c>——后两者是框架的层名，会引起误解。
-    /// 只暴露 <see cref="ReadOnlyReactiveProperty{T}"/>——View 能订阅、能读当前值，但改不了（写仍只能走 Command）。
-    /// 在查询 Command 里现组装，只引用 Model 已有的只读源，不持有状态、不注册进容器。
-    /// </summary>
-    public sealed class StatsProjection
-    {
-        public ReadOnlyReactiveProperty<int> Hp { get; }
-        public ReadOnlyReactiveProperty<int> Mp { get; }
-        public ReadOnlyReactiveProperty<int> Gold { get; }
-
-        public StatsProjection(StatsModel model)
-        {
-            // RP<T> IS-A ReadOnlyReactiveProperty<T>，直接赋值，零分配无转换。
-            Hp = model.Hp;
-            Mp = model.Mp;
-            Gold = model.Gold;
-        }
-    }
-
-    /// <summary>只读查询：返回打包多个只读源的投影，供 View 一次拿全。</summary>
-    public readonly struct GetStatsProjectionCommand : ICommand<StatsProjection>
-    {
-        public StatsProjection Execute(ICommandContext ctx) => new(ctx.GetModel<StatsModel>());
-    }
-
-    /// <summary>HP +10。</summary>
-    public readonly struct AddHpCommand : ICommand
-    {
-        public void Execute(ICommandContext ctx) => ctx.GetModel<StatsModel>().Hp.Value += 10;
-    }
-
-    /// <summary>MP +5。</summary>
-    public readonly struct AddMpCommand : ICommand
-    {
-        public void Execute(ICommandContext ctx) => ctx.GetModel<StatsModel>().Mp.Value += 5;
-    }
-
-    /// <summary>金币 +50。</summary>
-    public readonly struct AddGoldCommand : ICommand
-    {
-        public void Execute(ICommandContext ctx) => ctx.GetModel<StatsModel>().Gold.Value += 50;
     }
 }
