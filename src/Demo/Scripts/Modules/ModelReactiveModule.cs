@@ -47,7 +47,7 @@ namespace Game.Framework.Demo.Modules
 #if UNITY_EDITOR
             host.AddActionRow("选中到 Inspector", SelectMonoModelInInspector);
 #endif
-            host.AddTip("MonoScoreModel 挂成 DemoRoot 下的场景节点，Awake 自动注册进同一个 Context——不用写一行注册代码。"
+            host.AddTip("MonoScoreModel 挂成 demo 根 Context 子树里的场景节点（ChapterAssets/ScoreModel），Awake 自动注册进同一个 Context——不用写一行注册代码。"
                 + "点「选中到 Inspector」：运行时不仅能看 RP 分数随按钮实时跳动，还能反过来——在 Inspector 里直接改这个值，上方 UI 分数会同步刷新："
                 + "RP 的 Drawer 改的就是 ReactiveProperty.Value，所有订阅者即时收到，等于没写一行代码就发了次状态更新（双向实时，框架小亮点）。"
                 + "停止运行后改的则是序列化初值，下次运行生效。");

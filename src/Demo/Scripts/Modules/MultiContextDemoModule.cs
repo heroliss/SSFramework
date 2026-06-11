@@ -26,7 +26,7 @@ namespace Game.Framework.Demo.Modules
             var sub = Object.FindFirstObjectByType<DemoSubContext>();
             if (root == null || sub == null)
             {
-                host.AddNote("没找到 Context 节点——请确认场景里有 MonoDemoContext（Main Context），DemoRoot 下有挂 DemoSubContext 的「子 Context」节点（含 MonoScoreModel 子节点）。");
+                host.AddNote("没找到 Context 节点——请确认场景里有 MonoDemoContext（Main Context），ChapterAssets 下有挂 DemoSubContext 的 SubContext 节点（含 MonoScoreModel 子节点）。");
                 return;
             }
 
@@ -65,7 +65,7 @@ namespace Game.Framework.Demo.Modules
             host.AddActionRow("选中 子 Context 节点", () => SelectInInspector(sub.gameObject));
             host.AddActionRow("选中 根 Context 的 MonoScoreModel", () => SelectInInspector(rootScore.gameObject));
             host.AddActionRow("选中 子 Context 的 MonoScoreModel", () => SelectInInspector(subScore.gameObject));
-            host.AddTip("点上面按钮去 Hierarchy 看结构：Main Context（根 Context）→ DemoRoot 下的「子 Context」（DemoSubContext）→ 它的 MonoScoreModel。"
+            host.AddTip("点上面按钮去 Hierarchy 看结构：Main Context（根 Context）→ ChapterAssets/SubContext（DemoSubContext）→ 它的 ScoreModel (Sub)。"
                 + "运行时在 Inspector 里直接改任一实例的 Score，上方对应标签实时刷新——哪个作用域的数据一目了然。");
 #endif
 
