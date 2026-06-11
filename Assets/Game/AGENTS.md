@@ -311,8 +311,9 @@ protected virtual void OnDestroy()
 **Why:** R3 订阅与 `[Inject]` 字段都绑定到具体实例引用，容器反注册不会重定向它们；而 `ctx.GetXxx<T>()` 走容器解析，会按回退顺序找到父级或抛异常。两条路径混用时观察值与写入目标会分裂。
 
 **How to apply:**
+- 边界速记：**增量随便加（Instantiate / RegisterXxx 即注册），换血不允许，撤就整棵撤**——Destroy 单个层虽会干净反注册，但存量 `[Inject]` 快照 / 订阅不会重定向；把「层 + 它的消费者」放同一子树、连根一起撤即无孤儿。
 - 默认假设："注册到 Container 的层在 Context 生命周期内不变"。需要切换数据时，**改 model 内部状态**（重置字段、清空集合），不要 Destroy 整个 model GameObject。
-- 真正需要替换实例时，**整层 Context 一并 Dispose 重建**（场景切换、关卡重置），而不是单独删一个层。
+- 真正需要替换实例时，**子 Context 覆盖**（新作用域挂新实例）或**整层 Context 一并 Dispose 重建**（场景切换、关卡重置），而不是单独删一个层。
 - 想做热替换需要一套声明式绑定 + Container 注册事件的机制，目前不在框架范围内；如未来引入，再来更新此条。
 
 ## 22. Inspector 引用默认 fail-fast

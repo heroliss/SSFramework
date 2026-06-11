@@ -1117,11 +1117,15 @@ ctx.UnregisterModel(model);
 
 业务如果需要从工作线程调框架，请先 `await UniTask.SwitchToMainThread()` 再发 Command。
 
-### 不可在运行时热替换层
+### 运行时增删层的边界：增量随便加，换血不允许，撤就整棵撤
 
-框架**不支持**运行时删除/替换已注册的 Model/System/Utility 后让既有引用自动指向新实例——`[Inject]` 字段是 Awake/Execute 时一次性快照、R3 订阅绑定到具体 `ReactiveProperty` 实例，容器反注册不会重定向它们。
+| 操作 | 支持度 | 说明 |
+|---|---|---|
+| **添加** | ✅ | 随时 `Instantiate` 带 `MonoXxxBase` 的 prefab 进某个 Context 子树，`Awake` 就近自动注册（纯 C# 用 `RegisterXxx` 同理）。「添加」指新类型、或在**子 Context** 覆盖父级同类型；同一 Context 重复注册同类型会抛异常——这正是在帮你挡「替换」。 |
+| **移除** | ⚠️ | `Destroy` 会干净反注册，但 `[Inject]` 快照与已建立的 R3 订阅**不会被重定向**——场上还有消费者引用它时移除＝制造孤儿。没人引用时移除是安全的；正确姿势是把「层 + 它的消费者」放进同一棵子树，撤的时候**整棵子树连根撤**（子 Context 连同其下的 View / 层一并销毁），天然不存在孤儿引用。 |
+| **替换** | ❌ | 「移除再添加、期望既有引用指向新实例」不支持（刻意设计）：`[Inject]` 快照与订阅仍指旧实例、`ctx.GetXxx` 实时解析指新实例——访问路径分裂成「读的和写的不是同一份」的难查 bug。 |
 
-需要切换数据时，**改 Model 内部状态**（重置字段、清空集合）而不是 Destroy 整个 Model GameObject；需要整层换实例时，**Context 一并 Dispose 重建**（场景切换、关卡重置）。这条规则的详细推论与示例见 `Assets/Game/AGENTS.md §21`。
+需要「换」时按场景选：**换数据** → 重置 Model 内部状态（引用与订阅全部继续有效，绝大多数需求到这就够）；**换实例** → 开子 Context 覆盖（新作用域挂新实例，新挂进去的消费者自然用新的）；**换整层** → Context 一并 Dispose 重建（场景切换、关卡重置）。这条规则的详细推论与示例见 `Assets/Game/AGENTS.md §21`。
 
 ---
 

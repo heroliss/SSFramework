@@ -79,6 +79,16 @@ namespace Game.Framework.Demo.Modules
                 + "是因为命令所需的 `ICommandSystem` 在子级解析不到、自动沿作用域链回退到父级（根）解析：**回退对业务完全透明**。"
                 + "回退是单向的（子 → 父）：父 Context 看不到子 Context 注册的东西。");
 
+            // ── 运行时增删的边界 ──
+            host.AddSectionTitle("运行时增删的边界");
+            host.AddConcept("添加 ✅", "随时 Instantiate 带 `MonoXxxBase` 的 prefab 进某个 Context 子树，`Awake` 就近自动注册——上面的弹窗就是动态添加。"
+                + "同一 Context 重复注册同类型会抛异常，这正是在帮你挡「替换」；要同类型另一份实例，开子 Context 覆盖（本章演示的）。");
+            host.AddConcept("移除 ⚠️", "Destroy 会干净反注册，但 `[Inject]` 快照和已建立的订阅**不会被重定向**——还有消费者引用它时移除＝制造孤儿。"
+                + "正确姿势：把「层 + 它的消费者」放同一棵子树，撤的时候整棵子树连根撤（如关闭弹窗、销毁整个子 Context），天然无孤儿。");
+            host.AddConcept("替换 ❌", "「移除再添加、期望既有引用指向新实例」不支持（刻意设计）：快照 / 订阅指旧实例、实时解析指新实例，读写分裂成难查的 bug。"
+                + "换数据 → 重置 Model 内部状态；换实例 → 子 Context 覆盖；换整层 → Context 整体 Dispose 重建。");
+            host.AddNote("一句记法：**增量随便加，换血不允许，撤就整棵撤**。详见框架手册 §11「运行时增删层的边界」。");
+
 #if UNITY_EDITOR
             host.AddActionRow("选中 SubContext 节点", () => SelectInInspector(subCtxNode.gameObject));
             host.AddActionRow("选中 子作用域的 ScoreModel", () => SelectInInspector(subScore.gameObject));
