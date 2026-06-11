@@ -54,7 +54,9 @@ namespace Game.Framework.Demo.Modules
             Bag.Add(Disposable.Create(() => { if (popup != null) Object.Destroy(popup); }));
             void Popup(Transform parent)
             {
-                if (popup != null) Object.Destroy(popup);
+                // 先关掉场上任何已开的同款弹窗（含「View」章遗留未关的）：同屏只留一个，分数对照看上面的常驻标签。
+                var existing = Object.FindFirstObjectByType<UGuiDemoView>();
+                if (existing != null) Object.Destroy(existing.gameObject);
                 popup = Object.Instantiate(assets.ViewPrefab, parent);
             }
 
