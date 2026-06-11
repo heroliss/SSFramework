@@ -1,70 +1,91 @@
+using Game.Framework.Common;
 using Game.Framework.Demo.Core;
+using R3;
 using UnityEngine;
 
 namespace Game.Framework.Demo.Modules
 {
     /// <summary>
     /// 核心·多 Context：Context 构成作用域树 + 覆盖/回退。不另造父节点——demo 根 Context 就是父级，
-    /// 场景里只加一个子 Context 节点（<see cref="DemoSubContext"/>），其子树下挂第二个 <see cref="MonoScoreModel"/>：
-    /// Hierarchy 树就是作用域树——同类型 Model 挂在哪个 Context 子树下就近注册进哪个作用域（覆盖父级同类型），
-    /// 子级没有的类型沿作用域链回退父级；同一个 Command 在哪个 Context 上执行，就作用于哪个作用域的数据。
+    /// 场景里只有一个子 Context 节点（<see cref="DemoSubContext"/>），其子树下挂第二个 <see cref="MonoScoreModel"/>。
+    /// 演示走业务的日常形态：把「View」章的同一个弹窗 prefab 分别挂到根 / 子作用域子树——同一份代码、同一个 Command，
+    /// 挂哪儿就读写哪个作用域的数据；业务不手动抓 Context，靠挂载位置说话。
     /// </summary>
     public sealed class MultiContextDemoModule : DemoModuleBase
     {
         public override string Id => "multi-context";
         public override string Title => "多 Context · 作用域树";
         public override string Category => "核心";
-        public override int Order => 45;
+        public override int Order => 40;   // 紧跟「View」章：复用它的弹窗 prefab 演示「挂哪儿就用哪个作用域」
+
         public override string Summary =>
-            "GameContext 是一棵作用域树（全局 / 场景 / 局部）。demo 根 Context 就是父级，场景里只加一个子 Context 节点；"
+            "GameContext 是一棵作用域树（全局 / 场景 / 局部）。demo 根 Context 就是父级，场景里只加一个子 Context 节点，"
             + "其子树下另挂一个 MonoScoreModel——同类型就近注册形成覆盖，子级没有的类型回退父级。"
-            + "同一个 Command 在哪个 Context 上执行，就作用于哪个作用域的数据。";
+            + "演示用「View」章的同一个弹窗：挂到哪个子树，就读写哪个作用域的数据，零代码切换。";
 
         public override void Build(DemoModuleHost host)
         {
-            var root = Object.FindFirstObjectByType<MonoDemoContext>();
-            var sub = Object.FindFirstObjectByType<DemoSubContext>();
-            if (root == null || sub == null)
+            var assets = Object.FindFirstObjectByType<DemoUGuiAssets>();
+            var subCtxNode = Object.FindFirstObjectByType<DemoSubContext>();
+            if (assets == null || assets.ViewPrefab == null || subCtxNode == null)
             {
-                host.AddNote("没找到 Context 节点——请确认场景里有 MonoDemoContext（Main Context），ChapterAssets 下有挂 DemoSubContext 的 SubContext 节点（含 MonoScoreModel 子节点）。");
+                host.AddNote("没找到演示所需节点——请确认 ChapterAssets 下有 UGuiAssets（含 ViewPrefab）和挂 DemoSubContext 的 SubContext 节点（含 MonoScoreModel 子节点）。");
+                return;
+            }
+            var subScore = subCtxNode.GetComponentInChildren<MonoScoreModel>(true);
+            if (subScore == null)
+            {
+                host.AddNote("SubContext 子节点下没找到 MonoScoreModel——覆盖演示需要它。");
                 return;
             }
 
-            // ── 覆盖：同类型 Model，两个作用域各自解析到自己的实例 ──
-            host.AddSectionTitle("覆盖：同类型 Model，子 Context 用自己的");
-            // 白盒说明：本章演示容器解析本身，直接在两个 Context 上解析 / 执行；业务代码仍按层权限走（View 只 ExecuteCommand）。
-            var rootScore = root.GetModel<MonoScoreModel>();
-            var subScore = sub.GetModel<MonoScoreModel>();
-
+            // ── 覆盖：同一个 View prefab，挂到哪个子树就用哪个作用域 ──
+            host.AddSectionTitle("覆盖：同一个 View，挂哪儿就用哪个作用域的数据");
             var rootLabel = host.AddValueDisplay();
             var subLabel = host.AddValueDisplay();
-            Bag.Subscribe(rootScore.Score, v => rootLabel.text = $"根 Context 解析 MonoScoreModel → 分数：{v}");
-            Bag.Subscribe(subScore.Score, v => subLabel.text = $"子 Context 解析 MonoScoreModel → 分数：{v}");
+            // 根作用域分数：本模块自己就是根作用域的 view 角色，走正规读法（查询 Command）。
+            Bag.Subscribe(this.ExecuteCommand(new GetMonoScoreCommand()), v => rootLabel.text = $"根作用域 ScoreModel → 分数：{v}");
+            // 子作用域分数：本模块绑在根作用域，查询命令解析不到子级——直读场景组件做对照显示（仅 demo 导览用；
+            // 业务里要读子作用域状态的 View，应像下面的弹窗一样挂进子作用域，用同样的查询命令读）。
+            Bag.Subscribe(subScore.Score, v => subLabel.text = $"子作用域 ScoreModel → 分数：{v}");
 
-            // 同一个 Command（「Model」章的 RaiseMonoScoreCommand）零改动：在哪个 Context 上执行，
-            // 命令里的 ctx.GetModel 就解析到哪个作用域的 MonoScoreModel——作用域树给业务的直接便利。
-            host.AddActionRow("在【子】Context 执行同一个 +1 命令", () => sub.ExecuteCommand(new RaiseMonoScoreCommand()),
-                CodeRef.Here("sub.ExecuteCommand(new RaiseMonoScoreCommand())", "子 Context 上执行"));
-            host.AddActionRow("在【根】Context 执行同一个 +1 命令", () => root.ExecuteCommand(new RaiseMonoScoreCommand()),
-                CodeRef.Here("root.ExecuteCommand(new RaiseMonoScoreCommand())", "根 Context 上执行"));
-            host.AddNote("两个 `MonoScoreModel` 都没写一行注册代码：挂在哪个 Context 的子树下，`Awake` 就近注册进哪个作用域——"
-                + "**Hierarchy 树就是作用域树**。同一个 `RaiseMonoScoreCommand` 在子 Context 上执行只动子级分数、在根上执行只动根级分数。",
+            // 弹窗同一时刻只开一个：换挂载点时先关旧的，分数对照看上面两行常驻标签；切走本章随 Bag 销毁。
+            GameObject popup = null;
+            Bag.Add(Disposable.Create(() => { if (popup != null) Object.Destroy(popup); }));
+            void Popup(Transform parent)
+            {
+                if (popup != null) Object.Destroy(popup);
+                popup = Object.Instantiate(assets.ViewPrefab, parent);
+            }
+
+            host.AddActionRow("弹出 View 到【根】作用域（挂 UGuiAssets 下）", () => Popup(assets.transform),
+                CodeRef.Here("Popup(assets.transform)", "挂根作用域子树"));
+            host.AddActionRow("弹出同一个 View 到【子】作用域（挂 SubContext 下）", () => Popup(subCtxNode.transform),
+                CodeRef.Here("Popup(subCtxNode.transform)", "挂子作用域子树"));
+            host.AddNote("两个按钮弹的是**同一个 prefab、同一份代码、同一个 +1 Command**（就是「View」章那个弹窗），唯一区别是挂载位置："
+                + "`Awake` 沿父链找最近 Context——挂 `UGuiAssets` 下读写根作用域的 `MonoScoreModel`，挂 `SubContext` 下读写子作用域那份。"
+                + "点弹窗里的 +1，看上面两行分数各自跳动——**挂哪儿就用哪个作用域，零代码切换**。"
+                + "这就是多 Context 的日常用法：业务不手动抓 Context，靠挂载位置说话。",
+                new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/UGuiDemoView.cs", "class UGuiDemoView", "弹窗 View（与「View」章同一个）"));
+            host.AddNote("两个 `MonoScoreModel` 也都没写一行注册代码：挂在哪个 Context 的子树下，`Awake` 就近注册进哪个作用域——"
+                + "**Hierarchy 树就是作用域树**。",
                 new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/MonoScoreModel.cs", "class MonoScoreModel", "MonoScoreModel（零注册代码）"));
 
             // ── 回退：子级没注册的类型，沿作用域链回退父级 ──
             host.AddSectionTitle("回退：子 Context 没有的类型，回退父级");
-            bool same = ReferenceEquals(sub.GetModel<CodeScoreModel>(), root.GetModel<CodeScoreModel>());
-            host.AddValueDisplay(same
-                ? "子 Context 解析 CodeScoreModel → 与根 Context 同一实例 ✓（子级没注册，回退命中父级）"
-                : "子 Context 解析 CodeScoreModel → 意外：不同实例 ✗");
-            host.AddNote("`CodeScoreModel`（「Model」章注册在根）子 Context 没注册 → 沿作用域链逐级回退，命中父级同一实例。"
-                + "执行命令所需的 `ICommandSystem` 同理——子 Context 没注册它，上面两个按钮能跑就是回退在生效。"
+            host.AddNote("子 Context 里只注册了它自己的 `MonoScoreModel`——弹到子作用域的 View 能正常执行命令，"
+                + "是因为命令所需的 `ICommandSystem` 在子级解析不到、自动沿作用域链回退到父级（根）解析：**回退对业务完全透明**。"
                 + "回退是单向的（子 → 父）：父 Context 看不到子 Context 注册的东西。");
 
 #if UNITY_EDITOR
-            host.AddActionRow("选中 子 Context 节点", () => SelectInInspector(sub.gameObject));
-            host.AddActionRow("选中 根 Context 的 MonoScoreModel", () => SelectInInspector(rootScore.gameObject));
-            host.AddActionRow("选中 子 Context 的 MonoScoreModel", () => SelectInInspector(subScore.gameObject));
+            host.AddActionRow("选中 SubContext 节点", () => SelectInInspector(subCtxNode.gameObject));
+            host.AddActionRow("选中 子作用域的 ScoreModel", () => SelectInInspector(subScore.gameObject));
+            host.AddActionRow("选中 根作用域的 ScoreModel", () =>
+            {
+                // 根作用域那份 = 场景里不在 SubContext 子树下的另一个 MonoScoreModel。
+                foreach (var m in Object.FindObjectsByType<MonoScoreModel>(FindObjectsSortMode.None))
+                    if (m != subScore) { SelectInInspector(m.gameObject); return; }
+            });
             host.AddTip("点上面按钮去 Hierarchy 看结构：Main Context（根 Context）→ ChapterAssets/SubContext（DemoSubContext）→ 它的 ScoreModel (Sub)。"
                 + "运行时在 Inspector 里直接改任一实例的 Score，上方对应标签实时刷新——哪个作用域的数据一目了然。");
 #endif
@@ -78,7 +99,7 @@ namespace Game.Framework.Demo.Modules
             host.AddSectionTitle("这棵树给你什么");
             host.AddConcept("测试沙盒", "拖一个子 Context、把被测 Model / System 挂进它的子树——缺的依赖回退父级、要替换的注册 Mock 覆盖；不必启动整个游戏即可联调，测完删掉整棵子树即净，主场景零污染。");
             host.AddConcept("局部世界", "关卡 / 副本 / 面板的状态注册在局部 Context，结束时整层 Dispose，临时注册不泄漏全局。");
-            host.AddConcept("prefab 即插即用", "内含 `MonoXxxBase` 的 prefab 实例化到哪个子树就接入哪个作用域——换挂载位置 = 换依赖来源，拖一下节点完成。");
+            host.AddConcept("prefab 即插即用", "内含 `MonoXxxBase` 的 prefab 实例化到哪个子树就接入哪个作用域——换挂载位置 = 换依赖来源，上面的弹窗演示的就是这件事。");
             host.AddNote("「树状思维」贯穿框架：Context 作用域树（解析回退）、Hierarchy 就近注册（本章演示的）、`Bag` 子作用域级联释放（「生命周期」章）——"
                 + "把节点放进哪个子树，就一次说清「依赖从哪来、注册到哪去、何时被清理」。深入见框架手册 §1「树状思维」。");
         }

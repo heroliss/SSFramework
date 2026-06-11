@@ -1,8 +1,4 @@
-using Game.Framework.Command;
-using Game.Framework.Context;
 using Game.Framework.Demo.Core;
-using Game.Framework.Model;
-using R3;
 using UnityEngine;
 
 namespace Game.Framework.Demo.Modules
@@ -19,9 +15,6 @@ namespace Game.Framework.Demo.Modules
         public override int Order => 35;
         public override string Summary =>
             "View 是 MVCS 的一层（UI 接缝），核心层对 UI 技术无关。这里弹出一个真实的 MonoViewBase（UGUI）：Instantiate 到 Context 下即自动注入 + 绑 Bag；只读订阅查询 Command、只写经 Command，关闭时 Bag 自动释放订阅。";
-
-        public override void InstallBindings(ContainerBuilder builder)
-            => builder.RegisterValue(new ViewScoreModel(), typeof(ViewScoreModel));
 
         public override void Build(DemoModuleHost host)
         {
@@ -47,7 +40,8 @@ namespace Game.Framework.Demo.Modules
                 new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/UGuiDemoView.cs", "protected override void Awake", "View 内部接线（Awake）"));
 
             host.AddSectionTitle("它绑定到哪个 Context");
-            host.AddNote("View 实例化在 demo 根子树下，`Awake` 沿父链找到最近的 Context = demo 根节点上的 `MonoDemoContext`（demo 的根 Context）并绑定。注意：View 不“注册”进容器（它不被别人依赖），只是把自己注入 + 绑定 `Bag`。");
+            host.AddNote("View 实例化在 demo 根子树下，`Awake` 沿父链找到最近的 Context = `MonoDemoContext`（demo 的根 Context）并绑定。注意：View 不“注册”进容器（它不被别人依赖），只是把自己注入 + 绑定 `Bag`。"
+                + "「多 Context」章会把**同一个 prefab** 弹进子 Context 子树——绑定随挂载位置换成子级，读写的就是子作用域那份状态，零代码切换。");
 #if UNITY_EDITOR
             host.AddActionRow("选中它绑定的 Context（demo 根）", () =>
             {
@@ -63,10 +57,10 @@ namespace Game.Framework.Demo.Modules
             host.AddConcept("Bag 自动释放", "订阅进 `Bag`；关闭 View → `OnDestroy` → `Bag.Dispose` 一次性清干净，不漏订阅。");
             host.AddConcept("Awake 即可接线", "View 执行顺序 -100（最晚），`Awake` 时各层都已就绪，可直接 `ExecuteCommand` 订阅状态；覆写 `Awake` 切记先调 `base.Awake()`（基类负责注入 + 绑定 Context），漏了会 NPE。");
 
-            host.AddNote("本章的状态与读写 Command（都在本文件 `UGuiViewModule.cs`）：");
-            host.AddCodeLink(CodeRef.Here("class ViewScoreModel", "ViewScoreModel · 状态"));
-            host.AddCodeLink(CodeRef.Here("struct GetViewScoreCommand", "只读查询 Command"));
-            host.AddCodeLink(CodeRef.Here("struct RaiseViewScoreCommand", "写操作 Command"));
+            host.AddNote("弹窗的状态与读写 Command 与「Model」章**共用**（`MonoScoreModel` + 它的查询/自增命令）——切到 Model 章看到的是同一个分数，同一份场景状态贯穿多章：");
+            host.AddCodeLink(new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/MonoScoreModel.cs", "class MonoScoreModel", "MonoScoreModel · 状态"));
+            host.AddCodeLink(new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/ModelReactiveModule.cs", "struct GetMonoScoreCommand", "只读查询 Command"));
+            host.AddCodeLink(new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/ModelReactiveModule.cs", "struct RaiseMonoScoreCommand", "写操作 Command"));
 
             host.AddSectionTitle("View 是一层，不是一类");
             host.AddNote("demo 其它章节扮演的“view 角色”是纯 C#（`DemoModuleBase`），这章是 Mono（UGUI）真实 View——两者享有相同的 View 权限，差别只是载体。核心层（Model / Command / System）对用 UGUI 还是 UI Toolkit 一无所知。");
@@ -86,21 +80,4 @@ namespace Game.Framework.Demo.Modules
 #endif
     }
 
-    /// <summary>View 章的状态：一个分数。由本章 InstallBindings 注册，供 UGUI View 只读订阅 + 经 Command 修改。</summary>
-    public sealed class ViewScoreModel : IModel
-    {
-        public readonly RP<int> Score = new(0);
-    }
-
-    /// <summary>分数 +1（View 经 Command 写）。</summary>
-    public readonly struct RaiseViewScoreCommand : ICommand
-    {
-        public void Execute(ICommandContext ctx) => ctx.GetModel<ViewScoreModel>().Score.Value++;
-    }
-
-    /// <summary>只读查询：分数流，给 View 订阅。</summary>
-    public readonly struct GetViewScoreCommand : ICommand<ReadOnlyReactiveProperty<int>>
-    {
-        public ReadOnlyReactiveProperty<int> Execute(ICommandContext ctx) => ctx.GetModel<ViewScoreModel>().Score;
-    }
 }

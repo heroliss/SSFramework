@@ -1,7 +1,5 @@
-using Game.Framework.Command;
 using Game.Framework.Common;
 using Game.Framework.View;
-using R3;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -24,10 +22,12 @@ namespace Game.Framework.Demo.Modules
             base.Awake();
 
             // 只读：查询 Command 返回状态流，订阅即得当前值——View 不直接读 Model。
-            Bag.Subscribe(this.ExecuteCommand(new GetViewScoreCommand()), v => _scoreText.text = $"Score: {v}");
+            // 状态用「Model」章的 MonoScoreModel：本弹窗挂到哪个 Context 子树下，命令就解析到哪个作用域的实例
+            //（「多 Context」章把同一个 prefab 弹进子作用域，正是靠这一点零代码切换数据源）。
+            Bag.Subscribe(this.ExecuteCommand(new GetMonoScoreCommand()), v => _scoreText.text = $"Score: {v}");
 
             // 只写：所有外发动作只能 ExecuteCommand（View 拿不到 GetModel/SendEvent 权限）。
-            Bag.Subscribe(_addButton.onClick, () => this.ExecuteCommand(new RaiseViewScoreCommand()));
+            Bag.Subscribe(_addButton.onClick, () => this.ExecuteCommand(new RaiseMonoScoreCommand()));
 
             // 关闭：销毁自己 → OnDestroy → Bag.Dispose → 退订。
             Bag.Subscribe(_closeButton.onClick, () => Destroy(gameObject));
