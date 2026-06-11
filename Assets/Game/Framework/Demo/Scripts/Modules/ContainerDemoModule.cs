@@ -16,7 +16,7 @@ namespace Game.Framework.Demo.Modules
         public override string Id => "container";
         public override string Title => "依赖注入 · Container";
         public override string Category => "核心";
-        public override int Order => 40;
+        public override int Order => 45;   // 排在「多 Context」后：先看作用域树的使用观感，再进注册/注入机制细节
         public override string Summary =>
             "依赖注入容器：RegisterValue（给现成实例）/ RegisterFactory（懒构造、缓存为单例）注册，GetXxx 解析；class Command 可 [Inject] 字段。按精确类型键查找。";
 
