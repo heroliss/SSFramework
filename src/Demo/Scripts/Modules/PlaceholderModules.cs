@@ -66,7 +66,8 @@ namespace Game.Framework.Demo.Modules
         public override string Category => "规划中";
         public override int Order => 10;
         public override string Summary =>
-            "AOT / 热更程序集分界、经资源系统拉取热更 DLL 的引导流程（设计阶段，见 ADR-0008）。";
+            "列表驱动热更范围（框架本体也可热更）+ 薄 Boot 程序集引导，机制已落地（ADR-0008，用法见 framework-guide §15，" +
+            "构建走 SSFramework/热更构建 菜单）。编辑器恒走旁路、真机才走下载加载，本章待真机演示方案。";
     }
 
     public sealed class ConfigTableModule : ComingSoonModuleBase

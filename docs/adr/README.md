@@ -13,7 +13,7 @@
 | [0005](0005-no-runtime-hot-swap-of-layers.md) | 运行时不热替换已注册层 | Accepted |
 | [0006](0006-odin-dependency.md) | Odin 硬依赖现状与未来解耦 | Accepted |
 | [0007](0007-custom-object-pool.md) | 自研对象池替代第三方库 | Accepted（MVP） |
-| [0008](0008-hybridclr-integration.md) | HybridCLR 热更：AOT/热更程序集分界 | Proposed |
+| [0008](0008-hybridclr-integration.md) | HybridCLR 热更：列表驱动机制 + Boot/内核/模块程序集分层 | Accepted |
 | [0009](0009-luban-integration.md) | Luban 配置表：构建期生成 + 运行期经资源系统加载 | Proposed |
 | [0010](0010-framework-reusability-upm.md) | 框架复用边界与 UPM 抽包路线 | Accepted |
 | [0011](0011-directory-organization.md) | 项目目录组织与第三方隔离 | Accepted |

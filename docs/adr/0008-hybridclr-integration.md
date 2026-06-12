@@ -1,44 +1,101 @@
-# ADR-0008：HybridCLR 热更集成 —— AOT/热更程序集分界
+# ADR-0008：HybridCLR 热更集成 —— 列表驱动的热更机制与程序集分层
 
-**Status:** Proposed（设计；端到端落地依赖热更构建管线）
+**Status:** Accepted（2026-06 评审改版，取代初版「框架=AOT、业务=热更」固定分界；2026-06-12 Windows IL2CPP 端到端验证通过：改入口版本 → 只重打代码包 → 玩家包增量下载 2 文件后新版本生效）
 
 ## Context
 
-项目需要 C# 热更新能力，已安装 HybridCLR（UPM 包 `com.code-philosophy.hybridclr`）。HybridCLR 通过 IL2CPP 差分解释执行，让"热更程序集"的 C# 代码在发版后可更新，而"AOT 程序集"随包固化。需要确定：哪些代码属 AOT、哪些属热更，以及启动时如何加载热更程序集。
+项目需要 C# 热更新能力，已安装 HybridCLR（UPM 包 `com.code-philosophy.hybridclr`，v8.x，官方稳定支持 6000.x）。HybridCLR 的热更**最小粒度是程序集**：热更 DLL 从 AOT 编译剔除，运行时 `Assembly.Load` 字节流交解释器执行。
+
+初版设计把框架整体钉死在 AOT、只热更业务。评审后目标修正为：**尽量多的代码可热更，且热更范围按版本可配置**——框架既可热更（灵活档）也可退回 AOT（性能档），不把这个取舍焊死在架构里。
 
 ## Decision
 
-### 1. 程序集分界
+### 1. 机制与策略分离：列表驱动
 
-- **AOT / 稳定层**：`Game.Framework`、`Game.Framework.Editor` 及全部第三方库（R3 / UniTask / YooAsset / Odin / Luban runtime 等）。框架是长期稳定的基础设施，随包固化，**不进热更**。
-- **热更层**：业务代码（Model / System / Command / View 的具体实现、配置表生成代码）放入独立的**热更 asmdef**（如 `Game.HotUpdate`）。
+- **机制**（框架提供，程序集无关）：一个**热更程序集列表**作为单一真源，谁进列表谁热更，框架代码不硬编码任何程序集名。
+- **策略**（项目按版本决定）：默认档位见 §2 表格；改档位 = 改列表 + 重出包，业务代码零改动。
 
-Phase A 的 asmdef 边界清理（[0004](0004-assembly-structure-and-rp-location.md)）正是此分界的前置：框架已是干净的独立程序集，业务用自己的 asmdef 引用框架即可被标记为热更。
+单一真源派生到三处，不做第二份人工维护：
 
-### 2. 引导流程（在 `AppStartScene` / `MonoGlobalContext` 之前）
+```
+构建配置里的热更程序集列表（单一真源）
+  ├─ Editor 同步 → HybridCLRSettings（不手工双维护）
+  ├─ 构建管线   → CompileDll 后按列表拷热更 DLL
+  │              + AOTGenericReferences 自动生成的补元数据 DLL 清单
+  │              → 写出 hotupdate-manifest.json → 同进专用 RawFile 包（CodePackage）
+  └─ 运行时     → Boot 只读随资源下发的 manifest（列表本身可热更：
+                  发版后可新增热更程序集，无需发新包）
+```
 
-1. 初始化资源系统（YooAsset，可能需要先更新热更资源）。
-2. 经 `IAssetUtility.LoadBytes` 拉取 **AOT 补充元数据 DLL**（`HybridCLR` 的 AOT generic 补元数据）与**热更程序集 DLL**（打包为资源）。
-3. `RuntimeApi.LoadMetadataForAOTAssembly(aotDllBytes, HomologousImageMode.SuperSet)` 逐个补元数据。
-4. `Assembly.Load(hotUpdateDllBytes)` 加载热更程序集。
-5. 反射调用热更入口（约定一个入口类型/方法，如 `GameLauncher.Entry()`），由它创建 `MonoGlobalContext` / 启动游戏。
+### 2. 程序集分层（AOT/热更档位）
 
-框架提供一个 `HotUpdateLauncher`（MonoBehaviour）+ 文档化的引导样板；纯 AOT（编辑器/未启用热更）下走直连入口，热更下走上述流程，用一个 define（如 `ENABLE_HYBRIDCLR`）或运行时判断切换。
+| 程序集 | 归属 | 原因 |
+|---|---|---|
+| `Game.Framework.Boot`（新·薄引导） | AOT，永远 | 引导自举（鸡生蛋）；越薄越好，目标是几乎永不修改 |
+| UniTask、YooAsset | AOT，必须 | Boot 引用它们，AOT 不能引用热更 |
+| `Game.Framework`（内核） | 默认热更，**可退回 AOT** | Context/DI/Command/Event/层基类/Bag/RP/Pool + 资源系统后端无关部分；性能敏感版本移出列表跑原生 |
+| `Game.Framework.Asset.Yoo`（自内核抽出） | 默认热更 | YooAsset 接触面（Provider 及注册胶水）。把 ADR-0013 的「YooAsset 收口在 Provider」从口头纪律升格为 asmdef 编译期强制；适配层是集成 bug 高发区（见 `docs/yooasset-pitfalls.md`），可热修价值高 |
+| R3、Odin | AOT（默认） | Odin 预编译 DLL 没得选；R3 有 `RuntimeInitializeOnLoad`/PlayerLoop 入位问题且更新频率极低，热更红利≈0。机制不禁止（满足 §3 准则即可进列表） |
+| 业务程序集、纯业务玩法库 | 热更 | 主战场；先单一热更 asmdef，多包拆分等真实业务出现再说 |
 
-### 3. 反射兼容
+内核**不再细拆**（纯 C# 核心 vs Mono 适配、Pool 独立等）：拆开后它们在任何现实配置里同进同退，多一条边界只多管理成本。这条缝留给 UPM 抽包（[0010](0010-framework-reusability-upm.md)）时再议。未来模块（网络/存储/UI 框架/Luban 运行时）落地时各占一个 `Game.Framework.X` asmdef，粒度随真实模块自然生长。
 
-框架的 [InjectionPlan](../../Assets/Game/Framework/Scripts/Internal/InjectionPlan.cs) / [LayerInterfacesCache](../../Assets/Game/Framework/Scripts/Internal/LayerInterfacesCache.cs) / `GameContext.FindContextField` 对热更类型有效（它们都是真实 `System.Type`）。需在文档列出框架反射实例化/泛型用到的**泛型形状**（`RP<T>`、`Subject<T>`、`Dictionary<Type,object>` 等），配合 HybridCLR 的 `AOTGenericReferences` 扫描 + `link.xml` 防裁剪，确保 AOT 侧已实例化所需泛型。
+### 3. 引用纪律（构建期校验兜底）
+
+铁律：**AOT 不能引用热更** ⇒ 谁被热更，引用它的全部程序集必须跟着热更（热更集合对「被引用关系」向上封闭）。
+
+- Boot 只引用 YooAsset + UniTask，**永不引用框架任何部分**。
+- 内核永不引用模块（`Game.Framework.Asset.Yoo` 等）；接口在内核、实现在模块（ports & adapters）。
+- 模块之间默认互不引用。
+- 三方库进热更列表的判定准则：**引导链用不到它 && 没有任何 AOT 程序集引用它**。
+- **热更程序集一律 `autoReferenced:false`**：否则 Assembly-CSharp（散落脚本 / 工具生成的无 asmdef 代码，
+  如 HybridCLR 生成的 `AOTGenericReferences.cs`）会隐式自动引用它们，构成「AOT→热更」违规——散落脚本用了
+  热更类型在真机是运行时谜案，关掉隐式引用让它变成编译期显式决策（业务代码必须住 asmdef，本就是项目纪律；
+  这收紧了 [0004](0004-assembly-structure-and-rp-location.md) 「业务在 Assembly-CSharp 仍可用」的旧承诺）。
+- 构建管线沿 asmdef 引用图**校验列表合法性**（存在 AOT→热更引用即报错并指出元凶）；DLL 加载顺序由引用图**拓扑排序自动生成**进 manifest，无人工排序规则。
+
+### 4. 引导流程
+
+```
+Boot 场景（唯一随包场景：Launcher + 朴素进度 UI，只挂 Boot 程序集的脚本）
+  → 初始化 CodePackage（专用 RawFile 包，归 Boot 管）
+  → 下载 manifest + DLL → 逐个 RuntimeApi.LoadMetadataForAOTAssembly(SuperSet)
+  → 按拓扑序 Assembly.Load 热更 DLL
+  → 反射调入口（默认约定 HotUpdateEntry.Enter()，类型全名 Inspector 可配）
+入口（已在热更世界）
+  → 创建 MonoGlobalContext → 框架资源系统照常初始化资源包（DefaultPackage 等）
+  → 从 bundle 加载真正的首场景
+```
+
+- 代码包与资源包**彻底分家**：CodePackage 归 Boot，资源包归框架 `AssetInitSystem`，互不知晓，无「包被初始化两次」纠缠。
+- **编辑器/非 IL2CPP 旁路用运行时判断，不用 define**：程序集已在 AppDomain，直接反射入口——单一代码路径，开发体验零变化。
+- DLL 防明文：YooAsset 加密钩子（`IBundleMemoryDecryptor`）已在 Provider 接口面预留，需要时启用。
+
+### 5. 硬边界与代价（知情决策）
+
+- **随包场景不得挂热更程序集的脚本**：框架热更时连 `MonoGlobalContext` 都不能进随包场景；业务场景/prefab 一律 bundle 化（热更游戏标准形态）。Demo 场景只服务编辑器教学、不进包，不受影响。
+- **性能**：热更代码走解释器（比 AOT 慢约一个数量级）。框架热更档位下 DI/事件/Command 分发全解释执行——当前项目可接受；性能敏感产品把内核移出列表。远期商业版 DHE（方法级差分）可两全，机制无需改动。
+- 热更↔AOT 边界调用有桥接开销，但最低档位（仅业务热更）本来就跨该边界，分层不引入新量级。
+
+### 6. 反射兼容
+
+框架的 [InjectionPlan](../../Assets/Game/Framework/Scripts/Internal/InjectionPlan.cs) / [LayerInterfacesCache](../../Assets/Game/Framework/Scripts/Internal/LayerInterfacesCache.cs) / `GameContext.FindContextField` 对热更类型有效（都是真实 `System.Type`，解释器下元数据齐全）。AOT 泛型补元数据由 `AOTGenericReferences` 扫描自动覆盖；框架泛型分发链（`ExecuteCommand<TCmd,TResult>` 零装箱路径、`RP<T>`、`Subject<T>` 等）与 **Odin `SerializedMonoBehaviour` 对热更类型的反序列化**（AOT formatter 扫描不到热更类型，运行时退回反射 formatter）是端到端验证的重点测项。
 
 ## Consequences
 
-- ✅ 框架与第三方固化在 AOT，业务热更——职责清晰，框架升级走发版、业务迭代走热更。
-- ✅ 复用 `IAssetUtility` 加载热更 DLL，不引入第二套下载通道。
-- ⚠️ 端到端需要热更构建管线（HybridCLR 的 Generate/Compile + 资源打包），本 ADR 先定方案与引导脚手架，完整验证待管线就绪。
-- ⚠️ AOT 泛型补元数据是 HybridCLR 常见坑：框架侧的泛型用法需纳入 AOT 扫描清单。
+- ✅ 热更范围成为一行配置而非架构定论：业务 / 业务+模块 / 业务+模块+内核 三档按版本选。
+- ✅ 复用资源系统分发 DLL（RawFile 包），不引入第二套下载通道；manifest 让热更列表自身可热更。
+- ✅ Boot 独立薄程序集（直接裸用 YooAsset+UniTask），框架一行不拆，实现成本低于初版预估。
+- ✅ `Game.Framework.Asset.Yoo` 抽出顺带把 ADR-0013 的隔离纪律变成编译期强制。
+- ⚠️ 抽取 Provider 需把「谁来 new YooAssetProvider」反转为注册/工厂（内核不得引用模块）。
+- ⚠️ 构建管线新增职责：CompileDll、补元数据清单、manifest 生成、RawFile 包构建、引用图校验。
+- ⚠️ Odin × 热更类型、解释器下泛型桥接，端到端验证（Windows IL2CPP）通过前不视为完成。
 
-## 开放决策（落地时定）
+## 已决事项（初版开放决策的落定）
 
-- 业务热更 asmdef 的划分粒度（单一 `Game.HotUpdate` vs 多个）。
-- Demo 是否参与热更（建议否，Demo 走 AOT 直连，简化）。
-- 热更入口约定（类型名 / 方法签名）。
-- 是否需要"边玩边下"与版本灰度。
+- 业务热更 asmdef 粒度：先单一 `Game.Main`（入口编排 + 未拆分业务），按需再拆模块/DLC。
+- **目录与程序集按领域命名（Main / 模块 / DLC），不按「是否热更」命名**——热更与否是热更 profile 里的
+  部署决策（按版本可变），不是代码的内在属性；一个领域单元 = 一个 asmdef = 热更列表一行 =（DLC 时）一个资源 package。
+- Demo 不参与热更（编辑器教学定位，asmdef 已设 Editor-only，不进包）。
+- 热更入口：`Game.Main.GameEntry` 静态类 + `static void Enter()`（游戏的 main，类型全名在 Launcher Inspector 可配）。
+- 边玩边下/版本灰度：本期不做；YooAsset 按需下载原语已具备，需要时组合。
