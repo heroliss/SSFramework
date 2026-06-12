@@ -1,15 +1,12 @@
 {
-    "name": "Game.Framework.Demo",
-    "rootNamespace": "Game.Framework.Demo",
+    "name": "Game.Framework.Boot",
+    "rootNamespace": "Game.Framework.Boot",
     "references": [
-        "Game.Framework",
-        "R3",
-        "R3.Unity",
-        "UniTask"
+        "UniTask",
+        "YooAsset",
+        "HybridCLR.Runtime"
     ],
-    "includePlatforms": [
-        "Editor"
-    ],
+    "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
     "overrideReferences": false,

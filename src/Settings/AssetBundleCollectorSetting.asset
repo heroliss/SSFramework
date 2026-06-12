@@ -62,3 +62,25 @@ MonoBehaviour:
     AutoCollectShaders: 1
     IgnoreRuleName: NormalIgnoreRule
     Groups: []
+  - PackageName: CodePackage
+    PackageDesc: "\u70ED\u66F4\u4EE3\u7801\u5305\uFF08\u6846\u67B6\u70ED\u66F4\u6784\u5EFA\u7BA1\u7EBF\u81EA\u52A8\u521B\u5EFA\uFF09"
+    EnableAddressable: 1
+    SupportExtensionless: 1
+    LocationToLower: 0
+    IncludeAssetGUID: 0
+    AutoCollectShaders: 0
+    IgnoreRuleName: NormalIgnoreRule
+    Groups:
+    - GroupName: HotUpdateCode
+      GroupDesc: "\u70ED\u66F4 DLL + \u6E05\u5355\uFF08\u81EA\u52A8\u7EF4\u62A4\uFF0C\u52FF\u624B\u52A8\u6539\uFF09"
+      AssetTags: 
+      ActiveRuleName: EnableGroup
+      Collectors:
+      - CollectPath: Assets/HotUpdateDlls
+        CollectorGUID: 0e6cdddd7179c1748a06358b8e90908b
+        CollectorType: 0
+        AddressRuleName: AddressByFileName
+        PackRuleName: PackRawFile
+        FilterRuleName: CollectAll
+        AssetTags: 
+        UserData: 
