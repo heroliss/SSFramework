@@ -1561,6 +1561,8 @@ Bag.Subscribe(
 
 日常改完热更代码只需 3 + 4；玩家包（安装包）只在 AOT 部分变化时才重出。
 
+**迭代边界（真机实测）**：热更代码**新增跨 AOT 泛型用法**（如对热更类型做 Odin 序列化、新的 R3 订阅泛型、新的命令双泛型实例化）也**不需要**重跑 Generate / 重出安装包——SuperSet 补元数据 + 解释器兜底已覆盖（IL2CPP 真机自检 8/8 通过于「只重打代码包」前提下）。真正需要 Generate + 重出安装包的是 **AOT 集合本身的变化**：增删第三方库、调整热更列表档位、升级 Unity / HybridCLR。
+
 ### 运行时：Boot 场景与入口约定
 
 唯一随包场景（BootScene）挂 `HotUpdateLauncher`，Inspector 配置：
