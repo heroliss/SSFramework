@@ -16,6 +16,7 @@
 12. [纯代码上下文](#12-纯代码上下文)
 13. [AssetReference（资源引用）](#13-assetreference资源引用)
 14. [数据流：异步原语的统一抽象](#14-数据流异步原语的统一抽象)
+15. [热更新（HybridCLR）](#15-热更新hybridclr)
 
 ---
 
@@ -1520,3 +1521,66 @@ Bag.Subscribe(
 > - `Bag.Subscribe` 接受任意 `Observable<T>`，链式表达自动获得生命周期管理
 > - 用操作符表达派生状态，比在 handler 里堆状态机简洁数倍
 > - 这套抽象不是 R3 的，是"数据流"思想的延伸——它和框架"单向数据流"的理念是同一件事
+
+---
+
+## 15. 热更新（HybridCLR）
+
+改完 C# 代码 → 重打**代码包**（不重出安装包）→ 玩家重启游戏即用新逻辑。底层是 HybridCLR（IL2CPP 下解释执行热更 DLL），框架把它包装成「一个配置列表 + 四个菜单 + 一个引导组件」。设计原理与取舍见 ADR-0008。
+
+### 心智模型：热更范围是部署决策，不是代码属性
+
+哪些程序集热更，由**热更列表**（`FrameworkHotUpdateProfile`，菜单 `SSFramework/热更构建/热更配置` 定位）决定——谁在列表里谁热更，按版本可调。因此：
+
+- **目录与程序集按领域命名**（`Game.Main`、`Game.X` 模块、`Game.DLC.Y`），永远不要出现 `Game.HotUpdate` 这种按部署属性起的名字。
+- 框架本体（`Game.Framework`）默认也在列表里（可热修框架 bug）；性能敏感的项目把它移出列表退回 AOT，业务代码零改动。
+
+### 程序集三层
+
+| 层 | 程序集 | 热更？ |
+|---|---|---|
+| 引导 | `Game.Framework.Boot`（薄壳：下载 DLL、补元数据、`Assembly.Load`、反射入口） | 永不（鸡生蛋） |
+| 框架 | `Game.Framework`（内核）、`Game.Framework.Asset.Yoo`（YooAsset 适配） | 默认热更，可退 AOT |
+| 业务 | `Game.Main` 及未来模块/DLC | 热更（主战场） |
+
+### 新增业务程序集接入热更
+
+1. 新建领域目录 + asmdef，**`autoReferenced` 设为 `false`**（必须——否则散落脚本会隐式引用它，构成 AOT→热更违规，校验器会拦）。
+2. `SSFramework/热更构建/热更配置` 把 asmdef 拖进列表。
+3. 执行菜单 `1. 同步热更设置`（校验引用合法性 + 写入 HybridCLRSettings）。
+4. 因为 AOT 程序集集合变了，执行一次 `2. 生成桥接与裁剪文件`（慢，分钟级）。
+
+### 构建：日常两步，大改四步
+
+| 菜单 | 何时执行 | 耗时 |
+|---|---|---|
+| `1. 同步热更设置` | 改了热更列表后 | 秒 |
+| `2. 生成桥接与裁剪文件`（Generate All） | 首次接入 / 升级 Unity 或 HybridCLR / 增删第三方库 / 改热更列表档位 | 分钟（内部跑迷你构建） |
+| `3. 构建代码包` | **日常每次热更迭代**：CompileDll → 生成清单 → RawFile 打包 | 几十秒 |
+| `4. 部署代码包` | 跟在 3 后面：平铺到 `AssetBuild/Deploy`（本地伺服 / CI 上传同一目录） | 秒 |
+
+日常改完热更代码只需 3 + 4；玩家包（安装包）只在 AOT 部分变化时才重出。
+
+### 运行时：Boot 场景与入口约定
+
+唯一随包场景（BootScene）挂 `HotUpdateLauncher`，Inspector 配置：
+
+- **入口类型名**：默认 `"Game.Main.GameEntry, Game.Main"`——约定入口是公共静态无参方法 `Enter()`，DLL 全部加载完后反射调用。入口即业务的 main：创建全局 Context、初始化资源系统、加载首场景都从这往下走。
+- **CDN 地址列表**：第一条主、其余备，取址 `{CDN}/{包名}/{文件}`，与资源包同一套部署结构。
+- **模式**：`Host`（远端检查更新，取不到回退本地）/ `Offline`（纯单机，永不联网）。
+
+**编辑器旁路**：编辑器下程序集本就在 AppDomain，Launcher 直接反射进入口——不走下载/加载，日常开发与热更机制零接触。
+
+### 铁则（违反会在构建期被校验器拦下或真机才爆雷）
+
+- **AOT 不能引用热更**：谁被热更，引用它的程序集必须跟着热更。菜单 1 的校验会逐条指出违规与修法。
+- **热更程序集一律 `autoReferenced:false`**；业务代码必须住 asmdef（不能散落到 Assembly-CSharp）。
+- **随包场景（BootScene）只能挂 Boot 程序集的脚本**——框架热更档位下连 `MonoGlobalContext` 都不能进随包场景；业务场景/prefab 一律走 bundle。
+- 代码包与资源包**彻底分家**：CodePackage 归 Boot 管，业务别碰；资源包照常走 `AssetSystemConfigModel` / `AssetInitSystem`。
+
+> **要点回顾**
+>
+> - 热更范围 = `FrameworkHotUpdateProfile` 列表，一行配置定档位；目录按领域命名，不按是否热更
+> - 日常迭代两步：`3. 构建代码包` + `4. 部署`；Generate All 只在 AOT 集合变化时跑
+> - 入口约定 `GameEntry.Enter()`；编辑器旁路让开发期对热更机制无感
+> - `autoReferenced:false` + 「AOT 不引用热更」由构建期校验器机器执行，不靠人脑记

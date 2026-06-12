@@ -58,7 +58,7 @@ DOTS 是数据/Job/Burst 范式，与引用式 OOP 不同。框架的定位是**
 |---|---|---|
 | 自研对象池 | ✅ 已落地 | `IPoolUtility`：C# 对象池（`Bag.Rent`）+ GameObject/Prefab 池（`Bag.Spawn`、分帧 `Prewarm`、`PooledObject` 自动路由），随 Bag 自动归还。ADR-0007 |
 | 资源系统（YooAsset） | ✅ 原生 3.0 | 经 `IAssetProvider` 隔离；`YooAssetProvider` 已用原生 3.0 API 重写（FileSystem 初始化 + 拆分解密 + `IRemoteService` + RawFileObject），兼容层 define 已移除，obsolete 警告归零。ADR-0012/0013 |
-| 热更新（HybridCLR） | 📐 设计完成 | AOT/热更程序集分界 + 经 `IAssetUtility` 拉 DLL 引导。ADR-0008（实现待构建管线） |
+| 热更新（HybridCLR） | ✅ 已落地 | 列表驱动热更范围（`FrameworkHotUpdateProfile` 单一真源），框架本体也可热更；薄 Boot 程序集引导（专用 RawFile 代码包 + 清单 + 拓扑序加载），编辑器旁路零负担；Windows IL2CPP 端到端验证通过（改入口版本→只重打代码包→玩家包生效）。ADR-0008 |
 | 配置表（Luban） | 📐 设计完成 | 构建期 CLI 生成 + 运行期经 `IAssetUtility.LoadBytes`，镜像资源系统三段式。ADR-0009（实现待 schema） |
 | UPM 抽包 | 🔮 规划 | 框架稳定后从 `Assets/Game/Framework` 抽成内嵌/独立 UPM 包。ADR-0010 |
 

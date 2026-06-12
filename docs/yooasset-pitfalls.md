@@ -58,3 +58,13 @@ YooAsset 编辑器期默认把下载缓存放 `项目根/yoo`（`YooAssetConfigu
 ## 注 4：构建只走我们的构建器，YooAsset 自带窗口仅供查看
 
 因坑 1，YooAsset 自带 Bundle Builder 窗口在本工程对零 shader 的包会崩；且窗口不读我们的构建配置（profile）、输出路径也写死。**正式构建一律走 `SSFramework/资源构建` 菜单 / CI（`FrameworkAssetBuilder`）**，窗口只当查看/调试工具。
+
+---
+
+## 坑 5（已规避）：地址规则生效的前提是包级 `EnableAddressable = true`
+
+`AddressByFileName` 等地址规则只是**生成** address 字符串写进清单；运行时 location 字典**收不收录**这些短地址由 `BundleCollectorPackage.EnableAddressable` 决定（默认 **false**）。关闭时字典只有完整 AssetPath（`Assets/.../xxx.bytes`），用短地址 `LoadAssetAsync("hotupdate_manifest")` 直接报 **`Location is invalid`**——清单里明明看得到 address，加载就是找不到，非常迷惑。
+
+**规避**：代码创建收集器配置时必须显式 `pkg.EnableAddressable = true`（见 `FrameworkHotUpdateBuilder.EnsureCollector`，对已存在的包也强制刷一遍）。手工在 Collector 窗口建包同理，勾选 Enable Addressable。
+
+**升级注意**：这是 YooAsset 设计语义（地址规则与寻址开关分离），不是 bug，预计长期如此。
