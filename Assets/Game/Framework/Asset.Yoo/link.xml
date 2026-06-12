@@ -1,0 +1,6 @@
+<!-- 本模块作 AOT 时防 IL2CPP 裁剪：内核经 AssetProviderFactory 反射构造 YooAssetProvider，
+     linker 静态分析看不到这条引用，不保护就会在 Managed Stripping 阶段被剪掉、运行时报找不到类型。
+     模块很小（一个 Provider + 句柄包装），整体 preserve 最省心。热更档位下本模块不进 AOT，此文件无作用但无害。 -->
+<linker>
+    <assembly fullname="Game.Framework.Asset.Yoo" preserve="all" />
+</linker>

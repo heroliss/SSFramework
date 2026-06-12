@@ -20,8 +20,14 @@ namespace Game.Framework
     ///   <item><b>每个 Load 调用返回独立 handle</b>：handle 是 ref-count token，provider 不能跨调用共享实例。</item>
     ///   <item><b>每个 package 独立 init</b>：单包失败不影响其他包，由调用方按 packageName 串行/并行调度。</item>
     /// </list>
+    ///
+    /// <para>
+    /// <b>可见性：</b>public 是因为它是跨程序集 SPI——具体实现住在独立模块程序集
+    /// （如 <c>Game.Framework.Asset.Yoo</c>，内核按纪律不引用模块），第三方后端也按此接口自写模块。
+    /// 业务<b>消费</b>资源一律走 <see cref="IAssetUtility"/> / Bag，不要直接实现或持有 provider。
+    /// </para>
     /// </summary>
-    internal interface IAssetProvider : IDisposable
+    public interface IAssetProvider : IDisposable
     {
         /// <summary>初始化指定包。重复调用应是 idempotent（已 ready 则立即返回）。</summary>
         UniTask InitializeAsync(string packageName, AssetPlayMode mode, AssetProviderConfig config, CancellationToken ct);

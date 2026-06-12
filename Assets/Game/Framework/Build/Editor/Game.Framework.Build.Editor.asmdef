@@ -3,8 +3,10 @@
     "rootNamespace": "Game.Framework.Build",
     "references": [
         "Game.Framework",
+        "Game.Framework.Boot",
         "YooAsset",
-        "YooAsset.Editor"
+        "YooAsset.Editor",
+        "HybridCLR.Editor"
     ],
     "includePlatforms": [
         "Editor"
