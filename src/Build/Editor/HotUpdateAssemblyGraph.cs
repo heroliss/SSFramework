@@ -45,10 +45,10 @@ namespace Game.Framework.Build
                 sb.AppendLine($"✗ {BootAssemblyName} 不可热更：它是加载热更代码的引导器，必须先于一切热更代码存在（鸡生蛋）。");
             }
 
-            // GetAssemblies(Player) 会把「UNITY_INCLUDE_TESTS 约束」的测试程序集也算进来（编辑器语境该宏恒在），
-            // 但真实玩家包没有它们——从图里剔除，否则 PlayMode 测试程序集引用热更内核会被误报违规。
+            // GetAssemblies(Player) 会把「UNITY_INCLUDE_TESTS / UNITY_EDITOR 约束」的程序集也算进来（编辑器语境两宏恒在），
+            // 但真实玩家包没有它们——从图里剔除，否则测试程序集 / 编辑器约束程序集（如 Demo）引用热更内核会被误报违规。
             var player = CompilationPipeline.GetAssemblies(AssembliesType.Player)
-                                            .Where(a => !IsTestOnly(a.name))
+                                            .Where(a => !IsEditorConstrained(a.name))
                                             .ToList();
             var playerNames = new HashSet<string>(player.Select(a => a.name), StringComparer.Ordinal);
 
@@ -137,21 +137,24 @@ namespace Game.Framework.Build
             return result;
         }
 
-        // 带 UNITY_INCLUDE_TESTS 约束的程序集只进「含测试」的特殊构建，真实玩家包没有它们。
-        // Assembly 对象不暴露 defineConstraints，回到 asmdef JSON 解析（找不到 asmdef 的如 Assembly-CSharp 视为非测试）。
-        private static bool IsTestOnly(string assemblyName)
+        // 带 UNITY_INCLUDE_TESTS（测试）或 UNITY_EDITOR（编辑器专用，如 Demo）约束的程序集进不了真实玩家包。
+        // 注意编辑器专用程序集应当用 defineConstraints 而非 includePlatforms:["Editor"]——后者会把场景里挂的
+        // MonoBehaviour 在 Play 模式下直接剔成 missing（编辑器平台程序集不参与场景运行时序列化）。
+        // Assembly 对象不暴露 defineConstraints，回到 asmdef JSON 解析（找不到 asmdef 的如 Assembly-CSharp 视为无约束）。
+        private static bool IsEditorConstrained(string assemblyName)
         {
             string path = CompilationPipeline.GetAssemblyDefinitionFilePathFromAssemblyName(assemblyName);
             if (string.IsNullOrEmpty(path) || !File.Exists(path)) return false;
             try
             {
                 var dto = JsonUtility.FromJson<AsmdefConstraintsJson>(File.ReadAllText(path));
-                return dto?.defineConstraints != null &&
-                       dto.defineConstraints.Contains("UNITY_INCLUDE_TESTS");
+                if (dto?.defineConstraints == null) return false;
+                return dto.defineConstraints.Contains("UNITY_INCLUDE_TESTS") ||
+                       dto.defineConstraints.Contains("UNITY_EDITOR");
             }
             catch (Exception)
             {
-                return false; // JSON 异常按非测试处理：宁可多校验，不漏校验。
+                return false; // JSON 异常按无约束处理：宁可多校验，不漏校验。
             }
         }
 

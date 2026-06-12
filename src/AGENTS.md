@@ -34,7 +34,7 @@
 | `Game.Framework.Boot` | `Framework/Boot/` | 热更引导薄壳（`HotUpdateLauncher` / `HotUpdateManifest`）。**AOT 永远**；只引用 UniTask / YooAsset / HybridCLR.Runtime，**永不引用框架任何部分**（否则框架没法热更） |
 | `Game.Framework.Editor` | `Framework/Editor/` | 通用编辑器代码：`RPDrawer` / `AssetReferenceDrawer` / 菜单。`includePlatforms:["Editor"]` |
 | `Game.Framework.Build.Editor` | `Framework/Build/Editor/` | 资源构建管线（`FrameworkAssetBuilder`）+ 热更构建管线（`FrameworkHotUpdateBuilder` / `FrameworkHotUpdateProfile` / `HotUpdateAssemblyGraph`）+ 统一构建菜单，引用 `YooAsset.Editor` / `HybridCLR.Editor`。独立子程序集把重编辑器依赖隔离在此，不污染通用 `Game.Framework.Editor`。`includePlatforms:["Editor"]` |
-| `Game.Framework.Demo` | `Framework/Demo/` | 示例，引用框架做"消费方边界"活样板。`includePlatforms:["Editor"]`（教学定位，不进玩家包） |
+| `Game.Framework.Demo` | `Framework/Demo/` | 示例，引用框架做"消费方边界"活样板。`defineConstraints:["UNITY_EDITOR"]`（教学定位，不进玩家包；**不能改用 `includePlatforms:["Editor"]`**——编辑器平台程序集的 Mono 挂场景进 Play 会被剔成 missing） |
 | `Game.Framework.Test` | `Framework/Test/` | PlayMode 测试（在 Unity Test Runner 窗口手动跑） |
 
 **复用铁律：**
