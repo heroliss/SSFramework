@@ -57,18 +57,10 @@ namespace Game.Framework.Demo.Modules
             "进阶收束：Model 状态 / 框架 Event / UnityEvent / 按钮点击 全都能变成 Observable，再用 Where / Throttle / CombineLatest 等操作符组合。";
     }
 
-    // ───────────── 规划中 ─────────────
+    // 进阶“热更 · HybridCLR”已实现为独立模块 HotUpdateModule（见 Modules/HotUpdateModule.cs，
+    // 编辑器恒走旁路故以讲解 + 源码跳转为主，校验按钮真实调用构建期校验）。
 
-    public sealed class HotUpdateModule : ComingSoonModuleBase
-    {
-        public override string Id => "hotupdate";
-        public override string Title => "热更 · HybridCLR";
-        public override string Category => "规划中";
-        public override int Order => 10;
-        public override string Summary =>
-            "列表驱动热更范围（框架本体也可热更）+ 薄 Boot 程序集引导，机制已落地（ADR-0008，用法见 framework-guide §15，" +
-            "构建走 SSFramework/热更构建 菜单）。编辑器恒走旁路、真机才走下载加载，本章待真机演示方案。";
-    }
+    // ───────────── 规划中 ─────────────
 
     public sealed class ConfigTableModule : ComingSoonModuleBase
     {
