@@ -77,9 +77,13 @@ Boot 场景（唯一随包场景：Launcher + 朴素进度 UI，只挂 Boot 程�
 - **性能**：热更代码走解释器（比 AOT 慢约一个数量级）。框架热更档位下 DI/事件/Command 分发全解释执行——当前项目可接受；性能敏感产品把内核移出列表。远期商业版 DHE（方法级差分）可两全，机制无需改动。
 - 热更↔AOT 边界调用有桥接开销，但最低档位（仅业务热更）本来就跨该边界，分层不引入新量级。
 
-### 6. 反射兼容
+### 6. 反射兼容（已验证，2026-06-12）
 
-框架的 [InjectionPlan](../../Assets/Game/Framework/Scripts/Internal/InjectionPlan.cs) / [LayerInterfacesCache](../../Assets/Game/Framework/Scripts/Internal/LayerInterfacesCache.cs) / `GameContext.FindContextField` 对热更类型有效（都是真实 `System.Type`，解释器下元数据齐全）。AOT 泛型补元数据由 `AOTGenericReferences` 扫描自动覆盖；框架泛型分发链（`ExecuteCommand<TCmd,TResult>` 零装箱路径、`RP<T>`、`Subject<T>` 等）与 **Odin `SerializedMonoBehaviour` 对热更类型的反序列化**（AOT formatter 扫描不到热更类型，运行时退回反射 formatter）是端到端验证的重点测项。
+框架的 [InjectionPlan](../../Assets/Game/Framework/Scripts/Internal/InjectionPlan.cs) / [LayerInterfacesCache](../../Assets/Game/Framework/Scripts/Internal/LayerInterfacesCache.cs) / `GameContext.FindContextField` 对热更类型有效（都是真实 `System.Type`，解释器下元数据齐全）。AOT 泛型补元数据由 `AOTGenericReferences` 扫描自动覆盖。
+
+**IL2CPP 真机自检通过（GameEntry 自检 8/8，Windows player）**：DI 容器注册/解析、`RP<T>` + R3 订阅（跨 AOT 泛型）、struct Command 分发、双泛型 `ExecuteCommand<TCmd,TResult>` 零装箱返回值、class Command `[Inject]` 注入、事件总线、UniTask 异步命令（解释器 async 状态机）、Odin `SerializationUtility` 对热更类型的序列化往返（反射 formatter）。
+
+**迭代边界（实测）**：上述自检是在 v2→v3 **只重打代码包**（不重跑 Generate、不重出安装包）的前提下通过的——热更代码新增跨 AOT 泛型用法（Odin 泛型、R3 订阅泛型、命令双泛型等新实例化）由 SuperSet 补元数据 + 解释器兜底覆盖。需要重跑 Generate（并重出安装包）的仍是 AOT 集合本身的变化：增删第三方库 / 调整热更列表档位 / 升级 Unity 或 HybridCLR。Odin `SerializedMonoBehaviour` 挂场景资产反序列化热更类型未单测（当前形态业务场景全 bundle 化、入口后才加载，等真实业务场景接入时一并验证）。
 
 ## Consequences
 
@@ -89,13 +93,14 @@ Boot 场景（唯一随包场景：Launcher + 朴素进度 UI，只挂 Boot 程�
 - ✅ `Game.Framework.Asset.Yoo` 抽出顺带把 ADR-0013 的隔离纪律变成编译期强制。
 - ⚠️ 抽取 Provider 需把「谁来 new YooAssetProvider」反转为注册/工厂（内核不得引用模块）。
 - ⚠️ 构建管线新增职责：CompileDll、补元数据清单、manifest 生成、RawFile 包构建、引用图校验。
-- ⚠️ Odin × 热更类型、解释器下泛型桥接，端到端验证（Windows IL2CPP）通过前不视为完成。
+- ✅ Odin × 热更类型、解释器下泛型桥接已通过 Windows IL2CPP 真机自检（见 §6；`SerializedMonoBehaviour` 场景资产形态留待真实业务场景接入时补验）。
 
 ## 已决事项（初版开放决策的落定）
 
 - 业务热更 asmdef 粒度：先单一 `Game.Main`（入口编排 + 未拆分业务），按需再拆模块/DLC。
 - **目录与程序集按领域命名（Main / 模块 / DLC），不按「是否热更」命名**——热更与否是热更 profile 里的
   部署决策（按版本可变），不是代码的内在属性；一个领域单元 = 一个 asmdef = 热更列表一行 =（DLC 时）一个资源 package。
-- Demo 不参与热更（编辑器教学定位，asmdef 已设 Editor-only，不进包）。
+- Demo 不参与热更（编辑器教学定位，asmdef 用 `defineConstraints:["UNITY_EDITOR"]` 排除出玩家包——
+  **不能用 `includePlatforms:["Editor"]`**：编辑器平台程序集的 MonoBehaviour 挂在场景上进 Play 模式会被剔成 missing，DemoScene 直接报废；define 约束在编辑器域恒满足、Play 正常，仅出包时不编译）。
 - 热更入口：`Game.Main.GameEntry` 静态类 + `static void Enter()`（游戏的 main，类型全名在 Launcher Inspector 可配）。
 - 边玩边下/版本灰度：本期不做；YooAsset 按需下载原语已具备，需要时组合。
