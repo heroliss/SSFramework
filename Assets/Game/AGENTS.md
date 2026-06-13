@@ -348,3 +348,16 @@ protected virtual void OnDestroy()
 - **改表**：数据改 `Configs/Datas/`、结构改 `Configs/Defines/` → 菜单重新生成（Play 中会被拒绝）。生成代码目录被 Luban 接管，勿手放文件。
 - **坑**：topModule（生成代码命名空间）不要嵌进含 `System` 子命名空间的层级（如 `Game.Framework.*`），否则生成代码裸写的 `System.Func` 被就近解析劫持（CS0234）——demo 用顶层 `DemoCfg`。
 - 数据 `.bytes` 随资源包打包/热更；表结构变化会改生成代码 → 走代码热更/发版。详见 `docs/framework-guide.md` §16。
+
+## 25. UI 框架（窗口 / 层级）最佳实践
+
+渲染后端无关的窗口调度（`Game.Framework.UI` 核心 + UGui/Toolkit 两 adapter，ADR-0016）：核心管栈/层/缓存/cover-reveal/模态/生命周期，`IUIBackend` 吸收 Canvas vs VisualElement 差异。
+
+- **入口**：Context 子节点挂单个 `MonoToolkitUI`（带 UIDocument + PanelSettings）或 `MonoUGuiUI`（带 Canvas，场景需 EventSystem）——自动注册 `IUIUtility`。**同一 Context 只挂一个**（UGUI/Toolkit 二选一，重复注册报错）。
+- **开窗**：View / System / class Command 用 `this.GetUtility<IUIUtility>().Open<T>(args)`（struct Command 经 `ctx`）；View 有 `ICanGetUtility`，开窗合法（同 `Bag.Load` 心智）。`Close<T>()` / `Back()`（关 Page 栈顶）/ `CloseAll(layer)` / `Get<T>()`。资源加载失败返回 null。
+- **写窗口**：UI Toolkit 继承 `UIToolkitWindowBase`（**需无参构造**，框架 `Activator` 实例化；接线放 `OnCreated`、参数放 `OnOpen(args)`，纯代码搭建可不要 UXML）；UGUI 继承 `UGuiWindowBase`（是 `MonoViewBase`，**不要覆写 Awake**，接线放 `OnCreated`；`[UIWindow(Asset=...)]` 指 prefab 或 **Asset 留空纯代码搭建**，两套 backend 都支持）。窗口就是 View——读写分离照旧（只读订阅查询 Command、只写经 `ExecuteCommand`）。
+- **元数据**用类上的 `[UIWindow(Layer=…, Asset=…, Cache=…, Modal=…)]` 特性声明；层 `UILayer`（Background/Page/Window/Popup/Top/System，固定有序后者盖前者）。
+- **生命周期 hook**（框架调，非 Unity）：`OnCreate→OnOpen(args)→OnCover/OnReveal→OnClose`，cover/reveal **按层内**计算。
+- **数据绑定**统一走 R3：`Bag.BindText/BindEnabled/BindVisible/SubscribeClick`（`Game.Framework.UI.Toolkit`），**不用** UI Toolkit 原生 DataBinding。
+- **非窗口的 UI Toolkit 视图**用 `UIToolkitViewBase`（纯 C# View），引导方 `view.BindTo(ctx)` 绑定。
+- ⚠ UI Toolkit 窗口 Context 由框架**显式注入**（不在 GameObject 父链）；UGUI 窗口沿父链自动注入。换后端业务开窗代码零改。详见 `docs/framework-guide.md` §17。

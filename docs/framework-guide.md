@@ -18,6 +18,7 @@
 14. [数据流：异步原语的统一抽象](#14-数据流异步原语的统一抽象)
 15. [热更新（HybridCLR）](#15-热更新hybridclr)
 16. [配置表（Luban）](#16-配置表luban)
+17. [UI 框架（窗口 / 层级）](#17-ui-框架窗口--层级)
 
 ---
 
@@ -1668,3 +1669,133 @@ public readonly struct GetConfigTablesCommand : ICommand<ReadOnlyReactivePropert
 > - 三段式镜像资源系统：Model 持表、System 编排；业务经 `GetModel<IConfigModel<Tables>>()` 取
 > - 框架 `Game.Framework.Config` 模块后端无关（不引用 Luban）——接触 Luban 的只有项目侧 `CreateTables` 一行
 > - 数据文件走资源包通道：打包 / 下载 / 热更与普通资源同一套机制
+
+---
+
+## 17. UI 框架（窗口 / 层级）
+
+View 之上的 UI 调度：打开/关闭窗口、固定有序层级、Page 返回栈、模态遮罩、cover/reveal、缓存复用、窗口生命周期。**渲染后端无关**——UGUI 与 UI Toolkit 共用一套核心，`IUIBackend` 吸收差异。设计原理与取舍见 ADR-0016。
+
+### 心智模型：窗口 = View 的一种 + 层级调度
+
+```
+业务 View / Command  ──Open<T>()──►  IUIUtility（核心：栈/层/缓存/生命周期编排）
+                                              │
+                                         IUIBackend（port）
+                                          ┌────┴────┐
+                                       UGui       Toolkit
+                                  Canvas/RectXform   UIDocument/VisualElement
+```
+
+窗口就是 View 的一种载体——享自动注入、`Bag`、`ExecuteCommand` / `GetUtility`；只读订阅查询 Command、只写经 Command。核心层（Model / Command / System）对用 UGUI 还是 UI Toolkit 一无所知。
+
+### 接入：挂一个 Mono 入口
+
+入口是单个 Mono 组件（镜像 `MonoPoolUtility`），挂在 Context 子节点上自动注册为 `IUIUtility`：
+
+| 后端 | 入口组件 | 需要 |
+|---|---|---|
+| UI Toolkit | `MonoToolkitUI` | 一个 `UIDocument`（同节点，留空字段则运行时自动取）+ `PanelSettings`；窗口叠加用更高 `sortingOrder` |
+| UGUI | `MonoUGuiUI` | 一个根 `Canvas`（留空则首次开窗自动建 ScreenSpaceOverlay）+ 场景里有 `EventSystem` |
+
+> **同一 Context 只挂一个 UI 入口**（UGUI / Toolkit 二选一）——两个都挂会因重复注册 `IUIUtility` 报错。多后端并存需多 Context。
+
+### 开窗 / 关窗
+
+```csharp
+// View / Command / System 里（View 有 ICanGetUtility，同 Bag.Load 心智）
+await this.GetUtility<IUIUtility>().Open<ShopWindow>();           // 无参
+await this.GetUtility<IUIUtility>().Open<ConfirmDialog>(args);    // 带打开参数（窗口 OnOpen 取用）
+this.GetUtility<IUIUtility>().Close<ShopWindow>();                     // 关闭（按缓存策略隐藏/销毁）
+this.GetUtility<IUIUtility>().Back();                                  // 关 Page 层栈顶，露出上一页
+this.GetUtility<IUIUtility>().CloseAll(UILayer.Popup);                 // 关某层全部
+var w = this.GetUtility<IUIUtility>().Get<ShopWindow>();               // 取已打开实例（未开返回 null）
+```
+
+资源加载失败 `Open` 返回 null；已打开同类型窗口再 `Open` 会置顶并重新 `OnOpen(args)`，不重建（若它原本不在同层栈顶，旧栈顶收 `OnCover`、它自己收 `OnReveal`）。
+
+### 窗口元数据：`[UIWindow]` 特性
+
+类型驱动声明落层 / 资源 / 缓存 / 模态（贴框架"用类型代替字符串"）：
+
+```csharp
+[UIWindow(Layer = UILayer.Popup, Asset = "ui/confirm", Cache = UICachePolicy.Destroy, Modal = true)]
+public sealed class ConfirmDialog : UGuiWindowBase { … }
+```
+
+- `Asset`：UGUI = prefab location，UI Toolkit = UXML location（留空 = 纯代码搭建）。
+- `Cache`：`Destroy`（默认，关即销毁释放资源句柄）/ `Cache`（关只隐藏、再开秒显，由 Context 销毁时清）。
+- `Modal`：本窗口之下铺遮罩拦截下层输入。
+
+### 层级（`UILayer`，固定有序，后者盖前者）
+
+| 层 | 用途 | 栈语义 |
+|---|---|---|
+| `Background` | 常驻底图 | 无栈 |
+| `Page` | 全屏互斥的"页" | 返回栈（`Back()`），下层页被盖 `OnCover` |
+| `Window` | 浮层功能窗口 | 可多开 |
+| `Popup` | 模态对话框 | 常配 `Modal` 弹遮罩 |
+| `Top` | Loading / Toast / 引导 | 压住一切 |
+| `System` | 调试 / 断网提示 | 永远最顶 |
+
+### 窗口生命周期 hook（由框架调，非 Unity 生命周期）
+
+`OnCreate`（建后一次，接线）→ `OnOpen(object args)`（每次打开，收参数）→ 期间可能 `OnCover` / `OnReveal`（被同层窗口盖住 / 重新露出，**按层内计算**）→ `OnClose`（每次关闭）。`OnCover` / `OnReveal` 是做「被盖暂停、露出恢复」的关键。
+
+### 写一个窗口
+
+**UI Toolkit（纯 C#，可无 authored 资产）** —— 需无参构造（框架用 `Activator` 实例化），接线放 `OnCreated`、取参数放 `OnOpen`：
+
+```csharp
+[UIWindow(Layer = UILayer.Window)]
+public sealed class CounterWindow : UIToolkitWindowBase
+{
+    protected override void OnCreated()
+    {
+        var score = new Label(); Root.Add(score);
+        var add = new Button { text = "+1" }; Root.Add(add);
+        Bag.BindText(score, this.ExecuteCommand(new GetScoreCommand()), v => $"Score: {v}"); // 只读订阅
+        Bag.SubscribeClick(add, () => this.ExecuteCommand(new RaiseScoreCommand()));          // 只写经 Command
+        Bag.SubscribeClick(new Button { text = "关闭" }, () => this.GetUtility<IUIUtility>().Close(this));
+    }
+    protected override void OnOpen(object args) { /* 取打开参数 */ }
+}
+```
+
+**UGUI** —— 继承 `UGuiWindowBase`（它是 `MonoViewBase`），在 `OnCreated` 接线（**不要覆写 Awake**，注入由 `MonoViewBase` 负责）。两种来源都行：`[UIWindow(Asset="ui/xxx")]` 指向 prefab（prefab 上拖好 Button/Text 引用），或 **`Asset` 留空纯代码搭建**（backend 空 GameObject + AddComponent，窗口在 `OnCreated` 里用代码建 UGUI 控件，与 UI Toolkit 对称）。
+
+### 数据绑定：统一走 R3 订阅
+
+UI Toolkit 绑定用 `UIBindingExtensions`（`Game.Framework.UI.Toolkit`），内部就是 `Bag.Subscribe`，与 UGUI 订阅 `ReadOnlyReactiveProperty` 一套心智：
+
+```csharp
+Bag.BindText(label, rop, v => $"HP: {v}");   // 文本
+Bag.BindEnabled(button, canClickRop);         // 可交互
+Bag.BindVisible(panel, isOpenRop);            // 显隐
+Bag.SubscribeClick(button, OnClick);          // UI Toolkit Button.clicked
+```
+
+**刻意不引入** UI Toolkit 原生 DataBinding——保持一套订阅模型对人和 AI 都更省心。复杂绑定先用 R3 操作符组合再 `Bag.Bind(observable, apply)`。
+
+### 非窗口的 UI Toolkit 视图
+
+不走窗口框架、只想要一个接入框架的 UI Toolkit 视图，直接继承 `UIToolkitViewBase`（纯 C# View，享自动注入 / Bag / `ExecuteCommand`），由持有 Context 的引导方调 `view.BindTo(ctx)` 绑定并把 `Root` 挂进可视树。
+
+### 换后端零业务改动
+
+业务开窗代码（`Open<T>()`）与核心对后端一无所知。从 UI Toolkit 换 UGUI：入口换 `MonoUGuiUI`、窗口基类换 `UGuiWindowBase` + prefab——`IUIBackend` 吸收了 Canvas sortingOrder 与 VisualElement 顺序、自动注入 vs 显式注入的全部差异。adapter 分 asmdef，只用一种 UI 技术的项目可整目录删另一个。
+
+### 约束与坑
+
+- **同一 Context 一个 UI 入口**（UGUI/Toolkit 二选一）。
+- **cover/reveal 按层内计算**：跨层覆盖（Popup 盖 Page）不触发下层 cover，需要时业务自行处理。
+- **UI Toolkit 窗口需无参构造**（框架 `Activator` 实例化）；数据经 `OnOpen(args)`，不走构造函数。
+- **UI Toolkit 窗口 Context 由框架显式注入**（不在 GameObject 父链上）；UGUI 窗口沿父链自动注入（实例化到层根下即可）。
+- 三个 UI asmdef 引用热更内核，已在热更列表（ADR-0008 铁律）。
+
+> **要点回顾**
+>
+> - 挂一个 `MonoToolkitUI` / `MonoUGuiUI` 注册 `IUIUtility`，`this.GetUtility<IUIUtility>().Open<T>()` 开窗
+> - 窗口 = View 的一种：自动注入 / Bag / 读写分离；元数据用 `[UIWindow]` 声明层 / 缓存 / 模态
+> - 核心渲染中立、可单测；换 UGUI ↔ UI Toolkit 业务零改，`IUIBackend` 吸收差异
+> - 数据绑定一套 R3 订阅；活样例见 demo「View · UIToolkit」+「UI 框架 · 窗口/层级」章

@@ -21,3 +21,4 @@
 | [0013](0013-yooasset-native-rewrite.md) | YooAsset 原生 3.0 重写：去兼容层 | Accepted |
 | [0014](0014-realtime-simulation-ownership.md) | 实时仿真 / 逐帧逻辑归 System（Update / R3 EveryUpdate），不走 Command | Accepted |
 | [0015](0015-odin-decoupling-assessment.md) | Odin 解耦的可行路径与改动面评估（精化 0006 方向） | Proposed · 最低优先级（长远可选） |
+| [0016](0016-ui-framework.md) | UI 框架：渲染后端无关的窗口/层级调度 + UGUI/UIToolkit 双 adapter | Accepted |

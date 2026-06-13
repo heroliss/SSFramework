@@ -1,0 +1,17 @@
+{
+    "name": "Game.Framework.UI",
+    "rootNamespace": "Game.Framework.UI",
+    "references": [
+        "Game.Framework",
+        "UniTask"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

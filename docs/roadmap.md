@@ -38,12 +38,11 @@
 - ✅ 程序集边界：`Game.Framework` / `.Editor` / `.Demo` / `.Test`
 - ✅ 自研对象池（`IPoolUtility`：C# 对象池 + GameObject/Prefab 池，`Bag.Rent` / `Bag.Spawn` 自动归还，替代第三方库）
 
-### Phase 2 —— UI Toolkit
+### Phase 2 —— UI Toolkit ✅ 已落地（ADR-0016）
 
-核心已就绪，新增 UI Toolkit 适配层即可：
-- 一个包装 `VisualElement` 的纯 C# View 基类，实现 `IView` + `IHasGameContext`，复用 `ViewExtensions`（`ExecuteCommand`）/ `EventExtensions`（`RegisterEvent`）/ `DisposableBag`（订阅与资源）。
-- 为 UI Toolkit 的数据绑定（`DataBinding` / `INotifyBindablePropertyChanged`）桥接 `ReadOnlyReactiveProperty<T>`。
-- UGUI 与 UI Toolkit 可共存于同一 Context，按界面选择视图技术。
+- ✅ 纯 C# View 基类 `UIToolkitViewBase`（包装 `VisualElement`，实现 `IView + IHasGameContext`），复用 `ViewExtensions` / `EventExtensions` / `DisposableBag`——与 `MonoViewBase` 同享自动注入 / Bag / `ExecuteCommand`。
+- ✅ 数据绑定走 R3 订阅（`UIBindingExtensions`：`BindText` / `BindEnabled` / `SubscribeClick`），与 UGUI 一套心智；**刻意不引入** UI Toolkit 原生 DataBinding。
+- ✅ UGUI 与 UI Toolkit 共存于同一 Context，按界面选视图技术；核心层对 UI 技术无感。
 
 ### Phase 3 —— DOTS / ECS
 
@@ -60,6 +59,7 @@ DOTS 是数据/Job/Burst 范式，与引用式 OOP 不同。框架的定位是**
 | 资源系统（YooAsset） | ✅ 原生 3.0 | 经 `IAssetProvider` 隔离；`YooAssetProvider` 已用原生 3.0 API 重写（FileSystem 初始化 + 拆分解密 + `IRemoteService` + RawFileObject），兼容层 define 已移除，obsolete 警告归零。ADR-0012/0013 |
 | 热更新（HybridCLR） | ✅ 已落地 | 列表驱动热更范围（`FrameworkHotUpdateProfile` 单一真源），框架本体也可热更；薄 Boot 程序集引导（专用 RawFile 代码包 + 清单 + 拓扑序加载），编辑器旁路零负担；Windows IL2CPP 端到端验证通过（改入口版本→只重打代码包→玩家包生效）。ADR-0008 |
 | 配置表（Luban） | ✅ 已落地 | 构建期菜单跑 CLI 生成「代码 + 数据 + 表清单」三件套；运行期 `Bag.LoadBytes` 清单预载 + 三段式（`Game.Framework.Config`，后端无关、不引用 Luban）。数据源 JSON/Excel 混搭，demo 双活样例。ADR-0009 |
+| UI 框架（UGUI + UI Toolkit） | ✅ 已落地 | 渲染后端无关的窗口/层级/栈/模态/缓存/生命周期调度（`IUIUtility`），`IUIBackend` 后两个 adapter（Canvas / UIDocument）；`[UIWindow]` 特性声明层/缓存/模态；绑定走 R3。核心可单测（脱离场景）。ADR-0016 |
 | UPM 抽包 | 🔮 规划 | 框架稳定后从 `Assets/Game/Framework` 抽成内嵌/独立 UPM 包。ADR-0010 |
 
 ## 规划中的模块（待选型研究）
@@ -70,8 +70,6 @@ DOTS 是数据/Job/Burst 范式，与引用式 OOP 不同。框架的定位是**
 |---|---|---|
 | **本地存储** | SQLite（关系/大数据）、PlayerPrefs（轻量 KV）、MemoryPack（高性能二进制序列化） | 统一 `IStorageUtility` / `IStorageProvider` 抽象，按数据规模选后端；存档/配置/KV 分场景；序列化器可插拔 |
 | **网络** | BestHTTP、UnityWebRequest 封装、gRPC（MagicOnion）、WebSocket | `INetworkUtility` / 服务抽象隔离传输层；请求/长连接/重试/取消接 UniTask + CancellationToken；回包转 Command/Event |
-| **UI 框架** | UGUI 之上的窗口/栈/层级管理 + 资源加载 + 生命周期 | View 层之上的 UI 调度（打开/关闭/层级/缓存）；与对象池、资源系统、Bag 协同 |
-| **UI Toolkit 融合** | 见 Phase 2 | 包装 `VisualElement` 的纯 C# View 实现 `IView + IHasGameContext`，复用 ViewExtensions/EventExtensions/Bag；数据绑定桥接 `ReadOnlyReactiveProperty<T>` |
 | **DOTS / 多线程** | 见 Phase 3 | 框架协调 ECS（System/Utility 包 `World`，Command 调度 Job / `EntityCommandBuffer`）；主线程契约与 Job 边界明确 |
 | **Cysharp 生态选型** | 见下 | 从 [Cysharp 仓库](https://github.com/orgs/Cysharp/repositories) 评估可融入的库 |
 

@@ -5,6 +5,7 @@
         "YooAsset",
         "UniTask",
         "Game.Framework",
+        "Game.Framework.UI",
         "UnityEngine.TestRunner"
     ],
     "includePlatforms": [],
