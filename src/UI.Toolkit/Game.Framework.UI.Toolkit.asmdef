@@ -1,0 +1,20 @@
+{
+    "name": "Game.Framework.UI.Toolkit",
+    "rootNamespace": "Game.Framework.UI.Toolkit",
+    "references": [
+        "Game.Framework",
+        "Game.Framework.UI",
+        "UniTask",
+        "R3",
+        "R3.Unity"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
