@@ -133,7 +133,7 @@ namespace Game.Framework.Demo.Modules
             host.AddActionRow("定位 Logo 资产（被加载的源资源）", () =>
                 PingAsset("Assets/Game/Framework/Res/SSFramework-Logo.png"));
 #endif
-            host.AddNote("`Bag.Load<T>(location)` 借来的资源 handle 进 `Bag`，切走本章 `Bag.Dispose` 自动释放，业务不持有句柄。想提前释放某批句柄，就像本节这样开个 `Bag.CreateChild()` 子 Bag 装它们、需要时 `Dispose`（再 `CreateChild` 重建）。`Bag.Load` 是泛型：prefab 用 `GameObject`、场景用 `LoadScene`、文本用 `LoadText`、字节用 `LoadBytes` 同理；跨包用带 `packageName` 的重载（见下）。");
+            host.AddNote("`Bag.Load<T>(location)` 借来的资源 handle 进 `Bag`，切走本章 `Bag.Dispose` 自动释放，业务不持有句柄。想提前释放某批句柄，就像本节这样开个 `Bag.CreateChild()` 子 Bag 装它们、需要时 `Dispose`（再 `CreateChild` 重建）。`Bag.Load` 是泛型：prefab 用 `GameObject`、场景用 `LoadScene`；`LoadText` / `LoadBytes` 则是**内容直读**——拷出即释放句柄、不进 Bag（文本类资产 .bytes/.txt 等适用）。跨包用带 `packageName` 的重载（见下）。");
             host.AddSubNote("**释放分三层**，清哪层退到哪层：① `Unload` / `Dispose` 释放 handle → 引用归零但 bundle **还在内存**（所以「释放 Logo」后再加载仍秒出）；② `UnloadUnusedAssets` 把零引用 bundle **从内存卸掉**（上面按钮）；③ `ClearCache` 删**磁盘**下载缓存（见下方·下载）。要逼资源真正重新下载：释放 handle → 卸内存 → 清磁盘 → 再 Load。");
             host.AddSubNote("首次 `Load` 为什么卡一下？`Host` 模式下该资源 bundle 没缓存时，`Load` 会**当场按需下载**它（卡顿来源）；`EditorSimulate` / `Offline` 本地读取、不卡。想消除首加载卡顿就**预热**：先用下方·下载的下载器把 bundle 提前缓存好，之后 `Load` 直接命中不卡。");
 

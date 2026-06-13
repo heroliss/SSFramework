@@ -47,10 +47,14 @@ namespace Game.Framework
         UniTask<ISceneHandle> LoadSceneAsync(
             string packageName, string location, LoadSceneMode mode, bool suspendLoad, CancellationToken ct);
 
-        /// <summary>加载 RawFile 文本。Provider 内部管理临时 handle 释放，调用方只拿到值。</summary>
+        /// <summary>
+        /// 直读文本内容：内容拷出后 Provider 立即释放内部临时 handle，调用方只拿到值。
+        /// 对任何包类型都成立（Provider 自行按包的构建类型选择通道，如 RawFile 原生文件 vs 普通 AB 包的文本类资产）；
+        /// 普通 AB 包要求该 location 是文本类资产（.bytes/.txt/.json 等）。失败返回 null。
+        /// </summary>
         UniTask<string> LoadTextAsync(string packageName, string location, CancellationToken ct);
 
-        /// <summary>加载 RawFile 二进制。语义同 <see cref="LoadTextAsync"/>。</summary>
+        /// <summary>直读二进制内容。语义同 <see cref="LoadTextAsync"/>。</summary>
         UniTask<byte[]> LoadBytesAsync(string packageName, string location, CancellationToken ct);
 
         /// <summary>检查 location 是否能在指定包的 manifest 中解析。未初始化时返回 false。</summary>

@@ -17,6 +17,7 @@
 13. [AssetReference（资源引用）](#13-assetreference资源引用)
 14. [数据流：异步原语的统一抽象](#14-数据流异步原语的统一抽象)
 15. [热更新（HybridCLR）](#15-热更新hybridclr)
+16. [配置表（Luban）](#16-配置表luban)
 
 ---
 
@@ -1190,7 +1191,7 @@ public class MiniGameController : MonoBehaviour
 
 框架通过 `IAssetUtility` 与 `AssetReference<T>` 提供统一资源入口。业务动态加载用 location；Inspector 拖拽引用用 `AssetReference<T>`。GUID 只保存在引用内部，不作为业务 API 暴露。
 
-`MonoViewBase/MonoModelBase/MonoSystemBase/MonoUtilityBase` 内置 protected `Bag`——动态加载通过 `Bag.Load<T>(location)` / `Bag.LoadScene(...)` / `Bag.LoadText(...)` 等方法，handle 自动登记到 Bag，`OnDestroy` 时统一释放。`AssetReference<T>` 字段则自己持有 handle，并由宿主 `OnDestroy` 自动 `Dispose`。真实引用计数由具体资源 provider 维护，框架只管理“谁负责释放哪一类 handle”。
+`MonoViewBase/MonoModelBase/MonoSystemBase/MonoUtilityBase` 内置 protected `Bag`——动态加载通过 `Bag.Load<T>(location)` / `Bag.LoadScene(...)`，handle 自动登记到 Bag，`OnDestroy` 时统一释放；`Bag.LoadText` / `Bag.LoadBytes` 是内容直读（拷出即释放句柄、不进 Bag），按包构建类型自动路由（普通 AB 包按 TextAsset 取内容，RawFile 包走原生通道）。`AssetReference<T>` 字段则自己持有 handle，并由宿主 `OnDestroy` 自动 `Dispose`。真实引用计数由具体资源 provider 维护，框架只管理“谁负责释放哪一类 handle”。
 
 ### 基础用法
 
@@ -1586,3 +1587,84 @@ Bag.Subscribe(
 > - 日常迭代两步：`3. 构建代码包` + `4. 部署`；Generate All 只在 AOT 集合变化时跑
 > - 入口约定 `GameEntry.Enter()`；编辑器旁路让开发期对热更机制无感
 > - `autoReferenced:false` + 「AOT 不引用热更」由构建期校验器机器执行，不靠人脑记
+
+---
+
+## 16. 配置表（Luban）
+
+表定义（XML）与数据（JSON / Excel）放在仓库根 `Configs/`（Assets 外，Unity 不导入）→ 菜单跑 Luban CLI 生成**配置 C# 类 + 二进制数据 + 表清单** → 运行期三段式加载，数据文件随资源包打包与热更。设计原理与取舍见 ADR-0009。
+
+### 心智模型：构建期生成，运行期只是读字节
+
+运行期对「Excel / JSON 解析、数据校验」零感知——那些都发生在构建期。加载就是按清单读字节、构造一次 `Tables`，之后全是纯内存强类型查询。
+
+| 生成产物 | 落点 | 谁消费 |
+|---|---|---|
+| 配置 C# 类（`Tables` / `TbXxx` / bean） | 生成代码目录（归业务 / demo 程序集） | 业务代码强类型查表 |
+| 二进制数据（`*.bytes`） | 资源收集范围内的目录（普通资源收集，按文件名寻址） | 运行期按 TextAsset 加载取字节 |
+| 表清单（`LubanTableManifest.g.cs`） | 随生成代码 | 初始化 System 据此并行预载 |
+
+**为什么要表清单**：生成的 `Tables` 构造函数是**同步**逐表向 loader 要字节，而框架资源加载是异步——先按清单把全部数据文件并行预载进内存，再用同步取字节的委托一次性构造。清单与代码/数据同一次生成（`LubanCodeGenerator` 在 CLI 跑完后扫数据目录产出），不存在手工维护漏表，机制同热更代码包的 manifest。
+
+### 运行期三段式（镜像资源系统）
+
+| 角色 | 层 | 职责 |
+|---|---|---|
+| `MonoConfigModelBase<TTables>` 子类 | Model | 持有 `Tables` 实例 + `ConfigInitState` 加载状态，自动按 `IConfigModel<TTables>` 接口注册 |
+| `MonoConfigInitSystemBase<TTables>` 子类 | System | 编排：清单并行预载 → 调子类工厂构造 → 写入 Model、置 Ready |
+
+没有 Utility 层——查询直接用生成的 `Tables` 强类型 API（`TbItem.Get(id)` / `DataList`），框架包一层只会更难用。业务取表统一经接口：
+
+```csharp
+// System / class Command 里
+var tables = this.GetModel<IConfigModel<Tables>>().Tables.CurrentValue;
+// View 经只读查询 Command（配置是只读数据，View 拿到也只能查）
+public readonly struct GetConfigTablesCommand : ICommand<ReadOnlyReactiveProperty<Tables>>
+{
+    public ReadOnlyReactiveProperty<Tables> Execute(ICommandContext ctx)
+        => ctx.GetModel<IConfigModel<Tables>>().Tables;
+}
+```
+
+### 新项目接入步骤
+
+1. Luban CLI 解压到 `Tools/Luban/`（**不入库**，官方 release 可重下；缺 .NET 8 运行时时管线自动 `DOTNET_ROLL_FORWARD=LatestMajor`）。
+2. 仓库根建 `Configs/`：`luban.conf`（入口）+ `Defines/*.xml`（表定义）+ `Datas/`（数据）。本仓库的就是最小可跑样例。
+3. 菜单 `SSFramework/配置表构建/配置 (Luban Profile)` 调整输出目录与 topModule（见下方铁则）。
+4. 菜单 `1. 生成配置代码 + 数据`——代码 / 数据 / 清单一次产出。
+5. 确认数据输出目录在某个 YooAsset 收集器范围内（`.bytes` 按普通资源收集成 TextAsset、按文件名寻址）；demo 复用现成的 `FrameworkDemoGroup` 收集器，真实项目通常加进 DefaultPackage 的收集组。
+6. 写两个一行子类闭合泛型（`class GameConfigModel : MonoConfigModelBase<Tables> {}` 同理 InitSystem——后者补 `TableFiles => LubanTableManifest.Files` 和 `CreateTables`），与资源三件套同节点或同 Context 挂上。
+7. 生成代码所在 asmdef 引用 `Luban.Runtime` + `Game.Framework.Config`；若业务程序集热更，它天然在热更侧（数据文件本就随资源包热更）。
+
+### 数据源与格式
+
+- 数据源**按表选格式、同项目混搭**，表定义的 `input` 一个属性决定——demo 两种都有活样例：`item.json`（JSON 文本：git diff 可读、AI 可直接维护）+ `monster.xlsx`（Excel：策划直接编辑）。
+- JSON input 语法：`*@item.json` = 单文件多记录（根是数组），目录 input = 每文件一条记录。
+- Excel 布局约定：**A 列是标记列**——`##var` 行写字段名、`##` 行是注释行，数据行 A 列留空、数据从 B 列起；多 sheet 用 `表单名@文件.xlsx`。`monster.xlsx` 是活样例（程序生成的 xlsx Luban 也照常读，无需真装 Office）。
+- 输出格式用 **bin**（与 `cs-bin` 代码模板配对，紧凑、解析快）；需要肉眼调试数据时换 `-d json` + `cs-simple-json`。
+
+**LubanConfigProfile 字段速查**（demo 值 → 正式项目怎么改）：
+
+| 字段 | demo 值 | 正式项目 |
+|---|---|---|
+| 生成目标 target | `client` | `luban.conf` 里 `targets[].name`——决定 topModule 与 groups 过滤；前后端共表时可加 `server` target 各取所需字段 |
+| 代码模板 codeTarget | `cs-bin` | 与数据格式配对换：`cs-simple-json`（肉眼可调试）等；非 C# 端有 `java-bin` / `ts-json` / `go-bin` / `lua-bin` 等 |
+| 数据格式 dataTarget | `bin` | 与代码模板配对：`json` / `bson` / `lua` 等（cs-bin↔bin、cs-simple-json↔json 必须成对） |
+| 输出代码目录 | `Demo/Config/Gen` | 业务程序集下，如 `Assets/Game/Main/Config/Gen`（该 asmdef 引用 `Luban.Runtime` + `Game.Framework.Config`） |
+| 输出数据目录 | `Framework/Res/Configs` | 默认包某收集器范围内，如 `Assets/Game/Main/Res/Configs` |
+| 清单命名空间 | `DemoCfg` | 与 luban.conf 的 topModule 同步改（顶层短名，如 `Cfg`，避开 `Game.Framework.*`，见下方铁则） |
+
+### 铁则与坑
+
+- **topModule 别嵌进含 `System` 子命名空间的层级**（如 `Game.Framework.*`）：生成代码裸写 `System.Func` / `System.Collections`，会被就近解析劫持（CS0234）。demo 用顶层 `DemoCfg`。
+- **生成代码目录被 Luban 接管**：它会清理目录里的陌生文件（表清单是 CLI 跑完后由管线补写的），勿手放任何文件进去。
+- **数据文件按普通资源收集（TextAsset），不要用 PackRawFile**：YooAsset 的 bundle 类型是包级二选一，AB 包混入 RawFile 收集器后运行时直接失败（实测）。读取统一用 `Bag.LoadBytes`——它按包构建管线自动路由（普通 AB 包按 TextAsset 取内容、RawFile 包走原生通道），业务无需关心包类型。
+- 配置是**只读数据，启动一次性加载**：改数值 = 改 `Datas/` → 重新生成 → 数据 `.bytes` 随资源包热更即可；改表**结构**会改生成代码 → 走代码热更 / 发版。
+- `Game.Framework.Config` 引用热更内核，已在热更列表（ADR-0008 铁律：AOT 不引用热更）；`Luban.Runtime` 来自 UPM 包、保持 AOT。
+
+> **要点回顾**
+>
+> - 构建期菜单一键生成「代码 + 数据 + 清单」三件套；运行期只是按清单预载字节、构造一次 `Tables`
+> - 三段式镜像资源系统：Model 持表、System 编排；业务经 `GetModel<IConfigModel<Tables>>()` 取
+> - 框架 `Game.Framework.Config` 模块后端无关（不引用 Luban）——接触 Luban 的只有项目侧 `CreateTables` 一行
+> - 数据文件走资源包通道：打包 / 下载 / 热更与普通资源同一套机制

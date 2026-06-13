@@ -68,7 +68,7 @@ namespace Game.Framework.Demo.Modules
                 new[] { "管线", "效果", "产物", "对应运行时加载" },
                 new[] { "`EditorSimulate` (ESBP)", "不打包，生成模拟清单", "映射到 AssetDatabase", "`EditorSimulate` 模式（自动）" },
                 new[] { "`Scriptable` (SBP)", "打真 AssetBundle，增量/确定性好", "bundle + 清单", "`Load<T>` / `LoadScene`，生产首选" },
-                new[] { "`RawFile` (RFBP)", "原样拷贝、不打包成 AB", "原生文件 + 清单", "`LoadText` / `LoadBytes`" },
+                new[] { "`RawFile` (RFBP)", "原样拷贝、不打包成 AB", "原生文件 + 清单", "`LoadText` / `LoadBytes`（按包类型自动路由，AB 包的文本类资产也走这俩）" },
                 new[] { "`Legacy` (LBP)", "旧版 AB 构建", "bundle + 清单", "同 SBP，无增量优势，新项目少用" },
                 new[] { "`Archive` (AFBP)", "同名 bundle 多文件合并归档", "归档文件", "专用 / 进阶" });
             host.AddSubNote("本框架构建器只用 SBP（`FrameworkAssetBuilder`，不提供 Legacy）；上表列全只为了解 YooAsset 全貌。");
@@ -78,7 +78,7 @@ namespace Game.Framework.Demo.Modules
             // ── 底层流程：EditorSimulate ──
             host.AddSectionTitle("底层流程 · EditorSimulate（开发期）");
             host.AddStep("①", "进 Play → `AssetInitSystem` 触发初始化 → provider 在 `EditorSimulate` 分支自动跑一次 ESBP（模拟构建）。",
-                new CodeRef("Assets/Game/Framework/Scripts/Asset/Providers/YooAssetProvider.cs", "case AssetPlayMode.EditorSimulate", "EditorSimulate 自动模拟构建"));
+                new CodeRef("Assets/Game/Framework/Asset.Yoo/YooAssetProvider.cs", "case AssetPlayMode.EditorSimulate", "EditorSimulate 自动模拟构建"));
             host.AddStep("②", "ESBP 生成「地址→AssetDatabase 路径」模拟清单 → 运行时直接读工程源资源：免打包、免下载、改完即时生效，也与平台无关。");
 
             // ── 底层流程：Host ──
@@ -88,11 +88,11 @@ namespace Game.Framework.Demo.Modules
             host.AddSubNote("打哪些包、每包首包策略 / 内置 shader 包开关，都读构建配置 `FrameworkAssetBuildProfile`（单一配置源）。首包：含指定 tag 的 bundle 拷进 `StreamingAssets` 当首包（多 tag 用分号 `;` 分隔），其余运行时从 CDN 下；样例包用空 tag → 0 内置、只出内置清单，于是全从 CDN 真实下载。",
                 new CodeRef("Assets/Game/Framework/Build/Editor/FrameworkAssetBuildProfile.cs", "class FrameworkAssetBuildProfile", "构建配置（按包）"));
             host.AddStep("②", "部署：产物按「每个包一个子目录」拷到 项目根/`AssetBuild/Deploy`（本地联调）或 CI 上传真实 CDN。`GameRemoteService` 按 {CDN}/{包名}/{文件} 取址。",
-                new CodeRef("Assets/Game/Framework/Scripts/Asset/Providers/YooAssetProvider.cs", "class GameRemoteService", "远端取址实现"));
+                new CodeRef("Assets/Game/Framework/Asset.Yoo/YooAssetProvider.cs", "class GameRemoteService", "远端取址实现"));
             host.AddStep("③", "起服务：菜单「3. 启动本地 CDN 服务」= python -m http.server（端口取自构建 profile 的 `LocalServePort`，须与场景 `AssetSystemConfigModel.CdnUrls` 第一条端口一致）；生产里这步换成 CDN 厂商。",
                 new CodeRef("Assets/Game/Framework/Build/Editor/AssetBuildMenu.cs", "StartServer", "本地起服务（仅联调）"));
             host.AddStep("④", "进 Play(`Host`)：先读 `StreamingAssets` 的 `BuiltinCatalog` → 拉 `.version` → 拉对应版本清单 → 缺的 bundle 按需从 CDN 下载并缓存到 项目根/`AssetBuild/Downloaded/<包>`。",
-                new CodeRef("Assets/Game/Framework/Scripts/Asset/Providers/YooAssetProvider.cs", "case AssetPlayMode.Host", "Host 初始化实现"));
+                new CodeRef("Assets/Game/Framework/Asset.Yoo/YooAssetProvider.cs", "case AssetPlayMode.Host", "Host 初始化实现"));
             host.AddSubNote("`CdnUrls` 是候选列表：本地联调通常只填 `http://127.0.0.1:8080/`，多条时版本号 / 清单请求会随 YooAsset 的失败计数轮转重试；候选必须是等价镜像。包级「启用按需下载」（默认勾选）只影响 Host 下未缓存 bundle 的 `Load`：取消勾选后直接失败，强制先显式跑下载器。",
                 new CodeRef("Assets/Game/Framework/Scripts/Asset/AssetSystemConfigModel.cs", "CdnUrls", "运行时 CDN 配置"));
 #if UNITY_EDITOR

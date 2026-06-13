@@ -1,23 +1,19 @@
 {
-    "name": "Game.Framework.Demo",
-    "rootNamespace": "Game.Framework.Demo",
+    "name": "Game.Framework.Config",
+    "rootNamespace": "Game.Framework",
     "references": [
         "Game.Framework",
-        "Game.Framework.Config",
-        "Luban.Runtime",
+        "UniTask",
         "R3",
-        "R3.Unity",
-        "UniTask"
+        "R3.Unity"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
     "overrideReferences": false,
     "precompiledReferences": [],
-    "autoReferenced": true,
-    "defineConstraints": [
-        "UNITY_EDITOR"
-    ],
+    "autoReferenced": false,
+    "defineConstraints": [],
     "versionDefines": [],
     "noEngineReferences": false
 }
