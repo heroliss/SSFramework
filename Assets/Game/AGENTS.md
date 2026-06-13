@@ -215,9 +215,10 @@ Bag.Subscribe(
 // 默认包：
 var icon = await Bag.Load<Sprite>("ui/icon");
 var prefab = await Bag.Load<GameObject>("prefabs/card");
+var scene = await Bag.LoadScene("scenes/battle", LoadSceneMode.Additive);
+// 文本/字节直读（内容拷出即释放句柄、不进 bag；普通 AB 包要求是 .bytes/.txt/.json 等文本类资产，RawFile 包自动走原生通道）：
 var text = await Bag.LoadText("configs/level1");
 var bytes = await Bag.LoadBytes("data/binary");
-var scene = await Bag.LoadScene("scenes/battle", LoadSceneMode.Additive);
 // 跨包：
 var dlcIcon = await Bag.Load<Sprite>("dlc-package", "ui/icon");
 // 查询 / 下载器走 IAssetUtility（不在 Bag 上）：纯查询无状态、下载器用完即弃，都不需要 bag 托管
@@ -272,7 +273,7 @@ Unity 对象 null 判断用 `if (x != null)`，不用 `?.`（Unity 重载了 `==
 
 **业务接入：**
 
-- **动态加载**走 `Bag.Load<T>(location)` / `Bag.LoadScene(...)` / `Bag.LoadText(...)` / `Bag.LoadBytes(...)`，handle 自动入 bag，宿主 OnDestroy 时统一释放。Bag 内部会等 init 完成，业务无需关心时序；跨包用 `Bag.Load<T>(packageName, location)` 等显式 package 重载。
+- **动态加载**走 `Bag.Load<T>(location)` / `Bag.LoadScene(...)`，handle 自动入 bag，宿主 OnDestroy 时统一释放；`Bag.LoadText(...)` / `Bag.LoadBytes(...)` 是**内容直读**——拷出即释放句柄、不进 bag，按包构建类型自动路由（普通 AB 包按 TextAsset 取内容，要求 location 是 .bytes/.txt/.json 等文本类资产；RawFile 包走原生通道），业务无需关心包类型。Bag 内部会等 init 完成，业务无需关心时序；跨包用 `Bag.Load<T>(packageName, location)` 等显式 package 重载。
 - **Inspector 拖拽引用**走 `AssetReference<T>.Get()`：字段在 Awake 自动绑定加载器并加入宿主 Bag，宿主 OnDestroy 时由 Bag.Dispose 调 ref.Dispose 释放。AssetReference Inspector 同行下拉可指定 package，留空走默认包。
 - **ScriptableObject / 纯 C# 对象的 ref 不会自动绑定**（框架刻意不递归 SO，因为共享 SO 资产不该被某个宿主生命周期接管）：由加载 / 持有它的宿主一行 `bag.BindAssetReferences(对象)` 把它内部所有 AssetReference 绑到自身生命周期（也可逐个 `ref.Bind(utility, hostToken)`，或退到 `GameContext.Main` 兜底但会输出 error）。**config SO 是「Model 持有/加载的数据」，不做 Model 层**——它常需像资源一样异步加载，无法在启动时注册成 Model。
 - **启动界面进度**订阅 `this.GetUtility<IAssetUtility>().InitState`（`ReadOnlyReactiveProperty<AssetInitState>`，Idle/Initializing/Ready/Failed）；或等待 `Bag.EnsureInitialized()`。
@@ -336,3 +337,14 @@ protected virtual void OnDestroy()
 - **状态清理放归还时**：池化类型实现 `IPoolable.OnReturn()` 清字段/退订（或用 `GetPool` 的 `onReturn` 委托）；`OnRent()` 做激活。**已 Return 的实例不要再用**。
 - 主线程独占。Editor/Dev 构建下重复归还/归还外来实例会 LogError。
 - **GameObject/Prefab 池**：同一 `IPoolUtility` 按 prefab 管理。`Bag.Spawn(prefab, parent)` / `Bag.Spawn(prefab, pos, rot)` 取实例，宿主销毁自动 Despawn（心智同 `Bag.Rent`）；手动用 `GetUtility<IPoolUtility>().Spawn(prefab,…)` / `.Despawn(go)`（实例带 `PooledObject` 标记自动路由回源池）。`await pool.Prewarm(n, perFrame)` 分帧预热、`TrimAsync(target, perFrame)` / `ClearAsync()` 分帧收缩/销毁（C# 池用同步 `Trim(target)`）；内部停放节点被外部删后下次归还自愈重建。实例上**任意组件**实现 `IPoolable` 即收 OnRent/OnReturn。按 location 异步加载先 `await Bag.Load<GameObject>(loc)` 取 prefab 再 Spawn（池刻意不依赖 Context/IAssetUtility）。详见 `docs/framework-guide.md` §7。
+
+## 24. 配置表（Luban）最佳实践
+
+构建期菜单 `SSFramework/配置表构建` 跑 Luban CLI 生成「配置 C# 类 + 二进制数据 + 表清单」三件套；运行期三段式镜像资源系统（`Game.Framework.Config` 模块，ADR-0009）。
+
+- **接入**：两个一行子类闭合泛型——`class XxxConfigModel : MonoConfigModelBase<Tables> {}`、`class XxxConfigInitSystem : MonoConfigInitSystemBase<Tables>`（补 `TableFiles => LubanTableManifest.Files` 与 `CreateTables`）；与资源三件套同 Context 挂上（demo 场景的 `ConfigSystem` 节点是活样板）。
+- **取表**：System / class Command 用 `this.GetModel<IConfigModel<Tables>>()`（struct Command 经 `ctx`）；View 经只读查询 Command 拿 `ReadOnlyReactiveProperty<Tables>`——配置是只读数据，View 拿到也只能查。等待就绪订阅 `State`（`ConfigInitState`），不要轮询 `Tables` 判空。
+- **查询直接用生成的强类型 API**（`TbItem.Get(id)` / `GetOrDefault` / `DataList`），不在框架侧再包查询层。
+- **改表**：数据改 `Configs/Datas/`、结构改 `Configs/Defines/` → 菜单重新生成（Play 中会被拒绝）。生成代码目录被 Luban 接管，勿手放文件。
+- **坑**：topModule（生成代码命名空间）不要嵌进含 `System` 子命名空间的层级（如 `Game.Framework.*`），否则生成代码裸写的 `System.Func` 被就近解析劫持（CS0234）——demo 用顶层 `DemoCfg`。
+- 数据 `.bytes` 随资源包打包/热更；表结构变化会改生成代码 → 走代码热更/发版。详见 `docs/framework-guide.md` §16。

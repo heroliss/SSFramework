@@ -381,7 +381,7 @@ namespace Game.Framework
         {
             if (string.IsNullOrEmpty(location))
             {
-                Debug.LogWarning("[AssetUtility] RawFile location is empty.");
+                Debug.LogWarning("[AssetUtility] Text location is empty.");
                 return null;
             }
 
@@ -398,7 +398,7 @@ namespace Game.Framework
         {
             if (string.IsNullOrEmpty(location))
             {
-                Debug.LogWarning("[AssetUtility] RawFile location is empty.");
+                Debug.LogWarning("[AssetUtility] Bytes location is empty.");
                 return null;
             }
 

@@ -1,0 +1,19 @@
+{
+    "name": "Game.Framework.Config",
+    "rootNamespace": "Game.Framework",
+    "references": [
+        "Game.Framework",
+        "UniTask",
+        "R3",
+        "R3.Unity"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

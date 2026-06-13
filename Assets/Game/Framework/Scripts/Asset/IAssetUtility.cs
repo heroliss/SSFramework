@@ -142,16 +142,20 @@ namespace Game.Framework
             bool suspendLoad = false,
             CancellationToken ct = default);
 
-        /// <summary>从默认包加载 RawFile 文本内容。读取完成后内部立即释放临时 handle。</summary>
+        /// <summary>
+        /// 从默认包直读文本内容：内容拷出后内部立即释放临时 handle，调用方拿到与资源生命周期无关的纯数据。
+        /// 对任何包类型都成立（按包的构建类型自动选通道）；普通 AB 包要求该 location 是文本类资产（.bytes/.txt/.json 等）。
+        /// 失败返回 null。
+        /// </summary>
         UniTask<string> LoadText(string location, CancellationToken ct = default);
 
-        /// <summary>从指定包加载 RawFile 文本；packageName 为空时使用默认包。</summary>
+        /// <summary>从指定包直读文本内容；packageName 为空时使用默认包。语义同 <see cref="LoadText(string, CancellationToken)"/>。</summary>
         UniTask<string> LoadText(string packageName, string location, CancellationToken ct = default);
 
-        /// <summary>从默认包加载 RawFile 二进制内容。语义同 <see cref="LoadText(string, CancellationToken)"/>。</summary>
+        /// <summary>从默认包直读二进制内容。语义同 <see cref="LoadText(string, CancellationToken)"/>。</summary>
         UniTask<byte[]> LoadBytes(string location, CancellationToken ct = default);
 
-        /// <summary>从指定包加载 RawFile 二进制；packageName 为空时使用默认包。</summary>
+        /// <summary>从指定包直读二进制内容；packageName 为空时使用默认包。</summary>
         UniTask<byte[]> LoadBytes(string packageName, string location, CancellationToken ct = default);
 
         /// <summary>

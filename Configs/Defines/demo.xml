@@ -1,0 +1,42 @@
+<module name="">
+    <!-- 演示用最小表集：一张 map 表（按主键查记录）+ 一张单例表（全局参数）。
+         真实项目按业务域拆多个 xml 文件放本目录，luban.conf 的 schemaFiles 指向整个 Defines 目录即可。 -->
+
+    <enum name="ItemQuality" comment="物品品质">
+        <var name="White" value="0" comment="白·普通"/>
+        <var name="Green" value="1" comment="绿·优秀"/>
+        <var name="Blue" value="2" comment="蓝·稀有"/>
+        <var name="Purple" value="3" comment="紫·史诗"/>
+        <var name="Orange" value="4" comment="橙·传说"/>
+    </enum>
+
+    <bean name="Item" comment="物品">
+        <var name="id" type="int" comment="物品 ID（主键）"/>
+        <var name="name" type="string" comment="名称"/>
+        <var name="desc" type="string" comment="描述"/>
+        <var name="quality" type="ItemQuality" comment="品质"/>
+        <var name="price" type="int" comment="售价（金币）"/>
+        <var name="stackLimit" type="int" comment="单格堆叠上限"/>
+    </bean>
+    <!-- input 语法：`*@文件.json` = 把整个文件根数组当记录列表读入；不带 `*@` 则一个 json 文件只算一条记录。
+         也可指向目录（每个文件一条记录）或 `*字段@文件.json`（从字段读列表）。 -->
+    <table name="TbItem" value="Item" index="id" input="*@item.json" comment="物品表（map 模式：按 id 查）"/>
+
+    <bean name="Monster" comment="怪物">
+        <var name="id" type="int" comment="怪物 ID（主键）"/>
+        <var name="name" type="string" comment="名称"/>
+        <var name="hp" type="int" comment="生命值"/>
+        <var name="attack" type="int" comment="攻击力"/>
+        <var name="dropItemId" type="int" comment="击杀掉落物品 id（对应 TbItem.id）"/>
+    </bean>
+    <!-- Excel 数据源：input 直接指 .xlsx 文件名（多 sheet 时用 `表单名@文件.xlsx`）。
+         表内布局：A 列是标记列——`##var` 行写字段名、`##` 行是注释行，数据行 A 列留空、数据从 B 列起。 -->
+    <table name="TbMonster" value="Monster" index="id" input="monster.xlsx" comment="怪物表（Excel 数据源示例）"/>
+
+    <bean name="GlobalConfig" comment="全局参数">
+        <var name="bagCapacity" type="int" comment="背包容量"/>
+        <var name="initialGold" type="int" comment="新号初始金币"/>
+        <var name="newbieItemIds" type="list,int" comment="新手赠送物品 id 列表（对应 TbItem.id）"/>
+    </bean>
+    <table name="TbGlobalConfig" value="GlobalConfig" mode="one" input="globalconfig.json" comment="全局配置（one 模式：全表一条记录）"/>
+</module>

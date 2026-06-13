@@ -216,7 +216,7 @@ namespace Game.Framework
             return handle;
         }
 
-        /// <summary>加载 RawFile 文本内容。</summary>
+        /// <summary>直读文本内容：内容拷出即释放句柄（不进 Bag，纯数据无需托管）。普通 AB 包要求该 location 是文本类资产（.bytes/.txt/.json 等）；RawFile 包自动走原生通道。失败返回 null。</summary>
         public async UniTask<string> LoadText(string location, CancellationToken ct = default)
         {
             EnsureUtility();
@@ -224,7 +224,7 @@ namespace Game.Framework
             return await ResolveUtility().LoadText(location, LinkToken(ct));
         }
 
-        /// <summary>从指定 package 加载 RawFile 文本内容；packageName 为空时使用默认包。</summary>
+        /// <summary>从指定 package 直读文本内容；packageName 为空时使用默认包。语义同 <see cref="LoadText(string, CancellationToken)"/>。</summary>
         public async UniTask<string> LoadText(string packageName, string location, CancellationToken ct = default)
         {
             EnsureUtility();
@@ -232,7 +232,7 @@ namespace Game.Framework
             return await ResolveUtility().LoadText(packageName, location, LinkToken(ct));
         }
 
-        /// <summary>加载 RawFile 二进制内容。</summary>
+        /// <summary>直读二进制内容。语义同 <see cref="LoadText(string, CancellationToken)"/>。</summary>
         public async UniTask<byte[]> LoadBytes(string location, CancellationToken ct = default)
         {
             EnsureUtility();
@@ -240,7 +240,7 @@ namespace Game.Framework
             return await ResolveUtility().LoadBytes(location, LinkToken(ct));
         }
 
-        /// <summary>从指定 package 加载 RawFile 二进制内容；packageName 为空时使用默认包。</summary>
+        /// <summary>从指定 package 直读二进制内容；packageName 为空时使用默认包。</summary>
         public async UniTask<byte[]> LoadBytes(string packageName, string location, CancellationToken ct = default)
         {
             EnsureUtility();

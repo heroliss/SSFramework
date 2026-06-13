@@ -1,0 +1,8 @@
+[
+    { "id": 1001, "name": "新手剑", "desc": "磨损严重的铁剑，胜在顺手。", "quality": "White", "price": 50, "stackLimit": 1 },
+    { "id": 1002, "name": "守林人短弓", "desc": "守林人制式短弓，弓弦换过三次。", "quality": "Green", "price": 220, "stackLimit": 1 },
+    { "id": 2001, "name": "小型生命药水", "desc": "恢复少量生命值，味道像薄荷。", "quality": "White", "price": 30, "stackLimit": 99 },
+    { "id": 2002, "name": "回蓝卷轴", "desc": "念出咒文即可恢复法力。", "quality": "Blue", "price": 480, "stackLimit": 20 },
+    { "id": 3001, "name": "龙鳞胸甲", "desc": "以幼龙蜕下的鳞片锻成。", "quality": "Purple", "price": 6800, "stackLimit": 1 },
+    { "id": 9001, "name": "弑神者", "desc": "传说中曾斩落神祇的巨剑。", "quality": "Orange", "price": 99999, "stackLimit": 1 }
+]

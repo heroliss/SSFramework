@@ -3,6 +3,8 @@
     "rootNamespace": "Game.Framework.Demo",
     "references": [
         "Game.Framework",
+        "Game.Framework.Config",
+        "Luban.Runtime",
         "R3",
         "R3.Unity",
         "UniTask"

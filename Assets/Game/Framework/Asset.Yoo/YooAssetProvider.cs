@@ -21,7 +21,8 @@ namespace Game.Framework
     /// <b>3.0 原生 API（不再依赖 YOOASSET_LEGACY_API 兼容层）：</b>初始化用 <see cref="InitializePackageOptions"/>
     /// 分模式选项 + <c>InitializePackageAsync</c>；远端地址用 <see cref="IRemoteService"/>；解密用拆分后的
     /// <see cref="IBundleOffsetDecryptor"/> / <see cref="IBundleMemoryDecryptor"/>（经 <see cref="EFileSystemParameter"/> 注入）；
-    /// RawFile 走 <c>LoadAssetAsync&lt;RawFileObject&gt;</c>；下载器用 <see cref="ResourceDownloaderOptions"/> + 进度事件。
+    /// 文本/字节直读（LoadText/LoadBytes）按包构建管线自动路由——RawFile 包走 <c>LoadAssetAsync&lt;RawFileObject&gt;</c>，
+    /// 普通 AB 包按 <c>TextAsset</c> 取内容；下载器用 <see cref="ResourceDownloaderOptions"/> + 进度事件。
     /// </para>
     /// </summary>
     internal sealed class YooAssetProvider : IAssetProvider
@@ -157,18 +158,32 @@ namespace Game.Framework
 
         public async UniTask<string> LoadTextAsync(string packageName, string location, CancellationToken ct)
         {
-            var (handle, raw) = await LoadRawFileObjectAsync(packageName, location, ct);
-            if (handle == null) return null;
-            try { return raw.GetText(); }
-            finally { handle.Release(); }
+            if (IsRawFilePackage(packageName))
+            {
+                var (handle, raw) = await LoadRawFileObjectAsync(packageName, location, ct);
+                if (handle == null) return null;
+                try { return raw.GetText(); }
+                finally { handle.Release(); }
+            }
+            var (taHandle, ta) = await LoadTextAssetAsync(packageName, location, ct);
+            if (taHandle == null) return null;
+            try { return ta.text; }
+            finally { taHandle.Release(); }
         }
 
         public async UniTask<byte[]> LoadBytesAsync(string packageName, string location, CancellationToken ct)
         {
-            var (handle, raw) = await LoadRawFileObjectAsync(packageName, location, ct);
-            if (handle == null) return null;
-            try { return raw.GetBytes(); }
-            finally { handle.Release(); }
+            if (IsRawFilePackage(packageName))
+            {
+                var (handle, raw) = await LoadRawFileObjectAsync(packageName, location, ct);
+                if (handle == null) return null;
+                try { return raw.GetBytes(); }
+                finally { handle.Release(); }
+            }
+            var (taHandle, ta) = await LoadTextAssetAsync(packageName, location, ct);
+            if (taHandle == null) return null;
+            try { return ta.bytes; }
+            finally { taHandle.Release(); }
         }
 
         public bool CheckLocationValid(string packageName, string location)
@@ -304,6 +319,55 @@ namespace Game.Framework
         }
 
         // RawFile 在 3.0 作为 RawFileObject 资源经标准资源通道加载；调用方读完 text/bytes 后立即 Release handle。
+        // 文本/字节直读的通道路由：RawFile 包（RawFileBuildPipeline 构建，bundle 类型包级二选一）只能走
+        // RawFileObject 通道，普通 AB 包只能按 TextAsset 资产取内容——清单里记录了构建管线名，按它判定。
+        // 结果按包缓存：包的构建管线类型不随热更清单变化。
+        // 注：EditorSimulate 模式下管线名是 "EditorSimulateBuildPipeline"，会按普通 AB 包处理——当前唯一的
+        // RawFile 包是代码包（不经本通道加载）；若未来支持业务 RawFile 包，需在此补 Simulate 判定。
+        private readonly Dictionary<string, bool> _rawFilePackages = new();
+
+        private bool IsRawFilePackage(string packageName)
+        {
+            if (_rawFilePackages.TryGetValue(packageName, out bool cached)) return cached;
+            bool isRaw = GetReadyPackage(packageName).GetPackageDetails().BuildPipeline == "RawFileBuildPipeline";
+            _rawFilePackages[packageName] = isRaw;
+            return isRaw;
+        }
+
+        // 普通 AB 包的文本/字节直读：.bytes/.txt/.json 等文本类资产在 Unity 里导入为 TextAsset，
+        // 加载后内容拷出、句柄立即由调用方释放——业务拿到的是与资源生命周期无关的纯数据。
+        private async UniTask<(AssetHandle handle, TextAsset asset)> LoadTextAssetAsync(
+            string packageName, string location, CancellationToken ct)
+        {
+            ThrowIfDisposed();
+            var package = GetReadyPackage(packageName);
+            if (string.IsNullOrEmpty(location))
+            {
+                Debug.LogWarning("[YooAssetProvider] Text/bytes location is empty.");
+                return (null, null);
+            }
+
+            var handle = package.LoadAssetAsync<TextAsset>(location);
+            try { await WaitHandle(handle, ct); }
+            catch { handle.Release(); throw; }
+
+            if (handle.Status != EOperationStatus.Succeeded)
+            {
+                Debug.LogError($"[YooAssetProvider] Load text asset failed in package '{packageName}': {location}, {handle.Error}");
+                handle.Release();
+                return (null, null);
+            }
+
+            if (handle.AssetObject is not TextAsset ta)
+            {
+                Debug.LogError($"[YooAssetProvider] '{location}' in package '{packageName}' is not a TextAsset — " +
+                               "only text-like assets (.bytes/.txt/.json...) can be read via LoadText/LoadBytes on an AssetBundle package.");
+                handle.Release();
+                return (null, null);
+            }
+            return (handle, ta);
+        }
+
         private async UniTask<(AssetHandle handle, RawFileObject raw)> LoadRawFileObjectAsync(
             string packageName, string location, CancellationToken ct)
         {

@@ -60,15 +60,6 @@ namespace Game.Framework.Demo.Modules
     // 进阶“热更 · HybridCLR”已实现为独立模块 HotUpdateModule（见 Modules/HotUpdateModule.cs，
     // 编辑器恒走旁路故以讲解 + 源码跳转为主，校验按钮真实调用构建期校验）。
 
-    // ───────────── 规划中 ─────────────
-
-    public sealed class ConfigTableModule : ComingSoonModuleBase
-    {
-        public override string Id => "config-table";
-        public override string Title => "配置表 · Luban";
-        public override string Category => "规划中";
-        public override int Order => 20;
-        public override string Summary =>
-            "构建期 CLI 生成配置代码 + 数据，运行期经资源系统加载，镜像资源系统三段式（设计阶段，见 ADR-0009）。";
-    }
+    // 进阶“配置表 · Luban”已实现为独立模块 ConfigTableModule（见 Modules/ConfigTableModule.cs，
+    // 配套 Demo/Config/ 的具体三段式组件（场景 ConfigSystem 节点）+ Gen/ 生成代码；生成走统一菜单 SSFramework/配置表构建）。
 }
