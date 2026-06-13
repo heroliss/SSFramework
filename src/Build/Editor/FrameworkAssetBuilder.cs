@@ -34,7 +34,8 @@ namespace Game.Framework.Build
     ///       -executeMethod Game.Framework.Build.FrameworkAssetBuilder.BuildAll \
     ///       -version 1.2.3 [-output ./AssetBuild/Deploy] [-packages DefaultPackage,DLCPackage]
     /// ]]></code>
-    /// <para>有真失败时以非 0 退出码结束（batchmode 下 CI 据此判定失败）。RawFile 包需另走 RawFileBuildPipeline，不在本入口范围。</para>
+    /// <para>有真失败时以非 0 退出码结束（batchmode 下 CI 据此判定失败）。RawFile 包（收集器用 <c>PackRawFile</c>）需另走
+    /// RawFileBuildPipeline、不在本入口范围——构建前逐包预检，命中直接计失败并指路（代码包走热更构建菜单；业务 RawFile 包暂不支持统一构建）。</para>
     /// </summary>
     public static class FrameworkAssetBuilder
     {
@@ -130,6 +131,17 @@ namespace Game.Framework.Build
                     {
                         skipped.Add(pkg);
                         Debug.LogWarning($"[AssetBuilder] 包 '{pkg}' 在收集器里没有任何收集规则（空包），已跳过。");
+                        continue;
+                    }
+
+                    // 预检：RawFile 包不能走本入口——SBP + AssetBundle 类型构建出的产物与 RawFile 运行时通道不兼容，
+                    // 放任构建要么半路崩、要么产出错误产物，失败信息都不会指向真正原因，这里直接报明话。
+                    // （代码包 CodePackage 会被「同步收集器包列表」对账进 profile，正是本检查的现实保护对象。）
+                    if (UsesRawFilePackRule(pkg))
+                    {
+                        failed.Add($"{pkg}：收集器使用 RawFile 打包规则（PackRawFile），本入口只构建普通 AssetBundle 包——" +
+                                   "代码包请走菜单「SSFramework/热更构建/3. 构建代码包」（并在资源构建 profile 关掉该包的「参与构建」）；" +
+                                   "业务 RawFile 包暂不支持统一构建（构建配方见 FrameworkHotUpdateBuilder）。");
                         continue;
                     }
 
@@ -263,6 +275,25 @@ namespace Game.Framework.Build
             if (!generate) return "";
             return DefaultBundlePackRule.CreateShadersPackRuleResult()
                 .GetBundleName(packageName, BundleCollectorSettingData.Setting.UniqueBundleName);
+        }
+
+        // 收集器里这个包是否用了 RawFile 打包规则。RawFile 包要求每文件独立 bundle、走 RawFileBuildPipeline
+        // 构建（bundle 类型是包级二选一），与本类的 SBP + AssetBundle 参数互斥——任一 collector 用了即视为 RawFile 包。
+        private static bool UsesRawFilePackRule(string packageName)
+        {
+            foreach (var p in BundleCollectorSettingData.Setting.Packages)
+            {
+                if (p.PackageName != packageName) continue;
+                if (p.Groups == null) return false;
+                foreach (var g in p.Groups)
+                {
+                    if (g.Collectors == null) continue;
+                    foreach (var c in g.Collectors)
+                        if (c.PackRuleName == nameof(PackRawFile)) return true;
+                }
+                return false;
+            }
+            return false;
         }
 
         // 收集器里这个包是否没有任何收集规则（空包）。包不在收集器、或没有 group / collector 都算空。
