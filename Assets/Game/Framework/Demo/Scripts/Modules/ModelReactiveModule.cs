@@ -102,4 +102,10 @@ namespace Game.Framework.Demo.Modules
     {
         public ReadOnlyReactiveProperty<int> Execute(ICommandContext ctx) => ctx.GetModel<MonoScoreModel>().Score;
     }
+
+    /// <summary>分数归零（Mono Model）。</summary>
+    public readonly struct ResetMonoScoreCommand : ICommand
+    {
+        public void Execute(ICommandContext ctx) => ctx.GetModel<MonoScoreModel>().Score.Value = 0;
+    }
 }

@@ -97,6 +97,13 @@ namespace Game.Framework.Demo.Modules
                 + "`ScoreText/AddButton/CloseButton` 三个字段由右键 prefab「生成 UI 绑定代码」产出的 `DemoUGuiPrefabCounterWindow.nodes.g.cs` 自动绑定（`transform.Find`），本窗口只在 `OnCreated` 写逻辑。");
             host.AddNote("**同一窗口、三种接法**：代码搭建（`UGuiCounterWindow`）／ 手工 `[SerializeField]` 拖引用（`UGuiDemoView`）／ prefab + 生成绑定（本窗口）——同一框架、同一份分数，只是节点引用怎么来不同。绑定代码全自动生成、改完 prefab 重新生成即可，省掉手接引用的重复劳动。");
             host.AddSubNote("⚠ prefab 窗口经资源系统按 location 加载——若点了没出现，先去「资源加载」章点「初始化」让默认包就绪（代码搭建窗口不读资源、不受此影响）。");
+
+            host.AddActionRow("打开 UGUI 计数窗口（变体）", () => ugui.Open<DemoUGuiPrefabCounterWindowVariant>().Forget(),
+                new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/DemoUGuiPrefabCounterWindowVariant.cs", "class DemoUGuiPrefabCounterWindowVariant", "DemoUGuiPrefabCounterWindowVariant"));
+            host.AddNote("上一张窗口的**预制体变体**：变体 prefab 只多加了个「归零」按钮。变体窗口类**继承**基窗口类、绑定**只生成净新增字段**（`ResetButton`）——"
+                + "基类的 Score / +1 / 关闭由 `base.OnCreated()` 复用，变体 `OnCreated` 里只接自己多出来的归零按钮。改基窗口，变体自动跟随。");
+            host.AddSubNote("生成器靠 Unity 原生变体关系识别变体 → 子类 `: 基窗口类` + 只补新字段（删基节点 / 改基组件会在生成期警告）；本变体的增量绑定见生成文件。",
+                new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/Generated/DemoUGuiPrefabCounterWindowVariant.nodes.g.cs", "ResetButton", "变体增量绑定（nodes.g.cs）"));
         }
 
         // UI 打开是 fire-and-forget：代码搭建窗口同步完成；UniTask.Forget() 会观测并记录异常。

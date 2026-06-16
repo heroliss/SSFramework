@@ -42,6 +42,38 @@ namespace Game.Framework.UI.UGui.Editor
         public static string ResolveGeneratedDir(UIBindingData data, UICodeGenProfile profile)
             => string.IsNullOrWhiteSpace(data.GeneratedDirOverride) ? profile.GeneratedCodeDir : data.GeneratedDirOverride.Trim().TrimEnd('/', '\\');
 
+        // ───────────── 变体基解析（阶段②）。 ─────────────
+
+        /// <summary>
+        /// 若 <paramref name="prefabPath"/> 是预制体变体、且其直接基 prefab 根上有带条目的 <see cref="UIBindingData"/>，
+        /// 取出基信息供变体增量生成（子类继承基窗口类、只产出净新增字段）。非变体 / 基无绑定 → 返回 false（按独立窗口生成）。
+        /// </summary>
+        /// <remarks>
+        /// 用 Unity 原生变体关系（<see cref="PrefabUtility.GetCorrespondingObjectFromSource"/> 拿直接基）——多级变体链天然按「对直接基做差集」逐级继承。
+        /// 基条目从基 prefab 资产读（只读），与变体自身的活条目分开取，差集才稳定。
+        /// </remarks>
+        public static bool TryResolveVariantBase(string prefabPath, UICodeGenProfile profile,
+            out UIBindingData baseData, out string baseClassName, out string baseNamespace)
+        {
+            baseData = null; baseClassName = null; baseNamespace = null;
+
+            var variantAsset = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
+            if (variantAsset == null || PrefabUtility.GetPrefabAssetType(variantAsset) != PrefabAssetType.Variant)
+                return false;
+
+            var baseObj = PrefabUtility.GetCorrespondingObjectFromSource(variantAsset);
+            string basePath = baseObj != null ? AssetDatabase.GetAssetPath(baseObj) : null;
+            if (string.IsNullOrEmpty(basePath)) return false;
+
+            var data = LoadAssetData(basePath);
+            if (data == null || data.Entries == null || data.Entries.Count == 0) return false;
+
+            baseData = data;
+            baseClassName = SanitizeIdentifier(System.IO.Path.GetFileNameWithoutExtension(basePath));
+            baseNamespace = ResolveNamespace(data, profile);
+            return true;
+        }
+
         /// <summary>组件类型 → 稳定可解析的 id（<c>FullName, AssemblyName</c>，不含版本/区域/公钥）。</summary>
         public static string TypeId(Type t) => t.FullName + ", " + t.Assembly.GetName().Name;
 
