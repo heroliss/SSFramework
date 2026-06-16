@@ -1,4 +1,5 @@
 using Game.Framework.View;
+using UnityEngine;
 
 namespace Game.Framework.UI.UGui
 {
@@ -18,13 +19,39 @@ namespace Game.Framework.UI.UGui
     public abstract class UGuiWindowBase : MonoViewBase, IUIWindow
     {
         // 显式实现 IUIWindow：把渲染中立的窗口 hook 转发到 protected 钩子，业务窗口只重写需要的。
-        void IUIWindow.OnCreate() => OnCreated();
+        // 建后第一拍先 BindNodes（生成的 partial 覆写它取节点字段），再 OnCreated——OnCreated 里字段已就绪。
+        void IUIWindow.OnCreate() { BindNodes(); OnCreated(); }
         void IUIWindow.OnOpen(object args) => OnOpen(args);
         void IUIWindow.OnClose() => OnClose();
         void IUIWindow.OnCover() => OnCover();
         void IUIWindow.OnReveal() => OnReveal();
 
-        /// <summary>窗口建好、Context 已注入后调用一次——接线（订阅查询 Command、接按钮）。此时各层就绪，可直接 <c>this.ExecuteCommand(...)</c>。</summary>
+        /// <summary>
+        /// 由生成的 partial（<c>*.nodes.g.cs</c>）覆写：把窗口 prefab 子节点上的组件取到字段。
+        /// 框架在 <see cref="OnCreated"/> 之前调用，故 <c>OnCreated</c> 里这些字段已可用。
+        /// 覆写实现须先 <c>base.BindNodes()</c>（变体继承时先绑父类字段）。手写窗口不需要覆写。
+        /// </summary>
+        protected virtual void BindNodes() { }
+
+        /// <summary>
+        /// 生成的 <see cref="BindNodes"/> 取节点用的助手：按相对窗口根的路径取子节点上的组件（空路径 = 窗口根自身）。
+        /// 路径找不到节点、或节点上没有该组件时打 error 并返回 null——fail-fast，提示 prefab 结构与生成代码已不一致（需重新生成）。
+        /// </summary>
+        protected T BindNode<T>(string path) where T : Component
+        {
+            var target = string.IsNullOrEmpty(path) ? transform : transform.Find(path);
+            if (target == null)
+            {
+                Debug.LogError($"[{GetType().Name}] 绑定失败：找不到节点路径 \"{path}\"（prefab 结构与生成的绑定代码不一致，请重新生成）。", this);
+                return null;
+            }
+            var component = target.GetComponent<T>();
+            if (component == null)
+                Debug.LogError($"[{GetType().Name}] 绑定失败：节点 \"{path}\" 上没有组件 {typeof(T).Name}。", this);
+            return component;
+        }
+
+        /// <summary>窗口建好、Context 已注入后调用一次——接线（订阅查询 Command、接按钮）。此时各层就绪且节点字段已绑好，可直接 <c>this.ExecuteCommand(...)</c>。</summary>
         protected virtual void OnCreated() { }
 
         /// <summary>每次打开（显示）调用，<paramref name="args"/> 为打开参数（可空）。</summary>
