@@ -1,0 +1,18 @@
+{
+    "name": "Game.Framework.UI.UGui.Editor",
+    "rootNamespace": "Game.Framework.UI.UGui.Editor",
+    "references": [
+        "Game.Framework.UI.UGui"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

@@ -90,6 +90,13 @@ namespace Game.Framework.Demo.Modules
             host.AddNote("**预期**：屏幕**偏右下**弹出一张**绿标 UGUI**（Canvas + Image + Text + Button，代码搭建）计数卡片。"
                 + "先开一个上面的蓝标 Toolkit 窗口、再开这个——两张卡片**同屏并存**（一蓝一绿、各自能点），分数却**完全一致**（共用同一份 `MonoScoreModel`）。这就是「两套 UI 融合同屏」最直观的样子。");
             host.AddNote("开窗代码 `Open<T>()` 与 Toolkit **一字不差**——只是入口换成 `MonoUGuiUI`；`IUIBackend` 吸收了 Canvas(ScreenSpaceOverlay) vs VisualElement 的全部差异。这就是「核心渲染后端无关」的活证。");
+
+            host.AddActionRow("打开 UGUI 计数窗口（prefab + 生成绑定）", () => ugui.Open<DemoUGuiPrefabCounterWindow>().Forget(),
+                new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/DemoUGuiPrefabCounterWindow.cs", "class DemoUGuiPrefabCounterWindow", "DemoUGuiPrefabCounterWindow"));
+            host.AddNote("**预期**：屏幕**偏左下**再弹一张绿标 UGUI 计数卡片。这张不是代码搭建——控件在 **prefab 上摆好、脚本挂根上**，"
+                + "`ScoreText/AddButton/CloseButton` 三个字段由右键 prefab「生成 UI 绑定代码」产出的 `DemoUGuiPrefabCounterWindow.nodes.g.cs` 自动绑定（`transform.Find`），本窗口只在 `OnCreated` 写逻辑。");
+            host.AddNote("**同一窗口、三种接法**：代码搭建（`UGuiCounterWindow`）／ 手工 `[SerializeField]` 拖引用（`UGuiDemoView`）／ prefab + 生成绑定（本窗口）——同一框架、同一份分数，只是节点引用怎么来不同。绑定代码全自动生成、改完 prefab 重新生成即可，省掉手接引用的重复劳动。");
+            host.AddSubNote("⚠ prefab 窗口经资源系统按 location 加载——若点了没出现，先去「资源加载」章点「初始化」让默认包就绪（代码搭建窗口不读资源、不受此影响）。");
         }
 
         // UI 打开是 fire-and-forget：代码搭建窗口同步完成；UniTask.Forget() 会观测并记录异常。
