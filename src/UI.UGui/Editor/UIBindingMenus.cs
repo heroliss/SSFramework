@@ -50,7 +50,7 @@ namespace Game.Framework.UI.UGui.Editor
                 }
 
                 var entry = data.Find(path);
-                if (entry == null) { entry = new UIBindingEntry { Path = path }; data.Entries.Add(entry); }
+                if (entry == null) { entry = new UIBindingEntry { Path = path, Node = go.transform }; data.Entries.Add(entry); }
                 var comp = UIBindingUtil.PickDefaultComponent(go, profile.BuiltinComponentPriority);
                 string id = UIBindingUtil.TypeId(comp.GetType());
                 if (!entry.ComponentTypes.Contains(id)) entry.ComponentTypes.Add(id);

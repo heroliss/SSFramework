@@ -25,18 +25,22 @@ namespace Game.Framework.UI.UGui
         [SerializeField] private string _namespaceOverride;
         [SerializeField] private string _outputDirOverride;
         [SerializeField] private string _generatedDirOverride;
+        [SerializeField] private string _fileNameOverride;
 
         /// <summary>全部绑定条目。编辑器工具直接增删（经 <c>Undo</c>），运行时不读。</summary>
         public List<UIBindingEntry> Entries => _entries;
 
-        /// <summary>生成代码命名空间覆盖（留空 = 用 Profile 默认）。编辑期配置。</summary>
+        /// <summary>生成代码命名空间覆盖（留空 = 继承目录配置 / Profile 默认）。编辑期配置。</summary>
         public string NamespaceOverride { get => _namespaceOverride; set => _namespaceOverride = value; }
 
-        /// <summary>手写逻辑 <c>&lt;Name&gt;.cs</c> 输出目录覆盖（留空 = 用 Profile 默认）。编辑期配置。</summary>
+        /// <summary>手写逻辑 <c>&lt;Name&gt;.cs</c> 输出目录覆盖（留空 = 继承）。编辑期配置。</summary>
         public string OutputDirOverride { get => _outputDirOverride; set => _outputDirOverride = value; }
 
-        /// <summary>生成的 <c>&lt;Name&gt;.nodes.g.cs</c> 输出目录覆盖（留空 = 用 Profile 默认）。编辑期配置。</summary>
+        /// <summary>生成的 <c>&lt;Name&gt;.nodes.g.cs</c> 输出目录覆盖（留空 = 继承）。编辑期配置。</summary>
         public string GeneratedDirOverride { get => _generatedDirOverride; set => _generatedDirOverride = value; }
+
+        /// <summary>生成文件名 / 类名模板覆盖（留空 = 继承）。编辑期配置。</summary>
+        public string FileNameOverride { get => _fileNameOverride; set => _fileNameOverride = value; }
 
         /// <summary>按相对根的路径找条目（无则 <c>null</c>）。</summary>
         public UIBindingEntry Find(string path) => _entries.Find(e => e.Path == path);
@@ -49,7 +53,14 @@ namespace Game.Framework.UI.UGui
     [Serializable]
     public sealed class UIBindingEntry
     {
-        /// <summary>相对窗口根（prefab 根）的节点路径，空串 = 根自身。生成代码以它喂 <c>transform.Find</c>。</summary>
+        /// <summary>
+        /// 绑定目标节点的<b>直接引用</b>——绑定身份的唯一真源。编辑器据它把 <see cref="Path"/> 持续对齐：
+        /// 改名/移动该节点引用不断（路径自动重算）；删除该节点引用被 Unity 置 <c>null</c>（据此精确清理失效绑定）。
+        /// 引用按 prefab 内 fileID 序列化、跨域重载由 Unity 正确重链，不像 instanceId 会过期。
+        /// </summary>
+        public Transform Node;
+
+        /// <summary>相对窗口根（prefab 根）的节点路径，空串 = 根自身。由 <see cref="Node"/> 派生并持续对齐；生成代码以它喂 <c>transform.Find</c>。</summary>
         public string Path;
 
         /// <summary>

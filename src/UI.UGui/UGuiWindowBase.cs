@@ -51,6 +51,22 @@ namespace Game.Framework.UI.UGui
             return component;
         }
 
+        /// <summary>
+        /// 生成的 <see cref="BindNodes"/> 取节点用的助手：按相对窗口根的路径取子节点的 <see cref="GameObject"/> 本身（空路径 = 窗口根自身）。
+        /// 用于绑定整个节点（<c>SetActive</c> / 销毁 / 换父等）——<see cref="BindNode{T}"/> 受 <c>where T : Component</c> 约束接不了 GameObject，故单列一个。
+        /// 路径找不到节点时打 error 并返回 null（fail-fast，提示 prefab 结构与生成代码已不一致，需重新生成）。
+        /// </summary>
+        protected GameObject BindGameObject(string path)
+        {
+            var target = string.IsNullOrEmpty(path) ? transform : transform.Find(path);
+            if (target == null)
+            {
+                Debug.LogError($"[{GetType().Name}] 绑定失败：找不到节点路径 \"{path}\"（prefab 结构与生成的绑定代码不一致，请重新生成）。", this);
+                return null;
+            }
+            return target.gameObject;
+        }
+
         /// <summary>窗口建好、Context 已注入后调用一次——接线（订阅查询 Command、接按钮）。此时各层就绪且节点字段已绑好，可直接 <c>this.ExecuteCommand(...)</c>。</summary>
         protected virtual void OnCreated() { }
 

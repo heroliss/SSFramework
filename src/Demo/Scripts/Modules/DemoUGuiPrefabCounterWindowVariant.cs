@@ -10,7 +10,7 @@ namespace Game.Framework.Demo.Modules
     /// 复用、零重复。演示「变体 = 基窗口 + 增量」：改一处基窗口，所有变体自动跟随。
     /// </summary>
     [UIWindow(Asset = "DemoUGuiPrefabCounterWindowVariant", Layer = UILayer.Window)]
-    public partial class DemoUGuiPrefabCounterWindowVariant : global::Game.Framework.Demo.Modules.DemoUGuiPrefabCounterWindow
+    public partial class DemoUGuiPrefabCounterWindowVariant : DemoUGuiPrefabCounterWindow
     {
         protected override void OnCreated()
         {

@@ -151,21 +151,25 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Game.Framework.UI.UGui::Game.Framework.UI.UGui.UIBindingData
   _entries:
-  - Path: Card/ScoreText
+  - Node: {fileID: 1661539286246812357}
+    Path: Card/ScoreText
     ComponentTypes:
     - UnityEngine.UI.Text, UnityEngine.UI
     FieldName: 
-  - Path: Card/AddButton
+  - Node: {fileID: 2275070145746501953}
+    Path: Card/AddButton
     ComponentTypes:
     - UnityEngine.UI.Button, UnityEngine.UI
     FieldName: 
-  - Path: Card/CloseButton
+  - Node: {fileID: 4892304084355497250}
+    Path: Card/CloseButton
     ComponentTypes:
     - UnityEngine.UI.Button, UnityEngine.UI
     FieldName: 
   _namespaceOverride: 
   _outputDirOverride: 
   _generatedDirOverride: 
+  _fileNameOverride: 
 --- !u!1 &1612223586823023354
 GameObject:
   m_ObjectHideFlags: 0
