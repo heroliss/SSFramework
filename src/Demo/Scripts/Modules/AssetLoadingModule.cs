@@ -218,7 +218,7 @@ namespace Game.Framework.Demo.Modules
                 }, CodeRef.Here("refs.LogoList.UnloadAll()", "统一释放引用"));
             }
             host.AddNote("`AssetReference` 在 Inspector 直接拖资源（内部存 GUID，业务不碰 GUID）；挂在 `MonoView/Model/System/Utility` 上的字段会在 `Awake` 自动绑定加载器并登记进宿主 `Bag`，宿主销毁统一释放——零样板。`DemoAssetRefs` 就是个真实 `MonoModelBase`，这些引用是它 `Awake` 自动绑好的。",
-                new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/DemoAssetRefs.cs", "class DemoAssetRefs", "DemoAssetRefs 定义"));
+                new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/Support/DemoAssetRefs.cs", "class DemoAssetRefs", "DemoAssetRefs 定义"));
 #if UNITY_EDITOR
             host.AddActionRow("定位资源引用配置节点（DemoAssetRefs）", () =>
             {
@@ -279,7 +279,7 @@ namespace Game.Framework.Demo.Modules
                 soLabel.text = "已释放配置 SO。可重新①②③重测——比如只点①再点③、跳过②，看「没 Bind 就取引用」会 fallback 到 GameContext.Main 并报一条 error。";
             }, CodeRef.Here("configBag.Dispose()", "释放配置 SO"));
             host.AddNote("`ScriptableObject` 配置是「被加载的数据资产」，不是 `Model` 层（它常需像资源一样异步加载，无法在启动时注册成 `Model`）。它内部的 `AssetReference` 不会自动绑定（框架刻意不递归 SO），由加载 / 持有它的宿主一行 `Bag.BindAssetReferences`(配置) 把它的全部引用绑到自身生命周期——之后随本章 `Bag` 一起释放。",
-                new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/DemoAssetConfig.cs", "class DemoAssetConfig", "DemoAssetConfig 定义"));
+                new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/Support/DemoAssetConfig.cs", "class DemoAssetConfig", "DemoAssetConfig 定义"));
 #if UNITY_EDITOR
             host.AddActionRow("定位 DemoAssetConfig 资产（被加载的配置 SO）", () =>
                 PingAsset("Assets/Game/Framework/Res/DemoAssetConfig.asset"));
