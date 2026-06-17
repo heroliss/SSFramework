@@ -10,7 +10,7 @@
 
 ### 1. 构建期（codegen）
 
-- 表定义（XML）与数据（JSON / Excel）放仓库根 `Configs/`（Assets 外不被 Unity 导入）；Editor 菜单 `SSFramework/配置表构建` 封装 Luban CLI。路径与目标收口在 `LubanConfigProfile`（SO 单一真源），生成逻辑在 `LubanCodeGenerator`（均属 `Game.Framework.Config.Editor`）。
+- 表定义（XML）与数据（JSON / Excel）放各自的 conf 源目录（demo 那套在 `Demo/Configs~/`，`~` 后缀不被 Unity 导入）；Editor 菜单 `SSFramework/配置表构建` 封装 Luban CLI。路径与目标收口在 `LubanConfigProfile`（每套配置一份 SO），生成逻辑在 `LubanCodeGenerator`（均属 `Game.Framework.Config.Editor`）。工程可并存多套 profile（demo + 正式游戏），`ResolveAll()` 返回全部、逐套生成。
 - 一次生成产出**三件套**：配置 C# 类（cs-bin）+ 二进制数据（bin → `*.bytes`，落资源收集范围内）+ **表清单**（`LubanTableManifest.g.cs`，CLI 跑完后由管线扫数据目录补写）。
 - 输出格式定 **binary**（紧凑、解析快）；数据源按表选、同项目混搭（表定义的 `input` 决定）——demo 双样例：`item.json`（JSON 文本，git diff 可读、AI 可维护）+ `monster.xlsx`（Excel，策划直接编辑）。
 
@@ -46,4 +46,4 @@ cs-bin 生成的 `Tables` 构造函数是**同步** `Func<string, ByteBuf>`，�
 - ⚠ Luban 会清理生成代码目录里的陌生文件（表清单须在 CLI 之后补写——管线已按此顺序实现），该目录勿手放文件。
 - ⚠ 配置只读、启动一次性加载：数据热更随资源包即可；表结构变化会改生成代码，需走代码热更/发版。
 
-用法手册见 `docs/framework-guide.md` §16；活样例见 demo「配置表 · Luban」章 + `Configs/`。
+用法手册见 `docs/framework-guide.md` §16；活样例见 demo「配置表 · Luban」章 + `Demo/Configs~/`。

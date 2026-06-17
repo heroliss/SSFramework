@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Linq;
 using UnityEditor;
 using UnityEngine;
@@ -5,14 +6,14 @@ using UnityEngine;
 namespace Game.Framework.Build
 {
     /// <summary>
-    /// 配置表生成配置（编辑器资产）——「Luban CLI 怎么调、产物落到哪」的单一真源。
+    /// 配置表生成配置（编辑器资产）——<b>一套</b>配置表「Luban CLI 怎么调、产物落到哪」的单一真源。
     ///
     /// 生成管线（<see cref="LubanCodeGenerator"/>）只读本资产，不在代码里散落路径常量；
     /// 换项目 / 换目录结构时改 Inspector 即可，不动代码。
     ///
-    /// 路径字段一律相对工程根目录（含 Assets 外的 Configs / Tools），保证多人协作不受本机绝对路径影响。
-    /// 资产入库；<see cref="Resolve"/> 找不到时按本仓库默认布局自动创建（落在 <c>Assets/Game/Framework/Config/</c>），
-    /// 找到多个时取第一个并警告。
+    /// 路径字段一律相对工程根目录，保证多人协作不受本机绝对路径影响。
+    /// <b>工程可并存多套</b>（如 demo 一套 + 正式游戏一套）：每套指向各自的 luban.conf 源与输出目录、互不干扰；
+    /// <see cref="ResolveAll"/> 返回全部、生成菜单逐套生成。一套都没有时 <see cref="Resolve"/> 按默认布局自动建一套。
     /// </summary>
     [CreateAssetMenu(fileName = "LubanConfigProfile", menuName = "SSFramework/配置表生成配置 (Luban Profile)")]
     public sealed class LubanConfigProfile : ScriptableObject
@@ -23,8 +24,9 @@ namespace Game.Framework.Build
                  "需要 .NET 运行时；缺 .NET 8 时管线会带 DOTNET_ROLL_FORWARD=LatestMajor 用更高版本运行。")]
         [SerializeField] private string _lubanToolPath = "Tools/Luban/Luban.exe";
 
-        [Tooltip("luban.conf 路径（相对工程根目录）。表定义（Defines/）与数据（Datas/）的入口都由它声明。")]
-        [SerializeField] private string _confPath = "Configs/luban.conf";
+        [Tooltip("luban.conf 路径（相对工程根目录）。表定义（Defines/）与数据（Datas/）的入口都由它声明。\n" +
+                 "可放任意位置；随模块删除 / 抽包就放该模块目录下并用 ~ 后缀避免 Unity 导入（demo 那套在 Demo/Configs~/）。")]
+        [SerializeField] private string _confPath = "Assets/Game/Framework/Demo/Configs~/luban.conf";
 
         [Header("生成目标")]
         [Tooltip("luban.conf 里 targets 的 name（决定 topModule / 分组）。")]
@@ -61,24 +63,30 @@ namespace Game.Framework.Build
         public string ExtraArgs => _extraArgs.Trim();
 
         /// <summary>
-        /// 解析全工程唯一的 Luban profile：先找已有资产（找到多个 → 取第一个并警告），
-        /// 没有就按本仓库默认布局自动建一个（落在 <c>Assets/Game/Framework/Config/</c>）。
+        /// 返回工程内**所有** Luban profile（按资产路径排序，显示稳定）。每套对应一套配置表，生成菜单逐套生成、互不干扰。
+        /// 一套都没有时按默认布局自动建一套并返回（首次接入即可直接用）。
         /// </summary>
-        public static LubanConfigProfile Resolve()
+        public static IReadOnlyList<LubanConfigProfile> ResolveAll()
         {
             var guids = AssetDatabase.FindAssets("t:" + nameof(LubanConfigProfile));
-            if (guids.Length > 0)
-            {
-                if (guids.Length > 1)
-                {
-                    var paths = guids.Select(AssetDatabase.GUIDToAssetPath);
-                    Debug.LogWarning("[配置表构建] 找到多个 Luban profile，仅第一个生效，请删到只剩一个：\n  " +
-                                     string.Join("\n  ", paths));
-                }
-                return AssetDatabase.LoadAssetAtPath<LubanConfigProfile>(
-                    AssetDatabase.GUIDToAssetPath(guids[0]));
-            }
+            if (guids.Length == 0)
+                return new[] { CreateDefault() };
 
+            return guids.Select(g => AssetDatabase.LoadAssetAtPath<LubanConfigProfile>(AssetDatabase.GUIDToAssetPath(g)))
+                        .Where(p => p != null)
+                        .OrderBy(AssetDatabase.GetAssetPath, System.StringComparer.Ordinal)
+                        .ToList();
+        }
+
+        /// <summary>
+        /// 第一套 profile（按路径序）——只需任意 / 主配置时的便利访问。
+        /// 要按各套操作（定位 / 打开目录 / 单独生成）用 <see cref="ResolveAll"/> 或「配置总览」窗口（<see cref="LubanConfigOverviewWindow"/>）。
+        /// </summary>
+        public static LubanConfigProfile Resolve() => ResolveAll()[0];
+
+        // 工程内一套 profile 都没有时按本仓库默认布局建一套（落在 Config/，默认指向 demo 那套源 / 输出）。
+        private static LubanConfigProfile CreateDefault()
+        {
             var profile = CreateInstance<LubanConfigProfile>();
             const string path = "Assets/Game/Framework/Config/LubanConfigProfile.asset";
             AssetDatabase.CreateAsset(profile, path);
