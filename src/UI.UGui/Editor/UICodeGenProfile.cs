@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using Sirenix.OdinInspector;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.Serialization;
@@ -17,20 +18,17 @@ namespace Game.Framework.UI.UGui.Editor
     [CreateAssetMenu(fileName = "UICodeGenProfile", menuName = "SSFramework/UI 绑定生成配置 (UI CodeGen Profile)")]
     public sealed class UICodeGenProfile : ScriptableObject
     {
-        [Header("产物输出（支持占位符：{PrefabName} / {DirectoryName} 当前目录名 / {ParentDirectoryName} 父目录名）")]
-        [Tooltip("手写窗口逻辑 <Name>.cs 的输出目录（相对工程根的 Assets 路径，须在目标业务程序集范围内，生成的窗口才能引用框架类型）。仅在文件不存在时创建一次。\n" +
-                 "支持占位符：{PrefabName} / {DirectoryName} / {ParentDirectoryName}，按各 prefab 自己的路径解析，可据目录结构分子目录。")]
-        [SerializeField] private string _outputCodeDir = "Assets/Game/Framework/Demo/Scripts/Modules";
-
-        [Tooltip("生成的节点绑定 <Name>.nodes.g.cs 的输出目录（每次覆盖）。单独放子目录把自动产物与手写代码分开，目录整洁；须与逻辑代码在同一业务程序集内（partial 才链得上）。\n" +
-                 "同样支持 {PrefabName} / {DirectoryName} / {ParentDirectoryName} 占位符。")]
-        [SerializeField] private string _generatedCodeDir = "Assets/Game/Framework/Demo/Scripts/Modules/Generated";
-
-        [Tooltip("生成代码的命名空间。支持 {PrefabName} / {DirectoryName} / {ParentDirectoryName} 占位符；占位符值会被清洗成合法标识符段（含空格/横杠的目录名也安全）。")]
+        [Title("生成目标（根默认；支持 {PrefabName} / {DirectoryName} / {ParentDirectoryName} 占位符）")]
+        [LabelText("命名空间"), PropertyTooltip("生成代码的命名空间。占位符值会被清洗成合法标识符段（含空格/横杠的目录名也安全）。")]
         [SerializeField] private string _namespaceRoot = "Game.Framework.Demo.Modules";
 
-        [Tooltip("生成的文件名（同时决定生成的 partial 类名），不含扩展名。<Name>.cs 与 <Name>.nodes.g.cs 共用此名。默认 {PrefabName} = prefab 文件名（现行为）。\n" +
-                 "支持 {PrefabName} / {DirectoryName} / {ParentDirectoryName} 占位符；结果会清洗成合法标识符。注意：[UIWindow(Asset=...)] 的加载地址恒 = prefab 文件名，不受本项影响。")]
+        [LabelText("逻辑目录"), FolderPath, PropertyTooltip("手写窗口逻辑 <Name>.cs 的输出目录（工程相对 Assets 路径，须在目标业务程序集范围内）。仅在文件不存在时创建一次。")]
+        [SerializeField] private string _outputCodeDir = "Assets/Game/Framework/Demo/Scripts/Modules";
+
+        [LabelText("生成目录"), FolderPath, PropertyTooltip("生成的节点绑定 <Name>.nodes.g.cs 的输出目录（每次覆盖）。须与逻辑代码在同一业务程序集内（partial 才链得上）。")]
+        [SerializeField] private string _generatedCodeDir = "Assets/Game/Framework/Demo/Scripts/Modules/Generated";
+
+        [LabelText("文件名/类名"), PropertyTooltip("生成的文件名（= 生成的 partial 类名），不含扩展名。默认 {PrefabName} = prefab 文件名。注意：[UIWindow(Asset=...)] 的加载地址恒 = prefab 文件名，不受本项影响。")]
         [SerializeField] private string _fileNameTemplate = "{PrefabName}";
 
         [Header("默认组件优先级（标记节点时用；自定义脚本恒高于本列表）")]
