@@ -297,20 +297,260 @@ PrefabInstance:
       value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: m_Enabled
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: _namespaceOverride
+      value: 
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: _outputDirOverride
+      value: 
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
       propertyPath: _entries.Array.size
       value: 4
       objectReference: {fileID: 0}
     - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
-      propertyPath: _entries.Array.data[3].Path
+      propertyPath: _generatedDirOverride
+      value: 
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: _entries.Array.data[0].Node
+      value: 
+      objectReference: {fileID: 234461039447342959}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: _entries.Array.data[1].Node
+      value: 
+      objectReference: {fileID: 854747152350745835}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: _entries.Array.data[2].Node
+      value: 
+      objectReference: {fileID: 346193545394006062}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: _entries.Array.data[2].Path
       value: Card/ResetButton
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: _entries.Array.data[3].Node
+      value: 
+      objectReference: {fileID: 6317130374598502536}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: _entries.Array.data[3].Path
+      value: Card/CloseButton
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: _entries.Array.data[4].Path
+      value: Card/Title/GameObject
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: _entries.Array.data[5].Path
+      value: Card/ResetButton (2)
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: _entries.Array.data[6].Path
+      value: Card/ResetButton (3)
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: _entries.Array.data[7].Path
+      value: Card/ResetButton (4)
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: _entries.Array.data[8].Path
+      value: Card/ResetButton (5)
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: _entries.Array.data[9].Path
+      value: Card/ResetButton (6)
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: _entries.Array.data[10].Path
+      value: Card/ResetButton (7)
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: _entries.Array.data[11].Path
+      value: Card/ResetButton (8)
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: _entries.Array.data[12].Path
+      value: Card/ResetButton (9)
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: _entries.Array.data[13].Path
+      value: Card/ResetButton (10)
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: _entries.Array.data[14].Path
+      value: Card/ResetButton (11)
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: _entries.Array.data[15].Path
+      value: Card/ResetButton (12)
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: _entries.Array.data[16].Path
+      value: Card/ResetButton (13)
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: _entries.Array.data[4].FieldName
+      value: _444
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: _entries.Array.data[16].FieldName
+      value: 
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: _entries.Array.data[2].ComponentTypes.Array.size
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
       propertyPath: _entries.Array.data[3].ComponentTypes.Array.size
       value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: _entries.Array.data[4].ComponentTypes.Array.size
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: _entries.Array.data[5].ComponentTypes.Array.size
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: _entries.Array.data[6].ComponentTypes.Array.size
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: _entries.Array.data[7].ComponentTypes.Array.size
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: _entries.Array.data[8].ComponentTypes.Array.size
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: _entries.Array.data[9].ComponentTypes.Array.size
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: _entries.Array.data[10].ComponentTypes.Array.size
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: _entries.Array.data[11].ComponentTypes.Array.size
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: _entries.Array.data[12].ComponentTypes.Array.size
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: _entries.Array.data[13].ComponentTypes.Array.size
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: _entries.Array.data[14].ComponentTypes.Array.size
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: _entries.Array.data[15].ComponentTypes.Array.size
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: _entries.Array.data[16].ComponentTypes.Array.size
+      value: 4
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: '_entries.Array.data[2].ComponentTypes.Array.data[0]'
+      value: UnityEngine.UI.Button, UnityEngine.UI
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: '_entries.Array.data[2].ComponentTypes.Array.data[1]'
+      value: UnityEngine.UI.Button, UnityEngine.UI
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
       propertyPath: '_entries.Array.data[3].ComponentTypes.Array.data[0]'
       value: UnityEngine.UI.Button, UnityEngine.UI
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: '_entries.Array.data[3].ComponentTypes.Array.data[1]'
+      value: UnityEngine.UI.Button, UnityEngine.UI
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: '_entries.Array.data[3].ComponentTypes.Array.data[2]'
+      value: UnityEngine.UI.Button, UnityEngine.UI
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: '_entries.Array.data[3].ComponentTypes.Array.data[3]'
+      value: UnityEngine.UI.Button, UnityEngine.UI
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: '_entries.Array.data[3].ComponentTypes.Array.data[4]'
+      value: UnityEngine.UI.Button, UnityEngine.UI
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: '_entries.Array.data[4].ComponentTypes.Array.data[0]'
+      value: UnityEngine.RectTransform, UnityEngine.CoreModule
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: '_entries.Array.data[5].ComponentTypes.Array.data[0]'
+      value: UnityEngine.UI.Button, UnityEngine.UI
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: '_entries.Array.data[6].ComponentTypes.Array.data[0]'
+      value: UnityEngine.UI.Button, UnityEngine.UI
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: '_entries.Array.data[7].ComponentTypes.Array.data[0]'
+      value: UnityEngine.UI.Button, UnityEngine.UI
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: '_entries.Array.data[8].ComponentTypes.Array.data[0]'
+      value: UnityEngine.UI.Button, UnityEngine.UI
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: '_entries.Array.data[9].ComponentTypes.Array.data[0]'
+      value: UnityEngine.UI.Button, UnityEngine.UI
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: '_entries.Array.data[10].ComponentTypes.Array.data[0]'
+      value: UnityEngine.UI.Button, UnityEngine.UI
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: '_entries.Array.data[11].ComponentTypes.Array.data[0]'
+      value: UnityEngine.UI.Button, UnityEngine.UI
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: '_entries.Array.data[12].ComponentTypes.Array.data[0]'
+      value: UnityEngine.UI.Button, UnityEngine.UI
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: '_entries.Array.data[13].ComponentTypes.Array.data[0]'
+      value: UnityEngine.UI.Button, UnityEngine.UI
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: '_entries.Array.data[14].ComponentTypes.Array.data[0]'
+      value: UnityEngine.UI.Button, UnityEngine.UI
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: '_entries.Array.data[15].ComponentTypes.Array.data[0]'
+      value: UnityEngine.UI.Button, UnityEngine.UI
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: '_entries.Array.data[16].ComponentTypes.Array.data[0]'
+      value: UnityEngine.UI.Button, UnityEngine.UI
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: '_entries.Array.data[16].ComponentTypes.Array.data[1]'
+      value: UnityEngine.UI.Image, UnityEngine.UI
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: '_entries.Array.data[16].ComponentTypes.Array.data[2]'
+      value: UnityEngine.CanvasRenderer, UnityEngine.UIModule
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644125807859972288, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+      propertyPath: '_entries.Array.data[16].ComponentTypes.Array.data[3]'
+      value: UnityEngine.RectTransform, UnityEngine.CoreModule
       objectReference: {fileID: 0}
     - target: {fileID: 4994951566324964119, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
       propertyPath: m_SizeDelta.y
@@ -328,6 +568,11 @@ PrefabInstance:
       insertIndex: -1
       addedObject: {fileID: 2687581325795904711}
   m_SourcePrefab: {fileID: 100100000, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+--- !u!224 &234461039447342959 stripped
+RectTransform:
+  m_CorrespondingSourceObject: {fileID: 1661539286246812357, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+  m_PrefabInstance: {fileID: 1463107202762249642}
+  m_PrefabAsset: {fileID: 0}
 --- !u!1 &454372480287095677 stripped
 GameObject:
   m_CorrespondingSourceObject: {fileID: 1297108585264459479, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
@@ -357,8 +602,18 @@ MonoBehaviour:
     - Name: _targetContext
       Entry: 6
       Data: 
+--- !u!224 &854747152350745835 stripped
+RectTransform:
+  m_CorrespondingSourceObject: {fileID: 2275070145746501953, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+  m_PrefabInstance: {fileID: 1463107202762249642}
+  m_PrefabAsset: {fileID: 0}
 --- !u!224 &5845568704366055101 stripped
 RectTransform:
   m_CorrespondingSourceObject: {fileID: 4994951566324964119, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
+  m_PrefabInstance: {fileID: 1463107202762249642}
+  m_PrefabAsset: {fileID: 0}
+--- !u!224 &6317130374598502536 stripped
+RectTransform:
+  m_CorrespondingSourceObject: {fileID: 4892304084355497250, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
   m_PrefabInstance: {fileID: 1463107202762249642}
   m_PrefabAsset: {fileID: 0}

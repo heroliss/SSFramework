@@ -13,6 +13,7 @@ MonoBehaviour:
   m_Name: UICodeGenProfile
   m_EditorClassIdentifier: Game.Framework.UI.UGui.Editor::Game.Framework.UI.UGui.Editor.UICodeGenProfile
   _outputCodeDir: Assets/Game/Framework/Demo/Scripts/Modules
+  _generatedCodeDir: Assets/Game/Framework/Demo/Scripts/Modules/Generated
   _namespaceRoot: Game.Framework.Demo.Modules
   _builtinComponentPriority:
   - UnityEngine.UI.Button
@@ -29,3 +30,37 @@ MonoBehaviour:
   - UnityEngine.UI.RawImage
   - UnityEngine.UI.Image
   - UnityEngine.CanvasGroup
+  _fieldNameTemplate: '{node}{Component}'
+  _omitComponentTokenWhenContained: 1
+  _componentAliases:
+  - Component: Button
+    Alias: btn
+  - Component: Text
+    Alias: txt
+  - Component: TextMeshProUGUI
+    Alias: txt
+  - Component: TMP_Text
+    Alias: txt
+  - Component: Image
+    Alias: img
+  - Component: RawImage
+    Alias: rawImg
+  - Component: Toggle
+    Alias: tgl
+  - Component: Slider
+    Alias: sld
+  - Component: Scrollbar
+    Alias: scrollbar
+  - Component: ScrollRect
+    Alias: scroll
+  - Component: Dropdown
+    Alias: dd
+  - Component: TMP_Dropdown
+    Alias: dd
+  - Component: InputField
+    Alias: input
+  - Component: TMP_InputField
+    Alias: input
+  - Component: CanvasGroup
+    Alias: cg
+  _autoAssignVariantScript: 1
