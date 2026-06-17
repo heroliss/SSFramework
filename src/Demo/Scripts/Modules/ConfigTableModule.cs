@@ -40,7 +40,7 @@ namespace Game.Framework.Demo.Modules
             host.AddTable(
                 new[] { "产物", "落点", "谁消费" },
                 new[] { "配置 C# 类（Tables / TbItem / Item…）", "`Demo/Config/Gen/`", "业务代码（强类型查表）" },
-                new[] { "二进制数据（*.bytes）", "`Framework/Res/Configs/`（资源收集范围内）", "运行期 `Bag.LoadBytes` 直读字节" },
+                new[] { "二进制数据（*.bytes）", "`Demo/Res/Configs/`（资源收集范围内）", "运行期 `Bag.LoadBytes` 直读字节" },
                 new[] { "表清单（LubanTableManifest.g.cs）", "随生成代码", "初始化 System 据此并行预载" });
             host.AddSubNote("为什么要表清单：生成的 `Tables` 构造函数是同步逐表要字节，而框架资源加载是异步——先按清单把全部数据并行预载进内存，" +
                             "再同步构造。清单与代码/数据同一次生成，不存在手工维护漏表（机制同热更代码包的 manifest）。",

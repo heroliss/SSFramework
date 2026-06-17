@@ -41,7 +41,7 @@ namespace Game.Framework.Build
         [SerializeField] private string _outputCodeDir = "Assets/Game/Framework/Demo/Config/Gen";
 
         [Tooltip("生成数据文件的输出目录（相对工程根目录）。须在某个 YooAsset 收集器范围内（.bytes 按普通资源收集成 TextAsset 即可，按文件名寻址），数据才打得进资源包。")]
-        [SerializeField] private string _outputDataDir = "Assets/Game/Framework/Res/Configs";
+        [SerializeField] private string _outputDataDir = "Assets/Game/Framework/Demo/Res/Configs";
 
         [Tooltip("表清单类（LubanTableManifest.g.cs）的命名空间——须与 luban.conf 该 target 的 topModule 一致，清单才和生成代码同住一个命名空间。\n" +
                  "⚠ topModule 不要嵌在含 System 子命名空间的层级下（如 Game.Framework.*）：生成代码裸写 System.Func/Collections，会被就近解析劫持（CS0234）。")]

@@ -131,7 +131,7 @@ namespace Game.Framework.Demo.Modules
             }, CodeRef.Here("asset.UnloadUnusedAssets()", "卸载无用内存 bundle"));
 #if UNITY_EDITOR
             host.AddActionRow("定位 Logo 资产（被加载的源资源）", () =>
-                PingAsset("Assets/Game/Framework/Res/SSFramework-Logo.png"));
+                PingAsset("Assets/Game/Framework/Branding/SSFramework-Logo.png"));
 #endif
             host.AddNote("`Bag.Load<T>(location)` 借来的资源 handle 进 `Bag`，切走本章 `Bag.Dispose` 自动释放，业务不持有句柄。想提前释放某批句柄，就像本节这样开个 `Bag.CreateChild()` 子 Bag 装它们、需要时 `Dispose`（再 `CreateChild` 重建）。`Bag.Load` 是泛型：prefab 用 `GameObject`、场景用 `LoadScene`；`LoadText` / `LoadBytes` 则是**内容直读**——拷出即释放句柄、不进 Bag（文本类资产 .bytes/.txt 等适用）。跨包用带 `packageName` 的重载（见下）。");
             host.AddSubNote("**释放分三层**，清哪层退到哪层：① `Unload` / `Dispose` 释放 handle → 引用归零但 bundle **还在内存**（所以「释放 Logo」后再加载仍秒出）；② `UnloadUnusedAssets` 把零引用 bundle **从内存卸掉**（上面按钮）；③ `ClearCache` 删**磁盘**下载缓存（见下方·下载）。要逼资源真正重新下载：释放 handle → 卸内存 → 清磁盘 → 再 Load。");
@@ -282,7 +282,7 @@ namespace Game.Framework.Demo.Modules
                 new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/Support/DemoAssetConfig.cs", "class DemoAssetConfig", "DemoAssetConfig 定义"));
 #if UNITY_EDITOR
             host.AddActionRow("定位 DemoAssetConfig 资产（被加载的配置 SO）", () =>
-                PingAsset("Assets/Game/Framework/Res/DemoAssetConfig.asset"));
+                PingAsset("Assets/Game/Framework/Demo/Res/DemoAssetConfig.asset"));
 #endif
 
             // ── 4. 查询：地址有效 / 是否需下载 ──
