@@ -27,7 +27,8 @@ namespace Game.Framework.UI.UGui.Editor
         protected override string Title => $"{(_root != null ? _root.name : "(?)")} · 窗口绑定（{RowCount}）";
         protected override float MinWidth => 340f;
         protected override float MaxListHeight => 320f;          // 下面还有生成面板，列表区比子孙弹窗略矮
-        protected override float ExtraHeight => (_editable ? 0f : 36f) + 214f; // 只读提示 + 生成面板（宁多勿少）
+        // 仅首帧高度估算（只读提示 + 生成面板）；OnGUI 实测后由基类按真实内容高接管，故无需随面板增删精确维护此值。
+        protected override float ExtraHeight => (_editable ? 0f : 36f) + 214f;
 
         protected override List<UIBindingListView.Row> BuildRows()
         {

@@ -345,7 +345,8 @@ protected virtual void OnDestroy()
 - **接入**：两个一行子类闭合泛型——`class XxxConfigModel : MonoConfigModelBase<Tables> {}`、`class XxxConfigInitSystem : MonoConfigInitSystemBase<Tables>`（补 `TableFiles => LubanTableManifest.Files` 与 `CreateTables`）；与资源三件套同 Context 挂上（demo 场景的 `ConfigSystem` 节点是活样板）。
 - **取表**：System / class Command 用 `this.GetModel<IConfigModel<Tables>>()`（struct Command 经 `ctx`）；View 经只读查询 Command 拿 `ReadOnlyReactiveProperty<Tables>`——配置是只读数据，View 拿到也只能查。等待就绪订阅 `State`（`ConfigInitState`），不要轮询 `Tables` 判空。
 - **查询直接用生成的强类型 API**（`TbItem.Get(id)` / `GetOrDefault` / `DataList`），不在框架侧再包查询层。
-- **改表**：数据改 `Configs/Datas/`、结构改 `Configs/Defines/` → 菜单重新生成（Play 中会被拒绝）。生成代码目录被 Luban 接管，勿手放文件。
+- **改表**：编辑对应 profile 的 conf 源目录——demo 那套在 `Demo/Configs~/`（数据改 `Datas/`、结构改 `Defines/`；`~` 后缀 Unity 不导入，纯构建期输入）→ 菜单「生成」重新生成（Play 中会被拒绝）。生成代码目录被 Luban 接管，勿手放文件。
+- **多套配置并存**：每套 = 一个 `LubanConfigProfile`（各自的 `luban.conf` 源 + 输出目录 + 命名空间，互不干扰），demo 与正式游戏可各一套；`LubanConfigProfile.ResolveAll()` 返回全部、「生成」逐套生成，集中管理用「配置总览」窗口（`SSFramework/配置表构建/配置总览`）。demo 那套的源 / 代码 / 数据全在 `Demo/` 内（程序集带 `UNITY_EDITOR` 约束、数据在样例资源包），正式打包随 demo 一并排除。
 - **坑**：topModule（生成代码命名空间）不要嵌进含 `System` 子命名空间的层级（如 `Game.Framework.*`），否则生成代码裸写的 `System.Func` 被就近解析劫持（CS0234）——demo 用顶层 `DemoCfg`。
 - 数据 `.bytes` 随资源包打包/热更；表结构变化会改生成代码 → 走代码热更/发版。详见 `docs/framework-guide.md` §16。
 

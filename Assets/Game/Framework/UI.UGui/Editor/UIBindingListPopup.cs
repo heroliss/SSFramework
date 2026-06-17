@@ -15,6 +15,7 @@ namespace Game.Framework.UI.UGui.Editor
         private List<UIBindingListView.Row> _rows;
         private UIBindingListView.Layout _layout;
         private float _titleWidth;
+        private float _measuredHeight = -1f; // OnGUI 实测内容总高；>0 后接管窗口高度（见 OnGUI 末尾）
         private Vector2 _scroll;
         private Vector2 _dragMouseStart; // 拖拽起点的鼠标屏幕坐标
         private Vector2 _dragWinStart;   // 拖拽起点的窗口左上角
@@ -45,12 +46,17 @@ namespace Game.Framework.UI.UGui.Editor
         // 不留这点余量时小列表（甚至只有一项）也会冒出多余滚动条；封顶后超量才真正滚动。GetWindowSize 与 OnGUI 必须取同一值。
         private float ListHeight() => Mathf.Min(UIBindingListView.ContentHeight(_rows) + 8f, MaxListHeight);
 
-        /// <summary>弹窗初始尺寸（按内容自适应、夹在 <see cref="MinWidth"/>..700 之间）。</summary>
+        /// <summary>
+        /// 弹窗尺寸（宽按内容夹在 <see cref="MinWidth"/>..700）。高度首帧用估算（列表 + <see cref="ExtraHeight"/> 提示），
+        /// OnGUI 实测真实内容高后由 <see cref="_measuredHeight"/> 接管——所以给 <see cref="DrawExtra"/> 增删内容不必再维护估算值。
+        /// </summary>
         public override Vector2 GetWindowSize()
         {
             Ensure();
             float w = Mathf.Clamp(Mathf.Max(_layout.Width, _titleWidth), MinWidth, 700f);
-            float h = EditorGUIUtility.singleLineHeight + 8f + ListHeight() + ExtraHeight;
+            float h = _measuredHeight > 0f
+                ? _measuredHeight
+                : EditorGUIUtility.singleLineHeight + 8f + ListHeight() + ExtraHeight;
             return new(w, h);
         }
 
@@ -61,11 +67,25 @@ namespace Game.Framework.UI.UGui.Editor
             UIBindingListView.DragHandle(editorWindow, rect.width, ref _dragMouseStart, ref _dragWinStart);
             EditorGUILayout.LabelField(Title, EditorStyles.boldLabel);
 
+            // 列表区按内容封顶后滚动；DrawExtra（如生成面板）则永不裁切——窗口随它实际高度增长。
             _scroll = EditorGUILayout.BeginScrollView(_scroll, GUILayout.Height(ListHeight()));
             UIBindingListView.Draw(_rows, _layout, Locate);
             EditorGUILayout.EndScrollView();
 
             DrawExtra();
+
+            // 完全自适应：Repaint 时布局已完成，取最后一个控件底边即真实内容总高；与当前窗口高不符就让宿主贴合。
+            // 这样无论 DrawExtra 加多少内容都不会垂直溢出，也省去手维护 ExtraHeight 估算（>1px 阈值防亚像素抖动）。
+            if (Event.current.type == EventType.Repaint && editorWindow != null)
+            {
+                float contentBottom = GUILayoutUtility.GetLastRect().yMax + 4f;
+                if (contentBottom > 1f && Mathf.Abs(contentBottom - _measuredHeight) > 1f)
+                {
+                    _measuredHeight = contentBottom;
+                    editorWindow.minSize = editorWindow.maxSize = new Vector2(rect.width, contentBottom);
+                    editorWindow.Repaint();
+                }
+            }
         }
 
         // 按窗口根 + 完整路径定位活节点（编辑/实例/运行时都适用）。

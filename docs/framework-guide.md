@@ -1593,7 +1593,9 @@ Bag.Subscribe(
 
 ## 16. 配置表（Luban）
 
-表定义（XML）与数据（JSON / Excel）放在仓库根 `Configs/`（Assets 外，Unity 不导入）→ 菜单跑 Luban CLI 生成**配置 C# 类 + 二进制数据 + 表清单** → 运行期三段式加载，数据文件随资源包打包与热更。设计原理与取舍见 ADR-0009。
+表定义（XML）与数据（JSON / Excel）放在一处 conf 源目录（demo 那套在 `Assets/Game/Framework/Demo/Configs~/`，`~` 后缀让 Unity 不导入、纯构建期输入）→ 菜单跑 Luban CLI 生成**配置 C# 类 + 二进制数据 + 表清单** → 运行期三段式加载，数据文件随资源包打包与热更。设计原理与取舍见 ADR-0009。
+
+> **多套并存**：每套配置 = 一个 `LubanConfigProfile`（各自的 conf 源 + 输出目录 + topModule，互不干扰）。demo 与正式游戏可各一套——`LubanConfigProfile.ResolveAll()` 返回全部、菜单「生成」逐套生成，多套集中管理用「配置总览」窗口。demo 那套（源 / 代码 / 数据全在 `Demo/` 内）随 demo 程序集与样例资源包在正式打包时一并排除。
 
 ### 心智模型：构建期生成，运行期只是读字节
 
@@ -1630,9 +1632,9 @@ public readonly struct GetConfigTablesCommand : ICommand<ReadOnlyReactivePropert
 ### 新项目接入步骤
 
 1. Luban CLI 解压到 `Tools/Luban/`（**不入库**，官方 release 可重下；缺 .NET 8 运行时时管线自动 `DOTNET_ROLL_FORWARD=LatestMajor`）。
-2. 仓库根建 `Configs/`：`luban.conf`（入口）+ `Defines/*.xml`（表定义）+ `Datas/`（数据）。本仓库的就是最小可跑样例。
-3. 菜单 `SSFramework/配置表构建/配置 (Luban Profile)` 调整输出目录与 topModule（见下方铁则）。
-4. 菜单 `1. 生成配置代码 + 数据`——代码 / 数据 / 清单一次产出。
+2. 建一处 conf 源目录：`luban.conf`（入口）+ `Defines/*.xml`（表定义）+ `Datas/`（数据）。放哪都行（路径填进 profile）；想随某模块一起删 / 抽包就放该模块目录下、用 `~` 后缀避免 Unity 导入。demo 那套在 `Demo/Configs~/`，是最小可跑样例。
+3. 建一个 `LubanConfigProfile`（菜单 `配置总览` 列出所有套）：填 conf 源、输出目录、topModule（见下方铁则）。与 demo 那套并存、互不干扰。
+4. 菜单 `1. 生成配置代码 + 数据`——逐套产出代码 / 数据 / 清单。
 5. 确认数据输出目录在某个 YooAsset 收集器范围内（`.bytes` 按普通资源收集成 TextAsset、按文件名寻址）；demo 复用现成的 `FrameworkDemoGroup` 收集器，真实项目通常加进 DefaultPackage 的收集组。
 6. 写两个一行子类闭合泛型（`class GameConfigModel : MonoConfigModelBase<Tables> {}` 同理 InitSystem——后者补 `TableFiles => LubanTableManifest.Files` 和 `CreateTables`），与资源三件套同节点或同 Context 挂上。
 7. 生成代码所在 asmdef 引用 `Luban.Runtime` + `Game.Framework.Config`；若业务程序集热更，它天然在热更侧（数据文件本就随资源包热更）。
