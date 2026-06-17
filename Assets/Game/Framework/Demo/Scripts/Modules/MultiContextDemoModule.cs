@@ -68,10 +68,10 @@ namespace Game.Framework.Demo.Modules
                 + "`Awake` 沿父链找最近 Context——挂 `UGuiAssets` 下读写根作用域的 `MonoScoreModel`，挂 `SubContext` 下读写子作用域那份。"
                 + "点弹窗里的 +1，看上面两行分数各自跳动——**挂哪儿就用哪个作用域，零代码切换**。"
                 + "这就是多 Context 的日常用法：业务不手动抓 Context，靠挂载位置说话。",
-                new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/UGuiDemoView.cs", "class UGuiDemoView", "弹窗 View（与「View」章同一个）"));
+                new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/Support/UGuiDemoView.cs", "class UGuiDemoView", "弹窗 View（与「View」章同一个）"));
             host.AddNote("两个 `MonoScoreModel` 也都没写一行注册代码：挂在哪个 Context 的子树下，`Awake` 就近注册进哪个作用域——"
                 + "**Hierarchy 树就是作用域树**。",
-                new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/MonoScoreModel.cs", "class MonoScoreModel", "MonoScoreModel（零注册代码）"));
+                new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/Support/MonoScoreModel.cs", "class MonoScoreModel", "MonoScoreModel（零注册代码）"));
 
             // ── 回退：子级没注册的类型，沿作用域链回退父级 ──
             host.AddSectionTitle("回退：子 Context 没有的类型，回退父级");

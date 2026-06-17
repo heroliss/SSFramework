@@ -43,7 +43,7 @@ namespace Game.Framework.Demo.Modules
             var monoLabel = host.AddValueDisplay("", CodeRef.Here("struct GetMonoScoreCommand", "GetMonoScoreCommand"));
             Bag.Subscribe(this.ExecuteCommand(new GetMonoScoreCommand()), v => monoLabel.text = $"分数：{v}");
             host.AddActionRow("分数 +1", () => this.ExecuteCommand(new RaiseMonoScoreCommand()),
-                new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/MonoScoreModel.cs", "class MonoScoreModel", "MonoScoreModel"));
+                new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/Support/MonoScoreModel.cs", "class MonoScoreModel", "MonoScoreModel"));
 #if UNITY_EDITOR
             host.AddActionRow("选中到 Inspector", SelectMonoModelInInspector);
 #endif

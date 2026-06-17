@@ -51,7 +51,7 @@ namespace Game.Framework.Demo.Modules
 
             host.AddSectionTitle("核心层对 UI 技术无感");
             host.AddNote("这张卡片读写的分数，和「View · MonoViewBase」(UGUI) 章是**同一个** `MonoScoreModel`、同一对查询/写命令。切到那一章，分数一致——证明 Model / Command / System 根本不知道上层用的是 UGUI 还是 UI Toolkit。");
-            host.AddCodeLink(new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/MonoScoreModel.cs", "class MonoScoreModel", "MonoScoreModel · 共用状态"));
+            host.AddCodeLink(new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/Support/MonoScoreModel.cs", "class MonoScoreModel", "MonoScoreModel · 共用状态"));
             host.AddCodeLink(new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/ModelReactiveModule.cs", "struct GetMonoScoreCommand", "只读查询 Command"));
             host.AddCodeLink(new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/ModelReactiveModule.cs", "struct RaiseMonoScoreCommand", "写操作 Command"));
 

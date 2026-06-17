@@ -122,7 +122,7 @@ namespace Game.Framework.Demo.Modules
                 var spawnLabel = host.AddValueDisplay();
                 var poolLabel = host.AddValueDisplay();
                 var instLabel = host.AddValueDisplay("",
-                    new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/PooledChip.cs", "class PooledChip", "PooledChip 计数"));
+                    new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/Support/PooledChip.cs", "class PooledChip", "PooledChip 计数"));
 
                 // 分栏骨架：左列放控制按钮，右列是 UI Toolkit 占位框；UGUI 容器按占位框 worldBound 对齐，做出"镶嵌"效果。
                 var demoRow = new VisualElement();
@@ -226,7 +226,7 @@ namespace Game.Framework.Demo.Modules
 
                 host.AddNote("方块颜色随 Spawn 逐格渐变 = `OnRent` 在 GameObject 上每次取出都跑（复用的旧实例也重新着色）；"
                     + "预热后「真正实例化」涨、之后反复生成 / 清理却不再涨 = 池在复用旧实例、省掉 `Instantiate`。归还时 `OnReturn` 复位颜色，复用不带上一手的脏状态——和 C# 段 `Stamp` 清零同理。",
-                    new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/PooledChip.cs", "void OnRent", "PooledChip.OnRent/OnReturn"));
+                    new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/Support/PooledChip.cs", "void OnRent", "PooledChip.OnRent/OnReturn"));
                 host.AddNote("预热（`Prewarm`）把实例化尖峰挪到加载期、收缩（`Trim`）在内存吃紧时回收过度预热的空闲实例；两者都分帧摊开开销（每帧 `perFrame` 个），避免一次性 `Instantiate`/`Destroy` 一大批造成卡顿。C# 池开销小，用同步 `Prewarm`/`Trim` 即可。");
                 host.AddNote("`Bag.Spawn` 和 `Bag.Rent` 心智一致：借来的东西进 `Bag`，`Bag.Dispose`（清理本轮 / 切走本章）统一自动 `Despawn` 归还，而不是留在场景里。右侧方块区是 UGUI 容器通过 UI Toolkit 占位框对齐出来的“镶嵌效果”：两套 UI 不能互为子节点，但可以用占位元素同步位置。",
                     CodeRef.Here("assets.BindAnchor", "UI Toolkit 占位对齐"));

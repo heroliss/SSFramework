@@ -23,8 +23,8 @@ namespace Game.Framework.Demo.Modules
         public override string Summary =>
             "View 之上的 UI 调度：打开/关闭窗口、固定有序层级、Page 返回栈、模态遮罩、cover/reveal、缓存复用——渲染后端无关（UGUI/UIToolkit 共用一套核心，IUIBackend 吸收差异）。窗口经 IUIUtility 开，元数据用 [UIWindow] 特性声明。";
 
-        private const string WindowsFile = "Assets/Game/Framework/Demo/Scripts/Modules/DemoUIWindows.cs";
-        private const string UGuiWindowsFile = "Assets/Game/Framework/Demo/Scripts/Modules/DemoUGuiWindows.cs";
+        private const string WindowsFile = "Assets/Game/Framework/Demo/Scripts/Modules/Support/DemoUIWindows.cs";
+        private const string UGuiWindowsFile = "Assets/Game/Framework/Demo/Scripts/Modules/Support/DemoUGuiWindows.cs";
 
         public override void Build(DemoModuleHost host)
         {
@@ -92,18 +92,25 @@ namespace Game.Framework.Demo.Modules
             host.AddNote("开窗代码 `Open<T>()` 与 Toolkit **一字不差**——只是入口换成 `MonoUGuiUI`；`IUIBackend` 吸收了 Canvas(ScreenSpaceOverlay) vs VisualElement 的全部差异。这就是「核心渲染后端无关」的活证。");
 
             host.AddActionRow("打开 UGUI 计数窗口（prefab + 生成绑定）", () => ugui.Open<DemoUGuiPrefabCounterWindow>().Forget(),
-                new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/DemoUGuiPrefabCounterWindow.cs", "class DemoUGuiPrefabCounterWindow", "DemoUGuiPrefabCounterWindow"));
+                new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/PrefabBinding/DemoUGuiPrefabCounterWindow.cs", "class DemoUGuiPrefabCounterWindow", "DemoUGuiPrefabCounterWindow"));
             host.AddNote("**预期**：屏幕**偏左下**再弹一张绿标 UGUI 计数卡片。这张不是代码搭建——控件在 **prefab 上摆好、脚本挂根上**，"
                 + "`ScoreText/AddButton/CloseButton` 三个字段由右键 prefab「生成 UI 绑定代码」产出的 `DemoUGuiPrefabCounterWindow.nodes.g.cs` 自动绑定（`transform.Find`），本窗口只在 `OnCreated` 写逻辑。");
             host.AddNote("**同一窗口、三种接法**：代码搭建（`UGuiCounterWindow`）／ 手工 `[SerializeField]` 拖引用（`UGuiDemoView`）／ prefab + 生成绑定（本窗口）——同一框架、同一份分数，只是节点引用怎么来不同。绑定代码全自动生成、改完 prefab 重新生成即可，省掉手接引用的重复劳动。");
             host.AddSubNote("⚠ prefab 窗口经资源系统按 location 加载——若点了没出现，先去「资源加载」章点「初始化」让默认包就绪（代码搭建窗口不读资源、不受此影响）。");
 
             host.AddActionRow("打开 UGUI 计数窗口（变体）", () => ugui.Open<DemoUGuiPrefabCounterWindowVariant>().Forget(),
-                new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/DemoUGuiPrefabCounterWindowVariant.cs", "class DemoUGuiPrefabCounterWindowVariant", "DemoUGuiPrefabCounterWindowVariant"));
+                new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/PrefabBinding/DemoUGuiPrefabCounterWindowVariant.cs", "class DemoUGuiPrefabCounterWindowVariant", "DemoUGuiPrefabCounterWindowVariant"));
             host.AddNote("上一张窗口的**预制体变体**：变体 prefab 只多加了个「归零」按钮。变体窗口类**继承**基窗口类、绑定**只生成净新增字段**（`ResetButton`）——"
                 + "基类的 Score / +1 / 关闭由 `base.OnCreated()` 复用，变体 `OnCreated` 里只接自己多出来的归零按钮。改基窗口，变体自动跟随。");
             host.AddSubNote("生成器靠 Unity 原生变体关系识别变体 → 子类 `: 基窗口类` + 只补新字段（删基节点 / 改基组件会在生成期警告）；本变体的增量绑定见生成文件。",
-                new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/Generated/DemoUGuiPrefabCounterWindowVariant.nodes.g.cs", "ResetButton", "变体增量绑定（nodes.g.cs）"));
+                new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/PrefabBinding/Generated/DemoUGuiPrefabCounterWindowVariant.nodes.g.cs", "ResetButton", "变体增量绑定（nodes.g.cs）"));
+
+            host.AddSectionTitle("生成产物落点 · 目录级生成配置");
+            host.AddNote("注意上面两张 prefab 窗口的绑定代码并没有散落在全工程默认的 `Modules/Generated/`，而是和窗口逻辑待在同一个 `Modules/PrefabBinding/` 文件夹里——"
+                + "这是「目录级生成配置」做的：在 prefab 旁边（`Res/`）放一个 `UICodeGenDirConfig` 资产，把这两个 prefab 的输出 / 生成目录重定向到模块自己的文件夹，整块代码不再和别的模块混在一起。");
+            host.AddSubNote("配置按 **prefab 所在目录向上**生效，逐字段覆盖：命名空间 / 逻辑目录 / 生成目录 / 文件名，每项「留空 = 继承上层」，一路回退到全工程 `UICodeGenProfile`。"
+                + "于是「按模块分目录 / 分命名空间」既不用改生成器、也不用每个 prefab 单独设——把一个配置丢进目录，该目录（及子目录）下的 prefab 重新生成时就自动跟着走。",
+                new CodeRef("Assets/Game/Framework/UI.UGui/Editor/UICodeGenDirConfig.cs", "class UICodeGenDirConfig", "UICodeGenDirConfig · 目录级生成配置"));
         }
 
         // UI 打开是 fire-and-forget：代码搭建窗口同步完成；UniTask.Forget() 会观测并记录异常。
