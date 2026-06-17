@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -13,40 +12,35 @@ namespace Game.Framework.UI.UGui.Editor
     /// </summary>
     internal static class UIBindingGenGUI
     {
-        // 勾选式覆盖的「展开」瞬态状态（按 资产路径|字段 记）。覆盖值本身存在 prefab 上，这里只持 UI 折叠态，
-        // 让「勾上后清空文本」不会立刻塌缩输入框（仿 UIBindingDataEditor._expandedFieldName）。
-        private static readonly HashSet<string> _expanded = new();
-
         public static void Draw(UIBindingData data, string assetPath, bool editable)
         {
             var profile = UICodeGenProfile.Resolve();
+            string ns = UIBindingUtil.ResolveNamespace(assetPath, data, profile);
             string className = UIBindingUtil.ResolveClassName(assetPath, data, profile);
             string outDir = UIBindingUtil.ResolveOutputDir(assetPath, data, profile);
             string genDir = UIBindingUtil.ResolveGeneratedDir(assetPath, data, profile);
             string logicPath = outDir + "/" + className + ".cs";
             string nodesPath = genDir + "/" + className + ".nodes.g.cs";
 
-            EditorGUILayout.LabelField("生成目标", EditorStyles.boldLabel);
-            // 说明走 HelpBox（自动换行），避免长文本在窄 Inspector / 弹窗里溢出。
-            EditorGUILayout.HelpBox("勾选 = 本 prefab 覆盖；不勾 = 继承目录配置 / 全工程默认。\n占位符：{PrefabName} / {DirectoryName} / {ParentDirectoryName}", MessageType.None);
+            EditorGUILayout.LabelField("生成目标（留空 = 继承目录配置 / 全工程默认）", EditorStyles.boldLabel);
+            EditorGUILayout.HelpBox("覆盖项留空即继承；占位符：{PrefabName} / {DirectoryName} / {ParentDirectoryName}", MessageType.None);
             using (new EditorGUI.DisabledScope(!editable))
             {
-                DrawCheckedOverride("命名空间", false, data.NamespaceOverride,
-                    v => Commit(data, x => data.NamespaceOverride = x, v),
-                    _expanded, assetPath + "|ns",
-                    () => UIBindingUtil.ResolveInherited(UIBindingUtil.GenTargetField.Namespace, assetPath, profile));
-                DrawCheckedOverride("逻辑目录", true, data.OutputDirOverride,
-                    v => Commit(data, x => data.OutputDirOverride = x, v),
-                    _expanded, assetPath + "|out",
-                    () => UIBindingUtil.ResolveInherited(UIBindingUtil.GenTargetField.OutputDir, assetPath, profile));
-                DrawCheckedOverride("生成目录", true, data.GeneratedDirOverride,
-                    v => Commit(data, x => data.GeneratedDirOverride = x, v),
-                    _expanded, assetPath + "|gen",
-                    () => UIBindingUtil.ResolveInherited(UIBindingUtil.GenTargetField.GeneratedDir, assetPath, profile));
-                DrawCheckedOverride("文件名/类名", false, data.FileNameOverride,
-                    v => Commit(data, x => data.FileNameOverride = x, v),
-                    _expanded, assetPath + "|file",
-                    () => UIBindingUtil.ResolveInherited(UIBindingUtil.GenTargetField.FileName, assetPath, profile));
+                OverrideField(data, "命名空间", false, data.NamespaceOverride, x => data.NamespaceOverride = x);
+                OverrideField(data, "逻辑目录", true, data.OutputDirOverride, x => data.OutputDirOverride = x);
+                OverrideField(data, "生成目录", true, data.GeneratedDirOverride, x => data.GeneratedDirOverride = x);
+                OverrideField(data, "文件名/类名", false, data.FileNameOverride, x => data.FileNameOverride = x);
+            }
+
+            // 生效：按本 prefab 路径展开占位符后的最终结果（只读），看清覆盖 / 继承落地成什么。
+            EditorGUILayout.Space(2);
+            EditorGUILayout.LabelField("生效（解析后）", EditorStyles.boldLabel);
+            using (new EditorGUI.DisabledScope(true))
+            {
+                EditorGUILayout.TextField("命名空间", ns);
+                EditorGUILayout.TextField("文件名/类名", className);
+                EditorGUILayout.TextField("逻辑目录", outDir);
+                EditorGUILayout.TextField("生成目录", genDir);
             }
 
             EditorGUILayout.Space(2);
@@ -64,61 +58,32 @@ namespace Game.Framework.UI.UGui.Editor
                         UIBindingCodeGenerator.GenerateAndLog(assetPath, data, profile);
         }
 
-        /// <summary>
-        /// 勾选式覆盖行：勾选框 + 字段。勾上显示可编辑输入框（目录字段带「…」选目录），不勾显示置灰的继承值（tooltip 标来源）。
-        /// 覆盖值的读写由 <paramref name="current"/> / <paramref name="commit"/> 注入（prefab 字段或 SerializedProperty 皆可），
-        /// 继承值由 <paramref name="inherited"/> 提供。两处覆盖 UI（prefab 级 / 目录配置级）共用此绘制，口径一致。
-        /// </summary>
-        internal static void DrawCheckedOverride(string label, bool isDir, string current, Action<string> commit,
-            HashSet<string> expandedKeys, string key, Func<(string value, string source)> inherited)
+        // 覆盖行：普通文本框（目录字段带「…」选择器），留空 = 继承（实际生效值在下方「生效（解析后）」只读区看）。
+        // 改动经 Commit（Undo + 标脏 + prefab 编辑模式同步场景脏标记）。
+        private static void OverrideField(UIBindingData data, string label, bool isDir, string current, Action<string> set)
         {
-            bool expanded = !string.IsNullOrEmpty(current) || expandedKeys.Contains(key);
+            string cur = current ?? string.Empty;
+            string v = DrawLabeledField(label, isDir, cur);
+            if (v != cur) Commit(data, set, v);
+        }
 
+        /// <summary>画一行「标签 + 文本框（目录字段附 … 选择器）」，返回（可能变更后的）值。Profile 根字段直接用，与勾选式覆盖的标签列宽一致，两套 Inspector 视觉统一。</summary>
+        internal static string DrawLabeledField(string label, bool isDir, string value)
+        {
             EditorGUILayout.BeginHorizontal();
-
-            bool now = EditorGUILayout.ToggleLeft(label, expanded, GUILayout.Width(96f));
-            if (now != expanded)
+            EditorGUILayout.LabelField(label, GUILayout.Width(96f));
+            string v = EditorGUILayout.TextField(value);
+            if (isDir && GUILayout.Button(new GUIContent("…", "选择目录（自动转工程相对路径）"), GUILayout.Width(24)))
             {
-                if (now)
-                {
-                    expandedKeys.Add(key);
-                    // 勾上瞬间原值空 → 用当前继承值预填作编辑起点（也让本行保持「已展开」）。
-                    if (string.IsNullOrEmpty(current)) { current = inherited().value; commit(current); }
-                }
-                else
-                {
-                    expandedKeys.Remove(key);
-                    commit(string.Empty); // 取消勾选 = 清空 → 回到继承
-                    current = string.Empty;
-                }
-                expanded = now;
-                GUI.FocusControl(null);
+                string picked = PickProjectDir(string.IsNullOrEmpty(v) ? value : v);
+                if (picked != null) { v = picked; GUI.FocusControl(null); }
             }
-
-            if (expanded)
-            {
-                EditorGUI.BeginChangeCheck();
-                string v = EditorGUILayout.TextField(current);
-                bool changed = EditorGUI.EndChangeCheck();
-                if (isDir && GUILayout.Button(new GUIContent("…", "选择目录（自动转工程相对路径）"), GUILayout.Width(24)))
-                {
-                    string picked = PickProjectDir(string.IsNullOrEmpty(current) ? inherited().value : current);
-                    if (picked != null) { v = picked; changed = true; GUI.FocusControl(null); }
-                }
-                if (changed) commit(v);
-            }
-            else
-            {
-                var (value, source) = inherited();
-                using (new EditorGUI.DisabledScope(true))
-                    EditorGUILayout.TextField(new GUIContent(string.Empty, $"{source}：{value}"), value);
-            }
-
             EditorGUILayout.EndHorizontal();
+            return v;
         }
 
         // 选目录对话框：选完把绝对路径转工程相对（Assets/…）返回；取消 / 选到工程外 → 返回 null（外部不改值）。
-        private static string PickProjectDir(string current)
+        internal static string PickProjectDir(string current)
         {
             string picked = EditorUtility.OpenFolderPanel("选择目录（须在工程 Assets 内）", ToAbsolute(current), string.Empty);
             if (string.IsNullOrEmpty(picked)) return null;

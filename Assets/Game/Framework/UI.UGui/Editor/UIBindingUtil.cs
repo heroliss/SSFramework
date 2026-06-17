@@ -70,33 +70,58 @@ namespace Game.Framework.UI.UGui.Editor
         {
             foreach (var cfg in UICodeGenDirConfig.ChainFor(prefabPath))
             {
-                string v = field switch
-                {
-                    GenTargetField.Namespace => cfg.NamespaceOrNull,
-                    GenTargetField.OutputDir => cfg.OutputDirOrNull,
-                    GenTargetField.GeneratedDir => cfg.GeneratedDirOrNull,
-                    _ => cfg.FileNameOrNull,
-                };
+                string v = RawFieldValue(cfg, field);
                 if (v != null) return (v, $"继承自目录配置 {AssetDatabase.GetAssetPath(cfg)}");
             }
-            string def = field switch
-            {
-                GenTargetField.Namespace => profile.NamespaceRoot,
-                GenTargetField.OutputDir => profile.OutputCodeDir,
-                GenTargetField.GeneratedDir => profile.GeneratedCodeDir,
-                _ => profile.FileNameTemplate,
-            };
-            return (def, "全工程默认 (UICodeGenProfile)");
+            return (RawFieldValue(profile, field), "全工程默认 (UICodeGenProfile)");
         }
 
-        /// <summary>
-        /// 解析某字段「跳过 prefab 覆盖后」继承到的<b>已展开占位符</b>的值 + 来源描述（目录配置链 → 全工程 Profile）。
-        /// 勾选式覆盖 UI 在「未勾选」时用它显示置灰的继承值（= 实际会落到的结果）与来源 tooltip。
-        /// </summary>
-        public static (string value, string source) ResolveInherited(GenTargetField field, string prefabPath, UICodeGenProfile profile)
+        /// <summary>某目录配置上该字段设定的原始模板（未设则 <c>null</c>）。</summary>
+        internal static string RawFieldValue(UICodeGenDirConfig cfg, GenTargetField field) => field switch
         {
-            var (raw, source) = ResolveInheritedRaw(field, prefabPath, profile);
-            return (ApplyTokens(raw, prefabPath, field), source);
+            GenTargetField.Namespace => cfg.NamespaceOrNull,
+            GenTargetField.OutputDir => cfg.OutputDirOrNull,
+            GenTargetField.GeneratedDir => cfg.GeneratedDirOrNull,
+            _ => cfg.FileNameOrNull,
+        };
+
+        /// <summary>全工程 Profile 上该字段的根默认（原始模板）。</summary>
+        internal static string RawFieldValue(UICodeGenProfile profile, GenTargetField field) => field switch
+        {
+            GenTargetField.Namespace => profile.NamespaceRoot,
+            GenTargetField.OutputDir => profile.OutputCodeDir,
+            GenTargetField.GeneratedDir => profile.GeneratedCodeDir,
+            _ => profile.FileNameTemplate,
+        };
+
+        /// <summary>
+        /// 目录配置 Inspector 专用：该字段「继承来源」的<b>原始模板</b> + 来源描述 + 来源资产（供点击跳转）。
+        /// 从本配置所在目录的<b>父目录</b>起向上找首个设了该字段的目录配置，否则全工程 Profile。
+        /// 刻意不展开占位符——目录配置面向其下所有 prefab、无单一 prefab 上下文（展开会把 {PrefabName} 错解析成配置自身文件名）。
+        /// </summary>
+        public static (string raw, string source, UnityEngine.Object sourceObj) DirConfigInheritedRaw(
+            UICodeGenDirConfig self, GenTargetField field, UICodeGenProfile profile)
+        {
+            foreach (var cfg in UICodeGenDirConfig.ChainFor(SelfFolder(self)))
+            {
+                string v = RawFieldValue(cfg, field);
+                if (v != null) return (v, $"继承自目录配置 {AssetDatabase.GetAssetPath(cfg)}", cfg);
+            }
+            return (RawFieldValue(profile, field), "全工程默认 (UICodeGenProfile)", profile);
+        }
+
+        /// <summary>目录配置的「父配置」：最近的祖先目录配置；没有则全工程 Profile。供 Inspector 顶部只读跳转。</summary>
+        public static UnityEngine.Object DirConfigParent(UICodeGenDirConfig self, UICodeGenProfile profile)
+        {
+            var chain = UICodeGenDirConfig.ChainFor(SelfFolder(self));
+            return chain.Count > 0 ? (UnityEngine.Object)chain[0] : profile;
+        }
+
+        // 目录配置所在目录。传给 ChainFor 即从其【父目录】起算 → 严格祖先（排除配置自身所在目录），故拿到的是「父配置」而非自己。
+        private static string SelfFolder(UICodeGenDirConfig self)
+        {
+            string p = AssetDatabase.GetAssetPath(self);
+            return string.IsNullOrEmpty(p) ? string.Empty : (System.IO.Path.GetDirectoryName(p) ?? string.Empty).Replace('\\', '/');
         }
 
         /// <summary>
