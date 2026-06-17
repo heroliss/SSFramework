@@ -18,6 +18,6 @@ MonoBehaviour:
   _codeTarget: cs-bin
   _dataTarget: bin
   _outputCodeDir: Assets/Game/Framework/Demo/Config/Gen
-  _outputDataDir: Assets/Game/Framework/Res/Configs
+  _outputDataDir: Assets/Game/Framework/Demo/Res/Configs
   _manifestNamespace: DemoCfg
   _extraArgs: 

@@ -45,8 +45,16 @@ MonoBehaviour:
       AssetTags: 
       ActiveRuleName: EnableGroup
       Collectors:
-      - CollectPath: Assets/Game/Framework/Res
-        CollectorGUID: 205d8c258a640884b959bea4bdfe1191
+      - CollectPath: Assets/Game/Framework/Demo/Res
+        CollectorGUID: aa42282a3eccd4044806588bcb824bd8
+        CollectorType: 0
+        AddressRuleName: AddressByFileName
+        PackRuleName: PackDirectory
+        FilterRuleName: CollectAll
+        AssetTags: framework-demo
+        UserData: 
+      - CollectPath: Assets/Game/Framework/Branding
+        CollectorGUID: ba8da6511a92f3144b5662fa000596e0
         CollectorType: 0
         AddressRuleName: AddressByFileName
         PackRuleName: PackDirectory
