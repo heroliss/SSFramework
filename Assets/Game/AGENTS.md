@@ -127,7 +127,7 @@ await this.ExecuteCommandAsync(new MyCommand(), customCancellationToken);
 - Mono 路径：继承 `MonoViewBase`/`MonoSystemBase` 等，Awake 自动绑定到目标 `IGameContext`。
 - 纯 C# 路径：实现 `IHasGameContext`，`GameContext.AttachTo()` 反射找 `GameContext` 字段并赋值（FieldInfo 已缓存）。
 - `[Inject] GameContext` / `IGameContext` 被禁止：万能门会绕过权限接口，InjectionPlan 注入期报错。
-- `[Inject]` 注入目标受层权限校验（与 `this.GetXxx` 同源）：宿主有 `ICanGetModel` / `ICanGetSystem` / `ICanGetUtility` 才能注入对应层，否则注入期 `LogError` 拦下——View 注 Model/System、Model 注 Model/System、Utility 注任何层都会被挡。Command 例外（经 `ctx` 有完整层访问权）。注入非层类型（普通服务，或偶尔注册进容器的 View 等）不受此限，能否注入只看容器有没有注册。
+- `[Inject]` 注入目标受层权限校验（与 `this.GetXxx` 同源）：宿主有 `ICanGetModel` / `ICanGetSystem` / `ICanGetUtility` 才能注入对应层，否则注入期 `LogError` 拦下——View 注 Model/System、Model 注 Model/System 会被挡；**Utility 也有 `ICanGetUtility`，可注 / 取其他 Utility（基础设施互相组合，如配置服务取资源服务），但仍不能注 Model/System**（不反向依赖业务）。Command 例外（经 `ctx` 有完整层访问权）。注入非层类型（普通服务，或偶尔注册进容器的 View 等）不受此限，能否注入只看容器有没有注册。
 
 ## 11. struct Command 的扩展方法限制
 
@@ -340,10 +340,10 @@ protected virtual void OnDestroy()
 
 ## 24. 配置表（Luban）最佳实践
 
-构建期菜单 `SSFramework/配置表构建` 跑 Luban CLI 生成「配置 C# 类 + 二进制数据 + 表清单」三件套；运行期三段式镜像资源系统（`Game.Framework.Config` 模块，ADR-0009）。
+构建期菜单 `SSFramework/配置表构建` 跑 Luban CLI 生成「配置 C# 类 + 二进制数据 + 表清单」三件套；运行期由一个**自加载的配置 Utility 服务**持表（`Game.Framework.Config` 模块，ADR-0009）。
 
-- **接入**：两个一行子类闭合泛型——`class XxxConfigModel : MonoConfigModelBase<Tables> {}`、`class XxxConfigInitSystem : MonoConfigInitSystemBase<Tables>`（补 `TableFiles => LubanTableManifest.Files` 与 `CreateTables`）；与资源三件套同 Context 挂上（demo 场景的 `ConfigSystem` 节点是活样板）。
-- **取表**：System / class Command 用 `this.GetModel<IConfigModel<Tables>>()`（struct Command 经 `ctx`）；View 经只读查询 Command 拿 `ReadOnlyReactiveProperty<Tables>`——配置是只读数据，View 拿到也只能查。等待就绪订阅 `State`（`ConfigInitState`），不要轮询 `Tables` 判空。
+- **接入**：一个一行子类闭合泛型——`class XxxConfigUtility : MonoConfigUtilityBase<Tables>`（补 `TableFiles => LubanTableManifest.Files` 与 `CreateTables`）；挂 Context 子节点（demo 场景的 `ConfigSystem` 节点是活样板）。配置是静态只读引用数据（生成的 `Tables` 本就是数据模型），不占 Model 层、也不拆三件套——一个组件自加载。
+- **取表**：各层（含 View）直读 `this.GetUtility<IConfigUtility<Tables>>().Tables`（struct Command 经 `ctx.GetUtility`；也可 `[Inject] IConfigUtility<Tables>` 字段，View/Model/System 都有 `ICanGetUtility`）。`Tables` 是**普通取值**（只读、加载后不变，**无 `.CurrentValue`**），加载完成前为 null。等待就绪订阅 `State`（`ConfigInitState`），不要轮询 `Tables` 判空。**多套配置** = 不同闭合 `IConfigUtility<TablesA>` / `<TablesB>`，按泛型各自解析互不冲突。
 - **查询直接用生成的强类型 API**（`TbItem.Get(id)` / `GetOrDefault` / `DataList`），不在框架侧再包查询层。
 - **改表**：编辑对应 profile 的 conf 源目录——demo 那套在 `Demo/Configs~/`（数据改 `Datas/`、结构改 `Defines/`；`~` 后缀 Unity 不导入，纯构建期输入）→ 菜单「生成」重新生成（Play 中会被拒绝）。生成代码目录被 Luban 接管，勿手放文件。
 - **多套配置并存**：每套 = 一个 `LubanConfigProfile`（各自的 `luban.conf` 源 + 输出目录 + 命名空间，互不干扰），demo 与正式游戏可各一套；`LubanConfigProfile.ResolveAll()` 返回全部、「生成」逐套生成，集中管理用「配置总览」窗口（`SSFramework/配置表构建/配置总览`）。demo 那套的源 / 代码 / 数据全在 `Demo/` 内（程序集带 `UNITY_EDITOR` 约束、数据在样例资源包），正式打包随 demo 一并排除。

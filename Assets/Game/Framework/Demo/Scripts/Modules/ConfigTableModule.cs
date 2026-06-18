@@ -1,6 +1,5 @@
 using System.IO;
 using DemoCfg;
-using Game.Framework.Command;
 using Game.Framework.Common;
 using Game.Framework.Demo.Core;
 using R3;
@@ -10,7 +9,7 @@ namespace Game.Framework.Demo.Modules
 {
     /// <summary>
     /// 进阶·配置表：讲 Luban 集成的构建期 / 运行期分界——表定义（XML）与数据（JSON / Excel）放 demo 自带的 Configs~/（~ 后缀 Unity 不导入），
-    /// 菜单跑 CLI 生成 C# 类 + 二进制数据；运行期三段式（Model 持表 / System 编排加载）镜像资源系统，
+    /// 菜单跑 CLI 生成 C# 类 + 二进制数据；运行期由一个自加载的配置 Utility 服务持表（各层直读），
     /// 数据文件走资源包通道（可热更）。查询按钮真实读 Play 中加载好的表。
     /// </summary>
     public sealed class ConfigTableModule : DemoModuleBase
@@ -43,45 +42,44 @@ namespace Game.Framework.Demo.Modules
                 new[] { "产物", "落点", "谁消费" },
                 new[] { "配置 C# 类（Tables / TbItem / Item…）", "`Demo/Config/Gen/`", "业务代码（强类型查表）" },
                 new[] { "二进制数据（*.bytes）", "`Demo/Res/Configs/`（资源收集范围内）", "运行期 `Bag.LoadBytes` 直读字节" },
-                new[] { "表清单（LubanTableManifest.g.cs）", "随生成代码", "初始化 System 据此并行预载" });
+                new[] { "表清单（LubanTableManifest.g.cs）", "随生成代码", "配置服务据此并行预载" });
             host.AddSubNote("为什么要表清单：生成的 `Tables` 构造函数是同步逐表要字节，而框架资源加载是异步——先按清单把全部数据并行预载进内存，" +
                             "再同步构造。清单与代码/数据同一次生成，不存在手工维护漏表（机制同热更代码包的 manifest）。",
                 new CodeRef("Assets/Game/Framework/Config/Editor/LubanCodeGenerator.cs", "class LubanCodeGenerator", "生成管线（CLI 调用 + 清单）"));
 
-            // ── 三段式 ──
-            host.AddSectionTitle("运行期三段式：镜像资源系统");
-            host.AddNote("场景里 `ConfigSystem` 节点挂两个组件：`DemoConfigModel`（Model：持有 `Tables` + 加载状态）、" +
-                         "`DemoConfigInitSystem`（System：清单预载 → 构造 → 写入 Model）——与 `AssetSystem` 节点的 ConfigModel/InitSystem 拆分同构。" +
-                         "业务统一经 `GetModel<IConfigModel<Tables>>()` 接口取表，不依赖具体子类。",
-                new CodeRef("Assets/Game/Framework/Demo/Config/DemoConfigInitSystem.cs", "class DemoConfigInitSystem", "Demo 接入（仅两个 override）"));
+            // ── 运行期：自加载 Utility ──
+            host.AddSectionTitle("运行期：自加载的配置服务（Utility）");
+            host.AddNote("场景里 `ConfigSystem` 节点只挂一个组件 `DemoConfigUtility`——配置做成**自加载的 Utility 服务**：" +
+                         "进游戏自己按清单预载数据、构造表根、对外只读暴露。各层（含 View）经 `GetUtility<IConfigUtility<Tables>>()` 直读，无需查询 Command。" +
+                         "配置是静态只读引用数据（生成的 `Tables` 本就是数据模型），故不占 Model 层、也不像资源系统那样拆三件套（配置加载没有多包 / CDN / 下载的复杂度，一个组件够了）。",
+                new CodeRef("Assets/Game/Framework/Demo/Config/DemoConfigUtility.cs", "class DemoConfigUtility", "Demo 接入（仅两个 override）"));
             host.AddSubNote("解耦边界：框架 `Game.Framework.Config` 模块不引用 Luban——它只做「清单 → 预载字节 → 调抽象工厂」的通用编排；" +
                             "整条链路里接触 Luban 类型（ByteBuf）的只有 Demo 子类工厂里那一行。换任何配置后端（JSON / 自定义格式），框架模块原样可用。",
-                new CodeRef("Assets/Game/Framework/Config/MonoConfigInitSystemBase.cs", "class MonoConfigInitSystemBase", "框架基类（后端无关）"));
+                new CodeRef("Assets/Game/Framework/Config/MonoConfigUtilityBase.cs", "class MonoConfigUtilityBase", "框架基类（后端无关，自加载）"));
 
             // ── 现场演示 ──
             host.AddSectionTitle("演示：真实读 Play 中加载好的表");
 
-            var stateLabel = host.AddValueDisplay("", CodeRef.Here("struct GetConfigStateCommand", "GetConfigStateCommand"));
-            var state = this.ExecuteCommand(new GetConfigStateCommand());
-            Bag.Subscribe(state, s => stateLabel.text = $"加载状态：{s}");
+            // 配置是基础设施服务：各层（含本 demo 模块、真实 View）直接 GetUtility 取，无需查询 Command 绕行。
+            var config = this.GetUtility<IConfigUtility<Tables>>();
 
-            // 表根是只读数据，查询 Command 返回只读流给 View 是合规路径（View 仍无 GetModel 权限）。
-            var tables = this.ExecuteCommand(new GetConfigTablesCommand());
+            var stateLabel = host.AddValueDisplay("", new CodeRef("Assets/Game/Framework/Config/IConfigUtility.cs", "interface IConfigUtility", "IConfigUtility · 全层可取的配置服务"));
+            Bag.Subscribe(config.State, s => stateLabel.text = $"加载状态：{s}");
 
             var itemLabel = host.AddValueDisplay("（点下方按钮查表）");
             host.AddActionRow("查下一条物品（轮巡 TbItem.DataList）", () =>
             {
-                var t = tables.CurrentValue;
+                var t = config.Tables; // 普通取值（配置只读、加载后不变），无需 .CurrentValue
                 if (t == null) { itemLabel.text = "配置未就绪（看上方加载状态）"; return; }
                 if (t.TbItem.DataList.Count == 0) { itemLabel.text = "TbItem 没有数据（Datas/item.json 是空的？）"; return; }
                 var item = t.TbItem.DataList[_itemCursor++ % t.TbItem.DataList.Count];
                 itemLabel.text = $"[{item.Id}] {item.Name}（{item.Quality}）售价 {item.Price}，堆叠上限 {item.StackLimit} —— {item.Desc}";
-            }, CodeRef.Here("struct GetConfigTablesCommand", "GetConfigTablesCommand"));
+            }, new CodeRef("Assets/Game/Framework/Config/IConfigUtility.cs", "TTables Tables", "config.Tables 直读（普通取值）"));
 
             var monsterLabel = host.AddValueDisplay("（点下方按钮查表）");
             host.AddActionRow("查下一条怪物（轮巡 TbMonster，Excel 数据源）", () =>
             {
-                var t = tables.CurrentValue;
+                var t = config.Tables; // 普通取值（配置只读、加载后不变），无需 .CurrentValue
                 if (t == null) { monsterLabel.text = "配置未就绪（看上方加载状态）"; return; }
                 if (t.TbMonster.DataList.Count == 0) { monsterLabel.text = "TbMonster 没有数据（Datas/monster.xlsx 是空的？）"; return; }
                 var m = t.TbMonster.DataList[_monsterCursor++ % t.TbMonster.DataList.Count];
@@ -93,7 +91,7 @@ namespace Game.Framework.Demo.Modules
             var globalLabel = host.AddValueDisplay("");
             host.AddActionRow("读全局配置（TbGlobalConfig，one 模式单例表）", () =>
             {
-                var t = tables.CurrentValue;
+                var t = config.Tables; // 普通取值（配置只读、加载后不变），无需 .CurrentValue
                 if (t == null) { globalLabel.text = "配置未就绪（看上方加载状态）"; return; }
                 var g = t.TbGlobalConfig;
                 globalLabel.text = $"背包容量 {g.BagCapacity}，初始金币 {g.InitialGold}，新手物品 [{string.Join(", ", g.NewbieItemIds)}]";
@@ -134,19 +132,5 @@ namespace Game.Framework.Demo.Modules
             if (Directory.Exists(full)) UnityEditor.EditorUtility.RevealInFinder(full);
             else Debug.LogWarning($"[ConfigTableModule] 源目录不存在：{full}");
         }
-    }
-
-    /// <summary>只读查询：配置加载状态流，供 View 订阅显示（订阅即得当前值）。</summary>
-    public readonly struct GetConfigStateCommand : ICommand<ReadOnlyReactiveProperty<Game.Framework.ConfigInitState>>
-    {
-        public ReadOnlyReactiveProperty<Game.Framework.ConfigInitState> Execute(ICommandContext ctx)
-            => ctx.GetModel<Game.Framework.IConfigModel<Tables>>().State;
-    }
-
-    /// <summary>只读查询：表根状态流（加载完成前值为 null）。配置是只读数据，View 拿到也只能查，不破坏单向数据流。</summary>
-    public readonly struct GetConfigTablesCommand : ICommand<ReadOnlyReactiveProperty<Tables>>
-    {
-        public ReadOnlyReactiveProperty<Tables> Execute(ICommandContext ctx)
-            => ctx.GetModel<Game.Framework.IConfigModel<Tables>>().Tables;
     }
 }
