@@ -23,8 +23,8 @@ namespace Game.Framework.Build
     /// 列表顺序无所谓——加载顺序由 asmdef 引用图拓扑排序自动生成；列表合法性（AOT 不得引用热更）
     /// 在同步与构建时经 <see cref="HotUpdateAssemblyGraph"/> 自动校验，违规拦下并指出元凶。
     ///
-    /// 资产入库（放在 <c>Assets/Game/Framework/Build/</c>）；<see cref="Resolve"/> 找不到时按默认档位
-    /// （内核 + Asset.Yoo 热更，见 ADR-0008 §2）自动创建，找到多个时取第一个并警告。
+    /// 这是**项目配置实例**，入库放在项目配置位 <c>Assets/Game/Settings/</c>（不在 <c>Framework/</c> 内，ADR-0010/0011）；
+    /// <see cref="Resolve"/> 按类型扫描定位，找不到时按默认档位（内核 + Asset.Yoo 热更，见 ADR-0008 §2）自动创建，找到多个时取第一个并警告。
     /// 字段只读暴露：修改只经 Inspector，保证「资产 = 唯一真源」不被代码旁路改写。
     /// </summary>
     [CreateAssetMenu(fileName = "FrameworkHotUpdateProfile", menuName = "SSFramework/热更构建配置 (HotUpdate Profile)")]
@@ -126,9 +126,9 @@ namespace Game.Framework.Build
             TryAddDefault(profile, "Assets/Game/Framework/Core/Game.Framework.asmdef");
             TryAddDefault(profile, "Assets/Game/Framework/Asset.Yoo/Game.Framework.Asset.Yoo.asmdef");
 
-            const string dir = "Assets/Game/Framework/Build";
+            const string dir = "Assets/Game/Settings"; // 项目配置位，不在 Framework/ 内（ADR-0011）
             if (!AssetDatabase.IsValidFolder(dir))
-                AssetDatabase.CreateFolder("Assets/Game/Framework", "Build");
+                AssetDatabase.CreateFolder("Assets/Game", "Settings");
             string path = dir + "/FrameworkHotUpdateProfile.asset";
             AssetDatabase.CreateAsset(profile, path);
             AssetDatabase.SaveAssets();

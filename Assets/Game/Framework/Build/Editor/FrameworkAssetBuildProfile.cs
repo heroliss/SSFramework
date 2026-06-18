@@ -14,8 +14,9 @@ namespace Game.Framework.Build
     /// 统一构建菜单（<c>SSFramework/资源构建/*</c>）、CI 入口（<see cref="FrameworkAssetBuilder.BuildAll"/>）、
     /// 以及将来的构建窗口都读这一个 profile。
     ///
-    /// 资产入库（放在 <c>Assets/Game/Framework/Build/</c>），随项目版本控制；<see cref="Resolve"/> 找不到时自动建一个默认 profile，
-    /// 找到多个时取第一个并警告（全工程应只保留一个）。
+    /// 这是**项目配置实例**，不是框架代码——资产入库放在项目配置位 <c>Assets/Game/Settings/</c>（不在 <c>Framework/</c> 内，
+    /// 框架抽 UPM 包时项目配置不该进包，ADR-0010/0011）；<see cref="Resolve"/> 按类型扫描定位（不认路径），
+    /// 找不到时在该位自动建一个默认 profile，找到多个时取第一个并警告（全工程应只保留一个）。
     /// 这是**编辑器构建配置**，不是运行时数据（运行时资源行为看 <c>AssetSystemConfigModel</c>），故只存在于 Editor 程序集。
     /// 字段只读暴露：修改只经 Inspector / <see cref="SyncFromCollector"/>，保证「资产 = 唯一真源」不被代码旁路改写。
     /// </summary>
@@ -176,9 +177,9 @@ namespace Game.Framework.Build
                 profile._packages.Add(new PackageBuildEntry(pkg.PackageName.Trim()));
             }
 
-            const string dir = "Assets/Game/Framework/Build";
+            const string dir = "Assets/Game/Settings"; // 项目配置位，不在 Framework/ 内（ADR-0011）
             if (!AssetDatabase.IsValidFolder(dir))
-                AssetDatabase.CreateFolder("Assets/Game/Framework", "Build");
+                AssetDatabase.CreateFolder("Assets/Game", "Settings");
             string path = dir + "/FrameworkAssetBuildProfile.asset";
             AssetDatabase.CreateAsset(profile, path);
             AssetDatabase.SaveAssets();
