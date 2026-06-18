@@ -31,7 +31,7 @@
 |---|---|---|
 | `Game.Framework`（运行时内核） | `Framework/Core/` | 运行时核心 + `RP<T>`（`Core/Reactive/RP.cs`）。**不再直接引用 YooAsset**（资源后端经 `IAssetProvider` 反射工厂解耦）。`autoReferenced:false`（热更程序集要求） |
 | `Game.Framework.Asset.Yoo` | `Framework/Asset.Yoo/` | YooAsset 接触面（`YooAssetProvider` + link.xml），自内核抽出——ADR-0013「YooAsset 收口在 Provider」的 asmdef 编译期强制。`autoReferenced:false` |
-| `Game.Framework.Config` | `Framework/Config/` | 配置表运行时模块（`IConfigModel<TTables>` / `MonoConfigModelBase` / `MonoConfigInitSystemBase`）——「清单预载 → 抽象工厂构造 → Model 持表」的后端无关编排，**不引用 Luban**（接触面在项目侧子类工厂与生成代码，ADR-0009）。`autoReferenced:false`，在热更列表 |
+| `Game.Framework.Config` | `Framework/Config/` | 配置表运行时模块（`IConfigUtility<TTables>` / `MonoConfigUtilityBase`）——「清单预载 → 抽象工厂构造 → Utility 持表自加载」的后端无关编排，配置做成全层可读的服务 Utility（不占 Model 层、不拆 System），**不引用 Luban**（接触面在项目侧子类工厂与生成代码，ADR-0009）。`autoReferenced:false`，在热更列表 |
 | `Game.Framework.Config.Editor` | `Framework/Config/Editor/` | 配置表生成管线（`LubanConfigProfile` / `LubanCodeGenerator` / `LubanBuildMenu`）：封装 Luban CLI，产出代码 + 数据 + 表清单。无第三方 Unity 依赖，独立 editor asmdef 让整个 `Config/` 目录可整块删除。`includePlatforms:["Editor"]` |
 | `Game.Framework.Boot` | `Framework/Boot/` | 热更引导薄壳（`HotUpdateLauncher` / `HotUpdateManifest`）。**AOT 永远**；只引用 UniTask / YooAsset / HybridCLR.Runtime，**永不引用框架任何部分**（否则框架没法热更） |
 | `Game.Framework.Editor` | `Framework/Editor/` | 通用编辑器代码：`RPDrawer` / `AssetReferenceDrawer` / 菜单。`includePlatforms:["Editor"]` |

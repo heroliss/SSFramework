@@ -1,20 +1,25 @@
+using Game.Framework.Internal;
+
 namespace Game.Framework.Utility
 {
     /// <summary>
-    /// Utility 层标记接口。无状态工具——把"通用计算"和"业务逻辑"分开。
+    /// Utility 层标记接口。**基础设施服务层**——把"各层共用的能力 / 服务"与"业务逻辑"分开，所有层都可直接取用。
     /// </summary>
     /// <remarks>
-    /// <b>职责：</b>提供纯函数能力（加密、格式化、序列化、随机数、坐标变换…），所有层都可直接调用。<br/>
-    /// <b>谁该用：</b>所有"不依赖游戏状态、可以在任何上下文里跑相同结果"的工具代码。<br/>
+    /// <b>职责：</b>提供各层共用的能力——既有纯函数工具（加密、格式化、序列化、坐标变换…），也有
+    /// **持有服务级状态**的基础设施（资源系统 <c>IAssetUtility</c> 的包状态、UI <c>IUIUtility</c> 的窗口栈、
+    /// 对象池、配置表数据等）。各层经 <c>GetUtility</c> / <c>[Inject]</c> 取用（含 View）。<br/>
     /// <b>边界：</b>
     /// <list type="bullet">
-    ///   <item>Utility <b>不持有业务状态</b>——存了状态就该升级为 Model 或 System。</item>
-    ///   <item>Utility 不读 Model/System，避免"工具反向依赖业务"的耦合。</item>
+    ///   <item>Utility <b>不读 Model/System</b>——不反向依赖业务状态，保持"基础设施不黏业务"。</item>
+    ///   <item>Utility <b>可取其他 Utility</b>（<c>IUtility : ICanGetUtility</c>）——基础设施可互相组合
+    ///         （如配置表服务取资源服务来加载数据），与 <c>ISystem : ICanGetSystem</c> 对称。</item>
+    ///   <item>纯函数工具天然无状态；**持有状态的"服务型" Utility 是刻意允许的**（资源/UI/池/配置即是），不是反模式。</item>
     ///   <item>命名空间约定：公共工具放 <c>Game.Framework.Utility</c>；层专用工具按子命名空间分（如 <c>Game.Framework.System.Utility</c>），由 <c>using</c> 控制可见范围。</item>
-    ///   <item>Mono 路径用 <see cref="Game.Framework.Utility.MonoUtilityBase"/>（仅当需要 Inspector 配置或 Unity 生命周期时）；纯 C# 路径用 <c>builder.RegisterValue</c> 直接注册。</item>
+    ///   <item>Mono 路径用 <see cref="Game.Framework.Utility.MonoUtilityBase"/>（需 Inspector 配置 / Unity 生命周期 / 持有状态时）；纯无状态工具用 <c>builder.RegisterValue</c> 直接注册。</item>
     /// </list>
     /// </remarks>
-    public interface IUtility
+    public interface IUtility : ICanGetUtility
     {
     }
 }

@@ -1604,7 +1604,7 @@ Bag.Subscribe(
 
 ## 16. 配置表（Luban）
 
-表定义（XML）与数据（JSON / Excel）放在一处 conf 源目录（demo 那套在 `Assets/Game/Framework/Demo/Configs~/`，`~` 后缀让 Unity 不导入、纯构建期输入）→ 菜单跑 Luban CLI 生成**配置 C# 类 + 二进制数据 + 表清单** → 运行期三段式加载，数据文件随资源包打包与热更。设计原理与取舍见 ADR-0009；源 / 输出目录在模块里怎么摆见 §18「推荐项目结构」。
+表定义（XML）与数据（JSON / Excel）放在一处 conf 源目录（demo 那套在 `Assets/Game/Framework/Demo/Configs~/`，`~` 后缀让 Unity 不导入、纯构建期输入）→ 菜单跑 Luban CLI 生成**配置 C# 类 + 二进制数据 + 表清单** → 运行期由一个自加载的配置 Utility 服务持表，数据文件随资源包打包与热更。设计原理与取舍见 ADR-0009；源 / 输出目录在模块里怎么摆见 §18「推荐项目结构」。
 
 > **多套并存**：每套配置 = 一个 `LubanConfigProfile`（各自的 conf 源 + 输出目录 + topModule，互不干扰）。demo 与正式游戏可各一套——`LubanConfigProfile.ResolveAll()` 返回全部、菜单「生成」逐套生成，多套集中管理用「配置总览」窗口。demo 那套（源 / 代码 / 数据全在 `Demo/` 内）随 demo 程序集与样例资源包在正式打包时一并排除。
 
@@ -1616,28 +1616,27 @@ Bag.Subscribe(
 |---|---|---|
 | 配置 C# 类（`Tables` / `TbXxx` / bean） | 生成代码目录（归业务 / demo 程序集） | 业务代码强类型查表 |
 | 二进制数据（`*.bytes`） | 资源收集范围内的目录（普通资源收集，按文件名寻址） | 运行期按 TextAsset 加载取字节 |
-| 表清单（`LubanTableManifest.g.cs`） | 随生成代码 | 初始化 System 据此并行预载 |
+| 表清单（`LubanTableManifest.g.cs`） | 随生成代码 | 配置服务据此并行预载 |
 
 **为什么要表清单**：生成的 `Tables` 构造函数是**同步**逐表向 loader 要字节，而框架资源加载是异步——先按清单把全部数据文件并行预载进内存，再用同步取字节的委托一次性构造。清单与代码/数据同一次生成（`LubanCodeGenerator` 在 CLI 跑完后扫数据目录产出），不存在手工维护漏表，机制同热更代码包的 manifest。
 
-### 运行期三段式（镜像资源系统）
+### 运行期：自加载的配置服务（Utility）
 
 | 角色 | 层 | 职责 |
 |---|---|---|
-| `MonoConfigModelBase<TTables>` 子类 | Model | 持有 `Tables` 实例 + `ConfigInitState` 加载状态，自动按 `IConfigModel<TTables>` 接口注册 |
-| `MonoConfigInitSystemBase<TTables>` 子类 | System | 编排：清单并行预载 → 调子类工厂构造 → 写入 Model、置 Ready |
+| `MonoConfigUtilityBase<TTables>` 子类 | Utility | 自加载：清单并行预载 → 调子类工厂构造 → 持有 `Tables` + `ConfigInitState`，自动按 `IConfigUtility<TTables>` 接口注册，对各层只读暴露 |
 
-没有 Utility 层——查询直接用生成的 `Tables` 强类型 API（`TbItem.Get(id)` / `DataList`），框架包一层只会更难用。业务取表统一经接口：
+配置是静态只读引用数据（生成的 `Tables` 本就是数据模型），不占 Model 层、也不像资源系统那样拆「Model + InitSystem」——配置加载没有多包 / CDN / 下载的复杂度，一个自加载 Utility 够了。各层（含 View）直读，查询直接用生成的 `Tables` 强类型 API（`TbItem.Get(id)` / `DataList`），框架不再包查询层：
 
 ```csharp
-// System / class Command 里
-var tables = this.GetModel<IConfigModel<Tables>>().Tables.CurrentValue;
-// View 经只读查询 Command（配置是只读数据，View 拿到也只能查）
-public readonly struct GetConfigTablesCommand : ICommand<ReadOnlyReactiveProperty<Tables>>
-{
-    public ReadOnlyReactiveProperty<Tables> Execute(ICommandContext ctx)
-        => ctx.GetModel<IConfigModel<Tables>>().Tables;
-}
+// 各层（System / class Command / View）统一直读：
+var config = this.GetUtility<IConfigUtility<Tables>>();
+var item = config.Tables?.TbItem.Get(id);   // Tables 是普通取值（只读、加载后不变，无 .CurrentValue），null 即未就绪
+// 也可 [Inject] 字段（View / Model / System 都有 ICanGetUtility）：
+//   [Inject] private IConfigUtility<Tables> _config;
+// 等就绪：订阅 State，不要轮询 Tables 判空
+Bag.Subscribe(config.State, s => { if (s == ConfigInitState.Ready) Refresh(); });
+// struct Command 里经 ctx：ctx.GetUtility<IConfigUtility<Tables>>().Tables
 ```
 
 ### 新项目接入步骤

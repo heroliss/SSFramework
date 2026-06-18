@@ -1038,7 +1038,6 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1445504062}
-  - component: {fileID: 1445504064}
   - component: {fileID: 1445504063}
   m_Layer: 0
   m_Name: ConfigSystem
@@ -1071,9 +1070,9 @@ MonoBehaviour:
   m_GameObject: {fileID: 1445504061}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 31c0b46e4b0c09f4c8a6a89f8e097732, type: 3}
+  m_Script: {fileID: 11500000, guid: a7e2727bc4ce8a348a4d3bdeca44d0d6, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Game.Framework.Demo::Game.Framework.Demo.Config.DemoConfigInitSystem
+  m_EditorClassIdentifier: Game.Framework.Demo::Game.Framework.Demo.Config.DemoConfigUtility
   serializationData:
     SerializedFormat: 2
     SerializedBytes: 
@@ -1088,32 +1087,6 @@ MonoBehaviour:
       Data: 
   _packageName: 
   _initializePackageIfIdle: 1
---- !u!114 &1445504064
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1445504061}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: cc1965814bb90ff478ce6c3f018790ac, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Game.Framework.Demo::Game.Framework.Demo.Config.DemoConfigModel
-  serializationData:
-    SerializedFormat: 2
-    SerializedBytes: 
-    ReferencedUnityObjects: []
-    SerializedBytesString: 
-    Prefab: {fileID: 0}
-    PrefabModificationsReferencedUnityObjects: []
-    PrefabModifications: []
-    SerializationNodes:
-    - Name: _targetContext
-      Entry: 6
-      Data: 
-  <State>k__BackingField:
-    value: 0
 --- !u!1 &1499793785
 GameObject:
   m_ObjectHideFlags: 0

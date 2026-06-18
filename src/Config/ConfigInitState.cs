@@ -1,7 +1,7 @@
 namespace Game.Framework
 {
     /// <summary>
-    /// 配置表加载状态。由配置初始化 System 写入、挂在配置 Model 上供业务订阅（启动界面等待、失败提示）。
+    /// 配置表加载状态。由配置服务（<c>MonoConfigUtilityBase</c>）在加载过程中写入，供业务订阅（启动界面等待、失败提示）。
     /// </summary>
     public enum ConfigInitState
     {
