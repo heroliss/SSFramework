@@ -60,7 +60,8 @@ namespace Game.Framework.Demo.Modules
             host.AddNote("校验「AOT 不引用热更」（违规逐条指出元凶与修法）并展示自动拓扑排序的加载顺序——这是构建管线在编辑器侧真实存在的部分，与真机无关，可以现场跑。");
             host.AddActionRow("校验热更程序集列表（弹窗显示结果）", () => RunMenu(ValidateMenu),
                 new CodeRef("Assets/Game/Framework/Build/Editor/HotUpdateAssemblyGraph.cs", "class HotUpdateAssemblyGraph", "引用图校验 + 拓扑排序"));
-            host.AddActionRow("定位热更配置（FrameworkHotUpdateProfile）", () => RunMenu(ProfileMenu));
+            host.AddActionRow("定位热更配置（FrameworkHotUpdateProfile）", () => RunMenu(ProfileMenu),
+                new CodeRef("Assets/Game/Framework/Build/Editor/FrameworkHotUpdateProfile.cs", "class FrameworkHotUpdateProfile", "热更配置定义"));
 
             host.AddTip("深度阅读：docs/framework-guide.md §15（用法手册）、docs/adr/0008（设计取舍与已验证边界）。");
         }

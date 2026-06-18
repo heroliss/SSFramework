@@ -107,7 +107,8 @@ namespace Game.Framework.Demo.Modules
             host.AddStep("②", "菜单「SSFramework/配置表构建/生成全部」：代码 / 数据 / 清单一次刷新（Play 中会被拒绝，先停）。");
             host.AddStep("③", "重新 Play 查看——配置在启动时一次性加载（只读数据不做运行中增量更新）。");
             host.AddActionRow("打开表定义与数据目录（Demo/Configs~/）", () => OpenConfigSource());
-            host.AddActionRow("生成配置代码 + 数据（真实跑 Luban CLI）", () => RunMenu(GenerateMenu));
+            host.AddActionRow("生成配置代码 + 数据（真实跑 Luban CLI）", () => RunMenu(GenerateMenu),
+                new CodeRef("Assets/Game/Framework/Config/Editor/LubanCodeGenerator.cs", "class LubanCodeGenerator", "生成管线（跑 Luban CLI + 写清单）"));
 
             // ── demo 与正式游戏并存 ──
             host.AddSectionTitle("多套配置并存：demo 是一套自洽样例");

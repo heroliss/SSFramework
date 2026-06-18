@@ -45,7 +45,8 @@ namespace Game.Framework.Demo.Modules
             host.AddActionRow("分数 +1", () => this.ExecuteCommand(new RaiseMonoScoreCommand()),
                 new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/Support/MonoScoreModel.cs", "class MonoScoreModel", "MonoScoreModel"));
 #if UNITY_EDITOR
-            host.AddActionRow("选中到 Inspector", SelectMonoModelInInspector);
+            host.AddActionRow("选中到 Inspector", SelectMonoModelInInspector,
+                new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/Support/MonoScoreModel.cs", "class MonoScoreModel", "Mono Model 定义"));
 #endif
             host.AddTip("MonoScoreModel 挂成 demo 根 Context 子树里的场景节点（ChapterAssets/ScoreModel），Awake 自动注册进同一个 Context——不用写一行注册代码。"
                 + "点「选中到 Inspector」：运行时不仅能看 RP 分数随按钮实时跳动，还能反过来——在 Inspector 里直接改这个值，上方 UI 分数会同步刷新："
