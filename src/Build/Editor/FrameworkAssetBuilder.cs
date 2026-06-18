@@ -156,7 +156,7 @@ namespace Game.Framework.Build
                         continue;
                     }
 
-                    var result = BuildPackage(pkg, entry, version, target);
+                    var result = BuildPackage(pkg, entry, profile, version, target);
                     if (result.Success)
                     {
                         built.Add(pkg);
@@ -236,7 +236,7 @@ namespace Game.Framework.Build
             }
         }
 
-        private static BuildResult BuildPackage(string packageName, PackageBuildEntry entry, string version, BuildTarget target)
+        private static BuildResult BuildPackage(string packageName, PackageBuildEntry entry, FrameworkAssetBuildProfile profile, string version, BuildTarget target)
         {
             // 缺配置时回退到「真实包」默认（开 shader 包 / 按 tag 拷首包 / 不内置）。
             bool genShaderBundle = entry?.GenerateBuiltinShaderBundle ?? true;
@@ -244,6 +244,10 @@ namespace Game.Framework.Build
             string builtinTags = entry?.BuiltinTags ?? "";
             if (entry == null)
                 Debug.LogWarning($"[AssetBuilder] 包 '{packageName}' 不在构建 profile 中，使用默认参数。建议把它加进 profile（或用「同步收集器包列表」）。");
+
+            // 全局构建设置（压缩 / 文件名风格）取自 profile，无 profile 时回退常量默认；其余（构建管线 / bundle 类型 / 输出路径）是框架不变量，写死不开放。
+            var compress = profile != null ? profile.Compression : Compress;
+            var fileNameStyle = profile != null ? profile.FileNameStyle : FileNameStyle;
 
             var buildParameters = new ScriptableBuildParameters
             {
@@ -256,8 +260,8 @@ namespace Game.Framework.Build
                 PackageVersion = version,
                 EnableSharePackRule = true,
                 VerifyBuildingResult = true,
-                FileNameStyle = FileNameStyle,
-                CompressOption = Compress,
+                FileNameStyle = fileNameStyle,
+                CompressOption = compress,
                 BundledCopyOption = builtinCopy,
                 // tags 为空 = 零内置：传一个不会命中任何 bundle 的占位 tag 显式表达，不依赖 YooAsset 对空串按 ';' 切分的行为。
                 BundledCopyParams = string.IsNullOrEmpty(builtinTags) ? "__builtin_none__" : builtinTags,

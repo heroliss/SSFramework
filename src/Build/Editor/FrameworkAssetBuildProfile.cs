@@ -5,7 +5,8 @@ using System.Text;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.Serialization;
-using YooAsset.Editor; // BundleCollectorSettingData / EBundledCopyOption
+using YooAsset;        // EFileNameStyle
+using YooAsset.Editor; // BundleCollectorSettingData / EBundledCopyOption / ECompressOption
 
 namespace Game.Framework.Build
 {
@@ -38,6 +39,12 @@ namespace Game.Framework.Build
         [FormerlySerializedAs("BundleVersionsToKeep")]
         [Min(1)] [SerializeField] private int _bundleVersionsToKeep = 2;
 
+        [Tooltip("Bundle 压缩方式（对所有包生效）。\nLZ4 = 体积 / 加载速度平衡（默认，推荐）；LZMA = 最小体积但解压慢、首次加载卡；Uncompressed = 加载最快、体积最大。")]
+        [SerializeField] private ECompressOption _compression = ECompressOption.LZ4;
+
+        [Tooltip("Bundle 文件名风格（对所有包生效）。\nHashName = 纯哈希名（默认，天然防缓存碰撞）；其余见 YooAsset EFileNameStyle。")]
+        [SerializeField] private EFileNameStyle _fileNameStyle = EFileNameStyle.HashName;
+
         [Header("本地联调（不入库，仅本机测 Host）")]
         [Tooltip("本地 CDN 服务端口（python http 服务，伺服 AssetBuild/Deploy）。⚠ 必须与场景 AssetSystemConfigModel.CdnUrls 第一条（主）的端口一致，Host 才能下到东西。")]
         [FormerlySerializedAs("LocalServePort")]
@@ -51,6 +58,12 @@ namespace Game.Framework.Build
 
         /// <summary>Bundles 每个包保留的最近版本数（构建后清理更旧的版本目录）。</summary>
         public int BundleVersionsToKeep => _bundleVersionsToKeep;
+
+        /// <summary>Bundle 压缩方式（全局，对所有包生效）。框架固定不变量（构建管线 / bundle 类型 / 输出路径）仍写死在构建器里，不开放。</summary>
+        public ECompressOption Compression => _compression;
+
+        /// <summary>Bundle 文件名风格（全局，对所有包生效）。</summary>
+        public EFileNameStyle FileNameStyle => _fileNameStyle;
 
         /// <summary>本地 CDN 服务端口（联调专用，须与 AssetSystemConfigModel.CdnUrls 主地址端口一致）。</summary>
         public int LocalServePort => _localServePort;
