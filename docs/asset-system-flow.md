@@ -1,7 +1,7 @@
 # 资源系统全流程（初始化 / 加载 / 下载缓存）
 
 > 速查图谱：资源系统在「进游戏 → 加载资源 → 下载/清缓存」各阶段到底发生了什么、哪步联网、哪步会抛/返 null。
-> 配套：使用约定见 [`Assets/Game/AGENTS.md` §19](../Assets/Game/AGENTS.md)，底层库踩坑见 [`docs/yooasset-pitfalls.md`](yooasset-pitfalls.md)，原生 API 改造背景见 [ADR 0013](adr/0013-yooasset-native-rewrite.md)。
+> 配套：使用约定见 [`Assets/Game/AGENTS.md` §19](../Assets/Game/AGENTS.md)，底层库踩坑见 [`docs/yooasset-pitfalls.md`](yooasset-pitfalls.md)，原生 API 改造背景见 [ADR 0013](adr/0013-yooasset-native-rewrite.md)，资源加密 / 构建过程开关见 [`docs/asset-encryption.md`](asset-encryption.md)。
 > 三层职责拆分（Model/System/Utility）与代码位置见 [`docs/framework-guide.md`](framework-guide.md)。
 
 ---

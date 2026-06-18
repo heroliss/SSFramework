@@ -26,10 +26,33 @@ namespace Game.Framework.Build
     {
         private const string Root = "SSFramework/资源构建/";
 
+        // 「构建用资源依赖数据库（加速收集）」的持久开关：本机构建过程的提速旋钮，不进产物、不入库，
+        // 所以放 EditorPrefs（每机器一份）而非构建 profile（profile 只放会随产物发布的内容配置）。
+        // key 带工程路径限定，避免同机器多工程互相串台。
+        private static string UseDependencyDBPrefKey => "SSFramework.AssetBuild.UseAssetDependencyDB." + UnityEngine.Application.dataPath;
+        private static bool UseDependencyDB
+        {
+            get => EditorPrefs.GetBool(UseDependencyDBPrefKey, false);
+            set => EditorPrefs.SetBool(UseDependencyDBPrefKey, value);
+        }
+
         // ───────────── 1/2/3：构建 → 部署 → 起服务（拆开） ─────────────
 
         [MenuItem(Root + "1. 构建资源包", priority = 1)]
-        private static void Menu_Build()
+        private static void Menu_Build() => RunBuild(clearBuildCache: false);
+
+        [MenuItem(Root + "1b. 全量重建（清构建缓存）", priority = 1)]
+        private static void Menu_FullRebuild()
+        {
+            if (!EditorUtility.DisplayDialog("全量重建",
+                    "将清掉 SBP 增量构建缓存后【全量】重建所有启用的包——比平时慢得多，仅在怀疑增量缓存损坏 / 产物异常时用。继续？",
+                    "全量重建", "取消"))
+                return;
+            RunBuild(clearBuildCache: true);
+        }
+
+        // 构建实操（菜单两个构建入口共用）：依赖数据库开关读 EditorPrefs（本机持久），清缓存按入口决定。
+        private static void RunBuild(bool clearBuildCache)
         {
             if (!FrameworkAssetBuilder.EnsureReadyToBuild()) return;
 
@@ -37,7 +60,8 @@ namespace Game.Framework.Build
             var packages = profile.EnabledPackageNames.ToList();
             string version = profile.ResolveVersionNow();
 
-            var (ok, message) = FrameworkAssetBuilder.Build(profile, packages, version);
+            var (ok, message) = FrameworkAssetBuilder.Build(
+                profile, packages, version, clearBuildCache, UseDependencyDB);
             Debug.Log("[资源构建] 构建：\n" + message);
             if (ok) EditorUtility.RevealInFinder(AssetBuildLayout.BundlesRoot);
             EditorUtility.DisplayDialog(ok ? "构建完成" : "构建有失败项", message, "好");
@@ -82,6 +106,18 @@ namespace Game.Framework.Build
             Selection.activeObject = profile;
             EditorGUIUtility.PingObject(profile);
             EditorUtility.DisplayDialog("同步完成", summary, "好");
+        }
+
+        // 勾选式开关：构建时是否用「资源依赖缓存数据库」加速收集阶段（YooAsset UseAssetDependencyDB）。
+        // 本机持久（EditorPrefs），影响上面两个构建入口；勾上提速、产物不变。CI 上用 -useAssetDependencyDB 单独控制（EditorPrefs 不随仓库走）。
+        [MenuItem(Root + "构建用资源依赖数据库 (加速收集)", priority = 22)]
+        private static void Menu_ToggleDependencyDB() => UseDependencyDB = !UseDependencyDB;
+
+        [MenuItem(Root + "构建用资源依赖数据库 (加速收集)", validate = true)]
+        private static bool Menu_ToggleDependencyDB_Validate()
+        {
+            Menu.SetChecked(Root + "构建用资源依赖数据库 (加速收集)", UseDependencyDB);
+            return true;
         }
 
         // ───────────── 打开目录（菜单名只写用途，不写死文件夹名） ─────────────
