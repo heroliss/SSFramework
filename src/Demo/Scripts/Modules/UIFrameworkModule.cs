@@ -106,9 +106,10 @@ namespace Game.Framework.Demo.Modules
                 new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/PrefabBinding/Generated/DemoUGuiPrefabCounterWindowVariant.nodes.g.cs", "ResetButton", "变体增量绑定（nodes.g.cs）"));
 
             host.AddSectionTitle("生成产物落点 · 目录级生成配置");
-            host.AddNote("注意上面两张 prefab 窗口的绑定代码并没有散落在全工程默认的 `Modules/Generated/`，而是和窗口逻辑待在同一个 `Modules/PrefabBinding/` 文件夹里——"
-                + "这是「目录级生成配置」做的：在 prefab 旁边（`Res/`）放一个 `UICodeGenDirConfig` 资产，把这两个 prefab 的输出 / 生成目录重定向到模块自己的文件夹，整块代码不再和别的模块混在一起。");
-            host.AddSubNote("配置按 **prefab 所在目录向上**生效，逐字段覆盖：命名空间 / 逻辑目录 / 生成目录 / 文件名，每项「留空 = 继承上层」，一路回退到全工程 `UICodeGenProfile`。"
+            host.AddNote("注意上面两张 prefab 窗口的绑定代码并没有落到全工程默认目录（正式游戏的 `Assets/Game/Main/UI`），而是和窗口逻辑待在同一个 `Modules/PrefabBinding/` 文件夹里——"
+                + "这是「目录级生成配置」做的：在被管 prefab 的**非收集祖先目录**（demo 放在模块根 `Demo/`，资产名 `DemoUICodeGenDirConfig`；放 `Res/` 会被打进资源包）放一个 `UICodeGenDirConfig` 资产，把这两个 prefab 的命名空间 / 逻辑目录 / 生成目录 / 文件名整套重定向到 demo 自己的位置。");
+            host.AddSubNote("配置按 **prefab 所在目录向上**生效，逐字段覆盖：命名空间 / 逻辑目录 / 生成目录 / 文件名，每项「留空 = 继承上层」，一路回退到全工程 `UICodeGenProfile`（现为正式游戏默认值）。"
+                + "本 demo 那份**四项全填、完全自洽**——所以全局默认改成正式游戏设置后，demo 的绑定代码依旧落在 demo 目录、命名空间也仍是 `Game.Framework.Demo.Modules`，不受影响。"
                 + "于是「按模块分目录 / 分命名空间」既不用改生成器、也不用每个 prefab 单独设——把一个配置丢进目录，该目录（及子目录）下的 prefab 重新生成时就自动跟着走。",
                 new CodeRef("Assets/Game/Framework/UI.UGui/Editor/UICodeGenDirConfig.cs", "class UICodeGenDirConfig", "UICodeGenDirConfig · 目录级生成配置"));
         }

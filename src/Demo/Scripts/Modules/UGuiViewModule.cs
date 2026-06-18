@@ -33,7 +33,7 @@ namespace Game.Framework.Demo.Modules
                 var go = Object.Instantiate(assets.ViewPrefab, assets.transform);
 #if UNITY_EDITOR
                 // 弹出即选中它，方便立刻在 Inspector 看 MonoViewBase 的 Resolved Context（它绑定到的 Context）。
-                SelectInInspector(go);
+                DemoEditorNav.PingSceneObject(go);
 #endif
             }, new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/Support/UGuiDemoView.cs", "class UGuiDemoView", "UGuiDemoView · 真实 View"));
             host.AddNote("弹窗里：「+1」经 `ExecuteCommand` 写、文字只读订阅查询 Command；「Close」销毁自己——`Bag` 随之 `Dispose`，订阅退订。",
@@ -46,7 +46,7 @@ namespace Game.Framework.Demo.Modules
             host.AddActionRow("选中它绑定的 Context（demo 根）", () =>
             {
                 var ctx = Object.FindFirstObjectByType<MonoDemoContext>();
-                if (ctx != null) SelectInInspector(ctx.gameObject);
+                if (ctx != null) DemoEditorNav.PingSceneObject(ctx.gameObject);
             }, new CodeRef("Assets/Game/Framework/Demo/Scripts/Core/MonoDemoContext.cs", "class MonoDemoContext", "demo 根 Context 定义"));
             host.AddTip("弹出后会自动选中这个 View——在 Inspector 顶部看 MonoViewBase 的 “Resolved Context”，就是它绑定到的 Context（正是 demo 根的 MonoDemoContext）。");
 #endif
@@ -70,14 +70,6 @@ namespace Game.Framework.Demo.Modules
                 + "真实业务界面通常用 authored 资产（UGUI prefab，或 UI Toolkit 的 UXML + UI Builder），代码只负责接线；命令式搭 UI 适合这种动态生成的特例，别把外壳的写法当成框架推荐。");
         }
 
-#if UNITY_EDITOR
-        // 编辑器便利：选中并高亮场景对象，方便去 Inspector 看（如 View 的 Resolved Context）。纯 demo 导航，非框架用法。
-        private static void SelectInInspector(GameObject go)
-        {
-            UnityEditor.Selection.activeObject = go;
-            UnityEditor.EditorGUIUtility.PingObject(go);
-        }
-#endif
     }
 
 }

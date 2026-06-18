@@ -55,7 +55,7 @@ namespace Game.Framework.Demo.Modules
 #if UNITY_EDITOR
             host.AddActionRow("定位资源系统配置节点（AssetSystem）", () =>
             {
-                if (settingsModel != null) PingSceneObject(settingsModel.gameObject);
+                if (settingsModel != null) DemoEditorNav.PingSceneObject(settingsModel.gameObject);
             });
 #endif
             host.AddNote("资源系统是 MVCS 三层：`AssetSystemConfigModel`（配置：默认包 / PlayMode / CDN）→ `AssetInitSystem`（进游戏逐包初始化）→ `AssetUtility`（加载 API），挂在同一 `Context` 节点（上面按钮可定位）。业务只经 `this.GetUtility<IAssetUtility>()` / `Bag.Load` 访问。");
@@ -131,7 +131,7 @@ namespace Game.Framework.Demo.Modules
             }, CodeRef.Here("asset.UnloadUnusedAssets()", "卸载无用内存 bundle"));
 #if UNITY_EDITOR
             host.AddActionRow("定位 Logo 资产（被加载的源资源）", () =>
-                PingAsset("Assets/Game/Framework/Branding/SSFramework-Logo.png"));
+                DemoEditorNav.PingAsset("Assets/Game/Framework/Branding/SSFramework-Logo.png"));
 #endif
             host.AddNote("`Bag.Load<T>(location)` 借来的资源 handle 进 `Bag`，切走本章 `Bag.Dispose` 自动释放，业务不持有句柄。想提前释放某批句柄，就像本节这样开个 `Bag.CreateChild()` 子 Bag 装它们、需要时 `Dispose`（再 `CreateChild` 重建）。`Bag.Load` 是泛型：prefab 用 `GameObject`、场景用 `LoadScene`；`LoadText` / `LoadBytes` 则是**内容直读**——拷出即释放句柄、不进 Bag（文本类资产 .bytes/.txt 等适用）。跨包用带 `packageName` 的重载（见下）。");
             host.AddSubNote("**释放分三层**，清哪层退到哪层：① `Unload` / `Dispose` 释放 handle → 引用归零但 bundle **还在内存**（所以「释放 Logo」后再加载仍秒出）；② `UnloadUnusedAssets` 把零引用 bundle **从内存卸掉**（上面按钮）；③ `ClearCache` 删**磁盘**下载缓存（见下方·下载）。要逼资源真正重新下载：释放 handle → 卸内存 → 清磁盘 → 再 Load。");
@@ -222,7 +222,7 @@ namespace Game.Framework.Demo.Modules
 #if UNITY_EDITOR
             host.AddActionRow("定位资源引用配置节点（DemoAssetRefs）", () =>
             {
-                if (refs != null) PingSceneObject(refs.gameObject);
+                if (refs != null) DemoEditorNav.PingSceneObject(refs.gameObject);
             }, new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/Support/DemoAssetRefs.cs", "class DemoAssetRefs", "资源引用节点定义"));
 #endif
 
@@ -282,7 +282,7 @@ namespace Game.Framework.Demo.Modules
                 new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/Support/DemoAssetConfig.cs", "class DemoAssetConfig", "DemoAssetConfig 定义"));
 #if UNITY_EDITOR
             host.AddActionRow("定位 DemoAssetConfig 资产（被加载的配置 SO）", () =>
-                PingAsset("Assets/Game/Framework/Demo/Res/DemoAssetConfig.asset"),
+                DemoEditorNav.PingAsset("Assets/Game/Framework/Demo/Res/DemoAssetConfig.asset"),
                 new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/Support/DemoAssetConfig.cs", "class DemoAssetConfig", "配置 SO 定义"));
 #endif
 
@@ -478,23 +478,5 @@ namespace Game.Framework.Demo.Modules
             p.style.backgroundColor = new Color(0.12f, 0.13f, 0.16f, 1f);
             return p;
         }
-
-#if UNITY_EDITOR
-        // 在 Project 窗口高亮定位一个工程资产（被加载的源资源 / 配置 SO）。
-        private static void PingAsset(string assetPath)
-        {
-            var obj = UnityEditor.AssetDatabase.LoadMainAssetAtPath(assetPath);
-            if (obj != null) { UnityEditor.Selection.activeObject = obj; UnityEditor.EditorGUIUtility.PingObject(obj); }
-            else Debug.LogWarning("[Demo] 没找到资产：" + assetPath);
-        }
-
-        // 在 Hierarchy 高亮定位一个场景节点（AssetSystem 配置节点 / 资源引用配置节点）。
-        private static void PingSceneObject(GameObject go)
-        {
-            if (go == null) return;
-            UnityEditor.Selection.activeObject = go;
-            UnityEditor.EditorGUIUtility.PingObject(go);
-        }
-#endif
     }
 }

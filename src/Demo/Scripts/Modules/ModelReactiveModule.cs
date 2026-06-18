@@ -65,11 +65,7 @@ namespace Game.Framework.Demo.Modules
         private static void SelectMonoModelInInspector()
         {
             var model = Object.FindFirstObjectByType<MonoScoreModel>();
-            if (model != null)
-            {
-                UnityEditor.Selection.activeObject = model.gameObject;
-                UnityEditor.EditorGUIUtility.PingObject(model.gameObject);
-            }
+            if (model != null) DemoEditorNav.PingSceneObject(model.gameObject);
         }
 #endif
     }

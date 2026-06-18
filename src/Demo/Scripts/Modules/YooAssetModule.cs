@@ -99,10 +99,10 @@ namespace Game.Framework.Demo.Modules
                 new CodeRef("Assets/Game/Framework/Scripts/Asset/AssetSystemConfigModel.cs", "CdnUrls", "运行时 CDN 配置"));
 #if UNITY_EDITOR
             host.AddActionRow("定位 Collector 分包配置（构建按它执行）", () =>
-                PingAsset("Assets/Game/Framework/Settings/AssetBundleCollectorSetting.asset"));
+                DemoEditorNav.PingAsset("Assets/Game/Framework/Settings/AssetBundleCollectorSetting.asset"));
             host.AddActionRow("定位 AssetSystem 配置节点（切 PlayMode 在这）", () =>
             {
-                if (settingsModel != null) PingSceneObject(settingsModel.gameObject);
+                if (settingsModel != null) DemoEditorNav.PingSceneObject(settingsModel.gameObject);
             }, new CodeRef("Assets/Game/Framework/Scripts/Asset/AssetSystemConfigModel.cs", "class AssetSystemConfigModel", "资源系统配置(Model)"));
 #endif
             host.AddTip("两个最常踩的坑：① 平台——AssetBundle 按平台区分，且编辑器进程本身是 Windows，加载不了为 Android 等移动平台构建的 bundle；要在编辑器里测 Host，先把 Build Target 切到 Standalone Windows 再重新构建，测移动平台请上真机。② 顺序——必须先「构建+部署 CDN」再进 Play：init 只在进游戏时跑一次，先进 Play 会因 StreamingAssets 内置清单缺失而 404 失败，补构建后也要重进 Play 才生效。");
@@ -120,22 +120,6 @@ namespace Game.Framework.Demo.Modules
         }
 
 #if UNITY_EDITOR
-        // 「定位」系列编辑器便利：把配置文件 / 场景节点 / 目录一键高亮，做出导览感。
-
-        private static void PingAsset(string assetPath)
-        {
-            var obj = UnityEditor.AssetDatabase.LoadMainAssetAtPath(assetPath);
-            if (obj != null) { UnityEditor.Selection.activeObject = obj; UnityEditor.EditorGUIUtility.PingObject(obj); }
-            else Debug.LogWarning("[Demo] 没找到资产：" + assetPath);
-        }
-
-        private static void PingSceneObject(GameObject go)
-        {
-            if (go == null) return;
-            UnityEditor.Selection.activeObject = go;
-            UnityEditor.EditorGUIUtility.PingObject(go);
-        }
-
         // 部署目录 / 下载缓存目录都取自 AssetBuildLayout（构建目录单一真源），避免在 demo 里另写死路径再次漂移。
         private static void RevealCdnDir() =>
             UnityEditor.EditorUtility.RevealInFinder(AssetBuildLayout.DeployRoot);
