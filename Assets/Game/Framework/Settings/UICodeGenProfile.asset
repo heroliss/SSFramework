@@ -12,9 +12,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d28a78b3091b6894ca79e8354e16183f, type: 3}
   m_Name: UICodeGenProfile
   m_EditorClassIdentifier: Game.Framework.UI.UGui.Editor::Game.Framework.UI.UGui.Editor.UICodeGenProfile
-  _outputCodeDir: Assets/Game/Framework/Demo/Scripts/Modules
-  _generatedCodeDir: Assets/Game/Framework/Demo/Scripts/Modules/Generated
-  _namespaceRoot: Game.Framework.Demo.Modules
+  _namespaceRoot: Game.Main.UI
+  _outputCodeDir: Assets/Game/Main/UI
+  _generatedCodeDir: Assets/Game/Main/UI/Generated
+  _fileNameTemplate: '{PrefabName}'
   _builtinComponentPriority:
   - UnityEngine.UI.Button
   - UnityEngine.UI.Toggle
@@ -63,4 +64,4 @@ MonoBehaviour:
     Alias: input
   - Component: CanvasGroup
     Alias: cg
-  _autoAssignVariantScript: 1
+  _autoAssignWindowScript: 1

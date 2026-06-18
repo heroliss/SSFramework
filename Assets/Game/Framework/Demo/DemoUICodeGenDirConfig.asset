@@ -10,9 +10,9 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fec5789fe1a620740b0aaa582f792a7a, type: 3}
-  m_Name: UICodeGenDirConfig
+  m_Name: DemoUICodeGenDirConfig
   m_EditorClassIdentifier: Game.Framework.UI.UGui.Editor::Game.Framework.UI.UGui.Editor.UICodeGenDirConfig
-  _namespaceOverride: 
+  _namespaceOverride: Game.Framework.Demo.Modules
   _outputDirOverride: Assets/Game/Framework/Demo/Scripts/Modules/PrefabBinding
   _generatedDirOverride: Assets/Game/Framework/Demo/Scripts/Modules/PrefabBinding/Generated
-  _fileNameOverride: 
+  _fileNameOverride: '{PrefabName}'

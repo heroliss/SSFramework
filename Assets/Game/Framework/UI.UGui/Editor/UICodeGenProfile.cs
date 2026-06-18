@@ -117,7 +117,8 @@ namespace Game.Framework.UI.UGui.Editor
             }
 
             var profile = CreateInstance<UICodeGenProfile>();
-            const string path = "Assets/Game/Framework/UI.UGui/Editor/UICodeGenProfile.asset";
+            // 落在框架配置目录（与收集器设置同住），而非编辑器代码目录——配置资产不混进纯代码目录。
+            const string path = "Assets/Game/Framework/Settings/UICodeGenProfile.asset";
             AssetDatabase.CreateAsset(profile, path);
             AssetDatabase.SaveAssets();
             Debug.Log($"[UI 绑定] 未找到 UICodeGenProfile，已按默认布局自动创建：{path}");

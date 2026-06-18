@@ -90,15 +90,15 @@ namespace Game.Framework.Demo.Modules
             host.AddNote("一句记法：**增量随便加，换血不允许，撤就整棵撤**。详见框架手册 §11「运行时增删层的边界」。");
 
 #if UNITY_EDITOR
-            host.AddActionRow("选中 SubContext 节点", () => SelectInInspector(subCtxNode.gameObject),
+            host.AddActionRow("选中 SubContext 节点", () => DemoEditorNav.PingSceneObject(subCtxNode.gameObject),
                 new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/Support/DemoSubContext.cs", "class DemoSubContext", "子 Context 定义"));
-            host.AddActionRow("选中 子作用域的 ScoreModel", () => SelectInInspector(subScore.gameObject),
+            host.AddActionRow("选中 子作用域的 ScoreModel", () => DemoEditorNav.PingSceneObject(subScore.gameObject),
                 new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/Support/MonoScoreModel.cs", "class MonoScoreModel", "Mono Model 定义"));
             host.AddActionRow("选中 根作用域的 ScoreModel", () =>
             {
                 // 根作用域那份 = 场景里不在 SubContext 子树下的另一个 MonoScoreModel。
                 foreach (var m in Object.FindObjectsByType<MonoScoreModel>(FindObjectsSortMode.None))
-                    if (m != subScore) { SelectInInspector(m.gameObject); return; }
+                    if (m != subScore) { DemoEditorNav.PingSceneObject(m.gameObject); return; }
             }, new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/Support/MonoScoreModel.cs", "class MonoScoreModel", "Mono Model 定义"));
             host.AddTip("点上面按钮去 Hierarchy 看结构：Main Context（根 Context）→ ChapterAssets/SubContext（DemoSubContext）→ 它的 ScoreModel (Sub)。"
                 + "运行时在 Inspector 里直接改任一实例的 Score，上方对应标签实时刷新——哪个作用域的数据一目了然。");
@@ -118,13 +118,5 @@ namespace Game.Framework.Demo.Modules
                 + "把节点放进哪个子树，就一次说清「依赖从哪来、注册到哪去、何时被清理」。深入见框架手册 §1「树状思维」。");
         }
 
-#if UNITY_EDITOR
-        // 编辑器便利：选中并高亮场景节点，方便去 Hierarchy / Inspector 看结构与 RP 实时值。非框架用法，纯 demo 导航。
-        private static void SelectInInspector(GameObject go)
-        {
-            UnityEditor.Selection.activeObject = go;
-            UnityEditor.EditorGUIUtility.PingObject(go);
-        }
-#endif
     }
 }
