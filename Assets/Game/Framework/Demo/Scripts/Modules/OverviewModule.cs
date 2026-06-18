@@ -37,18 +37,18 @@ namespace Game.Framework.Demo.Modules
             host.AddConcept("Model", "数据层。持有响应式状态（值一变就自动通知订阅者）。配套的 Event 总线做一对多广播——Model 与 Event 都是“被动数据”，只被读取 / 订阅，不主动调别人。");
             host.AddConcept("Utility", "工具层。与玩法无关的通用能力（资源加载、对象池、存储等），各层都能取用。");
             host.AddNote("想看层的契约可以直接跳源码：");
-            host.AddCodeLink(new CodeRef("Assets/Game/Framework/Scripts/Command/ICommand.cs",
+            host.AddCodeLink(new CodeRef("Assets/Game/Framework/Core/Command/ICommand.cs",
                 "interface ICommand", "ICommand · 命令定义"));
-            host.AddCodeLink(new CodeRef("Assets/Game/Framework/Scripts/Model/IModel.cs",
+            host.AddCodeLink(new CodeRef("Assets/Game/Framework/Core/Model/IModel.cs",
                 "interface IModel", "IModel · Model 标记"));
-            host.AddCodeLink(new CodeRef("Assets/Game/Framework/Scripts/View/MonoViewBase.cs",
+            host.AddCodeLink(new CodeRef("Assets/Game/Framework/Core/View/MonoViewBase.cs",
                 "class MonoViewBase", "MonoViewBase · View 基类（业务继承点）"));
 
             host.AddSectionTitle("单向数据流");
             host.AddNote("写操作永远朝一个方向：View →(Command)→ Model / System。" +
                          "View 想改状态只能发 Command；Command 在 `ICommandContext` 里拿 Model / System 干活；" +
                          "Model 变化再通过只读订阅“反向”推回 View 刷新界面。");
-            host.AddCodeLink(new CodeRef("Assets/Game/Framework/Scripts/Command/ICommandContext.cs",
+            host.AddCodeLink(new CodeRef("Assets/Game/Framework/Core/Command/ICommandContext.cs",
                 "interface ICommandContext", "ICommandContext · Command 访问层的入口"));
             host.AddTip("约定：View 不直接读 Model，连读状态也经“只读查询 Command”拿回 ReadOnlyReactiveProperty<T>。" +
                         "这样 UI 始终是状态的投影，不会出现 UI 偷偷改数据、两份真相打架。下一章“计数器”就是这个闭环的最小例子。");
@@ -64,9 +64,9 @@ namespace Game.Framework.Demo.Modules
                 + "Context 嵌套成作用域树（解析回退）、Hierarchy 决定注册去向（就近向上）、Bag 子作用域级联释放。"
                 + "节点放进哪个子树 = 一次说清「依赖从哪来、注册到哪去、何时被清理」。");
             host.AddNote("想看源码（其余见各自章节）：");
-            host.AddCodeLink(new CodeRef("Assets/Game/Framework/Scripts/Internal/ICanSendCommand.cs",
+            host.AddCodeLink(new CodeRef("Assets/Game/Framework/Core/Internal/ICanSendCommand.cs",
                 "interface ICanSendCommand", "编译期权限接口"));
-            host.AddCodeLink(new CodeRef("Assets/Game/Framework/Scripts/Internal/IGameContext.cs",
+            host.AddCodeLink(new CodeRef("Assets/Game/Framework/Core/Internal/IGameContext.cs",
                 "interface IGameContext", "IGameContext · 能力面"));
             // 只链公共契约（接口 + 业务继承点）；GameContext / DisposableBag 等底层实现不在这里给跳转——
             // 它们的“怎么用”分别在「多 Context」「生命周期」章里以 demo 用法行呈现。

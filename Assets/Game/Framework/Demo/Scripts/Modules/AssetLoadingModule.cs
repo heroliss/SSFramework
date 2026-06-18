@@ -463,7 +463,7 @@ namespace Game.Framework.Demo.Modules
             host.AddSectionTitle("注册 = 生命周期");
             host.AddConcept("三层 Mono", "`AssetSystemConfigModel` + `AssetUtility` + `AssetInitSystem` 挂同一 `Context` 节点，`Awake` 顺序由 `ExecutionOrder` 保证（`Utility` -400 / `Model` -300 / `System` -200）。");
             host.AddNote("框架与底层库解耦：所有 YooAsset 接触面都收口在 `IAssetProvider`，只有 `AssetProviderFactory.CreateDefault()` 里 new `YooAssetProvider()`。换 Addressables / 自研库只需实现一个新 `IAssetProvider`，`AssetUtility` 与业务、demo 全程只认接口、零改动。当前默认后端（YooAsset）的底层原理见「YooAsset · 底层实现」章。",
-                new CodeRef("Assets/Game/Framework/Scripts/Asset/AssetProviderFactory.cs", "CreateDefault", "provider 工厂（换库就改这）"));
+                new CodeRef("Assets/Game/Framework/Core/Asset/AssetProviderFactory.cs", "CreateDefault", "provider 工厂（换库就改这）"));
 
             host.AddTip("约定：动态加载优先 Bag.Load（自动释放）；Inspector 引用优先 AssetReference（自动绑定）；SO/手动 ref 用 Bag.BindAssetReferences；跨包用带 packageName 的重载。框架不提供 UnloadPackage——要释放就 Dispose handle / 整 Context 重建。");
         }

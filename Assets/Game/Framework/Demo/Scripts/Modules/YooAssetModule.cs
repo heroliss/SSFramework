@@ -25,7 +25,7 @@ namespace Game.Framework.Demo.Modules
             // ── 定位 ──
             host.AddSectionTitle("定位：YooAsset 是「当前默认后端」，不是框架契约");
             host.AddNote("框架把所有 YooAsset 接触面收口在 `IAssetProvider`，业务与「资源加载」章只认接口。YooAsset 只是 `AssetProviderFactory` 里 new 出来的默认实现——换 Addressables / 自研只改那一行，本章这些底层随之替换。所以本章是「了解当前后端怎么运转」，不是框架必须知识。",
-                new CodeRef("Assets/Game/Framework/Scripts/Asset/AssetProviderFactory.cs", "CreateDefault", "provider 工厂（换库就改这）"));
+                new CodeRef("Assets/Game/Framework/Core/Asset/AssetProviderFactory.cs", "CreateDefault", "provider 工厂（换库就改这）"));
 
             // ── 表①·四种 PlayMode ──
             host.AddSectionTitle("四种 PlayMode 对比");
@@ -47,12 +47,12 @@ namespace Game.Framework.Demo.Modules
                 new[] { "`AssetBuild/Downloaded/<包>/`", "下载缓存（`Host` 下载落地）", "运行时下载写 / 运行时读", "否(gitignore)" },
                 new[] { "`AssetBuild/Deploy/`", "本地联调部署目录（python 服务的根）", "构建部署写 / python 服务读", "否(gitignore)" });
             host.AddSubNote("这些构建目录名都在单一真源 `AssetBuildLayout` 里定义（构建工具与运行时 provider 共用），改名只改一处。编辑器期 YooAsset 的下载缓存被重定向进 `AssetBuild/Downloaded`（否则它默认会在项目根冒出 yoo/、每次 `Host` Play 重生）；真机改用各平台 persistentDataPath，这个重定向纯属编辑器便利。",
-                new CodeRef("Assets/Game/Framework/Scripts/Asset/AssetBuildLayout.cs", "class AssetBuildLayout", "构建目录单一真源"));
+                new CodeRef("Assets/Game/Framework/Core/Asset/AssetBuildLayout.cs", "class AssetBuildLayout", "构建目录单一真源"));
 #if UNITY_EDITOR
             host.AddActionRow("打开下载缓存目录（AssetBuild/Downloaded）", RevealCacheDir,
-                new CodeRef("Assets/Game/Framework/Scripts/Asset/AssetBuildLayout.cs", "DownloadedRoot", "下载缓存目录（单一真源）"));
+                new CodeRef("Assets/Game/Framework/Core/Asset/AssetBuildLayout.cs", "DownloadedRoot", "下载缓存目录（单一真源）"));
             host.AddActionRow("打开本地 CDN 部署目录（AssetBuild/Deploy）", RevealCdnDir,
-                new CodeRef("Assets/Game/Framework/Scripts/Asset/AssetBuildLayout.cs", "DeployRoot", "部署目录（单一真源）"));
+                new CodeRef("Assets/Game/Framework/Core/Asset/AssetBuildLayout.cs", "DeployRoot", "部署目录（单一真源）"));
 #endif
 
             // ── 表③·清单文件 ──
@@ -96,14 +96,14 @@ namespace Game.Framework.Demo.Modules
             host.AddStep("④", "进 Play(`Host`)：先读 `StreamingAssets` 的 `BuiltinCatalog` → 拉 `.version` → 拉对应版本清单 → 缺的 bundle 按需从 CDN 下载并缓存到 项目根/`AssetBuild/Downloaded/<包>`。",
                 new CodeRef("Assets/Game/Framework/Asset.Yoo/YooAssetProvider.cs", "case AssetPlayMode.Host", "Host 初始化实现"));
             host.AddSubNote("`CdnUrls` 是候选列表：本地联调通常只填 `http://127.0.0.1:8080/`，多条时版本号 / 清单请求会随 YooAsset 的失败计数轮转重试；候选必须是等价镜像。包级「启用按需下载」（默认勾选）只影响 Host 下未缓存 bundle 的 `Load`：取消勾选后直接失败，强制先显式跑下载器。",
-                new CodeRef("Assets/Game/Framework/Scripts/Asset/AssetSystemConfigModel.cs", "CdnUrls", "运行时 CDN 配置"));
+                new CodeRef("Assets/Game/Framework/Core/Asset/AssetSystemConfigModel.cs", "CdnUrls", "运行时 CDN 配置"));
 #if UNITY_EDITOR
             host.AddActionRow("定位 Collector 分包配置（构建按它执行）", () =>
                 DemoEditorNav.PingAsset("Assets/Game/Framework/Settings/AssetBundleCollectorSetting.asset"));
             host.AddActionRow("定位 AssetSystem 配置节点（切 PlayMode 在这）", () =>
             {
                 if (settingsModel != null) DemoEditorNav.PingSceneObject(settingsModel.gameObject);
-            }, new CodeRef("Assets/Game/Framework/Scripts/Asset/AssetSystemConfigModel.cs", "class AssetSystemConfigModel", "资源系统配置(Model)"));
+            }, new CodeRef("Assets/Game/Framework/Core/Asset/AssetSystemConfigModel.cs", "class AssetSystemConfigModel", "资源系统配置(Model)"));
 #endif
             host.AddTip("两个最常踩的坑：① 平台——AssetBundle 按平台区分，且编辑器进程本身是 Windows，加载不了为 Android 等移动平台构建的 bundle；要在编辑器里测 Host，先把 Build Target 切到 Standalone Windows 再重新构建，测移动平台请上真机。② 顺序——必须先「构建+部署 CDN」再进 Play：init 只在进游戏时跑一次，先进 Play 会因 StreamingAssets 内置清单缺失而 404 失败，补构建后也要重进 Play 才生效。");
 
