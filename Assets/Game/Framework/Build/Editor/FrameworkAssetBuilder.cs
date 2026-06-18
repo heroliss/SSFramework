@@ -118,9 +118,13 @@ namespace Game.Framework.Build
                     return (false, "没有可构建的包：profile 未启用任何包，或传入列表为空。");
 
                 var target = EditorUserBuildSettings.activeBuildTarget;
-                var built = new List<string>();   // 正常构建
-                var skipped = new List<string>(); // 空包，跳过
-                var failed = new List<string>();  // 真失败
+                var built = new List<string>();    // 正常构建
+                var skipped = new List<string>();  // 空包，跳过
+                var excluded = new List<string>(); // 不归本入口的包（代码包 → 热更构建管线）
+                var failed = new List<string>();   // 真失败
+
+                // 代码包由热更构建管线（FrameworkHotUpdateBuilder）负责，资源构建按名字识别后排除（见循环内）。
+                string codePackageName = FrameworkHotUpdateProfile.Resolve()?.CodePackageName ?? "CodePackage";
 
                 foreach (var pkg in packages)
                 {
@@ -134,14 +138,21 @@ namespace Game.Framework.Build
                         continue;
                     }
 
-                    // 预检：RawFile 包不能走本入口——SBP + AssetBundle 类型构建出的产物与 RawFile 运行时通道不兼容，
-                    // 放任构建要么半路崩、要么产出错误产物，失败信息都不会指向真正原因，这里直接报明话。
-                    // （代码包 CodePackage 会被「同步收集器包列表」对账进 profile，正是本检查的现实保护对象。）
+                    // 代码包按【名字】识别后跳过——它带 CompileDll + manifest + AOT 补元数据的特殊配方，由热更构建
+                    // 管线负责。靠名字而非「参与构建」开关排除：即便它在 profile 里仍 enabled 也不会被资源构建误打成残品，
+                    // 不依赖人记得去取消勾选（ADR-0017 §5）。
+                    if (string.Equals(pkg, codePackageName, StringComparison.Ordinal))
+                    {
+                        excluded.Add($"{pkg}（代码包 → 热更构建菜单）");
+                        continue;
+                    }
+
+                    // 预检：业务 RawFile 包暂不支持统一构建——SBP + AssetBundle 类型构建出的产物与 RawFile 运行时通道不兼容，
+                    // 放任构建要么半路崩、要么产出错误产物，失败信息也不指向真正原因，这里直接报明话指路。
                     if (UsesRawFilePackRule(pkg))
                     {
                         failed.Add($"{pkg}：收集器使用 RawFile 打包规则（PackRawFile），本入口只构建普通 AssetBundle 包——" +
-                                   "代码包请走菜单「SSFramework/热更构建/3. 构建代码包」（并在资源构建 profile 关掉该包的「参与构建」）；" +
-                                   "业务 RawFile 包暂不支持统一构建（构建配方见 FrameworkHotUpdateBuilder）。");
+                                   "业务 RawFile 包统一构建尚未实现（计划见 ADR-0017 P1；当前构建配方参考 FrameworkHotUpdateBuilder）。");
                         continue;
                     }
 
@@ -174,6 +185,7 @@ namespace Game.Framework.Build
                 sb.AppendLine($"平台 {target} · 版本 {version}");
                 if (built.Count > 0) sb.AppendLine($"✓ 构建 {built.Count}：{string.Join(", ", built)}");
                 if (skipped.Count > 0) sb.AppendLine($"⊘ 跳过（空包）{skipped.Count}：{string.Join(", ", skipped)}");
+                if (excluded.Count > 0) sb.AppendLine($"⊘ 跳过（非本入口）{excluded.Count}：{string.Join(", ", excluded)}");
                 if (failed.Count > 0) sb.AppendLine($"✗ 失败 {failed.Count}：\n  {string.Join("\n  ", failed)}");
                 if (built.Count == 0 && failed.Count == 0)
                     sb.AppendLine("（没有实际产出：启用的包全是空包）");

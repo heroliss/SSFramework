@@ -43,8 +43,9 @@ DLC = 自洽内容单元（资源 + 玩法代码 + 配置），按需下载，�
 ### 5. 构建管线：资源构建器统一支持业务 RawFile 包
 
 - 扩展 `FrameworkAssetBuilder`：遇 RawFile 包**额外跑 `RawFileBuildPipeline`**，而非 fail-fast。恢复与 YooAsset 原生能力对齐，不阉割 RawFile（视频 / 原始数据等常见内容可走统一构建）。
-- **唯一例外：配置里 `CodePackageName` 那个包仍排除**——它不是普通 RawFile 包，带 `CompileDll` + manifest + AOT 补元数据的特殊配方，归 `FrameworkHotUpdateBuilder`。判别从「是否 RawFile」改为「**是否 == `CodePackageName`**」：是代码包→跳过指路；是业务 RawFile 包→RawFile 管线构建；否则→SBP。
-- **结果**：执行「资源构建」= 构建所有 AB 包 **+ 所有业务 RawFile 包**，**代码包仍独立走热更菜单**（不会因此把代码也一起构建）。
+- **代码包按名字排除，不靠 enabled 开关**：判别从「是否 RawFile」改为「**是否 == `CodePackageName`**」——代码包带 `CompileDll` + manifest + AOT 补元数据的特殊配方，归 `FrameworkHotUpdateBuilder`。**关键**：靠名字识别而非 profile 的「参与构建」勾选，所以**即便代码包在 profile 里仍 enabled 也会被跳过**，从机制上杜绝"忘了取消勾选 → 代码包被资源构建误打成残品"。判别三分支：是代码包→跳过指路；是业务 RawFile 包→RawFile 管线构建；否则→SBP。
+- **结果**：执行「资源构建」= 构建所有 AB 包 **+ 所有业务 RawFile 包**，**代码包恒被排除、仍独立走热更菜单**（不会因此把代码也一起构建）。
+- **落地状态**：① 代码包按名字跳过——**已实现**（`FrameworkAssetBuilder.Build` 预检，本 ADR 起草同批）；② 业务 RawFile 包走 `RawFileBuildPipeline`——**待实现**（无业务 RawFile 包消费方前不盲写，等首个真实 RawFile 包/demo DLC 一起验证）。
 
 ## Consequences
 
