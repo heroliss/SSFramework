@@ -24,7 +24,7 @@ MonoBehaviour:
     _builtinTags: 
     _generateBuiltinShaderBundle: 1
   - _packageName: CodePackage
-    _buildEnabled: 1
+    _buildEnabled: 0
     _builtinCopy: 2
     _builtinTags: 
     _generateBuiltinShaderBundle: 0
