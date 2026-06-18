@@ -215,7 +215,8 @@ namespace Game.Framework.Demo.Modules
                         RefreshGo();
                     }, CodeRef.Here("goPool.TrimAsync(2", "分帧收缩用法"));
 #if UNITY_EDITOR
-                    host.AddActionRow("选中对象池演示容器", () => SelectInInspector(assets.SpawnRoot.gameObject));
+                    host.AddActionRow("选中对象池演示容器", () => SelectInInspector(assets.SpawnRoot.gameObject),
+                        new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/Support/DemoPoolAssets.cs", "class DemoPoolAssets", "对象池演示资产引用"));
                     host.AddActionRow("选中池停放节点", () =>
                     {
                         var parking = FindParkingRoot();

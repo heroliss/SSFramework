@@ -47,7 +47,7 @@ namespace Game.Framework.Demo.Modules
             {
                 var ctx = Object.FindFirstObjectByType<MonoDemoContext>();
                 if (ctx != null) SelectInInspector(ctx.gameObject);
-            });
+            }, new CodeRef("Assets/Game/Framework/Demo/Scripts/Core/MonoDemoContext.cs", "class MonoDemoContext", "demo 根 Context 定义"));
             host.AddTip("弹出后会自动选中这个 View——在 Inspector 顶部看 MonoViewBase 的 “Resolved Context”，就是它绑定到的 Context（正是 demo 根的 MonoDemoContext）。");
 #endif
 

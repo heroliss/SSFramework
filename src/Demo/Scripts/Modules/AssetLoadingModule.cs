@@ -223,7 +223,7 @@ namespace Game.Framework.Demo.Modules
             host.AddActionRow("定位资源引用配置节点（DemoAssetRefs）", () =>
             {
                 if (refs != null) PingSceneObject(refs.gameObject);
-            });
+            }, new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/Support/DemoAssetRefs.cs", "class DemoAssetRefs", "资源引用节点定义"));
 #endif
 
             // ── 3b. ScriptableObject 配置：加载 + 一键绑定它的引用 ──
@@ -282,7 +282,8 @@ namespace Game.Framework.Demo.Modules
                 new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/Support/DemoAssetConfig.cs", "class DemoAssetConfig", "DemoAssetConfig 定义"));
 #if UNITY_EDITOR
             host.AddActionRow("定位 DemoAssetConfig 资产（被加载的配置 SO）", () =>
-                PingAsset("Assets/Game/Framework/Demo/Res/DemoAssetConfig.asset"));
+                PingAsset("Assets/Game/Framework/Demo/Res/DemoAssetConfig.asset"),
+                new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/Support/DemoAssetConfig.cs", "class DemoAssetConfig", "配置 SO 定义"));
 #endif
 
             // ── 4. 查询：地址有效 / 是否需下载 ──
