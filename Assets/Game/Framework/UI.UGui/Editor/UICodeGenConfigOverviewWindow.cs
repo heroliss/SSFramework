@@ -11,7 +11,7 @@ namespace Game.Framework.UI.UGui.Editor
     /// </summary>
     public sealed class UICodeGenConfigOverviewWindow : EditorWindow
     {
-        [MenuItem("SSFramework/UI 绑定/生成配置总览")]
+        [MenuItem("SSFramework/UI 绑定/配置总览", priority = 21)]
         public static void Open() => GetWindow<UICodeGenConfigOverviewWindow>("UI 生成配置总览").Show();
 
         private Vector2 _scroll;

@@ -19,6 +19,7 @@
 15. [热更新（HybridCLR）](#15-热更新hybridclr)
 16. [配置表（Luban）](#16-配置表luban)
 17. [UI 框架（窗口 / 层级）](#17-ui-框架窗口--层级)
+18. [推荐项目结构](#18-推荐项目结构)
 
 ---
 
@@ -1801,3 +1802,63 @@ Bag.SubscribeClick(button, OnClick);          // UI Toolkit Button.clicked
 > - 窗口 = View 的一种：自动注入 / Bag / 读写分离；元数据用 `[UIWindow]` 声明层 / 缓存 / 模态
 > - 核心渲染中立、可单测；换 UGUI ↔ UI Toolkit 业务零改，`IUIBackend` 吸收差异
 > - 数据绑定一套 R3 订阅；活样例见 demo「View · UIToolkit」+「UI 框架 · 窗口/层级」章
+
+---
+
+## 18. 推荐项目结构
+
+把框架用进正式项目时，按「特性模块自洽 + 可整单元裁剪」组织，而不是按技术类型（all Models / all Views）摊平。下面是从 demo 提炼的原则——demo 自身是活样例，但有两处别照抄（见末尾）。
+
+### 原则
+
+1. **特性模块自洽**：一个功能模块自带它要的一切——代码、资源、场景、配置源，放在同一目录子树。删 / 抽包时整目录带走，不必全工程翻依赖。
+2. **可寻址资源进 `Res/`，编辑器专用资产不进**：运行期按地址加载（被 YooAsset 收集器收集）的 prefab / SO / 数据 `.bytes` 放进被收集的 `Res/`；**纯编辑器**配置（如 `UICodeGenDirConfig`、`LubanConfigProfile`）放**非收集目录**，否则会被打进资源包（且带一个运行期失效的脚本引用）。
+   - `UICodeGenDirConfig` 是按 prefab 目录**向上解析**的，放在被管 prefab 的**非收集祖先目录**即可（demo 放模块根 `Demo/`），不必塞进 `Res/`。
+3. **可寻址加载 vs 直接引用 分开放**：按地址 `Load<T>("name")` 的资源进收集目录；靠 Inspector 直接引用 / `Instantiate` 的 prefab 不必收集，放普通目录（demo 的 `Prefabs/` 是后者，`Res/` 是前者）。
+4. **配置源放模块内、用 `~` 后缀挡 Unity 导入**：Luban 的 `Defines/Datas/luban.conf` 是构建期输入、不是运行期资源，放 `<模块>/Configs~/`（`~` 让 Unity 不导入），随模块一起删 / 抽包。
+5. **可整单元裁剪**：模块独立 asmdef；发布时不需要就不引用、不打它的资源包。配置 / 资源各成一套 profile（见 §16 多套并存），互不干扰。
+
+### 参考结构
+
+工程按「共享模块 + 若干特性模块」组织；每个特性模块自洽，`Res/` 内按资源类型分子目录：
+
+```
+<Game>/
+  Common/                     # 跨特性共享：仅真正多模块复用的才放（通用 Shader / 字体 / 公共音效…）
+    Common.asmdef
+    Res/  Shaders/  Materials/  Fonts/  Audio/  Textures/ …
+
+  <Feature>/                  # 一个特性模块（自洽，可整目录删 / 抽包）
+    <Feature>.asmdef          # 模块程序集（按需引用框架 / 第三方）
+    Scripts/                  # 代码：Model/System/Command/View/…（按层或按子特性）
+    Scenes/                   # 本特性场景（.unity）
+    UI/                       # UI Toolkit 的 UXML / USS
+    Configs~/                 # Luban 源 Defines/Datas/luban.conf —— ~ 后缀不导入、不打包
+    Config/                   # 配置接入代码 + 生成代码 Gen/ + 本模块 LubanConfigProfile 资产
+    Res/                      # 可寻址运行期资源（被 YooAsset 收集）——按类型分子目录
+      Prefabs/                #   预制体（窗口 / 单位 / 道具…，按地址 Open / Load）
+      Textures/               #   贴图 / Sprite（图标、图集源图…）
+      Materials/              #   材质
+      Shaders/                #   Shader / ShaderGraph
+      Models/                 #   网格 / FBX
+      Animations/             #   AnimationClip / AnimatorController
+      VFX/                    #   特效（粒子 / VFX Graph 预制体）
+      Audio/                  #   音频（BGM / SFX）
+      Fonts/                  #   字体
+      Configs/                #   配置表数据 *.bytes（Luban 输出）
+    <编辑器专用配置>.asset      # 如 UICodeGenDirConfig：放模块根（非收集），不进 Res/
+```
+
+### 资源组织的几点（本框架 YooAsset 约定）
+
+- **按类型分子目录只是给人看的**：运行期只认地址（默认 `AddressByFileName` → 地址 = 文件名），目录怎么分不影响加载。代价是**被收集资源的文件名要全包唯一**（撞名会构建报错）；资源量大想靠路径区分，把收集器 `AddressRule` 换成 `AddressByFilePath`（地址带相对路径）即可。
+- **只有「入口」资源要被收集 / 寻址**：你直接 `Load` / `Open` 的（prefab、SO、场景、按名播放的音频 / Sprite）才需进收集目录；它们引用的**依赖（贴图 / 材质 / Shader / 网格）随之自动打包**，不必逐个寻址。所以收集器常用 `CollectPrefab` / `CollectScene` 只收入口、依赖跟着走（demo 图省事用 `CollectAll` 全收，故需文件名唯一）。
+- **打包粒度跟着目录**：默认 `PackDirectory`（每个子目录 → 一个 bundle），按类型分目录顺带定了 bundle 粒度；要更细 / 更粗调收集器 `PackRule`。
+- **直接引用的不进 `Res/`**：靠 Inspector 拖引用 / `Instantiate` 的 prefab（对象池源、手工接引用的视图等）不走地址加载，放模块内**非收集**目录即可（demo 的 `Prefabs/` 就是这类，与上面可寻址的 `Res/Prefabs/` 区分）。
+
+### demo 是活样例，但两处别照抄
+
+- demo 程序集带 `defineConstraints:["UNITY_EDITOR"]`（教学定位、不进玩家包）——**正式模块要发布，不带这约束**。
+- demo 里的 `DemoModuleBase` 章节脚手架是教学专用，正式项目没有这层。
+
+其余（模块自洽、`Res/` 只放可寻址资源、编辑器配置外置、配置源 `~` 目录、独立 asmdef）都可直接借鉴。
