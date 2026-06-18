@@ -1639,14 +1639,23 @@ Bag.Subscribe(config.State, s => { if (s == ConfigInitState.Ready) Refresh(); })
 // struct Command 里经 ctx：ctx.GetUtility<IConfigUtility<Tables>>().Tables
 ```
 
+**接入只补两个 override**——它们是框架（后端无关）与项目（具体后端）之间仅有的接缝：
+
+| override | 回答的问题 | demo（Luban）实现 | 换后端时 |
+|---|---|---|---|
+| `TableFiles` | 预载哪些数据文件（数据清单） | 直接交还生成的 `LubanTableManifest.Files` | 不变（仍返回你的清单） |
+| `CreateTables` | 字节怎么变表根（反序列化适配器） | `new Tables(f => new ByteBuf(getBytes(f)))`——唯一碰 Luban `ByteBuf` 的一行 | 改这一行（JSON 就 parse JSON，不要 `ByteBuf`） |
+
+通用编排（并行预载、异步→同步桥、加载状态机、按 `IConfigUtility<TTables>` 接口注册、生命周期）全在框架基类；多套配置 = 多个闭合不同 `Tables` 的子类，各有自己这两块。
+
 ### 新项目接入步骤
 
 1. Luban CLI 解压到 `Tools/Luban/`（**不入库**，官方 release 可重下；缺 .NET 8 运行时时管线自动 `DOTNET_ROLL_FORWARD=LatestMajor`）。
 2. 建一处 conf 源目录：`luban.conf`（入口）+ `Defines/*.xml`（表定义）+ `Datas/`（数据）。放哪都行（路径填进 profile）；想随某模块一起删 / 抽包就放该模块目录下、用 `~` 后缀避免 Unity 导入。demo 那套在 `Demo/Configs~/`，是最小可跑样例。
 3. 建一个 `LubanConfigProfile`（菜单 `配置总览` 列出所有套）：填 conf 源、输出目录、topModule（见下方铁则）。与 demo 那套并存、互不干扰。
-4. 菜单 `1. 生成配置代码 + 数据`——逐套产出代码 / 数据 / 清单。
+4. 菜单 `SSFramework/配置表构建/生成全部`——逐套产出代码 / 数据 / 清单。
 5. 确认数据输出目录在某个 YooAsset 收集器范围内（`.bytes` 按普通资源收集成 TextAsset、按文件名寻址）；demo 复用现成的 `FrameworkDemoGroup` 收集器，真实项目通常加进 DefaultPackage 的收集组。
-6. 写两个一行子类闭合泛型（`class GameConfigModel : MonoConfigModelBase<Tables> {}` 同理 InitSystem——后者补 `TableFiles => LubanTableManifest.Files` 和 `CreateTables`），与资源三件套同节点或同 Context 挂上。
+6. 写一个一行子类闭合泛型 `class GameConfigUtility : MonoConfigUtilityBase<Tables>`，补上面两个 override（`TableFiles` / `CreateTables`）；挂在 Context 子节点即可（与资源系统同 Context，靠容器父级回退共享 `IAssetUtility`，不必单独再挂一套资源系统）。
 7. 生成代码所在 asmdef 引用 `Luban.Runtime` + `Game.Framework.Config`；若业务程序集热更，它天然在热更侧（数据文件本就随资源包热更）。
 
 ### 数据源与格式
@@ -1664,8 +1673,21 @@ Bag.Subscribe(config.State, s => { if (s == ConfigInitState.Ready) Refresh(); })
 | 代码模板 codeTarget | `cs-bin` | 与数据格式配对换：`cs-simple-json`（肉眼可调试）等；非 C# 端有 `java-bin` / `ts-json` / `go-bin` / `lua-bin` 等 |
 | 数据格式 dataTarget | `bin` | 与代码模板配对：`json` / `bson` / `lua` 等（cs-bin↔bin、cs-simple-json↔json 必须成对） |
 | 输出代码目录 | `Demo/Config/Gen` | 业务程序集下，如 `Assets/Game/Main/Config/Gen`（该 asmdef 引用 `Luban.Runtime` + `Game.Framework.Config`） |
-| 输出数据目录 | `Framework/Res/Configs` | 默认包某收集器范围内，如 `Assets/Game/Main/Res/Configs` |
+| 输出数据目录 | `Demo/Res/Configs` | 默认包某收集器范围内，如 `Assets/Game/Main/Res/Configs` |
 | 清单命名空间 | `DemoCfg` | 与 luban.conf 的 topModule 同步改（顶层短名，如 `Cfg`，避开 `Game.Framework.*`，见下方铁则） |
+
+### 按需加载：按配置集拆，不按表拆
+
+Luban 生成的 `Tables` 构造函数是**同步、一次性构造全表**（每张 `TbXxx` 立刻建好，再跑跨表 `ResolveRef`）——这正是框架要「先按清单并行预载、再同步构造」的原因，也决定了**没有单表级运行期懒加载**。配置是小体积只读引用数据，全量预载最省心，不要去单独 `new TbXxx(...)` 绕过 `Tables`（会丢 `ResolveRef`）。
+
+真有「用到才加载」需求时，在两个更合适的粒度上做：
+
+| 粒度 | 怎么做 |
+|---|---|
+| **数据下载（包级）** | `.bytes` 走资源包通道，本就能不打进基础包、用到时再下载 / 热更（YooAsset 包策略 + 服务组件的 `_packageName` / `_initializePackageIfIdle`）。 |
+| **配置集懒加载（set 级）** | 把 DLC / 活动 / 巨表做成**另一套** `Tables` + 另一个 `MonoConfigUtilityBase<TablesX>`（配置服务在 `Start` 自加载，所以让它的组件**晚点才实例化**——进对应玩法时挂上 / 放进按需创建的子 Context——那套就用到才加载，且每套内部 `ResolveRef` 完整）。 |
+
+下载（包级）+ 配置集拆分（set 级）都是组合现成原语，框架不另设单表 lazy API。「多套配置并存」同时就是懒加载的落点。
 
 ### 铁则与坑
 
@@ -1678,7 +1700,7 @@ Bag.Subscribe(config.State, s => { if (s == ConfigInitState.Ready) Refresh(); })
 > **要点回顾**
 >
 > - 构建期菜单一键生成「代码 + 数据 + 清单」三件套；运行期只是按清单预载字节、构造一次 `Tables`
-> - 三段式镜像资源系统：Model 持表、System 编排；业务经 `GetModel<IConfigModel<Tables>>()` 取
+> - 运行期是一个自加载的配置 Utility 服务（不占 Model、不拆 System）：各层含 View 经 `GetUtility<IConfigUtility<Tables>>().Tables` 直读，接入只补 `TableFiles` / `CreateTables` 两个 override
 > - 框架 `Game.Framework.Config` 模块后端无关（不引用 Luban）——接触 Luban 的只有项目侧 `CreateTables` 一行
 > - 数据文件走资源包通道：打包 / 下载 / 热更与普通资源同一套机制
 

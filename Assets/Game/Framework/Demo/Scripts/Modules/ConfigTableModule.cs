@@ -2,19 +2,17 @@ using System.IO;
 using DemoCfg;
 using Game.Framework.Common;
 using Game.Framework.Demo.Core;
-using R3;
 using UnityEngine;
 
 namespace Game.Framework.Demo.Modules
 {
     /// <summary>
-    /// 进阶·配置表：讲 Luban 集成的构建期 / 运行期分界——表定义（XML）与数据（JSON / Excel）放 demo 自带的 Configs~/（~ 后缀 Unity 不导入），
-    /// 菜单跑 CLI 生成 C# 类 + 二进制数据；运行期由一个自加载的配置 Utility 服务持表（各层直读），
-    /// 数据文件走资源包通道（可热更）。查询按钮真实读 Play 中加载好的表。
+    /// 进阶·配置表：讲 Luban 集成的「构建期生成 / 运行期只读字节」分界。表定义（XML）与数据（JSON / Excel）放 demo 自带的
+    /// Configs~/（~ 后缀 Unity 不导入），菜单跑 CLI 生成 C# 类 + 二进制数据 + 表清单；运行期由一个自加载的配置 Utility
+    /// 服务按清单预载、构造表根，各层（含 View）直读。数据文件走资源包通道（可热更）。查询按钮真实读 Play 中加载好的表。
     /// </summary>
     public sealed class ConfigTableModule : DemoModuleBase
     {
-        private const string GenerateMenu = "SSFramework/配置表构建/生成全部 (代码 + 数据)";
         private const string OverviewMenu = "SSFramework/配置表构建/配置总览 (定位 · 打开目录 · 生成)";
         // demo 自带源目录（构建期输入，~ 后缀 Unity 不导入）——直接打开，不再走「单套」菜单。
         private const string ConfigSourceDir = "Assets/Game/Framework/Demo/Configs~";
@@ -28,42 +26,36 @@ namespace Game.Framework.Demo.Modules
         public override string Category => "进阶";
         public override int Order => 30;
         public override string Summary =>
-            "构建期菜单跑 Luban CLI：表定义（XML）+ 数据（JSON / Excel）→ 生成 C# 类 + 二进制数据 + 表清单；运行期按清单预载、构造 Tables、" +
-            "Model 持有只读暴露——镜像资源系统三段式，数据随资源包热更。查询按钮真实读表。深度见 framework-guide §16 / ADR-0009。";
+            "构建期菜单跑 Luban CLI：表定义（XML）+ 数据（JSON / Excel）→ 生成 C# 类 + 二进制数据 + 表清单；运行期一个自加载的" +
+            "配置 Utility 服务按清单预载、构造 Tables，各层（含 View）直读——数据随资源包热更。查询按钮真实读表。深度见 framework-guide §16 / ADR-0009。";
 
         public override void Build(DemoModuleHost host)
         {
-            // ── 心智模型 ──
-            host.AddSectionTitle("心智模型：构建期生成，运行期只是读字节");
-            host.AddNote("表定义（XML）与数据（JSON / Excel）放在 demo 目录下的 `Configs~/`（`~` 后缀让 Unity 不导入，纯构建期输入）；构建期菜单跑 Luban CLI，" +
-                         "产出三样东西后运行期对「Excel/JSON/校验」零感知——加载就是读字节、构造一次 `Tables`、之后纯内存查询。" +
-                         "两种数据源各有活样例：`item.json`（文本，git diff 可读）与 `monster.xlsx`（策划顺手），表定义里 `input` 一个属性决定从哪读，可同表混搭。");
+            // ── 1. 概念 + 心智模型 ──
+            host.AddSectionTitle("配置表是什么：策划填的数值，编译成强类型只读数据");
+            host.AddNote("「配置表」就是物品 / 怪物 / 全局参数这类策划填的数值表。本框架用 Luban：**构建期**把表编译成强类型 C# 类 + 二进制数据，" +
+                         "**运行期**只读字节、做内存查询——Excel / JSON 解析、数据校验全发生在构建期，运行期对它们零感知。" +
+                         "两种数据源都有活样例：`item.json`（文本，git diff 可读、AI 可维护）与 `monster.xlsx`（策划顺手），" +
+                         "同一项目可混搭，表定义里 `input` 一个属性决定每张表从哪读。");
             host.AddTable(
-                new[] { "产物", "落点", "谁消费" },
+                new[] { "构建期产物", "落点", "运行期谁消费" },
                 new[] { "配置 C# 类（Tables / TbItem / Item…）", "`Demo/Config/Gen/`", "业务代码（强类型查表）" },
-                new[] { "二进制数据（*.bytes）", "`Demo/Res/Configs/`（资源收集范围内）", "运行期 `Bag.LoadBytes` 直读字节" },
+                new[] { "二进制数据（*.bytes）", "`Demo/Res/Configs/`（资源收集范围内）", "`Bag.LoadBytes` 直读字节" },
                 new[] { "表清单（LubanTableManifest.g.cs）", "随生成代码", "配置服务据此并行预载" });
-            host.AddSubNote("为什么要表清单：生成的 `Tables` 构造函数是同步逐表要字节，而框架资源加载是异步——先按清单把全部数据并行预载进内存，" +
-                            "再同步构造。清单与代码/数据同一次生成，不存在手工维护漏表（机制同热更代码包的 manifest）。",
-                new CodeRef("Assets/Game/Framework/Config/Editor/LubanCodeGenerator.cs", "class LubanCodeGenerator", "生成管线（CLI 调用 + 清单）"));
+            host.AddSubNote("为什么要表清单：生成的 `Tables` 构造函数是**同步**逐表要字节，而框架资源加载是**异步**——先按清单把全部数据并行预载进内存，" +
+                            "再同步构造。清单与代码 / 数据同一次生成（CLI 跑完扫数据目录补写），不存在手工维护漏表（机制同热更代码包的 manifest）。",
+                new CodeRef("Assets/Game/Framework/Config/Editor/LubanCodeGenerator.cs", "WriteManifest(string outputDataDir", "生成管线 · 扫数据目录写清单"));
 
-            // ── 运行期：自加载 Utility ──
-            host.AddSectionTitle("运行期：自加载的配置服务（Utility）");
-            host.AddNote("场景里 `ConfigSystem` 节点只挂一个组件 `DemoConfigUtility`——配置做成**自加载的 Utility 服务**：" +
-                         "进游戏自己按清单预载数据、构造表根、对外只读暴露。各层（含 View）经 `GetUtility<IConfigUtility<Tables>>()` 直读，无需查询 Command。" +
-                         "配置是静态只读引用数据（生成的 `Tables` 本就是数据模型），故不占 Model 层、也不像资源系统那样拆三件套（配置加载没有多包 / CDN / 下载的复杂度，一个组件够了）。",
-                new CodeRef("Assets/Game/Framework/Demo/Config/DemoConfigUtility.cs", "class DemoConfigUtility", "Demo 接入（仅两个 override）"));
-            host.AddSubNote("解耦边界：框架 `Game.Framework.Config` 模块不引用 Luban——它只做「清单 → 预载字节 → 调抽象工厂」的通用编排；" +
-                            "整条链路里接触 Luban 类型（ByteBuf）的只有 Demo 子类工厂里那一行。换任何配置后端（JSON / 自定义格式），框架模块原样可用。",
-                new CodeRef("Assets/Game/Framework/Config/MonoConfigUtilityBase.cs", "class MonoConfigUtilityBase", "框架基类（后端无关，自加载）"));
-
-            // ── 现场演示 ──
-            host.AddSectionTitle("演示：真实读 Play 中加载好的表");
+            // ── 2. 先看结果：各层一行取到强类型表（最常用的一步，先给概念落地） ──
+            host.AddSectionTitle("先看结果：各层一行取到强类型表");
+            host.AddNote("表由场景里的配置服务在进游戏时加载好（下一节讲它怎么搭）。各层（含 View）一行 " +
+                         "`GetUtility<IConfigUtility<Tables>>()` 拿到表根，查询就是纯内存读、不需要查询 Command——下面按钮真实读 Play 中已加载的表。",
+                new CodeRef("Assets/Game/Framework/Config/IConfigUtility.cs", "interface IConfigUtility", "IConfigUtility · 全层直读的配置服务（Tables + State）"));
 
             // 配置是基础设施服务：各层（含本 demo 模块、真实 View）直接 GetUtility 取，无需查询 Command 绕行。
             var config = this.GetUtility<IConfigUtility<Tables>>();
 
-            var stateLabel = host.AddValueDisplay("", new CodeRef("Assets/Game/Framework/Config/IConfigUtility.cs", "interface IConfigUtility", "IConfigUtility · 全层可取的配置服务"));
+            var stateLabel = host.AddValueDisplay("", CodeRef.Here("Bag.Subscribe(config.State", "本处订阅 config.State（收到 Ready 再读表）"));
             Bag.Subscribe(config.State, s => stateLabel.text = $"加载状态：{s}");
 
             var itemLabel = host.AddValueDisplay("（点下方按钮查表）");
@@ -74,7 +66,7 @@ namespace Game.Framework.Demo.Modules
                 if (t.TbItem.DataList.Count == 0) { itemLabel.text = "TbItem 没有数据（Datas/item.json 是空的？）"; return; }
                 var item = t.TbItem.DataList[_itemCursor++ % t.TbItem.DataList.Count];
                 itemLabel.text = $"[{item.Id}] {item.Name}（{item.Quality}）售价 {item.Price}，堆叠上限 {item.StackLimit} —— {item.Desc}";
-            }, new CodeRef("Assets/Game/Framework/Config/IConfigUtility.cs", "TTables Tables", "config.Tables 直读（普通取值）"));
+            }, CodeRef.Here("t.TbItem.DataList[_itemCursor", "本处查表语句 · 轮巡 TbItem.DataList"));
 
             var monsterLabel = host.AddValueDisplay("（点下方按钮查表）");
             host.AddActionRow("查下一条怪物（轮巡 TbMonster，Excel 数据源）", () =>
@@ -86,7 +78,7 @@ namespace Game.Framework.Demo.Modules
                 var drop = t.TbItem.GetOrDefault(m.DropItemId);
                 monsterLabel.text = $"[{m.Id}] {m.Name}：HP {m.Hp}，攻击 {m.Attack}，掉落 {(drop != null ? drop.Name : $"#{m.DropItemId}")}" +
                                     "（数据来自 monster.xlsx——运行期与 JSON 源无任何区别）";
-            }, new CodeRef("Assets/Game/Framework/Demo/Config/Gen/TbMonster.cs", "class TbMonster", "Excel 生成的表类"));
+            }, CodeRef.Here("t.TbMonster.DataList[_monsterCursor", "本处查表语句 · TbMonster + GetOrDefault 取掉落"));
 
             var globalLabel = host.AddValueDisplay("");
             host.AddActionRow("读全局配置（TbGlobalConfig，one 模式单例表）", () =>
@@ -95,26 +87,55 @@ namespace Game.Framework.Demo.Modules
                 if (t == null) { globalLabel.text = "配置未就绪（看上方加载状态）"; return; }
                 var g = t.TbGlobalConfig;
                 globalLabel.text = $"背包容量 {g.BagCapacity}，初始金币 {g.InitialGold}，新手物品 [{string.Join(", ", g.NewbieItemIds)}]";
-            }, new CodeRef("Assets/Game/Framework/Demo/Config/Gen/Tables.cs", "class Tables", "生成的表根（Tables）"));
+            }, CodeRef.Here("var g = t.TbGlobalConfig", "本处查表语句 · one 模式直接读字段"));
 
-            host.AddSubNote("map 表按主键取用 `TbItem.Get(id)` / `TbItem[id]`（缺键抛异常）或 `GetOrDefault(id)`；全量遍历用 `DataList`。这些访问器都是生成代码自带的。");
+            host.AddSubNote("map 表按主键取用 `TbItem.Get(id)` / `TbItem[id]`（缺键抛异常）或 `GetOrDefault(id)`；全量遍历用 `DataList`；one 模式表（如 `TbGlobalConfig`）" +
+                            "全表只有一条记录、直接读字段。这些访问器都是生成代码自带的——这个链接直接看生成出来的 `TbItem`（只在「想看生成代码长什么样」时点）。",
+                new CodeRef("Assets/Game/Framework/Demo/Config/Gen/TbItem.cs", "public Item Get(int key)", "生成代码 · TbItem 的 Get / GetOrDefault / DataList"));
 
-            // ── 改表工作流 ──
+            // ── 3. 运行期：自加载的配置服务（Utility，不是 System） ──
+            host.AddSectionTitle("运行期：一个自加载的配置服务（是 Utility，不是 System）");
+            host.AddNote("场景里 `ConfigService` 节点只挂一个组件 `DemoConfigUtility`——配置做成**自加载的 Utility 服务**：进游戏自己按清单预载数据、" +
+                         "构造表根、对外只读暴露。**为什么是 Utility 而不是 Model / System**：配置是全层只读引用数据，而本框架 Model 把 View 挡在外面" +
+                         "（View 没有 `GetModel`），做成 Utility 才让 View 也能直读（View 有 `ICanGetUtility`）；配置加载又没有资源系统那种多包 / CDN / 下载的" +
+                         "复杂度，不必拆出 System——一个组件就够（资源系统才是「Model + System + Utility」三件套，因为它加载复杂、且持的是可变运行期配置）。",
+                new CodeRef("Assets/Game/Framework/Demo/Config/DemoConfigUtility.cs", "class DemoConfigUtility", "Demo 接入 · 仅两个 override"));
+
+            host.AddSubNote("接入就是一个一行子类闭合泛型 `class DemoConfigUtility : MonoConfigUtilityBase<Tables>`，只补两个 override——" +
+                            "它们是框架（后端无关）与项目（Luban）之间仅有的接缝：");
+            host.AddTable(
+                new[] { "override", "回答的问题", "demo 实现" },
+                new[] { "`TableFiles`", "预载哪些数据文件（数据清单）", "直接交还生成的 `LubanTableManifest.Files`" },
+                new[] { "`CreateTables`", "字节怎么变表根（反序列化适配器）", "`new Tables(f => new ByteBuf(getBytes(f)))`——唯一碰后端类型的一行" });
+            host.AddSubNote("其余通用编排（并行预载、异步→同步桥、加载状态机、按接口注册、生命周期）全在框架基类里。`TableFiles` 是**数据清单**、" +
+                            "`CreateTables` 是**反序列化适配器**——换后端（JSON / 自定义格式）只改 `CreateTables` 一行，`TableFiles` 照旧；" +
+                            "多套配置就是多个闭合不同 `Tables` 的子类，各有自己这两块。",
+                new CodeRef("Assets/Game/Framework/Config/MonoConfigUtilityBase.cs", "protected abstract IReadOnlyList<string> TableFiles", "框架基类 · 两个 abstract 接缝"));
+            host.AddSubNote("组件上还有两个 Inspector 字段：`_packageName`（配置数据在哪个资源包，留空 = 默认包）与 `_initializePackageIfIdle`" +
+                            "（该包没开「自动初始化」时，由配置服务在加载前先初始化它——合规启动 / DLC 懒加载等场景才需要；demo 这套勾上了）。",
+                new CodeRef("Assets/Game/Framework/Config/MonoConfigUtilityBase.cs", "private string _packageName", "两个 Inspector 字段：包名 / 按需初始化"));
+            host.AddSubNote("解耦边界：框架 `Game.Framework.Config` 模块不引用 Luban——它只做「清单 → 预载字节 → 调抽象工厂」的通用编排；" +
+                            "整条链路里接触 Luban 类型（`ByteBuf`）的只有上面 `CreateTables` 那一行。换任何配置后端，框架模块原样可用。",
+                new CodeRef("Assets/Game/Framework/Config/MonoConfigUtilityBase.cs", "class MonoConfigUtilityBase", "框架基类（后端无关，自加载）"));
+
+            // ── 4. 改表工作流 ──
             host.AddSectionTitle("改一张表的完整工作流");
-            host.AddStep("①", "改数据：`Demo/Configs~/Datas/item.json`（JSON，diff 可读）或 `monster.xlsx`（Excel/WPS 直接编辑）；改表结构/加表：`Demo/Configs~/Defines/demo.xml`。");
-            host.AddStep("②", "菜单「SSFramework/配置表构建/生成全部」：代码 / 数据 / 清单一次刷新（Play 中会被拒绝，先停）。");
+            host.AddStep("①", "改数据：`Demo/Configs~/Datas/item.json`（JSON，diff 可读）或 `monster.xlsx`（Excel/WPS 直接编辑）；改表结构 / 加表：`Demo/Configs~/Defines/demo.xml`。");
+            host.AddStep("②", "菜单「SSFramework/配置表构建/生成全部」或下方「配置总览」里点生成：代码 / 数据 / 清单一次刷新（Play 中会被拒绝，先停）。");
             host.AddStep("③", "重新 Play 查看——配置在启动时一次性加载（只读数据不做运行中增量更新）。");
             host.AddActionRow("打开表定义与数据目录（Demo/Configs~/）", () => OpenConfigSource());
-            host.AddActionRow("生成配置代码 + 数据（真实跑 Luban CLI）", () => RunMenu(GenerateMenu),
-                new CodeRef("Assets/Game/Framework/Config/Editor/LubanCodeGenerator.cs", "class LubanCodeGenerator", "生成管线（跑 Luban CLI + 写清单）"));
 
-            // ── demo 与正式游戏并存 ──
-            host.AddSectionTitle("多套配置并存：demo 是一套自洽样例");
+            // ── 5. 进阶：多套配置并存 ──
+            host.AddSectionTitle("进阶 · 多套配置并存：demo 是一套自洽样例");
             host.AddNote("这套 demo 配置自成一套——profile + 源（`Configs~/`）+ 生成代码（`Demo/Config/Gen/`）+ 数据（`Demo/Res/Configs/`）全在 `Demo/` 内，" +
                          "随 demo 程序集（带 `UNITY_EDITOR` 约束）与样例资源包一并被正式打包排除。正式游戏在自己目录里建**另一个** `LubanConfigProfile`" +
                          "（各自的 `luban.conf` 源 + 输出 + 命名空间）即可与 demo 并存；「生成全部」逐套生成，定位 / 打开目录 / 单独生成都在「配置总览」窗口。");
             host.AddActionRow("打开配置总览（定位 / 打开目录 / 单独生成）", () => RunMenu(OverviewMenu),
                 new CodeRef("Assets/Game/Framework/Config/Editor/LubanConfigOverviewWindow.cs", "class LubanConfigOverviewWindow", "多套配置的集中视图"));
+            host.AddSubNote("「多套配置」同时就是**懒加载的落点**——按需加载分两个粒度看：**单表**没有、也不建议（生成的 `Tables` 一次性构造全表、" +
+                            "且跨表 `ResolveRef` 要全表在场，配置又是小体积只读数据，全量预载最省心）；真要「用到才加载」就**按配置集拆**：把 DLC / 活动 / " +
+                            "巨表做成**另一套** `Tables` + 另一个配置服务，让它的组件晚点才实例化（进对应玩法时才挂上 / 放进按需创建的子 Context），那套就用到才加载——" +
+                            "数据再放非自动初始化的包，还能顺带按需下载。下载（包级）+ 配置集拆分（set 级），都是组合现成原语，框架不另设单表 lazy API。");
 
             host.AddTip("深度阅读：docs/framework-guide.md §16（用法手册：接入步骤 / 换 Excel 数据源 / 命名空间坑）、docs/adr/0009（设计取舍）。");
         }
