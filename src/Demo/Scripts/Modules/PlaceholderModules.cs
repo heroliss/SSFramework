@@ -61,5 +61,5 @@ namespace Game.Framework.Demo.Modules
     // 编辑器恒走旁路故以讲解 + 源码跳转为主，校验按钮真实调用构建期校验）。
 
     // 进阶“配置表 · Luban”已实现为独立模块 ConfigTableModule（见 Modules/ConfigTableModule.cs，
-    // 配套 Demo/Config/ 的具体三段式组件（场景 ConfigSystem 节点）+ Gen/ 生成代码；生成走统一菜单 SSFramework/配置表构建）。
+    // 配套 Demo/Config/ 的自加载配置 Utility（场景 ConfigService 节点）+ Gen/ 生成代码；生成走统一菜单 SSFramework/配置表构建）。
 }

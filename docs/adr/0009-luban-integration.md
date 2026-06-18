@@ -46,5 +46,6 @@ cs-bin 生成的 `Tables` 构造函数是**同步** `Func<string, ByteBuf>`，�
 - ⚠ 生成代码 namespace（topModule）**不得嵌进含 `System` 子命名空间的层级**（如 `Game.Framework.*`）：生成代码裸写 `System.Func` 会被就近解析劫持（CS0234）。demo 用顶层 `DemoCfg`。
 - ⚠ Luban 会清理生成代码目录里的陌生文件（表清单须在 CLI 之后补写——管线已按此顺序实现），该目录勿手放文件。
 - ⚠ 配置只读、启动一次性加载：数据热更随资源包即可；表结构变化会改生成代码，需走代码热更/发版。
+- ⚠ **无单表级懒加载**：Luban 的 `Tables` 是同步、一次性构造全表（且跨表 `ResolveRef` 要全表在场），框架据此「按清单预载全部 → 同步构造」。需要「用到才加载」时按两个更合适的粒度组合现成原语——**包级下载**（`.bytes` 随资源包按需下载 / 热更）+ **配置集拆分**（DLC / 活动 / 巨表自成一套 `Tables` + 服务，让服务组件晚实例化才触发其 `Start` 自加载，每套内部 `ResolveRef` 完整）——不另设单表 lazy API（绕过 `Tables` 单独构造 `TbXxx` 会丢 ResolveRef，对小配置得不偿失）。
 
 用法手册见 `docs/framework-guide.md` §16；活样例见 demo「配置表 · Luban」章 + `Demo/Configs~/`。
