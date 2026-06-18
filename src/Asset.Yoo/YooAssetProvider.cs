@@ -546,9 +546,26 @@ namespace Game.Framework
             }
         }
 
-        // 偏移加密时把同一个解密器同时注册为 AssetBundle / Raw / 内存兜底解密器；FileOffset 为 0 不加密则跳过。
+        // 给文件系统注入解密器。优先级：项目自定义解密器（GameAssetDecryption）> 偏移解密（FileOffset>0）> 不加密。
+        // 同一个解密器同时登记为 AssetBundle / Raw 解密器；内存兜底解密器要求实现 IBundleMemoryDecryptor，实现了才登记。
         private static void ApplyDecryptor(FileSystemParameters fsParams, AssetProviderConfig config)
         {
+            // ① 自定义解密器优先（项目用 XOR/AES 等时设了工厂）。与构建侧自定义加密器成对，见 docs/asset-encryption.md。
+            if (GameAssetDecryption.BundleDecryptorFactory != null)
+            {
+                var custom = GameAssetDecryption.BundleDecryptorFactory();
+                fsParams.AddParameter(EFileSystemParameter.AssetBundleDecryptor, custom);
+                fsParams.AddParameter(EFileSystemParameter.RawBundleDecryptor, custom);
+                // 兜底解密器（加载失败时回内存解密重试）必须是内存解密器；偏移/流式解密器不实现它就不登记。
+                if (custom is IBundleMemoryDecryptor)
+                    fsParams.AddParameter(EFileSystemParameter.AssetBundleFallbackDecryptor, custom);
+                var manifest = GameAssetDecryption.ManifestDecryptorFactory?.Invoke();
+                if (manifest != null)
+                    fsParams.AddParameter(EFileSystemParameter.ManifestDecryptor, manifest);
+                return;
+            }
+
+            // ② 内置偏移解密（FileOffset==0 不加密则跳过）。GameBundleOffsetDecryptor 同时实现偏移 + 内存兜底两接口。
             if (config.FileOffset == 0) return;
             var decryptor = new GameBundleOffsetDecryptor(config.FileOffset);
             fsParams.AddParameter(EFileSystemParameter.AssetBundleDecryptor, decryptor);

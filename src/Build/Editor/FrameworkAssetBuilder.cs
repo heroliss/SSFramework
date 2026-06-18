@@ -67,7 +67,11 @@ namespace Game.Framework.Build
                 ? profile.EnabledPackageNames.ToList()
                 : csv.Split(',').Select(s => s.Trim()).Where(s => s.Length > 0).ToList();
 
-            var (ok, message) = Build(profile, packages, version);
+            // 本机构建过程开关（不进产物）：CI 用「存在即开」的开关式参数（-clearBuildCache / -useAssetDependencyDB），不需要带值。
+            bool clearBuildCache = HasFlag("-clearBuildCache");
+            bool useAssetDependencyDB = HasFlag("-useAssetDependencyDB");
+
+            var (ok, message) = Build(profile, packages, version, clearBuildCache, useAssetDependencyDB);
 
             // 构建无真失败后整理成待上传结构（CI 把该目录整目录同步上 CDN）。-output 缺省到统一 Deploy 目录。
             if (ok)
@@ -108,14 +112,23 @@ namespace Game.Framework.Build
         /// 逐包构建（只产 YooAsset 原生输出，不部署），**逐包容错、不因单包失败中断整批**。
         /// 返回 (是否无真失败, 多行汇总)；空包/无内置 shader 自动处理（见类型 remarks）。每包参数取自 <paramref name="profile"/>。
         /// ⚠ 仅 Edit 模式（SBP 不能在 Play 跑）。
+        /// <para><paramref name="clearBuildCache"/> / <paramref name="useAssetDependencyDB"/> 是「本机构建过程」开关、不进产物、不入 profile：
+        /// 前者清 SBP 增量缓存强制全量重建（排障用，平时关＝走增量更快）；后者用资源依赖缓存数据库加速收集阶段。
+        /// 它们由菜单 / CI 入口按需传入（见 <see cref="AssetBuildMenu"/> 与 <see cref="BuildAll"/>）。</para>
         /// </summary>
         public static (bool ok, string message) Build(
-            FrameworkAssetBuildProfile profile, IReadOnlyList<string> packages, string version)
+            FrameworkAssetBuildProfile profile, IReadOnlyList<string> packages, string version,
+            bool clearBuildCache = false, bool useAssetDependencyDB = false)
         {
             try
             {
                 if (packages == null || packages.Count == 0)
                     return (false, "没有可构建的包：profile 未启用任何包，或传入列表为空。");
+
+                // 自定义加密与偏移加密互斥：二者都配时以自定义为准、偏移被忽略，提醒去把 FileOffset 置 0 以免误解。
+                if (GameAssetEncryption.CustomBundleEncryptor != null && profile != null && profile.FileOffset > 0)
+                    Debug.LogWarning("[AssetBuilder] 同时配置了自定义加密器(GameAssetEncryption.CustomBundleEncryptor)与偏移加密(profile.FileOffset>0)，" +
+                                     "本次以自定义加密为准、偏移被忽略。建议把 profile 的 FileOffset 置 0。");
 
                 var target = EditorUserBuildSettings.activeBuildTarget;
                 var built = new List<string>();    // 正常构建
@@ -156,7 +169,7 @@ namespace Game.Framework.Build
                         continue;
                     }
 
-                    var result = BuildPackage(pkg, entry, profile, version, target);
+                    var result = BuildPackage(pkg, entry, profile, version, target, clearBuildCache, useAssetDependencyDB);
                     if (result.Success)
                     {
                         built.Add(pkg);
@@ -236,7 +249,8 @@ namespace Game.Framework.Build
             }
         }
 
-        private static BuildResult BuildPackage(string packageName, PackageBuildEntry entry, FrameworkAssetBuildProfile profile, string version, BuildTarget target)
+        private static BuildResult BuildPackage(string packageName, PackageBuildEntry entry, FrameworkAssetBuildProfile profile, string version, BuildTarget target,
+            bool clearBuildCache, bool useAssetDependencyDB)
         {
             // 缺配置时回退到「真实包」默认（开 shader 包 / 按 tag 拷首包 / 不内置）。
             bool genShaderBundle = entry?.GenerateBuiltinShaderBundle ?? true;
@@ -245,9 +259,17 @@ namespace Game.Framework.Build
             if (entry == null)
                 Debug.LogWarning($"[AssetBuilder] 包 '{packageName}' 不在构建 profile 中，使用默认参数。建议把它加进 profile（或用「同步收集器包列表」）。");
 
-            // 全局构建设置（压缩 / 文件名风格）取自 profile，无 profile 时回退常量默认；其余（构建管线 / bundle 类型 / 输出路径）是框架不变量，写死不开放。
+            // 全局构建设置（压缩 / 文件名风格 / 偏移加密）取自 profile，无 profile 时回退常量默认；其余（构建管线 / bundle 类型 / 输出路径）是框架不变量，写死不开放。
             var compress = profile != null ? profile.Compression : Compress;
             var fileNameStyle = profile != null ? profile.FileNameStyle : FileNameStyle;
+            // 加密器选择（优先级：项目自定义 > 偏移 > 不加密）：
+            //   ① 项目设了自定义加密器（GameAssetEncryption.CustomBundleEncryptor，XOR/AES 等）→ 用它；
+            //   ② 否则 profile 偏移加密（FileOffset>0）→ 每个 bundle 头插入 N 字节，运行时按相同 N 跳过（GameBundleOffsetDecryptor）；
+            //   ③ 都没有 → null（不加密，YooAsset 跳过加密任务）。
+            // 运行时解密由 Game.Framework.GameAssetDecryption 配对；内容加密详见 docs/asset-encryption.md。
+            ulong fileOffset = profile != null ? profile.FileOffset : 0;
+            IBundleEncryptor bundleEncryptor = GameAssetEncryption.CustomBundleEncryptor
+                ?? (fileOffset > 0 ? new GameBundleOffsetEncryptor(fileOffset) : null);
 
             var buildParameters = new ScriptableBuildParameters
             {
@@ -262,6 +284,13 @@ namespace Game.Framework.Build
                 VerifyBuildingResult = true,
                 FileNameStyle = fileNameStyle,
                 CompressOption = compress,
+                BundleEncryptor = bundleEncryptor,
+                // 清单加密（可选）：仅当项目设了自定义清单加/解密器时生效；偏移加密不碰清单（保持明文）。null = 不加密清单。
+                ManifestEncryptor = GameAssetEncryption.CustomManifestEncryptor,
+                ManifestDecryptor = GameAssetEncryption.CustomManifestDecryptor,
+                // 本机构建过程开关（不进产物）：清缓存=强制全量重建；依赖 DB=加速资源收集。
+                ClearBuildCacheFiles = clearBuildCache,
+                UseAssetDependencyDB = useAssetDependencyDB,
                 BundledCopyOption = builtinCopy,
                 // tags 为空 = 零内置：传一个不会命中任何 bundle 的占位 tag 显式表达，不依赖 YooAsset 对空串按 ';' 切分的行为。
                 BundledCopyParams = string.IsNullOrEmpty(builtinTags) ? "__builtin_none__" : builtinTags,
@@ -395,6 +424,16 @@ namespace Game.Framework.Build
                 if (string.Equals(args[i], name, StringComparison.Ordinal))
                     return args[i + 1];
             return null;
+        }
+
+        // 开关式命令行参数（存在即为真，不带值）——用于布尔构建开关（-clearBuildCache / -useAssetDependencyDB）。
+        private static bool HasFlag(string name)
+        {
+            var args = Environment.GetCommandLineArgs();
+            for (int i = 0; i < args.Length; i++)
+                if (string.Equals(args[i], name, StringComparison.Ordinal))
+                    return true;
+            return false;
         }
     }
 }

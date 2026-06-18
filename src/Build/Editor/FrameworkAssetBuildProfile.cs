@@ -45,6 +45,12 @@ namespace Game.Framework.Build
         [Tooltip("Bundle 文件名风格（对所有包生效）。\nHashName = 纯哈希名（默认，天然防缓存碰撞）；其余见 YooAsset EFileNameStyle。")]
         [SerializeField] private EFileNameStyle _fileNameStyle = EFileNameStyle.HashName;
 
+        [Header("加密")]
+        [Tooltip("AssetBundle 文件头偏移加密：>0 时构建在每个 bundle 头前插入该字节数，挡住直接用 AB 提取工具打开（弱加密，仅防扫魔数）。0 = 不加密。\n" +
+                 "⚠ 必须与场景 AssetSystemConfigModel.FileOffset【完全一致】——构建插几个字节、运行时就跳几个字节，对不上会读坏所有 bundle。\n" +
+                 "要真正的内容加密（XOR / AES 等）见 docs/asset-encryption.md：需自定义构建侧 IBundleEncryptor + 运行时侧解密器，本字段不适用。")]
+        [Min(0)] [SerializeField] private ulong _fileOffset = 0;
+
         [Header("本地联调（不入库，仅本机测 Host）")]
         [Tooltip("本地 CDN 服务端口（python http 服务，伺服 AssetBuild/Deploy）。⚠ 必须与场景 AssetSystemConfigModel.CdnUrls 第一条（主）的端口一致，Host 才能下到东西。")]
         [FormerlySerializedAs("LocalServePort")]
@@ -64,6 +70,12 @@ namespace Game.Framework.Build
 
         /// <summary>Bundle 文件名风格（全局，对所有包生效）。</summary>
         public EFileNameStyle FileNameStyle => _fileNameStyle;
+
+        /// <summary>
+        /// AssetBundle 文件头偏移加密的字节数（全局，对所有包生效）；0 = 不加密。&gt;0 时构建挂上偏移加密器在每个 bundle 头前插入该字节数。
+        /// 必须与运行时 <c>AssetSystemConfigModel.FileOffset</c> 一致（构建插几字节、运行时跳几字节）。自定义内容加密见 <c>docs/asset-encryption.md</c>。
+        /// </summary>
+        public ulong FileOffset => _fileOffset;
 
         /// <summary>本地 CDN 服务端口（联调专用，须与 AssetSystemConfigModel.CdnUrls 主地址端口一致）。</summary>
         public int LocalServePort => _localServePort;

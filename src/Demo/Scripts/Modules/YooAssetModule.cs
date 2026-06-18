@@ -111,6 +111,13 @@ namespace Game.Framework.Demo.Modules
             host.AddSectionTitle("机制：清缓存");
             host.AddSubNote("清缓存（`ClearCache`，正式游戏也用）：清的是 项目根/`AssetBuild/Downloaded` 里已下载的 bundle，同步内存缓存记录后 `IsNeedDownload` 重新变真。`All` = 设置里「清除缓存」/ 损坏恢复 / 强制全量重下；`Unused` = 热更到新版本后回收旧版本残留（省空间）。它不卸载已加载到内存的资源（那是另一回事）。");
 
+            // ── 机制：加密（可选，两端成对）──
+            host.AddSectionTitle("机制：资源加密（可选）");
+            host.AddSubNote("加密分构建侧（写加密产物）与运行时侧（读时解密），必须【成对、参数一致】。框架内置「偏移加密」开箱即用：构建配置 `FrameworkAssetBuildProfile.FileOffset` 设 N(>0) → 构建在每个 bundle 头插入 N 字节，挡住直接用 AB 提取工具打开；运行时 `AssetSystemConfigModel.FileOffset` 设【相同】 N → 加载时跳过这 N 字节。两值对不上会读坏所有 bundle。",
+                new CodeRef("Assets/Game/Framework/Build/Editor/GameBundleOffsetEncryptor.cs", "class GameBundleOffsetEncryptor", "构建侧偏移加密器"));
+            host.AddSubNote("偏移是【弱】加密（只换文件头、不动 bundle 正文，解密近乎零成本）。要真加密（XOR/AES 等打乱正文）需自实现 `IBundleEncryptor` + 运行时对应解密器，两端一起换——完整步骤（含清单加密、流式解密、密钥/热更注意点）见 `docs/asset-encryption.md`。",
+                new CodeRef("Assets/Game/Framework/Asset.Yoo/YooAssetProvider.cs", "ApplyDecryptor", "运行时侧解密器注册（按 FileOffset）"));
+
             // ── 操作：本地联调 vs 生产 ──
             host.AddSectionTitle("操作：本地联调 vs 生产构建");
             host.AddNote("本地联调（编辑器内测 `Host`）：菜单 SSFramework/资源构建 下依次「1. 构建资源包 → 2. 部署到本地 CDN → 3. 启动本地 CDN 服务」，再把场景 `PlayMode` 切 `Host` 重进 Play。三步拆开、用的就是生产同款构建，只有「本地起服务」是联调专属。",

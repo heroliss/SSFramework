@@ -23,3 +23,4 @@
 | [0015](0015-odin-decoupling-assessment.md) | Odin 解耦的可行路径与改动面评估（精化 0006 方向） | Proposed · 最低优先级（长远可选） |
 | [0016](0016-ui-framework.md) | UI 框架：渲染后端无关的窗口/层级调度 + UGUI/UIToolkit 双 adapter | Accepted |
 | [0017](0017-dlc-code-hotupdate.md) | DLC 热更：单 CodePackage 承载代码 + 运行时按需加载 + 业务 RawFile 包统一构建 | Proposed · 待实现 |
+| [0018](0018-asset-encryption.md) | 资源加密：偏移内置为默认 + 代码接入位承载自定义，不内置 AES | Accepted |

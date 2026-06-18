@@ -63,7 +63,9 @@ namespace Game.Framework
         [Min(0)] [SerializeField] private int _failedTryAgain = 3;
 
         [Header("加密")]
-        [Tooltip("AssetBundle 文件头偏移字节数。构建时若启用偏移加密，这里填相同的偏移值；未启用时保持 0。")]
+        [Tooltip("AssetBundle 文件头偏移加密：运行时加载时跳过的字节数。\n" +
+                 "⚠ 必须与构建配置 FrameworkAssetBuildProfile.FileOffset【完全一致】——构建插几个字节、这里就跳几个字节，对不上会读坏所有 bundle。\n" +
+                 "0 = 不加密。偏移是弱加密（仅防扫魔数）；内容加密（XOR/AES）经 GameAssetDecryption 接入，见 docs/asset-encryption.md。")]
         [FormerlySerializedAs("FileOffset")]
         [Min(0)] [SerializeField] private ulong _fileOffset = 0;
 
