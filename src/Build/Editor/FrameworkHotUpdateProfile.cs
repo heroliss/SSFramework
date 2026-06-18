@@ -123,7 +123,7 @@ namespace Game.Framework.Build
 
             var profile = CreateInstance<FrameworkHotUpdateProfile>();
             // 默认档位（ADR-0008 §2）：内核 + YooAsset 适配模块热更；业务程序集出现后由项目自行加进列表。
-            TryAddDefault(profile, "Assets/Game/Framework/Scripts/Game.Framework.asmdef");
+            TryAddDefault(profile, "Assets/Game/Framework/Core/Game.Framework.asmdef");
             TryAddDefault(profile, "Assets/Game/Framework/Asset.Yoo/Game.Framework.Asset.Yoo.asmdef");
 
             const string dir = "Assets/Game/Framework/Build";

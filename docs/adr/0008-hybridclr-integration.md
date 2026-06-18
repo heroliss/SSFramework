@@ -76,10 +76,11 @@ Boot 场景（唯一随包场景：Launcher + 朴素进度 UI，只挂 Boot 程�
 - **随包场景不得挂热更程序集的脚本**：框架热更时连 `MonoGlobalContext` 都不能进随包场景；业务场景/prefab 一律 bundle 化（热更游戏标准形态）。Demo 场景只服务编辑器教学、不进包，不受影响。
 - **性能**：热更代码走解释器（比 AOT 慢约一个数量级）。框架热更档位下 DI/事件/Command 分发全解释执行——当前项目可接受；性能敏感产品把内核移出列表。远期商业版 DHE（方法级差分）可两全，机制无需改动。
 - 热更↔AOT 边界调用有桥接开销，但最低档位（仅业务热更）本来就跨该边界，分层不引入新量级。
+- **完全不做代码热更也是一档**：热更列表为空 ⇒ 全程 AOT，Launcher 退化为 AppDomain 直连旁路，或干脆省掉 Boot 用 `MonoGlobalContext` 老式启动（业务场景也不必 bundle 化）；资源热更（YooAsset）独立可用。落地见框架手册 §15「不做代码热更怎么搭」。
 
 ### 6. 反射兼容（已验证，2026-06-12）
 
-框架的 [InjectionPlan](../../Assets/Game/Framework/Scripts/Internal/InjectionPlan.cs) / [LayerInterfacesCache](../../Assets/Game/Framework/Scripts/Internal/LayerInterfacesCache.cs) / `GameContext.FindContextField` 对热更类型有效（都是真实 `System.Type`，解释器下元数据齐全）。AOT 泛型补元数据由 `AOTGenericReferences` 扫描自动覆盖。
+框架的 [InjectionPlan](../../Assets/Game/Framework/Core/Internal/InjectionPlan.cs) / [LayerInterfacesCache](../../Assets/Game/Framework/Core/Internal/LayerInterfacesCache.cs) / `GameContext.FindContextField` 对热更类型有效（都是真实 `System.Type`，解释器下元数据齐全）。AOT 泛型补元数据由 `AOTGenericReferences` 扫描自动覆盖。
 
 **IL2CPP 真机自检通过（GameEntry 自检 8/8，Windows player）**：DI 容器注册/解析、`RP<T>` + R3 订阅（跨 AOT 泛型）、struct Command 分发、双泛型 `ExecuteCommand<TCmd,TResult>` 零装箱返回值、class Command `[Inject]` 注入、事件总线、UniTask 异步命令（解释器 async 状态机）、Odin `SerializationUtility` 对热更类型的序列化往返（反射 formatter）。
 

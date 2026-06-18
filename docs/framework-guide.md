@@ -441,7 +441,7 @@ Model 持有需要随时查询的游戏状态。需要让外部订阅变化的�
 
 只读返回类型统一用 `ReadOnlyReactiveProperty<T>`。因为 `RP<T>` 继承链为 `RP<T>` → `ReactiveProperty<T>` → `ReadOnlyReactiveProperty<T>`，System/Command 实现可直接把 `RP<T>` 赋给 `ReadOnlyReactiveProperty<T>` 接口属性，**零分配无转换**，无需额外的 `ROP<T>` 包装类。不引入 `ReadOnlyReactiveProperty<int>` 之类的别名：C# 不支持泛型 `using` 别名，闭合别名（`using ReadOnlyReactiveProperty<int> = ReadOnlyReactiveProperty<int>;`）只能 per-assembly 声明、跨程序集失效，且 `ROP` 缩写不如全名自解释，对人和 AI 都更难追溯。
 
-> **`RP<T>` 位置说明**：`RP<T>` 在 `Game.Framework` 程序集内（`Scripts/Reactive/RP.cs`），业务无论在 Assembly-CSharp 还是独立 asmdef 引用框架后都能使用；其 Inspector 绘制器 `RPDrawer` 在 `Game.Framework.Editor` 程序集，注册到 `RP<>`。
+> **`RP<T>` 位置说明**：`RP<T>` 在 `Game.Framework` 程序集内（`Core/Reactive/RP.cs`），业务无论在 Assembly-CSharp 还是独立 asmdef 引用框架后都能使用；其 Inspector 绘制器 `RPDrawer` 在 `Game.Framework.Editor` 程序集，注册到 `RP<>`。
 
 对外不要把可写的 `ReactiveProperty<T>` 暴露给 View。View 只执行 Command；需要显示状态时，由只读查询 Command 返回 `ReadOnlyReactiveProperty<T>` 或 `Observable<T>`。优先返回 `ReadOnlyReactiveProperty<T>`，因为它既能订阅变化，也能读取 `CurrentValue` 初始化 UI。
 
@@ -1583,12 +1583,22 @@ Bag.Subscribe(
 - **随包场景（BootScene）只能挂 Boot 程序集的脚本**——框架热更档位下连 `MonoGlobalContext` 都不能进随包场景；业务场景/prefab 一律走 bundle。
 - 代码包与资源包**彻底分家**：CodePackage 归 Boot 管，业务别碰；资源包照常走 `AssetSystemConfigModel` / `AssetInitSystem`。
 
+### 不做代码热更怎么搭（纯 AOT / 只热更资源）
+
+代码热更是**部署决策**，可以完全不用——很多游戏只热更资源、或什么都不热更。两种搭法：
+
+1. **最省**：热更列表清空 → 全部 AOT。所有程序集启动即在 AppDomain，`HotUpdateLauncher` 的"编辑器旁路"成为**唯一路径**（反射进 `Enter()`，不下载、不加载代码包）。这时连 Boot 都可省掉：直接在随包首场景挂 `MonoGlobalContext`，由它（或一个启动脚本）调 `GameEntry.Enter()`——**无反射、无 CodePackage**。"随包场景不得挂热更脚本"的硬边界此时**不存在**（没有任何程序集热更），业务场景 / prefab 也不必 bundle 化。
+2. **保留统一管线**：想以后随时能打开代码热更，就留着 Boot + `HotUpdateLauncher`，模式设 `Offline`、热更列表留空——管线形态不变，只是永不联网更代码，将来要开热更只需把程序集拖进列表。
+
+两种搭法下**资源热更（YooAsset）都独立可用**：SO / prefab / 配置表数据 `.bytes` 仍可随资源包按需下载 / 热更，不依赖代码热更。一句话：**不热更代码 = 把程序集移出热更列表（或列表为空）+ 可选地省掉 Boot 反射那层**，框架其余用法零变化。
+
 > **要点回顾**
 >
 > - 热更范围 = `FrameworkHotUpdateProfile` 列表，一行配置定档位；目录按领域命名，不按是否热更
 > - 日常迭代两步：`3. 构建代码包` + `4. 部署`；Generate All 只在 AOT 集合变化时跑
 > - 入口约定 `GameEntry.Enter()`；编辑器旁路让开发期对热更机制无感
 > - `autoReferenced:false` + 「AOT 不引用热更」由构建期校验器机器执行，不靠人脑记
+> - 不做代码热更：列表清空走纯 AOT，可省掉 Boot 直接 `MonoGlobalContext` 启动；资源热更不受影响
 
 ---
 

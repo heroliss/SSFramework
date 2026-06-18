@@ -14,7 +14,7 @@ namespace Game.Framework.Demo.Core
     /// </remarks>
     public readonly struct CodeRef
     {
-        /// <summary>相对项目根的 .cs 资源路径，如 <c>Assets/Game/Framework/Scripts/Command/ICommand.cs</c>。</summary>
+        /// <summary>相对项目根的 .cs 资源路径，如 <c>Assets/Game/Framework/Core/Command/ICommand.cs</c>。</summary>
         public readonly string Path;
 
         /// <summary>跳转锚点：定位到源码中第一处<b>真正的代码声明</b>（会跳过锚点串作为 CodeRef 字符串实参自身出现的那行）。为空则跳到第 1 行。</summary>
