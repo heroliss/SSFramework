@@ -28,10 +28,10 @@ namespace Game.Framework.Pool
         /// <summary>预创建 <paramref name="count"/> 个实例放入池中（受容量上限约束），避免运行期首次租借的分配尖峰。</summary>
         void Prewarm(int count);
 
-        /// <summary>清空池中所有空闲实例（已租出的不受影响）。</summary>
+        /// <summary>清空池中所有空闲实例（已租出的不受影响）。只解除引用交 GC，<b>不</b>调用实例的 Dispose——见 <see cref="ObjectPool{T}"/> 的所有权说明。</summary>
         void Clear();
 
-        /// <summary>把空闲实例收缩到至多 <paramref name="targetCount"/> 个，多余的丢弃交 GC（已租出的不受影响）。</summary>
+        /// <summary>把空闲实例收缩到至多 <paramref name="targetCount"/> 个，多余的丢弃交 GC（已租出的不受影响，不调用 Dispose）。</summary>
         void Trim(int targetCount);
     }
 

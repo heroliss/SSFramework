@@ -15,8 +15,8 @@ namespace Game.Framework
     ///
     /// 职责边界：
     /// - 管理多个 package 的初始化状态、失败异常和等待入口；
-    /// - 提供类型化加载 API，并处理 Component 请求到 GameObject prefab 的通用解析；
-    /// - 把具体资源库的初始化、加载、handle 包装和下载器适配委托给 provider。
+    /// - 提供类型化加载 API 与加载结果的类型校验（<see cref="CastHandle{T}"/>）；
+    /// - 把具体资源库的初始化、加载（含"Component 请求解析到 GameObject prefab 再取组件"）、handle 包装和下载器适配委托给 provider。
     ///
     /// 每次 Load 都返回独立 handle，调用方可以手动 Dispose；业务层通常通过 <see cref="DisposableBag"/> 托管。
     /// </summary>

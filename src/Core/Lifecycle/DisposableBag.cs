@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using Cysharp.Threading.Tasks;
@@ -10,6 +11,7 @@ using R3;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.SceneManagement;
+using Debug = UnityEngine.Debug;
 
 namespace Game.Framework
 {
@@ -105,24 +107,33 @@ namespace Game.Framework
         // ── UnityEvent ──────────────────────────────────────────────────────
 
         /// <summary>
-        /// 订阅无参 UnityEvent。<paramref name="evt"/> 为 null 时返回空 Disposable。
+        /// 订阅无参 UnityEvent。<paramref name="evt"/> 为 null 时不订阅、返回空 Disposable，
+        /// 且 Editor / Development Build 下 LogError（Inspector 漏配是场景搭建错误，应尽早暴露；
+        /// 确属可选引用请在调用侧判空后再订阅，见「Inspector 引用默认 fail-fast」规则）。
         /// <paramref name="invokeImmediately"/> 为 true 时，注册后立刻调用一次 <paramref name="handler"/>。
         /// </summary>
         public IDisposable Subscribe(UnityEvent evt, UnityAction handler, bool invokeImmediately = false)
         {
-            if (evt == null) return Disposable.Empty;
+            if (evt == null) { ErrorNullUnityEvent(); return Disposable.Empty; }
             evt.AddListener(handler);
             if (invokeImmediately) handler();
             return Track(Disposable.Create(() => evt.RemoveListener(handler)));
         }
 
-        /// <summary>订阅带参 UnityEvent{T}。<paramref name="evt"/> 为 null 时返回空 Disposable。</summary>
+        /// <summary>订阅带参 UnityEvent{T}。null 语义同无参重载：不订阅、返回空 Disposable，Editor/Dev 下 LogError。</summary>
         public IDisposable Subscribe<T>(UnityEvent<T> evt, UnityAction<T> handler)
         {
-            if (evt == null) return Disposable.Empty;
+            if (evt == null) { ErrorNullUnityEvent(); return Disposable.Empty; }
             evt.AddListener(handler);
             return Track(Disposable.Create(() => evt.RemoveListener(handler)));
         }
+
+        // 「Inspector 引用默认 fail-fast」规则的落点：null 事件几乎总是场景漏配，静默跳过会让按钮无响应的问题
+        // 拖到交互阶段才暴露。Release 下保持容忍（编译消除），不因漏配崩掉玩家。
+        [Conditional("UNITY_EDITOR"), Conditional("DEVELOPMENT_BUILD")]
+        private static void ErrorNullUnityEvent()
+            => Debug.LogError("[DisposableBag] Subscribe 收到 null UnityEvent——多半是 Inspector 漏配。" +
+                              "确属可选引用请在调用侧判空后再订阅；Release 构建下忽略本次订阅。");
 
         // ── C# event / delegate（同时传入订阅与反订阅）──────────────────────
 

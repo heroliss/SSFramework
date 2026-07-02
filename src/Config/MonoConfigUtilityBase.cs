@@ -60,7 +60,9 @@ namespace Game.Framework
 
         // 在 Start 而非 Awake 加载：保证全场景 Awake（含 AssetUtility 的 Configure）已完成——
         // 否则空包名会在 AssetUtility 被 Configure 之前解析默认包名，拿到错误的包。
-        private void Start()
+        // protected virtual（而非 private）：Unity 魔法方法按最派生类调用，若基类 Start 是 private，
+        // 子类自己声明 Start() 会静默顶掉这里的加载且无编译警告；virtual 让子类必须写 override（并调 base.Start()）。
+        protected virtual void Start()
         {
             _cts = CancellationTokenSource.CreateLinkedTokenSource(
                 this.GetCancellationTokenOnDestroy(),

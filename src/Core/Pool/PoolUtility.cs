@@ -35,14 +35,29 @@ namespace Game.Framework.Pool
         private bool _disposed;
 
         public IObjectPool<T> GetPool<T>() where T : class, new()
-            => GetPool(static () => new T());
+            => GetPoolCore(static () => new T(), null, null, 0, explicitConfig: false);
 
         public IObjectPool<T> GetPool<T>(Func<T> factory, Action<T> onRent = null, Action<T> onReturn = null, int maxSize = 0)
+            where T : class
+            => GetPoolCore(factory, onRent, onReturn, maxSize, explicitConfig: true);
+
+        // explicitConfig 区分「显式带配置的 GetPool」与「默认工厂的便捷入口（GetPool<T>() / Rent<T>()）」：
+        // 池按类型「首次配置生效」，之后的显式配置会被静默忽略——这是最容易埋惊讶的静默行为，
+        // Editor/Dev 下检测到「池已存在却又传了配置」时警告提醒（便捷入口命中既有池是正常路径，不警告）。
+        private IObjectPool<T> GetPoolCore<T>(Func<T> factory, Action<T> onRent, Action<T> onReturn, int maxSize, bool explicitConfig)
             where T : class
         {
             WarnIfDisposed(nameof(GetPool));
             if (_pools.TryGetValue(typeof(T), out var existing))
+            {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+                if (explicitConfig)
+                    Debug.LogWarning(
+                        $"[PoolUtility] GetPool<{typeof(T).Name}> 带配置调用，但该类型的池已存在——本次工厂/钩子/容量参数被忽略（首次配置生效）。" +
+                        "如需自定义配置，请保证在首次使用（含 Bag.Rent / Rent<T>）之前完成。");
+#endif
                 return (IObjectPool<T>)existing;
+            }
 
             var pool = new ObjectPool<T>(factory, onRent, onReturn, maxSize);
             _pools[typeof(T)] = pool;

@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
-using System.Threading;
-using Debug = UnityEngine.Debug;
+using UnityEngine;
 
 namespace Game.Framework.Internal
 {
@@ -15,7 +13,7 @@ namespace Game.Framework.Internal
     /// <b>线程契约：主线程独占。</b>所有 <see cref="Resolve"/> / <see cref="TryResolve"/> /
     /// <see cref="ReplaceOverride"/> 等方法均不加锁，业务必须在 Unity 主线程使用容器。
     /// 框架的所有 Awake / OnDestroy / Command / Event 路径都遵守这一约定，故 hot path 不付并发开销。
-    /// 跨线程访问的检测在 Editor / Development Build 下由 <see cref="AssertMainThread"/> 兜底。
+    /// 跨线程访问的检测在 Editor / Development Build 下由 <see cref="MainThreadGuard"/> 兜底。
     /// </remarks>
     public sealed class Container
     {
@@ -30,10 +28,6 @@ namespace Game.Framework.Internal
         // RegisterOwned 登记的"本容器拥有"实例：仅这些在 Dispose 时释放（普通 RegisterValue/工厂实例不碰）。
         private readonly IReadOnlyList<IDisposable> _owned;
         private bool _disposed;
-
-        // 主线程 ID 捕获：static ctor 在第一次访问 Container 时跑，正常路径下都在主线程。
-        // Editor / Development Build 下 AssertMainThread 用此 ID 做断言。
-        private static readonly int s_mainThreadId = Thread.CurrentThread.ManagedThreadId;
 
         internal Container(Dictionary<Type, object> bindings, Container parent = null, IReadOnlyList<IDisposable> owned = null)
         {
@@ -74,7 +68,7 @@ namespace Game.Framework.Internal
                 {
                     // 工厂分支是唯一的"写入 _bindings"路径。容器是主线程独占，这里只在 Editor/Development 加断言兜底；
                     // Release Build 下 Conditional 编译消除，零开销。
-                    AssertMainThread();
+                    MainThreadGuard.AssertMainThread(nameof(Container));
                     instance = factory(this);
                     if (instance == null)
                         throw new InvalidOperationException(
@@ -88,18 +82,6 @@ namespace Game.Framework.Internal
             if (_parent != null) return _parent.TryResolve(type, out instance);
             instance = null;
             return false;
-        }
-
-        /// <summary>
-        /// 断言当前在 Unity 主线程。Editor 与 Development Build 下生效，Release 编译消除。
-        /// </summary>
-        [Conditional("UNITY_EDITOR")]
-        [Conditional("DEVELOPMENT_BUILD")]
-        private static void AssertMainThread()
-        {
-            if (Thread.CurrentThread.ManagedThreadId != s_mainThreadId)
-                Debug.LogError(
-                    "[Container] Container is not thread-safe; must be accessed from the Unity main thread.");
         }
 
         /// <summary>仅查本地覆盖层（不查 _bindings、不查父级）。供 host 做"运行时覆盖父级"检测使用。</summary>

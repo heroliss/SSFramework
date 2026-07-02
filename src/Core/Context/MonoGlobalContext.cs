@@ -25,7 +25,9 @@ namespace Game.Framework.Context
     {
         protected override void OnInitialized()
         {
-            // 检测重复实例：在场景 A → B → A 来回切换时，旧 Main 可能仍存活
+            // 检测重复实例：在场景 A → B → A 来回切换时，旧 Main 可能仍存活。
+            // 注意 Destroy 到帧末才生效：本帧内挂在这个重复节点下的层仍会 Awake 并注册进这个将死的 Context，
+            // 随后随节点一起销毁——瞬态且自会清理，但重复实例节点下不要放"注册后立刻产生外部副作用"的层。
             if (GameContext.Main != null && GameContext.Main != RawContext)
             {
                 Debug.LogError(

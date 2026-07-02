@@ -31,8 +31,9 @@ namespace Game.Framework.Internal
         private const BindingFlags Flags =
             BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly;
 
+        // 静态缓存不加锁：与 Container 同一「主线程独占」契约（Inject 只发生在 Awake / Command 执行等主线程路径），
+        // Editor / Development Build 下由 MainThreadGuard 兜底检测跨线程误用。
         private static readonly Dictionary<Type, InjectionPlan> _cache = new();
-        private static readonly object _cacheLock = new();
         private static readonly Action<object, GameContext>[] _empty = Array.Empty<Action<object, GameContext>>();
 
         private readonly Action<object, GameContext>[] _actions;
@@ -84,22 +85,16 @@ namespace Game.Framework.Internal
 
 #if UNITY_EDITOR
         [InitializeOnLoadMethod]
-        private static void ClearCacheOnDomainReload()
-        {
-            lock (_cacheLock) _cache.Clear();
-        }
+        private static void ClearCacheOnDomainReload() => _cache.Clear();
 #endif
 
         public static InjectionPlan For(Type type)
         {
             if (_cache.TryGetValue(type, out var plan)) return plan;
-            lock (_cacheLock)
-            {
-                if (_cache.TryGetValue(type, out plan)) return plan;
-                plan = Build(type);
-                _cache[type] = plan;
-                return plan;
-            }
+            MainThreadGuard.AssertMainThread(nameof(InjectionPlan));
+            plan = Build(type);
+            _cache[type] = plan;
+            return plan;
         }
 
         public void Apply(object target, GameContext context)
