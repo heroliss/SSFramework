@@ -127,7 +127,7 @@ struct 不能用 `this.GetXxx<T>()` 扩展方法（值类型接口调用必然�
 
 - 动态加载走 `Bag.Load*`（见 #17）；Inspector 拖拽引用走 `AssetReference<T>.Get()`——`MonoXxxBase` 字段 Awake 自动绑定、随宿主 Bag 释放。GUID 是 AssetReference 内部细节，不作为业务 API 暴露。
 - **SO / 纯 C# 对象的 AssetReference 不自动绑定**（框架刻意不递归 SO——共享资产不该被某个宿主接管）：由加载 / 持有它的宿主一行 `bag.BindAssetReferences(obj)` 绑定。config SO 是「Model 持有 / 加载的数据」，不做 Model 层。
-- 多包：所有包（含默认包）登记在 `AssetSystemConfigModel.Packages`，各配「自动初始化 / 按需下载」策略；`DefaultPackageName` 只是默认指针（留空 = 无默认包）。子 Context 靠容器父级回退共享，不重复挂三件套。
+- 多包：所有包（含默认包）登记在 `AssetSystemConfigModel.Packages`，各配「自动初始化 / 按需下载」策略；`DefaultPackageName` 只是默认指针（留空 = 无默认包）。子 Context 靠容器父级回退共享，不重复挂三件套。业务代码的 `packageName` 参数用生成的常量类（菜单 `SSFramework/资源构建/生成包名常量代码`，默认 `Game.Main.AssetPackages`），不写裸字符串。
 - ⚠ **既没开自动初始化、也没 `Initialize` 过的包，`Load` 直接抛「未初始化」异常**（fail-fast，不是无限等待）。启动进度订阅 `IAssetUtility.InitState` 或 `await Bag.EnsureInitialized()`。
 - 下载器：`CreateTagDownloader(...)` 订阅 `dl.Progress` 后 `dl.Download(ct)`；下载器 / 查询（`CheckLocationValid` / `IsNeedDownload`）刻意不在 Bag 上。
 - 底层为 **YooAsset 3.0 原生 API**，全部接触面收口在 `YooAssetProvider`（ADR-0013）；构建期踩坑见 `docs/yooasset-pitfalls.md`，加密见 `docs/asset-encryption.md`。

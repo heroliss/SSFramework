@@ -51,6 +51,15 @@ namespace Game.Framework.Build
                  "要真正的内容加密（XOR / AES 等）见 docs/asset-encryption.md：需自定义构建侧 IBundleEncryptor + 运行时侧解密器，本字段不适用。")]
         [Min(0)] [SerializeField] private ulong _fileOffset = 0;
 
+        [Header("代码生成")]
+        [Tooltip("「生成包名常量代码」的输出文件路径（Assets/ 开头、.cs 结尾）。类名 = 文件名去掉 .g.cs。\n" +
+                 "生成的 const string 常量供业务代码替代裸包名字符串——收集器改名/删包后重新生成，引用处编译期报错。\n" +
+                 "留空 = 不使用此功能。")]
+        [SerializeField] private string _packageConstantsPath = "Assets/Game/Main/Generated/AssetPackages.g.cs";
+
+        [Tooltip("包名常量类所在的命名空间（业务层命名空间）。")]
+        [SerializeField] private string _packageConstantsNamespace = "Game.Main";
+
         [Header("本地联调（不入库，仅本机测 Host）")]
         [Tooltip("本地 CDN 服务端口（python http 服务，伺服 AssetBuild/Deploy）。⚠ 必须与场景 AssetSystemConfigModel.CdnUrls 第一条（主）的端口一致，Host 才能下到东西。")]
         [FormerlySerializedAs("LocalServePort")]
@@ -76,6 +85,12 @@ namespace Game.Framework.Build
         /// 必须与运行时 <c>AssetSystemConfigModel.FileOffset</c> 一致（构建插几字节、运行时跳几字节）。自定义内容加密见 <c>docs/asset-encryption.md</c>。
         /// </summary>
         public ulong FileOffset => _fileOffset;
+
+        /// <summary>包名常量生成的输出文件路径（Assets/ 相对，已归一化斜杠）；空 = 功能未启用。</summary>
+        public string PackageConstantsPath => _packageConstantsPath?.Trim().Replace('\\', '/') ?? "";
+
+        /// <summary>包名常量类所在的命名空间。</summary>
+        public string PackageConstantsNamespace => _packageConstantsNamespace?.Trim() ?? "";
 
         /// <summary>本地 CDN 服务端口（联调专用，须与 AssetSystemConfigModel.CdnUrls 主地址端口一致）。</summary>
         public int LocalServePort => _localServePort;

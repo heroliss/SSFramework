@@ -1312,6 +1312,8 @@ await this.GetUtility<IAssetUtility>().Initialize("DlcPack"); // 指定包
 
 Host 模式默认允许 `Load` 对未缓存 bundle 当场按需下载。大型 DLC 若不想“误 Load 一个资源就自动下载”，在 `AssetSystemConfigModel.Packages` 列表里取消该包的「启用按需下载」：之后本包未缓存资源的 `Load` 直接失败，业务必须先用下载器显式预下载并展示进度。包级策略（自动初始化 / 启用按需下载）都在这一处按包配置。
 
+> **包名别写裸字符串**：菜单 `SSFramework/资源构建/生成包名常量代码` 从收集器的包列表生成常量类（默认 `Game.Main.AssetPackages`，输出路径 / 命名空间在构建 profile 配），`Initialize` / `Load` 等的 `packageName` 参数用 `AssetPackages.Xxx`——收集器改名 / 删包后重新生成，引用处编译期报错，不用等运行时才发现。
+
 ### Inspector 行为
 
 - 拖入与字段类型匹配的资源：自动记录 GUID

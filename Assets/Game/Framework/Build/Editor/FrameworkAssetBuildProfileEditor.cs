@@ -39,6 +39,14 @@ namespace Game.Framework.Build
                 Debug.Log("[资源构建] 同步收集器包列表：\n" + summary);
                 EditorUtility.DisplayDialog("同步完成", summary, "好");
             }
+
+            if (GUILayout.Button("生成包名常量代码"))
+            {
+                var profile = (FrameworkAssetBuildProfile)target;
+                var (ok, message) = AssetPackageConstantsGenerator.Generate(profile);
+                Debug.Log("[资源构建] 生成包名常量：\n" + message);
+                EditorUtility.DisplayDialog(ok ? "生成完成" : "生成失败", message, "好");
+            }
         }
     }
 }
