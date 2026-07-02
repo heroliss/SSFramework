@@ -17,24 +17,8 @@ namespace Game.Framework.Internal
             this MonoBehaviour self,
             IGameContext explicitContext = null) where TLayer : class
         {
-            IGameContext contextProvider = explicitContext
-                ?? self.GetComponentInParent<MonoGameContextBase>(includeInactive: true);
-
-            if (contextProvider == null && GameContext.Main != null)
-            {
-                FrameworkLog.LogVerbose(
-                    $"[{typeof(TLayer).Name}] '{self.name}': no parent context, falling back to GameContext.Main.");
-                contextProvider = GameContext.Main;
-            }
-
-            if (contextProvider == null)
-            {
-                Debug.LogError(
-                    $"[{typeof(TLayer).Name}] No IGameContext found for '{self.name}'. " +
-                    "Set _targetContext in Inspector, ensure a parent MonoGameContextBase exists, " +
-                    "or initialize a MonoGlobalContext before this Awake.");
-                return null;
-            }
+            var contextProvider = FindContext(self, explicitContext, typeof(TLayer).Name);
+            if (contextProvider == null) return null;
 
             ContextInternals.GetContainer(contextProvider).RegisterFor<TLayer>(self, $"{self.GetType().Name}({self.name})");
             contextProvider.Inject(self);
@@ -49,26 +33,34 @@ namespace Game.Framework.Internal
             this MonoBehaviour self,
             IGameContext explicitContext = null)
         {
+            var contextProvider = FindContext(self, explicitContext, "View");
+            if (contextProvider == null) return null;
+
+            contextProvider.Inject(self);
+            return contextProvider;
+        }
+
+        // 两条 Attach 路径共享的 Context 查找：explicitContext → Transform 父链最近的 MonoGameContextBase → GameContext.Main。
+        // roleLabel 只影响日志前缀（层标记名 / "View"），便于定位是哪类组件没找到 Context。
+        private static IGameContext FindContext(MonoBehaviour self, IGameContext explicitContext, string roleLabel)
+        {
             IGameContext contextProvider = explicitContext
                 ?? self.GetComponentInParent<MonoGameContextBase>(includeInactive: true);
 
             if (contextProvider == null && GameContext.Main != null)
             {
                 FrameworkLog.LogVerbose(
-                    $"[View] '{self.name}': no parent context, falling back to GameContext.Main.");
+                    $"[{roleLabel}] '{self.name}': no parent context, falling back to GameContext.Main.");
                 contextProvider = GameContext.Main;
             }
 
             if (contextProvider == null)
             {
                 Debug.LogError(
-                    $"[View] No IGameContext found for '{self.name}'. " +
+                    $"[{roleLabel}] No IGameContext found for '{self.name}'. " +
                     "Set _targetContext in Inspector, ensure a parent MonoGameContextBase exists, " +
                     "or initialize a MonoGlobalContext before this Awake.");
-                return null;
             }
-
-            contextProvider.Inject(self);
             return contextProvider;
         }
     }

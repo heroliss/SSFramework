@@ -559,20 +559,36 @@ namespace Game.Framework.Test
             ctx.Dispose();
         }
 
-        /// <summary>Utility 无任何 ICanGetX（IUtility 是空标记接口）：注入任何层都应被拦下——这里测注入另一个 Utility。</summary>
+        /// <summary>Utility 有 ICanGetUtility（IUtility : ICanGetUtility，基础设施互相组合，如配置服务取资源服务）：注入其他 Utility 应放行；Model/System 仍被拦（见下）。</summary>
         [Test]
-        public void Inject_UtilityCannotInjectUtility_FieldRemainsNull()
+        public void Inject_UtilityCanInjectUtility()
         {
             var builder = new ContainerBuilder();
-            builder.RegisterValue(new TestUtility(), new[] { typeof(TestUtility) });
+            var utility = new TestUtility();
+            builder.RegisterValue(utility, new[] { typeof(TestUtility) });
             var ctx = new GameContext(builder.Build());
 
             var target = new UtilityInjectsUtility();
+            ctx.Inject(target);
+
+            Assert.AreSame(utility, target.Utility, "IUtility : ICanGetUtility，[Inject] 其他 Utility 应放行");
+            ctx.Dispose();
+        }
+
+        /// <summary>Utility 只有 ICanGetUtility：注入 Model 仍应被拦下（基础设施不反向依赖业务状态）。</summary>
+        [Test]
+        public void Inject_UtilityCannotInjectModel_FieldRemainsNull()
+        {
+            var builder = new ContainerBuilder();
+            builder.RegisterValue(new TestModel { Value = "m" }, new[] { typeof(TestModel) });
+            var ctx = new GameContext(builder.Build());
+
+            var target = new UtilityInjectsModel();
             LogAssert.ignoreFailingMessages = true;
             try { Assert.DoesNotThrow(() => ctx.Inject(target)); }
             finally { LogAssert.ignoreFailingMessages = false; }
 
-            Assert.IsNull(target.Utility, "Utility 不持有任何 GetXxx 权限，[Inject] 任何层都应被拦下");
+            Assert.IsNull(target.Model, "Utility 无 GetModel 权限，[Inject] Model 应被拦下");
             ctx.Dispose();
         }
 
@@ -670,6 +686,7 @@ namespace Game.Framework.Test
         private class ModelInjectsSystem : IModel { [Inject] public TestSystem System; }
         private class ModelInjectsUtility : IModel { [Inject] public TestUtility Utility; }
         private class UtilityInjectsUtility : IUtility { [Inject] public TestUtility Utility; }
+        private class UtilityInjectsModel : IUtility { [Inject] public TestModel Model; }
         private class SystemInjectsModel : ISystem { [Inject] public TestModel Model; }
         private class CommandInjectsModel : ICommand
         {

@@ -271,36 +271,30 @@ namespace Game.Framework.Context
 
         // ---- AttachTo 反射字段缓存 ----
 
+        // 静态缓存不加锁：与 Container 同一「主线程独占」契约，Editor / Dev 下由 MainThreadGuard 兜底。
         private static readonly Dictionary<Type, FieldInfo> _contextFieldCache = new();
-        private static readonly object _contextFieldCacheLock = new();
 
 #if UNITY_EDITOR
         [UnityEditor.InitializeOnLoadMethod]
-        private static void ClearContextFieldCacheOnDomainReload()
-        {
-            lock (_contextFieldCacheLock) _contextFieldCache.Clear();
-        }
+        private static void ClearContextFieldCacheOnDomainReload() => _contextFieldCache.Clear();
 #endif
 
         private void SetContextField(object target)
         {
             var type = target.GetType();
-            FieldInfo field;
-            lock (_contextFieldCacheLock)
+            if (!_contextFieldCache.TryGetValue(type, out var field))
             {
-                if (!_contextFieldCache.TryGetValue(type, out field))
-                {
-                    field = FindContextField(type);
-                    _contextFieldCache[type] = field;
+                MainThreadGuard.AssertMainThread(nameof(GameContext));
+                field = FindContextField(type);
+                _contextFieldCache[type] = field;
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
-                    if (field == null)
-                    {
-                        Debug.LogWarning(
-                            $"[GameContext] AttachTo: no 'GameContext' field found on '{type.Name}'. " +
-                            "Ensure the class declares a private GameContext field (IHasGameContext.Context reads it).");
-                    }
-#endif
+                if (field == null)
+                {
+                    Debug.LogWarning(
+                        $"[GameContext] AttachTo: no 'GameContext' field found on '{type.Name}'. " +
+                        "Ensure the class declares a private GameContext field (IHasGameContext.Context reads it).");
                 }
+#endif
             }
             field?.SetValue(target, this);
         }

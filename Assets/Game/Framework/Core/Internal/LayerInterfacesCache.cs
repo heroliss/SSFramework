@@ -18,20 +18,18 @@ namespace Game.Framework.Internal
     /// </remarks>
     internal static class LayerInterfacesCache
     {
+        // 静态缓存不加锁：与 Container 同一「主线程独占」契约（层注册只发生在 Awake / RegisterXxx 等主线程路径），
+        // Editor / Development Build 下由 MainThreadGuard 兜底检测跨线程误用。
         private static readonly Dictionary<(Type concrete, Type layer), Type[]> _cache = new();
         private static readonly Dictionary<Type, Type[]> _interfacesCache = new();
-        private static readonly object _lock = new();
         private static readonly Type[] _empty = Array.Empty<Type>();
 
 #if UNITY_EDITOR
         [UnityEditor.InitializeOnLoadMethod]
         private static void ClearCacheOnDomainReload()
         {
-            lock (_lock)
-            {
-                _cache.Clear();
-                _interfacesCache.Clear();
-            }
+            _cache.Clear();
+            _interfacesCache.Clear();
         }
 #endif
 
@@ -43,34 +41,30 @@ namespace Game.Framework.Internal
         {
             var key = (concrete, layer);
             if (_cache.TryGetValue(key, out var cached)) return cached;
+            MainThreadGuard.AssertMainThread(nameof(LayerInterfacesCache));
 
-            lock (_lock)
+            // 第一层缓存：concrete 的所有接口（最贵的反射只发生一次/type）
+            if (!_interfacesCache.TryGetValue(concrete, out var ifaces))
             {
-                if (_cache.TryGetValue(key, out cached)) return cached;
-
-                // 第一层缓存：concrete 的所有接口（最贵的反射只发生一次/type）
-                if (!_interfacesCache.TryGetValue(concrete, out var ifaces))
-                {
-                    ifaces = concrete.GetInterfaces();
-                    _interfacesCache[concrete] = ifaces;
-                }
-
-                // 第二层：按 layer 过滤
-                List<Type> matched = null;
-                for (int i = 0; i < ifaces.Length; i++)
-                {
-                    var iface = ifaces[i];
-                    if (layer.IsAssignableFrom(iface) && iface != layer)
-                    {
-                        matched ??= new List<Type>(4);
-                        matched.Add(iface);
-                    }
-                }
-
-                cached = matched?.ToArray() ?? _empty;
-                _cache[key] = cached;
-                return cached;
+                ifaces = concrete.GetInterfaces();
+                _interfacesCache[concrete] = ifaces;
             }
+
+            // 第二层：按 layer 过滤
+            List<Type> matched = null;
+            for (int i = 0; i < ifaces.Length; i++)
+            {
+                var iface = ifaces[i];
+                if (layer.IsAssignableFrom(iface) && iface != layer)
+                {
+                    matched ??= new List<Type>(4);
+                    matched.Add(iface);
+                }
+            }
+
+            cached = matched?.ToArray() ?? _empty;
+            _cache[key] = cached;
+            return cached;
         }
     }
 }

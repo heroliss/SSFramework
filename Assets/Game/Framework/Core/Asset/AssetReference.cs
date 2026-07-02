@@ -208,10 +208,11 @@ namespace Game.Framework
         public List<AssetReference<T>>.Enumerator GetEnumerator() => _items.GetEnumerator();
 
         /// <summary>把列表内所有引用绑定到同一个资源加载器和宿主销毁信号。</summary>
+        /// <remarks>列表项不做空守卫：Unity 序列化对 [Serializable] 类的列表项总是产出实例（不会留 null），且列表无公开可变入口——与 GetAll / UnloadAll / Dispose 一致。</remarks>
         public void Bind(IAssetUtility utility, CancellationToken hostToken)
         {
             for (int i = 0; i < _items.Count; i++)
-                _items[i]?.Bind(utility, hostToken);
+                _items[i].Bind(utility, hostToken);
         }
 
         /// <summary>

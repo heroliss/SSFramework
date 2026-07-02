@@ -8,7 +8,10 @@ namespace Game.Framework.Pool
     /// </summary>
     /// <remarks>
     /// 主线程独占、不加锁。Editor / Development Build 下额外用一个 active 集合检测"重复归还 / 归还外来实例"，
-    /// 帮助及早发现别名 bug；Release 下该检测编译消除，零开销。
+    /// 帮助及早发现别名 bug；Release 下该检测编译消除，零开销。<br/>
+    /// <b>池不拥有实例的释放责任：</b><see cref="Clear"/> / <see cref="Trim"/> / 超容量丢弃只是解除引用交 GC，
+    /// <b>不会</b>调用实例的 <c>Dispose</c>——池化类型若持有非托管资源，应在 <see cref="IPoolable.OnReturn"/> /
+    /// onReturn 钩子里释放，或干脆不要把这类对象交给池管理。
     /// </remarks>
     public sealed class ObjectPool<T> : IObjectPool<T> where T : class
     {

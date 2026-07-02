@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 using Game.Framework.Command;
 using Game.Framework.Common;
 using Game.Framework.Context;
@@ -7,7 +8,9 @@ using Game.Framework.Internal;
 using Game.Framework.System;
 using NUnit.Framework;
 using R3;
+using UnityEngine;
 using UnityEngine.Events;
+using UnityEngine.TestTools;
 
 namespace Game.Framework.Test
 {
@@ -87,9 +90,11 @@ namespace Game.Framework.Test
         }
 
         [Test]
-        public void Subscribe_UnityEventNoData_NullEvent_DoesNotFireEvenWithInvokeImmediately()
+        public void Subscribe_UnityEventNoData_NullEvent_LogsErrorAndDoesNotFire()
         {
-            // 设计决策：evt 为 null 视为"无订阅源"，连带 init 也跳过——不在空对象上凭空触发 handler。
+            // 设计决策：evt 为 null 视为"无订阅源"，连带 init 也跳过——不在空对象上凭空触发 handler；
+            // 同时 Editor/Dev 下 LogError（Inspector 漏配应尽早暴露，规则「Inspector 引用默认 fail-fast」），Release 下容忍。
+            LogAssert.Expect(LogType.Error, new Regex("null UnityEvent"));
             var count = 0;
             _bag.Subscribe((UnityEvent)null, () => count++, invokeImmediately: true);
             Assert.AreEqual(0, count);
