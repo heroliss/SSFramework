@@ -69,7 +69,7 @@ DOTS 是数据/Job/Burst 范式，与引用式 OOP 不同。框架的定位是**
 | 模块 | 候选方案 | 设计方向 |
 |---|---|---|
 | **本地存储** | SQLite（关系/大数据）、PlayerPrefs（轻量 KV）、MemoryPack（高性能二进制序列化） | 统一 `IStorageUtility` / `IStorageProvider` 抽象，按数据规模选后端；存档/配置/KV 分场景；序列化器可插拔 |
-| **网络** | BestHTTP、UnityWebRequest 封装、gRPC（MagicOnion）、WebSocket | `INetworkUtility` / 服务抽象隔离传输层；请求/长连接/重试/取消接 UniTask + CancellationToken；回包转 Command/Event |
+| **网络** | BestHTTP（付费）、UnityWebRequest 封装、gRPC（MagicOnion）、WebSocket | `INetworkUtility` / 服务抽象隔离传输层；请求/长连接/重试/取消接 UniTask + CancellationToken。**消息建模分两类**：请求-响应 = `UniTask<TResp>` 返回值（不硬塞进事件）；服务器推送/广播 = 转框架 Event（`record struct XxxPushEvent : IEvent`，天然接 R3 订阅）。**序列化随服务器技术栈定**：跨语言后端 / 既有 proto 契约 → Protobuf；双端 C#（如 MagicOnion）→ MemoryPack 更快更省——无论哪种都藏在 provider 后，业务只见强类型消息 |
 | **DOTS / 多线程** | 见 Phase 3 | 框架协调 ECS（System/Utility 包 `World`，Command 调度 Job / `EntityCommandBuffer`）；主线程契约与 Job 边界明确 |
 | **Cysharp 生态选型** | 见下 | 从 [Cysharp 仓库](https://github.com/orgs/Cysharp/repositories) 评估可融入的库 |
 
@@ -81,6 +81,36 @@ DOTS 是数据/Job/Burst 范式，与引用式 OOP 不同。框架的定位是**
 - **ObservableCollections** —— 可观察集合，补 R3 在集合响应式上的空缺。
 - **ZString** —— 零分配字符串构造，UI/日志高频拼接场景。
 - 选型原则：先确认"框架真的需要"，再评估与既有栈（UniTask/R3/YooAsset/Odin）的契合度与 AOT/热更兼容性，最后藏在框架接口后引入。
+
+## 建议推进节奏（2026-07 全面审查后）
+
+### 每个功能的固定节奏（完成定义）
+
+一个功能算"做完"= 五件套齐：**① ADR 定决策 → ② 接口在内核、实现在模块（ports & adapters）→ ③ 测试 → ④ demo 章节 → ⑤ guide 章节（+ 必要的 AGENTS 规则）**。这是现有模块（资源 / 热更 / 配置 / UI）已经验证过的节奏，新模块照走。
+
+### 近期：打磨已有（优先于加新模块）
+
+1. **UI 框架补常见刚需**：窗口打开/关闭的异步过渡 hook（动画期间挡输入）、Android Back / Esc 接到 `Back()`、安全区适配、Top 层常用件（Toast / Loading / 全局提示）。
+2. **代码生成收尾**（UI 节点自动绑定已落地——含目录配置 / 占位符 / 引用为源同步 / 变体遮蔽；剩两件）：
+   - ③ **资源 Package 名常量生成**：按包配置生成 `Packages.Xxx` 常量类，替代裸字符串包名（贴「类型代替字符串」理念，包名改错编译期暴露）。
+   - ④ **服务注册代码生成**：扫描固定目录的接口/实现，**生成一份显式的 InstallBindings 安装器代码**供根 Context 调用——刻意不做运行时反射扫描自动注册：启动零反射、AOT/热更友好、注册关系在 git diff 里可见可审。
+3. **资源运营流程 demo**：版本切换 → 强更检查 → 下载进度 → 清缓存重下的端到端链路示例（API 都有了，缺一个把它们串起来的活样板）。
+4. **CI 护栏** ✅ 已落地：`Tools/run-tests.ps1` 命令行 batchmode 全量跑 PlayMode 测试 + NUnit 结果解析（需先关闭编辑器）。后续可选：接 git pre-push hook / 云端 CI。
+
+### 中期：新功能模块（按"所有游戏都要"排序）
+
+1. **本地存储 / 存档**（`IStorageUtility` + provider，见上表）——建议第一个做：需求普适、能立刻验证抽象，顺带定下"存档版本迁移"的姿势。
+2. **音频服务**（`IAudioUtility`：分组音量 / 淡入淡出 / AudioSource 池化，吃现成对象池）——工作量小、收益直接。
+3. **游戏流程状态机**：启动→登录→大厅→战斗的显式 Flow（每个状态一个子 Context，天然利用作用域树的整棵撤语义）。
+4. **本地化**：表驱动（吃现成配置表）+ 资源按 locale 分包（吃现成多 package），基本是组合既有原语。
+5. **兜底字库 + 运行时系统字体**：CJK 全量字库体积大——策略 = 精简常用字集随包 + TMP fallback 链兜生僻字 + 运行时 `Font.CreateDynamicFontFromOSFont` 生成动态 `TMP_FontAsset` 作最后兜底（用户名 / 聊天等不可预知文本）。与本地化一起设计（字体本身也按 locale 切换）。
+6. **框架诊断面板（Editor 窗口）**：把散在各组件 Inspector「运行时诊断」折叠组里的信息聚合成一个总览窗口——Context 树 + 各容器本地注册表、事件订阅计数（各 Subject 订阅数，异常增长 = 泄漏嫌疑）、Command 流水（挂 LoggingCommandSystem 装饰器即得，正好验证可插拔设计）、DisposableBag 存活计数、对象池占用/空闲。定位是「框架状态一屏看穿」的调试与泄漏排查入口。
+7. **ObservableCollections 评估**：UI 列表绑定是 R3 单值订阅覆盖不到的空缺。
+
+### 长期（已有 ADR / 规划，时机到再动）
+
+- 网络模块、DOTS 接缝（Phase 3）、UPM 抽包（ADR-0010）、Odin 解耦（ADR-0015）。
+- **第二个 `IAssetProvider` 实现**（如 Addressables）——目的不是替换 YooAsset，而是用第二实现**验证抽象边界**：只有一个实现的接口不算真抽象。
 
 ## 文档地图
 

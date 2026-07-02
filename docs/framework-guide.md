@@ -300,6 +300,8 @@ public class ProjectileSystem : MonoSystemBase, IProjectileSystem
 
 > View 不在权限矩阵里直接访问 Model/System/EventBus，是为了强制所有外发动作只走 Command。需要 View 显示状态时，用只读查询 Command 返回值；持续状态用只读查询 Command 返回 `ReadOnlyReactiveProperty<T>` / `Observable<T>` 订阅源。
 
+> **约束的性质：防误用，不防绕过。** 这套权限是 C# 类型系统能给到的最强形态——顺手写 `this.GetModel<T>()` 在 View 里编译不过、`[Inject]` 越权在注入期被拦；但它不是运行时沙箱：刻意强转（如把 `ICommandContext` cast 回具体 Context）仍然可行。设计目标是让"无意间越界"变得困难、让"刻意越界"在代码评审里显式可见，而不是对抗恶意代码。
+
 ---
 
 ## 3. 快速开始
@@ -1054,6 +1056,20 @@ Scene
 
 两个上下文的 Model 和事件总线互不影响。如果 MiniGameContext 里需要用到全局工具（比如 `IJsonUtility`），不需要重复注册——`inheritFromGlobal = true`（默认开启）会自动回退到 `GameContext.Main` 查找。
 
+### 跨 Context 通信：事件不沿树传播，怎么办
+
+注意一个刻意的**不对称**：服务解析沿 Context 树**向上回退**（子级没有就找父级），但事件**完全不传播**——父 Context 的监听者听不到子 Context 发的事件，反之亦然。这是为了保证子作用域整棵销毁时不在外部留下任何残余影响，也让"这个事件谁可能听到"有明确边界。
+
+需要跨 Context 通信时，按语义选：
+
+| 场景 | 推荐做法 |
+|---|---|
+| 子模块的状态需要被外部观察 | 把该状态放进**共同祖先 Context 的 Model**（`RP<T>`）——子 System 解析回退能拿到它并写入，外部订阅它的只读源。状态天然有"当前值"，比事件更适合跨作用域共享 |
+| 确实是瞬时通知、且外部关心 | 在**共同祖先 Context** 上发送/监听：把发事件的 System 挂到祖先作用域（或由祖先层的 System 提供一个"对外广播"方法，子模块调它）。原则：**事件定义在谁的作用域，就表达"这是谁的公共契约"** |
+| 子 Context 批量转发给父级 | 写一个"转发 System"：在子 Context 监听若干事件、原样在父 Context 重发。仅当确实需要成批桥接时用——转发过多说明这些事件本来就该定义在父级 |
+
+> 判断口诀：**事件放在"最小的、所有相关方都在其中"的那个 Context**。要跨界的事件其实是更外层的契约，把它上提，而不是打通隔离。
+
 ### 同序初始化保证
 
 子 Context 和父 Context 同为 `MonoGameContextBase`，共享 `DefaultExecutionOrder(-1000)`，Unity 不保证它们的 Awake 先后顺序。
@@ -1117,7 +1133,7 @@ ctx.UnregisterModel(model);
 
 ### 线程契约
 
-容器是 **Unity 主线程独占** 的——`Resolve` / `TryResolve` / 工厂缓存 / 运行时 Register/Unregister 都不加锁。框架的 Awake/OnDestroy/Command/Event 全部在主线程跑，热路径不付并发开销；Editor / Development Build 下 `Container` 内部有 `Debug.Assert` 兜底，跨线程访问会输出 error 日志。
+容器是 **Unity 主线程独占** 的——`Resolve` / `TryResolve` / 工厂缓存 / 运行时 Register/Unregister 都不加锁。框架的 Awake/OnDestroy/Command/Event 全部在主线程跑，热路径不付并发开销；Editor / Development Build 下 `Container` 内部有主线程断言兜底，跨线程访问会输出 error 日志（Release 构建编译消除）。
 
 业务如果需要从工作线程调框架，请先 `await UniTask.SwitchToMainThread()` 再发 Command。
 
@@ -1203,16 +1219,22 @@ public class IconView : MonoViewBase
     [SerializeField] private AssetReference<Sprite> _iconRef;
     private Image _image;
 
-    protected override async void Awake()
+    protected override void Awake()
     {
-        base.Awake();
+        base.Awake();            // _iconRef 在这里完成自动绑定（加载器 + 宿主销毁信号）
         _image = GetComponent<Image>();
+        LoadIcon().Forget();     // Awake 保持同步；异步加载拆成 UniTaskVoid
+    }
 
-        var icon = await _iconRef.Get();
+    private async UniTaskVoid LoadIcon()
+    {
+        var icon = await _iconRef.Get();   // 宿主销毁自动取消，无需手动传 token
         if (icon != null) _image.sprite = icon;
     }
 }
 ```
+
+> 不要写 `async void Awake()`：能编译能跑，但异常会逃出 Unity 生命周期无从捕获、也无法被取消令牌管住。固定姿势是 Awake 同步、异步逻辑拆成 `async UniTaskVoid` 方法 `.Forget()`（UniTaskVoid 的异常会走 UniTask 的统一异常处理）。
 
 动态路径加载（在 MonoXxxBase 子类里）：
 
