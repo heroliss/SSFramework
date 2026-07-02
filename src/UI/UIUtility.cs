@@ -24,6 +24,9 @@ namespace Game.Framework.UI
 
         // 当前打开（可见）的窗口：类型 → 实例。
         private readonly Dictionary<Type, IUIWindow> _open = new();
+        // 正在异步创建中的窗口：类型 → 完成信号。并发 Open 同一类型时，后来者等首个创建完成再走「已打开」路径，
+        // 避免两次 CreateWindow 各建一个实例、其中一个变成 _open 索引不到的孤儿。
+        private readonly Dictionary<Type, UniTaskCompletionSource<IUIWindow>> _creating = new();
         // 关闭后按 Cache 策略保留的隐藏窗口：类型 → 实例（再次打开秒显）。
         private readonly Dictionary<Type, IUIWindow> _cached = new();
         // 每层的打开顺序（末尾 = 栈顶），驱动 cover/reveal 与 CloseTop / Back。
@@ -31,6 +34,8 @@ namespace Game.Framework.UI
 
         private bool _initialized;
         private bool _disposed;
+        // CloseAll 批量关闭进行中：抑制关闭路径上的中间 OnReveal（见 CloseAll）。
+        private bool _batchClosing;
 
         public UIUtility(IGameContext context, IUIBackend backend)
         {
@@ -68,37 +73,63 @@ namespace Game.Framework.UI
                 return (T)already;
             }
 
+            // 同类型正在异步创建中（并发 Open）：等首个创建完成，再整体重走一遍——
+            // 成功则命中上面的「已打开 → 置顶 + OnOpen(args) 刷新」路径（本次 args 生效），失败则由本次调用重试创建。
+            if (_creating.TryGetValue(type, out var creating))
+            {
+                await creating.Task.AttachExternalCancellation(ct);
+                if (_disposed) return null;
+                return await Open<T>(args, ct);
+            }
+
             var meta = UIWindowMeta.Of(type);
 
             IUIWindow window;
-            if (_cached.TryGetValue(type, out var cached))
+            UniTaskCompletionSource<IUIWindow> creatingTcs = null;
+            try
             {
-                // 缓存命中：复用隐藏实例。
-                _cached.Remove(type);
-                window = cached;
-                _backend.SetVisible(window, true);
-                _backend.BringToFront(window);
+                if (_cached.TryGetValue(type, out var cached))
+                {
+                    // 缓存命中：复用隐藏实例（同步路径，无需 _creating 守卫）。
+                    _cached.Remove(type);
+                    window = cached;
+                    _backend.SetVisible(window, true);
+                    _backend.BringToFront(window);
+                }
+                else
+                {
+                    // 新建：backend 加载资源 + 实例化 + 绑定 context。创建期间登记 _creating，让并发 Open 等待而非重复创建。
+                    creatingTcs = new UniTaskCompletionSource<IUIWindow>();
+                    _creating[type] = creatingTcs;
+                    window = await _backend.CreateWindow(meta, _context, ct);
+                    if (window == null) return null; // 资源加载失败，已由资源系统打日志
+                    // 加载期间被释放、或 token 在加载完成后才被取消（竞态）：物理拆掉刚建好的窗口，不入栈。
+                    if (_disposed || ct.IsCancellationRequested) { _backend.DestroyWindow(window); return null; }
+                    SafeOnCreate(window);
+                }
+
+                var layerList = GetLayerList(meta.Layer);
+                var prevTop = layerList.Count > 0 ? layerList[layerList.Count - 1] : null;
+                layerList.Add(window);
+                _open[type] = window;
+
+                if (meta.Modal) _backend.SetModalMask(window, true);
+                if (prevTop != null) SafeHook(prevTop.OnCover, prevTop);
+
+                SafeOnOpen(window, args);
+                return (T)window;
             }
-            else
+            finally
             {
-                // 新建：backend 加载资源 + 实例化 + 绑定 context。
-                window = await _backend.CreateWindow(meta, _context, ct);
-                if (window == null) return null; // 资源加载失败，已由资源系统打日志
-                // 加载期间被释放、或 token 在加载完成后才被取消（竞态）：物理拆掉刚建好的窗口，不入栈。
-                if (_disposed || ct.IsCancellationRequested) { _backend.DestroyWindow(window); return null; }
-                SafeOnCreate(window);
+                // 摘除登记并唤醒等待者——必须放在 _open 写入之后（方法尾部）：
+                // TrySetResult 的续体可能同步执行，若此时窗口尚未进 _open，等待者重走 Open 会再建一个实例。
+                // 失败/取消路径 _open 里没有该类型 → 以 null 唤醒，等待者重走 Open 自行重试。
+                if (creatingTcs != null)
+                {
+                    _creating.Remove(type);
+                    creatingTcs.TrySetResult(_open.TryGetValue(type, out var opened) ? opened : null);
+                }
             }
-
-            var layerList = GetLayerList(meta.Layer);
-            var prevTop = layerList.Count > 0 ? layerList[layerList.Count - 1] : null;
-            layerList.Add(window);
-            _open[type] = window;
-
-            if (meta.Modal) _backend.SetModalMask(window, true);
-            if (prevTop != null) SafeHook(prevTop.OnCover, prevTop);
-
-            SafeOnOpen(window, args);
-            return (T)window;
         }
 
         public void Close<T>() where T : class, IUIWindow => CloseType(typeof(T));
@@ -118,8 +149,18 @@ namespace Game.Framework.UI
 
         public void CloseAll(UILayer layer)
         {
+            // 批量关闭抑制中间 reveal：从顶往下逐个关时，每个"新栈顶"下一刻就会被关掉，
+            // 给它发 OnReveal 会让做「露出恢复」逻辑的窗口白跑一轮（恢复→立即关闭）。
             var list = GetLayerList(layer);
-            for (int i = list.Count - 1; i >= 0; i--) Close(list[i]); // 从栈顶往下关，cover/reveal 顺序自然
+            _batchClosing = true;
+            try
+            {
+                for (int i = list.Count - 1; i >= 0; i--) Close(list[i]);
+            }
+            finally
+            {
+                _batchClosing = false;
+            }
         }
 
         public void CloseAll()
@@ -137,6 +178,9 @@ namespace Game.Framework.UI
         {
             if (_disposed) return;
             _disposed = true;
+            // 兜底唤醒仍在等「创建中窗口」的 Open 调用（以 null 唤醒，等待者检查 _disposed 后直接返回 null）。
+            foreach (var tcs in _creating.Values) tcs.TrySetResult(null);
+            _creating.Clear();
             _open.Clear();
             _cached.Clear();
             _layers.Clear();
@@ -158,8 +202,9 @@ namespace Game.Framework.UI
             layerList.Remove(window);
             _open.Remove(type);
 
-            // 关掉的是栈顶 → 新栈顶重新露出。
-            if (wasTop && layerList.Count > 0) SafeHook(layerList[layerList.Count - 1].OnReveal, layerList[layerList.Count - 1]);
+            // 关掉的是栈顶 → 新栈顶重新露出（批量 CloseAll 时抑制——那个"新栈顶"马上也会被关掉）。
+            if (wasTop && layerList.Count > 0 && !_batchClosing)
+                SafeHook(layerList[layerList.Count - 1].OnReveal, layerList[layerList.Count - 1]);
 
             if (meta.Cache == UICachePolicy.Cache && !_disposed)
             {
