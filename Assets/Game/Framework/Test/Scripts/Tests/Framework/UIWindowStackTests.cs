@@ -67,6 +67,29 @@ namespace Game.Framework.Test
         }
 
         [Test]
+        public void ConcurrentOpen_SameType_SharesSingleCreation()
+        {
+            // 用可挂起的 backend 模拟真实异步加载窗口期：第二个 Open 在第一个创建完成前发起。
+            var backend = new GatedBackend();
+            var ui = new UIUtility(_ctx, backend);
+
+            var t1 = ui.Open<PageA>("first");
+            var t2 = ui.Open<PageA>("second");
+            Assert.AreEqual(UniTaskStatus.Pending, t1.Status, "创建被闸住时 Open 不应完成");
+
+            backend.Release(); // 放行创建
+
+            var w1 = t1.GetAwaiter().GetResult();
+            var w2 = t2.GetAwaiter().GetResult();
+
+            Assert.AreSame(w1, w2, "并发 Open 同类型应复用同一次创建");
+            Assert.AreEqual(1, backend.Count("create:PageA"), "backend 只应创建一次实例");
+            Assert.AreEqual(1, w1.Calls.Count(c => c == "create"), "OnCreate 只应执行一次");
+            Assert.AreEqual(2, w1.Calls.Count(c => c.StartsWith("open")), "两次 Open 各触发一次 OnOpen");
+            ui.Dispose();
+        }
+
+        [Test]
         public void SameLayer_OpenSecond_CoversFirst()
         {
             var a = Open<PageA>();
@@ -144,6 +167,19 @@ namespace Game.Framework.Test
         }
 
         [Test]
+        public void CloseAll_SuppressesIntermediateReveals()
+        {
+            var a = Open<PageA>();
+            var b = Open<PageB>(); // a 被盖 cover
+
+            _ui.CloseAll(UILayer.Page); // 先关 b、再关 a——a 不应先 reveal 再立即被关
+
+            Assert.IsFalse(a.Calls.Contains("reveal"), "批量关闭时中间窗口不应收到 OnReveal");
+            Assert.IsTrue(a.Calls.Contains("close"));
+            Assert.IsTrue(b.Calls.Contains("close"));
+        }
+
+        [Test]
         public void CloseAll_OfOneLayer_LeavesOtherLayers()
         {
             Open<PageA>();
@@ -214,7 +250,7 @@ namespace Game.Framework.Test
 
             public void Initialize() => Log.Add("init");
 
-            public UniTask<IUIWindow> CreateWindow(UIWindowMeta meta, IGameContext context, CancellationToken ct)
+            public virtual UniTask<IUIWindow> CreateWindow(UIWindowMeta meta, IGameContext context, CancellationToken ct)
             {
                 var w = (IUIWindow)Activator.CreateInstance(meta.WindowType);
                 Log.Add("create:" + meta.WindowType.Name);
@@ -226,6 +262,19 @@ namespace Game.Framework.Test
             public void SetModalMask(IUIWindow ownerWindow, bool on) => Log.Add("mask:" + ownerWindow.GetType().Name + ":" + on);
             public void DestroyWindow(IUIWindow window) => Log.Add("destroy:" + window.GetType().Name);
             public void Teardown() => Log.Add("teardown");
+        }
+
+        // CreateWindow 挂起直到显式放行——制造「异步创建进行中」窗口期，验证并发 Open 只创建一次。
+        private class GatedBackend : FakeBackend
+        {
+            private readonly UniTaskCompletionSource _gate = new();
+            public void Release() => _gate.TrySetResult();
+
+            public override async UniTask<IUIWindow> CreateWindow(UIWindowMeta meta, IGameContext context, CancellationToken ct)
+            {
+                await _gate.Task;
+                return await base.CreateWindow(meta, context, ct);
+            }
         }
     }
 }
