@@ -452,7 +452,7 @@ namespace Game.Framework.Demo.Modules
                 crossPreview.style.backgroundImage = StyleKeyword.None;
                 crossLabel.text = "已释放跨包加载的句柄并清空预览。";
             }, CodeRef.Here("crossBag.Dispose()", "释放本节句柄"));
-            host.AddNote("默认包之外，所有加载方法都有带 `packageName` 的重载。所有包（含默认包）都登记在 `AssetSystemConfigModel` 的包列表里，`Default Package` 只是指定其中哪个是默认；子 `Context` 经 `Container` 父级回退共享父级 `AssetUtility`，不必每个 `Context` 各挂一套。本 demo 把框架样例资源单独分到 `FrameworkSamplesPackage`，与正式游戏 `DefaultPackage` 分开、互不污染。");
+            host.AddNote("默认包之外，所有加载方法都有带 `packageName` 的重载。所有包（含默认包）都登记在 `AssetSystemConfigModel` 的包列表里，`Default Package` 只是指定其中哪个是默认；子 `Context` 经 `Container` 父级回退共享父级 `AssetUtility`，不必每个 `Context` 各挂一套。本 demo 把框架样例资源单独分到 `FrameworkSamplesPackage`，与正式游戏 `DefaultPackage` 分开、互不污染。正式项目的包名参数建议用生成的常量类替代裸字符串（菜单 `SSFramework/资源构建/生成包名常量代码`，输出到业务层）；demo 属框架层、引用不到业务层生成物，所以这里仍用本地 const。");
 
             // ── 7. 使用路径 / 注册=生命周期 / 解耦 ──
             host.AddSectionTitle("使用路径");

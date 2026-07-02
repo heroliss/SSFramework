@@ -108,9 +108,23 @@ namespace Game.Framework.Build
             EditorUtility.DisplayDialog("同步完成", summary, "好");
         }
 
+        [MenuItem(Root + "生成包名常量代码", priority = 22)]
+        private static void Menu_GeneratePackageConstants()
+        {
+            var profile = FrameworkAssetBuildProfile.Resolve();
+            var (ok, message) = AssetPackageConstantsGenerator.Generate(profile);
+            Debug.Log("[资源构建] 生成包名常量：\n" + message);
+            if (ok)
+            {
+                var asset = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(profile.PackageConstantsPath);
+                if (asset != null) EditorGUIUtility.PingObject(asset);
+            }
+            EditorUtility.DisplayDialog(ok ? "生成完成" : "生成失败", message, "好");
+        }
+
         // 勾选式开关：构建时是否用「资源依赖缓存数据库」加速收集阶段（YooAsset UseAssetDependencyDB）。
         // 本机持久（EditorPrefs），影响上面两个构建入口；勾上提速、产物不变。CI 上用 -useAssetDependencyDB 单独控制（EditorPrefs 不随仓库走）。
-        [MenuItem(Root + "构建用资源依赖数据库 (加速收集)", priority = 22)]
+        [MenuItem(Root + "构建用资源依赖数据库 (加速收集)", priority = 23)]
         private static void Menu_ToggleDependencyDB() => UseDependencyDB = !UseDependencyDB;
 
         [MenuItem(Root + "构建用资源依赖数据库 (加速收集)", validate = true)]
