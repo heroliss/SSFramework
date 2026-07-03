@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using Cysharp.Threading.Tasks;
 using Game.Framework.Common;
 using Game.Framework.UI;
@@ -195,6 +196,40 @@ namespace Game.Framework.Demo.Modules
             var page = DemoWindowKit.FullPage(Root, "详情页 · Page 层", new Color(0.20f, 0.14f, 0.24f, 1f));
             DemoWindowKit.Lbl(page, "返回栈顶——点「返回」会 Back() 到主页。");
             DemoWindowKit.Btn(page, "返回（Back）", () => this.GetUtility<IUIUtility>().Back());
+        }
+    }
+
+    /// <summary>
+    /// 带过渡的窗口（Window 层）：重写两个过渡 hook 做淡入/淡出——动画期间框架全屏挡输入、
+    /// 出场动画播完才真正销毁，而逻辑关闭在 Close 调用瞬间已生效（ADR-0020）。
+    /// </summary>
+    [UIWindow(Layer = UILayer.Window)]
+    public sealed class DemoTransitionWindow : UIToolkitWindowBase
+    {
+        private static readonly Color Accent = new(0.75f, 0.55f, 1f);
+
+        protected override void OnCreated()
+        {
+            var card = DemoWindowKit.Card(Root, "过渡窗口 · 淡入/淡出", Accent);
+            DemoWindowKit.Lbl(card, "开 / 关各播 0.6 秒淡变——动画期间整屏点不动（框架挡输入）。");
+            DemoWindowKit.Btn(card, "关闭（先淡出再销毁）", () => this.GetUtility<IUIUtility>().Close(this));
+        }
+
+        protected override UniTask OnOpenTransition(CancellationToken ct) => Fade(0f, 1f, 0.6f, ct);
+        protected override UniTask OnCloseTransition(CancellationToken ct) => Fade(1f, 0f, 0.6f, ct);
+
+        // 逐帧插值 Root 透明度：演示用的最小动画。正式项目多半接 tween 库，只要返回 UniTask 即可。
+        private async UniTask Fade(float from, float to, float seconds, CancellationToken ct)
+        {
+            float t = 0f;
+            while (t < seconds)
+            {
+                ct.ThrowIfCancellationRequested();
+                Root.style.opacity = Mathf.Lerp(from, to, t / seconds);
+                await UniTask.Yield(PlayerLoopTiming.Update, ct);
+                t += Time.unscaledDeltaTime;
+            }
+            Root.style.opacity = to;
         }
     }
 }
