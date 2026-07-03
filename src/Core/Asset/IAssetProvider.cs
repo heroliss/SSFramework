@@ -63,6 +63,9 @@ namespace Game.Framework
         /// <summary>检查指定资源是否需要从远端下载。未初始化时返回 false。</summary>
         bool IsNeedDownload(string packageName, string location);
 
+        /// <summary>指定包当前生效清单的版本号（初始化时选定的那份）。包未就绪时返回 null。</summary>
+        string GetPackageVersion(string packageName);
+
         /// <summary>
         /// 创建按 tag 的下载器。
         /// 进度通过 <see cref="IAssetDownloader.Progress"/> 暴露，
