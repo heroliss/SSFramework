@@ -174,6 +174,7 @@ struct 不能用 `this.GetXxx<T>()` 扩展方法（值类型接口调用必然�
 - **入口**：Context 子节点挂**单个** `MonoToolkitUI`（UIDocument + PanelSettings）或 `MonoUGuiUI`（Canvas，场景需 EventSystem）——自动注册 `IUIUtility`；**同一 Context 二选一**，重复注册报错。
 - **开窗**：`this.GetUtility<IUIUtility>().Open<T>(args)`（View 有 `ICanGetUtility`，开窗合法，同 `Bag.Load` 心智；struct Command 经 `ctx`）；`Close<T>()` / `Back()`（关 Page 栈顶）/ `CloseAll(layer)` / `Get<T>()`；资源加载失败返回 null。
 - **写窗口**：Toolkit 继承 `UIToolkitWindowBase`（**需无参构造**，框架 Activator 实例化；接线放 `OnCreated`、参数放 `OnOpen(args)`）；UGUI 继承 `UGuiWindowBase`（是 `MonoViewBase`，**不要覆写 Awake**）。元数据用 `[UIWindow(Layer/Asset/Cache/Modal)]` 声明；`Asset` 留空 = 纯代码搭建（两套 backend 都支持）。窗口就是 View——读写分离照旧。
-- **生命周期 hook**（框架调，非 Unity）：`OnCreate → OnOpen(args) → OnCover/OnReveal → OnClose`；cover/reveal **按层内**计算，跨层覆盖不触发。
+- **生命周期 hook**（框架调，非 Unity）：`OnCreate → OnOpen(args) → OnOpenTransition → OnCover/OnReveal → OnCloseTransition → OnClose`；cover/reveal **按层内**计算，跨层覆盖不触发。
+- **过渡/返回键**（ADR-0020）：开关动画重写 `OnOpenTransition/OnCloseTransition`（返回未完成 task 期间框架全屏挡输入；默认无过渡零开销）；**逻辑关闭先于表现**——Close 瞬间 `IsOpen=false`、可重开新实例，收尾放 `OnClose`。返回键挂 `MonoUIBackKeyDriver`（UI 入口同节点）→ `Back()` 按 Popup→Window→Page 关首个非空层栈顶，`[UIWindow(BackClosable=false)]` 拦截；过渡中 Back 被吞。
 - **数据绑定统一 R3**（`Bag.BindText / BindEnabled / BindVisible / SubscribeClick`），**不用** UI Toolkit 原生 DataBinding。非窗口的 Toolkit 视图用 `UIToolkitViewBase` + `view.BindTo(ctx)`。
 - ⚠ Toolkit 窗口 Context 由框架**显式注入**（不在 GameObject 父链）；UGUI 窗口沿父链自动注入。换后端业务开窗代码零改。详见 guide §17、ADR-0016。

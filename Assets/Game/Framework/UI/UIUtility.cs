@@ -34,8 +34,10 @@ namespace Game.Framework.UI
 
         private bool _initialized;
         private bool _disposed;
-        // CloseAll 批量关闭进行中：抑制关闭路径上的中间 OnReveal（见 CloseAll）。
+        // CloseAll 批量关闭进行中：抑制关闭路径上的中间 OnReveal（见 CloseAll），且不播出场过渡（要的是立刻干净）。
         private bool _batchClosing;
+        // 进行中的过渡数：>0 时 backend 全屏挡输入、Back() 直接吞掉（键盘路径不绕过挡板）。ADR-0020。
+        private int _transitionCount;
 
         public UIUtility(IGameContext context, IUIBackend backend)
         {
@@ -117,6 +119,9 @@ namespace Game.Framework.UI
                 if (prevTop != null) SafeHook(prevTop.OnCover, prevTop);
 
                 SafeOnOpen(window, args);
+                // 入场过渡（新建 / 缓存复用都播；已打开置顶刷新不播）。不 await——Open 在 OnOpen 后即返回，
+                // 过渡是表现层的事，动画期间的防护由框架挡输入承担（ADR-0020）。
+                StartOpenTransition(window);
                 return (T)window;
             }
             finally
@@ -145,7 +150,26 @@ namespace Game.Framework.UI
             if (list.Count > 0) Close(list[list.Count - 1]);
         }
 
-        public void Back() => CloseTop(UILayer.Page);
+        // 返回导航参与的层，从高到低。Top/System 不参与（Toast/系统提示不是导航单元）、Background 不参与（底景）。
+        private static readonly UILayer[] BackLayers = { UILayer.Popup, UILayer.Window, UILayer.Page };
+
+        public bool Back()
+        {
+            ThrowIfDisposed();
+            // 过渡进行中直接吞掉：与全屏挡输入同一语义，键盘/硬件返回键路径不绕过挡板（ADR-0020）。
+            if (_transitionCount > 0) return true;
+
+            foreach (var layer in BackLayers)
+            {
+                var list = GetLayerList(layer);
+                if (list.Count == 0) continue;
+                var top = list[list.Count - 1];
+                // BackClosable=false 的栈顶：不动作但算消费——强引导窗口拦住返回键，防止业务误判「无 UI 可关」而退出。
+                if (UIWindowMeta.Of(top.GetType()).BackClosable) Close(top);
+                return true;
+            }
+            return false;
+        }
 
         public void CloseAll(UILayer layer)
         {
@@ -196,25 +220,95 @@ namespace Game.Framework.UI
             var layerList = GetLayerList(meta.Layer);
             bool wasTop = layerList.Count > 0 && layerList[layerList.Count - 1] == window;
 
-            SafeHook(window.OnClose, window);
-            if (meta.Modal) _backend.SetModalMask(window, false);
-
+            // 逻辑关闭立即生效（ADR-0020）：摘栈、撤遮罩、露出下方——IsOpen 变 false、不再是 Back/CloseTop 目标、
+            // 同类型可立即重开（新实例）。出场动画只是表现层残影，滞后于逻辑。
             layerList.Remove(window);
             _open.Remove(type);
+            if (meta.Modal) _backend.SetModalMask(window, false);
 
             // 关掉的是栈顶 → 新栈顶重新露出（批量 CloseAll 时抑制——那个"新栈顶"马上也会被关掉）。
             if (wasTop && layerList.Count > 0 && !_batchClosing)
                 SafeHook(layerList[layerList.Count - 1].OnReveal, layerList[layerList.Count - 1]);
 
-            if (meta.Cache == UICachePolicy.Cache && !_disposed)
+            // 出场过渡：批量关闭不播（场景切换要的是立刻干净）。hook 同步抛异常 → 记日志按无过渡走。
+            var transition = UniTask.CompletedTask;
+            if (!_batchClosing)
+            {
+                try { transition = window.OnCloseTransition(_context.CancellationToken); }
+                catch (Exception e) { Debug.LogException(e); }
+            }
+
+            if (transition.Status == UniTaskStatus.Succeeded)
+            {
+                FinishClose(window, meta); // 无过渡：同步走完，行为与旧版逐帧一致
+                return;
+            }
+            RunCloseTransition(window, meta, transition).Forget();
+        }
+
+        // 出场过渡期间挡输入；结束（含异常/取消）后走真正的关闭收尾。
+        private async UniTaskVoid RunCloseTransition(IUIWindow window, UIWindowMeta meta, UniTask transition)
+        {
+            BeginTransition();
+            try { await transition; }
+            catch (OperationCanceledException) { } // Context 销毁级联取消：正常路径，无需日志
+            catch (Exception e) { Debug.LogException(e); }
+            finally
+            {
+                EndTransition();
+                // Dispose 后 Teardown 已物理拆除全部窗口，这里不能再碰。
+                if (!_disposed) FinishClose(window, meta);
+            }
+        }
+
+        // 关闭收尾：OnClose → 按缓存策略隐藏或销毁。
+        private void FinishClose(IUIWindow window, UIWindowMeta meta)
+        {
+            SafeHook(window.OnClose, window);
+
+            // 缓存入位前检查：出场动画期间同类型可能已被重新打开（_open 有新实例）或另一实例已入缓存——
+            // 此时本实例已是孤儿，缓存它会永久泄漏（占坑且永不销毁），直接销毁。
+            bool cacheable = meta.Cache == UICachePolicy.Cache && !_disposed
+                             && !_open.ContainsKey(meta.WindowType) && !_cached.ContainsKey(meta.WindowType);
+            if (cacheable)
             {
                 _backend.SetVisible(window, false);
-                _cached[type] = window;
+                _cached[meta.WindowType] = window;
             }
             else
             {
                 _backend.DestroyWindow(window);
             }
+        }
+
+        // 入场过渡：不 await（Open 返回不等表现层）；进行中全屏挡输入。hook 同步抛异常 → 记日志视为无过渡。
+        private void StartOpenTransition(IUIWindow window)
+        {
+            UniTask transition;
+            try { transition = window.OnOpenTransition(_context.CancellationToken); }
+            catch (Exception e) { Debug.LogException(e); return; }
+            if (transition.Status == UniTaskStatus.Succeeded) return; // 默认无过渡：零开销
+            RunOpenTransition(transition).Forget();
+        }
+
+        private async UniTaskVoid RunOpenTransition(UniTask transition)
+        {
+            BeginTransition();
+            try { await transition; }
+            catch (OperationCanceledException) { }
+            catch (Exception e) { Debug.LogException(e); }
+            finally { EndTransition(); }
+        }
+
+        // 过渡计数 → 全屏挡板开关。1→挡、0→放；Dispose 后 backend 已 Teardown（挡板一并拆除），不再调它。
+        private void BeginTransition()
+        {
+            if (++_transitionCount == 1 && !_disposed) _backend.SetInputBlocked(true);
+        }
+
+        private void EndTransition()
+        {
+            if (--_transitionCount == 0 && !_disposed) _backend.SetInputBlocked(false);
         }
 
         private void EnsureInitialized()

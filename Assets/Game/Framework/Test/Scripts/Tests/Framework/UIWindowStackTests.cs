@@ -230,6 +230,8 @@ namespace Game.Framework.Test
             public virtual void OnClose() => Calls.Add("close");
             public virtual void OnCover() => Calls.Add("cover");
             public virtual void OnReveal() => Calls.Add("reveal");
+            public virtual UniTask OnOpenTransition(CancellationToken ct) => UniTask.CompletedTask;
+            public virtual UniTask OnCloseTransition(CancellationToken ct) => UniTask.CompletedTask;
         }
 
         [UIWindow(Layer = UILayer.Page)] private class PageA : FakeWindow { }
@@ -261,6 +263,7 @@ namespace Game.Framework.Test
             public void SetVisible(IUIWindow window, bool visible) => Log.Add("visible:" + window.GetType().Name + ":" + visible);
             public void SetModalMask(IUIWindow ownerWindow, bool on) => Log.Add("mask:" + ownerWindow.GetType().Name + ":" + on);
             public void DestroyWindow(IUIWindow window) => Log.Add("destroy:" + window.GetType().Name);
+            public void SetInputBlocked(bool blocked) => Log.Add("block:" + blocked);
             public void Teardown() => Log.Add("teardown");
         }
 
