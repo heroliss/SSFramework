@@ -50,5 +50,20 @@ namespace Game.Framework.UI
 
         /// <summary>查询某类型窗口当前是否打开。</summary>
         bool IsOpen<T>() where T : class, IUIWindow;
+
+        /// <summary>
+        /// 弹 Toast（Top 层内置件，ADR-0020 §4）：短暂显示 <paramref name="text"/> 后自动关闭，不拦截输入。
+        /// 连续调用复用同一窗口（刷新文本、重置计时）。返回的 task 在窗口打开后完成（不含显示时长）。
+        /// </summary>
+        UniTask ShowToast(string text, float duration = 2f);
+
+        /// <summary>
+        /// 显示全局 Loading（Top 层内置件，模态挡输入）：<paramref name="text"/> 可空（只显示指示动画）。
+        /// 用 <see cref="HideLoading"/> 关闭。重复调用刷新文本。
+        /// </summary>
+        UniTask ShowLoading(string text = null);
+
+        /// <summary>关闭全局 Loading（未显示则忽略）。</summary>
+        void HideLoading();
     }
 }

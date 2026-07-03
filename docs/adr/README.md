@@ -25,4 +25,4 @@
 | [0017](0017-dlc-code-hotupdate.md) | DLC 热更：单 CodePackage 承载代码 + 运行时按需加载 + 业务 RawFile 包统一构建 | Proposed · 待实现 |
 | [0018](0018-asset-encryption.md) | 资源加密：偏移内置为默认 + 代码接入位承载自定义，不内置 AES | Accepted |
 | [0019](0019-service-installer-codegen.md) | 服务注册代码生成：目录扫描生成显式安装器 + 构建期值绑定自动注入 | Accepted |
-| [0020](0020-ui-essentials.md) | UI 刚需补齐：异步过渡 + Back 键 + 安全区 + Top 层常用件 | Accepted（§1§2 已实现；§3§4 待实现） |
+| [0020](0020-ui-essentials.md) | UI 刚需补齐：异步过渡 + Back 键 + 安全区 + Top 层常用件 | Accepted |

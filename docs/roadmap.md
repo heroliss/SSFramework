@@ -93,8 +93,8 @@ DOTS 是数据/Job/Burst 范式，与引用式 OOP 不同。框架的定位是**
 1. **UI 框架补常见刚需**（ADR-0020）：
    - 异步过渡 hook ✅ 已落地：`OnOpenTransition/OnCloseTransition` + 框架全屏挡输入（计数挡板）；逻辑关闭先于表现；CloseAll/销毁直通。
    - Android Back / Esc ✅ 已落地：`Back()` 升级为 Popup→Window→Page 逐层返回导航（`BackClosable` 拦截、过渡中吞掉、空返回 false）+ `MonoUIBackKeyDriver` 接线组件（新旧输入系统双路径）。
-   - 安全区适配（UGUI `UGuiSafeArea` / Toolkit `SafeAreaContainer`，opt-in 内容避让）——待做。
-   - Top 层常用件（Toast / Loading，纯代码内置窗口 + IUIUtility 扩展）——待做。
+   - 安全区适配 ✅ 已落地：UGUI `UGuiSafeArea`（锚进 Screen.safeArea）/ Toolkit `SafeAreaContainer`（padding 换算，UXML 可摆）——opt-in 内容避让，层根/背景保持全屏出血。
+   - Top 层常用件 ✅ 已落地：`ShowToast / ShowLoading / HideLoading` 为 IUIUtility 一等方法（后端无关），内置窗口类型表由入口注册；Toast 不拦输入自动关，Loading 模态+拦返回键。
 2. **代码生成收尾** ✅ 已全部落地（UI 节点自动绑定——含目录配置 / 占位符 / 引用为源同步 / 变体遮蔽）：
    - ③ **资源 Package 名常量生成** ✅ 已落地：菜单 `SSFramework/资源构建/生成包名常量代码`（构建 profile 配输出路径/命名空间），从收集器包列表生成 `AssetPackages.Xxx` 常量类，替代裸字符串包名（包名改错编译期暴露）。
    - ④ **服务注册代码生成** ✅ 已落地（ADR-0019）：`ServiceInstallerProfile` 配「扫描目录 → 安装器类」，菜单 `SSFramework/服务注册/生成服务安装器代码` 生成显式 `XxxInstaller.Install(builder)`，Context 里一行接线——刻意不做运行时反射扫描：启动零反射、AOT/热更友好、注册关系在 git diff 里可见可审。配套内核语义：构建期值绑定实例在 Context 构造时自动 Inject + AttachTo（纯 C# 与 Mono 路径「注册即注入」对称）。demo 活样板见「服务注册生成 · 安装器」章（`Modules/ServiceInstaller/`）。

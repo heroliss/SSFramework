@@ -220,6 +220,48 @@ namespace Game.Framework.Test
             Assert.IsFalse(_ui.IsOpen<PageA>());
         }
 
+        // ── Toast / Loading 内置件（核心按注册类型表转发，ADR-0020 §4）──────
+
+        [Test]
+        public void ShowToast_OpensRegisteredType_WithArgs()
+        {
+            var ui = new UIUtility(_ctx, _backend, new UIBuiltinWindows
+            { Toast = typeof(ToastFake), Loading = typeof(LoadingFake) });
+
+            ui.ShowToast("hello", 1.5f).GetAwaiter().GetResult();
+
+            var toast = ui.Get<ToastFake>();
+            Assert.IsNotNull(toast, "ShowToast 应打开注册的 Toast 类型");
+            var args = toast.LastArgs as UIToastArgs;
+            Assert.IsNotNull(args, "OnOpen 应收到 UIToastArgs");
+            Assert.AreEqual("hello", args.Text);
+            Assert.AreEqual(1.5f, args.Duration);
+            ui.Dispose();
+        }
+
+        [Test]
+        public void ShowLoading_ThenHide_OpensAndCloses()
+        {
+            var ui = new UIUtility(_ctx, _backend, new UIBuiltinWindows
+            { Toast = typeof(ToastFake), Loading = typeof(LoadingFake) });
+
+            ui.ShowLoading("加载中").GetAwaiter().GetResult();
+            Assert.IsTrue(ui.IsOpen<LoadingFake>());
+            Assert.AreEqual("加载中", (ui.Get<LoadingFake>().LastArgs as UILoadingArgs)?.Text);
+
+            ui.HideLoading();
+            Assert.IsFalse(ui.IsOpen<LoadingFake>());
+            ui.Dispose();
+        }
+
+        [Test]
+        public void ShowToast_WithoutBuiltins_LogsError_NoThrow()
+        {
+            LogAssert.Expect(LogType.Error, new Regex("Toast"));
+            // SetUp 建的 _ui 未注册内置件表：应报错提示、不抛异常。
+            Assert.DoesNotThrow(() => _ui.ShowToast("x").GetAwaiter().GetResult());
+        }
+
         // ── fakes ────────────────────────────────────────────────────────────
 
         private class FakeWindow : IUIWindow
@@ -243,6 +285,16 @@ namespace Game.Framework.Test
         {
             public override void OnOpen(object args) => throw new InvalidOperationException("boom");
         }
+
+        // 记录 OnOpen 参数：验证内置件转发（ShowToast/ShowLoading 的 args 形态）。
+        private class ArgsRecordingWindow : FakeWindow
+        {
+            public object LastArgs;
+            public override void OnOpen(object args) { LastArgs = args; base.OnOpen(args); }
+        }
+
+        [UIWindow(Layer = UILayer.Top, Cache = UICachePolicy.Cache)] private class ToastFake : ArgsRecordingWindow { }
+        [UIWindow(Layer = UILayer.Top, Cache = UICachePolicy.Cache, Modal = true)] private class LoadingFake : ArgsRecordingWindow { }
 
         // 只记录调用序列，不碰 Unity——验证核心编排逻辑。
         private class FakeBackend : IUIBackend

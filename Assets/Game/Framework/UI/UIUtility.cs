@@ -39,21 +39,27 @@ namespace Game.Framework.UI
         // 进行中的过渡数：>0 时 backend 全屏挡输入、Back() 直接吞掉（键盘路径不绕过挡板）。ADR-0020。
         private int _transitionCount;
 
-        public UIUtility(IGameContext context, IUIBackend backend)
+        // Toast / Loading 内置窗口类型表（adapter 入口提供）；null = 未配置，Show* 调用报错提示。
+        private readonly UIBuiltinWindows _builtins;
+
+        public UIUtility(IGameContext context, IUIBackend backend, UIBuiltinWindows builtins = null)
         {
             _context = context ?? throw new ArgumentNullException(nameof(context));
             _backend = backend ?? throw new ArgumentNullException(nameof(backend));
+            _builtins = builtins;
         }
 
         public UniTask<T> Open<T>(CancellationToken ct = default) where T : class, IUIWindow
             => Open<T>(null, ct);
 
         public async UniTask<T> Open<T>(object args, CancellationToken ct = default) where T : class, IUIWindow
+            => (T)await OpenCore(typeof(T), args, ct);
+
+        // Open 的非泛型主体：泛型壳与内置件（ShowToast/ShowLoading 按注册的 Type 开窗）共用。
+        private async UniTask<IUIWindow> OpenCore(Type type, object args, CancellationToken ct)
         {
             ThrowIfDisposed();
             EnsureInitialized();
-
-            var type = typeof(T);
 
             // 已打开 → 置顶并重新 OnOpen（刷新参数），不重建。
             if (_open.TryGetValue(type, out var already))
@@ -72,7 +78,7 @@ namespace Game.Framework.UI
                     SafeHook(already.OnReveal, already);
                 }
                 SafeOnOpen(already, args);
-                return (T)already;
+                return already;
             }
 
             // 同类型正在异步创建中（并发 Open）：等首个创建完成，再整体重走一遍——
@@ -81,7 +87,7 @@ namespace Game.Framework.UI
             {
                 await creating.Task.AttachExternalCancellation(ct);
                 if (_disposed) return null;
-                return await Open<T>(args, ct);
+                return await OpenCore(type, args, ct);
             }
 
             var meta = UIWindowMeta.Of(type);
@@ -122,7 +128,7 @@ namespace Game.Framework.UI
                 // 入场过渡（新建 / 缓存复用都播；已打开置顶刷新不播）。不 await——Open 在 OnOpen 后即返回，
                 // 过渡是表现层的事，动画期间的防护由框架挡输入承担（ADR-0020）。
                 StartOpenTransition(window);
-                return (T)window;
+                return window;
             }
             finally
             {
@@ -196,6 +202,33 @@ namespace Game.Framework.UI
             => _open.TryGetValue(typeof(T), out var w) ? (T)w : null;
 
         public bool IsOpen<T>() where T : class, IUIWindow => _open.ContainsKey(typeof(T));
+
+        // ── Top 层内置件（ADR-0020 §4）：按注册的类型表开窗，业务对后端零感知 ──
+
+        public async UniTask ShowToast(string text, float duration = 2f)
+        {
+            if (_builtins?.Toast == null)
+            {
+                Debug.LogError("[UIUtility] 未注册 Toast 内置窗口类型（UIBuiltinWindows.Toast）——本后端入口未提供内置件。");
+                return;
+            }
+            await OpenCore(_builtins.Toast, new UIToastArgs(text, duration), default);
+        }
+
+        public async UniTask ShowLoading(string text = null)
+        {
+            if (_builtins?.Loading == null)
+            {
+                Debug.LogError("[UIUtility] 未注册 Loading 内置窗口类型（UIBuiltinWindows.Loading）——本后端入口未提供内置件。");
+                return;
+            }
+            await OpenCore(_builtins.Loading, new UILoadingArgs(text), default);
+        }
+
+        public void HideLoading()
+        {
+            if (_builtins?.Loading != null) CloseType(_builtins.Loading);
+        }
 
         /// <summary>释放：拆掉所有窗口与层根。<b>不</b>触发窗口生命周期 hook（此时 Context 通常已在销毁、调 hook 会触碰已释放的 Context）——纯物理拆除，窗口各自的 Bag 由 backend 销毁时释放。</summary>
         public void Dispose()

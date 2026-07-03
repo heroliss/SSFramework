@@ -1851,6 +1851,22 @@ protected override async UniTask OnCloseTransition(CancellationToken ct)
 
 把 `MonoUIBackKeyDriver` 挂在 UI 入口（`MonoUGuiUI` / `MonoToolkitUI`）同一节点即接通：Esc / Android 返回键 → `Back()`。`Back()` 按 **Popup → Window → Page** 从高到低关第一个非空层的栈顶（`Top` / `System` / `Background` 不参与）；返回 `false` 表示三层皆空——业务据此做「再按一次退出」兜底；过渡动画进行中 Back 被吞掉（与挡输入同一语义）。
 
+### Toast / Loading（Top 层内置件）
+
+`IUIUtility` 一等方法，业务调用点对后端零感知（内置窗口类型由各入口注册，ADR-0020 §4）：
+
+```csharp
+await ui.ShowToast("保存成功");            // 底部文字条，2 秒自动关、不拦输入；连续调用刷新文本重置计时
+await ui.ShowLoading("正在连接…");         // 全屏模态挡输入 + 拦返回键；重复调用刷新文本
+ui.HideLoading();                          // 关闭 Loading
+```
+
+内置件是无美术资源的默认表现（半透明条 / 旋转指示块）；要品牌化视觉时自写 Top 层窗口替代即可，`Show*` 只是「按注册类型开窗」的便捷入口。Toast 刻意不做队列——需要排队提示的项目自包一层。
+
+### 安全区（刘海 / 挖孔屏）
+
+层根与背景保持全屏出血，**内容 opt-in 避让**：UGUI 把 `UGuiSafeArea` 挂在窗口内容根（父链全屏拉伸，组件把锚区收进 `Screen.safeArea`，转屏自动跟随）；UI Toolkit 把内容放进 `SafeAreaContainer`（可在 UXML 里直接摆，padding 自动按面板缩放换算）。
+
 ### 写一个窗口
 
 **UI Toolkit（纯 C#，可无 authored 资产）** —— 需无参构造（框架用 `Activator` 实例化），接线放 `OnCreated`、取参数放 `OnOpen`：
