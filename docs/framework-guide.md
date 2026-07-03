@@ -1793,7 +1793,7 @@ View 之上的 UI 调度：打开/关闭窗口、固定有序层级、Page 返�
 await this.GetUtility<IUIUtility>().Open<ShopWindow>();           // 无参
 await this.GetUtility<IUIUtility>().Open<ConfirmDialog>(args);    // 带打开参数（窗口 OnOpen 取用）
 this.GetUtility<IUIUtility>().Close<ShopWindow>();                     // 关闭（按缓存策略隐藏/销毁）
-this.GetUtility<IUIUtility>().Back();                                  // 关 Page 层栈顶，露出上一页
+this.GetUtility<IUIUtility>().Back();                                  // 返回导航：按 Popup→Window→Page 关第一个非空层的栈顶
 this.GetUtility<IUIUtility>().CloseAll(UILayer.Popup);                 // 关某层全部
 var w = this.GetUtility<IUIUtility>().Get<ShopWindow>();               // 取已打开实例（未开返回 null）
 ```
@@ -1812,6 +1812,7 @@ public sealed class ConfirmDialog : UGuiWindowBase { … }
 - `Asset`：UGUI = prefab location，UI Toolkit = UXML location（留空 = 纯代码搭建）。
 - `Cache`：`Destroy`（默认，关即销毁释放资源句柄）/ `Cache`（关只隐藏、再开秒显，由 Context 销毁时清）。
 - `Modal`：本窗口之下铺遮罩拦截下层输入。
+- `BackClosable`：返回键（`Back()`）能否关它（默认 true）。设 false 时 Back 命中它不动作但仍算消费——强引导等不可跳过的窗口用它拦住返回键。
 
 ### 层级（`UILayer`，固定有序，后者盖前者）
 
@@ -1826,7 +1827,29 @@ public sealed class ConfirmDialog : UGuiWindowBase { … }
 
 ### 窗口生命周期 hook（由框架调，非 Unity 生命周期）
 
-`OnCreate`（建后一次，接线）→ `OnOpen(object args)`（每次打开，收参数）→ 期间可能 `OnCover` / `OnReveal`（被同层窗口盖住 / 重新露出，**按层内计算**）→ `OnClose`（每次关闭）。`OnCover` / `OnReveal` 是做「被盖暂停、露出恢复」的关键。
+`OnCreate`（建后一次，接线）→ `OnOpen(object args)`（每次打开，收参数）→ `OnOpenTransition`（入场过渡）→ 期间可能 `OnCover` / `OnReveal`（被同层窗口盖住 / 重新露出，**按层内计算**）→ `OnCloseTransition`（出场过渡）→ `OnClose`（每次关闭）。`OnCover` / `OnReveal` 是做「被盖暂停、露出恢复」的关键。
+
+### 过渡动画：重写两个 hook，框架管挡输入（ADR-0020）
+
+窗口要开/关动画时重写过渡 hook——返回未完成的 task 期间**框架全屏挡输入**（防连点、防动画中操作），动画完成自动放开；不重写 = 无过渡零开销：
+
+```csharp
+protected override async UniTask OnOpenTransition(CancellationToken ct)
+    => await PlayFadeIn(ct);    // ct 随 Context 销毁取消，动画实现应响应它
+
+protected override async UniTask OnCloseTransition(CancellationToken ct)
+    => await PlayFadeOut(ct);   // 播出场动画时窗口仍可见；完成后框架才走 OnClose → 隐藏/销毁
+```
+
+要点：
+
+- `Open<T>` 在 `OnOpen` 后即返回，**不等入场过渡**——动画是表现层的事，防护由挡输入承担。
+- **逻辑关闭先于表现**：`Close` 调用瞬间 `IsOpen` 已 false、同类型可立即重开（新实例），出场动画只是残影。依赖「关完才算关」的收尾放 `OnClose`。
+- `CloseAll` / Context 销毁不播过渡（场景切换要的是立刻干净）；过渡抛异常被框架隔离（记日志、不会挡死输入）。
+
+### 返回键（Android Back / Esc）
+
+把 `MonoUIBackKeyDriver` 挂在 UI 入口（`MonoUGuiUI` / `MonoToolkitUI`）同一节点即接通：Esc / Android 返回键 → `Back()`。`Back()` 按 **Popup → Window → Page** 从高到低关第一个非空层的栈顶（`Top` / `System` / `Background` 不参与）；返回 `false` 表示三层皆空——业务据此做「再按一次退出」兜底；过渡动画进行中 Back 被吞掉（与挡输入同一语义）。
 
 ### 写一个窗口
 
@@ -1882,7 +1905,8 @@ Bag.SubscribeClick(button, OnClick);          // UI Toolkit Button.clicked
 > **要点回顾**
 >
 > - 挂一个 `MonoToolkitUI` / `MonoUGuiUI` 注册 `IUIUtility`，`this.GetUtility<IUIUtility>().Open<T>()` 开窗
-> - 窗口 = View 的一种：自动注入 / Bag / 读写分离；元数据用 `[UIWindow]` 声明层 / 缓存 / 模态
+> - 窗口 = View 的一种：自动注入 / Bag / 读写分离；元数据用 `[UIWindow]` 声明层 / 缓存 / 模态 / 返回键可关性
+> - 过渡动画重写 `OnOpenTransition` / `OnCloseTransition`，框架统一挡输入；返回键挂 `MonoUIBackKeyDriver` 即接通
 > - 核心渲染中立、可单测；换 UGUI ↔ UI Toolkit 业务零改，`IUIBackend` 吸收差异
 > - 数据绑定一套 R3 订阅；活样例见 demo「View · UIToolkit」+「UI 框架 · 窗口/层级」章
 

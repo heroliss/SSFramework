@@ -37,6 +37,12 @@ namespace Game.Framework.UI
 
         /// <summary>是否模态：打开时在本窗口之下铺一层遮罩，拦截更下层的输入。默认 false。</summary>
         public bool Modal { get; set; }
+
+        /// <summary>
+        /// 返回键（<c>IUIUtility.Back()</c>）能否关闭本窗口。默认 true。
+        /// 设 false 时 Back() 命中它不动作但仍返回 true（返回键被消费）——强引导等不可跳过的窗口用它拦住返回键（ADR-0020）。
+        /// </summary>
+        public bool BackClosable { get; set; } = true;
     }
 
     /// <summary>
@@ -52,6 +58,7 @@ namespace Game.Framework.UI
         public string Asset { get; private set; }
         public UICachePolicy Cache { get; private set; }
         public bool Modal { get; private set; }
+        public bool BackClosable { get; private set; }
 
         /// <summary>读取并缓存某窗口类型的元数据。</summary>
         public static UIWindowMeta Of(Type windowType)
@@ -66,6 +73,7 @@ namespace Game.Framework.UI
                 Asset = attr?.Asset,
                 Cache = attr?.Cache ?? UICachePolicy.Destroy,
                 Modal = attr?.Modal ?? false,
+                BackClosable = attr?.BackClosable ?? true,
             };
             _cache[windowType] = meta;
             return meta;

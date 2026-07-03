@@ -25,6 +25,7 @@ namespace Game.Framework.UI.Toolkit
         private readonly Dictionary<UILayer, VisualElement> _layerRoots = new();
         private readonly Dictionary<IUIWindow, Slot> _slots = new();
         private DisposableBag _loadBag;
+        private VisualElement _inputBlocker; // 全屏吃事件挡板（过渡期间），懒建复用
         private bool _initialized;
 
         private sealed class Slot
@@ -130,6 +131,26 @@ namespace Game.Framework.UI.Toolkit
             }
         }
 
+        public void SetInputBlocked(bool blocked)
+        {
+            if (blocked)
+            {
+                if (_inputBlocker == null)
+                {
+                    _inputBlocker = new VisualElement { name = "Input Blocker" };
+                    Stretch(_inputBlocker);
+                    _inputBlocker.pickingMode = PickingMode.Position; // 透明但吃掉全部指针事件
+                }
+                if (_inputBlocker.parent == null) _document.rootVisualElement.Add(_inputBlocker);
+                _inputBlocker.BringToFront(); // 盖所有层根之上
+                _inputBlocker.style.display = DisplayStyle.Flex;
+            }
+            else if (_inputBlocker != null)
+            {
+                _inputBlocker.style.display = DisplayStyle.None;
+            }
+        }
+
         public void DestroyWindow(IUIWindow window)
         {
             if (!_slots.TryGetValue(window, out var s)) return;
@@ -149,6 +170,7 @@ namespace Game.Framework.UI.Toolkit
             _slots.Clear();
             _loadBag?.Dispose();
             _loadBag = null;
+            if (_inputBlocker != null) { _inputBlocker.RemoveFromHierarchy(); _inputBlocker = null; }
             foreach (var c in _layerRoots.Values) c.RemoveFromHierarchy();
             _layerRoots.Clear();
             _initialized = false;

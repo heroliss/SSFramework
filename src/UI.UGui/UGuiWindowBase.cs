@@ -1,3 +1,5 @@
+using System.Threading;
+using Cysharp.Threading.Tasks;
 using Game.Framework.View;
 using UnityEngine;
 
@@ -25,6 +27,8 @@ namespace Game.Framework.UI.UGui
         void IUIWindow.OnClose() => OnClose();
         void IUIWindow.OnCover() => OnCover();
         void IUIWindow.OnReveal() => OnReveal();
+        UniTask IUIWindow.OnOpenTransition(CancellationToken ct) => OnOpenTransition(ct);
+        UniTask IUIWindow.OnCloseTransition(CancellationToken ct) => OnCloseTransition(ct);
 
         /// <summary>
         /// 由生成的 partial（<c>*.nodes.g.cs</c>）覆写：把窗口 prefab 子节点上的组件取到字段。
@@ -81,5 +85,17 @@ namespace Game.Framework.UI.UGui
 
         /// <summary>盖在上面的窗口移开、本窗口重新成为同层栈顶时调用。</summary>
         protected virtual void OnReveal() { }
+
+        /// <summary>
+        /// 入场过渡：<see cref="OnOpen"/> 之后播放，返回未完成的 task 期间框架全屏挡输入（ADR-0020）。
+        /// 默认无过渡（零开销）。动画实现应响应 <paramref name="ct"/>（Context 销毁时取消）。
+        /// </summary>
+        protected virtual UniTask OnOpenTransition(CancellationToken ct) => UniTask.CompletedTask;
+
+        /// <summary>
+        /// 出场过渡：<see cref="OnClose"/> 之前播放（窗口仍可见），期间全屏挡输入。逻辑关闭已先行生效
+        /// （<c>IsOpen</c> 已 false、同类型可重开），动画只是表现层残影。<c>CloseAll</c> / Context 销毁不播。
+        /// </summary>
+        protected virtual UniTask OnCloseTransition(CancellationToken ct) => UniTask.CompletedTask;
     }
 }

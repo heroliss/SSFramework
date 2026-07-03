@@ -32,8 +32,12 @@ namespace Game.Framework.UI
         /// <summary>关闭某层最上方的窗口。</summary>
         void CloseTop(UILayer layer);
 
-        /// <summary>返回导航：关闭 <see cref="UILayer.Page"/> 层最上方的页，露出上一页。</summary>
-        void Back();
+        /// <summary>
+        /// 返回导航（Android Back / Esc 的目标语义，ADR-0020）：按 Popup → Window → Page 从高到低找第一个非空层，
+        /// 关闭其栈顶窗口。返回 true = 返回键已被 UI 消费（关了窗、或栈顶 <c>BackClosable=false</c> 拦截、或过渡动画进行中）；
+        /// false = 三层皆空，业务可做「再按一次退出」之类的兜底。输入接线用 <c>MonoUIBackKeyDriver</c>（挂 UI 入口同节点）。
+        /// </summary>
+        bool Back();
 
         /// <summary>关闭某一层的所有窗口。</summary>
         void CloseAll(UILayer layer);

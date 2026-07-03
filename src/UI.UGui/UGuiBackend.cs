@@ -25,6 +25,7 @@ namespace Game.Framework.UI.UGui
         private readonly Dictionary<UILayer, RectTransform> _layerRoots = new();
         private readonly Dictionary<IUIWindow, Slot> _slots = new();
         private DisposableBag _loadBag;
+        private GameObject _inputBlocker; // 全屏透明 raycast 挡板（过渡期间），懒建复用
         private bool _initialized;
 
         // 每窗口的物理状态：所属层、GameObject、持 prefab handle 的子 bag、模态遮罩。
@@ -132,6 +133,29 @@ namespace Game.Framework.UI.UGui
             }
         }
 
+        public void SetInputBlocked(bool blocked)
+        {
+            if (blocked)
+            {
+                if (_inputBlocker == null)
+                {
+                    _inputBlocker = new GameObject("Input Blocker", typeof(RectTransform), typeof(Image));
+                    var rt = (RectTransform)_inputBlocker.transform;
+                    rt.SetParent(_canvas.transform, false);
+                    Stretch(rt);
+                    var img = _inputBlocker.GetComponent<Image>();
+                    img.color = Color.clear;  // 全透明，但 raycastTarget 仍拦截点击
+                    img.raycastTarget = true;
+                }
+                _inputBlocker.transform.SetAsLastSibling(); // 盖所有层根之上
+                _inputBlocker.SetActive(true);
+            }
+            else if (_inputBlocker != null)
+            {
+                _inputBlocker.SetActive(false);
+            }
+        }
+
         public void DestroyWindow(IUIWindow window)
         {
             if (!_slots.TryGetValue(window, out var s)) return;
@@ -151,6 +175,7 @@ namespace Game.Framework.UI.UGui
             _slots.Clear();
             _loadBag?.Dispose();
             _loadBag = null;
+            if (_inputBlocker != null) { Object.Destroy(_inputBlocker); _inputBlocker = null; }
             foreach (var rt in _layerRoots.Values)
                 if (rt != null) Object.Destroy(rt.gameObject);
             _layerRoots.Clear();

@@ -38,6 +38,12 @@ namespace Game.Framework.UI
         /// <summary>销毁窗口及其加载的资源（UGUI 销毁 GameObject、UIToolkit Dispose 视图并摘出可视树）。</summary>
         void DestroyWindow(IUIWindow window);
 
+        /// <summary>
+        /// 全屏挡/放输入（盖在<b>所有</b>层之上的透明挡板）。核心在任一窗口过渡进行中开启（计数归零关闭），
+        /// 防连点、防动画期间操作（ADR-0020）。实现应幂等（重复同值调用无害）。
+        /// </summary>
+        void SetInputBlocked(bool blocked);
+
         /// <summary>拆除全部层根与所有残留窗口。<see cref="UIUtility"/> 释放时调用。</summary>
         void Teardown();
     }

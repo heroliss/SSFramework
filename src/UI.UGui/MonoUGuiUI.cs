@@ -62,7 +62,7 @@ namespace Game.Framework.UI.UGui
         public void Close<T>() where T : class, IUIWindow => Core.Close<T>();
         public void Close(IUIWindow window) => Core.Close(window);
         public void CloseTop(UILayer layer) => Core.CloseTop(layer);
-        public void Back() => Core.Back();
+        public bool Back() => Core.Back();
         public void CloseAll(UILayer layer) => Core.CloseAll(layer);
         public void CloseAll() => Core.CloseAll();
         public T Get<T>() where T : class, IUIWindow => Core.Get<T>();
