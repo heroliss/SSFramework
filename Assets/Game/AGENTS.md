@@ -179,3 +179,10 @@ struct 不能用 `this.GetXxx<T>()` 扩展方法（值类型接口调用必然�
 - **内置件/安全区**（ADR-0020）：Toast/Loading 用 `ui.ShowToast / ShowLoading / HideLoading`（IUIUtility 一等方法、后端无关），不直接 Open 内置窗口类型；安全区 opt-in——UGUI 内容根挂 `UGuiSafeArea`、Toolkit 内容放 `SafeAreaContainer`，层根/背景保持全屏出血。
 - **数据绑定统一 R3**（`Bag.BindText / BindEnabled / BindVisible / SubscribeClick`），**不用** UI Toolkit 原生 DataBinding。非窗口的 Toolkit 视图用 `UIToolkitViewBase` + `view.BindTo(ctx)`。
 - ⚠ Toolkit 窗口 Context 由框架**显式注入**（不在 GameObject 父链）；UGUI 窗口沿父链自动注入。换后端业务开窗代码零改。详见 guide §17、ADR-0016。
+
+## 26. 本地存储 IStorageUtility
+
+- 持久化 = `[Serializable]` 类**整存整取**（`Save/Load/Exists/Delete/ListKeys`），**不做散装 KV**（碎片标记直接用 PlayerPrefs）。key 是持久契约：常量管理、只增不改、字符集 `[A-Za-z0-9-_]` + `/` 分段（槽位 = 分段前缀 + `ListKeys("save/")`）。
+- 注册三选一同对象池：`RegisterOwned(new StorageUtility(), typeof(IStorageUtility))`（推荐）/ `RegisterValue` / 场景挂 `MonoStorageUtility`（Inspector 配根目录名）。
+- 失败语义同资源系统：`Load` 无可用数据（没存过 / 主备全坏）→ null 按新档处理；`Save` IO 失败**抛**。防损坏（原子写 + 备份回退）框架已兜住；**别 fire-and-forget Save**（await 它，`Exists` 是不排队的同步快照）。
+- 迁移姿势：数据里 `int Version` 字段 + Load 后链式 switch + 回写；默认 JSON 字段增删天然宽容、多数演进免迁移。默认序列化只认 `[Serializable]` 类的**字段**（无 Dictionary / 多态 / 属性）。详见 guide §18、ADR-0021。

@@ -19,7 +19,8 @@
 15. [热更新（HybridCLR）](#15-热更新hybridclr)
 16. [配置表（Luban）](#16-配置表luban)
 17. [UI 框架（窗口 / 层级）](#17-ui-框架窗口--层级)
-18. [推荐项目结构](#18-推荐项目结构)
+18. [本地存储（存档）](#18-本地存储存档)
+19. [推荐项目结构](#19-推荐项目结构)
 
 ---
 
@@ -1235,7 +1236,7 @@ public class MiniGameController : MonoBehaviour
 
 ## 13. AssetReference（资源引用）
 
-框架通过 `IAssetUtility` 与 `AssetReference<T>` 提供统一资源入口。业务动态加载用 location；Inspector 拖拽引用用 `AssetReference<T>`。GUID 只保存在引用内部，不作为业务 API 暴露。资源在工程里按类型 / 模块怎么摆（及 YooAsset 寻址 / 打包约定）见 §18「推荐项目结构」。
+框架通过 `IAssetUtility` 与 `AssetReference<T>` 提供统一资源入口。业务动态加载用 location；Inspector 拖拽引用用 `AssetReference<T>`。GUID 只保存在引用内部，不作为业务 API 暴露。资源在工程里按类型 / 模块怎么摆（及 YooAsset 寻址 / 打包约定）见 §19「推荐项目结构」。
 
 `MonoViewBase/MonoModelBase/MonoSystemBase/MonoUtilityBase` 内置 protected `Bag`——动态加载通过 `Bag.Load<T>(location)` / `Bag.LoadScene(...)`，handle 自动登记到 Bag，`OnDestroy` 时统一释放；`Bag.LoadText` / `Bag.LoadBytes` 是内容直读（拷出即释放句柄、不进 Bag），按包构建类型自动路由（普通 AB 包按 TextAsset 取内容，RawFile 包走原生通道）。`AssetReference<T>` 字段则自己持有 handle，并由宿主 `OnDestroy` 自动 `Dispose`。真实引用计数由具体资源 provider 维护，框架只管理“谁负责释放哪一类 handle”。
 
@@ -1667,7 +1668,7 @@ Bag.Subscribe(
 
 ## 16. 配置表（Luban）
 
-表定义（XML）与数据（JSON / Excel）放在一处 conf 源目录（demo 那套在 `Assets/Game/Framework/Demo/Configs~/`，`~` 后缀让 Unity 不导入、纯构建期输入）→ 菜单跑 Luban CLI 生成**配置 C# 类 + 二进制数据 + 表清单** → 运行期由一个自加载的配置 Utility 服务持表，数据文件随资源包打包与热更。设计原理与取舍见 ADR-0009；源 / 输出目录在模块里怎么摆见 §18「推荐项目结构」。
+表定义（XML）与数据（JSON / Excel）放在一处 conf 源目录（demo 那套在 `Assets/Game/Framework/Demo/Configs~/`，`~` 后缀让 Unity 不导入、纯构建期输入）→ 菜单跑 Luban CLI 生成**配置 C# 类 + 二进制数据 + 表清单** → 运行期由一个自加载的配置 Utility 服务持表，数据文件随资源包打包与热更。设计原理与取舍见 ADR-0009；源 / 输出目录在模块里怎么摆见 §19「推荐项目结构」。
 
 > **多套并存**：每套配置 = 一个 `LubanConfigProfile`（各自的 conf 源 + 输出目录 + topModule，互不干扰）。demo 与正式游戏可各一套——`LubanConfigProfile.ResolveAll()` 返回全部、菜单「生成」逐套生成，多套集中管理用「配置总览」窗口。demo 那套（源 / 代码 / 数据全在 `Demo/` 内）随 demo 程序集与样例资源包在正式打包时一并排除。
 
@@ -1939,7 +1940,74 @@ Bag.SubscribeClick(button, OnClick);          // UI Toolkit Button.clicked
 
 ---
 
-## 18. 推荐项目结构
+## 18. 本地存储（存档）
+
+框架统一的持久化入口 `IStorageUtility`（`Game.Framework.Storage`）：**类型化整存整取**——每类持久数据定义一个 `[Serializable]` 类（设置 = `SettingsData`、存档 = `PlayerSaveData`），整对象 `Save` / `Load`。刻意不提供 `GetInt/SetString` 散装 KV（字符串 key 散落各处正是框架「用类型代替字符串」要消灭的东西；碎片标记 Unity 的 `PlayerPrefs` 本身够薄，框架不重复包装）。设计取舍见 ADR-0021，活样例见 demo「本地存储 · 存档」章。
+
+### 快速开始
+
+```csharp
+[Serializable]
+public class PlayerSaveData
+{
+    public int Version = 1;          // 版本迁移的锚点字段（见下）
+    public int Level;
+    public List<string> Unlocked = new();
+}
+
+// 注册（三选一，同对象池）：
+builder.RegisterOwned(new StorageUtility(), typeof(IStorageUtility));  // 纯 C#，随 Context Dispose 释放（推荐）
+// 或 RegisterValue（全局唯一不管释放）；或场景挂 MonoStorageUtility（Inspector 配根目录名）
+
+// 任意层（含 View）使用：
+var storage = this.GetUtility<IStorageUtility>();
+await storage.Save("save/slot1", data);
+var loaded = await storage.Load<PlayerSaveData>("save/slot1");  // null = 无可用数据 → 按开新档处理
+```
+
+### API 一览
+
+| 成员 | 说明 |
+|---|---|
+| `Save<T>(key, data)` | 整对象覆盖写（原子 + 自动备份上一版）。IO 失败**抛异常** |
+| `Load<T>(key)` | 读取；无可用数据返回 **null**（没存过 / 主备全坏——后者已打 error） |
+| `Exists(key)` | 是否有已落盘数据（主或备份任一存在）。同步快照、不排队 |
+| `Delete(key)` | 删主 + 备份；删不存在的 key 是 no-op |
+| `ListKeys(prefix)` | 前缀列举（`"save/"` 列全部槽位），排序稳定、直接喂存档选择 UI |
+
+**key 是持久契约**（落成文件名）：显式传、用常量管理、只增不改——改 key 等同丢弃旧数据（与资源 location 同一心智）。字符集限 `[A-Za-z0-9-_]`，`/` 分段做槽位分组；非法 key 抛 `ArgumentException`（规则集中在 `StorageKey.Validate`）。
+
+### 失败语义（与资源系统同一套）
+
+**预期内缺失给 null、系统级失败抛异常**：`Load` 不存在 → null（新玩家常态）；主文件损坏、备份可用 → 自动回退 + warning；主备全坏 → null + error（业务当新档，游戏能继续）。`Save` 磁盘满 / 权限 → **抛**（数据没落盘必须让业务知道）；key 非法 / data 为 null / Dispose 后调用 → 抛参数 / `ObjectDisposedException`。
+
+### 防损坏（框架兜住的核心价值）
+
+写路径固定走「临时文件 → 原子替换 → 旧版自动变 `.bak`」——任何时刻磁盘上都有一份完整可读的数据，**写一半崩溃 / 断电不丢档**；读路径主文件损坏自动回退备份。每个 key 至多三个文件：`<key>.sav`（主）/ `.sav.bak`（上一版）/ `.sav.tmp`（写入途中）。默认序列化是带缩进的明文 JSON，`.sav` 可直接用文本编辑器打开调试。
+
+所有操作内部走**全局 FIFO 串行**（同 key 竞态、读写交错天然消失；存储低频，串行无感知），文件 IO 切线程池不卡帧。**别 fire-and-forget Save**——await 它（`Exists` 是不排队的同步快照，紧跟未落盘的写可能看不到）。
+
+### 版本迁移的姿势
+
+- 默认 JSON 对字段增删**天然宽容**（新增字段旧档取默认值、删除字段被忽略）——绝大多数存档演进免迁移。
+- 结构性改动：数据类型里放 `int Version` 字段 → `Load` 后按版本**链式** switch 迁移（v1→v2→v3 逐级经过）→ 迁移完 `Save` 回写。框架刻意不提供迁移注册表 / 管线——迁移逻辑本质是业务代码，一个 switch 最直白。样板见 demo 章 `MigrateIfNeeded`。
+
+### 扩展点与刻意不做
+
+- **换介质 = `IStorageProvider`**（字节 ↔ 介质，写必须防损坏）：SQLite / 云存档 / PlayerPrefs 桥；**换格式 = `IStorageSerializer`**（对象 ↔ 字节）：MemoryPack（重度存档提速）/ Newtonsoft（要 Dictionary / 多态）/ 加密包装。都经 `StorageUtility` 构造注入，业务零改动。
+- 默认 `JsonUtilityStorageSerializer` 只认 `[Serializable]` 类的**字段**（不含属性），不支持 `Dictionary` / 多态——存档类型用 List + 平铺字段建模；忘标 `[Serializable]` 会静默序列化出空对象，Editor / Dev 下有 LogError 守卫。
+- **刻意不做**：加密防篡改（单机本地防不住，联网真源在服务器；serializer 已是加密接入位）、SQLite（等真实查询需求，届时顺带验证 provider 抽象）、云同步 / 自动定时保存（业务与平台 SDK 领域）。
+
+> **要点回顾**
+>
+> - `[Serializable]` 类 + 常量 key + `await Save/Load`；null = 无可用数据 → 开新档
+> - 断电安全框架兜住（原子写 + 备份回退），业务不再手写临时文件样板
+> - 迁移 = Version 字段 + 链式 switch；多槽位 = key 分段 + `ListKeys` 前缀
+> - 换介质 / 换格式两个正交扩展点，构造注入、业务零改动
+
+---
+
+## 19. 推荐项目结构
 
 把框架用进正式项目时，按「特性模块自洽 + 可整单元裁剪」组织，而不是按技术类型（all Models / all Views）摊平。下面是从 demo 提炼的原则——demo 自身是活样例，但有两处别照抄（见末尾）。
 

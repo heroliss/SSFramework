@@ -60,6 +60,7 @@ DOTS 是数据/Job/Burst 范式，与引用式 OOP 不同。框架的定位是**
 | 热更新（HybridCLR） | ✅ 已落地 | 列表驱动热更范围（`FrameworkHotUpdateProfile` 单一真源），框架本体也可热更；薄 Boot 程序集引导（专用 RawFile 代码包 + 清单 + 拓扑序加载），编辑器旁路零负担；Windows IL2CPP 端到端验证通过（改入口版本→只重打代码包→玩家包生效）。ADR-0008 |
 | 配置表（Luban） | ✅ 已落地 | 构建期菜单跑 CLI 生成「代码 + 数据 + 表清单」三件套；运行期 `Bag.LoadBytes` 清单预载 + 一个自加载的配置 Utility 服务持表（`Game.Framework.Config`，后端无关、不引用 Luban）。数据源 JSON/Excel 混搭，demo 双活样例。ADR-0009 |
 | UI 框架（UGUI + UI Toolkit） | ✅ 已落地 | 渲染后端无关的窗口/层级/栈/模态/缓存/生命周期调度（`IUIUtility`），`IUIBackend` 后两个 adapter（Canvas / UIDocument）；`[UIWindow]` 特性声明层/缓存/模态；绑定走 R3。核心可单测（脱离场景）。ADR-0016 |
+| 本地存储 / 存档 | ✅ 已落地 | `IStorageUtility`：`[Serializable]` 类整存整取（Save/Load/Exists/Delete/ListKeys）；原子写 + 上一版备份自动回退（断电不丢档）；`IStorageProvider`（介质）/ `IStorageSerializer`(格式) 双扩展点，默认文件 + JsonUtility 零依赖；迁移姿势 = Version 字段 + 链式 switch。ADR-0021 |
 | UPM 抽包 | 🔮 规划 | 框架稳定后从 `Assets/Game/Framework` 抽成内嵌/独立 UPM 包。ADR-0010 |
 
 ## 规划中的模块（待选型研究）
@@ -68,7 +69,6 @@ DOTS 是数据/Job/Burst 范式，与引用式 OOP 不同。框架的定位是**
 
 | 模块 | 候选方案 | 设计方向 |
 |---|---|---|
-| **本地存储** | SQLite（关系/大数据）、PlayerPrefs（轻量 KV）、MemoryPack（高性能二进制序列化） | 统一 `IStorageUtility` / `IStorageProvider` 抽象，按数据规模选后端；存档/配置/KV 分场景；序列化器可插拔 |
 | **网络** | BestHTTP（付费）、UnityWebRequest 封装、gRPC（MagicOnion）、WebSocket | `INetworkUtility` / 服务抽象隔离传输层；请求/长连接/重试/取消接 UniTask + CancellationToken。**消息建模分两类**：请求-响应 = `UniTask<TResp>` 返回值（不硬塞进事件）；服务器推送/广播 = 转框架 Event（`record struct XxxPushEvent : IEvent`，天然接 R3 订阅）。**序列化随服务器技术栈定**：跨语言后端 / 既有 proto 契约 → Protobuf；双端 C#（如 MagicOnion）→ MemoryPack 更快更省——无论哪种都藏在 provider 后，业务只见强类型消息 |
 | **DOTS / 多线程** | 见 Phase 3 | 框架协调 ECS（System/Utility 包 `World`，Command 调度 Job / `EntityCommandBuffer`）；主线程契约与 Job 边界明确 |
 | **Cysharp 生态选型** | 见下 | 从 [Cysharp 仓库](https://github.com/orgs/Cysharp/repositories) 评估可融入的库 |
@@ -103,7 +103,7 @@ DOTS 是数据/Job/Burst 范式，与引用式 OOP 不同。框架的定位是**
 
 ### 中期：新功能模块（按"所有游戏都要"排序）
 
-1. **本地存储 / 存档**（`IStorageUtility` + provider，见上表）——建议第一个做：需求普适、能立刻验证抽象，顺带定下"存档版本迁移"的姿势。
+1. **本地存储 / 存档** ✅ 已落地（ADR-0021）：`IStorageUtility` 类型化整存整取 + 原子写/备份回退防损坏 + `IStorageProvider`/`IStorageSerializer` 双扩展点（默认文件 + JsonUtility 零依赖）；迁移姿势 = Version 字段 + 链式 switch（刻意不做迁移管线）。五件套齐：ADR / 内核实现（`Core/Storage/`）/ 测试 / demo「本地存储 · 存档」章 / guide §18 + AGENTS #26。
 2. **音频服务**（`IAudioUtility`：分组音量 / 淡入淡出 / AudioSource 池化，吃现成对象池）——工作量小、收益直接。
 3. **游戏流程状态机**：启动→登录→大厅→战斗的显式 Flow（每个状态一个子 Context，天然利用作用域树的整棵撤语义）。
 4. **本地化**：表驱动（吃现成配置表）+ 资源按 locale 分包（吃现成多 package），基本是组合既有原语。
