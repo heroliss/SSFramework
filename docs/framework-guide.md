@@ -20,7 +20,8 @@
 16. [配置表（Luban）](#16-配置表luban)
 17. [UI 框架（窗口 / 层级）](#17-ui-框架窗口--层级)
 18. [本地存储（存档）](#18-本地存储存档)
-19. [推荐项目结构](#19-推荐项目结构)
+19. [音频（BGM / 音效）](#19-音频bgm--音效)
+20. [推荐项目结构](#20-推荐项目结构)
 
 ---
 
@@ -1236,7 +1237,7 @@ public class MiniGameController : MonoBehaviour
 
 ## 13. AssetReference（资源引用）
 
-框架通过 `IAssetUtility` 与 `AssetReference<T>` 提供统一资源入口。业务动态加载用 location；Inspector 拖拽引用用 `AssetReference<T>`。GUID 只保存在引用内部，不作为业务 API 暴露。资源在工程里按类型 / 模块怎么摆（及 YooAsset 寻址 / 打包约定）见 §19「推荐项目结构」。
+框架通过 `IAssetUtility` 与 `AssetReference<T>` 提供统一资源入口。业务动态加载用 location；Inspector 拖拽引用用 `AssetReference<T>`。GUID 只保存在引用内部，不作为业务 API 暴露。资源在工程里按类型 / 模块怎么摆（及 YooAsset 寻址 / 打包约定）见 §20「推荐项目结构」。
 
 `MonoViewBase/MonoModelBase/MonoSystemBase/MonoUtilityBase` 内置 protected `Bag`——动态加载通过 `Bag.Load<T>(location)` / `Bag.LoadScene(...)`，handle 自动登记到 Bag，`OnDestroy` 时统一释放；`Bag.LoadText` / `Bag.LoadBytes` 是内容直读（拷出即释放句柄、不进 Bag），按包构建类型自动路由（普通 AB 包按 TextAsset 取内容，RawFile 包走原生通道）。`AssetReference<T>` 字段则自己持有 handle，并由宿主 `OnDestroy` 自动 `Dispose`。真实引用计数由具体资源 provider 维护，框架只管理“谁负责释放哪一类 handle”。
 
@@ -1668,7 +1669,7 @@ Bag.Subscribe(
 
 ## 16. 配置表（Luban）
 
-表定义（XML）与数据（JSON / Excel）放在一处 conf 源目录（demo 那套在 `Assets/Game/Framework/Demo/Configs~/`，`~` 后缀让 Unity 不导入、纯构建期输入）→ 菜单跑 Luban CLI 生成**配置 C# 类 + 二进制数据 + 表清单** → 运行期由一个自加载的配置 Utility 服务持表，数据文件随资源包打包与热更。设计原理与取舍见 ADR-0009；源 / 输出目录在模块里怎么摆见 §19「推荐项目结构」。
+表定义（XML）与数据（JSON / Excel）放在一处 conf 源目录（demo 那套在 `Assets/Game/Framework/Demo/Configs~/`，`~` 后缀让 Unity 不导入、纯构建期输入）→ 菜单跑 Luban CLI 生成**配置 C# 类 + 二进制数据 + 表清单** → 运行期由一个自加载的配置 Utility 服务持表，数据文件随资源包打包与热更。设计原理与取舍见 ADR-0009；源 / 输出目录在模块里怎么摆见 §20「推荐项目结构」。
 
 > **多套并存**：每套配置 = 一个 `LubanConfigProfile`（各自的 conf 源 + 输出目录 + topModule，互不干扰）。demo 与正式游戏可各一套——`LubanConfigProfile.ResolveAll()` 返回全部、菜单「生成」逐套生成，多套集中管理用「配置总览」窗口。demo 那套（源 / 代码 / 数据全在 `Demo/` 内）随 demo 程序集与样例资源包在正式打包时一并排除。
 
@@ -2007,7 +2008,65 @@ var loaded = await storage.Load<PlayerSaveData>("save/slot1");  // null = 无可
 
 ---
 
-## 19. 推荐项目结构
+## 19. 音频（BGM / 音效）
+
+框架统一的全局播放入口 `IAudioUtility`（`Game.Framework.Audio`）：**音乐单通道**（切换自动交叉淡入淡出）+ **池化音效**（一次性播完自动回收、循环音效 handle 进 Bag 随宿主自动停）+ **分组音量**（主 × 组 × 单次三级乘法，滑条即时生效）。它管「全局播放编排」，**不替代**挂在对象上的 `AudioSource` 组件——需要跟随对象移动的持续 3D 音源（引擎声、脚步循环）直接用组件（引擎组件可跨层）。设计取舍见 ADR-0022，活样例见 demo「音频 · BGM 与音效」章。
+
+### 快速开始
+
+```csharp
+// 注册（三选一，同对象池 / 存储）：
+builder.RegisterOwned(new AudioUtility(), typeof(IAudioUtility));  // 纯 C#，随 Context Dispose 全停（推荐）
+// 或 RegisterValue（全局唯一不管释放）；或场景挂 MonoAudioUtility（Inspector 配初始音量）
+
+// 任意层（含 View）使用：
+var audio = this.GetUtility<IAudioUtility>();
+audio.PlayMusic(bgmClip);                       // 切 BGM：自动交叉淡变；同 clip 在播 = no-op（幂等）
+audio.PlaySfx(hitClip);                          // 一次性音效：fire-and-forget，播完自动回收
+var loop = audio.PlaySfx(windClip, loop: true);  // 循环音效：持 handle 停……
+Bag.Add(loop);                                   // ……或丢进 Bag，随宿主销毁自动停
+audio.SetGroupVolume(AudioGroups.Music, 0.7f);   // 设置页滑条：即时作用于在播声音
+```
+
+clip 经资源系统 `Bag.Load<AudioClip>(location)` 取到再传入——加载与播放的生命周期分开管，音频服务刻意不做按 location 加载的重载。
+
+### API 一览
+
+| 成员 | 说明 |
+|---|---|
+| `PlayMusic(clip, fade, loop, volume)` | 音乐单通道：切换自动交叉淡变；同 clip 在播 = no-op；`volume` 用于曲目间响度对齐 |
+| `StopMusic(fade)` / `CurrentMusic` | 停止（淡出）当前音乐 / 查询在播 clip（无音乐为 null） |
+| `PlaySfx(clip, volume, pitch, loop, group)` | 池化音效：一次性丢弃返回值；循环持 `AudioHandle` 停 |
+| `PlaySfxAt(clip, position, …)` | 一次性 3D 位置音效（爆炸 / 命中——发声体可先销毁，声音播完） |
+| `AudioHandle.Stop(fade)` / `IsPlaying` / `Dispose()` | 陈旧安全（播完后 Stop 是 no-op）；`Dispose` = 立即停，可进 `DisposableBag` |
+| `StopAllSfx()` | 清场（音乐通道不受影响）：场景硬切 / 过场开始用 |
+| `MasterVolume` / `Get/SetGroupVolume(group)` | 三级音量：主 × 组 × 单次，Set 即时作用于所有在播声音 |
+
+**组是开放字符串**：框架预置 `AudioGroups.Music` / `AudioGroups.Sfx` 常量，业务加「语音」「环境声」就是自己定义常量（与存储 key 同一「常量管理字符串契约」姿势），不需要注册，未设置过的组音量默认 1。**音量持久化归业务**：存进自己的设置数据（`IStorageUtility` 整存整取），启动时逐组 `SetGroupVolume` 回灌——框架不悄悄写盘。
+
+### 池化与生命周期
+
+- AudioSource 挂在 DontDestroyOnLoad 的 `[Game.Framework Audio]` 节点下复用（`ObjectPool<T>` 原语），高频音效不产生 Instantiate/Destroy 抖动；一次性音效播完由中央驱动自动回收（全局暂停 `AudioListener.pause` 期间不误回收）。
+- 淡入淡出走 **unscaled 时间**：游戏暂停（timeScale = 0）时切 BGM 照常过渡；`fadeSeconds = 0` = 立即切。
+- 失败语义**宽容**（学池，不学存储）：clip 为 null 抛参数异常；Dispose 后调用 = Editor/Dev LogError + 安全 no-op（丢一声音效不致命）；同时发声数不设上限（Unity 自带 voice 虚拟化）。
+
+### 刻意不做
+
+- **AudioMixer / 效果链 / 闪避**：分组音量是纯代码乘法，零配置开箱即用；混音工程按项目定制——`IAudioUtility` 本身就是接缝，FMOD / Wwise 是「接口的第二实现」而非「实现下的 provider」（只有一个实现就预设 provider 层是抽象税）。
+- **挂点跟随 3D**：那是 `AudioSource` 组件的活；`PlaySfxAt` 只覆盖一次性位置音效。
+- **播放列表 / 随机变体 / pitch 抖动**：业务一行参数组合的事。
+- **全局暂停包装**：`AudioListener.pause` 就是 Unity 的全局开关。
+
+> **要点回顾**
+>
+> - BGM = `PlayMusic` / `StopMusic`：单通道、自动交叉淡变、同 clip 幂等
+> - 音效 = `PlaySfx`：一次性丢返回值自动回收；循环 handle 进 Bag 随宿主自动停
+> - 音量 = 主 × 组 × 单次，`SetGroupVolume` 即时生效；持久化归业务（组合 §18 存储）
+> - 跟随对象的持续音源直接挂 `AudioSource` 组件，框架不抢引擎的活
+
+---
+
+## 20. 推荐项目结构
 
 把框架用进正式项目时，按「特性模块自洽 + 可整单元裁剪」组织，而不是按技术类型（all Models / all Views）摊平。下面是从 demo 提炼的原则——demo 自身是活样例，但有两处别照抄（见末尾）。
 

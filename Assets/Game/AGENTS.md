@@ -186,3 +186,10 @@ struct 不能用 `this.GetXxx<T>()` 扩展方法（值类型接口调用必然�
 - 注册三选一同对象池：`RegisterOwned(new StorageUtility(), typeof(IStorageUtility))`（推荐）/ `RegisterValue` / 场景挂 `MonoStorageUtility`（Inspector 配根目录名）。
 - 失败语义同资源系统：`Load` 无可用数据（没存过 / 主备全坏）→ null 按新档处理；`Save` IO 失败**抛**。防损坏（原子写 + 备份回退）框架已兜住；**别 fire-and-forget Save**（await 它，`Exists` 是不排队的同步快照）。
 - 迁移姿势：数据里 `int Version` 字段 + Load 后链式 switch + 回写；默认 JSON 字段增删天然宽容、多数演进免迁移。默认序列化只认 `[Serializable]` 类的**字段**（无 Dictionary / 多态 / 属性）。详见 guide §18、ADR-0021。
+
+## 27. 音频 IAudioUtility
+
+- 定位是**全局播放编排**：BGM 用 `PlayMusic/StopMusic`（单通道、切换自动交叉淡变、同 clip 幂等——别自己先查 `CurrentMusic` 再决定调不调）；一次性音效 `PlaySfx` 直接丢返回值（播完自动回收）；**循环音效必须管句柄**——`handle.Stop(fade)` 或 `Bag.Add(handle)` 随宿主自动停，别播了就忘。
+- **跟随对象的持续 3D 音源直接挂 `AudioSource` 组件**（引擎组件可跨层），框架不替代它；`PlaySfxAt` 只用于「发声体可能先销毁但声音要播完」的一次性位置音效。
+- 注册三选一同对象池：`RegisterOwned(new AudioUtility(), typeof(IAudioUtility))`（推荐）/ `RegisterValue` / 场景挂 `MonoAudioUtility`（Inspector 配初始音量）。clip 经 `Bag.Load<AudioClip>(location)` 加载后传入——没有按 location 播放的重载。
+- 音量 = 主 × 组 × 单次（`MasterVolume` / `SetGroupVolume`，即时生效）；组是开放字符串、用常量管理（预置 `AudioGroups.Music/Sfx`）；**音量持久化归业务**（设置数据走 IStorageUtility，启动回灌）。全局暂停用 Unity 的 `AudioListener.pause`。详见 guide §19、ADR-0022。

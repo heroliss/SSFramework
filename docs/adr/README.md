@@ -27,3 +27,4 @@
 | [0019](0019-service-installer-codegen.md) | 服务注册代码生成：目录扫描生成显式安装器 + 构建期值绑定自动注入 | Accepted |
 | [0020](0020-ui-essentials.md) | UI 刚需补齐：异步过渡 + Back 键 + 安全区 + Top 层常用件 | Accepted |
 | [0021](0021-local-storage.md) | 本地存储（存档）：IStorageUtility + 原子写文件 provider + 可插拔序列化 | Accepted |
+| [0022](0022-audio-service.md) | 音频服务：IAudioUtility 音乐单通道 + 池化音效 + 分组音量 | Accepted |
