@@ -71,9 +71,8 @@ namespace Game.Framework.Diagnostics
             builder.RegisterValue(model, new[] { typeof(IModel), typeof(CheckModel) });
             builder.RegisterValue(system, new[] { typeof(ISystem), typeof(CheckSystem) });
             builder.RegisterValue(new CommandSystem(), new[] { typeof(ICommandSystem) });
+            // 值绑定实例（model / system）由 GameContext 构造时统一 Inject + AttachTo（ADR-0019），无需手动补。
             _ctx = new GameContext(builder.Build(), inheritFromGlobal: false);
-            _ctx.Inject(system);
-            _ctx.AttachTo(system);
             _bag = new DisposableBag(_ctx);
 
             Check("DI 容器注册/解析", () =>

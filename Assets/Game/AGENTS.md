@@ -88,6 +88,7 @@ struct 不能用 `this.GetXxx<T>()` 扩展方法（值类型接口调用必然�
 
 - 子级运行时注册可覆盖父级 InstallBindings 同型注册；同层运行时重复注册抛 `InvalidOperationException`。
 - Container 按**精确类型键**查找、不做继承扫描。Mono 路径自动注册具体类型 + 派生接口（不含层标记本身）；`InstallBindings` 手动路径只注册显式传入的 contracts。详见 guide §11。
+- **构建期值绑定自动注入**（ADR-0019）：`RegisterValue`/`RegisterOwned` 实例在 Context 构造时自动 `Inject`+`AttachTo`（工厂产物不注入——经工厂参数 `Container` 显式接线）；运行时 `RegisterXxx` 的纯 C# 实例仍需手动补这两步。固定目录的服务注册可代码生成（菜单 `SSFramework/服务注册/生成服务安装器代码`，opt-out 标 `[ExcludeFromInstaller]`）。
 
 ## 13. 全局上下文用 MonoGlobalContext
 

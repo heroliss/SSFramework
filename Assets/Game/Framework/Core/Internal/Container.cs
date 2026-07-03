@@ -27,14 +27,26 @@ namespace Game.Framework.Internal
 
         // RegisterOwned 登记的"本容器拥有"实例：仅这些在 Dispose 时释放（普通 RegisterValue/工厂实例不碰）。
         private readonly IReadOnlyList<IDisposable> _owned;
+
+        // 构建完成时仍生效的值绑定实例（去重）。GameContext 构造时逐个 Inject + AttachTo（ADR-0019），
+        // 之后不再使用；工厂产物不在其中。
+        private readonly IReadOnlyList<object> _boundValues;
         private bool _disposed;
 
-        internal Container(Dictionary<Type, object> bindings, Container parent = null, IReadOnlyList<IDisposable> owned = null)
+        internal Container(
+            Dictionary<Type, object> bindings,
+            Container parent = null,
+            IReadOnlyList<IDisposable> owned = null,
+            IReadOnlyList<object> boundValues = null)
         {
             _bindings = bindings;
             _parent = parent;
             _owned = owned;
+            _boundValues = boundValues;
         }
+
+        /// <summary>构建期值绑定的去重实例列表，供 GameContext 构造时统一注入；可能为 null（直接构造的容器）。</summary>
+        internal IReadOnlyList<object> BoundValues => _boundValues;
 
         /// <summary>
         /// 是否存在指定类型的绑定。

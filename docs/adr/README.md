@@ -24,3 +24,4 @@
 | [0016](0016-ui-framework.md) | UI 框架：渲染后端无关的窗口/层级调度 + UGUI/UIToolkit 双 adapter | Accepted |
 | [0017](0017-dlc-code-hotupdate.md) | DLC 热更：单 CodePackage 承载代码 + 运行时按需加载 + 业务 RawFile 包统一构建 | Proposed · 待实现 |
 | [0018](0018-asset-encryption.md) | 资源加密：偏移内置为默认 + 代码接入位承载自定义，不内置 AES | Accepted |
+| [0019](0019-service-installer-codegen.md) | 服务注册代码生成：目录扫描生成显式安装器 + 构建期值绑定自动注入 | Accepted |

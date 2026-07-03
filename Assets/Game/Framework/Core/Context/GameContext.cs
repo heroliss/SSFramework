@@ -54,11 +54,28 @@ namespace Game.Framework.Context
             internal set => _main = value;
         }
 
-        /// <summary>创建 GameContext。inheritFromGlobal 控制本容器未命中时是否回退到 GameContext.Main。</summary>
+        /// <summary>
+        /// 创建 GameContext。inheritFromGlobal 控制本容器未命中时是否回退到 GameContext.Main。
+        /// </summary>
+        /// <remarks>
+        /// 构造时对容器里<b>构建期值绑定</b>（RegisterValue / RegisterOwned）的实例统一 <see cref="Inject"/> +
+        /// <see cref="AttachTo"/>，与 Mono 路径「注册即注入」语义对称（ADR-0019）——纯 C# 服务在 InstallBindings
+        /// 注册后不再需要手动补注入。此刻全部绑定已入容器、父链可解析；<c>[Inject]</c> 解析失败 / 越权在启动期
+        /// 即以 LogWarning / LogError 暴露（与 Mono 路径同一套 InjectionPlan 语义）。
+        /// 工厂产物不自动注入——工厂经 <c>Func&lt;Container, object&gt;</c> 显式接线。
+        /// </remarks>
         public GameContext(Container container, bool inheritFromGlobal = true)
         {
             _container = container ?? throw new ArgumentNullException(nameof(container));
             _inheritFromGlobal = inheritFromGlobal;
+
+            var boundValues = container.BoundValues;
+            if (boundValues != null)
+                for (int i = 0; i < boundValues.Count; i++)
+                {
+                    Inject(boundValues[i]);
+                    AttachTo(boundValues[i]);
+                }
         }
 
         /// <summary>此 Context 是否已被 Dispose。</summary>
