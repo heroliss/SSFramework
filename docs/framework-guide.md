@@ -546,6 +546,10 @@ public class AudioSystem : ISystem, IHasGameContext, IAudioSystem
     IGameContext IHasGameContext.Context => _ctx;
 }
 
+// 构建期注册（推荐）：值绑定实例在 Context 构造时自动完成 [Inject] 注入 + AttachTo（ADR-0019），无需手动补
+builder.RegisterValue(new AudioSystem(), typeof(IAudioSystem));
+
+// 运行时动态注册：错过了构建期时机，才需要手动补两步
 var audio = new AudioSystem();
 ctx.RegisterSystem(audio);
 ctx.Inject(audio);    // 解析 [Inject] 字段
@@ -1112,6 +1116,30 @@ ctx.GetUtility<JsonUtility>()   // ❌ 具体类型未注册
 
 这与 Mono 路径不同——Mono 路径会同时注册具体类型和接口，而手动路径完全由你控制。如有需要可以手动补上具体类型，但通常调用方依赖接口就够了。
 
+**值绑定自动注入**（ADR-0019）：`RegisterValue` / `RegisterOwned` 的实例在 Context 构造时统一完成 `[Inject]` 注入与 `AttachTo` 附着——与 Mono 路径「注册即注入」对称，纯 C# 服务注册后不用再手动补。`RegisterFactory` 产物**不**自动注入：工厂本身就是显式接线位，依赖经工厂参数 `Container` 的 `Resolve` 传入。
+
+### 服务安装器生成（不手写注册样板）
+
+固定目录放纯 C# 服务的项目可以把 `InstallBindings` 样板交给代码生成：创建 `ServiceInstallerProfile` 资产（`Assets/Create/SSFramework/服务安装器配置`）配「扫描目录 → 输出路径 / 命名空间」，菜单 `SSFramework/服务注册/生成服务安装器代码`（或 profile Inspector 按钮）生成显式安装器：
+
+```csharp
+// 生成产物（.g.cs）：注册关系落在代码里，git diff 可见可审；运行时零反射扫描
+public static class MainServicesInstaller
+{
+    public static void Install(ContainerBuilder builder)
+    {
+        builder.RegisterOwned(new AudioSystem(), typeof(AudioSystem), typeof(IAudioSystem));
+        ...
+    }
+}
+
+// Context 侧一行接线——装进哪个 Context 由你决定，生成器不指认
+protected override void InstallBindings(ContainerBuilder builder)
+    => MainServicesInstaller.Install(builder);
+```
+
+扫描口径：目录下「文件名 = 类名」的顶层非抽象 class、实现恰一个层标记（`IModel` / `ISystem` / `IUtility`）体系、非 `UnityEngine.Object`、有公共无参构造。契约推导与 Mono 路径同口径（具体类型 + 派生自层标记的接口）；`IDisposable` 服务自动用 `RegisterOwned`。不想被扫的类标 `[ExcludeFromInstaller]`（需要懒构造 / 带参构造的服务标上后回落手写）。同一安装器内两个实现撞同一接口契约会在生成期报错。设计取舍见 `docs/adr/0019-service-installer-codegen.md`。
+
 ### 运行时动态注册
 
 ```csharp
@@ -1154,20 +1182,20 @@ ctx.UnregisterModel(model);
 前面所有示例都借助 Unity 的 MonoBehaviour 生命周期管理 Context。有时你需要更精确的控制——比如自动化测试、不依赖场景的工具模块，或者需要在代码里控制初始化时机。这时可以完全用代码创建和管理 Context：
 
 ```csharp
-// 构建容器，注册服务
+// 构建容器，注册服务——值绑定实例在 Context 构造时自动 Inject + AttachTo（ADR-0019）
 var builder = new ContainerBuilder();
 builder.RegisterValue(new CommandSystem(), typeof(ICommandSystem));
+builder.RegisterValue(new InventoryModel(), typeof(InventoryModel));
+builder.RegisterValue(new InventorySystem(), typeof(IInventorySystem));
 
 // 创建 Context，inheritFromGlobal: false 表示完全自给自足
 var ctx = new GameContext(builder.Build(), inheritFromGlobal: false);
 
-// 注册并初始化 Model / System
-var model  = new InventoryModel();
-var system = new InventorySystem();
-ctx.RegisterModel(model);
-ctx.RegisterSystem(system);
-ctx.Inject(system);    // 解析 [Inject] 字段
-ctx.AttachTo(system);  // 回写 Context 引用，让 System 可以使用扩展方法
+// 运行时才动态加的层错过了构建期时机，需手动补注入两步
+var lateSystem = new SeasonEventSystem();
+ctx.RegisterSystem(lateSystem);
+ctx.Inject(lateSystem);    // 解析 [Inject] 字段
+ctx.AttachTo(lateSystem);  // 回写 Context 引用，让 System 可以使用扩展方法
 
 // 使用
 ctx.ExecuteCommand(new AddGoldCommand(100));

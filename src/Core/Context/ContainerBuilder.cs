@@ -128,13 +128,31 @@ namespace Game.Framework.Context
             _built = true;
 
             var copy = new Dictionary<Type, object>(_bindings);
-            var container = new Container(copy, _parent, _owned);
+
+            // 收集构建完成时仍生效的值绑定实例（同一实例多契约只收一次）：GameContext 构造时对它们统一
+            // Inject + AttachTo，使纯 C# 路径与 Mono 路径「注册即注入」语义对称（ADR-0019）。
+            // 在 Eager 工厂解析前收集——工厂产物（含 Eager）刻意不进此列表，工厂经 Func<Container, object> 显式接线。
+            // 被后续注册覆盖掉的值实例不在 copy.Values 里，自然不会被注入。
+            var boundValues = new List<object>();
+            foreach (var stored in copy.Values)
+                if (stored is not Func<Container, object> && !ContainsReference(boundValues, stored))
+                    boundValues.Add(stored);
+
+            var container = new Container(copy, _parent, _owned, boundValues);
 
             // Eager 工厂在 Build 末尾立即 Resolve：失败的依赖在启动期就抛出来
             for (int i = 0; i < _eagerSeeds.Count; i++)
                 container.Resolve(_eagerSeeds[i]);
 
             return container;
+        }
+
+        // 引用相等去重（不走 Equals——值实例可能重写 Equals，注入按对象身份去重才正确）。注册量级小，线性扫足够。
+        private static bool ContainsReference(List<object> list, object item)
+        {
+            for (int i = 0; i < list.Count; i++)
+                if (ReferenceEquals(list[i], item)) return true;
+            return false;
         }
 
         private void ThrowIfBuilt()
