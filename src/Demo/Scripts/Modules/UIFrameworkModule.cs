@@ -1,3 +1,4 @@
+using System;
 using Cysharp.Threading.Tasks;
 using Game.Framework.Common;
 using Game.Framework.Demo.Core;
@@ -63,6 +64,40 @@ namespace Game.Framework.Demo.Modules
             host.AddSectionTitle("UGUI 后端 · 同一套 API，不同渲染（UGUI · 绿标）");
             BuildUGuiSection(host);
 
+            host.AddSectionTitle("刚需件 · 过渡 / Toast / Loading / 返回键（ADR-0020，UI Toolkit · 蓝标）");
+            host.AddActionRow("打开带过渡的窗口（0.6s 淡入）", () => Open<DemoTransitionWindow>(),
+                new CodeRef(WindowsFile, "class DemoTransitionWindow", "DemoTransitionWindow"));
+            host.AddNote("**预期**：卡片 0.6 秒淡入，期间**整屏点不动**（框架全屏挡输入——防连点/动画中操作）；"
+                + "窗口自带「关闭」按 0.6 秒淡出后才真正消失。窗口只重写 `OnOpenTransition/OnCloseTransition` 两个 hook，挡输入是框架统一做的。"
+                + "**逻辑关闭先于表现**：淡出期间它已不在栈里——立即再点「打开」会新建一个实例（旧卡片还在淡出，短暂两张同屏是预期）。");
+
+            host.AddActionRow("弹 Toast（2 秒自动关）",
+                () => this.GetUtility<IUIUtility>().ShowToast("操作成功 · 我是 Toast").Forget(),
+                CodeRef.Here("ShowToast", "ShowToast 调用"));
+            host.AddNote("**预期**：屏幕底部弹半透明文字条，2 秒自动消失、**不拦任何输入**（弹着的时候其它按钮照点）；"
+                + "连点几次是复用同一条（刷新文本、重置计时，刻意不做队列）。`ShowToast/ShowLoading/HideLoading` 是 `IUIUtility` **一等方法**——"
+                + "业务调用点对后端零感知，内置窗口类型由入口（MonoToolkitUI/MonoUGuiUI）注册。");
+
+            host.AddActionRow("Show Loading（2.5 秒后自动关闭）", ShowLoadingDemo,
+                CodeRef.Here("async UniTaskVoid ShowLoadingThenHide", "ShowLoading 用法"));
+            host.AddNote("**预期**：中央旋转指示块 + 提示文本，**模态挡输入**（demo 按钮点不动）且返回键被拦（`BackClosable=false`）；"
+                + "2.5 秒后自动 `HideLoading()` 恢复。真实用法就是 `ShowLoading → await 干活 → HideLoading`。"
+                + "内置件是无美术资源的默认表现，正式项目可自写 Top 层窗口替代——`Show*` 只是「按注册类型开窗」的便捷入口。");
+
+            var backResult = host.AddValueDisplay("Back() 的返回值会显示在这里", CodeRef.Here("bool consumed", "Back 返回值判断"));
+            host.AddActionRow("Back()（模拟 Esc / Android 返回键）", () =>
+            {
+                bool consumed = this.GetUtility<IUIUtility>().Back();
+                backResult.text = consumed
+                    ? "Back() → true：返回键被 UI 消费（关了栈顶、被 BackClosable 拦截、或过渡中被吞）"
+                    : "Back() → false：Popup/Window/Page 三层皆空——业务可做「再按一次退出」兜底";
+            }, CodeRef.Here("MonoUIBackKeyDriver", "接线组件"));
+            host.AddNote("**预期**：先开几个窗口再点——按 **Popup → Window → Page** 从高到低关第一个非空层的栈顶（弹窗优先于浮窗、浮窗优先于页面）。"
+                + "真机/键盘接线：把 `MonoUIBackKeyDriver` 挂在 UI 入口同节点即通（**本场景已挂**，Play 中直接按 **Esc** 试）。");
+
+            host.AddNote("**安全区**（刘海/挖孔屏）：UGUI 内容根挂 `UGuiSafeArea`、Toolkit 内容放进 `SafeAreaContainer`（UXML 可摆）——"
+                + "编辑器全屏看不出差异，用 **Device Simulator** 选带刘海机型可见内容避让；层根/背景刻意保持全屏出血。");
+
             host.AddSectionTitle("批量关闭");
             host.AddActionRow("关闭所有窗口（仅未被 Page/模态盖住时可点）", CloseAllWindows,
                 CodeRef.Here("void CloseAllWindows", "CloseAll 用法"));
@@ -78,7 +113,7 @@ namespace Game.Framework.Demo.Modules
         // UGUI 后端入口挂在另一个子 Context 上（同一 Context 只能挂一个 UI 入口），用 FindFirstObjectByType 直接拿。
         private void BuildUGuiSection(DemoModuleHost host)
         {
-            var ugui = Object.FindFirstObjectByType<MonoUGuiUI>();
+            var ugui = UnityEngine.Object.FindFirstObjectByType<MonoUGuiUI>();
             if (ugui == null)
             {
                 host.AddNote("场景里没找到 `MonoUGuiUI`——UGUI 后端入口未挂，跳过本段。它需要挂在**另一个子 Context** 下（同 Context 只能注册一个 `IUIUtility`，UGUI/Toolkit 要分两个 Context）。");
@@ -118,11 +153,22 @@ namespace Game.Framework.Demo.Modules
         private void Open<T>() where T : class, IUIWindow
             => this.GetUtility<IUIUtility>().Open<T>().Forget();
 
+        // Loading 的真实用法形态：Show → await 干活（这里用 Delay 顶替）→ Hide。
+        private void ShowLoadingDemo() => ShowLoadingThenHide().Forget();
+
+        private async UniTaskVoid ShowLoadingThenHide()
+        {
+            var ui = this.GetUtility<IUIUtility>();
+            await ui.ShowLoading("正在加载…（2.5 秒后自动关闭）");
+            await UniTask.Delay(TimeSpan.FromSeconds(2.5), ignoreTimeScale: true);
+            ui.HideLoading();
+        }
+
         // 关掉两套后端的所有窗口：Toolkit 入口在本 Context，UGUI 入口在子 Context（各自一个 IUIUtility）。
         private void CloseAllWindows()
         {
             this.GetUtility<IUIUtility>().CloseAll();
-            var ugui = Object.FindFirstObjectByType<MonoUGuiUI>();
+            var ugui = UnityEngine.Object.FindFirstObjectByType<MonoUGuiUI>();
             if (ugui != null) ugui.CloseAll();
         }
 
