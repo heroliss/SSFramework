@@ -47,17 +47,17 @@ namespace Game.Framework.Demo.Modules
                 $"Version={Version}  Level={Level}  PlayerName=\"{PlayerName}\"  Unlocked=[{string.Join(",", Unlocked)}]";
         }
 
-        // demo 自建文件后端（独立目录 storage-demo，不与正式默认目录混放）；留引用是为了损坏演示要直捣文件。
-        private FileStorageProvider _provider;
+        // demo 自建文件后端的根目录（独立于正式默认目录）；损坏演示要直捣文件，Build 里按同一路径定位。
+        private static string DemoRootPath => Path.Combine(Application.persistentDataPath, "storage-demo");
 
         /// <summary>
         /// 纯 C# 服务的标准注册路径：RegisterOwned = 随 Context Dispose 自动释放（这里即退出 Play / 关闭 demo）。
         /// 挂场景节点、要 Inspector 配目录的项目用 MonoStorageUtility（同一套逻辑的 Mono 壳）。
+        /// ⚠ 本方法在临时实例上被调（见 DemoModuleBase 说明），Build 要用的对象不能存字段、只能从 Context 解析。
         /// </summary>
         public override void InstallBindings(ContainerBuilder builder)
         {
-            _provider = new FileStorageProvider(Path.Combine(Application.persistentDataPath, "storage-demo"));
-            builder.RegisterOwned(new StorageUtility(_provider), typeof(IStorageUtility));
+            builder.RegisterOwned(new StorageUtility(new FileStorageProvider(DemoRootPath)), typeof(IStorageUtility));
         }
 
         public override void Build(DemoModuleHost host)
@@ -158,7 +158,7 @@ namespace Game.Framework.Demo.Modules
             });
             host.AddActionRow("② 模拟损坏主文件（直接写坏 profile.sav）", () =>
             {
-                string main = Path.Combine(_provider.RootPath, ProfileKey + ".sav");
+                string main = Path.Combine(DemoRootPath, ProfileKey + ".sav");
                 if (!File.Exists(main)) { corruptLabel.text = "主文件不存在——先点 ①。"; return; }
                 File.WriteAllBytes(main, Encoding.UTF8.GetBytes("### corrupted by demo ###"));
                 corruptLabel.text = "主文件已被写坏 ✗（模拟磁盘错误 / 写一半断电）。现在点 ③ 读取。";
@@ -173,8 +173,8 @@ namespace Game.Framework.Demo.Modules
 #if UNITY_EDITOR
             host.AddActionRow("打开存储目录（看 .sav / .bak 文件，内容是明文 JSON）", () =>
             {
-                Directory.CreateDirectory(_provider.RootPath);
-                UnityEditor.EditorUtility.RevealInFinder(_provider.RootPath);
+                Directory.CreateDirectory(DemoRootPath);
+                UnityEditor.EditorUtility.RevealInFinder(DemoRootPath);
             }, new CodeRef("Assets/Game/Framework/Core/Storage/FileStorageProvider.cs", "ReplaceAtomic", "原子写实现"));
 #endif
             host.AddNote("每个 key 至多三个文件：`<key>.sav`（主）/ `.sav.bak`（上一版备份）/ `.sav.tmp`（写入途中）。写路径「临时文件 → 原子替换 → 旧版变备份」保证任何时刻磁盘上都有一份完整可读的数据。默认序列化是带缩进的明文 JSON——`.sav` 可直接用文本编辑器打开调试；体积敏感 / 要混淆就换 serializer（见下方扩展点）。");

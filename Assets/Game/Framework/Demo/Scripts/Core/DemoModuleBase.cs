@@ -35,7 +35,11 @@ namespace Game.Framework.Demo.Core
         public virtual string Summary => string.Empty;
         public virtual bool IsComingSoon => false;
 
-        /// <summary>默认不贡献绑定；需要自己的 Model/System 的模块覆写它。</summary>
+        /// <summary>
+        /// 默认不贡献绑定；需要自己的 Model/System 的模块覆写它。
+        /// ⚠ 本方法在<b>临时实例</b>上被调（<c>MonoDemoContext</c> 收集绑定用；驱动 UI 的模块由外壳另行实例化）——
+        /// 覆写时不要把对象存进字段留给 <see cref="Build"/> 用（UI 实例上是 null），Build 需要什么一律从 Context 解析。
+        /// </summary>
         public virtual void InstallBindings(ContainerBuilder builder) { }
 
         public void Initialize(IGameContext context) => _context = context;

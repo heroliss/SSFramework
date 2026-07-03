@@ -30,24 +30,23 @@ namespace Game.Framework.Demo.Modules
         private AudioClip _sfxBlip;
         private AudioClip _sfxHum;
 
-        // 底层实现的引用只用于诊断展示（活动声音数）；业务代码只面向 IAudioUtility。
-        private AudioUtility _impl;
-
         private AudioHandle _loopHandle;
 
         /// <summary>
         /// 纯 C# 服务的标准注册路径：RegisterOwned = 随 Context Dispose 自动全停（这里即退出 Play / 切走本章）。
         /// 挂场景节点、要 Inspector 配初始音量的项目用 MonoAudioUtility（同一套逻辑的 Mono 壳）。
+        /// ⚠ 本方法在临时实例上被调（见 DemoModuleBase 说明），Build 要用的对象不能存字段、只能从 Context 解析。
         /// </summary>
         public override void InstallBindings(ContainerBuilder builder)
         {
-            _impl = new AudioUtility();
-            builder.RegisterOwned(_impl, typeof(IAudioUtility));
+            builder.RegisterOwned(new AudioUtility(), typeof(IAudioUtility));
         }
 
         public override void Build(DemoModuleHost host)
         {
             var audio = this.GetUtility<IAudioUtility>();
+            // 活动声音数不在接口上（诊断成员）；本章注册的就是内核默认实现，向下转型仅用于展示。
+            var impl = audio as AudioUtility;
 
             // 生成演示用音频（整数周期数保证循环无爆点；音量刻意压低），随 Bag 销毁。
             _musicA = CreateTone("demo-music-A", 220f, 2f);
@@ -71,7 +70,7 @@ namespace Game.Framework.Demo.Modules
             // ── 注册方式 ──
             host.AddSectionTitle("注册：纯 C# 服务的三选一");
             host.AddNote("本章的 `IAudioUtility` 在 `InstallBindings` 里 `RegisterOwned` 注册（随 Context Dispose 自动全停，纯 C# 服务推荐路径）。另两条路：全局唯一不管释放用 `RegisterValue`；要 Inspector 配初始音量 / 跟随场景节点用 `MonoAudioUtility`（同一套逻辑的 Mono 壳，挂 Context 子节点即注册）。",
-                CodeRef.Here("builder.RegisterOwned(_impl, typeof(IAudioUtility))", "本章的注册代码"));
+                CodeRef.Here("builder.RegisterOwned(new AudioUtility()", "本章的注册代码"));
 
             // ── 音乐单通道 ──
             host.AddSectionTitle("音乐：全局单通道，切换自动交叉淡变");
@@ -80,7 +79,7 @@ namespace Game.Framework.Demo.Modules
             musicLabel.schedule.Execute(() =>
             {
                 var cur = audio.CurrentMusic;
-                musicLabel.text = $"当前音乐：{(cur != null ? cur.name : "（无）")}　|　活动声音数：{_impl.ActiveVoiceCount}";
+                musicLabel.text = $"当前音乐：{(cur != null ? cur.name : "（无）")}　|　活动声音数：{impl?.ActiveVoiceCount ?? 0}";
             }).Every(200);
 
             host.AddActionRow("播放音乐 A（PlayMusic，淡入 0.5s）", () => audio.PlayMusic(_musicA),
