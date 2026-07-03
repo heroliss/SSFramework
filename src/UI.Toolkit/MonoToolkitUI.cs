@@ -36,7 +36,11 @@ namespace Game.Framework.UI.Toolkit
                     var ctx = ((IHasGameContext)this).Context
                         ?? throw new InvalidOperationException("[MonoToolkitUI] Context 未就绪，无法初始化 UI 框架。");
                     if (_document == null) _document = ResolveOrCreateDocument();
-                    _core = new UIUtility(ctx, new ToolkitBackend(_document));
+                    _core = new UIUtility(ctx, new ToolkitBackend(_document), new UIBuiltinWindows
+                    {
+                        Toast = typeof(ToolkitToastWindow),
+                        Loading = typeof(ToolkitLoadingWindow),
+                    });
                 }
                 return _core;
             }
@@ -60,6 +64,9 @@ namespace Game.Framework.UI.Toolkit
         public void CloseAll() => Core.CloseAll();
         public T Get<T>() where T : class, IUIWindow => Core.Get<T>();
         public bool IsOpen<T>() where T : class, IUIWindow => Core.IsOpen<T>();
+        public UniTask ShowToast(string text, float duration = 2f) => Core.ShowToast(text, duration);
+        public UniTask ShowLoading(string text = null) => Core.ShowLoading(text);
+        public void HideLoading() => Core.HideLoading();
 
         protected override void OnDestroy()
         {

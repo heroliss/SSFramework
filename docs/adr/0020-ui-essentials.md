@@ -1,6 +1,6 @@
 # ADR-0020：UI 刚需补齐 —— 异步过渡 + Back 键 + 安全区 + Top 层常用件
 
-**Status:** Accepted（§1 过渡 / §2 Back 键已实现，2026-07-03；§3 安全区 / §4 Toast·Loading 待实现）
+**Status:** Accepted（四项全部实现，2026-07-03）
 
 ## Context
 
@@ -50,13 +50,18 @@ UniTask OnCloseTransition(CancellationToken ct);  // 出场动画：OnClose 之�
 - **驱动 = `MonoUIBackKeyDriver`**（核心 UI asmdef，渲染中立）：挂在 UI 入口（`MonoUGuiUI` / `MonoToolkitUI`）同一节点，Update 检测 Esc（Android 硬件返回键在 Unity 即 Escape）→ 调同节点 `IUIUtility.Back()`。做成独立组件而非内置进入口：要不要接返回键是项目决策（挂上即启用），两个入口也不必各写一份。
 - **输入系统兼容**：代码 `#if ENABLE_INPUT_SYSTEM`（新输入 `Keyboard.current`）/ `#else`（旧 `Input.GetKeyDown`）双路径；asmdef 引用 `Unity.InputSystem`。复用到未装 Input System 包的项目时删这条引用即可（组件自动走旧输入分支）。
 
-### 3. 安全区：opt-in 内容避让组件，层根保持全屏（待实现）
+### 3. 安全区：opt-in 内容避让组件，层根保持全屏
 
-层根**不**做安全区——背景/模态遮罩就该铺满整屏（含刘海区），只有交互内容需要避让（行业常规「背景出血、内容避让」）。各 adapter 提供 opt-in 组件：UGUI `UGuiSafeArea`（把所挂 RectTransform 锚进 `Screen.safeArea`，挂窗口内容根）；Toolkit `SafeAreaContainer`（按 safeArea 与屏幕差值设 padding）。窗口 prefab / UXML 自行决定哪层节点避让。
+层根**不**做安全区——背景/模态遮罩就该铺满整屏（含刘海区），只有交互内容需要避让（行业常规「背景出血、内容避让」）。各 adapter 提供 opt-in 组件：UGUI `UGuiSafeArea`（把所挂 RectTransform 锚进 `Screen.safeArea`，挂窗口内容根，逐帧值比较响应转屏）；Toolkit `SafeAreaContainer`（`[UxmlElement]`，按 safeArea 与屏幕差值经 `RuntimePanelUtils.ScreenToPanel` 换算设 padding，挂面板/几何变化事件重算）。窗口 prefab / UXML 自行决定哪层节点避让。
 
-### 4. Toast / Loading：Top 层内置件（待实现）
+### 4. Toast / Loading：Top 层内置件，走「类型表注册」保持后端无关
 
-每 adapter 一个纯代码搭建（`Asset` 留空）的内置窗口 + `IUIUtility` 扩展方法（`ShowToast(text, duration)` / `ShowLoading(text)` / `HideLoading()`）。落 `UILayer.Top`；Loading 模态挡输入；Toast 不吃事件、自动超时关闭。具体接口形态实现时定。
+`ShowToast(text, duration)` / `ShowLoading(text)` / `HideLoading()` 做成 **`IUIUtility` 一等方法**（不是 adapter 命名空间的扩展方法）——业务调用点完全后端无关，与 `Open<T>` 同一条铁律。实现机制：核心 `UIUtility` 构造时接收 `UIBuiltinWindows` **类型表**（Toast / Loading 的窗口 Type，由各 Mono 入口提供自家实现），`Show*` 按表走非泛型 `OpenCore(Type, args)` 开窗；未注册类型表（如测试裸核心）报错提示不抛异常。
+
+内置窗口本体（每 adapter 一对，纯代码搭建、`Cache` 复用、落 `UILayer.Top`）：
+
+- **Toast**（`UGuiToastWindow` / `ToolkitToastWindow`）：底部居中半透明文字条，整棵树不吃输入；超时自关（令牌链接 Context，销毁级联取消）；连续 Toast 复用同一实例——刷新文本、重置计时，**不做队列**（no-over-engineering，要队列的项目自包一层）。
+- **Loading**（`UGuiLoadingWindow` / `ToolkitLoadingWindow`）：`Modal = true` 遮罩挡输入 + `BackClosable = false` 拦返回键；中央文本 + 旋转指示块（无美术资源的默认表现，正式项目通常用带资产的自定义 Loading 替代）；重复 `ShowLoading` 刷新文本。
 
 ## Consequences
 

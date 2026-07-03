@@ -37,7 +37,11 @@ namespace Game.Framework.UI.UGui
                     var ctx = ((IHasGameContext)this).Context
                         ?? throw new InvalidOperationException("[MonoUGuiUI] Context 未就绪，无法初始化 UI 框架。");
                     var canvas = _canvas != null ? _canvas : CreateOverlayCanvas();
-                    _core = new UIUtility(ctx, new UGuiBackend(canvas));
+                    _core = new UIUtility(ctx, new UGuiBackend(canvas), new UIBuiltinWindows
+                    {
+                        Toast = typeof(UGuiToastWindow),
+                        Loading = typeof(UGuiLoadingWindow),
+                    });
                 }
                 return _core;
             }
@@ -67,6 +71,9 @@ namespace Game.Framework.UI.UGui
         public void CloseAll() => Core.CloseAll();
         public T Get<T>() where T : class, IUIWindow => Core.Get<T>();
         public bool IsOpen<T>() where T : class, IUIWindow => Core.IsOpen<T>();
+        public UniTask ShowToast(string text, float duration = 2f) => Core.ShowToast(text, duration);
+        public UniTask ShowLoading(string text = null) => Core.ShowLoading(text);
+        public void HideLoading() => Core.HideLoading();
 
         protected override void OnDestroy()
         {
