@@ -199,6 +199,12 @@ namespace Game.Framework
             return _packages[packageName].GetDownloadSize(location) > 0;
         }
 
+        public string GetPackageVersion(string packageName)
+        {
+            if (!IsPackageReady(packageName)) return null;
+            return _packages[packageName].GetPackageVersion();
+        }
+
         public IAssetDownloader CreateTagDownloader(
             string packageName, IReadOnlyList<string> tags, int maxConcurrent, int retries)
         {

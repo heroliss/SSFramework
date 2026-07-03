@@ -59,7 +59,7 @@ namespace Game.Framework
         private string InspectorDefaultPackage => _defaultPackageName;
 
         [FoldoutGroup(DiagGroup), ShowInInspector, ReadOnly, HideInEditorMode, LabelText("各包初始化状态"), PropertyOrder(-88)]
-        [PropertyTooltip("每个已登记包的初始化状态（Idle / Pending / Initializing / Ready / Failed）。Failed 时附简短原因——排查初始化失败先看这里。")]
+        [PropertyTooltip("每个已登记包的初始化状态（Idle / Pending / Initializing / Ready / Failed）。Ready 附当前资源版本、Failed 附简短原因——排查初始化失败 / 确认版本切换先看这里。")]
         private Dictionary<string, string> InspectorPackageStates
         {
             get
@@ -68,9 +68,12 @@ namespace Game.Framework
                 foreach (var kv in _packages)
                 {
                     var st = kv.Value.State.Value;
-                    view[kv.Key] = st == AssetInitState.Failed && kv.Value.InitError != null
-                        ? $"{st} — {kv.Value.InitError.Message}"
-                        : st.ToString();
+                    view[kv.Key] = st switch
+                    {
+                        AssetInitState.Failed when kv.Value.InitError != null => $"{st} — {kv.Value.InitError.Message}",
+                        AssetInitState.Ready => $"{st} — 版本 {GetPackageVersion(kv.Key) ?? "?"}",
+                        _ => st.ToString(),
+                    };
                 }
                 return view;
             }
@@ -424,6 +427,13 @@ namespace Game.Framework
         {
             packageName = NormalizePackageName(packageName);
             return _provider != null && _provider.IsNeedDownload(packageName, location);
+        }
+
+        public string GetPackageVersion(string packageName = null)
+        {
+            packageName = NormalizePackageName(packageName);
+            if (_provider == null || string.IsNullOrWhiteSpace(packageName)) return null;
+            return _provider.GetPackageVersion(packageName);
         }
 
         public IAssetDownloader CreateTagDownloader(params string[] tags)

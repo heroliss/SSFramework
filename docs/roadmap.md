@@ -98,7 +98,7 @@ DOTS 是数据/Job/Burst 范式，与引用式 OOP 不同。框架的定位是**
 2. **代码生成收尾** ✅ 已全部落地（UI 节点自动绑定——含目录配置 / 占位符 / 引用为源同步 / 变体遮蔽）：
    - ③ **资源 Package 名常量生成** ✅ 已落地：菜单 `SSFramework/资源构建/生成包名常量代码`（构建 profile 配输出路径/命名空间），从收集器包列表生成 `AssetPackages.Xxx` 常量类，替代裸字符串包名（包名改错编译期暴露）。
    - ④ **服务注册代码生成** ✅ 已落地（ADR-0019）：`ServiceInstallerProfile` 配「扫描目录 → 安装器类」，菜单 `SSFramework/服务注册/生成服务安装器代码` 生成显式 `XxxInstaller.Install(builder)`，Context 里一行接线——刻意不做运行时反射扫描：启动零反射、AOT/热更友好、注册关系在 git diff 里可见可审。配套内核语义：构建期值绑定实例在 Context 构造时自动 Inject + AttachTo（纯 C# 与 Mono 路径「注册即注入」对称）。demo 活样板见「服务注册生成 · 安装器」章（`Modules/ServiceInstaller/`）。
-3. **资源运营流程 demo**：版本切换 → 强更检查 → 下载进度 → 清缓存重下的端到端链路示例（API 都有了，缺一个把它们串起来的活样板）。
+3. **资源运营流程 demo** ✅ 已落地：demo「资源运营 · 端到端」章——运营侧发版（构建+部署 = 覆盖 CDN `.version`）→ 客户端启动检查 → 强更下载（进度 / 重建重试 / 断点续传）→ `ClearCache(Unused)` 回收旧版本；核心是可整段搬走的启动器流程活样板 `RunUpdateFlow`。顺带补了唯一缺口 API：`IAssetUtility.GetPackageVersion`（只读当前清单版本，设置页 / 客服排查用）。
 4. **CI 护栏** ✅ 已落地：`Tools/run-tests.ps1` 命令行 batchmode 全量跑 PlayMode 测试 + NUnit 结果解析（需先关闭编辑器）。后续可选：接 git pre-push hook / 云端 CI。
 
 ### 中期：新功能模块（按"所有游戏都要"排序）

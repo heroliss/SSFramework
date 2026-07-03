@@ -188,6 +188,15 @@ namespace Game.Framework
         /// <summary>检查指定包中资源是否需要从远端下载；packageName 为空时使用默认包。</summary>
         bool IsNeedDownload(string packageName, string location);
 
+        /// <summary>
+        /// 指定包当前生效的资源版本号（初始化时拉到 / 选定的清单版本）；packageName 为空时查默认包。
+        /// 包未就绪（未初始化 / 初始化失败）时返回 <c>null</c>。
+        /// <para>典型用途：设置页 / 登录页展示资源版本（客服排查「你是什么版本」）、更新完成后的版本确认。
+        /// 版本号只在包初始化时确定——框架刻意<b>不提供</b>运行中重新拉版本的 API（清单换血会让加载到一半的内容版本错乱），
+        /// 发新版本后客户端重启（重进 Play）自然拿到，这与主流商业游戏「启动时检查更新」的做法一致。</para>
+        /// </summary>
+        string GetPackageVersion(string packageName = null);
+
         /// <summary>创建默认包的按 tag 统计和下载资源任务。</summary>
         IAssetDownloader CreateTagDownloader(params string[] tags);
 
