@@ -2059,6 +2059,46 @@ clip 经资源系统 `Bag.Load<AudioClip>(location)` 取到再传入——加载
 - **播放列表 / 随机变体 / pitch 抖动**：业务一行参数组合的事。
 - **全局暂停包装**：`AudioListener.pause` 就是 Unity 的全局开关。
 
+### 接入 FMOD / Wwise：接口的第二实现
+
+换音频中间件不改任何业务代码——写一个实现 `IAudioUtility` + `IAudioHandleOwner` 的适配类，注册时换掉内核实现即可（`AudioHandle` 的构造公开，签发方是 `IAudioHandleOwner` 接口，不焊死在内核实现上）：
+
+```csharp
+public sealed class FmodAudioUtility : IAudioUtility, IAudioHandleOwner, IDisposable
+{
+    private readonly Dictionary<int, FMOD.Studio.EventInstance> _voices = new();
+    private int _nextId = 1;
+
+    public AudioHandle PlaySfx(AudioClip clip, float volume = 1f, float pitch = 1f,
+                               bool loop = false, string group = AudioGroups.Sfx)
+    {
+        var ev = FMODUnity.RuntimeManager.CreateInstance(/* clip 名 → 事件路径的项目约定 */);
+        ev.setVolume(volume * GetGroupVolume(group) * MasterVolume);
+        ev.start();
+        int id = _nextId++;
+        _voices[id] = ev;
+        return new AudioHandle(this, id);   // 签发自己的句柄，业务侧 Stop/IsPlaying/Bag 照常
+    }
+
+    // IAudioHandleOwner：句柄的 IsPlaying / Stop 委托到这里；陈旧 id 必须安全 no-op
+    bool IAudioHandleOwner.IsVoiceActive(int id) => _voices.ContainsKey(id);
+    void IAudioHandleOwner.StopVoice(int id, float fadeSeconds)
+    {
+        if (!_voices.Remove(id, out var ev)) return;   // 陈旧句柄：no-op
+        ev.stop(fadeSeconds > 0f ? FMOD.Studio.STOP_MODE.ALLOWFADEOUT
+                                 : FMOD.Studio.STOP_MODE.IMMEDIATE);
+        ev.release();
+    }
+
+    // PlayMusic/StopMusic → 单通道音乐事件；Set/GetGroupVolume → FMOD VCA/Bus；其余成员同理映射……
+}
+
+// 注册处一行换实现，业务层 GetUtility<IAudioUtility>() 全部照旧：
+builder.RegisterOwned(new FmodAudioUtility(), typeof(IAudioUtility));
+```
+
+要点：中间件的「事件 / Bank / 总线」概念留在适配类内部消化（clip → 事件路径的映射是项目自己的约定）；分组音量映射到 FMOD 的 VCA / Wwise 的 Bus；`AudioHandle` 语义契约不变——陈旧句柄安全 no-op、`Dispose()` = 立即停。业务代码、demo、教程全部无感。
+
 > **要点回顾**
 >
 > - BGM = `PlayMusic` / `StopMusic`：单通道、自动交叉淡变、同 clip 幂等

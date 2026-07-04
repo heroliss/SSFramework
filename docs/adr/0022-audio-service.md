@@ -56,6 +56,7 @@ public interface IAudioUtility : IUtility
 - `MonoAudioUtility`：`MonoUtilityBase` + 组合转发（同 `MonoPoolUtility` / `MonoStorageUtility` 模式），Inspector 配初始主音量 / 各组音量 + 运行时诊断（当前音乐、活动声音数）。
 - 注册三选一同池/存储：`RegisterOwned`（随 Context 释放，推荐）/ `RegisterValue`（全局）/ Mono 版（Inspector + 场景生命周期）。
 - **刻意不做 `IAudioProvider` 层**：`IAudioUtility` 本身就是 port，Unity `AudioSource` 实现就是 adapter。FMOD / Wwise 接入是「接口的第二实现」，不是「实现下面的第二 provider」——只有一个实现就预设 provider 层是纯抽象税（对齐 roadmap「第二实现才能验证抽象」的判断）。存储拆 provider/serializer 是因为「介质 × 格式」两轴独立可组合，音频没有这样的正交轴。
+- **接缝的完整性靠 `IAudioHandleOwner`**：`AudioHandle` 的 owner 是公开接口 `IAudioHandleOwner`（`IsVoiceActive` / `StopVoice` 两成员）而非内核具体类，构造函数公开——第三方实现（FMOD / Wwise 适配类）实现该接口即可签发业务代码照常使用的句柄。没有这一步，"接口即接缝"只对无返回值成员成立，`PlaySfx` 的返回值会把接缝焊死在内核实现上。实现约定：陈旧 id 必须安全 no-op（业务丢着不管的旧句柄是常态）。
 
 ### 4. 池化与自动回收：复用 `ObjectPool<T>` 原语，不依赖 IPoolUtility 服务
 

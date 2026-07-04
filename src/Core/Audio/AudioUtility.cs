@@ -24,7 +24,7 @@ namespace Game.Framework.Audio
     /// 之后的播放调用返回失效 handle——丢一声音效不致命，不学存储的 fail-fast（ADR-0022 §6）。<br/>
     /// <b>淡变用 unscaled 时间</b>：游戏暂停（timeScale = 0）时音乐切换照常淡入淡出。
     /// </remarks>
-    public sealed class AudioUtility : IAudioUtility, IDisposable
+    public sealed class AudioUtility : IAudioUtility, IAudioHandleOwner, IDisposable
     {
         // 内部播放单元：池化的 AudioSource + 本次播放的状态。归还时由 ResetVoice 整体复位。
         private sealed class Voice
@@ -169,11 +169,12 @@ namespace Game.Framework.Audio
                 throw new ArgumentException("音量组名不能为空。", nameof(group));
         }
 
-        // ── 句柄支撑（AudioHandle 调用；陈旧 id 查不到 = 安全 no-op）────────────
+        // ── 句柄支撑（AudioHandle 经 IAudioHandleOwner 调用；陈旧 id 查不到 = 安全 no-op）──
+        // 显式实现：这两个成员只服务句柄委托，不进 AudioUtility 的公开表面。
 
-        internal bool IsVoiceActive(int id) => !_disposed && FindVoice(id) != null;
+        bool IAudioHandleOwner.IsVoiceActive(int id) => !_disposed && FindVoice(id) != null;
 
-        internal void StopVoice(int id, float fadeSeconds)
+        void IAudioHandleOwner.StopVoice(int id, float fadeSeconds)
         {
             if (_disposed) return; // Dispose 已全停，handle 的事后 Stop 静默即可（不算误用）
             FadeOutAndReturn(FindVoice(id), fadeSeconds);
