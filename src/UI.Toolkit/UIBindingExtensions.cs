@@ -1,4 +1,5 @@
 using System;
+using Game.Framework.Localization;
 using R3;
 using UnityEngine.UIElements;
 
@@ -44,5 +45,33 @@ namespace Game.Framework.UI.Toolkit
         /// </summary>
         public static IDisposable OnClick(this DisposableBag bag, VisualElement element, EventCallback<ClickEvent> handler)
             => bag.Subscribe(() => element.RegisterCallback(handler), () => element.UnregisterCallback(handler));
+
+        /// <summary>
+        /// 把文本绑定到本地化 key：立即取当前语言文本，换语言（<c>ILocalizationUtility.Locale</c> 推送）自动刷新。
+        /// 经 bag 的 Context 解析 <c>ILocalizationUtility</c>（与 <c>Bag.Load</c> 同心智），bag 需以 ctx 构造。
+        /// </summary>
+        public static IDisposable BindLocalizedText(this DisposableBag bag, TextElement element, string key)
+        {
+            var loc = ResolveLocalization(bag);
+            return bag.Subscribe(loc.Locale, _ => element.text = loc.Get(key));
+        }
+
+        /// <summary>
+        /// 带静态格式化参数的本地化绑定（参数在绑定时固定）。参数本身要动态变化的场景不用本方法——
+        /// 业务用 <c>bag.Subscribe</c> / R3 <c>CombineLatest</c> 把「语言 × 数据」双源组合后自行赋 <c>text</c>。
+        /// </summary>
+        public static IDisposable BindLocalizedText(this DisposableBag bag, TextElement element, string key, params object[] args)
+        {
+            var loc = ResolveLocalization(bag);
+            return bag.Subscribe(loc.Locale, _ => element.text = loc.Get(key, args));
+        }
+
+        private static ILocalizationUtility ResolveLocalization(DisposableBag bag)
+        {
+            if (bag.Context == null)
+                throw new InvalidOperationException(
+                    "[UIBinding] BindLocalizedText 需要 bag 关联 Context（用 new DisposableBag(ctx) / ctx.CreateBag() 创建）才能解析 ILocalizationUtility。");
+            return bag.Context.GetUtility<ILocalizationUtility>();
+        }
     }
 }
