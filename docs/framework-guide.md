@@ -2030,6 +2030,8 @@ audio.SetGroupVolume(AudioGroups.Music, 0.7f);   // 设置页滑条：即时作�
 
 clip 经资源系统 `Bag.Load<AudioClip>(location)` 取到再传入——加载与播放的生命周期分开管，音频服务刻意不做按 location 加载的重载。
 
+> ⚠ 场景里要有 **AudioListener**（通常挂在主相机上，Unity 新建相机自带；自建/复制的相机容易漏）。缺了不报错、API 全部照常，只是听不到声——Unity 的行为，框架不加判定（见 ADR-0022）。
+
 ### API 一览
 
 | 成员 | 说明 |
