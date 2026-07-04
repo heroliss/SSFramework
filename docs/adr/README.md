@@ -28,4 +28,4 @@
 | [0020](0020-ui-essentials.md) | UI 刚需补齐：异步过渡 + Back 键 + 安全区 + Top 层常用件 | Accepted |
 | [0021](0021-local-storage.md) | 本地存储（存档）：IStorageUtility + 原子写文件 provider + 可插拔序列化 | Accepted |
 | [0022](0022-audio-service.md) | 音频服务：IAudioUtility 音乐单通道 + 池化音效 + 分组音量 | Accepted |
-| [0023](0023-game-flow.md) | 游戏流程状态机：IGameFlow 显式 Flow + 每状态一个子 Context | Proposed |
+| [0023](0023-game-flow.md) | 游戏流程状态机：IGameFlow 显式 Flow + 每状态一个子 Context | Accepted |

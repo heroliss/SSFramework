@@ -193,3 +193,10 @@ struct 不能用 `this.GetXxx<T>()` 扩展方法（值类型接口调用必然�
 - **跟随对象的持续 3D 音源直接挂 `AudioSource` 组件**（引擎组件可跨层），框架不替代它；`PlaySfxAt` 只用于「发声体可能先销毁但声音要播完」的一次性位置音效。
 - 注册三选一同对象池：`RegisterOwned(new AudioUtility(), typeof(IAudioUtility))`（推荐）/ `RegisterValue` / 场景挂 `MonoAudioUtility`（Inspector 配初始音量）。clip 经 `Bag.Load<AudioClip>(location)` 加载后传入——没有按 location 播放的重载。
 - 音量 = 主 × 组 × 单次（`MasterVolume` / `SetGroupVolume`，即时生效）；组是开放字符串、用常量管理（预置 `AudioGroups.Music/Sfx`）；**音量持久化归业务**（设置数据走 IStorageUtility，启动回灌）。全局暂停用 Unity 的 `AudioListener.pause`。详见 guide §19、ADR-0022。
+
+## 28. 游戏流程 IGameFlow
+
+- 游戏**宏观阶段**（启动/登录/大厅/战斗）用 `FlowState` 子类显式化，`flow.GoTo(new BattleState(levelId))` 切换——**一次性实例、传参走构造**，重进同类状态 = new 新实例（复用已消费实例抛异常）。微观逻辑状态机（技能连招/AI、每帧驱动）**不要**用它。
+- **阶段私有的东西进状态，不进根 Context**：服务在状态 `InstallBindings` 里 `RegisterOwned`、订阅/资源/场景进状态 `Bag`——退出整棵撤，不写手动清理。判断标准：「切走这个阶段时它该死吗」。`Context`/`Bag` 仅 OnEnter/OnExit 期间可用（InstallBindings 时子 Context 未建）。
+- 转换语义框架已拍板，别自己加锁排队：串行 + **最新意图胜**（在途 OnEnter 经 ct 协作取消——**把 ct 传给所有 await**）；被顶替/失败 = 子 Context 整棵撤、不调 OnExit（可靠清理靠 Bag，OnExit 只放优雅告别）。⚠ OnEnter 里转向别处：调 GoTo 后直接 return，**不要 await 它**（互等死锁）。
+- 注册 `RegisterOwned(new GameFlow(), typeof(IGameFlow))`（无 Mono 版）；转场表现订 `FlowChangedEvent` 一个事件，不侵入状态；子阶段机 = 状态里再 RegisterOwned 一个 `GameFlow`（作用域树嵌套）。详见 guide §20、ADR-0023。

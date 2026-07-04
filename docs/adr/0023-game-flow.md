@@ -1,6 +1,6 @@
 # ADR-0023：游戏流程状态机 —— IGameFlow：显式 Flow + 每状态一个子 Context
 
-**Status:** Proposed（2026-07-04，草案待确认）
+**Status:** Accepted（2026-07-04）
 
 ## Context
 
@@ -81,4 +81,4 @@ public abstract class FlowState
 - 业务获得「阶段 = 类型 + 作用域」的显式结构：看 `FlowState` 子类列表即知游戏有哪些阶段，每阶段占用什么一目了然（都在它的 InstallBindings/OnEnter 里）。
 - 转换语义（最新意图胜、Enter 失败无状态）是**框架拍板**的约定——换取业务不必自己处理竞态；不合口味的项目自己包一层排队策略。
 - 状态机自身无 Unity 对象，PlayMode 测试可全程无场景跑（转换/取消/失败/事件全可同步或短 await 断言），batchmode 无风险。
-- demo 章预计做「启动→登录→大厅→战斗」四状态迷你 Flow：每状态一个按钮组、面板实时显示 Current/子 Context 注册表，战斗带构造参数演示传参。
+- demo 章做「启动→登录→大厅→战斗」四状态迷你 Flow：面板实时显示 Current / 流转日志（含 GoTo 三种结局），大厅注册阶段私有服务演示整棵撤，战斗带构造参数 + 1.5s 模拟加载供手动验证最新意图胜。

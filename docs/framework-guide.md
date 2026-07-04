@@ -21,7 +21,8 @@
 17. [UI 框架（窗口 / 层级）](#17-ui-框架窗口--层级)
 18. [本地存储（存档）](#18-本地存储存档)
 19. [音频（BGM / 音效）](#19-音频bgm--音效)
-20. [推荐项目结构](#20-推荐项目结构)
+20. [游戏流程状态机](#20-游戏流程状态机)
+21. [推荐项目结构](#21-推荐项目结构)
 
 ---
 
@@ -1237,7 +1238,7 @@ public class MiniGameController : MonoBehaviour
 
 ## 13. AssetReference（资源引用）
 
-框架通过 `IAssetUtility` 与 `AssetReference<T>` 提供统一资源入口。业务动态加载用 location；Inspector 拖拽引用用 `AssetReference<T>`。GUID 只保存在引用内部，不作为业务 API 暴露。资源在工程里按类型 / 模块怎么摆（及 YooAsset 寻址 / 打包约定）见 §20「推荐项目结构」。
+框架通过 `IAssetUtility` 与 `AssetReference<T>` 提供统一资源入口。业务动态加载用 location；Inspector 拖拽引用用 `AssetReference<T>`。GUID 只保存在引用内部，不作为业务 API 暴露。资源在工程里按类型 / 模块怎么摆（及 YooAsset 寻址 / 打包约定）见 §21「推荐项目结构」。
 
 `MonoViewBase/MonoModelBase/MonoSystemBase/MonoUtilityBase` 内置 protected `Bag`——动态加载通过 `Bag.Load<T>(location)` / `Bag.LoadScene(...)`，handle 自动登记到 Bag，`OnDestroy` 时统一释放；`Bag.LoadText` / `Bag.LoadBytes` 是内容直读（拷出即释放句柄、不进 Bag），按包构建类型自动路由（普通 AB 包按 TextAsset 取内容，RawFile 包走原生通道）。`AssetReference<T>` 字段则自己持有 handle，并由宿主 `OnDestroy` 自动 `Dispose`。真实引用计数由具体资源 provider 维护，框架只管理“谁负责释放哪一类 handle”。
 
@@ -1669,7 +1670,7 @@ Bag.Subscribe(
 
 ## 16. 配置表（Luban）
 
-表定义（XML）与数据（JSON / Excel）放在一处 conf 源目录（demo 那套在 `Assets/Game/Framework/Demo/Configs~/`，`~` 后缀让 Unity 不导入、纯构建期输入）→ 菜单跑 Luban CLI 生成**配置 C# 类 + 二进制数据 + 表清单** → 运行期由一个自加载的配置 Utility 服务持表，数据文件随资源包打包与热更。设计原理与取舍见 ADR-0009；源 / 输出目录在模块里怎么摆见 §20「推荐项目结构」。
+表定义（XML）与数据（JSON / Excel）放在一处 conf 源目录（demo 那套在 `Assets/Game/Framework/Demo/Configs~/`，`~` 后缀让 Unity 不导入、纯构建期输入）→ 菜单跑 Luban CLI 生成**配置 C# 类 + 二进制数据 + 表清单** → 运行期由一个自加载的配置 Utility 服务持表，数据文件随资源包打包与热更。设计原理与取舍见 ADR-0009；源 / 输出目录在模块里怎么摆见 §21「推荐项目结构」。
 
 > **多套并存**：每套配置 = 一个 `LubanConfigProfile`（各自的 conf 源 + 输出目录 + topModule，互不干扰）。demo 与正式游戏可各一套——`LubanConfigProfile.ResolveAll()` 返回全部、菜单「生成」逐套生成，多套集中管理用「配置总览」窗口。demo 那套（源 / 代码 / 数据全在 `Demo/` 内）随 demo 程序集与样例资源包在正式打包时一并排除。
 
@@ -2108,7 +2109,75 @@ builder.RegisterOwned(new FmodAudioUtility(), typeof(IAudioUtility));
 
 ---
 
-## 20. 推荐项目结构
+## 20. 游戏流程状态机
+
+把「启动 → 登录 → 大厅 → 战斗」的游戏宏观阶段显式化为 `FlowState` 子类，由 `IGameFlow` 驱动：每个状态进入时获得一个以宿主 Context 为父级的**子 Context**，退出时整棵 Dispose——阶段私有服务 / 订阅 / 资源随阶段结束自动撤干净。作用域树是名词，GameFlow 是那个动词。ADR-0023。
+
+### 快速开始
+
+```csharp
+// 注册（RegisterOwned：注册即注入回填宿主 Context，宿主 Dispose 时连同当前状态一并撤）：
+builder.RegisterOwned(new GameFlow(), typeof(IGameFlow));
+
+// 定义阶段（一次性实例：传参走构造函数，重进同类状态 = new 新实例）：
+public sealed class BattleState : FlowState
+{
+    private readonly int _levelId;
+    public BattleState(int levelId) => _levelId = levelId;
+
+    // 阶段私有服务：注册进本状态子 Context，退出自动 Dispose
+    protected override void InstallBindings(ContainerBuilder builder)
+        => builder.RegisterOwned(new BattleSession(_levelId), typeof(BattleSession));
+
+    protected override async UniTask OnEnter(CancellationToken ct)
+    {
+        await Bag.LoadScene($"Battle_{_levelId}", ct: ct);   // 场景 / 资源进 Bag，退出自动卸载
+        Context.GetUtility<IAudioUtility>();                 // 子 Context 未命中自动回退父链 → 全局服务照常用
+    }
+
+    protected override UniTask OnExit() => ReportBattleResult(); // 仅正常转换时被调；可靠清理靠 Bag
+}
+
+// 切阶段（View 按钮 / System 战斗结束……任意层经 GetUtility<IGameFlow>()）：
+flow.GoTo(new BattleState(levelId));            // UI 导航直接丢弃返回值
+await flow.GoTo(new BootState());               // 引导序列可 await：完成 / 被顶替（取消）/ Enter 失败（异常）
+```
+
+### 转换语义（框架拍板，业务不用自己处理竞态）
+
+| 情形 | 行为 |
+|---|---|
+| 转换全程 | 串行：`OnExit(旧)` → 撤旧子 Context → 建新子 Context → `OnEnter(新)` |
+| 转换中再 GoTo | **最新意图胜**：排队槽只有一格、新请求顶替旧排队；在途 `OnEnter` 经 ct 协作取消 |
+| 被顶替 / 取消的进入 | 半进入状态整棵撤、**不调 OnExit**（清理靠 Bag）；其 GoTo task 以取消结束 |
+| 状态忽略 ct 跑完 | 正常进入，随后被排队的转换正常退出（协作式取消，不强杀） |
+| `OnEnter` 抛异常 | 子 Context 立即撤、`Current = null`、异常从 GoTo task 冒出——调用方决定重试 / 进错误状态 |
+| `OnExit` 抛异常 | LogException 后继续转换（离开失败不卡死在旧阶段），旧子 Context 照撤 |
+| 宿主 Context Dispose | flow 连同当前 / 在途状态子 Context 一并撤；此后 GoTo 抛 `ObjectDisposedException` |
+| 同类状态再进入 | 正常退旧进新（重开一局是刻意行为）；复用**同一实例**抛参数异常（一次性守卫） |
+
+转换成功后在宿主 Context 上发 `FlowChangedEvent(From, To)`——loading 界面 / 埋点订阅这一个事件即可，不侵入每个状态。
+
+⚠ 在 `OnEnter` 里转向别处（如启动检测到强更 → 进更新页）：调 `GoTo` 后直接 `return`，**不要 await 它**——本次进入会被取消，await 会互相等待。
+
+### 刻意不做
+
+- **转换表 / 守卫**：任意 GoTo 合法，「哪些转换允许」是业务 if 的事（按钮置灰 / Command 查状态），框架不做规则引擎。
+- **分层状态机（HSM）**：战斗内的子阶段机 = 在 `BattleState.InstallBindings` 里再 RegisterOwned 一个 `GameFlow`——子 Context 里的注册遮蔽父级，外层状态退出时子 flow 连同其当前状态级联撤，组合即嵌套。
+- **场景绑定**：状态 ≠ 场景（多状态共享一场景、一状态多场景都常见），状态在 OnEnter 自己 `Bag.LoadScene`。
+- **历史栈**：「返回上一状态」业务记个变量再 GoTo；UI 返回栈已归 UI 框架（§17），流程层再来一个会打架。
+- **Mono 版**：流程比场景活得长，也没有 Inspector 可配项；运行时观察走后续的框架诊断面板。
+
+> **要点回顾**
+>
+> - 阶段 = `FlowState` 子类：一次性实例、传参走构造；私有服务进 `InstallBindings`、订阅资源进 `Bag`，退出整棵撤
+> - `GoTo` 是唯一动词：串行 + 最新意图胜；await 它拿完成 / 被顶替 / 失败三种结局
+> - 微观逻辑状态机（技能连招 / AI 行为）**不要**用它——那是每帧驱动的粒度，用行为树 / 自定义 FSM
+> - 全局与阶段的边界：全局服务注册在根 Context，阶段私有的注册在状态里——拿不准就问「切走这个阶段时它该死吗」
+
+---
+
+## 21. 推荐项目结构
 
 把框架用进正式项目时，按「特性模块自洽 + 可整单元裁剪」组织，而不是按技术类型（all Models / all Views）摊平。下面是从 demo 提炼的原则——demo 自身是活样例，但有两处别照抄（见末尾）。
 
