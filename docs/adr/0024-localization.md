@@ -1,6 +1,6 @@
 # ADR-0024：本地化 —— ILocalizationUtility：响应式 locale + key 查询 + 组合既有原语
 
-**Status:** Proposed（2026-07-04，草案待确认）
+**Status:** Accepted（2026-07-04）
 
 ## Context
 
@@ -46,7 +46,7 @@ public interface ILocalizedTextSource
 ### 3. 响应式换语言：Locale 是 RP，推送即一切
 
 - `SetLocale` 推送 `Locale`，所有绑定自动重取文本——**不做「需重启生效」机制**（表驱动 + 响应式绑定下没有理由重启）。
-- 绑定扩展（UI.Toolkit 与 UI.UGui 各一套，同 `BindText` 姿势、经 bag 的 ctx 解析 utility——与 `Bag.Load` 同心智）：
+- 绑定扩展只落 **UI.Toolkit**（有 `BindText` 先例；经 bag 新增的公开 `Context` 访问器解析 utility——与 `Bag.Load` 同心智）。UGUI 侧用 `Bag.Subscribe(loc.Locale, _ => tmp.text = loc.Get(key))` 一行组合——UGui asmdef 刻意不引 R3，不为一个便捷方法加依赖：
   ```csharp
   Bag.BindLocalizedText(label, "menu/start");                  // 换语言自动刷新
   Bag.BindLocalizedText(label, "lobby/welcome", playerName);   // 带静态格式化参数

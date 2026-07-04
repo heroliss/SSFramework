@@ -64,6 +64,13 @@ namespace Game.Framework
         /// <param name="ctx">用于 Framework Event 订阅与资源加载；不需要这两类能力时可省略。</param>
         public DisposableBag(IGameContext ctx) => _ctx = ctx;
 
+        /// <summary>
+        /// 创建本 bag 时关联的 Context；无参构造的 bag 为 null。
+        /// 供跨程序集的 Bag 扩展方法解析服务（如 UI 模块的 <c>BindLocalizedText</c>）——与 <c>Bag.Load</c> 内部解析同源，
+        /// 持有 bag 的调用方本来就持有 ctx，这里不构成越权通道。
+        /// </summary>
+        public IGameContext Context => _ctx;
+
         /// <summary>bag 销毁信号。资源加载内部会和外部 ct 链接到此 token，bag dispose 时统一取消。</summary>
         public CancellationToken DisposeToken => _disposeCts.Token;
 

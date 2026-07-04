@@ -22,7 +22,8 @@
 18. [本地存储（存档）](#18-本地存储存档)
 19. [音频（BGM / 音效）](#19-音频bgm--音效)
 20. [游戏流程状态机](#20-游戏流程状态机)
-21. [推荐项目结构](#21-推荐项目结构)
+21. [本地化（多语言）](#21-本地化多语言)
+22. [推荐项目结构](#22-推荐项目结构)
 
 ---
 
@@ -1238,7 +1239,7 @@ public class MiniGameController : MonoBehaviour
 
 ## 13. AssetReference（资源引用）
 
-框架通过 `IAssetUtility` 与 `AssetReference<T>` 提供统一资源入口。业务动态加载用 location；Inspector 拖拽引用用 `AssetReference<T>`。GUID 只保存在引用内部，不作为业务 API 暴露。资源在工程里按类型 / 模块怎么摆（及 YooAsset 寻址 / 打包约定）见 §21「推荐项目结构」。
+框架通过 `IAssetUtility` 与 `AssetReference<T>` 提供统一资源入口。业务动态加载用 location；Inspector 拖拽引用用 `AssetReference<T>`。GUID 只保存在引用内部，不作为业务 API 暴露。资源在工程里按类型 / 模块怎么摆（及 YooAsset 寻址 / 打包约定）见 §22「推荐项目结构」。
 
 `MonoViewBase/MonoModelBase/MonoSystemBase/MonoUtilityBase` 内置 protected `Bag`——动态加载通过 `Bag.Load<T>(location)` / `Bag.LoadScene(...)`，handle 自动登记到 Bag，`OnDestroy` 时统一释放；`Bag.LoadText` / `Bag.LoadBytes` 是内容直读（拷出即释放句柄、不进 Bag），按包构建类型自动路由（普通 AB 包按 TextAsset 取内容，RawFile 包走原生通道）。`AssetReference<T>` 字段则自己持有 handle，并由宿主 `OnDestroy` 自动 `Dispose`。真实引用计数由具体资源 provider 维护，框架只管理“谁负责释放哪一类 handle”。
 
@@ -1670,7 +1671,7 @@ Bag.Subscribe(
 
 ## 16. 配置表（Luban）
 
-表定义（XML）与数据（JSON / Excel）放在一处 conf 源目录（demo 那套在 `Assets/Game/Framework/Demo/Configs~/`，`~` 后缀让 Unity 不导入、纯构建期输入）→ 菜单跑 Luban CLI 生成**配置 C# 类 + 二进制数据 + 表清单** → 运行期由一个自加载的配置 Utility 服务持表，数据文件随资源包打包与热更。设计原理与取舍见 ADR-0009；源 / 输出目录在模块里怎么摆见 §21「推荐项目结构」。
+表定义（XML）与数据（JSON / Excel）放在一处 conf 源目录（demo 那套在 `Assets/Game/Framework/Demo/Configs~/`，`~` 后缀让 Unity 不导入、纯构建期输入）→ 菜单跑 Luban CLI 生成**配置 C# 类 + 二进制数据 + 表清单** → 运行期由一个自加载的配置 Utility 服务持表，数据文件随资源包打包与热更。设计原理与取舍见 ADR-0009；源 / 输出目录在模块里怎么摆见 §22「推荐项目结构」。
 
 > **多套并存**：每套配置 = 一个 `LubanConfigProfile`（各自的 conf 源 + 输出目录 + topModule，互不干扰）。demo 与正式游戏可各一套——`LubanConfigProfile.ResolveAll()` 返回全部、菜单「生成」逐套生成，多套集中管理用「配置总览」窗口。demo 那套（源 / 代码 / 数据全在 `Demo/` 内）随 demo 程序集与样例资源包在正式打包时一并排除。
 
@@ -2177,7 +2178,64 @@ await flow.GoTo(new BootState());               // 引导序列可 await：完�
 
 ---
 
-## 21. 推荐项目结构
+## 21. 本地化（多语言）
+
+框架只管三件小事：**「当前语言」全局状态（响应式）+ key → 文本查询 + 换语言时已显示 UI 跟着变**。文本数据来自 `ILocalizedTextSource` 单方法接缝（业务包自己的配置表）；per-locale 资源、语言持久化、字体切换都是既有原语的组合。ADR-0024。
+
+### 快速开始
+
+```csharp
+// 文本源：业务包自己的 Luban 表（~10 行 adapter）；测试 / 小游戏用内置字典源
+public sealed class TableTextSource : ILocalizedTextSource
+{
+    private readonly Tables _tables; // 配置表里一行一 key、一列一语言
+    public bool TryGet(string locale, string key, out string text)
+        => _tables.TbL10N.TryGetText(locale, key, out text); // 查表即可，回退与警告框架统一处理
+}
+
+// 注册（源经构造注入，同存储 provider 姿势）；初始语言 = 读存档或 SystemLanguage 映射
+builder.RegisterOwned(
+    new LocalizationUtility(new TableTextSource(tables), initialLocale: savedLocale, fallbackLocale: "zh-CN"),
+    typeof(ILocalizationUtility));
+
+// UI 绑定（UI Toolkit）：文本绑 key，换语言自动重取，随 Bag 退订
+Bag.BindLocalizedText(titleLabel, "menu/start");
+Bag.BindLocalizedText(welcomeLabel, "lobby/welcome", playerName);   // 静态格式化参数
+
+// 设置页切换：SetLocale 推送 Locale（RP），所有绑定全量刷新；同值 no-op
+loc.SetLocale("en");
+```
+
+locale code 是**开放字符串 + 业务常量**（与音频组、存储 key 同一「常量管理字符串契约」姿势）；语言列表、`SystemLanguage` → code 映射、语言选择持久化（设置数据走 §18 存储，启动回灌）都归业务。
+
+### 缺 key：回退链 → 裸 key 上屏
+
+查询失败依次走：当前 locale → `fallbackLocale`（构造可选，如 zh-TW → zh-CN）→ **返回 key 本身** + Editor/Dev 一次性警告（同一缺失去重，不刷屏）。不抛异常（文案缺失不炸游戏）、不给空串（静默丢文案最难发现）——屏幕上直接显示裸 key 就是最好的缺失报告。`Get(key, args)` 的模板格式非法同样宽容：警告 + 返回未格式化模板。
+
+### 动态参数 / UGUI / per-locale 资源：一行组合
+
+- **动态参数**（文案里嵌响应式数值）：不用专门 API——`Bag.Bind(model.Gold.CombineLatest(loc.Locale, (g, _) => loc.Get("shop/gold", g)), s => label.text = s)`，数据与语言两个方向都即时刷新。
+- **UGUI / TMP**：`Bag.Subscribe(loc.Locale, _ => tmpText.text = loc.Get(key))` 一行——UGui asmdef 刻意不引 R3，不为一个便捷方法加依赖。
+- **per-locale 资源**：按 locale 分包（YooAsset 多 package，业务映射包名）或 location 后缀约定；换语言换图 = `Bag.Subscribe(loc.Locale, ...)` 重新加载。框架刻意零 API——命名 / 分包约定各项目不同，helper 反而强加约定。
+
+### 刻意不做
+
+- **复数 / 性别 / CLDR 规则**：ICU 级复杂度，真需要的项目接专门库、在 `Get` 输出上包一层。
+- **翻译导出导入工具**：Luban 的 Excel 一列一语言本身就是翻译工作流。
+- **场景静态文本收集**：本框架 UI 全代码驱动，文本入口天然收敛在 `BindLocalizedText`。
+- **「需重启生效」机制**：表驱动 + 响应式绑定下没有理由重启。
+- **字体切换**：归 ADR-0025 字体策略（规划中）——字体模块订阅 `Locale` RP，本模块只出信号。
+
+> **要点回顾**
+>
+> - 注册 = `RegisterOwned(new LocalizationUtility(源, 初始语言, fallback))`，源是单方法接缝
+> - UI 全用 `Bag.BindLocalizedText(label, key)`；动态参数 `CombineLatest` 组合；UGUI 用 `Bag.Subscribe` 一行
+> - 缺 key 裸 key 上屏 + 一次性警告；`SetLocale` 同值幂等
+> - 持久化 / 语言列表 / SystemLanguage 映射归业务；per-locale 资源走多 package 组合
+
+---
+
+## 22. 推荐项目结构
 
 把框架用进正式项目时，按「特性模块自洽 + 可整单元裁剪」组织，而不是按技术类型（all Models / all Views）摊平。下面是从 demo 提炼的原则——demo 自身是活样例，但有两处别照抄（见末尾）。
 

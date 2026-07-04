@@ -200,3 +200,10 @@ struct 不能用 `this.GetXxx<T>()` 扩展方法（值类型接口调用必然�
 - **阶段私有的东西进状态，不进根 Context**：服务在状态 `InstallBindings` 里 `RegisterOwned`、订阅/资源/场景进状态 `Bag`——退出整棵撤，不写手动清理。判断标准：「切走这个阶段时它该死吗」。`Context`/`Bag` 仅 OnEnter/OnExit 期间可用（InstallBindings 时子 Context 未建）。
 - 转换语义框架已拍板，别自己加锁排队：串行 + **最新意图胜**（在途 OnEnter 经 ct 协作取消——**把 ct 传给所有 await**）；被顶替/失败 = 子 Context 整棵撤、不调 OnExit（可靠清理靠 Bag，OnExit 只放优雅告别）。⚠ OnEnter 里转向别处：调 GoTo 后直接 return，**不要 await 它**（互等死锁）。
 - 注册 `RegisterOwned(new GameFlow(), typeof(IGameFlow))`（无 Mono 版）；转场表现订 `FlowChangedEvent` 一个事件，不侵入状态；子阶段机 = 状态里再 RegisterOwned 一个 `GameFlow`（作用域树嵌套）。详见 guide §20、ADR-0023。
+
+## 29. 本地化 ILocalizationUtility
+
+- UI 文本**绑 key 不绑死文案**：Toolkit 用 `Bag.BindLocalizedText(label, key[, 静态args])`；UGUI/TMP 用 `Bag.Subscribe(loc.Locale, _ => tmp.text = loc.Get(key))` 一行；动态参数用 `CombineLatest(数据, Locale)` 组合——**不要**手动查完文本赋值就完事（换语言不会刷新）。
+- 注册 `RegisterOwned(new LocalizationUtility(源, 初始语言, fallbackLocale))`——文本源经构造注入：业务 ~10 行 adapter 包自己的 Luban 表（`TryGet` 查表即可，回退/警告框架统一处理），小体量用内置 `DictionaryLocalizedTextSource`。
+- locale code 开放字符串 + 业务常量；语言列表、`SystemLanguage` 映射、**语言选择持久化归业务**（设置数据走 IStorageUtility，启动回灌）。缺 key = 裸 key 上屏 + 一次性警告（刻意行为，别包一层空串兜底把缺失藏起来）。
+- per-locale 资源零专门 API：locale 分包（多 package）/ location 后缀 + `Bag.Subscribe(Locale, ...)` 重加载。复数/CLDR 规则、翻译工具、字体切换（ADR-0025）都不在本接口。详见 guide §21、ADR-0024。
