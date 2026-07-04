@@ -2208,6 +2208,8 @@ loc.SetLocale("en");
 
 locale code 是**开放字符串 + 业务常量**（与音频组、存储 key 同一「常量管理字符串契约」姿势）；语言列表、`SystemLanguage` → code 映射、语言选择持久化（设置数据走 §18 存储，启动回灌）都归业务。
 
+> 表 adapter 的**活实物**在 demo「本地化 · 多语言」章（`LubanTextSource`，连 `TbL10N` 表定义 / `l10n.xlsx` 数据一起）。注意一个注册细节：**源要吃别的服务**（配置表 Utility）时用 `RegisterFactory(c => new LocalizationUtility(new LubanTextSource((IConfigUtility<Tables>)c.Resolve(...)), ...))`——容器在首次解析时解决依赖顺序，无需手工排序；不依赖其他服务的源（字典源）直接 `RegisterOwned`。配置表异步加载：就绪前 `TryGet` 返回 false → 裸 key 上屏，就是可见的「加载中」；**翻译列留空 = 该语言缺失**（翻译没来是常态），同样返回 false 交给框架走 fallback 链。
+
 ### 缺 key：回退链 → 裸 key 上屏
 
 查询失败依次走：当前 locale → `fallbackLocale`（构造可选，如 zh-TW → zh-CN）→ **返回 key 本身** + Editor/Dev 一次性警告（同一缺失去重，不刷屏）。不抛异常（文案缺失不炸游戏）、不给空串（静默丢文案最难发现）——屏幕上直接显示裸 key 就是最好的缺失报告。`Get(key, args)` 的模板格式非法同样宽容：警告 + 返回未格式化模板。
@@ -2216,7 +2218,14 @@ locale code 是**开放字符串 + 业务常量**（与音频组、存储 key �
 
 - **动态参数**（文案里嵌响应式数值）：不用专门 API——`Bag.Bind(model.Gold.CombineLatest(loc.Locale, (g, _) => loc.Get("shop/gold", g)), s => label.text = s)`，数据与语言两个方向都即时刷新。
 - **UGUI / TMP**：`Bag.Subscribe(loc.Locale, _ => tmpText.text = loc.Get(key))` 一行——UGui asmdef 刻意不引 R3，不为一个便捷方法加依赖。
-- **per-locale 资源**：按 locale 分包（YooAsset 多 package，业务映射包名）或 location 后缀约定；换语言换图 = `Bag.Subscribe(loc.Locale, ...)` 重新加载。框架刻意零 API——命名 / 分包约定各项目不同，helper 反而强加约定。
+- **per-locale 资源**：按 locale 分包（YooAsset 多 package，业务映射包名）或 location 后缀约定；换语言换图 = `Bag.Subscribe(loc.Locale, ...)` 里 Dispose 旧子 Bag → 按新 locale 重新 `Load`（子 Bag 重建释放旧句柄，§13 既定写法）；语音 / 配音是瞬时动作，播放时按 `Locale.CurrentValue` 拼 location 取即可。框架刻意零 API——命名 / 分包约定各项目不同，helper 反而强加约定。**图片与音频的活实物都在 demo 本地化章**（`l10n-banner_<locale>` / `l10n-voice_<locale>`）。
+
+### 与其他多语言方案的关系
+
+本框架把本地化拆成**状态**（`Locale` RP）、**查询**（`Get`）、**数据**（源接缝）三块——第三方方案接入 = 当**数据层**从接缝塞进来，守住一条原则：**别让两个系统都认为自己管着当前语言**（UI 绑定订阅的是本框架的 RP，`SetLocale` 时单向同步对方即可）。
+
+- **I2 Localization**：`LocalizationManager.GetTranslation(term, overrideLanguage)` 是同步指定语言查询，adapter ~10 行，干净。
+- **Unity 官方 com.unity.localization**：String Table 绑死 **Addressables**（加载异步）——与本框架的 YooAsset 管线（ADR-0012/0013）冲突，等于同时跑两套资源管线，不建议混用。真要用：要么整个跳过 `ILocalizationUtility` 直接用它全家桶，要么预加载 String Table 后包成同步 `TryGet`（~50 行）并桥接 `SelectedLocale`。它多给的东西（表格编辑器、Smart Strings 复数规则、伪本地化）是否值这个管线代价，按项目自判。
 
 ### 刻意不做
 
