@@ -14,10 +14,15 @@ namespace Game.Framework.Audio
     /// </remarks>
     public readonly struct AudioHandle : IDisposable
     {
-        private readonly AudioUtility _owner;
+        private readonly IAudioHandleOwner _owner;
         private readonly int _id;
 
-        internal AudioHandle(AudioUtility owner, int id)
+        /// <summary>
+        /// 签发句柄。内核实现 <see cref="AudioUtility"/> 之外，自定义 <see cref="IAudioUtility"/> 实现
+        /// （FMOD / Wwise 适配）也经此构造签发自己的句柄——句柄的陈旧安全语义由 owner 的
+        /// <see cref="IAudioHandleOwner"/> 实现保证。
+        /// </summary>
+        public AudioHandle(IAudioHandleOwner owner, int id)
         {
             _owner = owner;
             _id = id;
@@ -31,5 +36,20 @@ namespace Game.Framework.Audio
 
         /// <summary>等价 <c>Stop()</c>（立即停止）。让循环音效可进 <c>DisposableBag</c>。</summary>
         public void Dispose() => Stop();
+    }
+
+    /// <summary>
+    /// <see cref="AudioHandle"/> 的签发方契约：句柄的 <c>IsPlaying</c> / <c>Stop</c> 委托到这里。
+    /// 自定义 <see cref="IAudioUtility"/> 实现（FMOD / Wwise 适配）实现本接口即可让业务代码
+    /// 持有的句柄照常工作。实现约定：<b>陈旧 id（声音已播完 / 已停）必须安全 no-op</b>，
+    /// 不得抛异常——业务丢着不管的旧句柄是常态。
+    /// </summary>
+    public interface IAudioHandleOwner
+    {
+        /// <summary>id 对应的声音是否仍在播放（含淡出中）。陈旧 id 返回 false。</summary>
+        bool IsVoiceActive(int id);
+
+        /// <summary>停止 id 对应的声音（fadeSeconds &gt; 0 先淡出）。陈旧 id 安全 no-op。</summary>
+        void StopVoice(int id, float fadeSeconds);
     }
 }
