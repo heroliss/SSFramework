@@ -13,6 +13,7 @@ public static class LubanTableManifest
     {
         "tbglobalconfig",
         "tbitem",
+        "tbl10n",
         "tbmonster",
     };
 }

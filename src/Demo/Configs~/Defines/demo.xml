@@ -33,6 +33,13 @@
          表内布局：A 列是标记列——`##var` 行写字段名、`##` 行是注释行，数据行 A 列留空、数据从 B 列起。 -->
     <table name="TbMonster" value="Monster" index="id" input="monster.xlsx" comment="怪物表（Excel 数据源示例）"/>
 
+    <bean name="L10NText" comment="多语言文案（一行一 key、一列一语言——加语言就是加一列，表本身就是翻译工作流）">
+        <var name="key" type="string" comment="文案 key（主键，常量管理）"/>
+        <var name="zhCn" type="string" comment="简体中文"/>
+        <var name="en" type="string" comment="English（留空 = 该语言缺失，运行期走 fallback 链）"/>
+    </bean>
+    <table name="TbL10N" value="L10NText" index="key" input="l10n.xlsx" comment="多语言表（Excel 数据源：翻译工作流的天然载体）"/>
+
     <bean name="GlobalConfig" comment="全局参数">
         <var name="bagCapacity" type="int" comment="背包容量"/>
         <var name="initialGold" type="int" comment="新号初始金币"/>

@@ -22,6 +22,10 @@ public partial class Tables
     /// </summary>
     public TbMonster TbMonster {get; }
     /// <summary>
+    /// 多语言表（Excel 数据源：翻译工作流的天然载体）
+    /// </summary>
+    public TbL10N TbL10N {get; }
+    /// <summary>
     /// 全局配置（one 模式：全表一条记录）
     /// </summary>
     public TbGlobalConfig TbGlobalConfig {get; }
@@ -30,6 +34,7 @@ public partial class Tables
     {
         TbItem = new TbItem(loader("tbitem"));
         TbMonster = new TbMonster(loader("tbmonster"));
+        TbL10N = new TbL10N(loader("tbl10n"));
         TbGlobalConfig = new TbGlobalConfig(loader("tbglobalconfig"));
         ResolveRef();
     }
@@ -38,6 +43,7 @@ public partial class Tables
     {
         TbItem.ResolveRef(this);
         TbMonster.ResolveRef(this);
+        TbL10N.ResolveRef(this);
         TbGlobalConfig.ResolveRef(this);
     }
 }
