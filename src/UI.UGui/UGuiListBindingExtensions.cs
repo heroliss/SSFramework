@@ -38,7 +38,15 @@ namespace Game.Framework.UI.UGui
                     go.transform.SetParent(container, false);
                     go.transform.SetSiblingIndex(index);
                 },
-                detach: go => { if (go != null) UnityEngine.Object.Destroy(go); }, // fake null：已被外部销毁则跳过
+                detach: go =>
+                {
+                    if (go == null) return; // fake null：已被外部销毁则跳过
+                    // Destroy 延迟到帧末执行，将死子物体这一帧仍占父级 childCount / sibling 索引；同帧若还有
+                    // 插入或移动，会按被污染的层级算错兄弟位。先同步 SetParent(null) 摘出容器（对齐 Toolkit 的
+                    // 同步 RemoveFromHierarchy），再交给帧末延迟销毁。
+                    go.transform.SetParent(null, false);
+                    UnityEngine.Object.Destroy(go);
+                },
                 reorder: (index, go) => { if (go != null) go.transform.SetSiblingIndex(index); });
     }
 }
