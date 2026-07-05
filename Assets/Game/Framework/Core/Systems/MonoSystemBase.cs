@@ -1,7 +1,7 @@
 using Game.Framework.Internal;
 using UnityEngine;
 
-namespace Game.Framework.System
+namespace Game.Framework.Systems
 {
     /// <summary>
     /// System 的 Mono 实现基类。挂在 Context 子节点上，Awake 时自动注册到容器、注入 <c>[Inject]</c> 字段，

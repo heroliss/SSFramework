@@ -2,7 +2,7 @@ using System;
 using Game.Framework.Common;
 using Game.Framework.Context;
 using Game.Framework.Internal;
-using Game.Framework.System;
+using Game.Framework.Systems;
 using Game.Framework.Utility;
 using NUnit.Framework;
 

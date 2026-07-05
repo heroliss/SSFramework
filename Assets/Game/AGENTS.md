@@ -51,13 +51,14 @@
 | 分配 | 堆分配 | 零分配 |
 | 有返回值 | 本就堆分配，可推断重载即可 | 可推断重载 `ExecuteCommand(new Cmd())` 会**装箱一次**（`TResult` 只在约束里、无法被推断）；绝大多数场景够用，热路径零装箱写双泛型 `ExecuteCommand<TCmd, TResult>(new Cmd())` |
 
-## 6. `Game.Framework.System` 命名空间与 `global::System` 冲突
+## 6. 不要用 `System` 做命名空间段
 
-`Game.Framework.System` 存在时 `System.X` 会被就近劫持。文件顶部 `using System;` 后裸写 `Array.Empty<T>()`、`[ThreadStatic]`；不写 `global::System.X`（除非用户明确要求）。
+任何命名空间层级不得出现 `System` 段（框架层已因此把 `Game.Framework.System` 更名为 `Game.Framework.Systems`）。
+**Why:** 含 `System` 段的层级及其全部子命名空间内，一切限定写法 `System.X`（`System.IO.Path` / `System.Func` 等）都被就近解析劫持 → CS0234，规则提醒挡不住肌肉记忆；生成代码同样中招（见 #24 topModule 约束）。改名后正常写 `System.IO.X` / `using System.IO;` 均可。
 
 ## 7. 扩展方法需要正确 using
 
-`this.GetModel<T>()` 需 `using Game.Framework.Model;`，`GetSystem` 需 `using Game.Framework.System;`，其余层同理。
+`this.GetModel<T>()` 需 `using Game.Framework.Model;`，`GetSystem` 需 `using Game.Framework.Systems;`，其余层同理。
 
 ## 8. 异步 Command 规范
 
@@ -68,8 +69,8 @@
 
 ## 9. 命名空间约定
 
-- 框架：`Game.Framework.{Context|Command|Event|Model|System|Utility|View}`（另有 `Internal`/`Common`/`Asset` 等）。
-- Demo：`Game.Framework.Demo.{Model|System|...}`；**Demo 子命名空间之间用相对命名空间引用、不加 using**——写 `Model.CounterModel`、`System.ICounterSystem`，自动解析到 `Game.Framework.Demo.Model.*`；框架类型照常 using。
+- 框架：`Game.Framework.{Context|Command|Event|Model|Systems|Utility|View}`（另有 `Internal`/`Common`/`Asset` 等；System 层命名空间取复数 `Systems` 是刻意的，见 #6）。
+- Demo：`Game.Framework.Demo.{Core|Modules|Config}`（模块服务在 `Modules.Services`、生成代码在 `Modules.Generated`；Luban 生成走顶层 `DemoCfg`，见 #24）。
 - 测试：`Game.Framework.Test`。
 
 ## 10. 上下文绑定方式
@@ -166,7 +167,7 @@ struct 不能用 `this.GetXxx<T>()` 扩展方法（值类型接口调用必然�
 - **接入** = 一行子类闭合泛型 `class XxxConfigUtility : MonoConfigUtilityBase<Tables>`（补 `TableFiles => LubanTableManifest.Files` 与 `CreateTables`），挂 Context 子节点。配置是静态只读引用数据：不占 Model 层、不拆三件套，一个组件自加载。
 - **取表**：各层（含 View）`GetUtility<IConfigUtility<Tables>>().Tables` 直读（也可 `[Inject]` 字段）。`Tables` 是**普通取值**（只读、无 `.CurrentValue`），加载完成前为 null——**等就绪订阅 `State`（`ConfigInitState`），不要轮询判空**。查询直接用生成的强类型 API（`TbItem.Get(id)` 等），框架不包查询层。**多套配置** = 不同闭合泛型并存，各自解析互不冲突。
 - **改表**：改对应 profile 的 conf 源目录（demo 在 `Demo/Configs~/`，`~` 后缀 Unity 不导入）→ 菜单「配置表构建 / 生成」（Play 中拒绝）。生成代码目录被 Luban 接管，勿手放文件。多套集中管理用「配置总览」窗口。
-- ⚠ **topModule 别嵌进含 `System` 子命名空间的层级**（生成代码裸写 `System.Func` 被就近解析劫持 CS0234）——demo 用顶层 `DemoCfg`。
+- ⚠ **topModule 所在层级不要含 `System` 段**（#6 的劫持同样打生成代码——生成代码裸写 `System.Func` 即 CS0234）——demo 用顶层 `DemoCfg`。
 - 数据 `.bytes` 随资源包打包 / 热更；表**结构**变化会改生成代码 → 走代码热更 / 发版。详见 guide §16、ADR-0009。
 
 ## 25. UI 框架（窗口 / 层级）最佳实践

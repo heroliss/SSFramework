@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using Game.Framework.Context;
 using Game.Framework.Internal;
 using Game.Framework.Model;
-using Game.Framework.System;
+using Game.Framework.Systems;
 using Game.Framework.Utility;
 using NUnit.Framework;
 

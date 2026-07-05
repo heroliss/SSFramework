@@ -1,7 +1,7 @@
 using System;
 using System.Collections;
 using Game.Framework.Context;
-using Game.Framework.System;
+using Game.Framework.Systems;
 using Game.Framework.Common;
 using Game.Framework.Internal;
 using Game.Framework.Command;
@@ -28,7 +28,7 @@ namespace Game.Framework.Test
 
             var builder = new ContainerBuilder();
             builder.RegisterValue(_testModel, new[] { typeof(Game.Framework.Model.IModel), typeof(TestModel) });
-            builder.RegisterValue(_testSystem, new[] { typeof(Game.Framework.System.ISystem), typeof(TestSystem) });
+            builder.RegisterValue(_testSystem, new[] { typeof(Game.Framework.Systems.ISystem), typeof(TestSystem) });
             builder.RegisterValue(new CommandSystem(), new[] { typeof(ICommandSystem) });
             _gameContext = new GameContext(builder.Build());
 

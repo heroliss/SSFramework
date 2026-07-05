@@ -2,7 +2,7 @@ using Game.Framework.Command;
 using Game.Framework.Common;
 using Game.Framework.Context;
 using Game.Framework.Demo.Core;
-using Game.Framework.System;
+using Game.Framework.Systems;
 
 namespace Game.Framework.Demo.Modules
 {

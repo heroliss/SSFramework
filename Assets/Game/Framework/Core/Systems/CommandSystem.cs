@@ -3,7 +3,7 @@ using Cysharp.Threading.Tasks;
 using Game.Framework.Command;
 using Game.Framework.Context;
 
-namespace Game.Framework.System
+namespace Game.Framework.Systems
 {
     /// <summary>
     /// 默认命令处理系统。无状态 —— 不持有 GameContext 引用，

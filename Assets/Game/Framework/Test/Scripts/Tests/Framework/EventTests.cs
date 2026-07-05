@@ -1,7 +1,7 @@
 using System;
 using Game.Framework.Common;
 using Game.Framework.Context;
-using Game.Framework.System;
+using Game.Framework.Systems;
 using Game.Framework.Internal;
 using Game.Framework.Command;
 using Game.Framework.Event;
@@ -194,7 +194,7 @@ namespace Game.Framework.Test
         /// <summary>
         /// 测试用 System，用于发送和接收事件。通过 GameContext.AttachTo 设置上下文。
         /// </summary>
-        private class EventTestSystem : Game.Framework.System.ISystem, IHasGameContext
+        private class EventTestSystem : Game.Framework.Systems.ISystem, IHasGameContext
         {
             private GameContext _ctx;
             IGameContext IHasGameContext.Context => _ctx;

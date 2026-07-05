@@ -5,8 +5,7 @@ using System.Linq;
 using System.Reflection;
 using System.Text;
 using Game.Framework.Context;
-// 不 using UnityEditor.Compilation：它的 Assembly 与 System.Reflection.Assembly 歧义（CS0104），
-// 而全限定 System.Reflection 会被 Game.Framework.System 就近劫持（AGENTS 规则#6）——该命名空间只用一处，全限定调用。
+// 不 using UnityEditor.Compilation：它的 Assembly 与 System.Reflection.Assembly 歧义（CS0104）——该命名空间只用一处，全限定调用。
 using UnityEditor;
 using UnityEngine;
 
@@ -36,7 +35,7 @@ namespace Game.Framework.Editor
         private static readonly Type[] LayerMarkers =
         {
             typeof(Game.Framework.Model.IModel),
-            typeof(Game.Framework.System.ISystem),
+            typeof(Game.Framework.Systems.ISystem),
             typeof(Game.Framework.Utility.IUtility),
         };
 
