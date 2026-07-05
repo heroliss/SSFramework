@@ -96,6 +96,9 @@ namespace Game.Framework.Context
         /// <summary>构造时刻（realtimeSinceStartup），诊断面板显示存活时长。</summary>
         internal double CreatedRealtime { get; }
 
+        /// <summary>本 Context 解析未命中时是否回退 <see cref="Main"/>（构造参数快照），诊断面板标记用。</summary>
+        internal bool InheritsFromGlobal => _inheritFromGlobal;
+
         // 本 Context 各事件类型的存活订阅数（订阅 +1、退订 -1）。惰性分配：不订阅事件的 Context 零成本。
         private Dictionary<Type, int> _eventSubscriptionCounts;
 
