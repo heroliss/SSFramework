@@ -13,7 +13,7 @@ namespace Game.Framework.Internal
     /// </summary>
     /// <remarks>
     /// <b>谁该继承：</b>框架内部的 <see cref="Game.Framework.Model.MonoModelBase"/> /
-    /// <see cref="Game.Framework.System.MonoSystemBase"/> / <see cref="Game.Framework.Utility.MonoUtilityBase"/>。
+    /// <see cref="Game.Framework.Systems.MonoSystemBase"/> / <see cref="Game.Framework.Utility.MonoUtilityBase"/>。
     /// 业务<b>不要</b>直接继承本类——继承对应的 <c>MonoXxxBase</c> 才能拿到正确的执行顺序与层标记。<br/>
     /// <b>为什么是泛型：</b><typeparamref name="TLayer"/> 即层标记接口（<c>IModel</c>/<c>ISystem</c>/<c>IUtility</c>），
     /// 直接驱动 <see cref="MonoLayerExtensions.AttachLayer{TLayer}"/> 的注册与 <see cref="ContainerLayerExtensions.UnregisterFor{TLayer}"/> 的反注册。

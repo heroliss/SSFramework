@@ -3,7 +3,7 @@ using Cysharp.Threading.Tasks;
 using Game.Framework.Command;
 using Game.Framework.Context;
 
-namespace Game.Framework.System
+namespace Game.Framework.Systems
 {
     /// <summary>
     /// 命令处理系统接口——所有 Command 的执行都经此 dispatcher 统一分发，业务可替换实现以加入横切逻辑

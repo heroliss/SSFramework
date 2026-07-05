@@ -329,7 +329,7 @@ namespace Game.Framework.UI.UGui.Editor
                         ? $"本变体中节点 \"{path}\" 或其对应组件已失效（删除/改名/移除组件），此继承自 {baseClassName} 的字段运行时为 null"
                         : $"本变体已取消节点 \"{path}\" 此组件的绑定——基类仍会绑定它（值非 null），但本变体不应再用此继承字段";
                     sb.AppendLine($"        /// <summary>{EscapeXml(note)}。要用请在本变体重新绑定，或改建独立窗口。</summary>");
-                    sb.AppendLine($"        [global::System.Obsolete(\"{Escape(note)}（请重新绑定或改建独立窗口）\")]"); // global:: 与生成代码其余类型一致、自包含；规避 Game.Framework.System 对限定 System. 的劫持
+                    sb.AppendLine($"        [global::System.Obsolete(\"{Escape(note)}（请重新绑定或改建独立窗口）\")]"); // global:: 与生成代码其余类型一致、自包含
                     sb.AppendLine($"        protected new {typeRef} {name} => base.{name};");
                 }
             }

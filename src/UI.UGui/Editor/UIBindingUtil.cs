@@ -215,7 +215,7 @@ namespace Game.Framework.UI.UGui.Editor
             return _typeCache[id] = Type.GetType(id);
         }
 
-        /// <summary>生成代码里用的类型引用——全限定 + <c>global::</c> 前缀，彻底规避命名空间冲突（含 <c>Game.Framework.System</c> 陷阱）。</summary>
+        /// <summary>生成代码里用的类型引用——全限定 + <c>global::</c> 前缀，不受目标文件所在命名空间与 using 影响，自包含无冲突。</summary>
         public static string CSharpTypeName(Type t) => "global::" + t.FullName.Replace('+', '.');
 
         /// <summary>是否用户自定义脚本（非 Unity/TMPro 内置）——标记节点时这类组件优先级最高。</summary>

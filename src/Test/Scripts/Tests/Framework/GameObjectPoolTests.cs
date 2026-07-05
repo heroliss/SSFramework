@@ -7,7 +7,7 @@ using System.Threading;
 using Cysharp.Threading.Tasks;
 using Game.Framework.Context;
 using Game.Framework.Pool;
-using Game.Framework.System;
+using Game.Framework.Systems;
 using Game.Framework.Utility;
 using NUnit.Framework;
 using UnityEngine;

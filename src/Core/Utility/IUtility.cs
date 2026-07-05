@@ -15,7 +15,7 @@ namespace Game.Framework.Utility
     ///   <item>Utility <b>可取其他 Utility</b>（<c>IUtility : ICanGetUtility</c>）——基础设施可互相组合
     ///         （如配置表服务取资源服务来加载数据），与 <c>ISystem : ICanGetSystem</c> 对称。</item>
     ///   <item>纯函数工具天然无状态；**持有状态的"服务型" Utility 是刻意允许的**（资源/UI/池/配置即是），不是反模式。</item>
-    ///   <item>命名空间约定：公共工具放 <c>Game.Framework.Utility</c>；层专用工具按子命名空间分（如 <c>Game.Framework.System.Utility</c>），由 <c>using</c> 控制可见范围。</item>
+    ///   <item>命名空间约定：公共工具放 <c>Game.Framework.Utility</c>；层专用工具按子命名空间分（如 <c>Game.Framework.Systems.Utility</c>），由 <c>using</c> 控制可见范围。</item>
     ///   <item>Mono 路径用 <see cref="Game.Framework.Utility.MonoUtilityBase"/>（需 Inspector 配置 / Unity 生命周期 / 持有状态时）；纯无状态工具用 <c>builder.RegisterValue</c> 直接注册。</item>
     /// </list>
     /// </remarks>

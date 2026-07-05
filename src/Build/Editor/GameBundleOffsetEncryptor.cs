@@ -1,4 +1,4 @@
-using System; // Buffer.BlockCopy；裸写 System 类型规避 Game.Framework.System 命名空间劫持（Assets/Game/AGENTS.md §6）
+using System; // Buffer.BlockCopy
 using System.IO;
 using YooAsset; // IBundleEncryptor / BundleEncryptArgs / BundleEncryptResult
 

@@ -69,7 +69,7 @@ namespace Game.Framework.Internal
                 return hostIsCommand || typeof(ICanGetModel).IsAssignableFrom(hostType)
                     ? null
                     : $"'{hostType.Name}' has no GetModel permission, so it cannot inject Model '{fieldType.Name}'";
-            if (typeof(Game.Framework.System.ISystem).IsAssignableFrom(fieldType))
+            if (typeof(Game.Framework.Systems.ISystem).IsAssignableFrom(fieldType))
                 return hostIsCommand || typeof(ICanGetSystem).IsAssignableFrom(hostType)
                     ? null
                     : $"'{hostType.Name}' has no GetSystem permission, so it cannot inject System '{fieldType.Name}'";

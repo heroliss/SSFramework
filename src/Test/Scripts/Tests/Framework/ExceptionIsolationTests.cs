@@ -8,7 +8,7 @@ using Game.Framework.Common;
 using Game.Framework.Context;
 using Game.Framework.Event;
 using Game.Framework.Internal;
-using Game.Framework.System;
+using Game.Framework.Systems;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;

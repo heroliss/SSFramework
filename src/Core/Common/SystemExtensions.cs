@@ -1,6 +1,6 @@
 using Game.Framework.Context;
 using Game.Framework.Internal;
-using Game.Framework.System;
+using Game.Framework.Systems;
 
 namespace Game.Framework.Common
 {

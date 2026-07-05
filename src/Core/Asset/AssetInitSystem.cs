@@ -4,7 +4,7 @@ using System.Threading;
 using Cysharp.Threading.Tasks;
 using Game.Framework.Common;
 using Game.Framework.Internal;
-using Game.Framework.System;
+using Game.Framework.Systems;
 using UnityEngine;
 
 namespace Game.Framework

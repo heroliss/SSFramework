@@ -4,7 +4,7 @@ using Game.Framework.Context;
 using Game.Framework.Internal;
 using Game.Framework.Command;
 using Game.Framework.Model;
-using Game.Framework.System;
+using Game.Framework.Systems;
 using Game.Framework.Utility;
 using NUnit.Framework;
 using UnityEngine.TestTools;
@@ -29,7 +29,7 @@ namespace Game.Framework.Test
 
             var builder = new ContainerBuilder();
             builder.RegisterValue(testModel, new[] { typeof(Game.Framework.Model.IModel), typeof(TestModel) });
-            builder.RegisterValue(testSystem, new[] { typeof(Game.Framework.System.ISystem), typeof(TestSystem) });
+            builder.RegisterValue(testSystem, new[] { typeof(Game.Framework.Systems.ISystem), typeof(TestSystem) });
             builder.RegisterValue(dependentSystem, new[] { typeof(DependentSystem) });
             builder.RegisterValue(testUtility, new[] { typeof(Game.Framework.Utility.IUtility), typeof(TestUtility) });
             builder.RegisterValue(new CommandSystem(), new[] { typeof(ICommandSystem) });
