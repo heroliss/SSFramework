@@ -25,7 +25,8 @@
 21. [本地化（多语言）](#21-本地化多语言)
 22. [字体（多语言字体链）](#22-字体多语言字体链)
 23. [框架诊断面板](#23-框架诊断面板)
-24. [推荐项目结构](#24-推荐项目结构)
+24. [响应式集合与列表绑定](#24-响应式集合与列表绑定)
+25. [推荐项目结构](#25-推荐项目结构)
 
 ---
 
@@ -1232,7 +1233,7 @@ public class MiniGameController : MonoBehaviour
 
 ## 13. AssetReference（资源引用）
 
-框架通过 `IAssetUtility` 与 `AssetReference<T>` 提供统一资源入口。业务动态加载用 location；Inspector 拖拽引用用 `AssetReference<T>`。GUID 只保存在引用内部，不作为业务 API 暴露。资源在工程里按类型 / 模块怎么摆（及 YooAsset 寻址 / 打包约定）见 §24「推荐项目结构」。
+框架通过 `IAssetUtility` 与 `AssetReference<T>` 提供统一资源入口。业务动态加载用 location；Inspector 拖拽引用用 `AssetReference<T>`。GUID 只保存在引用内部，不作为业务 API 暴露。资源在工程里按类型 / 模块怎么摆（及 YooAsset 寻址 / 打包约定）见 §25「推荐项目结构」。
 
 `MonoViewBase/MonoModelBase/MonoSystemBase/MonoUtilityBase` 内置 protected `Bag`——动态加载通过 `Bag.Load<T>(location)` / `Bag.LoadScene(...)`，handle 自动登记到 Bag，`OnDestroy` 时统一释放；`Bag.LoadText` / `Bag.LoadBytes` 是内容直读（拷出即释放句柄、不进 Bag），按包构建类型自动路由（普通 AB 包按 TextAsset 取内容，RawFile 包走原生通道）。`AssetReference<T>` 字段则自己持有 handle，并由宿主 `OnDestroy` 自动 `Dispose`。真实引用计数由具体资源 provider 维护，框架只管理“谁负责释放哪一类 handle”。
 
@@ -1664,7 +1665,7 @@ Bag.Subscribe(
 
 ## 16. 配置表（Luban）
 
-表定义（XML）与数据（JSON / Excel）放在一处 conf 源目录（demo 那套在 `Assets/Game/Framework/Demo/Configs~/`，`~` 后缀让 Unity 不导入、纯构建期输入）→ 菜单跑 Luban CLI 生成**配置 C# 类 + 二进制数据 + 表清单** → 运行期由一个自加载的配置 Utility 服务持表，数据文件随资源包打包与热更。设计原理与取舍见 ADR-0009；源 / 输出目录在模块里怎么摆见 §24「推荐项目结构」。
+表定义（XML）与数据（JSON / Excel）放在一处 conf 源目录（demo 那套在 `Assets/Game/Framework/Demo/Configs~/`，`~` 后缀让 Unity 不导入、纯构建期输入）→ 菜单跑 Luban CLI 生成**配置 C# 类 + 二进制数据 + 表清单** → 运行期由一个自加载的配置 Utility 服务持表，数据文件随资源包打包与热更。设计原理与取舍见 ADR-0009；源 / 输出目录在模块里怎么摆见 §25「推荐项目结构」。
 
 > **多套并存**：每套配置 = 一个 `LubanConfigProfile`（各自的 conf 源 + 输出目录 + topModule，互不干扰）。demo 与正式游戏可各一套——`LubanConfigProfile.ResolveAll()` 返回全部、菜单「生成」逐套生成，多套集中管理用「配置总览」窗口。demo 那套（源 / 代码 / 数据全在 `Demo/` 内）随 demo 程序集与样例资源包在正式打包时一并排除。
 
@@ -2351,7 +2352,102 @@ var ctx = new GameContext(builder.Build()) { DebugName = "MiniGame" };
 
 ---
 
-## 24. 推荐项目结构
+## 24. 响应式集合与列表绑定
+
+前面所有绑定（`BindText` / `BindEnabled` / `BindVisible`）都在处理**单个值**：一个 HP、一个分数、一段文本，用 `RP<T>` 持有、变化时推新值。但游戏里有一大类状态是**集合**——背包格子、聊天记录、在线玩家、排行榜、队伍成员——它们会增删、会重排。这一节讲怎么把「会变的集合」绑进 UI。
+
+### 为什么单值绑定不够
+
+最直觉的做法是把集合塞进 `RP<IReadOnlyList<T>>`，每次增删推一份新列表。问题在于 View 收到的是**整包**：它只能「清空容器 → 重建全部子视图」。加一项也要重画整表——丢滚动位置、丢选中、丢输入焦点，每帧重建还抖 GC。列表一大就卡。
+
+缺的是**增量通知**：集合应该告诉订阅者「第 3 位插了一个」「第 5 位删了」「0 和 2 换位了」，UI 只动那一处。这正是 `RP<T>` 单值订阅覆盖不到的空缺，框架用 **ObservableCollections**（Cysharp 生态，与 UniTask / R3 同源）补上，藏在 `Bag.BindList` 后。
+
+### Model 侧：用 `ObservableList<T>` 持有集合
+
+如 `RP<T>` 之于单值，`ObservableList<T>` 之于集合——它在增删移换时发出**逐项**的增量通知。只读暴露用它实现的 `IReadOnlyObservableList<T>`（如 `ReadOnlyReactiveProperty<T>` 之于单值：只读、仍可观察）：
+
+```csharp
+using ObservableCollections;
+
+// Model：集合状态用 ObservableList 持有
+public sealed class InventoryModel : IModel
+{
+    public readonly ObservableList<ItemData> Items = new();
+}
+
+// 写：Command 改集合（增删移换都会推增量）
+public readonly struct AddItemCommand : ICommand
+{
+    private readonly ItemData _item;
+    public AddItemCommand(ItemData item) => _item = item;
+    public void Execute(ICommandContext ctx) => ctx.GetModel<InventoryModel>().Items.Add(_item);
+}
+
+// 读：查询 Command 以只读集合暴露给 View（读写分离照旧）
+public readonly struct GetItemsCommand : ICommand<IReadOnlyObservableList<ItemData>>
+{
+    public IReadOnlyObservableList<ItemData> Execute(ICommandContext ctx)
+        => ctx.GetModel<InventoryModel>().Items;
+}
+```
+
+> `ObservableList<T>` 直接用库类型、**不包装、不加别名**——像用 R3 的 `Observable` 一样。它名字本就短、也不是 Unity 可序列化类型（放不进 Inspector），套壳只是噪音。业务代码 `using ObservableCollections;` 即可（NuGet DLL 自动引用）。
+
+### View 侧：`Bag.BindList` 增量绑定
+
+`Bag.BindList` 之于集合，如 `Bag.BindText` 之于单值：订阅集合变化，只增量维护对应子视图。**UI Toolkit**（绑到 `VisualElement` 容器）：
+
+```csharp
+protected override void OnCreated()
+{
+    var container = Root.Q<VisualElement>("item-list");
+    // 每个元素造一行子视图；第二参 rowBag 是这一行专属的子作用域
+    Bag.BindList(container, this.ExecuteCommand(new GetItemsCommand()), (item, rowBag) =>
+    {
+        var row = new Label();
+        rowBag.BindText(row, /* 这一行随某 RP 刷新的只读源 */ item.Name); // 行内订阅挂 rowBag
+        return row;
+    });
+}
+```
+
+**UGUI**（绑到 `Transform` 容器，子视图是 `GameObject`）是同一套写法，只换容器与项类型：
+
+```csharp
+Bag.BindList(contentTransform, this.ExecuteCommand(new GetItemsCommand()), (item, rowBag) =>
+{
+    var go = Instantiate(_itemPrefab);           // 不必设父级/兄弟位，绑定统一摆放
+    go.GetComponent<ItemRowView>().Bind(item, rowBag);
+    return go;
+});
+```
+
+集合任一变化后，**只有变化的那一行**被增删或移动，其余行原地不动。绑定登记进 `Bag`，视图销毁时统一解绑、销毁全部子视图——和其它 `Bag` 订阅一个心智。
+
+### 每行一个子作用域
+
+`BindList` 工厂的第二参是**这一行专属的子 `DisposableBag`**：行内的订阅（「这一行血条随 RP 刷新」「这一行的 ✕ 按钮」）挂它，**这一行离开列表时随之自动退订**，不用手动清理。它随该项进出列表创建 / 销毁，是 `Bag` 统一生命周期在「列表项」这个粒度上的延伸。无行内订阅就忽略它。
+
+### 增量语义（框架已兜住，了解即可）
+
+`ObservableList<T>` 把每次结构变化摊成**逐项**事件：`Add`/`AddRange`/`Insert` → 逐项 Add；`RemoveAt`/`RemoveRange` → 逐项 Remove；`Move` → 一条 Move（视图复用同一行实例、只换位置）；索引器赋值 → Replace（框架重造该行）；`Clear` → Reset（清空重种）。`BindList` 按这些事件维护一份与源逐项对应的子视图表——你只管改 `ObservableList`，UI 自己跟上。
+
+### 什么时候别用它
+
+`BindList` 为每项造一个**常驻**子视图，目标是**项数适中**的 UI 列表（背包 / 聊天 / 设置项 / 队伍）。要展示上万项、需要滚动复用（虚拟化）时，用 UI Toolkit 原生 `ListView`——设 `itemsSource` + 变化时 `RefreshItems()`：
+
+```csharp
+var list = Root.Q<ListView>("big-list");
+var source = this.ExecuteCommand(new GetItemsCommand());
+list.itemsSource = source.ToList();          // ListView 要非泛型 IList，维护一份快照
+Bag.Subscribe(source.ObserveChanged(), _ => { list.itemsSource = source.ToList(); list.RefreshItems(); });
+```
+
+弹幕级高频增删（成百上千个每帧生灭）也不走 `BindList`——用领域 `List` + 手动对象池（见 §7）。设计取舍与「刻意不做虚拟化 / 过滤视图」的理由见 ADR-0027。
+
+---
+
+## 25. 推荐项目结构
 
 把框架用进正式项目时，按「特性模块自洽 + 可整单元裁剪」组织，而不是按技术类型（all Models / all Views）摊平。下面是从 demo 提炼的原则——demo 自身是活样例，但有两处别照抄（见末尾）。
 
