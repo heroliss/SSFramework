@@ -49,14 +49,14 @@ roadmap 中期第六项：把散在各组件 Inspector「运行时诊断」折�
 
 ### 6. Editor 窗口 `FrameworkDiagnosticsWindow`（菜单 `SSFramework/诊断/框架诊断面板`）
 
-一屏四节，全部只读：
+**UI Toolkit 实现的调试器风格布局**（TreeView / MultiColumnListView 现成控件，也顺应框架「面向 UI Toolkit」的技术栈方向），全部只读：
 
-1. **Context 树**：按父子缩进展示存活 Context（DebugName + 存活时长）；每节点展开本地注册表（契约 → 实例类型 / 「工厂·未实例化」——**绝不触发工厂**，诊断不得改变被观察系统）、事件订阅计数（订阅数异常增长 = 泄漏嫌疑）、本地注册的 `IPoolUtility` 池概要。
-2. **全局计数**：存活 Context 数、DisposableBag 存活/累计。
-3. **Command 流水**：`LoggingCommandSystem` 环形缓冲的最近 N 条；未接入时显示一行接入指引，不报错。
-4. Play 模式外显示提示（登记表只在运行期有内容）。
+1. **左：Context 作用域树**（TreeView）——存活 Context 按 `Container.Parent` 链成树，节点带徽标（Main / Mono·C# / →Main 回退）与「注册 · 订阅 · 存活时长」摘要；工具栏搜索按「名称 / 注册契约 / 事件类型」过滤（保留祖先链）；双击定位场景对象。
+2. **右：选中 Context 明细**——本地注册表（契约 → 实例，运行时 / 构建时 / 工厂徽标——**绝不触发工厂**，诊断不得改变被观察系统；Unity 对象带定位按钮）、事件订阅计数（异常增长 = 泄漏嫌疑）、本地 `IPoolUtility` 池借出 / 空闲。
+3. **下：Command 流水表格**（MultiColumnListView）——`LoggingCommandSystem` 环形缓冲，新的在上；耗时着色（≥1 帧 / ≥100ms）、过滤 + 仅错误开关 + TSV 复制导出；未接入时显示一行接入指引，不报错。
+4. **顶栏计数条**：存活 Context / Bag 存活（各带约 30 秒窗口的趋势 sparkline，Painter2D 自绘）/ 命令累计。Play 模式外树区显示提示（登记表只在运行期有内容）。
 
-`OnInspectorUpdate`（约 10Hz）自动重绘，无手动刷新负担。
+500ms 定时**增量刷新**：结构签名没变只重绑可见行（树的展开状态按稳定 id 记忆、选中与滚动不丢），变了才重建；「自动刷新」可暂停冻结快照。
 
 ### 7. 刻意不做
 
