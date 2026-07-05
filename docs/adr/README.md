@@ -33,3 +33,4 @@
 | [0025](0025-font-fallback.md) | 字体策略：精简字集随包 + 主字体 fallback 链 + OS 字体运行时兜底 | Accepted |
 | [0026](0026-framework-diagnostics-panel.md) | 框架诊断面板：Editor 采集层（Context 登记表 / 计数）+ 总览窗口 + LoggingCommandSystem | Accepted |
 | [0027](0027-reactive-collections-list-binding.md) | 响应式集合：ObservableList + 后端中立增量列表绑定（`Bag.BindList`），补 RP 单值订阅的集合空缺 | Accepted |
+| [0028](0028-network.md) | 网络：IHttpUtility 请求-响应 + IWebSocketUtility 推送转事件，传输/序列化双接缝 | Accepted |
