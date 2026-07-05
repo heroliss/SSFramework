@@ -52,3 +52,13 @@
 - `[DefaultExecutionOrder]` 必须留在具体类（按具体类型生效，泛型基类标不生效）。
 - `MonoViewBase` 不注册到容器（只 Inject），保持独立、不继承 `MonoLayerBase`。
 - OnDestroy 反注册的 IsDisposed 短路（父 Context 先销毁场景）已在基类实现，业务/新层无需重写——除非你新增一个**会注册到容器的** Mono 层基类，那时照搬 `MonoLayerBase` 模式。
+
+## 配置 Profile 约定（菜单可达 + 总览登记）
+
+模块的编辑器配置资产（profile ScriptableObject）**不允许只能靠翻文件夹找到**。新增一类配置 profile 必须同时做三件事：
+1. **菜单可达**：模块子菜单 `SSFramework/<模块>/` 的 priority=20 位置放配置入口——单例型直达定位选中（先例：资源构建 / 热更构建的配置菜单项），多份型开专属「配置总览」窗口（先例：`LubanConfigOverviewWindow` / `ServiceInstallerOverviewWindow`）。
+2. **hub 登记**：在 `FrameworkConfigOverviewWindow` 的 `Sections` 表加一行（字符串类型名 + 程序集限定名——刻意无编译期引用，模块整块删除后节自动隐藏）。
+3. **数量语义显式化**：单例型 `Resolve()` 找到多份取第一并 LogWarning（先例：`FrameworkAssetBuildProfile.Resolve`）；多份型 `ResolveAll()` 按资产路径排序保证显示稳定。
+
+**Why:** 配置资产按类型扫描定位、不认路径（ADR-0010/0011 项目配置不进框架包），散落各目录后「有哪些、在哪、哪份生效」全靠记忆，demo / 正式项目并存时更甚——菜单 + hub 是唯一稳定入口。hub 用字符串发现类型，编译器不会提醒漏登记，只能靠本条规则兜住。
+**How to apply:** 新增带 `[CreateAssetMenu]` 的编辑器配置 ScriptableObject 时触发本条；运行时配置（如场景组件 `AssetSystemConfigModel`）不适用。
