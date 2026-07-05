@@ -32,3 +32,4 @@
 | [0024](0024-localization.md) | 本地化：ILocalizationUtility 响应式 locale + 文本源接缝 + 组合既有原语 | Accepted |
 | [0025](0025-font-fallback.md) | 字体策略：精简字集随包 + 主字体 fallback 链 + OS 字体运行时兜底 | Accepted |
 | [0026](0026-framework-diagnostics-panel.md) | 框架诊断面板：Editor 采集层（Context 登记表 / 计数）+ 总览窗口 + LoggingCommandSystem | Accepted |
+| [0027](0027-reactive-collections-list-binding.md) | 响应式集合：ObservableList + 后端中立增量列表绑定（`Bag.BindList`），补 RP 单值订阅的集合空缺 | Accepted |

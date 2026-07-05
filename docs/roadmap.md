@@ -64,6 +64,7 @@ DOTS 是数据/Job/Burst 范式，与引用式 OOP 不同。框架的定位是**
 | 音频服务 | ✅ 已落地 | `IAudioUtility`：音乐单通道（切换自动交叉淡变、同 clip 幂等）+ 池化音效（一次性自动回收、循环 handle 进 Bag 随宿主自动停）+ 分组音量（主 × 组 × 单次，即时生效）。刻意不上 AudioMixer / 不做 provider 层——接口本身就是 FMOD / Wwise 的接缝。ADR-0022 |
 | 游戏流程状态机 | ✅ 已落地 | `IGameFlow`：宏观阶段显式化为 `FlowState` 一次性实例（传参走构造），每状态一个子 Context 退出整棵撤（切阶段漏清理被结构性消灭）；转换串行 + 最新意图胜。刻意不做转换表 / HSM / 场景绑定 / 历史栈。ADR-0023 |
 | 本地化 | ✅ 已落地 | `ILocalizationUtility`：响应式 Locale（SetLocale 推送、绑定全量刷新）+ 缺 key 裸 key 上屏 + 文本源单方法接缝（业务包配置表 / 内置字典源）；per-locale 资源刻意零 API（多 package 组合）。字体切换归 ADR-0025。ADR-0024 |
+| 响应式集合 / 列表绑定 | ✅ 已落地 | `ObservableList<T>` 持有集合状态（如单值用 `RP<T>`）+ `Bag.BindList` 增量绑定（Toolkit / UGUI 双后端，只动变化项、不整表重建，每行独享子 bag）。后端中立增量引擎单点可测、内核零改动；藏在 `Bag.BindList` 后隔离 ObservableCollections。ADR-0027 |
 | 字体（多语言字体链） | ✅ 已落地 | `MonoLocaleFonts` / `LocaleFontChain`：三层字体策略（①精简主字体随包 + ②per-locale 补充字体 + ③OS 字体运行时兜底）写进主字体 fallback 表，订阅 `Locale` 自动切换、业务零调用；未配置 locale 降级不炸、销毁还原原始表。Editor「生成常用字集」菜单产 charset 喂 TMP Font Asset Creator。刻意不做全字库随包 / atlas 调优 / 远程字体协议。ADR-0025 |
 | UPM 抽包 | 🔮 规划 | 框架稳定后从 `Assets/Game/Framework` 抽成内嵌/独立 UPM 包。ADR-0010 |
 
@@ -77,12 +78,12 @@ DOTS 是数据/Job/Burst 范式，与引用式 OOP 不同。框架的定位是**
 | **DOTS / 多线程** | 见 Phase 3 | 框架协调 ECS（System/Utility 包 `World`，Command 调度 Job / `EntityCommandBuffer`）；主线程契约与 Job 边界明确 |
 | **Cysharp 生态选型** | 见下 | 从 [Cysharp 仓库](https://github.com/orgs/Cysharp/repositories) 评估可融入的库 |
 
-**Cysharp 生态候选**（已用 UniTask + R3）：
+**Cysharp 生态候选**（已用 UniTask + R3 + ObservableCollections）：
 - **MessagePipe** —— 高性能消息/事件管线，评估与框架 Event 总线的关系（替代/互补）。
 - **MemoryPack** —— 高性能二进制序列化，可作存储/网络的序列化后端。
 - **ZLogger** —— 零分配结构化日志，评估与 `FrameworkLog` 的整合。
 - **MagicOnion** —— 基于 gRPC 的实时通信，作网络模块候选。
-- **ObservableCollections** —— 可观察集合，补 R3 在集合响应式上的空缺。
+- ~~**ObservableCollections**~~ —— ✅ 已融入（ADR-0027）：`ObservableList<T>` + `Bag.BindList` 补 R3 集合响应式空缺，藏在绑定接口后。
 - **ZString** —— 零分配字符串构造，UI/日志高频拼接场景。
 - 选型原则：先确认"框架真的需要"，再评估与既有栈（UniTask/R3/YooAsset/Odin）的契合度与 AOT/热更兼容性，最后藏在框架接口后引入。
 
@@ -113,7 +114,7 @@ DOTS 是数据/Job/Burst 范式，与引用式 OOP 不同。框架的定位是**
 4. **本地化** ✅ 已落地（ADR-0024）：`ILocalizationUtility` 小内核——响应式 `Locale`（RP，SetLocale 推送即全量刷新、同值幂等）+ `Get`/格式化（缺 key 回退链 fallbackLocale → 裸 key 上屏 + 一次性警告；模板错返回原文不炸）+ `ILocalizedTextSource` 单方法接缝（构造注入，内置字典源）；Toolkit `Bag.BindLocalizedText`，UGUI/动态参数走 Subscribe/CombineLatest 一行组合；per-locale 资源刻意零 API（多 package/后缀约定组合）。五件套齐：ADR / 内核实现（`Core/Localization/`）/ 测试 / demo「本地化 · 多语言」章 / guide §21 + AGENTS #29。
 5. **字体（多语言字体链）** ✅ 已落地（ADR-0025）：三层字体策略——①精简常用字集随包 + ②per-locale 补充字体 + ③OS 字体运行时兜底（`CreateFontAsset(族名, null, 90)`），三层都写进**主字体 fallback 表**（双后端 per-font 表 public 可写，比全局 settings 更对称）；`MonoLocaleFonts` 订阅 `Locale` 自动切换、业务零调用，未配置 locale 降级不炸、销毁还原原始表 + 销毁运行时资产。双后端差异实测：TMP 缺字真豆腐（②③刚需），Toolkit 引擎内建 OS 兜底（②管字形归属）。Editor「生成常用字集」菜单扫配置表/代码/文案出 charset 喂 TMP Font Asset Creator。五件套齐：ADR / 模块实现（`Fonts/`，独立 asmdef 收口 TMP 依赖）/ 测试（`FontFallbackTests`）/ demo「字体 · 多语言字体链」章 / guide §22 + AGENTS #30。
 6. **框架诊断面板（Editor 窗口）** ✅ 已落地（ADR-0026）：菜单 `SSFramework/诊断/框架诊断面板`，UI Toolkit 调试器风格（左树 · 右明细 · 下命令表格，搜索过滤 / 双击定位场景对象 / 趋势 sparkline / TSV 导出）——存活 Context 作用域树（纯 C# Context 靠新增 `DebugName` 首次可见）+ 各容器本地注册表（不触发工厂）+ 事件订阅计数 + DisposableBag 存活计数 + 池借出/空闲（`CountActive` 补齐）+ Command 流水（`LoggingCommandSystem` 从文档示例变实物，opt-in 装饰器、验证可插拔设计，demo 已接入）。采集层 `#if UNITY_EDITOR` 编译消除、玩家包零成本；展示层经 InternalsVisibleTo 白盒读取，诊断数据面不进公共 API。五件套：ADR / 内核采集（`Core/Diagnostics/`）+ 窗口（`Editor/`）/ 测试（`DiagnosticsTests`）/ guide §23（demo 章不适用——面板无业务 API，现有 demo 场景即观察素材）。
-7. **ObservableCollections 评估**：UI 列表绑定是 R3 单值订阅覆盖不到的空缺。
+7. **响应式集合与列表绑定** ✅ 已落地（ADR-0027）：R3 单值订阅覆盖不到的集合空缺——集合状态用 `ObservableList<T>` 持有（如单值用 `RP<T>`），UI 用 `Bag.BindList` 增量绑定（Toolkit 绑 `VisualElement`、UGUI 绑 `Transform`，同一套心智）：集合增删移换只动对应子视图、不整表重建；每行独享子 bag 随行进出自动退订。后端中立的增量引擎（`Game.Framework.UI/ReactiveListBinding.cs`）单点实现、纯 C# 可测，内核零改动、不新增内核依赖。刻意不做虚拟化（大列表用 Toolkit 原生 `ListView`）/ 过滤视图 / 字典绑定。ObservableCollections 从「Cysharp 候选」变成「已融入、藏在 `Bag.BindList` 后」。五件套齐：ADR / 引擎 + 双后端适配 / 测试（`ReactiveListBindingTests`）/ demo「响应式列表 · 集合绑定」章 / guide §24 + AGENTS #31。
 
 ### 长期（已有 ADR / 规划，时机到再动）
 

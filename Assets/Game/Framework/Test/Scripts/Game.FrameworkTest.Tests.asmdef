@@ -17,6 +17,8 @@
     "precompiledReferences": [
         "nunit.framework.dll",
         "R3.dll",
+        "ObservableCollections.dll",
+        "ObservableCollections.R3.dll",
         "Sirenix.OdinInspector.Attributes.dll",
         "Sirenix.Serialization.dll"
     ],

@@ -215,3 +215,11 @@ struct 不能用 `this.GetXxx<T>()` 扩展方法（值类型接口调用必然�
 - **OS 族名用英文名**（「微软雅黑」查不到）、按目标平台配齐候选；全失败降级①②不炸。①主字体用菜单 `SSFramework/字体/生成常用字集` + TMP Font Asset Creator 烘焙。
 - 双后端差异（Unity 6000.3 实测）：**TMP 缺字真豆腐**（②③刚需，且缺字会查 TMP Settings 默认字体的链——别依赖这个巧合）；**Toolkit 引擎内建 OS 兜底**（缺字不豆腐但字形随平台走，② 的价值是字形归属可控）。固定文本 + 链条变化需重设一次 text 触发重排（本地化文本天然免疫）。
 - 特殊场景（给独立字体单独挂链 / 纯 C# 环境）直接用 `LocaleFontChain`（构造 + `Apply` + `Dispose` 还原）。详见 guide §22、ADR-0025。
+
+## 31. 响应式集合与列表绑定（ObservableList + Bag.BindList）
+
+- **集合状态用 `ObservableList<T>` 持有**（如单值用 `RP<T>`；`using ObservableCollections;`，直接用库类型不包装不加别名）；只读暴露 / 查询 Command 返回用它实现的 `IReadOnlyObservableList<T>`（如单值的 `ReadOnlyReactiveProperty<T>`）。会增删重排的列表**不要**塞进 `RP<IReadOnlyList<T>>` 整包推——那会逼 View 每次清空重建整表（丢滚动/选中/焦点、抖 GC）。
+- **UI 绑定用 `Bag.BindList`**（如单值用 `Bag.BindText`）：Toolkit 绑 `VisualElement` 容器、UGUI 绑 `Transform` 容器，同一套写法只换容器与项类型。集合增删移换只增量动对应子视图；绑定登记进 Bag 随视图销毁统一解绑并销毁全部子视图。
+- **每行一个子作用域**：`BindList` 工厂第二参是该行专属子 `DisposableBag`——行内订阅（随 RP 刷新、行内按钮）挂它，该行离开列表自动退订，无行内订阅就忽略它。**不要**在工厂里给 UGUI 子物体设父级 / 兄弟位（交给绑定摆放）。
+- **移除即销毁**：`BindList` 移除行时 Toolkit `RemoveFromHierarchy` / UGUI `Destroy`——要池化复用 / 弹幕级高频用领域 List + 手动池（见 #23），不走 BindList。上万项要虚拟化滚动复用用 Toolkit 原生 `ListView`（guide §24 给姿势），框架刻意不包 `BindListView`。
+- Model / Command 侧不受 UI 影响：`ObservableList<T>` 是普通集合原语，纯 C# 逻辑 / 单测可直接用。详见 guide §24、ADR-0027。

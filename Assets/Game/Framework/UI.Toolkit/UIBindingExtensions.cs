@@ -1,5 +1,6 @@
 using System;
 using Game.Framework.Localization;
+using ObservableCollections;
 using R3;
 using UnityEngine.UIElements;
 
@@ -65,6 +66,28 @@ namespace Game.Framework.UI.Toolkit
             var loc = ResolveLocalization(bag);
             return bag.Subscribe(loc.Locale, _ => element.text = loc.Get(key, args));
         }
+
+        /// <summary>
+        /// 把一个响应式集合（<see cref="IReadOnlyObservableList{T}"/>）<b>增量</b>绑定到 <paramref name="container"/>：
+        /// 为每个元素造一个子 <see cref="VisualElement"/>，集合增删移换时只动对应子元素，不整表重建
+        /// （保住滚动 / 选中 / 焦点，不抖 GC）。补 <c>BindText</c> 等单值绑定覆盖不到的列表空缺。
+        /// </summary>
+        /// <param name="container">承载子元素的容器（如一个竖排 <see cref="VisualElement"/>）。子元素按源集合顺序排列。</param>
+        /// <param name="source">响应式源集合（一般是 Model 持有、经只读查询 Command 以 <see cref="IReadOnlyObservableList{T}"/> 暴露）。</param>
+        /// <param name="itemFactory">
+        /// 为一个元素造子视图；第二参是<b>该行专属</b>的子 <see cref="DisposableBag"/>——行内订阅（如「这一行随 RP 刷新」）挂它，
+        /// 该行离开列表时自动退订。无行内订阅就忽略它。行内可照常 <c>rowBag.BindText(...)</c> / <c>rowBag.SubscribeClick(...)</c>。
+        /// </param>
+        /// <remarks>目标是项数适中的 UI 列表（背包 / 聊天 / 设置项）。上万项要虚拟化滚动复用用 UI Toolkit 原生 <c>ListView</c>（见 guide §24）。</remarks>
+        public static IDisposable BindList<T>(
+            this DisposableBag bag, VisualElement container,
+            IReadOnlyObservableList<T> source,
+            Func<T, DisposableBag, VisualElement> itemFactory)
+            => ReactiveListBinding.Bind(bag, source, itemFactory,
+                attach: (index, view) => container.Insert(index, view),
+                detach: view => view.RemoveFromHierarchy(),
+                // Toolkit 无「移到某兄弟位」直接 API：摘下再插回目标位（其余子元素已在正确相对序）。
+                reorder: (index, view) => { view.RemoveFromHierarchy(); container.Insert(index, view); });
 
         private static ILocalizationUtility ResolveLocalization(DisposableBag bag)
         {
