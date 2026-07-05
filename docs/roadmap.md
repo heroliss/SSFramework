@@ -64,6 +64,7 @@ DOTS 是数据/Job/Burst 范式，与引用式 OOP 不同。框架的定位是**
 | 音频服务 | ✅ 已落地 | `IAudioUtility`：音乐单通道（切换自动交叉淡变、同 clip 幂等）+ 池化音效（一次性自动回收、循环 handle 进 Bag 随宿主自动停）+ 分组音量（主 × 组 × 单次，即时生效）。刻意不上 AudioMixer / 不做 provider 层——接口本身就是 FMOD / Wwise 的接缝。ADR-0022 |
 | 游戏流程状态机 | ✅ 已落地 | `IGameFlow`：宏观阶段显式化为 `FlowState` 一次性实例（传参走构造），每状态一个子 Context 退出整棵撤（切阶段漏清理被结构性消灭）；转换串行 + 最新意图胜。刻意不做转换表 / HSM / 场景绑定 / 历史栈。ADR-0023 |
 | 本地化 | ✅ 已落地 | `ILocalizationUtility`：响应式 Locale（SetLocale 推送、绑定全量刷新）+ 缺 key 裸 key 上屏 + 文本源单方法接缝（业务包配置表 / 内置字典源）；per-locale 资源刻意零 API（多 package 组合）。字体切换归 ADR-0025。ADR-0024 |
+| 字体（多语言字体链） | ✅ 已落地 | `MonoLocaleFonts` / `LocaleFontChain`：三层字体策略（①精简主字体随包 + ②per-locale 补充字体 + ③OS 字体运行时兜底）写进主字体 fallback 表，订阅 `Locale` 自动切换、业务零调用；未配置 locale 降级不炸、销毁还原原始表。Editor「生成常用字集」菜单产 charset 喂 TMP Font Asset Creator。刻意不做全字库随包 / atlas 调优 / 远程字体协议。ADR-0025 |
 | UPM 抽包 | 🔮 规划 | 框架稳定后从 `Assets/Game/Framework` 抽成内嵌/独立 UPM 包。ADR-0010 |
 
 ## 规划中的模块（待选型研究）
@@ -110,7 +111,7 @@ DOTS 是数据/Job/Burst 范式，与引用式 OOP 不同。框架的定位是**
 2. **音频服务** ✅ 已落地（ADR-0022）：`IAudioUtility` 音乐单通道（切换自动交叉淡变、同 clip 幂等）+ 池化音效（`ObjectPool` 原语复用、一次性自动回收、循环音效 handle 进 Bag 随宿主自动停）+ 分组音量（主 × 组 × 单次，即时生效；持久化归业务）；刻意不上 AudioMixer / 不做 provider 层（接口即接缝）。五件套齐：ADR / 内核实现（`Core/Audio/`）/ 测试 / demo「音频 · BGM 与音效」章 / guide §19 + AGENTS #27。
 3. **游戏流程状态机** ✅ 已落地（ADR-0023）：`IGameFlow` 显式 Flow——`FlowState` 一次性实例（传参走构造）+ 每状态一个子 Context（私有服务/订阅/资源退出整棵撤）+ 串行转换最新意图胜（在途 OnEnter 协作取消；Enter 失败 = 明确无状态、异常冒给调用方）+ `FlowChangedEvent` 单事件观察；刻意不做转换表/HSM（子 flow 组合即嵌套）/场景绑定/历史栈。五件套齐：ADR / 内核实现（`Core/Flow/`）/ 测试 / demo「游戏流程 · 阶段状态机」章 / guide §20 + AGENTS #28。
 4. **本地化** ✅ 已落地（ADR-0024）：`ILocalizationUtility` 小内核——响应式 `Locale`（RP，SetLocale 推送即全量刷新、同值幂等）+ `Get`/格式化（缺 key 回退链 fallbackLocale → 裸 key 上屏 + 一次性警告；模板错返回原文不炸）+ `ILocalizedTextSource` 单方法接缝（构造注入，内置字典源）；Toolkit `Bag.BindLocalizedText`，UGUI/动态参数走 Subscribe/CombineLatest 一行组合；per-locale 资源刻意零 API（多 package/后缀约定组合）。五件套齐：ADR / 内核实现（`Core/Localization/`）/ 测试 / demo「本地化 · 多语言」章 / guide §21 + AGENTS #29。
-5. **兜底字库 + 运行时系统字体**：CJK 全量字库体积大——策略 = 精简常用字集随包 + TMP fallback 链兜生僻字 + 运行时 `Font.CreateDynamicFontFromOSFont` 生成动态 `TMP_FontAsset` 作最后兜底（用户名 / 聊天等不可预知文本）。与本地化一起设计（字体本身也按 locale 切换）。
+5. **字体（多语言字体链）** ✅ 已落地（ADR-0025）：三层字体策略——①精简常用字集随包 + ②per-locale 补充字体 + ③OS 字体运行时兜底（`CreateFontAsset(族名, null, 90)`），三层都写进**主字体 fallback 表**（双后端 per-font 表 public 可写，比全局 settings 更对称）；`MonoLocaleFonts` 订阅 `Locale` 自动切换、业务零调用，未配置 locale 降级不炸、销毁还原原始表 + 销毁运行时资产。双后端差异实测：TMP 缺字真豆腐（②③刚需），Toolkit 引擎内建 OS 兜底（②管字形归属）。Editor「生成常用字集」菜单扫配置表/代码/文案出 charset 喂 TMP Font Asset Creator。五件套齐：ADR / 模块实现（`Fonts/`，独立 asmdef 收口 TMP 依赖）/ 测试（`FontFallbackTests`）/ demo「字体 · 多语言字体链」章 / guide §22 + AGENTS #30。
 6. **框架诊断面板（Editor 窗口）**：把散在各组件 Inspector「运行时诊断」折叠组里的信息聚合成一个总览窗口——Context 树 + 各容器本地注册表、事件订阅计数（各 Subject 订阅数，异常增长 = 泄漏嫌疑）、Command 流水（挂 LoggingCommandSystem 装饰器即得，正好验证可插拔设计）、DisposableBag 存活计数、对象池占用/空闲。定位是「框架状态一屏看穿」的调试与泄漏排查入口。
 7. **ObservableCollections 评估**：UI 列表绑定是 R3 单值订阅覆盖不到的空缺。
 

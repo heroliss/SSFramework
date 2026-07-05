@@ -1,12 +1,10 @@
 {
-    "name": "Game.Framework",
-    "rootNamespace": "Game.Framework",
+    "name": "Game.Framework.Fonts",
+    "rootNamespace": "Game.Framework.Fonts",
     "references": [
-        "UniTask",
+        "Game.Framework",
         "R3",
-        "R3.Unity",
-        "Sirenix.OdinInspector.Attributes",
-        "Sirenix.Serialization"
+        "Unity.TextMeshPro"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

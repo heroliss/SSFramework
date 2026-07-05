@@ -6,6 +6,8 @@
         "UniTask",
         "Game.Framework",
         "Game.Framework.UI",
+        "Game.Framework.Fonts",
+        "Unity.TextMeshPro",
         "UnityEngine.TestRunner"
     ],
     "includePlatforms": [],

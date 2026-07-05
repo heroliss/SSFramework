@@ -4,13 +4,15 @@
     "references": [
         "Game.Framework",
         "Game.Framework.Config",
+        "Game.Framework.Fonts",
         "Game.Framework.UI",
         "Game.Framework.UI.Toolkit",
         "Game.Framework.UI.UGui",
         "Luban.Runtime",
         "R3",
         "R3.Unity",
-        "UniTask"
+        "UniTask",
+        "Unity.TextMeshPro"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

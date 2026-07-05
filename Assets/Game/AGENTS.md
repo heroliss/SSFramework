@@ -207,4 +207,11 @@ struct 不能用 `this.GetXxx<T>()` 扩展方法（值类型接口调用必然�
 - UI 文本**绑 key 不绑死文案**：Toolkit 用 `Bag.BindLocalizedText(label, key[, 静态args])`；UGUI/TMP 用 `Bag.Subscribe(loc.Locale, _ => tmp.text = loc.Get(key))` 一行；动态参数用 `CombineLatest(数据, Locale)` 组合——**不要**手动查完文本赋值就完事（换语言不会刷新）。
 - 注册 `RegisterOwned(new LocalizationUtility(源, 初始语言, fallbackLocale))`——文本源经构造注入：业务 ~10 行 adapter 包自己的 Luban 表（`TryGet` 查表即可，回退/警告框架统一处理），小体量用内置 `DictionaryLocalizedTextSource`。
 - locale code 开放字符串 + 业务常量；语言列表、`SystemLanguage` 映射、**语言选择持久化归业务**（设置数据走 IStorageUtility，启动回灌）。缺 key = 裸 key 上屏 + 一次性警告（刻意行为，别包一层空串兜底把缺失藏起来）。
-- per-locale 资源零专门 API：locale 分包（多 package）/ location 后缀 + `Bag.Subscribe(Locale, ...)` 重加载。复数/CLDR 规则、翻译工具、字体切换（ADR-0025）都不在本接口。详见 guide §21、ADR-0024。
+- per-locale 资源零专门 API：locale 分包（多 package）/ location 后缀 + `Bag.Subscribe(Locale, ...)` 重加载。复数/CLDR 规则、翻译工具、字体切换（见 #30）都不在本接口。详见 guide §21、ADR-0024。
+
+## 30. 字体 MonoLocaleFonts
+
+- 多语言字体 = 场景根 Context 挂**一份** `MonoLocaleFonts`（`Game.Framework.Fonts` 模块）：配主字体列表（TMP / Toolkit 两栏，互不相认各配各的）+ 各 locale 档案（②补充字体 + ③OS 族名候选）——订阅 `Locale` 自动把「原始表 + ② + ③」写进主字体的 fallback 表，**业务零调用**。链条只管列出的主字体；同一主字体别被两份组件接管（快照互相覆盖）。
+- **OS 族名用英文名**（「微软雅黑」查不到）、按目标平台配齐候选；全失败降级①②不炸。①主字体用菜单 `SSFramework/字体/生成常用字集` + TMP Font Asset Creator 烘焙。
+- 双后端差异（Unity 6000.3 实测）：**TMP 缺字真豆腐**（②③刚需，且缺字会查 TMP Settings 默认字体的链——别依赖这个巧合）；**Toolkit 引擎内建 OS 兜底**（缺字不豆腐但字形随平台走，② 的价值是字形归属可控）。固定文本 + 链条变化需重设一次 text 触发重排（本地化文本天然免疫）。
+- 特殊场景（给独立字体单独挂链 / 纯 C# 环境）直接用 `LocaleFontChain`（构造 + `Apply` + `Dispose` 还原）。详见 guide §22、ADR-0025。

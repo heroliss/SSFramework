@@ -23,7 +23,8 @@
 19. [音频（BGM / 音效）](#19-音频bgm--音效)
 20. [游戏流程状态机](#20-游戏流程状态机)
 21. [本地化（多语言）](#21-本地化多语言)
-22. [推荐项目结构](#22-推荐项目结构)
+22. [字体（多语言字体链）](#22-字体多语言字体链)
+23. [推荐项目结构](#23-推荐项目结构)
 
 ---
 
@@ -1239,7 +1240,7 @@ public class MiniGameController : MonoBehaviour
 
 ## 13. AssetReference（资源引用）
 
-框架通过 `IAssetUtility` 与 `AssetReference<T>` 提供统一资源入口。业务动态加载用 location；Inspector 拖拽引用用 `AssetReference<T>`。GUID 只保存在引用内部，不作为业务 API 暴露。资源在工程里按类型 / 模块怎么摆（及 YooAsset 寻址 / 打包约定）见 §22「推荐项目结构」。
+框架通过 `IAssetUtility` 与 `AssetReference<T>` 提供统一资源入口。业务动态加载用 location；Inspector 拖拽引用用 `AssetReference<T>`。GUID 只保存在引用内部，不作为业务 API 暴露。资源在工程里按类型 / 模块怎么摆（及 YooAsset 寻址 / 打包约定）见 §23「推荐项目结构」。
 
 `MonoViewBase/MonoModelBase/MonoSystemBase/MonoUtilityBase` 内置 protected `Bag`——动态加载通过 `Bag.Load<T>(location)` / `Bag.LoadScene(...)`，handle 自动登记到 Bag，`OnDestroy` 时统一释放；`Bag.LoadText` / `Bag.LoadBytes` 是内容直读（拷出即释放句柄、不进 Bag），按包构建类型自动路由（普通 AB 包按 TextAsset 取内容，RawFile 包走原生通道）。`AssetReference<T>` 字段则自己持有 handle，并由宿主 `OnDestroy` 自动 `Dispose`。真实引用计数由具体资源 provider 维护，框架只管理“谁负责释放哪一类 handle”。
 
@@ -1671,7 +1672,7 @@ Bag.Subscribe(
 
 ## 16. 配置表（Luban）
 
-表定义（XML）与数据（JSON / Excel）放在一处 conf 源目录（demo 那套在 `Assets/Game/Framework/Demo/Configs~/`，`~` 后缀让 Unity 不导入、纯构建期输入）→ 菜单跑 Luban CLI 生成**配置 C# 类 + 二进制数据 + 表清单** → 运行期由一个自加载的配置 Utility 服务持表，数据文件随资源包打包与热更。设计原理与取舍见 ADR-0009；源 / 输出目录在模块里怎么摆见 §22「推荐项目结构」。
+表定义（XML）与数据（JSON / Excel）放在一处 conf 源目录（demo 那套在 `Assets/Game/Framework/Demo/Configs~/`，`~` 后缀让 Unity 不导入、纯构建期输入）→ 菜单跑 Luban CLI 生成**配置 C# 类 + 二进制数据 + 表清单** → 运行期由一个自加载的配置 Utility 服务持表，数据文件随资源包打包与热更。设计原理与取舍见 ADR-0009；源 / 输出目录在模块里怎么摆见 §23「推荐项目结构」。
 
 > **多套并存**：每套配置 = 一个 `LubanConfigProfile`（各自的 conf 源 + 输出目录 + topModule，互不干扰）。demo 与正式游戏可各一套——`LubanConfigProfile.ResolveAll()` 返回全部、菜单「生成」逐套生成，多套集中管理用「配置总览」窗口。demo 那套（源 / 代码 / 数据全在 `Demo/` 内）随 demo 程序集与样例资源包在正式打包时一并排除。
 
@@ -2233,7 +2234,7 @@ locale code 是**开放字符串 + 业务常量**（与音频组、存储 key �
 - **翻译导出导入工具**：Luban 的 Excel 一列一语言本身就是翻译工作流。
 - **场景静态文本收集**：本框架 UI 全代码驱动，文本入口天然收敛在 `BindLocalizedText`。
 - **「需重启生效」机制**：表驱动 + 响应式绑定下没有理由重启。
-- **字体切换**：归 ADR-0025 字体策略（规划中）——字体模块订阅 `Locale` RP，本模块只出信号。
+- **字体切换**：归 §22 字体模块（ADR-0025）——字体模块订阅 `Locale` RP，本模块只出信号。
 
 > **要点回顾**
 >
@@ -2244,7 +2245,65 @@ locale code 是**开放字符串 + 业务常量**（与音频组、存储 key �
 
 ---
 
-## 22. 推荐项目结构
+## 22. 字体（多语言字体链）
+
+CJK 全量字库体积大（单字体 15~30MB），全量随包不现实；砍了字库，生僻字 / 用户输入又变豆腐块。框架的答案是**三层字体策略**，三层都挂在**主字体资产的 fallback 表**上——文本渲染自动逐层找字形，业务代码零感知、零调用。ADR-0025。
+
+| 层 | 内容 | 覆盖 |
+|---|---|---|
+| ① 随包主字体 | 精简常用字集烘焙的 static atlas | 已知 UI 文案与配置表文本（99% 显示量） |
+| ② locale 补充字体 | per-locale 配置的补充字体资产（动态 atlas，如 NotoSansSC） | 生僻字 / 特定语言差集 |
+| ③ OS 字体兜底 | 运行时按族名候选创建动态字体资产，挂链尾 | 用户名 / 聊天等不可预知文本 |
+
+### 快速开始
+
+场景根 Context 子节点挂 **`MonoLocaleFonts`**（`Game.Framework.Fonts` 模块），Inspector 配三样：
+
+1. **主字体列表**（TMP / UI Toolkit 两栏，两套互不相认的资产类型各配各的；单后端项目另一栏留空）——链条写到这些资产的 fallback 表上；
+2. **各 locale 档案**：locale code → ②补充字体（两栏）+ ③OS 字体族名候选（如 `Microsoft YaHei` / `PingFang SC` / `Noto Sans CJK SC`）；
+3. 同 Context（或父级）注册好 `ILocalizationUtility`（§21）——组件订阅 `Locale`，换语言自动重写链条，**业务零调用**。
+
+```text
+换语言时每个主字体的表被重写为：原始表 + ②当前语言补充 + ③首个可用的 OS 字体
+未配置该 locale 的档案 → 还原为原始表（降级 + 一次性警告）；组件销毁 → 还原原始表、销毁运行时 OS 资产
+```
+
+核心逻辑在纯 C# 的 `LocaleFontChain`（构造传主字体 + 档案，`Apply(locale)` / `Dispose()`）——脱离场景可单测，特殊场景（如给某个独立字体单独挂链）也能直接用。
+
+### ① 主字体怎么来：常用字集生成
+
+菜单 **SSFramework/字体/生成常用字集**（配置见「常用字集配置 (Charset Profile)」，全工程单例、首次自动创建）：扫描配置表（`.xlsx` 读 sharedStrings，Luban 源表直配）、代码字符串字面量（`.cs` 只取字面量，注释不进字集）、文案文件（`.json` / `.txt` 全文），去重出按码点排序的 charset 文件 → TMP Font Asset Creator 选主字体 ttf + **Characters from File** 烘焙 static atlas。常用字随包秒显，生僻字交给 ②③。
+
+### 双后端的关键差异（实测 Unity 6000.3）
+
+- **TMP（UGUI 侧）没有引擎级 OS 兜底**：缺字就是豆腐块——②③ 在 TMP 侧是**刚需**。另外 TMP 缺字最后会查全局默认字体（TMP Settings → Default Font Asset）及其链，若主字体恰好就是默认字体，未列管的字体也会「沾光」——别依赖这个巧合。
+- **UI Toolkit 侧引擎内建 OS 字形兜底**（TextCore `TextSettings` 层）：缺字**不豆腐，但字形随平台走**（Windows 雅黑 / macOS 苹方，排版风格不受控）。② 层在 Toolkit 侧的价值是**把字形拿回自己手里**：链上的品牌字体优先于引擎 OS 兜底，各平台排版一致。
+- **fallback 解析结果有引擎缓存**：框架在链条应用 / 还原时已统一清缓存并强刷存活 TMP 文本；Toolkit 侧本地化文本随换语言重设 text 自然重排，**固定文本 + 链条变化**的罕见场景需业务重设一次 text 触发重排（demo 有样板）。
+
+### 使用要点
+
+- **主字体要显式列出**：链条只写在列出的资产上，没列的字体不受管理（demo 有活对照）。全工程挂**一份**（根 Context）；同一主字体被两份组件接管会互相覆盖快照，不要多挂。
+- **OS 族名用英文名**（「微软雅黑」在字体引擎查不到）；候选按目标平台配齐、按序试到第一个可用，全失败降级为①②（警告一次，不炸）。
+- **还原语义**：组件销毁（或 `LocaleFontChain.Dispose`）还原各主字体的原始表并销毁运行时创建的 OS 资产——Editor Play 会话不污染共享字体资产；资产上预配的 fallback（如 emoji 字体）始终保留在链条基底里。
+- **② 字体放 locale 分包按需下载**：字体资产就是普通资源，走 §21 的多 package 组合，不需要专门协议。
+
+### 刻意不做
+
+- **全字库随包 / 每语言完整字体**：fallback 链的意义就是共享通用字形、语言层只补差集。
+- **运行时字形卸载 / atlas 调优**：动态 atlas 内存策略交 TMP / TextCore 默认，量化出问题再调。
+- **每文本粒度换字体**：链条挂在主字体上全局生效；个别文本要专属字体直接在 UI 上指定，那不是「兜底」问题。
+
+> **要点回顾**
+>
+> - 场景挂 `MonoLocaleFonts`：主字体列表（TMP / Toolkit 两栏）+ 各 locale 档案（②资产 + ③OS 英文族名）
+> - 换语言由 §21 的 `SetLocale` 一并驱动，字体业务零调用；未配置 locale 降级不炸
+> - ① 用「生成常用字集」菜单 + TMP Font Asset Creator 烘焙
+> - TMP 缺字真豆腐（②③刚需）；Toolkit 引擎自带 OS 兜底（②管字形归属）
+> - 活样板见 demo「字体 · 多语言字体链」章 / ADR-0025
+
+---
+
+## 23. 推荐项目结构
 
 把框架用进正式项目时，按「特性模块自洽 + 可整单元裁剪」组织，而不是按技术类型（all Models / all Views）摊平。下面是从 demo 提炼的原则——demo 自身是活样例，但有两处别照抄（见末尾）。
 

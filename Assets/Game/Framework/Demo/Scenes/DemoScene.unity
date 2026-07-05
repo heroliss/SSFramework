@@ -558,6 +558,80 @@ MonoBehaviour:
       Data: 
   _inheritFromParent: 1
   _inheritFromGlobal: 1
+--- !u!1 &943790224
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 943790225}
+  - component: {fileID: 943790226}
+  m_Layer: 0
+  m_Name: LocaleFonts
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &943790225
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 943790224}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 962892730}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &943790226
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 943790224}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 46dff7ad211ab314e936e07232f79205, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.Framework.Fonts::Game.Framework.Fonts.MonoLocaleFonts
+  serializationData:
+    SerializedFormat: 2
+    SerializedBytes: 
+    ReferencedUnityObjects: []
+    SerializedBytesString: 
+    Prefab: {fileID: 0}
+    PrefabModificationsReferencedUnityObjects: []
+    PrefabModifications: []
+    SerializationNodes:
+    - Name: _targetContext
+      Entry: 6
+      Data: 
+  _tmpMainFonts:
+  - {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
+  _toolkitMainFonts:
+  - {fileID: 11400000, guid: f0521a887e8e8c34a95574da11804761, type: 2}
+  _locales:
+  - _locale: zh-CN
+    _tmpFonts:
+    - {fileID: 11400000, guid: 69637c3a9fd3905468eb01d1bd02df11, type: 2}
+    _toolkitFonts:
+    - {fileID: 11400000, guid: 7775b76e3a327414fa631b8102634192, type: 2}
+    _osFontNames:
+    - Microsoft YaHei
+    - PingFang SC
+    - Noto Sans CJK SC
+  - _locale: en
+    _tmpFonts: []
+    _toolkitFonts: []
+    _osFontNames: []
 --- !u!1 &951876503
 GameObject:
   m_ObjectHideFlags: 0
@@ -690,6 +764,7 @@ Transform:
   - {fileID: 1445504062}
   - {fileID: 1819273407}
   - {fileID: 609003090}
+  - {fileID: 943790225}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1007168409
