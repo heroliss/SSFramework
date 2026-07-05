@@ -90,6 +90,7 @@ namespace Game.Framework.Demo.Modules
                 CodeRef.Here("new LobbyDemoState(report)", "进入大厅"));
 
             var levelSlider = new SliderInt("关卡号（构造参数）", 1, 10) { value = 3, showInputField = true };
+            levelSlider.AddToClassList("demo-slider");
             host.Content.Add(levelSlider);
             host.AddActionRow("进「战斗」（带关卡号，模拟加载 1.5s）",
                 () => Go(flow, new BattleDemoState(levelSlider.value, report), report),

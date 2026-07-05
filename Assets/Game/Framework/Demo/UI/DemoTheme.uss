@@ -422,3 +422,86 @@
 .unity-scroller .unity-base-slider__dragger:hover {
     background-color: rgb(94, 99, 112);
 }
+
+/* ---- 滑动条（Slider / SliderInt，带输入框）：默认深色标签 + 白底输入框都突兀，
+       统一成可读标签 + 暗色轨道 + 蓝色手柄 + 暗底输入框。挂 .demo-slider，作用域内改写内部件，
+       不波及上面全局滚动条（滚动条的 base-slider 不在 .demo-slider 之下）---- */
+.demo-slider {
+    margin-top: 4px;
+    margin-bottom: 12px;
+}
+
+.demo-slider .unity-base-field__label {
+    color: rgb(188, 193, 203);
+    font-size: 13px;
+    min-width: 150px;
+}
+
+.demo-slider .unity-base-slider__tracker {
+    background-color: rgb(38, 41, 49);
+    border-width: 1px;
+    border-color: rgb(55, 60, 72);
+    border-radius: 3px;
+}
+
+.demo-slider .unity-base-slider__dragger {
+    background-color: rgb(59, 130, 246);
+    border-width: 0;
+    border-radius: 6px;
+    width: 12px;
+}
+
+.demo-slider .unity-base-slider__dragger:hover {
+    background-color: rgb(96, 165, 250);
+}
+
+/* showInputField 的数字输入框：默认白底 → 暗底 + 可读文字，去掉突兀白块 */
+.demo-slider .unity-base-text-field__input {
+    background-color: rgb(38, 41, 49);
+    border-width: 1px;
+    border-color: rgb(55, 60, 72);
+    border-radius: 6px;
+    color: rgb(220, 224, 232);
+}
+
+/* ---- 响应式列表章：绑定的列表项做成淡卡片（文字可读），每行末尾的 ✕ 为幽灵按钮
+       （hover 才显红，去掉默认白底的突兀）---- */
+.demo-list {
+    margin-top: 4px;
+    margin-bottom: 4px;
+}
+
+.demo-list-row {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 3px;
+    padding: 5px 6px 5px 11px;
+    background-color: rgb(30, 32, 38);
+    border-radius: 6px;
+    border-left-width: 3px;
+    border-left-color: rgb(60, 78, 110);
+}
+
+.demo-list-item {
+    flex-grow: 1;
+    font-size: 13px;
+    color: rgb(206, 211, 221);
+}
+
+.demo-list-remove {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    background-color: rgba(0, 0, 0, 0);
+    color: rgb(130, 136, 148);
+    border-width: 0;
+    border-radius: 5px;
+    font-size: 13px;
+    -unity-font-style: bold;
+    transition-duration: 0.08s;
+}
+
+.demo-list-remove:hover {
+    background-color: rgba(150, 60, 60, 0.28);
+    color: rgb(240, 160, 160);
+}
