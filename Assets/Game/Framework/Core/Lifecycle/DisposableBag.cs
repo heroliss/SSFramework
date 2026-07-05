@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using Cysharp.Threading.Tasks;
+using Game.Framework.Diagnostics;
 using Game.Framework.Event;
 using Game.Framework.Internal;
 using Game.Framework.Pool;
@@ -59,10 +60,14 @@ namespace Game.Framework
         private Dictionary<object, IDisposable> _leased;
 
         /// <summary>不持有 Context 的 bag。仅能用于 R3 / UnityEvent / C# event / IDisposable 这几类不依赖 Context 的能力。</summary>
-        public DisposableBag() { }
+        public DisposableBag() => FrameworkDiagnostics.OnBagCreated(); // Editor 外编译消除
 
         /// <param name="ctx">用于 Framework Event 订阅与资源加载；不需要这两类能力时可省略。</param>
-        public DisposableBag(IGameContext ctx) => _ctx = ctx;
+        public DisposableBag(IGameContext ctx)
+        {
+            _ctx = ctx;
+            FrameworkDiagnostics.OnBagCreated(); // Editor 外编译消除
+        }
 
         /// <summary>
         /// 创建本 bag 时关联的 Context；无参构造的 bag 为 null。
@@ -398,6 +403,7 @@ namespace Game.Framework
         {
             if (_disposed) return;
             _disposed = true;
+            FrameworkDiagnostics.OnBagDisposed(); // Editor 外编译消除
             _disposeCts.Cancel();
             _disposeCts.Dispose();
             // 缓存的 linked CTS 已被根 _disposeCts.Cancel 触发取消，这里仅释放底层资源。

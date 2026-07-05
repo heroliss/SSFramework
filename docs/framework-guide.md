@@ -24,7 +24,8 @@
 20. [游戏流程状态机](#20-游戏流程状态机)
 21. [本地化（多语言）](#21-本地化多语言)
 22. [字体（多语言字体链）](#22-字体多语言字体链)
-23. [推荐项目结构](#23-推荐项目结构)
+23. [框架诊断面板](#23-框架诊断面板)
+24. [推荐项目结构](#24-推荐项目结构)
 
 ---
 
@@ -981,23 +982,14 @@ public readonly struct CheckoutCommand : IAsyncCommand
 
 `ICommandSystem` 是一个普通接口注册，默认实现就是无状态的 `CommandSystem`。需要插入横切逻辑时，写一个装饰器实现替换默认注册即可——**所有命令一处统一拦截，业务代码零修改**。
 
+框架自带一个现成的装饰器：`LoggingCommandSystem`（命令流水记录，供诊断面板展示，见 §23）。它就是这个模式的活样板——包住内层 dispatcher、六个重载泛型直转发（struct 路径保持零装箱）：
+
 ```csharp
-public sealed class LoggingCommandSystem : ICommandSystem
-{
-    private readonly ICommandSystem _inner = new CommandSystem();
-    public List<string> History { get; } = new();
-
-    public void ExecuteCommand<T>(T command, GameContext ctx) where T : ICommand
-    {
-        History.Add($"{DateTime.UtcNow:HH:mm:ss.fff} {typeof(T).Name}");
-        _inner.ExecuteCommand(command, ctx);
-    }
-    // ... 其余 5 个重载同样转发到 _inner
-}
-
-// MainContext.InstallBindings
+// MainContext.InstallBindings：换一行注册即接入
 builder.RegisterValue(new LoggingCommandSystem(), typeof(ICommandSystem));
 ```
+
+自定义装饰器（回放 / 撤销 / 拦截）照 `LoggingCommandSystem` 的源码写：构造收 `ICommandSystem inner = null`（默认 `new CommandSystem()`，装饰器可继续嵌套），横切逻辑包在转发前后。
 
 这个拦截点能承载很多典型需求：
 
@@ -1240,7 +1232,7 @@ public class MiniGameController : MonoBehaviour
 
 ## 13. AssetReference（资源引用）
 
-框架通过 `IAssetUtility` 与 `AssetReference<T>` 提供统一资源入口。业务动态加载用 location；Inspector 拖拽引用用 `AssetReference<T>`。GUID 只保存在引用内部，不作为业务 API 暴露。资源在工程里按类型 / 模块怎么摆（及 YooAsset 寻址 / 打包约定）见 §23「推荐项目结构」。
+框架通过 `IAssetUtility` 与 `AssetReference<T>` 提供统一资源入口。业务动态加载用 location；Inspector 拖拽引用用 `AssetReference<T>`。GUID 只保存在引用内部，不作为业务 API 暴露。资源在工程里按类型 / 模块怎么摆（及 YooAsset 寻址 / 打包约定）见 §24「推荐项目结构」。
 
 `MonoViewBase/MonoModelBase/MonoSystemBase/MonoUtilityBase` 内置 protected `Bag`——动态加载通过 `Bag.Load<T>(location)` / `Bag.LoadScene(...)`，handle 自动登记到 Bag，`OnDestroy` 时统一释放；`Bag.LoadText` / `Bag.LoadBytes` 是内容直读（拷出即释放句柄、不进 Bag），按包构建类型自动路由（普通 AB 包按 TextAsset 取内容，RawFile 包走原生通道）。`AssetReference<T>` 字段则自己持有 handle，并由宿主 `OnDestroy` 自动 `Dispose`。真实引用计数由具体资源 provider 维护，框架只管理“谁负责释放哪一类 handle”。
 
@@ -1672,7 +1664,7 @@ Bag.Subscribe(
 
 ## 16. 配置表（Luban）
 
-表定义（XML）与数据（JSON / Excel）放在一处 conf 源目录（demo 那套在 `Assets/Game/Framework/Demo/Configs~/`，`~` 后缀让 Unity 不导入、纯构建期输入）→ 菜单跑 Luban CLI 生成**配置 C# 类 + 二进制数据 + 表清单** → 运行期由一个自加载的配置 Utility 服务持表，数据文件随资源包打包与热更。设计原理与取舍见 ADR-0009；源 / 输出目录在模块里怎么摆见 §23「推荐项目结构」。
+表定义（XML）与数据（JSON / Excel）放在一处 conf 源目录（demo 那套在 `Assets/Game/Framework/Demo/Configs~/`，`~` 后缀让 Unity 不导入、纯构建期输入）→ 菜单跑 Luban CLI 生成**配置 C# 类 + 二进制数据 + 表清单** → 运行期由一个自加载的配置 Utility 服务持表，数据文件随资源包打包与热更。设计原理与取舍见 ADR-0009；源 / 输出目录在模块里怎么摆见 §24「推荐项目结构」。
 
 > **多套并存**：每套配置 = 一个 `LubanConfigProfile`（各自的 conf 源 + 输出目录 + topModule，互不干扰）。demo 与正式游戏可各一套——`LubanConfigProfile.ResolveAll()` 返回全部、菜单「生成」逐套生成，多套集中管理用「配置总览」窗口。demo 那套（源 / 代码 / 数据全在 `Demo/` 内）随 demo 程序集与样例资源包在正式打包时一并排除。
 
@@ -2303,7 +2295,60 @@ CJK 全量字库体积大（单字体 15~30MB），全量随包不现实；砍�
 
 ---
 
-## 23. 推荐项目结构
+## 23. 框架诊断面板
+
+菜单 **`SSFramework/诊断/框架诊断面板`**——把散在各组件 Inspector「运行时诊断」折叠组里的信息聚合成一屏，定位是**调试与泄漏排查入口**：进 Play 后打开，框架运行时状态（Context 作用域树、事件订阅、Bag / 池计数、命令流水）实时可见，约 10Hz 自动刷新。设计取舍见 ADR-0026。
+
+### 一屏四节
+
+| 节 | 内容 | 排查什么 |
+|---|---|---|
+| **全局计数** | 存活 Context 数、DisposableBag 存活 / 累计创建、命令累计 | Bag 存活数只增不减 = 有宿主没释放 |
+| **Context 作用域树** | 所有存活 `GameContext` 按父子缩进（含纯 C# Context——GameFlow 状态子 Context 首次可见），节点展开看本地注册表、事件订阅计数、池概要 | 切走的阶段 / 关卡 Context 还在树上 = 忘了 Dispose；事件订阅数持续增长 = 订阅没进 Bag |
+| **本地注册表**（节点内） | 契约 → 实例类型，标注运行时 / 构建时来源；未首次解析的工厂显示「工厂（未首次解析）」——面板**不触发工厂**，观察不改变系统 | 「这个 Context 里到底注册了什么」不再逐个点场景节点 |
+| **Command 流水** | `LoggingCommandSystem` 环形缓冲的最近记录：帧号、命令类型、同步 / 异步、耗时、异常、所在 Context | 用户操作到底触发了哪些命令、谁在偷偷发命令、哪个命令异常 / 超慢 |
+
+### Command 流水的接入（opt-in）
+
+流水来自 `LoggingCommandSystem`——`ICommandSystem` 的装饰器（这正是 §9 说的「命令分发可替换」的现成活样板）。根 Context 的 `InstallBindings` 里替换默认注册即得：
+
+```csharp
+protected override void InstallBindings(ContainerBuilder builder)
+{
+    // 默认：builder.RegisterValue(new CommandSystem(), typeof(ICommandSystem));
+    builder.RegisterValue(new LoggingCommandSystem(), typeof(ICommandSystem));
+}
+```
+
+- 不改变任何执行语义：六个重载泛型直转发，struct Command 路径保持零装箱，异常照原样冒出。
+- **完成时落账**：异步命令 await 完成（含取消 / 异常）后才出现在流水里，耗时才有意义；在途异步不显示。
+- `new LoggingCommandSystem(echoToConsole: true)` 可同时逐条打 Console（Development Build 真机排查用——面板本身是 Editor 专用）。
+- demo 的 `MonoDemoContext` 已这样注册：打开 demo 场景点任意按钮，流水实时可见。
+
+### 给纯 C# Context 起名字
+
+树节点显示 `GameContext.DebugName`（诊断专用，业务逻辑不得依赖）。框架创建点已自动命名——场景 Context 用 GameObject 名、GameFlow 状态子 Context 用 `Flow:状态类型名`；自己 `new GameContext(...)` 时顺手起个名，树上就不会出现匿名的 `GameContext#1A2B3C`：
+
+```csharp
+var ctx = new GameContext(builder.Build()) { DebugName = "MiniGame" };
+```
+
+### 边界（刻意行为）
+
+- **采集仅在 Editor**：存活登记表 / 订阅计数 / Bag 计数在玩家包（含 Development Build）里编译消除，零成本；真机诊断走 `FrameworkSelfCheck` 冒烟 + `FrameworkLog` 日志。
+- **登记表持强引用**：没 Dispose 的 Context 会一直挂在树上——这不是面板的 bug，这就是它要暴露的泄漏。
+- 池概要的「借出」计数：GameObject 池实例被外部 Destroy 时计数停在借出侧（该实例再也不会归还了，本身就是线索）；C# 池在 Release 下无归属校验，误用会漂移（Editor / Dev 精确）。
+
+> **要点回顾**
+>
+> - 菜单 `SSFramework/诊断/框架诊断面板`，进 Play 打开，一屏四节自动刷新
+> - 泄漏三板斧：Bag 存活数趋势、事件订阅计数趋势、切走的 Context 是否还在树上
+> - Command 流水 = 根 Context 换注册 `LoggingCommandSystem`（opt-in、零语义变化）
+> - 纯 C# Context 记得 `DebugName`；采集 Editor 专用、玩家包零成本
+
+---
+
+## 24. 推荐项目结构
 
 把框架用进正式项目时，按「特性模块自洽 + 可整单元裁剪」组织，而不是按技术类型（all Models / all Views）摊平。下面是从 demo 提炼的原则——demo 自身是活样例，但有两处别照抄（见末尾）。
 

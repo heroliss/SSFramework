@@ -14,19 +14,9 @@ namespace Game.Framework.Systems
     /// 跨级继承时仍能正确响应每个上下文的局部 DI 注册（子级覆盖父级）。自定义实现保持无状态约定即可。<br/>
     ///
     /// <b>怎么替换：</b>实现本接口并通过 <c>builder.RegisterValue(new MyCommandSystem(), typeof(ICommandSystem))</c>
-    /// 覆盖默认的 <see cref="CommandSystem"/>。装饰器模式可叠加多层横切：
-    /// <code><![CDATA[
-    /// public sealed class LoggingCommandSystem : ICommandSystem
-    /// {
-    ///     private readonly ICommandSystem _inner = new CommandSystem();
-    ///     public void ExecuteCommand<T>(T cmd, GameContext ctx) where T : ICommand
-    ///     {
-    ///         Log(cmd);
-    ///         _inner.ExecuteCommand(cmd, ctx);
-    ///     }
-    ///     // 其余 5 个重载同样转发到 _inner
-    /// }
-    /// ]]></code>
+    /// 覆盖默认的 <see cref="CommandSystem"/>。装饰器模式可叠加多层横切（包住内层、六个重载泛型直转发）——
+    /// 框架自带的 <see cref="LoggingCommandSystem"/>（命令流水记录，供诊断面板）就是这个模式的现成样板，
+    /// 自定义装饰器（回放 / 撤销 / 拦截）照它写即可。
     ///
     /// <b>重载选择指南：</b>
     /// <list type="bullet">

@@ -117,7 +117,7 @@ namespace Game.Framework.Context
 
             InstallBindings(builder);
             _container = builder.Build();
-            _context = new GameContext(_container, _inheritFromGlobal);
+            _context = new GameContext(_container, _inheritFromGlobal) { DebugName = name };
 
             OnInitialized();
         }

@@ -62,6 +62,12 @@ namespace Game.Framework.Pool
         public GameObject Prefab => _prefab;
         public int CountInactive => _inactive.Count;
 
+        // 借出计数：TakeOrCreate +1、通过归还防护的 Despawn -1。防护在所有构建生效，计数不会因误用漂移；
+        // 实例被外部 Destroy 时停在借出侧（见 IGameObjectPool.CountActive 文档）。
+        private int _countActive;
+
+        public int CountActive => _countActive;
+
         public GameObject Spawn(Transform parent = null, bool worldPositionStays = false)
         {
             var go = TakeOrCreate(out var marker);
@@ -127,6 +133,7 @@ namespace Game.Framework.Pool
 
             InvokeReturn(marker);
             marker.IsSpawned = false;
+            if (_countActive > 0) _countActive--;
 
             // 超过容量上限：直接 Destroy，不入池。先 SetActive(false) 与正常归还路径一致，
             // 避免延迟销毁前实例还活跃渲染/Update 一帧（OnReturn 已清理状态，留着会显示脏画面）。
@@ -201,6 +208,7 @@ namespace Game.Framework.Pool
         // 取一个可用实例：跳过已被外部 Destroy 的空槽，池空则新建。一并返回标记，省掉调用处再次 GetComponent。
         private GameObject TakeOrCreate(out PooledObject marker)
         {
+            _countActive++; // 两条出口都算借出
             while (_inactive.Count > 0)
             {
                 var pooled = _inactive.Pop();

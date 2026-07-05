@@ -19,7 +19,9 @@ namespace Game.Framework.Demo.Core
     {
         protected override void InstallBindings(ContainerBuilder builder)
         {
-            builder.RegisterValue(new CommandSystem(), typeof(ICommandSystem));
+            // 命令分发用 LoggingCommandSystem 装饰默认 CommandSystem（可插拔的活样板）：demo 里点任何按钮，
+            // 「SSFramework/诊断/框架诊断面板」的 Command 流水即实时可见；不需要流水时注册 CommandSystem 即可。
+            builder.RegisterValue(new LoggingCommandSystem(), typeof(ICommandSystem));
             // 池工具用 RegisterOwned：随本 Context.Dispose 自动清池（停放节点 + 空闲实例），不靠 DontDestroyOnLoad 长留。
             builder.RegisterOwned(new PoolUtility(), typeof(IPoolUtility));
 
