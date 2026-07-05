@@ -1,14 +1,10 @@
 {
-    "name": "Game.Framework",
-    "rootNamespace": "Game.Framework",
-    "references": [
-        "UniTask",
-        "R3",
-        "R3.Unity",
-        "Sirenix.OdinInspector.Attributes",
-        "Sirenix.Serialization"
+    "name": "Game.Framework.Fonts.Editor",
+    "rootNamespace": "Game.Framework.Fonts.Editor",
+    "references": [],
+    "includePlatforms": [
+        "Editor"
     ],
-    "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
     "overrideReferences": false,

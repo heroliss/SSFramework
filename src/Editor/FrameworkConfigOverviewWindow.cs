@@ -85,6 +85,15 @@ namespace Game.Framework.Editor
                 Note = "全工程单例（首次使用自动创建，默认档位 = 内核 + Asset.Yoo 热更）。",
                 JumpMenu = "SSFramework/热更构建/热更配置 (HotUpdate Profile)", JumpLabel = "打开配置",
             },
+            new()
+            {
+                Title = "字体（常用字集生成）",
+                TypeName = "FontCharsetProfile",
+                QualifiedType = "Game.Framework.Fonts.Editor.FontCharsetProfile, Game.Framework.Fonts.Editor",
+                Singleton = true,
+                Note = "全工程单例（首次使用自动创建）；产出 charset 文件喂 TMP Font Asset Creator 烘焙主字体。",
+                JumpMenu = "SSFramework/字体/常用字集配置 (Charset Profile)", JumpLabel = "打开配置",
+            },
         };
 
         private Vector2 _scroll;

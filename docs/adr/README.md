@@ -30,4 +30,4 @@
 | [0022](0022-audio-service.md) | 音频服务：IAudioUtility 音乐单通道 + 池化音效 + 分组音量 | Accepted |
 | [0023](0023-game-flow.md) | 游戏流程状态机：IGameFlow 显式 Flow + 每状态一个子 Context | Accepted |
 | [0024](0024-localization.md) | 本地化：ILocalizationUtility 响应式 locale + 文本源接缝 + 组合既有原语 | Accepted |
-| [0025](0025-font-fallback.md) | 字体策略：精简字集随包 + fallback 链 + OS 字体运行时兜底 | Proposed |
+| [0025](0025-font-fallback.md) | 字体策略：精简字集随包 + 主字体 fallback 链 + OS 字体运行时兜底 | Accepted |
