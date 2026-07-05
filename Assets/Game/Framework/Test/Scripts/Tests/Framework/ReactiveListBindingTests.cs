@@ -86,6 +86,16 @@ namespace Game.Framework.Test
         }
 
         [Test]
+        public void Insert_IntoMiddle_ShiftsTail()
+        {
+            _source.AddRange(new[] { 0, 1, 3 });
+            Bind();
+            _source.Insert(2, 2); // 插到中间（非头非尾）→ [0,1,2,3]
+            AssertMirrorsSource();
+            CollectionAssert.AreEqual(new[] { 0, 1, 2, 3 }, _h.Order);
+        }
+
+        [Test]
         public void Remove_DisposesThatRowBag_MirrorInOrder()
         {
             _source.AddRange(new[] { 1, 2, 3, 4 });
@@ -131,6 +141,20 @@ namespace Game.Framework.Test
             AssertMirrorsSource();
             CollectionAssert.AreEqual(new[] { 2, 3, 1 }, _h.Order);
             Assert.AreSame(movedRow, _h.Container[2], "移动应复用同一行实例、不重造");
+            Assert.IsFalse(movedRow.ItemBag.IsDisposed, "移动不释放该行子 bag");
+        }
+
+        [Test]
+        public void Move_Backward_ReordersView_SameInstanceKept()
+        {
+            _source.AddRange(new[] { 1, 2, 3 });
+            Bind();
+            var movedRow = _h.Container.First(v => v.Value == 3);
+
+            _source.Move(2, 0); // oldIndex>newIndex 的后向移动 [1,2,3] → [3,1,2]（后向最易在“移除后索引”上算错）
+            AssertMirrorsSource();
+            CollectionAssert.AreEqual(new[] { 3, 1, 2 }, _h.Order);
+            Assert.AreSame(movedRow, _h.Container[0], "后向移动同样复用同一行实例");
             Assert.IsFalse(movedRow.ItemBag.IsDisposed, "移动不释放该行子 bag");
         }
 
