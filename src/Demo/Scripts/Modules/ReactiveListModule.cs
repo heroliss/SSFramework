@@ -55,8 +55,7 @@ namespace Game.Framework.Demo.Modules
             // ── 列表区：BindList 把源集合增量绑到一个容器 ──
             host.AddSectionTitle("绑定的列表视图（跟随源集合增量刷新）");
             var listContainer = new VisualElement();
-            listContainer.style.marginTop = 4;
-            listContainer.style.marginBottom = 4;
+            listContainer.AddToClassList("demo-list");
             host.Content.Add(listContainer);
 
             // View 只经只读查询 Command 拿到集合（读写分离照旧：写走上面的命令、读走这里）。
@@ -74,15 +73,15 @@ namespace Game.Framework.Demo.Modules
         private VisualElement BuildRow(string text, DisposableBag rowBag)
         {
             var row = new VisualElement();
-            row.style.flexDirection = FlexDirection.Row;
-            row.style.alignItems = Align.Center;
-            row.style.marginBottom = 2;
+            row.AddToClassList("demo-list-row");
 
             var label = new Label(text);
-            label.style.flexGrow = 1;
+            label.AddToClassList("demo-list-item");
             row.Add(label);
 
             var remove = new Button { text = "✕" };
+            remove.AddToClassList("demo-list-remove");
+            remove.tooltip = "移除该项";
             rowBag.SubscribeClick(remove, () => this.ExecuteCommand(new RemoveTodoCommand(text)));
             row.Add(remove);
 

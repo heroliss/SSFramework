@@ -160,6 +160,7 @@ namespace Game.Framework.Demo.Modules
         private void AddVolumeSlider(DemoModuleHost host, string label, float initial, Action<float> onChange)
         {
             var slider = new Slider(label, 0f, 1f) { value = initial, showInputField = true };
+            slider.AddToClassList("demo-slider");
             slider.RegisterValueChangedCallback(evt => onChange(evt.newValue));
             host.Content.Add(slider);
         }
