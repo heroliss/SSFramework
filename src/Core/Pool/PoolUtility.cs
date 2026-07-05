@@ -109,17 +109,19 @@ namespace Game.Framework.Pool
         }
 
         /// <summary>
-        /// 诊断用：当前各池概要——GameObject 池给 <c>[GO] prefab名 空闲=N</c>，C# 对象池给 <c>[C#] 类型名</c>。
-        /// 仅供 Inspector 只读展示（<see cref="MonoPoolUtility"/>），不参与池逻辑；无池时返回空列表。
+        /// 诊断用：当前各池概要——GameObject 池给 <c>[GO] prefab名 借出=N 空闲=M</c>，C# 对象池给 <c>[C#] 类型名 借出=N 空闲=M</c>。
+        /// 仅供只读展示（<see cref="MonoPoolUtility"/> Inspector / 框架诊断面板），不参与池逻辑；无池时返回空列表。
         /// </summary>
         public IReadOnlyList<string> GetPoolDiagnostics()
         {
             var list = new List<string>();
             if (_goPools != null)
                 foreach (var kv in _goPools)
-                    list.Add($"[GO] {(kv.Key != null ? kv.Key.name : "?")} 空闲={kv.Value.CountInactive}");
-            foreach (var t in _pools.Keys)
-                list.Add($"[C#] {t.Name}");
+                    list.Add($"[GO] {(kv.Key != null ? kv.Key.name : "?")} 借出={kv.Value.CountActive} 空闲={kv.Value.CountInactive}");
+            foreach (var kv in _pools)
+                list.Add(kv.Value is IPoolCounters counters
+                    ? $"[C#] {kv.Key.Name} 借出={counters.CountActive} 空闲={counters.CountInactive}"
+                    : $"[C#] {kv.Key.Name}");
             return list;
         }
 

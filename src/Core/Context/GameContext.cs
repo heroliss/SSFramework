@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Reflection;
 using System.Threading;
 using Game.Framework.Command;
+using Game.Framework.Diagnostics;
 using Game.Framework.Event;
 using Game.Framework.Internal;
 using Game.Framework.Model;
@@ -76,7 +77,31 @@ namespace Game.Framework.Context
                     Inject(boundValues[i]);
                     AttachTo(boundValues[i]);
                 }
+
+#if UNITY_EDITOR
+            CreatedRealtime = Time.realtimeSinceStartupAsDouble;
+#endif
+            FrameworkDiagnostics.OnContextCreated(this); // Editor 外编译消除
         }
+
+        /// <summary>
+        /// 诊断显示名（诊断面板 / 日志用，业务逻辑不得依赖）。框架创建点自动命名：
+        /// <see cref="MonoGameContextBase"/> 用 GameObject 名、GameFlow 用状态类型名；未命名显示为匿名 Context。
+        /// </summary>
+        public string DebugName { get; set; }
+
+#if UNITY_EDITOR
+        // ---- 诊断数据面（Editor 专用，诊断面板经 InternalsVisibleTo 读取；ADR-0026） ----
+
+        /// <summary>构造时刻（realtimeSinceStartup），诊断面板显示存活时长。</summary>
+        internal double CreatedRealtime { get; }
+
+        // 本 Context 各事件类型的存活订阅数（订阅 +1、退订 -1）。惰性分配：不订阅事件的 Context 零成本。
+        private Dictionary<Type, int> _eventSubscriptionCounts;
+
+        /// <summary>各事件类型的存活订阅计数；从未有过订阅时为 null。订阅数只增不减 = 泄漏嫌疑。</summary>
+        internal IReadOnlyDictionary<Type, int> EventSubscriptionCounts => _eventSubscriptionCounts;
+#endif
 
         /// <summary>此 Context 是否已被 Dispose。</summary>
         public bool IsDisposed => _disposed;
@@ -227,7 +252,46 @@ namespace Game.Framework.Context
         }
 
         public IDisposable RegisterEvent<T>(Action<T> handler) where T : IEvent
-            => GetOrCreateSubject<T>().Subscribe(handler);
+        {
+#if UNITY_EDITOR
+            // 诊断计数包装（仅 Editor）：R3 Subject 不暴露 observer 数，框架在唯一订阅通道上自己数。
+            // Bag.Subscribe<TEvent> 也走本方法，覆盖全部 Framework Event 订阅。
+            return new CountedEventSubscription(this, typeof(T), GetOrCreateSubject<T>().Subscribe(handler));
+#else
+            return GetOrCreateSubject<T>().Subscribe(handler);
+#endif
+        }
+
+#if UNITY_EDITOR
+        // 订阅计数的退订侧：Dispose 幂等（只减一次），持有 Context 引用在 Context Dispose 后不减（计数字典已随之作废）。
+        private sealed class CountedEventSubscription : IDisposable
+        {
+            private readonly GameContext _owner;
+            private readonly Type _eventType;
+            private IDisposable _inner;
+
+            public CountedEventSubscription(GameContext owner, Type eventType, IDisposable inner)
+            {
+                _owner = owner;
+                _eventType = eventType;
+                _inner = inner;
+                var counts = _owner._eventSubscriptionCounts ??= new Dictionary<Type, int>();
+                counts.TryGetValue(eventType, out int n);
+                counts[eventType] = n + 1;
+            }
+
+            public void Dispose()
+            {
+                var inner = _inner;
+                if (inner == null) return;
+                _inner = null;
+                inner.Dispose();
+                var counts = _owner._eventSubscriptionCounts;
+                if (counts != null && counts.TryGetValue(_eventType, out int n) && n > 0)
+                    counts[_eventType] = n - 1;
+            }
+        }
+#endif
 
         // ---- 上下文绑定 ----
 
@@ -243,6 +307,7 @@ namespace Game.Framework.Context
         {
             if (_disposed) return;
             _disposed = true;
+            FrameworkDiagnostics.OnContextDisposed(this); // Editor 外编译消除
             _cts?.Cancel();
             _cts?.Dispose();
             _cts = null;
@@ -250,6 +315,9 @@ namespace Game.Framework.Context
             foreach (var subject in _typedEvents.Values)
                 ((IDisposable)subject).Dispose();
             _typedEvents.Clear();
+#if UNITY_EDITOR
+            _eventSubscriptionCounts = null; // 订阅计数随事件总线一起作废（迟到的退订不再减）
+#endif
             _container.Dispose(); // 释放本 Context 拥有的实例（RegisterOwned 登记的，如 PoolUtility）
         }
 

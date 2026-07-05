@@ -24,6 +24,12 @@ namespace Game.Framework.Pool
         int CountInactive { get; }
 
         /// <summary>
+        /// 当前 Spawn 出去未 Despawn 的实例数。实例被外部 Destroy（如随场景卸载）不会自动减——
+        /// 计数停在借出侧本身就是线索（该实例再也不会归还池了）。持续增长 = 漏归还嫌疑。
+        /// </summary>
+        int CountActive { get; }
+
+        /// <summary>
         /// 取一个实例并挂到 <paramref name="parent"/> 下（null = 挂到场景根）。会触发 <see cref="IPoolable.OnRent"/>。
         /// </summary>
         /// <param name="parent">父节点，null 表示挂到当前激活场景根。</param>

@@ -48,6 +48,9 @@ namespace Game.Framework.Internal
         /// <summary>构建期值绑定的去重实例列表，供 GameContext 构造时统一注入；可能为 null（直接构造的容器）。</summary>
         internal IReadOnlyList<object> BoundValues => _boundValues;
 
+        /// <summary>父级容器；根容器为 null。诊断面板用它还原 Context 作用域树（ADR-0026），不参与解析逻辑。</summary>
+        internal Container Parent => _parent;
+
         /// <summary>
         /// 是否存在指定类型的绑定。
         /// recursive=true 时沿父级链递归查找（默认）；recursive=false 时只查本地。
@@ -122,6 +125,27 @@ namespace Game.Framework.Internal
                 foreach (var k in _overrides.Keys) yield return k;
                 foreach (var k in _bindings.Keys)
                     if (!_overrides.ContainsKey(k)) yield return k;
+            }
+        }
+
+        /// <summary>
+        /// 诊断用：本容器<b>本地</b>注册明细（不含父级回退），供诊断面板展示「契约 → 实例」。
+        /// 与 <see cref="LocalRegistrations"/> 同一套键集，额外给出实例与来源：
+        /// <c>Instance</c> 为 null 且 <c>IsPendingFactory</c> 为 true 表示「工厂绑定、尚未首次解析」——
+        /// <b>刻意不触发工厂</b>（诊断不得改变被观察系统的状态）。<c>IsOverride</c> 区分运行时覆盖与构建时绑定。
+        /// </summary>
+        internal IEnumerable<(Type Contract, object Instance, bool IsOverride, bool IsPendingFactory)> LocalRegistrationDetails
+        {
+            get
+            {
+                foreach (var kv in _overrides)
+                    yield return (kv.Key, kv.Value, true, false);
+                foreach (var kv in _bindings)
+                {
+                    if (_overrides.ContainsKey(kv.Key)) continue;
+                    bool pending = kv.Value is Func<Container, object>;
+                    yield return (kv.Key, pending ? null : kv.Value, false, pending);
+                }
             }
         }
 

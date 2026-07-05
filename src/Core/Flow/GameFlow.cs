@@ -110,7 +110,7 @@ namespace Game.Framework.Flow
                     var builder = new ContainerBuilder();
                     builder.SetParent(_context.Container);
                     next.InstallBindings(builder);
-                    var scope = new GameContext(builder.Build(), inheritFromGlobal: true);
+                    var scope = new GameContext(builder.Build(), inheritFromGlobal: true) { DebugName = $"Flow:{next.GetType().Name}" };
                     next.AttachScope(scope);
 
                     // 3) 进入。取消（被顶替 / 宿主释放）或失败 = 半进入：整棵撤、不调 OnExit（清理靠 Bag）。

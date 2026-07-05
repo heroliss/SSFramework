@@ -19,6 +19,13 @@ namespace Game.Framework.Pool
         /// <summary>当前池中空闲（可立即复用）的实例数。</summary>
         int CountInactive { get; }
 
+        /// <summary>
+        /// 当前借出未归还的实例数（Rent +1、Return -1）。持续增长 = 漏归还嫌疑。
+        /// C# 池不跟踪实例归属（见 <see cref="ObjectPool{T}"/>），Release 下归还外来实例等误用会让计数漂移（钳到 ≥0）——
+        /// Editor / Development Build 有误用防护，计数精确。
+        /// </summary>
+        int CountActive { get; }
+
         /// <summary>取一个实例：池中有则复用，否则用工厂新建。会触发 onRent / <see cref="IPoolable.OnRent"/>。</summary>
         T Rent();
 
@@ -33,6 +40,16 @@ namespace Game.Framework.Pool
 
         /// <summary>把空闲实例收缩到至多 <paramref name="targetCount"/> 个，多余的丢弃交 GC（已租出的不受影响，不调用 Dispose）。</summary>
         void Trim(int targetCount);
+    }
+
+    /// <summary>
+    /// 池计数的非泛型诊断视图：<see cref="PoolUtility"/> 按类型擦除（object）存储 <see cref="IObjectPool{T}"/>，
+    /// 诊断枚举无法闭合泛型，经此接口读计数。仅诊断展示用，不进公共 API。
+    /// </summary>
+    internal interface IPoolCounters
+    {
+        int CountInactive { get; }
+        int CountActive { get; }
     }
 
     /// <summary>

@@ -40,9 +40,12 @@ namespace Game.Framework.Pool
         // 底层共用同一套逻辑：组合而非继承（PoolUtility 为 sealed，本类已继承 MonoUtilityBase）。
         private readonly PoolUtility _impl = new();
 
-        // 运行时只读诊断：当前各池概要（[GO] prefab 名 + 空闲数 / [C#] 池化类型名）。收进「运行时诊断」折叠框，仅 Play 显示、Build 零成本。
+        /// <summary>底层池实现。供框架诊断面板经 InternalsVisibleTo 读取池概要（<see cref="PoolUtility.GetPoolDiagnostics"/>）。</summary>
+        internal PoolUtility Impl => _impl;
+
+        // 运行时只读诊断：当前各池概要（借出 / 空闲计数）。收进「运行时诊断」折叠框，仅 Play 显示、Build 零成本。
         [FoldoutGroup(DiagGroup), ShowInInspector, ReadOnly, HideInEditorMode, LabelText("当前池"), PropertyOrder(-90)]
-        [PropertyTooltip("当前各对象池概要：[GO] prefab 名 + 空闲实例数；[C#] 池化类型名。")]
+        [PropertyTooltip("当前各对象池概要：[GO] prefab 名 / [C#] 池化类型名 + 借出、空闲实例数。")]
         private IReadOnlyList<string> InspectorPools => _impl.GetPoolDiagnostics();
 
         protected override void Awake()

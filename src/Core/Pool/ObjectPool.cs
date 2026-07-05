@@ -13,7 +13,7 @@ namespace Game.Framework.Pool
     /// <b>不会</b>调用实例的 <c>Dispose</c>——池化类型若持有非托管资源，应在 <see cref="IPoolable.OnReturn"/> /
     /// onReturn 钩子里释放，或干脆不要把这类对象交给池管理。
     /// </remarks>
-    public sealed class ObjectPool<T> : IObjectPool<T> where T : class
+    public sealed class ObjectPool<T> : IObjectPool<T>, IPoolCounters where T : class
     {
         private readonly Stack<T> _inactive = new();
         private readonly Func<T> _factory;
@@ -49,12 +49,19 @@ namespace Game.Framework.Pool
 
         public int CountInactive => _inactive.Count;
 
+        // 借出计数：Rent +1、被接受的 Return -1。Editor/Dev 下 _active 守卫挡掉误用，计数精确；
+        // Release 下无守卫，重复归还会漂移——钳到 ≥0，作诊断近似值（见 IObjectPool.CountActive 文档）。
+        private int _countActive;
+
+        public int CountActive => _countActive;
+
         public T Rent()
         {
             var instance = _inactive.Count > 0 ? _inactive.Pop() : _factory();
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             _active.Add(instance);
 #endif
+            _countActive++;
             _onRent?.Invoke(instance);
             (instance as IPoolable)?.OnRent();
             return instance;
@@ -72,6 +79,7 @@ namespace Game.Framework.Pool
                 return;
             }
 #endif
+            if (_countActive > 0) _countActive--;
             _onReturn?.Invoke(instance);
             (instance as IPoolable)?.OnReturn();
             if (_maxSize == 0 || _inactive.Count < _maxSize)
