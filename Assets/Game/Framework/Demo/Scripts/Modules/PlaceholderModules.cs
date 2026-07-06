@@ -47,15 +47,7 @@ namespace Game.Framework.Demo.Modules
 
     // ───────────── 进阶 ─────────────
 
-    public sealed class R3StreamModule : ComingSoonModuleBase
-    {
-        public override string Id => "r3-streams";
-        public override string Title => "R3 · 一切皆流";
-        public override string Category => "进阶";
-        public override int Order => 10;
-        public override string Summary =>
-            "进阶收束：Model 状态 / 框架 Event / UnityEvent / 按钮点击 全都能变成 Observable，再用 Where / Throttle / CombineLatest 等操作符组合。";
-    }
+    // 进阶“R3 · 一切皆流”已实现为独立模块 R3StreamModule（见 Modules/R3StreamModule.cs）。
 
     // 进阶“热更 · HybridCLR”已实现为独立模块 HotUpdateModule（见 Modules/HotUpdateModule.cs，
     // 编辑器恒走旁路故以讲解 + 源码跳转为主，校验按钮真实调用构建期校验）。
