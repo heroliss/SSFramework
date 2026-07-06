@@ -223,3 +223,11 @@ struct 不能用 `this.GetXxx<T>()` 扩展方法（值类型接口调用必然�
 - **每行一个子作用域**：`BindList` 工厂第二参是该行专属子 `DisposableBag`——行内订阅（随 RP 刷新、行内按钮）挂它，该行离开列表自动退订，无行内订阅就忽略它。**不要**在工厂里给 UGUI 子物体设父级 / 兄弟位（交给绑定摆放）。
 - **移除即销毁**：`BindList` 移除行时 Toolkit `RemoveFromHierarchy` / UGUI `Destroy`——要池化复用 / 弹幕级高频用领域 List + 手动池（见 #23），不走 BindList。上万项要虚拟化滚动复用用 Toolkit 原生 `ListView`（guide §24 给姿势），框架刻意不包 `BindListView`。
 - Model / Command 侧不受 UI 影响：`ObservableList<T>` 是普通集合原语，纯 C# 逻辑 / 单测可直接用。详见 guide §24、ADR-0027。
+
+## 32. 网络（IHttpUtility / IWebSocketUtility）
+
+- **消息建模双轨**（别混用）：请求-响应（发起方等结果）= `await http.Get/Post<...>(...)` **UniTask 返回值**，不塞进事件；服务器推送 / 广播 = `ws.RegisterPush<TEvent>("type")` 映射为**框架 Event**，`Bag.Subscribe<TEvent>` 消费（与订 Model 事件同一套）。两个门面拆开：HTTP 全局注册；WS 有状态、可注册进 `FlowState` 子 Context 随阶段整棵撤。
+- **失败语义**：动词门面（Get/Post）非 2xx **抛** `NetworkException(HttpError)`（带 `StatusCode`/`ResponseBody`）——预期内业务错误用 `catch ... when (e.Kind==HttpError && e.StatusCode==404)` 过滤，**别期望它折叠成 null**（2xx 空体才是 null）。`Send(HttpRequest)` 逃生舱相反：交换完成即返回不抛，自己查 `IsSuccess`，PUT/DELETE/raw 字节走它。超时 = `NetworkException(Timeout)`，外部 ct 取消 = `OperationCanceledException`（两者严格区分）；未连接 `ws.Send` = `ConnectionError`。
+- ⚠ **推送事件类型 = `[Serializable] struct + 公共字段` 且实现 `IEvent`**——默认 JsonUtility 只认字段，**不能用 record 位置参数**（那是属性、反序列化不出来）。请求 / 响应类型是 `[Serializable] class`。
+- 注册 `RegisterOwned(new HttpUtility(baseUrl[, defaultTimeoutSeconds]), typeof(IHttpUtility))` + `RegisterOwned(new WebSocketUtility(), typeof(IWebSocketUtility))`（WS 靠注册即注入回填 Context 才能 SendEvent，别脱离容器 new）。`RegisterPush` 放服务创建处配一次（连接前后均可，避免重复注册抛）。auth = 登录后 `http.SetHeader("Authorization", ...)`；query 写 path 里（动态值 `Uri.EscapeDataString`）。
+- **重试 / 重连业务自己写**（框架给退避样板，见 guide §25），不做黑盒；换传输（BestHTTP/HttpClient）= `IHttpProvider`/`IWebSocketProvider`，换格式（Protobuf/MemoryPack）= `INetworkSerializer`，都构造注入、业务零改动。WebGL 的 WS 刻意不支持（HTTP 天然兼容）。详见 guide §25、ADR-0028。
