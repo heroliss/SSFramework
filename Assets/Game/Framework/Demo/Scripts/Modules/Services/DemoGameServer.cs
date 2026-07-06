@@ -26,7 +26,7 @@ namespace Game.Framework.Demo.Modules.Services
         /// <summary>服务器是否在运行（demo 的「停止服务器」按钮之后为 false，用来演示 ConnectionError）。</summary>
         bool IsRunning { get; }
 
-        /// <summary>停止服务器（演示连接失败）。Dispose 也会停。</summary>
+        /// <summary>停止服务器（演示连接失败），同时关闭已建立的 WS 连接（客户端立刻收到意外断开事件）。Dispose 也会停。</summary>
         void Stop();
     }
 
@@ -47,6 +47,7 @@ namespace Game.Framework.Demo.Modules.Services
         private readonly HttpListener _http;
         private readonly TcpListener _wsListener;
         private readonly CancellationTokenSource _cts = new();
+        private readonly List<TcpClient> _wsClients = new(); // 活跃 WS 连接（lock 保护）：Stop 时主动关闭，让客户端立刻收到断开
         private volatile bool _running;
 
         public string HttpBaseUrl { get; }
@@ -75,6 +76,15 @@ namespace Game.Framework.Demo.Modules.Services
             _cts.Cancel();
             try { if (_http.IsListening) _http.Stop(); } catch { /* 已停 */ }
             try { _wsListener.Stop(); } catch { /* 已停 */ }
+
+            // 停监听只挡新连接；已建立的 WS 连接的读循环阻塞在 ReadAsync 上（Mono 的 NetworkStream 不响应 ct），
+            // 主动关 socket 才能让它退出——客户端侧立刻收到意外断开（WebSocketClosedEvent ByUser:false），也是演示的一部分。
+            lock (_wsClients)
+            {
+                foreach (var client in _wsClients)
+                    try { client.Close(); } catch { /* 已断 */ }
+                _wsClients.Clear();
+            }
         }
 
         public void Dispose()
@@ -203,6 +213,11 @@ namespace Game.Framework.Demo.Modules.Services
 
         private async Task HandleWsClient(TcpClient client)
         {
+            lock (_wsClients)
+            {
+                if (!_running) { client.Close(); return; } // Stop 与 Accept 竞态：晚到的连接直接关
+                _wsClients.Add(client);
+            }
             var connCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
             var writeLock = new object();
             try
@@ -242,7 +257,12 @@ namespace Game.Framework.Demo.Modules.Services
                 }
             }
             catch { /* 连接异常断开：静默收尾 */ }
-            finally { connCts.Cancel(); }
+            finally
+            {
+                connCts.Cancel();
+                connCts.Dispose();
+                lock (_wsClients) _wsClients.Remove(client);
+            }
         }
 
         // RFC6455 握手：读 HTTP 升级请求头 → 算 Sec-WebSocket-Accept → 回 101。
@@ -270,12 +290,16 @@ namespace Game.Framework.Demo.Modules.Services
         {
             var sb = new StringBuilder();
             var buf = new byte[1];
-            // 读到空行（\r\n\r\n）为止——请求头很短
-            while (sb.Length < 4096 && !sb.ToString().EndsWith("\r\n\r\n", StringComparison.Ordinal))
+            // 逐字节读到空行（\r\n\r\n）为止——请求头很短；结尾判断只看尾部 4 个字符，别用 ToString().EndsWith（每字节整串重建）
+            while (sb.Length < 4096)
             {
                 int read = await stream.ReadAsync(buf, 0, 1);
                 if (read == 0) break;
                 sb.Append((char)buf[0]);
+                if (sb.Length >= 4 &&
+                    sb[sb.Length - 4] == '\r' && sb[sb.Length - 3] == '\n' &&
+                    sb[sb.Length - 2] == '\r' && sb[sb.Length - 1] == '\n')
+                    break;
             }
             return sb.ToString();
         }

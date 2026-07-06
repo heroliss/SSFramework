@@ -18,6 +18,7 @@ namespace Game.Framework.Network
     ///   <item>传输失败（DNS / 拒连 / 网络断）→ 抛 <see cref="NetworkException"/>（ConnectionError）。</item>
     ///   <item>ct 取消 → 中止在途请求并抛 <see cref="OperationCanceledException"/>。
     ///         超时不归 provider——utility 已把超时计时链进 ct，实现只需尊重取消。</item>
+    ///   <item>headers 已由编排层合并去重（无同名项，默认头与每请求头的覆盖在上游完成），实现照列表逐个设置即可。</item>
     ///   <item>主线程调用、主线程回返（回调后要触碰框架的调用链依赖这一点）。</item>
     /// </list>
     /// </remarks>

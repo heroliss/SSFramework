@@ -43,25 +43,28 @@ namespace Game.Framework.Test
             public string payload;
         }
 
-        /// <summary>可编程 WS 传输桩：测试注入「收到的消息 / 远端关闭」、捕获发出的帧、可控 Connect 失败与发送阻塞。</summary>
+        /// <summary>可编程 WS 传输桩：测试注入「收到的消息 / 远端关闭」、捕获发出的帧、可控 Connect / Send 失败与阻塞。</summary>
         private sealed class FakeWebSocketProvider : IWebSocketProvider
         {
             public bool FailConnect;
+            public bool FailSend; // 模拟「调用时已连接、写 socket 才失败」（对端刚断）
             public readonly List<byte[]> Sent = new();
-            public UniTaskCompletionSource SendGate; // 非 null 时 SendAsync 先等它——用于测发送 FIFO 保序
+            public UniTaskCompletionSource SendGate;    // 非 null 时 SendAsync 先等它——用于测发送 FIFO 保序
+            public UniTaskCompletionSource ConnectGate; // 非 null 时 ConnectAsync 先等它——用于测 Connecting 中途取消
 
             private readonly Queue<UniTaskCompletionSource<byte[]>> _pendingReceives = new();
             private readonly Queue<byte[]> _buffered = new(); // null 元素 = 远端关闭
 
-            public UniTask ConnectAsync(Uri uri, CancellationToken ct)
+            public async UniTask ConnectAsync(Uri uri, CancellationToken ct)
             {
                 if (FailConnect) throw new Exception("fake connect failure");
-                return UniTask.CompletedTask;
+                if (ConnectGate != null) await ConnectGate.Task.AttachExternalCancellation(ct);
             }
 
             public async UniTask SendAsync(byte[] payload, CancellationToken ct)
             {
                 if (SendGate != null) await SendGate.Task;
+                if (FailSend) throw new Exception("fake send failure");
                 Sent.Add(payload);
             }
 
@@ -82,8 +85,11 @@ namespace Game.Framework.Test
 
             private void Deliver(byte[] msg)
             {
-                if (_pendingReceives.Count > 0) _pendingReceives.Dequeue().TrySetResult(msg);
-                else _buffered.Enqueue(msg);
+                // 断开后重连时，旧接收循环被取消的挂起项还在队列里（TrySetResult 返回 false）——跳过找到活的那个
+                while (_pendingReceives.Count > 0)
+                    if (_pendingReceives.Dequeue().TrySetResult(msg))
+                        return;
+                _buffered.Enqueue(msg);
             }
         }
 
@@ -221,6 +227,66 @@ namespace Game.Framework.Test
             Assert.AreEqual(1, _fake.Sent.Count);
             string json = Encoding.UTF8.GetString(_fake.Sent[0]);
             StringAssert.Contains("\"type\":\"ping\"", json);
+        });
+
+        [UnityTest]
+        public IEnumerator Send_MidFlightFailure_WrapsAsConnectionError() => UniTask.ToCoroutine(async () =>
+        {
+            // EnsureConnected 只挡「调用时未连接」；写 socket 中途失败（对端刚断）也必须折叠为
+            // NetworkException(ConnectionError)，不能让 WebSocketException 之类传输层原始异常泄给业务。
+            await _ws.Connect("ws://fake/");
+            _fake.FailSend = true;
+            try
+            {
+                await _ws.Send("a", new ChatOutbound { Text = "x" });
+                Assert.Fail("发送中途失败应折叠为 NetworkException(ConnectionError)");
+            }
+            catch (NetworkException e)
+            {
+                Assert.AreEqual(NetworkErrorKind.ConnectionError, e.Kind);
+            }
+        });
+
+        [UnityTest]
+        public IEnumerator Disconnect_WhileConnecting_CancelsConnect_NoClosedEvent() => UniTask.ToCoroutine(async () =>
+        {
+            _fake.ConnectGate = new UniTaskCompletionSource(); // 让 Connect 挂在半路
+            WebSocketClosedEvent? closed = null;
+            using var sub = _ctx.RegisterEvent<WebSocketClosedEvent>(e => closed = e);
+
+            UniTask connecting = _ws.Connect("ws://fake/");
+            Assert.AreEqual(NetworkConnectionState.Connecting, _ws.State.CurrentValue);
+
+            await _ws.Disconnect(); // Connecting 期间：取消在途 Connect，而不是发出与实际不符的关闭事件
+            try
+            {
+                await connecting;
+                Assert.Fail("被 Disconnect 取消的 Connect 应抛 OCE");
+            }
+            catch (OperationCanceledException) { /* 预期 */ }
+
+            Assert.AreEqual(NetworkConnectionState.Disconnected, _ws.State.CurrentValue);
+            Assert.IsFalse(closed.HasValue, "从未连接成功，不应发 ClosedEvent");
+        });
+
+        [UnityTest]
+        public IEnumerator Reconnect_AfterDisconnect_PushStillDelivered() => UniTask.ToCoroutine(async () =>
+        {
+            _ws.RegisterPush<ChatPush>("chat");
+            ChatPush? received = null;
+            using var sub = _ctx.RegisterEvent<ChatPush>(e => received = e);
+
+            await _ws.Connect("ws://fake/");
+            await _ws.Disconnect();
+            await _ws.Connect("ws://fake/"); // 断开后同一实例可重连，推送注册表保留
+            Assert.AreEqual(NetworkConnectionState.Connected, _ws.State.CurrentValue);
+
+            await UniTask.DelayFrame(1); // 让新接收循环挂到 ReceiveAsync
+            _fake.InjectMessage(Envelope("chat", JsonUtility.ToJson(new ChatPush { Text = "again", UserId = 2 })));
+            await UniTask.DelayFrame(2);
+
+            Assert.IsTrue(received.HasValue, "重连后的推送应照常送达");
+            Assert.AreEqual("again", received.Value.Text);
         });
 
         [UnityTest]
