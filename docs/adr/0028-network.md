@@ -79,7 +79,7 @@ public interface IWebSocketUtility : IUtility     // 有状态长连接（一个
 
 - `RegisterPush<TEvent>("type")` 把服务器推送映射为框架事件：收到该 type → payload 反序列化为 `TEvent` → `SendEvent`。业务消费推送 = `Bag.Subscribe<TEvent>`，与 Model 事件同一套心智——**这正是「推送转事件」双轨建模的落点**。
 - payload 是**字符串二次编码**而非嵌套对象：默认 `JsonUtility` 无法从泛型外层提取嵌套原始 JSON 片段，字符串载荷让零依赖序列化稳定工作。envelope 是 v1 的 wire 契约（demo 服务器同款）；换强序列化器后的嵌套形态等真实后端再议。
-- 推送事件类型约定：`[Serializable] struct + 公共字段`（`JsonUtility` 只认字段，**record 位置参数是属性、反序列化不出来**）。框架自产事件（如 `WebSocketClosedEvent`）不经反序列化，可以用 record struct。
+- 推送事件类型约定：`[Serializable] struct + 公共字段`（`JsonUtility` 只认字段，**record 位置参数是属性、反序列化不出来**）。框架自产事件（如 `WebSocketClosedEvent`）不经反序列化、本无此约束，但内核程序集无 `IsExternalInit` polyfill、位置参数 record 的 init 访问器编译不过，故照 `FlowChangedEvent` 先例用 `readonly struct` + 显式字段。
 - 连接关闭统一发 `WebSocketClosedEvent(ByUser, Reason)`：用户主动 `Disconnect` 与意外断开都发，业务重连逻辑过滤 `!ByUser`。
 
 ### 5. 双接缝：传输 provider × 序列化 serializer，默认实现零依赖留内核
@@ -109,7 +109,12 @@ IWebSocketUtility ── WebSocketUtility（状态机 / envelope / 推送注册�
 - `WebSocketUtility` 实现 `IHasGameContext`（`SendEvent` 所需），`RegisterOwned` 注册即注入时由 `AttachTo` 回填 Context（照 `GameFlow` 姿势）；脱离容器 new 后未 Attach 就 `Connect` 抛。
 - Dispose：`HttpUtility` 取消所有在途请求；`WebSocketUtility` 停收发循环 + 关闭连接。随 Context 整棵撤。
 
-### 8. 刻意不做（记录在案，等真实需求）
+### 8. 环境实测结论（落地时的两个坑，spike 已验证）
+
+- **默认 WS 传输 `ClientWebSocketProvider` 直连、不走系统代理**（`Options.Proxy = null`）：游戏直连自己的服务器是常态，系统/公司代理对出海游戏罕见相关；且实测拦截式系统代理会挡掉 `ClientWebSocket` 的 localhost 连接（demo 连本地服务器直接失败）。绕过代理让「直连语义」与「demo 可跑」统一。需要走代理的少数场景自写 provider（接缝已留）。
+- **demo / 测试的内嵌 WS 服务器用 `TcpListener` + 手写 RFC6455 握手/帧，不用 `HttpListener`**：实测 Unity Editor 的 Mono 运行时 `HttpListenerRequest.IsWebSocketRequest` 恒为 false（升级头 `Upgrade`/`Connection`/`Sec-WebSocket-Key` 都在也不认）、`AcceptWebSocketAsync` 不可用。手写握手只算一次 `Sec-WebSocket-Accept`（key + 魔术 GUID 的 SHA1），帧编解码仅覆盖小文本帧——只进 Demo/Test 程序集，不污染框架。**框架侧 `ClientWebSocketProvider`（客户端）不受影响**：`ClientWebSocket` 本身在 Mono 下工作正常，实测客户端能连、能收发。
+
+### 9. 刻意不做（记录在案，等真实需求）
 
 - **自动重试**：幂等性只有业务知道，框架半吊子重试会诱导对非幂等 POST 重试；3 行 UniTask 退避循环即样板（guide 给）。多项目抄同一段后再议升格。
 - **WS 自动重连**：重连绑着重新认证 / 状态恢复（纯业务）；机制 = 订 `WebSocketClosedEvent(ByUser:false)` + 循环 `Connect` 退避（guide 给 ~15 行样板）。
