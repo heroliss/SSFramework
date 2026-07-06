@@ -23,7 +23,7 @@ namespace Game.Framework.Network
         private readonly IHttpProvider _provider;
         private readonly INetworkSerializer _serializer;
         private readonly float _defaultTimeoutSeconds;
-        private readonly Dictionary<string, string> _defaultHeaders = new();
+        private readonly Dictionary<string, string> _defaultHeaders = new(StringComparer.OrdinalIgnoreCase); // HTTP 头名不区分大小写
         private readonly CancellationTokenSource _lifetimeCts = new();
         private bool _disposed;
 
@@ -139,15 +139,25 @@ namespace Game.Framework.Network
             return path[0] == '/' ? BaseUrl + path : BaseUrl + "/" + path;
         }
 
-        // 默认头在前、每请求头在后（provider 按序应用，后者同名覆盖）。无任何头返回 null。
+        // 默认头与每请求头合并，同名（不区分大小写）后者覆盖。去重在编排层完成、provider 拿到的列表无重复名——
+        // 覆盖语义不依赖具体传输对重复设置头的行为（RFC 允许逗号拼接，各库实现不一）。无任何头返回 null。
         private List<KeyValuePair<string, string>> MergeHeaders(Dictionary<string, string> extra)
         {
             if (_defaultHeaders.Count == 0 && (extra == null || extra.Count == 0)) return null;
-            var merged = new List<KeyValuePair<string, string>>(_defaultHeaders.Count + (extra?.Count ?? 0));
-            foreach (var h in _defaultHeaders) merged.Add(h);
-            if (extra != null)
-                foreach (var h in extra)
-                    merged.Add(h);
+
+            Dictionary<string, string> source;
+            if (extra == null || extra.Count == 0)
+            {
+                source = _defaultHeaders;
+            }
+            else
+            {
+                source = new Dictionary<string, string>(_defaultHeaders, StringComparer.OrdinalIgnoreCase);
+                foreach (var h in extra) source[h.Key] = h.Value;
+            }
+
+            var merged = new List<KeyValuePair<string, string>>(source.Count);
+            foreach (var h in source) merged.Add(h);
             return merged;
         }
 

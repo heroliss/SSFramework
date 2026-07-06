@@ -65,7 +65,7 @@ namespace Game.Framework.Demo.Modules
 
             // ── 定位 ──
             host.AddSectionTitle("定位：消息建模双轨");
-            host.AddNote("网络消息分两类，用两种最贴合因果的形态建模：**请求-响应**（发起方等结果）= `await http.Post&lt;Req,Resp&gt;(...)` **UniTask 返回值**，不硬塞进事件；**服务器推送/广播**（谁都可能收到）= 转框架 **Event**，`Bag.Subscribe&lt;T&gt;` 消费，与订 Model 事件同一套心智。",
+            host.AddNote("网络消息分两类，用两种最贴合因果的形态建模：**请求-响应**（发起方等结果）= `await http.Post<Req,Resp>(...)` **UniTask 返回值**，不硬塞进事件；**服务器推送/广播**（谁都可能收到）= 转框架 **Event**，`Bag.Subscribe<T>` 消费，与订 Model 事件同一套心智。",
                 new CodeRef("Assets/Game/Framework/Core/Network/IHttpUtility.cs", "public interface IHttpUtility", "HTTP 门面契约"));
             host.AddSubNote("传输与序列化是两个接缝：默认 HTTP=UnityWebRequest（全平台含 WebGL）、WS=ClientWebSocket、格式=JSON；换 BestHTTP / Protobuf / MemoryPack 只换 provider / serializer，业务零改动。本章服务器是内嵌离线的（HTTP 用 HttpListener、WS 用 TcpListener + 手写 RFC6455——Mono 的 HttpListener 做不了 WS 服务端），点按钮即可跑通、无需外部后端。",
                 new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/Services/DemoGameServer.cs", "class DemoGameServer", "内嵌演示服务器"));
@@ -83,7 +83,7 @@ namespace Game.Framework.Demo.Modules
                 server.Stop();
                 RefreshServer();
             }, CodeRef.Here("server.Stop()", "停止"));
-            host.AddSubNote("停掉服务器后，再点下面的 HTTP / WS 按钮，会看到失败按 Kind 分级：连不上 = ConnectionError。");
+            host.AddSubNote("停掉服务器：已连接的 WS 会立刻收到 `WebSocketClosedEvent(ByUser:false)`（正是业务重连逻辑该订的信号）；再点 HTTP / WS 按钮会看到失败按 Kind 分级——连不上 = ConnectionError。⚠ 若系统开着拦截式代理，HTTP 的「拒连」可能被代理应答成 502 错误页（表现为 HttpError 502）；WS 不受影响（默认 provider 直连绕代理）。");
 
             BuildHttpSection(host, http);
             BuildWebSocketSection(host, server, ws);
@@ -235,7 +235,7 @@ namespace Game.Framework.Demo.Modules
                 await ws.Disconnect();
             }, CodeRef.Here("ws.Disconnect()", "断开"));
 
-            host.AddSubNote("推送事件类型是 `[Serializable] struct + 公共字段`（`ServerTickEvent { public int count; }`）——JsonUtility 只认字段，别用 record 位置参数（那是属性、反序列化不出来）。映射用 `RegisterPush&lt;TEvent&gt;(\"type\")`，本章在 InstallBindings 里配好。",
+            host.AddSubNote("推送事件类型是 `[Serializable] struct + 公共字段`（`ServerTickEvent { public int count; }`）——JsonUtility 只认字段，别用 record 位置参数（那是属性、反序列化不出来）。映射用 `RegisterPush<TEvent>(\"type\")`，本章在 InstallBindings 里配好。",
                 CodeRef.Here("ws.RegisterPush<ServerTickEvent>", "推送映射"));
         }
     }

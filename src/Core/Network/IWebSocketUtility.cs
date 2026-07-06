@@ -54,7 +54,8 @@ namespace Game.Framework.Network
     /// <b>线程：</b>公共 API 主线程调用；接收循环在后台收帧、每条消息切回主线程后再解析 + <c>SendEvent</c>
     /// （事件系统主线程独占的铁律，框架兜住）；<see cref="Send{T}"/> 内部 FIFO 串行（单 socket 不允许并发写）。<br/>
     /// <b>失败语义</b>（ADR-0028 §2）：<see cref="Connect"/> 失败/超时 → <see cref="NetworkException"/>；
-    /// 未连接时 <see cref="Send{T}"/> → （ConnectionError）；未注册的推送 type → Editor/Dev 一次性 warning + 丢弃；
+    /// <see cref="Send{T}"/> 在未连接、或发送中途连接断掉时 → （ConnectionError，传输层原始异常不外泄）；
+    /// 未注册的推送 type → Editor/Dev 一次性 warning + 丢弃；
     /// 坏消息（烂 JSON / 载荷不符）→ warning + 丢弃当条，不毒化接收循环。<br/>
     /// <b>推送事件类型约定：</b><c>[Serializable] struct XxxPushEvent : IEvent</c> + <b>公共字段</b>承载数据——
     /// 默认 JsonUtility 只认字段，<b>不能用 record 位置参数</b>（那是属性、反序列化不出来）。<br/>
@@ -78,10 +79,12 @@ namespace Game.Framework.Network
         /// <see cref="InvalidOperationException"/>；失败/超时抛 <see cref="NetworkException"/> 且状态回 Disconnected。</summary>
         UniTask Connect(string url, CancellationToken ct = default);
 
-        /// <summary>优雅关闭（发 Close 帧）。未连接 = no-op；完成后 State→Disconnected + <see cref="WebSocketClosedEvent"/>(ByUser:true)。</summary>
+        /// <summary>优雅关闭（发 Close 帧）。未连接 = no-op；Connecting 中 = 取消在途 <see cref="Connect"/>
+        /// （其 await 收到 OCE）、不发事件；已连接则完成后 State→Disconnected + <see cref="WebSocketClosedEvent"/>(ByUser:true)。</summary>
         UniTask Disconnect(CancellationToken ct = default);
 
-        /// <summary>发送一条 envelope 消息（type + 序列化后的 payload）。多次调用保序（内部 FIFO）。未连接抛（ConnectionError）。</summary>
+        /// <summary>发送一条 envelope 消息（type + 序列化后的 payload）。多次调用保序（内部 FIFO）。
+        /// 未连接、或发送中途连接断掉，均抛（ConnectionError）。</summary>
         UniTask Send<T>(string type, T payload, CancellationToken ct = default) where T : class;
 
         /// <summary>发送无载荷消息（如心跳 ping）。</summary>

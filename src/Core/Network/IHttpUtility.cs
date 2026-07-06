@@ -44,7 +44,7 @@ namespace Game.Framework.Network
         string BaseUrl { get; }
 
         /// <summary>
-        /// 设置随后每个请求都携带的默认头（同名覆盖；value 传 null 移除）。
+        /// 设置随后每个请求都携带的默认头（同名覆盖、头名不区分大小写；value 传 null 移除）。
         /// 典型用法：登录拿到 token 后 <c>SetHeader("Authorization", $"Bearer {token}")</c>，之后所有请求自动带上。
         /// </summary>
         void SetHeader(string name, string value);

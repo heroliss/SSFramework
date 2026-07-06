@@ -21,8 +21,10 @@ namespace Game.Framework.Network
     /// 反射回写 <see cref="_context"/>（照 GameFlow 姿势）——<see cref="Send{T}"/> 转事件需要它。<br/>
     /// <b>接收循环线程模型</b>：后台 <c>ReceiveAsync</c> → 每条消息 <c>SwitchToMainThread</c> → 解析 envelope +
     /// 查注册表 + <c>SendEvent</c>（事件系统主线程独占的铁律）。坏消息 warning + 丢弃当条、不毒化循环。<br/>
-    /// <b>关闭事件去重</b>：<see cref="Disconnect"/> 先把状态置 Disconnected 再取消循环，循环里的意外断开处理
-    /// 见状态已是 Disconnected 便不重复发 <see cref="WebSocketClosedEvent"/>。<br/>
+    /// <b>关闭顺序</b>：<see cref="Disconnect"/> 先置 Disconnected（关闭事件去重：循环里的意外断开处理见状态
+    /// 已变便不重复发 <see cref="WebSocketClosedEvent"/>），再发 Close 帧，最后才停循环——若先取消循环，
+    /// 挂起的 ReceiveAsync 被取消会直接中止底层连接，Close 帧发不出去。Connecting 期间调 Disconnect
+    /// 则取消在途 Connect（其 await 收到 OCE），不发 ClosedEvent。<br/>
     /// <b>Dispose</b>：取消循环 + 关闭连接 + 释放 provider，随宿主 Context 整棵撤；此路径不发 ClosedEvent
     /// （整个 Context 在拆，订阅者也在拆）。
     /// </remarks>
@@ -43,6 +45,7 @@ namespace Game.Framework.Network
         private readonly CancellationTokenSource _lifetimeCts = new();
 
         private GameContext _context; // RegisterOwned 注册即注入时由 AttachTo 回填
+        private CancellationTokenSource _connectCts; // 在途 Connect 专用（让 Connecting 期的 Disconnect 能取消它）；Connect 的 finally 负责回收
         private CancellationTokenSource _loopCts;
         private UniTask _sendTail = UniTask.CompletedTask; // 发送 FIFO 队尾（主线程独占，无锁）
         private bool _disposed;
@@ -105,23 +108,30 @@ namespace Game.Framework.Network
             catch (Exception e) { throw new ArgumentException($"url '{url}' 格式非法：{e.Message}", nameof(url)); }
 
             _state.Value = NetworkConnectionState.Connecting;
+            var connectCts = CancellationTokenSource.CreateLinkedTokenSource(ct, _lifetimeCts.Token);
+            _connectCts = connectCts; // 存进字段：Connecting 期间的 Disconnect 靠它取消在途连接
             try
             {
-                using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _lifetimeCts.Token);
-                await _provider.ConnectAsync(uri, linked.Token);
+                await _provider.ConnectAsync(uri, connectCts.Token);
             }
             catch (OperationCanceledException)
             {
-                _state.Value = NetworkConnectionState.Disconnected;
-                throw; // 外部取消 / 宿主释放：原样抛，不包装
+                if (!_disposed) _state.Value = NetworkConnectionState.Disconnected; // 宿主已 Dispose 时 _state 已释放，不能再写
+                throw; // 外部取消 / 宿主释放 / Disconnect 取消：原样抛，不包装
             }
             catch (Exception e)
             {
-                _state.Value = NetworkConnectionState.Disconnected;
+                if (!_disposed) _state.Value = NetworkConnectionState.Disconnected;
                 throw new NetworkException(NetworkErrorKind.ConnectionError, $"WebSocket 连接失败：{url}（{e.Message}）", inner: e);
+            }
+            finally
+            {
+                _connectCts = null;
+                connectCts.Dispose();
             }
 
             _state.Value = NetworkConnectionState.Connected;
+            _loopCts?.Dispose(); // 上一条连接意外断开时循环自行退出、CTS 留到此刻回收——不回收会随重连次数累积对 _lifetimeCts 的注册
             _loopCts = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCts.Token);
             ReceiveLoop(_loopCts.Token).Forget();
         }
@@ -130,12 +140,20 @@ namespace Game.Framework.Network
         {
             if (_disposed || _state.Value == NetworkConnectionState.Disconnected) return; // 未连接 = no-op
 
-            // 先置 Disconnected + 取消循环：循环里的意外断开处理会因状态已变而不再发 ClosedEvent（去重）。
+            if (_state.Value == NetworkConnectionState.Connecting)
+            {
+                // 取消在途 Connect（其 await 收到 OCE、状态由 Connect 的 catch 回滚）；从未连接成功，不发 ClosedEvent。
+                _connectCts?.Cancel();
+                return;
+            }
+
+            // 先置 Disconnected：接收循环随后无论因收到 Close ack 还是被取消退出，都不再重复发 ClosedEvent（去重）。
             _state.Value = NetworkConnectionState.Disconnected;
-            _loopCts?.Cancel();
 
             try
             {
+                // 先发 Close 帧、后停循环——若先取消循环，挂起的 ReceiveAsync 被取消会直接中止（abort）底层连接，
+                // Close 帧根本发不出去，对端只能看到异常断开。「优雅关闭」对这个顺序敏感。
                 using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _lifetimeCts.Token);
                 await _provider.CloseAsync(linked.Token);
             }
@@ -144,6 +162,11 @@ namespace Game.Framework.Network
                 // 关闭握手失败无关紧要（对端可能已走）——记一条不抛，Disconnect 的语义是「尽力优雅关」
                 Debug.LogWarning($"[WebSocketUtility] 关闭握手未完成（{e.GetType().Name}: {e.Message}），连接已按断开处理。");
             }
+
+            // Close 帧已发出（或已尽力），不等对端 ack：取消并回收循环 CTS。
+            _loopCts?.Cancel();
+            _loopCts?.Dispose();
+            _loopCts = null;
 
             _context?.SendEvent(new WebSocketClosedEvent(byUser: true, reason: "用户主动断开"));
         }
@@ -189,11 +212,23 @@ namespace Game.Framework.Network
             UniTask prev = _sendTail;
             var gate = new UniTaskCompletionSource();
             _sendTail = gate.Task;
-            await prev;
+            // linked CTS 在排队等待前创建：若等待期间宿主 Dispose，之后再取 _lifetimeCts.Token 会抛 ODE 而非约定的取消。
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _lifetimeCts.Token);
             try
             {
-                using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _lifetimeCts.Token);
-                await _provider.SendAsync(frame, linked.Token);
+                await prev; // 前一条的哨兵必然完成（finally 保证），这里永不抛
+                linked.Token.ThrowIfCancellationRequested(); // 排队期间被取消 / 宿主释放：不再碰 socket
+                try
+                {
+                    await _provider.SendAsync(frame, linked.Token);
+                }
+                catch (OperationCanceledException) { throw; } // 取消原样抛（调用方意图 / 宿主释放）
+                catch (Exception e)
+                {
+                    // 发送中途 socket 断掉（EnsureConnected 只挡得住「调用时未连接」）：折叠为 ConnectionError，
+                    // 不让 WebSocketException 之类传输层原始异常泄给业务；连接失效由接收循环兜底发 ClosedEvent。
+                    throw new NetworkException(NetworkErrorKind.ConnectionError, $"WebSocket 发送失败：{e.Message}", inner: e);
+                }
             }
             finally { gate.TrySetResult(); }
         }

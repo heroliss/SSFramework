@@ -2488,8 +2488,8 @@ await ws.Send("say", new SayReq { Text = "hi" });               // 客户端 →
 |---|---|
 | `State` | `ReadOnlyReactiveProperty<NetworkConnectionState>`（Disconnected/Connecting/Connected） |
 | `RegisterPush<TEvent>(type)` | 推送 type → 框架事件映射；重复注册抛 |
-| `Connect(url)` / `Disconnect()` | 建连（已连时抛）/ 优雅关闭（未连 = no-op） |
-| `Send<T>(type, payload)` / `Send(type)` | 发消息（内部 FIFO 保序）；未连接抛 `NetworkException(ConnectionError)` |
+| `Connect(url)` / `Disconnect()` | 建连（已连时抛）/ 优雅关闭（未连 = no-op；连接中 = 取消在途 Connect、不发关闭事件） |
+| `Send<T>(type, payload)` / `Send(type)` | 发消息（内部 FIFO 保序）；未连接、或发送中途连接断掉，均抛 `NetworkException(ConnectionError)` |
 
 ### 失败语义（单一 `NetworkException` + `Kind` 分级）
 

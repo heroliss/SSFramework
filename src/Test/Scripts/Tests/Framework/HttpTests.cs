@@ -117,23 +117,22 @@ namespace Game.Framework.Test
             _http.SetHeader("Authorization", "Bearer t1");
             _http.SetHeader("X-Custom", "base");
 
-            // 每请求头叠加在默认头之后（provider 按序应用 = 同名后者覆盖）
+            // 同名头由编排层合并去重（不区分大小写、每请求头胜出）——provider 收到的列表无重复项
             await _http.Send(new HttpRequest
             {
                 Path = "api/x",
-                Headers = new Dictionary<string, string> { ["X-Custom"] = "override" },
+                Headers = new Dictionary<string, string> { ["x-custom"] = "override" },
             });
-            Assert.AreEqual(3, _fake.LastHeaders.Count);
+            Assert.AreEqual(2, _fake.LastHeaders.Count);
             Assert.AreEqual("Bearer t1", Find("Authorization"));
-            Assert.AreEqual("override", FindLast("X-Custom")); // 后者在序列尾部，覆盖生效
+            Assert.AreEqual("override", Find("X-Custom")); // 每请求头覆盖默认头（大小写不同也算同名）
 
             // null 值移除默认头
             _http.SetHeader("Authorization", null);
             await _http.Get<LoginResp>("api/x");
             Assert.IsFalse(_fake.LastHeaders.Exists(h => h.Key == "Authorization"));
 
-            string Find(string name) => _fake.LastHeaders.Find(h => h.Key == name).Value;
-            string FindLast(string name) => _fake.LastHeaders.FindLast(h => h.Key == name).Value;
+            string Find(string name) => _fake.LastHeaders.Find(h => string.Equals(h.Key, name, StringComparison.OrdinalIgnoreCase)).Value;
         });
 
         [UnityTest]

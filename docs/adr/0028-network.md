@@ -58,7 +58,8 @@ public interface IWebSocketUtility : IUtility     // 有状态长连接（一个
 | 非 2xx（动词门面） | `NetworkException(HttpError)`，携带 `StatusCode` + `ResponseBody`（截断 ≤4KB） |
 | 响应体 / 推送载荷反序列化失败 | `NetworkException(DeserializeError)`（服务器契约不符） |
 | 2xx 空响应体 | 返回 `null`（唯一的 null 语义） |
-| 未连接时 WS `Send` | `NetworkException(ConnectionError)` |
+| 未连接时 WS `Send` / 发送中途 socket 断掉 | `NetworkException(ConnectionError)`（传输层原始异常不外泄给业务） |
+| Connecting 中调用 WS `Disconnect` | 取消在途 `Connect`（其 await 收到 OCE）、不发 ClosedEvent |
 | 未注册的推送 type | Editor/Dev 一次性 warning + 丢弃（照 Localization 缺 key 先例），不毒化接收循环 |
 
 - **非 2xx 不折叠成 null**：REST 状态码语义因服务器而异，隐藏状态码丢信息。预期 404 的业务 `catch (NetworkException e) when (e.Kind == NetworkErrorKind.HttpError && e.StatusCode == 404)`。

@@ -35,7 +35,7 @@ namespace Game.Framework.Network
             }
             if (headers != null)
                 foreach (var h in headers)
-                    req.SetRequestHeader(h.Key, h.Value); // 同名覆盖——上层按「默认头在前、每请求头在后」排序依赖此行为
+                    req.SetRequestHeader(h.Key, h.Value); // 列表已由编排层合并去重，无同名项
 
             try
             {
