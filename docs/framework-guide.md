@@ -26,7 +26,8 @@
 22. [字体（多语言字体链）](#22-字体多语言字体链)
 23. [框架诊断面板](#23-框架诊断面板)
 24. [响应式集合与列表绑定](#24-响应式集合与列表绑定)
-25. [推荐项目结构](#25-推荐项目结构)
+25. [网络（HTTP / WebSocket）](#25-网络http--websocket)
+26. [推荐项目结构](#26-推荐项目结构)
 
 ---
 
@@ -1233,7 +1234,7 @@ public class MiniGameController : MonoBehaviour
 
 ## 13. AssetReference（资源引用）
 
-框架通过 `IAssetUtility` 与 `AssetReference<T>` 提供统一资源入口。业务动态加载用 location；Inspector 拖拽引用用 `AssetReference<T>`。GUID 只保存在引用内部，不作为业务 API 暴露。资源在工程里按类型 / 模块怎么摆（及 YooAsset 寻址 / 打包约定）见 §25「推荐项目结构」。
+框架通过 `IAssetUtility` 与 `AssetReference<T>` 提供统一资源入口。业务动态加载用 location；Inspector 拖拽引用用 `AssetReference<T>`。GUID 只保存在引用内部，不作为业务 API 暴露。资源在工程里按类型 / 模块怎么摆（及 YooAsset 寻址 / 打包约定）见 §26「推荐项目结构」。
 
 `MonoViewBase/MonoModelBase/MonoSystemBase/MonoUtilityBase` 内置 protected `Bag`——动态加载通过 `Bag.Load<T>(location)` / `Bag.LoadScene(...)`，handle 自动登记到 Bag，`OnDestroy` 时统一释放；`Bag.LoadText` / `Bag.LoadBytes` 是内容直读（拷出即释放句柄、不进 Bag），按包构建类型自动路由（普通 AB 包按 TextAsset 取内容，RawFile 包走原生通道）。`AssetReference<T>` 字段则自己持有 handle，并由宿主 `OnDestroy` 自动 `Dispose`。真实引用计数由具体资源 provider 维护，框架只管理“谁负责释放哪一类 handle”。
 
@@ -1665,7 +1666,7 @@ Bag.Subscribe(
 
 ## 16. 配置表（Luban）
 
-表定义（XML）与数据（JSON / Excel）放在一处 conf 源目录（demo 那套在 `Assets/Game/Framework/Demo/Configs~/`，`~` 后缀让 Unity 不导入、纯构建期输入）→ 菜单跑 Luban CLI 生成**配置 C# 类 + 二进制数据 + 表清单** → 运行期由一个自加载的配置 Utility 服务持表，数据文件随资源包打包与热更。设计原理与取舍见 ADR-0009；源 / 输出目录在模块里怎么摆见 §25「推荐项目结构」。
+表定义（XML）与数据（JSON / Excel）放在一处 conf 源目录（demo 那套在 `Assets/Game/Framework/Demo/Configs~/`，`~` 后缀让 Unity 不导入、纯构建期输入）→ 菜单跑 Luban CLI 生成**配置 C# 类 + 二进制数据 + 表清单** → 运行期由一个自加载的配置 Utility 服务持表，数据文件随资源包打包与热更。设计原理与取舍见 ADR-0009；源 / 输出目录在模块里怎么摆见 §26「推荐项目结构」。
 
 > **多套并存**：每套配置 = 一个 `LubanConfigProfile`（各自的 conf 源 + 输出目录 + topModule，互不干扰）。demo 与正式游戏可各一套——`LubanConfigProfile.ResolveAll()` 返回全部、菜单「生成」逐套生成，多套集中管理用「配置总览」窗口。demo 那套（源 / 代码 / 数据全在 `Demo/` 内）随 demo 程序集与样例资源包在正式打包时一并排除。
 
@@ -2447,7 +2448,120 @@ Bag.Subscribe(source.ObserveChanged(), _ => { list.itemsSource = source.ToList()
 
 ---
 
-## 25. 推荐项目结构
+## 25. 网络（HTTP / WebSocket）
+
+网络消息按最贴合因果的形态分两轨建模（`Game.Framework.Network`）：**请求-响应**（发起方等结果）= `IHttpUtility` 的 **UniTask 返回值**，不硬塞进事件；**服务器推送 / 广播**（谁都可能收到）= `IWebSocketUtility` 把推送转成**框架 Event**，`Bag.Subscribe<T>` 消费，与订 Model 事件同一套心智。传输与序列化是两个正交接缝，默认 UnityWebRequest + ClientWebSocket + JSON，全部零第三方依赖。设计取舍见 ADR-0028，活样例见 demo「网络 · HTTP 与 WebSocket」章。
+
+### 快速开始
+
+```csharp
+// 注册（HTTP 全局；WS 可注册进 FlowState 子 Context 随战斗阶段整棵撤）：
+builder.RegisterOwned(new HttpUtility("https://api.example.com"), typeof(IHttpUtility));
+builder.RegisterOwned(new WebSocketUtility(), typeof(IWebSocketUtility));
+
+// ── HTTP 请求-响应：await 拿返回值 ──
+var http = this.GetUtility<IHttpUtility>();
+var resp = await http.Post<LoginReq, LoginResp>("api/login", new LoginReq { User = "hero" });
+http.SetHeader("Authorization", $"Bearer {resp.Token}");        // 之后每个请求自动带上
+var board = await http.Get<Leaderboard>($"api/rank?count={n}"); // query 写在 path，动态值用 Uri.EscapeDataString
+
+// ── WebSocket 推送转事件 ──
+var ws = this.GetUtility<IWebSocketUtility>();
+ws.RegisterPush<ChatPushEvent>("chat");          // 把推送 type 映射为强类型事件（连接前后均可注册）
+await ws.Connect("wss://push.example.com/game");
+Bag.Subscribe(ws.State, s => statusLabel.text = s.ToString());  // 连接状态响应式
+Bag.Subscribe<ChatPushEvent>(e => AppendChat(e.From, e.Text));  // 消费推送，和订 Model 事件无差别
+await ws.Send("say", new SayReq { Text = "hi" });               // 客户端 → 服务器
+```
+
+请求 / 响应类型是 `[Serializable] class`；**推送事件类型是 `[Serializable] struct + 公共字段` 且实现 `IEvent`**（默认 JsonUtility 只认字段，⚠ 别用 record 位置参数——那是属性、反序列化不出来）。
+
+### API 一览
+
+| `IHttpUtility` | 说明 |
+|---|---|
+| `Get<TResp>(path)` / `Post<TReq,TResp>(path, body)` / `Post<TReq>(path, body)` | 动词门面；2xx 空体 → null，非 2xx **抛** `NetworkException(HttpError)` |
+| `SetHeader(name, value)` | 设默认头（value=null 移除）；典型登录后设 Authorization |
+| `Send(HttpRequest)` | 逃生舱：任意动词 / raw 字节 / 每请求头；**只要交换完成就返回不抛**（查 `IsSuccess`），PUT/DELETE 走这里 |
+
+| `IWebSocketUtility` | 说明 |
+|---|---|
+| `State` | `ReadOnlyReactiveProperty<NetworkConnectionState>`（Disconnected/Connecting/Connected） |
+| `RegisterPush<TEvent>(type)` | 推送 type → 框架事件映射；重复注册抛 |
+| `Connect(url)` / `Disconnect()` | 建连（已连时抛）/ 优雅关闭（未连 = no-op） |
+| `Send<T>(type, payload)` / `Send(type)` | 发消息（内部 FIFO 保序）；未连接抛 `NetworkException(ConnectionError)` |
+
+### 失败语义（单一 `NetworkException` + `Kind` 分级）
+
+| 情形 | 表现 |
+|---|---|
+| DNS / 拒连 / 断网 | `NetworkException(ConnectionError)` |
+| 超时（内部计时触发） | `NetworkException(Timeout)`——与外部取消**严格区分** |
+| 外部 `ct` 取消 | `OperationCanceledException`（不包装，调用方意图） |
+| 非 2xx（动词门面） | `NetworkException(HttpError)`，带 `StatusCode` + `ResponseBody` |
+| 响应体 / 推送载荷反序列化失败 | `NetworkException(DeserializeError)` |
+
+**非 2xx 不折叠成 null**（状态码语义因服务器而异，隐藏即丢信息）：预期内的业务错误用 `catch ... when` 过滤——
+
+```csharp
+try { await http.Get<Profile>("api/profile/999"); }
+catch (NetworkException e) when (e.Kind == NetworkErrorKind.HttpError && e.StatusCode == 404)
+{ /* 该玩家不存在，走业务分支 */ }
+```
+
+线程边界框架兜住：**接收循环在后台收帧、每条推送切回主线程后才解析 + `SendEvent`**（事件系统主线程独占），业务永远在主线程收到回调；坏消息 warning + 丢弃当条、不毒化连接。
+
+### 重试 / 重连：框架给样板、不做黑盒
+
+自动重试的幂等性、重连的重新认证 / 状态恢复只有业务知道，框架刻意不内置。样板可照抄：
+
+```csharp
+// HTTP 幂等 GET 退避重试（仅连接级失败重试，非 2xx / 业务错误不重试）
+for (int attempt = 0; ; attempt++)
+{
+    try { return await http.Get<T>(path, ct); }
+    catch (NetworkException e) when (e.Kind == NetworkErrorKind.ConnectionError && attempt < 3)
+    { await UniTask.Delay(TimeSpan.FromSeconds(1 << attempt), cancellationToken: ct); } // 1s,2s,4s
+}
+
+// WS 断线自动重连（订关闭事件，过滤非用户主动的断开）
+Bag.Subscribe<WebSocketClosedEvent>(e => { if (!e.ByUser) ReconnectWithBackoff().Forget(); });
+```
+
+### 换序列化器：接入 Protobuf / MemoryPack
+
+默认 JSON 零依赖起步。后端契约确定后，实现 `INetworkSerializer`（对象 ↔ 字节 + `ContentType`）经构造注入，业务代码零改动：
+
+```csharp
+public sealed class ProtobufNetworkSerializer : INetworkSerializer
+{
+    public string ContentType => "application/x-protobuf";
+    public byte[] Serialize<T>(T data) => ProtoBuf.Serializer... // 你的 proto 运行时
+    public T Deserialize<T>(byte[] bytes) => ...;
+}
+// 注册时换一行：
+builder.RegisterOwned(new HttpUtility(baseUrl, serializer: new ProtobufNetworkSerializer()), typeof(IHttpUtility));
+```
+
+Protobuf 是「.proto 契约 + 代码生成」整条工具链、MemoryPack 的 source generator 需验证与 HybridCLR 热更的兼容性——都等真实后端驱动再引入，框架只留接缝。
+
+### 扩展点与刻意不做
+
+- **换传输 = `IHttpProvider` / `IWebSocketProvider`**：BestHTTP（WebGL 的 WS / HTTP2 / SignalR）、`HttpClient` 等实现它经构造注入；付费插件做「适配器菜谱」不内置，接入后业务零改动（也正是「第二实现验证抽象边界」的路径）。
+- **换格式 = `INetworkSerializer`**（见上）。
+- **刻意不做**：自动重试 / 自动重连（给样板）、WebGL 的 WebSocket（`ClientWebSocket` 不支持，需 JS-bridge provider；HTTP 路径 WebGL 天然兼容）、RPC 请求-响应关联（correlation id，MagicOnion 领域）、大文件下载 / 断点续传（归资源系统）、请求队列 / 限流 / ETag 缓存 / query builder（现有原语可组合）。
+- **第三方定位**：MagicOnion 是整套 RPC 范式（强类型服务 + MemoryPack + gRPC），真用它时「直接用 + 框架管其余」，不塞进本接缝。
+
+> **要点回顾**
+>
+> - 请求-响应 = `await Get/Post`（非 2xx 抛 `NetworkException`，查 `Kind`/`StatusCode`）；`Send` 逃生舱不抛、自己看状态码
+> - 服务器推送 = `RegisterPush<TEvent>(type)` 映射 + `Bag.Subscribe<TEvent>` 消费；推送事件用 `[Serializable] struct + 公共字段`
+> - 超时（`Timeout`）与外部取消（`OCE`）严格区分；后台推送切主线程后才扇出，业务永在主线程收到
+> - 重试 / 重连业务自己写（框架给样板）；换传输 / 换格式两个接缝，构造注入、业务零改动
+
+---
+
+## 26. 推荐项目结构
 
 把框架用进正式项目时，按「特性模块自洽 + 可整单元裁剪」组织，而不是按技术类型（all Models / all Views）摊平。下面是从 demo 提炼的原则——demo 自身是活样例，但有两处别照抄（见末尾）。
 
