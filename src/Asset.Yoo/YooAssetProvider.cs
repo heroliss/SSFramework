@@ -135,7 +135,9 @@ namespace Game.Framework
                 return null;
             }
 
-            var handle = package.LoadSceneAsync(location, mode, LocalPhysicsMode.None, suspendLoad);
+            // YooAsset 该参数是 allowSceneActivation（是否加载完立即激活），与框架的 suspendLoad（挂起=先别激活）语义相反，须取反。
+            // 直传会把「不挂起」当成「不激活」→ 场景卡在 90% 永不激活（Hierarchy 显示 is loading），await 永不返回。
+            var handle = package.LoadSceneAsync(location, mode, LocalPhysicsMode.None, allowSceneActivation: !suspendLoad);
             try
             {
                 await WaitHandle(handle, ct);
@@ -661,6 +663,12 @@ namespace Game.Framework
             _unloading = true;
             var native = _native;
             _native = null;
+
+            // 退出 Play / 应用关闭时，YooAsset 可能已先一步 Destroy（AsyncOperationSystem 已释放）——典型顺序：
+            // YooAssetsDriver.OnApplicationQuit → YooAssets.Destroy，之后才轮到 Context/Bag 释放触发本卸载。
+            // 此时场景随引擎生命周期一并销毁，主动 UnloadSceneAsync 只会抛「AsyncOperationSystem is not initialized」。
+            // 系统整体已拆除时直接跳过卸载即可（正常运行期不会走到，YooAssets 始终在线）。
+            if (!YooAsset.YooAssets.IsInitialized) return;
 
             var op = native.UnloadSceneAsync();
             await UniTask.WaitUntil(() => op.IsDone);
