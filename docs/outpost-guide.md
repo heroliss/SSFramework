@@ -42,16 +42,16 @@
 
 ### 2. 事件 → 表现的翻译层
 
-模拟只往外发**领域事件**：`EnemySpawned` / `EnemyHit` / `PlayerHit` / `WaveCleared`。它不知道什么是 GameObject、曳光、Bloom。
+模拟只往外发**领域事件**：`EnemySpawned` / `EnemyHit` / `EnemyDetonated` / `WaveCleared`。它不知道什么是 GameObject、曳光、Bloom。玩法上是一门"近防炮拦截来袭弹"：敌人径直冲基地，抵达即自爆（`EnemyDetonated`，一次性伤害）；在离基地过近处击毁会吃拦截溅射（`EnemyHitEvent.SplashDamage`，越近越疼）——两条规则都在纯 C# 内核里，表现层只负责演出。
 
-[`BattleDirector`](../Assets/Game/Outpost/Scripts/Battle/BattleDirector.cs)（一个 `System`）订阅这些事件，把它们翻成 Unity 表现：池化敌人、发光炮塔、弹道曳光、脉冲圈、伤害飘字、相机震动；同时把聚合值（血量/波次/得分）写进 `BattleModel` 供 HUD 只读订阅。
+[`BattleDirectorSystem`](../Assets/Game/Outpost/Scripts/Battle/BattleDirectorSystem.cs)（一个 `System`）订阅这些事件，把它们翻成 Unity 表现：池化敌人、发光炮塔、弹道曳光、脉冲圈、伤害飘字、相机震动；同时把聚合值（血量/波次/得分）写进 `BattleModel` 供 HUD 只读订阅。
 
-**换 ECS 后端时，这层翻译原样保留**——因为它只依赖接口事件，不依赖某个后端的内部结构。视觉升级（本次做的箭头敌人、雷达扫描射程圈、炮台转到位再开火）全部加在这一层，模拟数学一字未动。
+**换 ECS 后端时，这层翻译原样保留**——因为它只依赖接口事件，不依赖某个后端的内部结构。视觉升级（箭头敌人、雷达扫描射程圈、炮台转到位再开火、拦截/自爆爆炸）全部加在这一层，模拟数学一字未动。
 
 ### 3. 读写分离，且"层 + 消费者"同一子树整棵撤
 
 - **读**：HUD / 升级面板是 View，只能经查询 Command 拿到 `ReadOnlyReactiveProperty` 订阅，读不到也写不到 Model/System（编译期权限接口挡住）。
-- **写**：任何改动都走 `ExecuteCommand`。连"选了个升级"也是——`UpgradeChoiceView` 发 `ChooseUpgradeCommand`，命令再 `ctx.GetSystem<BattleDirector>().ChooseUpgrade(id)`，因为 View 不能直接碰 System。
+- **写**：任何改动都走 `ExecuteCommand`。连"选了个升级"也是——`UpgradeChoiceView` 发 `ChooseUpgradeCommand`，命令再 `ctx.GetSystem<BattleDirectorSystem>().ChooseUpgrade(id)`，因为 View 不能直接碰 System。
 - **生命周期**：战斗私有的 `BattleModel` / `UpgradeModel` / 对象池都注册在 [`BattleContext`](../Assets/Game/Outpost/Scripts/Battle/BattleContext.cs)（战斗子场景的根）。战斗场景一卸载，这棵子上下文连同它的层、订阅、池化对象整棵销毁——下一局全新一份，**零跨局残留、零手动清理**。这就是框架说的"换血不允许，撤就整棵撤"。
 
 ---
