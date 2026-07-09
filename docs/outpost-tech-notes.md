@@ -32,16 +32,17 @@
 
 ---
 
-## 3. 开火模型：预热、无上限射速、边转边扫
+## 3. 开火模型：无上限射速、边转边扫
 
-近防炮手感的三段，全在内核（表现层只读 `TurretAngle` / `SpinUp` 画出来）：
+近防炮手感的两段，全在内核（表现层只读 `TurretAngle` 画炮管指向）：
 
-- **预热缓升缓降 `SpinUp`(0..1)**：锁定目标后按 `SpinUpTime` 缓升到 1、脱离后按 `SpinDownTime` 缓降到 0。**有效射速 = 基础射速 × SpinUp**——刚咬上目标时射速从低爬起，有点火感。
 - **射速无上限**：攻速升级 `攻击间隔 ×0.85` 可无限叠，间隔只留极小下限（`0.0008s`，防除零/单帧病态循环）。后期能飙到每分钟数万发。单帧可多发（`MaxShotsPerTick=64` 兜底）。
 - **边转边扫（火墙）**：有效射速间隔低于 `FirehoseFireInterval(0.06s)` 即进"火墙"模式——炮口在转向途中**也持续击发**：
   - 炮口锥内有敌 → 正常结算命中（发 `TurretFired(hit:true)` + `EnemyHit`）。
   - 炮口锥内为空但射程内还有敌 → **空放**：射向炮口方向、**不结算伤害**，发 `TurretFired(hit:false)`，画出扫掠的火舌。
   - 低射速（间隔 ≥ 0.06s）则回到"瞄准后才发"的点射：锥内为空就本 tick 停火、下 tick 把炮口转过去。两种手感在射速升上来时自然衔接。
+
+> **内核不含"点火渐变"**：早期内核有一个射速预热系数 `SpinUp`(0..1) 做"咬上目标缓升"。但无限模式里目标常年在射程内、它几乎恒为 1、早已不是平衡杠杆，遂从内核移除——"点射收拢 → 火墙涨亮铺开"的辉光/散射渐变改由表现层按 `TurretFired` 击发节奏**自算火力热度**（见 [§4](#4-事件--表现的翻译两条独立事件线)）。内核回归纯逻辑、零表现状态，也少一处横切耦合（有效射速计算 / 火墙阈值 / 散射 / 辉光原本都串着这个恒为 1 的值）。
 
 **空放为什么不结算伤害**：空放那一发炮口方向本就没有敌人（有的话就是命中分支了），所以它对数值平衡近乎无影响，纯粹让火力连续、让回转升级更有价值（回转越快，炮口越快扫到下一群，空放占比越低）。
 
@@ -66,9 +67,10 @@
 
 一发命中会**同时**触发 `TurretFired(hit:true)` 和 `EnemyHit`——前者画枪口/曳光，后者画敌人反应。拆开的好处：转向途中的空放只有 `TurretFired(hit:false)`、没有 `EnemyHit`，于是"边转边扫"的火舌能画出来，而敌人反应逻辑不受污染。
 
-**两个表现细节**：
-- **曳光散射**：`FireBurst` 给曳光终点加了随 `SpinUp` 增大的随机抖动（`TracerScatter`）——高射速下密集连发才不会叠成一条直线，读成一片弹雨；命中冲击仍落在真实弹着点、不随散射抖。纯表现，不碰内核命中。
-- **每帧特效预算**：`HitFxPerFrame` / `KillFxPerFrame` 限量，超预算的发次只结算伤害不出特效（防对象池爆 + 刷屏）。这也是 OOP 后端在弹幕级吞吐下"看得出压力"的地方——**这是 M6 换 ECS 想在同场景压出差异的看点，不是要藏起来的缺陷**。
+**三个表现细节**：
+- **火力热度（辉光）**：表现层从 `TurretFired` 的击发间隔推断当前射速——密集(火墙)→热度趋 1、稀疏(点射)→趋 0、停火 `FireIdleTimeout` 后→归零，平滑趋近（`UpdateFireHeat`）后驱动炮塔核心亮度与下面的曳光散射。这是内核 `SpinUp` 移除后"点火感"的新归宿：内核只发"击发了"的事实，渐变留表现层插值——同一份击发事件既画枪口、又当射速表用。
+- **曳光散射**：`FireBurst` 给曳光终点加了随**火力热度**增大的随机抖动（`TracerScatter`）——高射速下密集连发才不会叠成一条直线，读成一片弹雨；点射时热度低几乎不散、单发看着准；命中冲击仍落在真实弹着点、不随散射抖。纯表现，不碰内核命中。
+- **每帧特效预算**：`HitFxPerFrame` / `KillFxPerFrame` 限量，超预算的发次只结算伤害不出特效（防对象池爆 + 刷屏）；但击发节奏仍逐发记录，热度不受预算降级影响。这也是 OOP 后端在弹幕级吞吐下"看得出压力"的地方——**这是 M6 换 ECS 想在同场景压出差异的看点，不是要藏起来的缺陷**。
 
 ---
 
@@ -119,6 +121,13 @@ sim.Start(setup);
 ### 2026-07 · 近防炮火墙：预热 + 无上限射速 + 边转边扫 + 曳光散射
 
 - **现象**：炮塔像近防炮——咬住目标后射速缓升，后期每分钟数万发；炮口边转边喷、扫过怪群拉出火舌；高射速时曳光是一片弹雨而非一条线。
-- **方案**：射速 = 基础 × `SpinUp` 预热系数、无上限；命中取"炮口锥内最近敌人"（指哪打哪）；火墙模式下炮口未对准也持续空放画火舌；曳光终点按预热强度随机散射（纯表现）。开火(`TurretFired`)与命中(`EnemyHit`)拆成两条事件。
-- **为什么**：见 [§3](#3-开火模型预热无上限射速边转边扫)（射速不封 + 回转封顶 = 无限模式靠数量收尾）与 [§5](#5-为什么不做子弹碰撞检测关键取舍)（hitscan 而非真子弹）。散射与空放火舌都是为了让"海量子弹"在视觉上读得出来，同时不动内核确定性。
+- **方案**：射速 = 基础 × `SpinUp` 预热系数、无上限；命中取"炮口锥内最近敌人"（指哪打哪）；火墙模式下炮口未对准也持续空放画火舌；曳光终点按预热强度随机散射（纯表现）。开火(`TurretFired`)与命中(`EnemyHit`)拆成两条事件。（`SpinUp` 后被移出内核、下放表现层为"火力热度"，见下一条。）
+- **为什么**：见 [§3](#3-开火模型无上限射速边转边扫)（射速不封 + 回转封顶 = 无限模式靠数量收尾）与 [§5](#5-为什么不做子弹碰撞检测关键取舍)（hitscan 而非真子弹）。散射与空放火舌都是为了让"海量子弹"在视觉上读得出来，同时不动内核确定性。
 - **落点**：[`Sim/ReferenceBattleSim.cs`](../Assets/Game/Outpost/Sim/ReferenceBattleSim.cs)（`FindNearestInCone` / 火墙循环 / `BarrelPoint`）、[`Sim/IBattleSim.cs`](../Assets/Game/Outpost/Sim/IBattleSim.cs)（`TurretFiredEvent`）、[`Scripts/Battle/BattleDirectorSystem.cs`](../Assets/Game/Outpost/Scripts/Battle/BattleDirectorSystem.cs)（`OnTurretFired` / `FireBurst` 散射）。
+
+### 2026-07 · 托管模式 + 预热下放表现层
+
+- **现象**：HUD 右下角一个"托管：开/关"按钮，点开后波间三选一的卡片亮相约 0.6s 便自动选定、玩家纯观战；再点即回手动。同时炮塔"点火缓升"的辉光/散射照旧，但内核里已不再有预热系数。
+- **方案**：① 托管——`UpgradeModel.AutoManaged`(RP<bool>) 单写（`SetAutoManageCommand` → 导演），导演在等待抉择时按优先级 **攻速>转速>探测范围>血上限>回血>攻击** 自动选牌；`AutoManageToggleView` 只读订阅回显、点击发命令，读写分离。② 预热移除——内核删掉 `SpinUp`/`SpinUpTime`/`SpinDownTime`，改由表现层 `UpdateFireHeat` 从 `TurretFired` 击发间隔自算"火力热度"驱动辉光与散射。
+- **为什么**：托管把"自动玩家"从跑数工具变成可玩的观战开关，直观演示"卡片策略决定成败"；优先级取自 [§6](#6-确定性与跑数验证) 的结论（纯攻速流自养血、生存卡可不选）。预热下放见 [§3](#3-开火模型无上限射速边转边扫) 的注——它在无限模式恒为 1、已非平衡杠杆，留在内核只是横切耦合；移到表现层后内核零表现状态、确定性更干净，手感一点不丢。
+- **落点**：[`Scripts/Battle/UpgradeModel.cs`](../Assets/Game/Outpost/Scripts/Battle/UpgradeModel.cs) / [`UpgradeCommands.cs`](../Assets/Game/Outpost/Scripts/Battle/UpgradeCommands.cs)（`AutoManaged` + `SetAutoManageCommand`）、[`BattleDirectorSystem.cs`](../Assets/Game/Outpost/Scripts/Battle/BattleDirectorSystem.cs)（`SetAutoManaged` / `AutoPickUpgrade` / `AutoPriority` / `UpdateFireHeat`）、[`AutoManageToggleView.cs`](../Assets/Game/Outpost/Scripts/Battle/AutoManageToggleView.cs)、场景 `OutpostBattle` 的 HUD 按钮；预热移除动了 [`Sim/IBattleSim.cs`](../Assets/Game/Outpost/Sim/IBattleSim.cs) / [`ReferenceBattleSim.cs`](../Assets/Game/Outpost/Sim/ReferenceBattleSim.cs) / [`BattleSetup.cs`](../Assets/Game/Outpost/Sim/BattleSetup.cs) / [`BattleSetupFactory.cs`](../Assets/Game/Outpost/Scripts/Battle/BattleSetupFactory.cs)。
