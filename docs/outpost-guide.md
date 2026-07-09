@@ -1,7 +1,7 @@
 # Outpost 垂直切片导读 —— 用一个小游戏串起框架
 
 > 给谁看：**刚接触本框架、或已读过 [framework-guide.md](framework-guide.md) 想看"真项目怎么落地"的人。**
-> Outpost 是一个刻意做小的塔式生存自动战斗 demo，它存在的首要目的不是"好玩"，而是**把框架的十来个能力在一个真实消费场景里串起来、并顺手验证接缝**。本文是"游戏里看得见的现象 ↔ 框架能力 ↔ 源码位置"的对照地图。
+> Outpost 是一个刻意做小的近防炮生存 demo，它存在的首要目的不是"好玩"，而是**把框架的十来个能力在一个真实消费场景里串起来、并顺手验证接缝**。本文是"游戏里看得见的现象 ↔ 框架能力 ↔ 源码位置"的对照地图。
 
 代码位置：[`Assets/Game/Outpost/`](../Assets/Game/Outpost/)。程序集 `Game.Outpost`（业务）+ `Game.Outpost.Sim`（零引擎依赖的纯 C# 模拟）。
 
@@ -9,50 +9,52 @@
 
 ## 30 秒看懂它在演示什么
 
-一句话：**玩家固定居中的炮塔自动转向索敌开火，敌人从四周一波比一波多地涌入，每波清空后三选一强化，直到哨站被摧毁——无限模式，比拼坚持到第几波、击杀多少。** 全部美术是程序几何体 + URP 后处理辉光，没有一张贴图。
+一句话：**玩家固定居中的近防炮自动转向索敌开火，敌人从四周一波比一波多地涌入（约 20 波后每波数千、同屏两三千），每波清空后哨站维修回满、三选一强化，直到六种成长全部到顶进入稳态——托管模式可以永续观战，「撤离」把分数落袋结算。** 全部美术是程序几何体 + URP 后处理辉光，没有一张贴图。
 
 这个"最小可玩闭环"故意压得很薄，好让每一处都对应一个可指认的框架用法：
 
 | 你在游戏里看到 | 背后的框架能力 | 落在哪 | 深读 |
 |---|---|---|---|
 | 标题→战斗→结算的界面切换 | **游戏流程状态机** `IGameFlow`（一次性状态、传参走构造） | [`Scripts/Flow/`](../Assets/Game/Outpost/Scripts/Flow/) | guide §20 / [ADR-0023](adr/0023-game-flow.md) |
-| 标题的"框架看点"弹窗盖住标题页 | **UI 窗口栈 + 模态遮罩**（Popup 层 + Modal） | [`Windows/AboutWindow.cs`](../Assets/Game/Outpost/Scripts/Windows/AboutWindow.cs) | guide §17 / [ADR-0016](adr/0016-ui-framework.md) |
-| HUD 实时刷血量/波次/击杀/得分 | **读写分离 + 只读订阅**（View 经查询 Command 拿 `ReadOnlyReactiveProperty`） | [`Battle/BattleHudView.cs`](../Assets/Game/Outpost/Scripts/Battle/BattleHudView.cs) | guide §5 / [ADR-0001](adr/0001-five-layers-and-permission-interfaces.md) |
+| 标题 / 结算 / 看点弹窗三个窗口 | **UXML 窗口**：`[UIWindow(Asset)]` 经资源系统加载 uxml、共享 `Outpost.uss` 主题；弹窗另演示窗口栈 + 模态遮罩 | [`Res/UI/`](../Assets/Game/Outpost/Res/UI/) + [`Scripts/Windows/`](../Assets/Game/Outpost/Scripts/Windows/) | guide §17 / [ADR-0016](adr/0016-ui-framework.md) |
+| HUD 实时刷血量/波次/击杀/得分/性能行 | **读写分离 + 只读订阅**（View 经查询 Command 拿 `ReadOnlyReactiveProperty`） | [`Battle/BattleHudView.cs`](../Assets/Game/Outpost/Scripts/Battle/BattleHudView.cs) | guide §5 / [ADR-0001](adr/0001-five-layers-and-permission-interfaces.md) |
 | 波间弹出三选一升级卡片 | **响应式集合增量绑定** `ObservableList` + `Bag.BindList` | [`Battle/UpgradeChoiceView.cs`](../Assets/Game/Outpost/Scripts/Battle/UpgradeChoiceView.cs) | guide §24 / [ADR-0027](adr/0027-reactive-collections-list-binding.md) |
-| 点卡片 → 升级即时生效 | **命令外发**：View 不能直调 System，写意图经 `ExecuteCommand` 中转 | [`Battle/UpgradeCommands.cs`](../Assets/Game/Outpost/Scripts/Battle/UpgradeCommands.cs) | guide §3 |
-| 敌人 / 曳光 / 飘字 / 脉冲 / 碎片成群出现又消失 | **对象池** `IPoolUtility`（`Bag.Spawn`/`Despawn` 自动借还） | [`Battle/BattleDirectorSystem.cs`](../Assets/Game/Outpost/Scripts/Battle/BattleDirectorSystem.cs) | guide §7 / [ADR-0007](adr/0007-custom-object-pool.md) |
-| 敌人三种（炮灰无人机 / 快速突袭者 / 重甲装甲兵）、升级六种、无限波次成长参数 | **配置表** Luban（强类型只读数据、全层可读的 Utility） | [`Config/Gen/`](../Assets/Game/Outpost/Config/Gen/) | guide §16 / [ADR-0009](adr/0009-luban-integration.md) |
+| 点卡片 / 托管开关 / 撤离按钮 | **命令外发**：View 不能直调 System，写意图经 `ExecuteCommand` 中转 | [`Battle/UpgradeCommands.cs`](../Assets/Game/Outpost/Scripts/Battle/UpgradeCommands.cs)、[`BattleCommands.cs`](../Assets/Game/Outpost/Scripts/Battle/BattleCommands.cs) | guide §3 |
+| 数千同屏的敌人海 | **实例化渲染**（`SwarmRenderer` 批量绘制，零 GameObject） | [`Battle/SwarmRenderer.cs`](../Assets/Game/Outpost/Scripts/Battle/SwarmRenderer.cs) | 本文§2 |
+| 曳光 / 脉冲 / 飘字 / 碎片成群出现又消失 | **对象池** `IPoolUtility`（`Bag.Spawn`/`Despawn` 自动借还） | [`Battle/BattleDirectorSystem.cs`](../Assets/Game/Outpost/Scripts/Battle/BattleDirectorSystem.cs) | guide §7 / [ADR-0007](adr/0007-custom-object-pool.md) |
+| 敌人五种、升级六种、波次成长曲线、表现参数 | **配置表** Luban（数值列进模拟、表现列表现层直读——加敌人=加一行） | [`Configs~/`](../Assets/Game/Outpost/Configs~/) → [`Config/Gen/`](../Assets/Game/Outpost/Config/Gen/) | guide §16 / [ADR-0009](adr/0009-luban-integration.md) |
 | 整个战斗的规则演算 | **纯 C# 模拟接缝** `IBattleSim`（可 AOT / 可单测 / 可置换 ECS） | [`Sim/`](../Assets/Game/Outpost/Sim/) | [ADR-0014](adr/0014-realtime-simulation-ownership.md) |
 
 ---
 
 ## 三个最值得看的设计
 
-### 1. `IBattleSim`：把"规则"关进零引擎依赖的盒子
+### 1. `IBattleSim`：把"规则"关进零引擎依赖的盒子，后端可整体置换
 
-战斗的所有数值演算（移动、索敌、开火、结算）都在 [`Sim/`](../Assets/Game/Outpost/Sim/) 里，那是一个 **`noEngineReferences` 的程序集**：不 `using UnityEngine`，坐标用 `System.Numerics.Vector2`。
+战斗的所有数值演算（刷怪、移动、转向开火、结算、波次成长）都在 [`Sim/`](../Assets/Game/Outpost/Sim/) 里，那是一个 **`noEngineReferences` 的程序集**：不 `using UnityEngine`，坐标用 `System.Numerics.Vector2`。
 
-为什么这么做：
-
-- **可单测 / AI 可验证**：规则是确定性纯函数，`new ReferenceBattleSim()` 喂一段 Tick 序列毫秒级跑完，不用进 Play。平衡就是这样在编辑器里"跑数"调出来的（见 `BattleSetupFactory`）。
+- **可单测 / AI 可验证**：规则是确定性纯函数，`new ReferenceBattleSim()` 喂一段 Tick 序列毫秒级跑完，不用进 Play。本轮全部难度标定就是无头跑数做的（托管策略跑 110 波、逐波打印消耗/峰值/耗时曲线）。
 - **可 AOT**：热更/裁剪环境永不炸。
-- **可置换后端**：`ReferenceBattleSim`（面向对象参考实现）是接缝的第一个后端；里程碑 M6 会加一个 ECS/DOTS 后端塞进同一个 `IBattleSim`，做"同题对比"。届时**上层一行不改**。
+- **可置换后端**：`BattleDirectorSystem` 顶部有一个 `BattleSimBackend` 枚举 + `CreateSim()` 工厂——M6 的 ECS/DOTS 后端只需加一个分支，事件→表现翻译层、Model、HUD 全部零改动。HUD 左下角的**性能行**（后端名 · 敌人数 · 模拟耗时 · fps）就是为"同题对比"准备的度量面板。
 
-> 接缝的价值只有在"真被换一次"时才结算——这正是 Outpost 存在的原因之一。
+### 2. 事件 → 表现翻译层，与"实例化渲染 × 对象池"的分工
 
-### 2. 事件 → 表现的翻译层
+模拟只往外发**领域事件**：`EnemySpawned` / `EnemyHit` / `TurretFired` / `EnemyDetonated` / `WaveCleared`，它不知道什么是 GameObject。[`BattleDirectorSystem`](../Assets/Game/Outpost/Scripts/Battle/BattleDirectorSystem.cs)（一个 `System`）把事件翻成表现，并把聚合值写进 `BattleModel` 供 HUD 只读订阅。**换 ECS 后端时这层原样保留。**
 
-模拟只往外发**领域事件**：`EnemySpawned` / `EnemyHit` / `EnemyDetonated` / `WaveCleared`。它不知道什么是 GameObject、曳光、Bloom。玩法上是一门"近防炮拦截来袭弹"：敌人径直冲基地，抵达即自爆（`EnemyDetonated`，一次性伤害）；在离基地过近处击毁会吃拦截溅射（`EnemyHitEvent.SplashDamage`，越近越疼）。**炮塔的开火与回转都是内核的真机制**——按回转速度逐帧转向最近目标、炮口对准（容差内）才开火，射速带**预热缓升缓降**（`IBattleSim.SpinUp`，近防炮点火感）且**无上限**，后期靠攻速升级能飙到每分钟上万发的火墙。攻击 / 射程 / 回转都封顶、唯独射速不封：攻击封顶让敌人不再被秒杀（得多发命中，火力压力交给射速），**回转封顶**是无限模式能收尾的关键——面对 360° 密集来袭，扫不过来的方向必然漏怪，击杀率随数量渐降直至被压垮。波次由角色表 `WaveRole` + 全局 `WaveScaling` 逐波程序化生成、越来越多，唯一终态是失守——这些规则全在纯 C# 内核里，表现层只负责演出（`TurretAngle` / `SpinUp` 供表现层画炮管指向与火墙强度）。
+表现层按"数量级"分两条路径，这是海量同屏下的关键取舍：
 
-[`BattleDirectorSystem`](../Assets/Game/Outpost/Scripts/Battle/BattleDirectorSystem.cs)（一个 `System`）订阅这些事件，把它们翻成 Unity 表现：池化敌人、发光炮塔、弹道曳光、脉冲圈、伤害飘字、相机震动；同时把聚合值（血量/波次/得分）写进 `BattleModel` 供 HUD 只读订阅。
+- **海量常驻单位 → 实例化渲染**：[`SwarmRenderer`](../Assets/Game/Outpost/Scripts/Battle/SwarmRenderer.cs) 每帧直接遍历模拟快照，`Graphics.DrawMeshInstanced` 按原型分批绘制全部敌人（出生弹出/呼吸/白闪/血量变暗全部逐实例数值计算）——敌人不占任何 GameObject，两三千同屏不掉帧。
+- **少量瞬时特效 → 对象池**：曳光/脉冲/烟/碎片/飘字走 `Bag.Spawn` 借还，并有**每帧演出预算**（命中/击毁/出生特效各有限量，超出只结算数值不演出）；玩家受创（漏怪自爆+拦截溅射）在 0.25s 窗口内**聚合**成一次震屏/红闪/汇总飘字——每秒上百次受创时逐条演出会刷屏。
 
-**换 ECS 后端时，这层翻译原样保留**——因为它只依赖接口事件，不依赖某个后端的内部结构。视觉升级（五种敌人形状、雷达扫描射程圈、拦截/自爆爆炸 + 冒烟 + 碎片飞溅、受创震屏、后期射速火墙）全部加在这一层，模拟数学一字未动。后期"每秒上百次命中 + 海量敌人 + 每发特效"正是 OOP 对象池吃力、帧率下探之处（曳光已做每帧上限降级但伤害仍每发结算）——这正是 M6 换 ECS/Burst 想在同场景压出差异的看点。
+### 3. 难度模型：数量爬坡到平台期 + 双方全封顶 = 托管永续
 
-### 3. 读写分离，且"层 + 消费者"同一子树整棵撤
+无限模式的稳态是**设计出来的，不是调出来的**，三个机制缺一不可（都有无头跑数实证）：
 
-- **读**：HUD / 升级面板是 View，只能经查询 Command 拿到 `ReadOnlyReactiveProperty` 订阅，读不到也写不到 Model/System（编译期权限接口挡住）。
-- **写**：任何改动都走 `ExecuteCommand`。连"选了个升级"也是——`UpgradeChoiceView` 发 `ChooseUpgradeCommand`，命令再 `ctx.GetSystem<BattleDirectorSystem>().ChooseUpgrade(id)`，因为 View 不能直接碰 System。
-- **生命周期**：战斗私有的 `BattleModel` / `UpgradeModel` / 对象池都注册在 [`BattleContext`](../Assets/Game/Outpost/Scripts/Battle/BattleContext.cs)（战斗子场景的根）。战斗场景一卸载，这棵子上下文连同它的层、订阅、池化对象整棵销毁——下一局全新一份，**零跨局残留、零手动清理**。这就是框架说的"换血不允许，撤就整棵撤"。
+- **波间维修**：撑过一波血量回满——"每波消耗多少血"成为独立的单波压力指标（标定目标≈一半）。若靠持续回血续命，"伤害<回血则永生、>则必死"是个双稳态，调不出中间态。
+- **敌人规模平台期**：各角色数量按 `CountGrowth^波次` 指数爬坡（约 20 波到每波数千）、到 `MaxCount` 封顶；数值成长 `StatGrowth^波次` 同样有 `MaxStatScale` 封顶——否则后期单只漏怪伤害无界，任何稳态都会被击穿。
+- **玩家全成长封顶**：六种升级（攻击/攻速/射程/回转/血量/回血）全部有顶，到顶的移出三选一池、全部到顶后不再弹面板——若玩家火力无限成长，平台期的每波消耗会衰减到零。攻速下限 0.004s（每分钟一万五千发的火墙）；**回转封顶**是漏怪的结构性来源：360° 密集来袭时炮塔扫不过来，约半数炮灰漏网、每只只削一小口血。
+
+于是：托管（自动选卡）可以永续观战、每波消耗稳定在四到六成；**「撤离」是一局的常规结束方式**（把分数落袋进结算/存档）；失守只在极端情况发生。难度数值全在 4 个 json（`battleglobal` / `enemy` / `waverole` / `wavescaling` / `upgrade`），改完重生成即调、无需碰代码。
 
 ---
 
@@ -60,30 +62,31 @@
 
 1. [`Scripts/Flow/`](../Assets/Game/Outpost/Scripts/Flow/) —— 先看宏观阶段：`BootState → TitleState → BattleState → ResultState`，理解 `IGameFlow` 怎么切界面 + 传参。
 2. [`Sim/IBattleSim.cs`](../Assets/Game/Outpost/Sim/IBattleSim.cs) + [`ReferenceBattleSim.cs`](../Assets/Game/Outpost/Sim/ReferenceBattleSim.cs) —— 规则内核，纯 C#，最好懂。
-3. [`Battle/BattleContext.cs`](../Assets/Game/Outpost/Scripts/Battle/BattleContext.cs) + [`BattleDirectorSystem.cs`](../Assets/Game/Outpost/Scripts/Battle/BattleDirectorSystem.cs) —— 子上下文注册了什么、导演怎么把事件翻成表现和 Model。
-4. [`Battle/BattleHudView.cs`](../Assets/Game/Outpost/Scripts/Battle/BattleHudView.cs) + [`BattleQueries.cs`](../Assets/Game/Outpost/Scripts/Battle/BattleQueries.cs) —— 只读订阅一侧长什么样。
-5. [`Battle/UpgradeChoiceView.cs`](../Assets/Game/Outpost/Scripts/Battle/UpgradeChoiceView.cs) + [`UpgradeModel.cs`](../Assets/Game/Outpost/Scripts/Battle/UpgradeModel.cs) —— 集合绑定 + 命令外发一侧长什么样。
+3. [`Battle/BattleContext.cs`](../Assets/Game/Outpost/Scripts/Battle/BattleContext.cs) + [`BattleDirectorSystem.cs`](../Assets/Game/Outpost/Scripts/Battle/BattleDirectorSystem.cs) —— 子上下文注册了什么、导演怎么把事件翻成表现和 Model、后端工厂在哪。
+4. [`Battle/SwarmRenderer.cs`](../Assets/Game/Outpost/Scripts/Battle/SwarmRenderer.cs) + [`EnemyVisuals.cs`](../Assets/Game/Outpost/Scripts/Battle/EnemyVisuals.cs) —— 海量单位怎么画、表现参数怎么从表里来。
+5. [`Battle/BattleHudView.cs`](../Assets/Game/Outpost/Scripts/Battle/BattleHudView.cs) + [`BattleQueries.cs`](../Assets/Game/Outpost/Scripts/Battle/BattleQueries.cs) —— 只读订阅一侧长什么样（给 HUD 加一个值 = Model→ReadModel→View 三步）。
+6. [`Res/UI/`](../Assets/Game/Outpost/Res/UI/) + [`Scripts/Windows/`](../Assets/Game/Outpost/Scripts/Windows/) —— uxml 布局 + uss 主题 + 代码接线的窗口标准姿势。
 
 ---
 
 ## 视觉为什么"全是几何体"
 
-这是刻意的，不是没时间做美术。Demo 的重点是**框架 + 未来 DOTS 置换验证**，美术资产越少，越能让读代码的人把注意力放在数据流和接缝上，也让 M6 的 ECS 压力波次不受美术拖累。
+这是刻意的，不是没时间做美术。Demo 的重点是**框架 + DOTS 置换验证**，美术资产越少，越能让读代码的人把注意力放在数据流和接缝上，也让海量同屏不受美术拖累。
 
-所以视觉升级都限定在"**程序几何 + 后处理辉光**"内做可读性，不引入贴图/精灵：
-
-- 敌人用程序网格换形状表达身份（五种）——炮灰无人机是**小三角**、快速突袭者是**箭头**、重甲装甲兵是**厚重六边形**、极速掠袭机是**细长针**、重装攻城核是**厚八边形**，有向种逐帧转向来袭方向（[`OutpostMeshes.cs`](../Assets/Game/Outpost/Scripts/Battle/OutpostMeshes.cs)）。
-- 背景做成"火控台"读法——射程圈内有极淡填充盘（"我的火力覆盖区"）+ 缓慢旋转的雷达扫描臂（"正在索敌"），外缘是呼吸的暖红危险警戒环（[`ArenaDecor.cs`](../Assets/Game/Outpost/Scripts/Battle/ArenaDecor.cs)）。
-- 炮塔转到位才开火、且射速带预热：这在无限模式里是**内核的真机制**——`ReferenceBattleSim` 按回转速度逐帧转向最近目标、炮口对准（容差内）才发命中事件（hitscan 同帧结算），有效射速 = 基础射速 × 预热系数（`SpinUp` 缓升缓降）；表现层按 `TurretAngle` 画炮管、`SpinUp` 涨亮核心、命中即放炮口闪光与曳光（高射速下每帧限量、只降级视觉不影响伤害）。慢回转在切换分散目标时留出空当，"回转伺服"升级正是解药。
+- 敌人用程序网格换形状表达身份（[`OutpostMeshes.cs`](../Assets/Game/Outpost/Scripts/Battle/OutpostMeshes.cs)），颜色/形状/体型/爆炸倍率全在配置表的表现列（[`EnemyVisuals`](../Assets/Game/Outpost/Scripts/Battle/EnemyVisuals.cs) 解析）：炮灰无人机=小三角、突袭者=箭头、装甲兵=六边形、掠袭机=细针、攻城核=八边形，有向形状逐帧转向来袭方向。
+- 背景是"火控台"读法（[`ArenaDecor.cs`](../Assets/Game/Outpost/Scripts/Battle/ArenaDecor.cs)）：射程圈内淡填充盘 + 旋转雷达扫描臂 + 外缘暖红警戒环；射程升级后整体外扩、成长直接可见。
+- 炮塔回转与开火时机都是**内核真机制**（按回转速度逐帧转向、炮口对准才结算命中，hitscan 同帧结算）；表现层按 `TurretAngle` 画炮管、按击发节奏自算"火力热度"驱动核心辉光与曳光散射（高射速读成一片弹雨）。
+- 实例化渲染用一个手写的最小 unlit shader（[`OutpostSwarmUnlit.shader`](../Assets/Game/Outpost/Res/Shaders/OutpostSwarmUnlit.shader)）：per-instance 颜色 + `editor_sync_compilation`（`DrawMeshInstanced` 不触发编辑器异步 shader 编译，不加这行敌人海在编辑器里会整体不可见）。
 
 ---
 
 ## 里程碑与已知偏离
 
-里程碑：M0 骨架闭环 → M1 战斗核心 + 视觉 → M2 波间三选一 →（M3 存档/音频/本地化 → M4 网络排行 → M5 构建收口 → M6 DOTS 置换）。当前已到 M3 起步（历史战绩存档），并把玩法改造成**无限模式**：一波比一波多而难、无胜负终态（唯有失守）。敌人五种（慢弱靠量的炮灰无人机 + 快速突袭者 + 重甲装甲兵 + 极速掠袭机 + 重装攻城核），六种升级里**射速无上限**（后期每分钟上万发的火墙）、攻击/射程/回转封顶——回转封顶是长局能收尾的关键。后期的"海量低血炮灰 + 每分钟上万发命中 + 每发特效"正是为 M6 的 ECS 压力置换铺垫的真实高吞吐场景。
+里程碑：M0 骨架闭环 → M1 战斗核心 + 视觉 → M2 波间三选一 → M3 存档（音频/本地化未做）→（M4 网络排行 → M5 构建收口 → M6 DOTS 置换）。当前形态：**无限模式 + 托管永续 + 数千同屏**——这正是为 M6 准备的真实压力场景：`Reference` 后端的 O(n) 线性扫描是刻意保留的对比基线，HUD 性能行随时读数。
 
 已知偏离（诚实记录）：
 
-- **波间抉择未用"嵌套子 Flow"**：原计划想借它验收框架的子阶段状态机，但抉择本质是导演的一个暂停相位，现有相位机已自然容纳，再套一层子 `GameFlow` 属过度设计。§28 的嵌套子 Flow 验收留给更贴合的场景单独做。
+- **波间抉择未用"嵌套子 Flow"**：抉择本质是导演的一个暂停相位，现有相位机自然容纳，再套一层子 `GameFlow` 属过度设计。§28 的嵌套子 Flow 验收留给更贴合的场景单独做。
+- **失守终态基本不可达**：全封顶 + 波间维修的稳态下，任何 build 最终都会收敛到全到顶——失守只在中段成长严重偏科时可能发生。这是"托管永续"目标的直接推论，撤离才是常规收束。
 
 更完整的框架能力清单、每个 §N 的教学与 API 见 [framework-guide.md](framework-guide.md)；架构决策的来龙去脉见 [docs/adr/](adr/)。
