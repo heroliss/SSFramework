@@ -4,7 +4,7 @@
 > 这份文档是 [outpost-guide.md](outpost-guide.md) 的补充：guide 讲"看得见的现象 ↔ 框架能力 ↔ 源码位置"，本文讲**关键实现的技术方案与取舍**——命中怎么判、目标怎么切、开火模型怎么算、为什么不用碰撞检测。
 > **约定：后续每加一个非平凡功能，就在文末「功能技术方案档案」追加一节**（现象 / 方案 / 为什么这么选 / 落点），让这份文档长成 demo 的实现教程。
 
-代码位置：模拟内核 [`Assets/Game/Outpost/Sim/`](../Assets/Game/Outpost/Sim/)（零引擎依赖纯 C#）、表现层 [`Assets/Game/Outpost/Scripts/Battle/`](../Assets/Game/Outpost/Scripts/Battle/)。
+代码位置：模拟内核 [`Assets/Game/Outpost/Sim/`](../Sim/)（零引擎依赖纯 C#）、表现层 [`Assets/Game/Outpost/Scripts/Battle/`](../Scripts/Battle/)。
 
 ---
 
@@ -18,7 +18,7 @@
 
 ## 2. 命中判定：怎么算"打中了谁"
 
-全在 [`ReferenceBattleSim.TickPlayer`](../Assets/Game/Outpost/Sim/ReferenceBattleSim.cs) 里，没有物理、没有碰撞体、没有射线投射：
+全在 [`ReferenceBattleSim.TickPlayer`](../Sim/ReferenceBattleSim.cs) 里，没有物理、没有碰撞体、没有射线投射：
 
 1. **锁定主威胁（决定往哪转）**：`FindNearestInRange()` 线性扫存活敌人列表，取"射程内、离基地最近"的那只——它是炮塔想咬住的目标，炮口按回转速度逐帧转向它。
 2. **逐发结算命中（决定打中谁）**：每开一发，`FindNearestInCone(炮口角, ±容差)` 取"射程内、且与炮口夹角 ≤ 容差(6°)的最近敌人"。**炮管指着谁就打谁**——不必是全局最近，回转途中炮口扫过的其他敌人照样被这一发命中。
@@ -57,7 +57,7 @@
 
 ## 4. 事件 → 表现的翻译（两条独立事件线）
 
-内核只发领域事件，[`BattleDirectorSystem`](../Assets/Game/Outpost/Scripts/Battle/BattleDirectorSystem.cs) 翻成 Unity 表现。**开火与命中刻意拆成两条事件**：
+内核只发领域事件，[`BattleDirectorSystem`](../Scripts/Battle/BattleDirectorSystem.cs) 翻成 Unity 表现。**开火与命中刻意拆成两条事件**：
 
 | 事件 | 语义 | 驱动的表现 |
 |---|---|---|
@@ -123,11 +123,22 @@ sim.Start(setup);
 - **现象**：炮塔像近防炮——咬住目标后射速缓升，后期每分钟数万发；炮口边转边喷、扫过怪群拉出火舌；高射速时曳光是一片弹雨而非一条线。
 - **方案**：射速 = 基础 × `SpinUp` 预热系数、无上限；命中取"炮口锥内最近敌人"（指哪打哪）；火墙模式下炮口未对准也持续空放画火舌；曳光终点按预热强度随机散射（纯表现）。开火(`TurretFired`)与命中(`EnemyHit`)拆成两条事件。（`SpinUp` 后被移出内核、下放表现层为"火力热度"，见下一条。）
 - **为什么**：见 [§3](#3-开火模型无上限射速边转边扫)（射速不封 + 回转封顶 = 无限模式靠数量收尾）与 [§5](#5-为什么不做子弹碰撞检测关键取舍)（hitscan 而非真子弹）。散射与空放火舌都是为了让"海量子弹"在视觉上读得出来，同时不动内核确定性。
-- **落点**：[`Sim/ReferenceBattleSim.cs`](../Assets/Game/Outpost/Sim/ReferenceBattleSim.cs)（`FindNearestInCone` / 火墙循环 / `BarrelPoint`）、[`Sim/IBattleSim.cs`](../Assets/Game/Outpost/Sim/IBattleSim.cs)（`TurretFiredEvent`）、[`Scripts/Battle/BattleDirectorSystem.cs`](../Assets/Game/Outpost/Scripts/Battle/BattleDirectorSystem.cs)（`OnTurretFired` / `FireBurst` 散射）。
+- **落点**：[`Sim/ReferenceBattleSim.cs`](../Sim/ReferenceBattleSim.cs)（`FindNearestInCone` / 火墙循环 / `BarrelPoint`）、[`Sim/IBattleSim.cs`](../Sim/IBattleSim.cs)（`TurretFiredEvent`）、[`Scripts/Battle/BattleDirectorSystem.cs`](../Scripts/Battle/BattleDirectorSystem.cs)（`OnTurretFired` / `FireBurst` 散射）。
 
 ### 2026-07 · 托管模式 + 预热下放表现层
 
 - **现象**：HUD 右下角一个"托管：开/关"按钮，点开后波间三选一的卡片亮相约 0.6s 便自动选定、玩家纯观战；再点即回手动。同时炮塔"点火缓升"的辉光/散射照旧，但内核里已不再有预热系数。
 - **方案**：① 托管——`UpgradeModel.AutoManaged`(RP<bool>) 单写（`SetAutoManageCommand` → 导演），导演在等待抉择时按优先级 **攻速>转速>探测范围>血上限>回血>攻击** 自动选牌；`AutoManageToggleView` 只读订阅回显、点击发命令，读写分离。② 预热移除——内核删掉 `SpinUp`/`SpinUpTime`/`SpinDownTime`，改由表现层 `UpdateFireHeat` 从 `TurretFired` 击发间隔自算"火力热度"驱动辉光与散射。
 - **为什么**：托管把"自动玩家"从跑数工具变成可玩的观战开关，直观演示"卡片策略决定成败"；优先级取自 [§6](#6-确定性与跑数验证) 的结论（纯攻速流自养血、生存卡可不选）。预热下放见 [§3](#3-开火模型无上限射速边转边扫) 的注——它在无限模式恒为 1、已非平衡杠杆，留在内核只是横切耦合；移到表现层后内核零表现状态、确定性更干净，手感一点不丢。
-- **落点**：[`Scripts/Battle/UpgradeModel.cs`](../Assets/Game/Outpost/Scripts/Battle/UpgradeModel.cs) / [`UpgradeCommands.cs`](../Assets/Game/Outpost/Scripts/Battle/UpgradeCommands.cs)（`AutoManaged` + `SetAutoManageCommand`）、[`BattleDirectorSystem.cs`](../Assets/Game/Outpost/Scripts/Battle/BattleDirectorSystem.cs)（`SetAutoManaged` / `AutoPickUpgrade` / `AutoPriority` / `UpdateFireHeat`）、[`AutoManageToggleView.cs`](../Assets/Game/Outpost/Scripts/Battle/AutoManageToggleView.cs)、场景 `OutpostBattle` 的 HUD 按钮；预热移除动了 [`Sim/IBattleSim.cs`](../Assets/Game/Outpost/Sim/IBattleSim.cs) / [`ReferenceBattleSim.cs`](../Assets/Game/Outpost/Sim/ReferenceBattleSim.cs) / [`BattleSetup.cs`](../Assets/Game/Outpost/Sim/BattleSetup.cs) / [`BattleSetupFactory.cs`](../Assets/Game/Outpost/Scripts/Battle/BattleSetupFactory.cs)。
+- **落点**：[`Scripts/Battle/UpgradeModel.cs`](../Scripts/Battle/UpgradeModel.cs) / [`UpgradeCommands.cs`](../Scripts/Battle/UpgradeCommands.cs)（`AutoManaged` + `SetAutoManageCommand`）、[`BattleDirectorSystem.cs`](../Scripts/Battle/BattleDirectorSystem.cs)（`SetAutoManaged` / `AutoPickUpgrade` / `AutoPriority` / `UpdateFireHeat`）、[`AutoManageToggleView.cs`](../Scripts/Battle/AutoManageToggleView.cs)、场景 `OutpostBattle` 的 HUD 按钮；预热移除动了 [`Sim/IBattleSim.cs`](../Sim/IBattleSim.cs) / [`ReferenceBattleSim.cs`](../Sim/ReferenceBattleSim.cs) / [`BattleSetup.cs`](../Sim/BattleSetup.cs) / [`BattleSetupFactory.cs`](../Scripts/Battle/BattleSetupFactory.cs)。
+
+### 2026-07 · 难度模型三机制 / 敌人海实例化渲染 / 残骸层 / 撤离 / uxml 窗口
+
+这批"基础打磨"改动的方案详述已收进导读的[三个最值得看的设计](outpost-guide.md#三个最值得看的设计)（难度模型 = 波间维修 + 规模平台期 + 全成长封顶；表现 = 实例化渲染 × 对象池分工 + 残骸烘焙；撤离 = 稳态下一局的常规收束），此处只登记不重复：三个 Toolkit 窗口同批迁到 `Res/UI/` 的 uxml + uss（`[UIWindow(Asset)]` 按名加载——框架 uxml 窗口分支的首次实战），战斗开局支持 `_startWave` 无头快进。
+
+### 2026-07 · M3 收尾：音频 + 本地化 + 设置窗（§27/§29/§30 消费落点）
+
+- **现象**：标题/战斗双 BGM 交叉切换；拦截爆炸/基地受创/波间维修/新波警报/选卡确认各有其声、火墙轰鸣随射速涨落；标题页「设置」弹窗三条音量滑条即改即生效、中英文一键切换且**下层标题页文案同帧跟变**；全部游戏 UI 双语，设置跨会话保留。
+- **方案**：① BGM——`OutpostAudioSystem`（根 Context）订 `FlowChangedEvent` 一个事件按宏观阶段 `PlayMusic`（单通道交叉淡变 + 同曲幂等，不侵入任何 FlowState）。② 战斗音效——全部接在导演的事件翻译层：爆炸类**每帧限 1 发** + 随机音高（千级击杀不糊成噪声墙），受创重音复用既有的 0.25s 伤害聚合窗口天然节流。③ 火墙循环音——**不走框架音效池**：炮塔运行时挂 `AudioSource` 逐帧调制音量/音高（热度驱动），组音量 × 主音量手动乘回接上设置滑条。④ 本地化——`TbL10N` 表（一行一 key 一列一语言）+ 十行 `OutpostTextSource` adapter；Toolkit 侧 `Bag.BindLocalizedText`、TMP 侧 `CombineLatest(数据, Locale)`；upgrade 表 name/desc 存本地化 key；字体链 `MonoLocaleFonts` 挂根 Context。⑤ 设置——音量/语言的**运行时真源就是两个 Utility 自身状态**，`SettingsWindow` 只是遥控器；关窗一次 `SaveSettingsCommand` 落盘 `outpost/settings`，`BootState` 启动回灌；不设 SettingsModel（不做第二份内存状态）。全部音频为程序化合成 wav（[`Tools/gen_outpost_audio.py`](../../../../Tools/gen_outpost_audio.py)，固定 seed 可复现），BGM 走全小调进行 + 低音 drone/心跳，刻意退到氛围层不抢音效。
+- **为什么**：`AudioHandle` 刻意不提供播放中调制——"跟随对象的持续音源用引擎组件"是框架划的界（ADR-0022），火墙音正好踩在界上，成为这条分界的实战注脚；音效限流复用表现层已有的"每帧演出预算"心智，声音和特效同一套海量纪律。**⚠ 时序坑（接缝观察）**：`BindLocalizedText` 的刷新信号只有 `Locale`，文本源（配置表）异步后到**不会**触发重绑——绑定先于配置就绪 = 裸 key 定格在屏上。业务解法 = `BootState` 进标题前 `await` 配置 Ready（Failed 也放行：裸 key 上屏是可见的缺失报告，好过卡启动）。
+- **落点**：[`Scripts/Systems/OutpostAudioSystem.cs`](../Scripts/Systems/OutpostAudioSystem.cs)（BGM 导演）、[`Scripts/Battle/BattleDirectorSystem.cs`](../Scripts/Battle/BattleDirectorSystem.cs)（`PlayBoomSfx` 限流 + 各事件音）、[`Scripts/Battle/TurretView.cs`](../Scripts/Battle/TurretView.cs)（`InitFireLoop`/`SetFireLoopLevel`）、[`Scripts/Config/OutpostTextSource.cs`](../Scripts/Config/OutpostTextSource.cs)、[`Scripts/OutpostLocales.cs`](../Scripts/OutpostLocales.cs)、[`Scripts/Windows/SettingsWindow.cs`](../Scripts/Windows/SettingsWindow.cs) + [`Res/UI/SettingsWindow.uxml`](../Res/UI/SettingsWindow.uxml)、[`Scripts/Save/OutpostSettings.cs`](../Scripts/Save/OutpostSettings.cs) / [`SettingsCommands.cs`](../Scripts/Save/SettingsCommands.cs)、[`Scripts/Flow/BootState.cs`](../Scripts/Flow/BootState.cs)（配置就绪门 + 回灌）、[`Configs~/Datas/l10n.json`](../Configs~/Datas/l10n.json)、场景 `OutpostGame`（Systems 节点 `OutpostAudioSystem` + Fonts 节点 `MonoLocaleFonts`）。
