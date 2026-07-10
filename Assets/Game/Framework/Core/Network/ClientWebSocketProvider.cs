@@ -30,9 +30,10 @@ namespace Game.Framework.Network
             await _ws.ConnectAsync(uri, ct);
         }
 
-        public async UniTask SendAsync(byte[] payload, CancellationToken ct)
+        public async UniTask SendAsync(byte[] payload, bool binary, CancellationToken ct)
         {
-            await _ws.SendAsync(new ArraySegment<byte>(payload), WebSocketMessageType.Text, endOfMessage: true, ct);
+            await _ws.SendAsync(new ArraySegment<byte>(payload),
+                binary ? WebSocketMessageType.Binary : WebSocketMessageType.Text, endOfMessage: true, ct);
         }
 
         public async UniTask<byte[]> ReceiveAsync(CancellationToken ct)

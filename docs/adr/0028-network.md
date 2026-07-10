@@ -79,7 +79,8 @@ public interface IWebSocketUtility : IUtility     // 有状态长连接（一个
 ```
 
 - `RegisterPush<TEvent>("type")` 把服务器推送映射为框架事件：收到该 type → payload 反序列化为 `TEvent` → `SendEvent`。业务消费推送 = `Bag.Subscribe<TEvent>`，与 Model 事件同一套心智——**这正是「推送转事件」双轨建模的落点**。
-- payload 是**字符串二次编码**而非嵌套对象：默认 `JsonUtility` 无法从泛型外层提取嵌套原始 JSON 片段，字符串载荷让零依赖序列化稳定工作。envelope 是 v1 的 wire 契约（demo 服务器同款）；换强序列化器后的嵌套形态等真实后端再议。
+- payload 是**字符串二次编码**而非嵌套对象：默认 `JsonUtility` 无法从泛型外层提取嵌套原始 JSON 片段，字符串载荷让零依赖序列化稳定工作。envelope 是 v1 的 wire 契约（demo 服务器同款）。
+- **2026-07 修订（Outpost M4 驱动）**：字符串二次编码对二进制格式是破坏性的（Protobuf 字节过 `UTF8.GetString` 不保真）。新增可选接缝 `IWebSocketEnvelopeSerializer : INetworkSerializer`——序列化器实现它即整体接管 envelope 编解码与帧类型（payload 全程 `byte[]`、`UseBinaryFrames` 决定发二进制帧；`IWebSocketProvider.SendAsync` 相应加 `binary` 参数）。不实现的序列化器走原 JSON 兼容路径（wire 字节不变，零迁移）。envelope 的线上形态由格式自定（如 Protobuf 的 `{string type=1; bytes payload=2}`），框架不再规定嵌套编码方式。
 - 推送事件类型约定：`[Serializable] struct + 公共字段`（`JsonUtility` 只认字段，**record 位置参数是属性、反序列化不出来**）。框架自产事件（如 `WebSocketClosedEvent`）不经反序列化、本无此约束，但内核程序集无 `IsExternalInit` polyfill、位置参数 record 的 init 访问器编译不过，故照 `FlowChangedEvent` 先例用 `readonly struct` + 显式字段。
 - 连接关闭统一发 `WebSocketClosedEvent(ByUser, Reason)`：用户主动 `Disconnect` 与意外断开都发，业务重连逻辑过滤 `!ByUser`。
 
@@ -102,7 +103,7 @@ IWebSocketUtility ── WebSocketUtility（状态机 / envelope / 推送注册�
 
 - **BestHTTP**：未来的 `IHttpProvider` / `IWebSocketProvider` 第二传输实现。值回票价的场景：WebGL 的 WS、HTTP/2 复用与连接调优、后端上 SignalR / Socket.IO / SSE。付费插件 license 不可随框架分发，形态永远是「~100 行适配器菜谱」而非内置依赖。接入后业务代码零改动——正是「第二实现验证抽象边界」的路径。
 - **MagicOnion**：整套 RPC 范式（强类型服务接口 + MemoryPack + gRPC），**不是本接缝后的传输**。真用它时的正确姿势是「MagicOnion 直接用 + 框架管其余」，不要试图塞进 `IHttpProvider`。
-- **Protobuf / MemoryPack**：`INetworkSerializer` 第二实现，等真实后端契约驱动——Protobuf 是「.proto 契约 + protoc 代码生成」整条工具链，没有真实服务器契约时内置等于编造假契约；MemoryPack 的 source generator 与 HybridCLR 热更兼容性需专门验证。接入样板（~20 行）在 guide 文档化。
+- **Protobuf / MemoryPack**：`INetworkSerializer` 第二实现。**2026-07 修订（Outpost M4 驱动）**：内核新增轻量 `ProtobufNetworkSerializer`（`ProtoWriter`/`ProtoReader` 手写 wire 原语 + per-message 显式编解码注册，零依赖零反射、字节与标准 protobuf 互通）——覆盖「消息不多的自建后端 / dev server」段位，并让二进制 envelope 接缝有内置的第二实现验证。消息多到需要 `.proto` 契约共享 / map / oneof / 有符号 / 浮点时，仍换 Google.Protobuf 等真库（protoc 工具链），构造注入替换本类即可；MemoryPack 的 source generator 与 HybridCLR 热更兼容性仍需专门验证。
 
 ### 7. 注册与生命周期
 

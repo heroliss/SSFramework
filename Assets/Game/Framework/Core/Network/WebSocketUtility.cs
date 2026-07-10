@@ -30,7 +30,8 @@ namespace Game.Framework.Network
     /// </remarks>
     public sealed class WebSocketUtility : IWebSocketUtility, IHasGameContext, IDisposable
     {
-        // envelope wire 格式：payload 是「载荷的 JSON 文本」二次编码（ADR-0028 §4）。JsonUtility 需要公共字段。
+        // 默认（JSON）envelope wire 格式：payload 是「载荷的 JSON 文本」二次编码（ADR-0028 §4）。JsonUtility 需要公共字段。
+        // 序列化器实现 IWebSocketEnvelopeSerializer 时不走此类型——envelope 编解码整体交给序列化器（payload 保持 byte[]）。
         [Serializable]
         private sealed class Envelope
         {
@@ -40,7 +41,8 @@ namespace Game.Framework.Network
 
         private readonly IWebSocketProvider _provider;
         private readonly INetworkSerializer _serializer;
-        private readonly Dictionary<string, Action<string>> _pushHandlers = new();
+        private readonly IWebSocketEnvelopeSerializer _envelopeSerializer; // null = 走内置 JSON envelope 兼容路径
+        private readonly Dictionary<string, Action<byte[]>> _pushHandlers = new();
         private readonly RP<NetworkConnectionState> _state = new(NetworkConnectionState.Disconnected);
         private readonly CancellationTokenSource _lifetimeCts = new();
 
@@ -60,6 +62,7 @@ namespace Game.Framework.Network
         {
             _provider = provider ?? new ClientWebSocketProvider();
             _serializer = serializer ?? new JsonUtilityNetworkSerializer();
+            _envelopeSerializer = _serializer as IWebSocketEnvelopeSerializer; // 二进制格式（Protobuf 等）额外实现该接口即接管 envelope
         }
 
         IGameContext IHasGameContext.Context => _context;
@@ -74,14 +77,14 @@ namespace Game.Framework.Network
                 throw new InvalidOperationException($"[WebSocketUtility] 推送 type '{type}' 已注册过——一个 type 只能映射一个事件类型。");
 
             // 闭包捕获 TEvent：收到该 type 时把 payload 反序列化为 TEvent 再发事件。空 payload → default(TEvent)（无载荷推送）。
-            _pushHandlers[type] = payloadJson =>
+            _pushHandlers[type] = payloadBytes =>
             {
                 TEvent evt = default;
-                if (!string.IsNullOrEmpty(payloadJson))
+                if (payloadBytes != null && payloadBytes.Length > 0)
                 {
                     try
                     {
-                        evt = _serializer.Deserialize<TEvent>(Encoding.UTF8.GetBytes(payloadJson));
+                        evt = _serializer.Deserialize<TEvent>(payloadBytes);
                     }
                     catch (Exception e)
                     {
@@ -175,14 +178,13 @@ namespace Game.Framework.Network
         {
             EnsureConnected();
             if (payload == null) throw new ArgumentNullException(nameof(payload), "无载荷消息用 Send(type) 重载。");
-            byte[] payloadBytes = _serializer.Serialize(payload);
-            return SendEnvelope(type, Encoding.UTF8.GetString(payloadBytes), ct);
+            return SendEnvelope(type, _serializer.Serialize(payload), ct);
         }
 
         public UniTask Send(string type, CancellationToken ct = default)
         {
             EnsureConnected();
-            return SendEnvelope(type, string.Empty, ct);
+            return SendEnvelope(type, Array.Empty<byte>(), ct);
         }
 
         public void Dispose()
@@ -199,10 +201,18 @@ namespace Game.Framework.Network
 
         // ── 内部 ─────────────────────────────────────────────────────────────
 
-        private UniTask SendEnvelope(string type, string payloadJson, CancellationToken ct)
+        private UniTask SendEnvelope(string type, byte[] payloadBytes, CancellationToken ct)
         {
             if (string.IsNullOrEmpty(type)) throw new ArgumentException("type 不能为空。", nameof(type));
-            byte[] frame = _serializer.Serialize(new Envelope { type = type, payload = payloadJson });
+            // envelope 序列化器接管时 payload 保持 byte[]；兼容路径按既有 JSON wire 格式把 payload 转为文本二次编码
+            // （对 JSON 字节无损；二进制格式不实现 envelope 接口就走不到正确编码，所以接口 remarks 标了"必须实现"）。
+            byte[] frame = _envelopeSerializer != null
+                ? _envelopeSerializer.EncodeEnvelope(type, payloadBytes)
+                : _serializer.Serialize(new Envelope
+                {
+                    type = type,
+                    payload = payloadBytes.Length == 0 ? string.Empty : Encoding.UTF8.GetString(payloadBytes),
+                });
             return EnqueueSend(frame, ct);
         }
 
@@ -220,7 +230,7 @@ namespace Game.Framework.Network
                 linked.Token.ThrowIfCancellationRequested(); // 排队期间被取消 / 宿主释放：不再碰 socket
                 try
                 {
-                    await _provider.SendAsync(frame, linked.Token);
+                    await _provider.SendAsync(frame, _envelopeSerializer?.UseBinaryFrames ?? false, linked.Token);
                 }
                 catch (OperationCanceledException) { throw; } // 取消原样抛（调用方意图 / 宿主释放）
                 catch (Exception e)
@@ -268,24 +278,37 @@ namespace Game.Framework.Network
         // 主线程：解析 envelope → 查注册表 → 交给对应闭包（内部再反序列化 payload 并 SendEvent）。
         private void Dispatch(byte[] message)
         {
-            Envelope env;
-            try { env = _serializer.Deserialize<Envelope>(message); }
+            string type;
+            byte[] payload;
+            try
+            {
+                if (_envelopeSerializer != null)
+                {
+                    _envelopeSerializer.DecodeEnvelope(message, out type, out payload);
+                }
+                else
+                {
+                    var env = _serializer.Deserialize<Envelope>(message);
+                    type = env?.type;
+                    payload = string.IsNullOrEmpty(env?.payload) ? null : Encoding.UTF8.GetBytes(env.payload);
+                }
+            }
             catch (Exception e)
             {
                 Debug.LogWarning($"[WebSocketUtility] 收到无法解析的 envelope，已丢弃（{e.GetType().Name}: {e.Message}）。");
                 return;
             }
-            if (env == null || string.IsNullOrEmpty(env.type))
+            if (string.IsNullOrEmpty(type))
             {
                 Debug.LogWarning("[WebSocketUtility] 收到缺 type 的消息，已丢弃。");
                 return;
             }
-            if (!_pushHandlers.TryGetValue(env.type, out var handler))
+            if (!_pushHandlers.TryGetValue(type, out var handler))
             {
-                WarnUnknownType(env.type);
+                WarnUnknownType(type);
                 return;
             }
-            handler(env.payload);
+            handler(payload);
         }
 
         // 意外断开（对端关闭 / 收发异常）——主线程调用。Disconnect 已把状态置 Disconnected 时不重复发事件。
