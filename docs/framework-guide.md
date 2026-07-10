@@ -2528,22 +2528,33 @@ for (int attempt = 0; ; attempt++)
 Bag.Subscribe<WebSocketClosedEvent>(e => { if (!e.ByUser) ReconnectWithBackoff().Forget(); });
 ```
 
-### 换序列化器：接入 Protobuf / MemoryPack
+### 换序列化器：内置 Protobuf 实现 / 接入真库
 
-默认 JSON 零依赖起步。后端契约确定后，实现 `INetworkSerializer`（对象 ↔ 字节 + `ContentType`）经构造注入，业务代码零改动：
+默认 JSON 零依赖起步。换格式 = 实现 `INetworkSerializer`（对象 ↔ 字节 + `ContentType`）经构造注入，业务调用代码零改动。**内核自带轻量 `ProtobufNetworkSerializer`**：真 protobuf wire 格式（varint + length-delimited，与标准 protobuf 字节互通），无 protoc 代码生成、无反射——每个消息类型用 `ProtoWriter` / `ProtoReader` 手写几行编解码注册：
 
 ```csharp
-public sealed class ProtobufNetworkSerializer : INetworkSerializer
-{
-    public string ContentType => "application/x-protobuf";
-    public byte[] Serialize<T>(T data) => ProtoBuf.Serializer... // 你的 proto 运行时
-    public T Deserialize<T>(byte[] bytes) => ...;
-}
-// 注册时换一行：
-builder.RegisterOwned(new HttpUtility(baseUrl, serializer: new ProtobufNetworkSerializer()), typeof(IHttpUtility));
+var proto = new ProtobufNetworkSerializer()
+    .Register<SubmitScoreRequest>(
+        (w, m) => { w.WriteString(1, m.Player); w.WriteInt32(2, m.Score); }, // 字段号即 .proto 契约
+        r =>
+        {
+            var m = new SubmitScoreRequest();
+            while (r.TryReadTag(out int f, out int wt))
+                switch (f)
+                {
+                    case 1: m.Player = r.ReadString(); break;
+                    case 2: m.Score = r.ReadInt32(); break;
+                    default: r.SkipField(wt); break; // 未知字段跳过 = 协议演进宽容性
+                }
+            return m;
+        });
+// 注册时换一行（HTTP 体自动带 application/x-protobuf）：
+builder.RegisterOwned(new HttpUtility(baseUrl, serializer: proto), typeof(IHttpUtility));
 ```
 
-Protobuf 是「.proto 契约 + 代码生成」整条工具链、MemoryPack 的 source generator 需验证与 HybridCLR 热更的兼容性——都等真实后端驱动再引入，框架只留接缝。
+**WS 的二进制格式还差一步**：默认 envelope 是「JSON `{type, payload}` + payload 文本二次编码 + 文本帧」，对二进制字节是破坏性的。`ProtobufNetworkSerializer` 已实现可选接缝 **`IWebSocketEnvelopeSerializer`**——整体接管 envelope 编解码（proto 消息 `{string type=1; bytes payload=2}`）与帧类型（二进制帧），payload 全程 `byte[]`。自写二进制序列化器（MemoryPack 等）照此接口补三个成员即可；JSON 序列化器不实现它，走原兼容路径、wire 字节不变。
+
+内置实现的定位是「消息不多的自建后端 / dev server」（Outpost M4 的排行榜是完整落地样例）：消息多到手写吃力、或要 `.proto` 契约共享 / map / oneof / 有符号 / 浮点，换 Google.Protobuf 等真库实现同一接口即弃——字段号对上，wire 字节不用迁移。MemoryPack 的 source generator 与 HybridCLR 热更的兼容性仍需专门验证。
 
 ### 扩展点与刻意不做
 

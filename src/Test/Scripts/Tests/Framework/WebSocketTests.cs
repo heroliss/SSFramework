@@ -49,6 +49,7 @@ namespace Game.Framework.Test
             public bool FailConnect;
             public bool FailSend; // 模拟「调用时已连接、写 socket 才失败」（对端刚断）
             public readonly List<byte[]> Sent = new();
+            public readonly List<bool> SentBinary = new(); // 与 Sent 一一对应：每帧的 binary 标记
             public UniTaskCompletionSource SendGate;    // 非 null 时 SendAsync 先等它——用于测发送 FIFO 保序
             public UniTaskCompletionSource ConnectGate; // 非 null 时 ConnectAsync 先等它——用于测 Connecting 中途取消
 
@@ -61,11 +62,12 @@ namespace Game.Framework.Test
                 if (ConnectGate != null) await ConnectGate.Task.AttachExternalCancellation(ct);
             }
 
-            public async UniTask SendAsync(byte[] payload, CancellationToken ct)
+            public async UniTask SendAsync(byte[] payload, bool binary, CancellationToken ct)
             {
                 if (SendGate != null) await SendGate.Task;
                 if (FailSend) throw new Exception("fake send failure");
                 Sent.Add(payload);
+                SentBinary.Add(binary);
             }
 
             public UniTask<byte[]> ReceiveAsync(CancellationToken ct)
@@ -338,6 +340,152 @@ namespace Game.Framework.Test
             _ws.RegisterPush<ChatPush>("chat");
             Assert.Throws<InvalidOperationException>(() => _ws.RegisterPush<ChatPush>("chat"));
         }
+
+        // ── IWebSocketEnvelopeSerializer 路径（二进制格式接管 envelope）─────────
+
+        /// <summary>
+        /// 测试用二进制 envelope 序列化器：payload = JSON 字节前加 <c>0xFF 0x00</c> 魔数（0xFF 是非法 UTF-8 起始字节，
+        /// 一旦 utility 内部对 payload 做过字符串 round-trip 就会被替换损坏、Deserialize 的魔数校验立刻揭穿）；
+        /// envelope = <c>[1字节 type 长度][type UTF8][payload]</c>。
+        /// </summary>
+        private sealed class BinaryEnvelopeSerializer : IWebSocketEnvelopeSerializer
+        {
+            public string ContentType => "application/x-test-binary";
+            public bool UseBinaryFrames => true;
+
+            public byte[] Serialize<T>(T data)
+            {
+                byte[] json = Encoding.UTF8.GetBytes(JsonUtility.ToJson(data));
+                var bytes = new byte[json.Length + 2];
+                bytes[0] = 0xFF;
+                bytes[1] = 0x00;
+                Buffer.BlockCopy(json, 0, bytes, 2, json.Length);
+                return bytes;
+            }
+
+            public T Deserialize<T>(byte[] bytes)
+            {
+                if (bytes.Length < 2 || bytes[0] != 0xFF || bytes[1] != 0x00)
+                    throw new InvalidOperationException("payload 魔数缺失——字节被破坏（疑似经过了字符串 round-trip）。");
+                return JsonUtility.FromJson<T>(Encoding.UTF8.GetString(bytes, 2, bytes.Length - 2));
+            }
+
+            public byte[] EncodeEnvelope(string type, byte[] payload)
+            {
+                byte[] typeBytes = Encoding.UTF8.GetBytes(type);
+                var frame = new byte[1 + typeBytes.Length + payload.Length];
+                frame[0] = (byte)typeBytes.Length;
+                Buffer.BlockCopy(typeBytes, 0, frame, 1, typeBytes.Length);
+                Buffer.BlockCopy(payload, 0, frame, 1 + typeBytes.Length, payload.Length);
+                return frame;
+            }
+
+            public void DecodeEnvelope(byte[] frame, out string type, out byte[] payload)
+            {
+                int typeLen = frame[0]; // 空帧 / 越界直接抛（IndexOutOfRange）——契约就是解不了抛、utility 兜住
+                type = Encoding.UTF8.GetString(frame, 1, typeLen);
+                payload = new byte[frame.Length - 1 - typeLen];
+                Buffer.BlockCopy(frame, 1 + typeLen, payload, 0, payload.Length);
+            }
+        }
+
+        // 与 SetUp 的默认 JSON 实例并行：envelope 序列化器路径用独立的一套（构造后由调用方负责 ctx.Dispose）。
+        private static (FakeWebSocketProvider fake, WebSocketUtility ws, GameContext ctx) CreateBinaryWs()
+        {
+            var fake = new FakeWebSocketProvider();
+            var ws = new WebSocketUtility(fake, new BinaryEnvelopeSerializer());
+            var builder = new ContainerBuilder();
+            builder.RegisterOwned(ws, typeof(IWebSocketUtility));
+            return (fake, ws, new GameContext(builder.Build(), inheritFromGlobal: false));
+        }
+
+        [UnityTest]
+        public IEnumerator EnvelopeSerializer_Send_BinaryFrame_PayloadBytesIntact() => UniTask.ToCoroutine(async () =>
+        {
+            var (fake, ws, ctx) = CreateBinaryWs();
+            try
+            {
+                await ws.Connect("ws://fake/");
+                await ws.Send("chat", new ChatOutbound { Text = "二进制" });
+
+                Assert.AreEqual(1, fake.Sent.Count);
+                Assert.IsTrue(fake.SentBinary[0], "envelope 序列化器 UseBinaryFrames=true 时应发二进制帧");
+
+                // 帧能按自定 envelope 解回、payload 魔数完好 = 全程 byte[]、无字符串 round-trip
+                var serializer = new BinaryEnvelopeSerializer();
+                serializer.DecodeEnvelope(fake.Sent[0], out string type, out byte[] payload);
+                Assert.AreEqual("chat", type);
+                Assert.AreEqual("二进制", serializer.Deserialize<ChatOutbound>(payload).Text);
+            }
+            finally { ctx.Dispose(); }
+        });
+
+        [UnityTest]
+        public IEnumerator EnvelopeSerializer_Send_NoPayload_EncodesEmptyPayload() => UniTask.ToCoroutine(async () =>
+        {
+            var (fake, ws, ctx) = CreateBinaryWs();
+            try
+            {
+                await ws.Connect("ws://fake/");
+                await ws.Send("ping");
+
+                new BinaryEnvelopeSerializer().DecodeEnvelope(fake.Sent[0], out string type, out byte[] payload);
+                Assert.AreEqual("ping", type);
+                Assert.AreEqual(0, payload.Length);
+            }
+            finally { ctx.Dispose(); }
+        });
+
+        [UnityTest]
+        public IEnumerator EnvelopeSerializer_Push_DecodedAndDelivered() => UniTask.ToCoroutine(async () =>
+        {
+            var (fake, ws, ctx) = CreateBinaryWs();
+            try
+            {
+                ws.RegisterPush<ChatPush>("chat");
+                ChatPush? received = null;
+                using var sub = ctx.RegisterEvent<ChatPush>(e => received = e);
+
+                await ws.Connect("ws://fake/");
+                await UniTask.DelayFrame(1);
+
+                var serializer = new BinaryEnvelopeSerializer();
+                fake.InjectMessage(serializer.EncodeEnvelope("chat",
+                    serializer.Serialize(new ChatPush { Text = "hi", UserId = 9 })));
+                await UniTask.DelayFrame(2);
+
+                Assert.IsTrue(received.HasValue, "envelope 序列化器路径的推送应转成事件送达");
+                Assert.AreEqual("hi", received.Value.Text);
+                Assert.AreEqual(9, received.Value.UserId);
+            }
+            finally { ctx.Dispose(); }
+        });
+
+        [UnityTest]
+        public IEnumerator EnvelopeSerializer_MalformedFrame_DroppedButLoopContinues() => UniTask.ToCoroutine(async () =>
+        {
+            var (fake, ws, ctx) = CreateBinaryWs();
+            try
+            {
+                ws.RegisterPush<ChatPush>("chat");
+                ChatPush? received = null;
+                using var sub = ctx.RegisterEvent<ChatPush>(e => received = e);
+                await ws.Connect("ws://fake/");
+                await UniTask.DelayFrame(1);
+
+                LogAssert.Expect(LogType.Warning, new System.Text.RegularExpressions.Regex("无法解析的 envelope"));
+                fake.InjectMessage(new byte[] { 250 }); // type 长度声称 250、帧只有 1 字节 → DecodeEnvelope 抛
+                await UniTask.DelayFrame(2);
+
+                var serializer = new BinaryEnvelopeSerializer();
+                fake.InjectMessage(serializer.EncodeEnvelope("chat",
+                    serializer.Serialize(new ChatPush { Text = "ok", UserId = 1 })));
+                await UniTask.DelayFrame(2);
+                Assert.IsTrue(received.HasValue, "坏帧不应毒化接收循环");
+                Assert.AreEqual("ok", received.Value.Text);
+            }
+            finally { ctx.Dispose(); }
+        });
 
         [UnityTest]
         public IEnumerator Dispose_ThenConnect_ThrowsObjectDisposed() => UniTask.ToCoroutine(async () =>

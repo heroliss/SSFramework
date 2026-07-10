@@ -44,8 +44,9 @@ namespace Game.Framework.Network
     /// 把推送的 <c>type</c> 映射为强类型事件，业务用 <c>Bag.Subscribe&lt;TEvent&gt;</c> 消费，与订 Model 事件同一套心智。
     /// 发送用 <see cref="Send{T}"/>（客户端 → 服务器）。</para>
     ///
-    /// <para><b>wire 协议</b>：JSON envelope <c>{"type":"xxx","payload":"&lt;载荷的 JSON 文本&gt;"}</c>——
-    /// payload 二次编码是默认 JsonUtility 无法提取嵌套原始 JSON 的最省事解；换强序列化器后的嵌套形态等真实后端再议。</para>
+    /// <para><b>wire 协议</b>：默认 JSON envelope <c>{"type":"xxx","payload":"&lt;载荷的 JSON 文本&gt;"}</c>——
+    /// payload 二次编码是默认 JsonUtility 无法提取嵌套原始 JSON 的最省事解。二进制格式（Protobuf 等）的序列化器
+    /// 实现 <see cref="IWebSocketEnvelopeSerializer"/> 接管 envelope 编解码与帧类型（payload 全程 byte[]、二进制帧）。</para>
     /// </summary>
     /// <remarks>
     /// <b>注册：</b><c>builder.RegisterOwned(new WebSocketUtility(), typeof(IWebSocketUtility))</c>——注册即注入
@@ -61,7 +62,8 @@ namespace Game.Framework.Network
     /// 默认 JsonUtility 只认字段，<b>不能用 record 位置参数</b>（那是属性、反序列化不出来）。<br/>
     /// <b>刻意不做</b>：自动重连（订 <see cref="WebSocketClosedEvent"/> + 退避 Connect 样板见 guide §25）、
     /// WebGL（<see cref="ClientWebSocketProvider"/> 不支持）、RPC correlation id。<br/>
-    /// <b>扩展点：</b>换传输 <see cref="IWebSocketProvider"/> / 换格式 <see cref="INetworkSerializer"/>（构造注入）。
+    /// <b>扩展点：</b>换传输 <see cref="IWebSocketProvider"/> / 换格式 <see cref="INetworkSerializer"/>（构造注入；
+    /// 二进制格式额外实现 <see cref="IWebSocketEnvelopeSerializer"/>）。
     /// </remarks>
     public interface IWebSocketUtility : IUtility
     {
