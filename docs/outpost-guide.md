@@ -20,7 +20,7 @@
 | HUD 实时刷血量/波次/击杀/得分/性能行 | **读写分离 + 只读订阅**（View 经查询 Command 拿 `ReadOnlyReactiveProperty`） | [`Battle/BattleHudView.cs`](../Assets/Game/Outpost/Scripts/Battle/BattleHudView.cs) | guide §5 / [ADR-0001](adr/0001-five-layers-and-permission-interfaces.md) |
 | 波间弹出三选一升级卡片 | **响应式集合增量绑定** `ObservableList` + `Bag.BindList` | [`Battle/UpgradeChoiceView.cs`](../Assets/Game/Outpost/Scripts/Battle/UpgradeChoiceView.cs) | guide §24 / [ADR-0027](adr/0027-reactive-collections-list-binding.md) |
 | 点卡片 / 托管开关 / 撤离按钮 | **命令外发**：View 不能直调 System，写意图经 `ExecuteCommand` 中转 | [`Battle/UpgradeCommands.cs`](../Assets/Game/Outpost/Scripts/Battle/UpgradeCommands.cs)、[`BattleCommands.cs`](../Assets/Game/Outpost/Scripts/Battle/BattleCommands.cs) | guide §3 |
-| 数千同屏的敌人海 | **实例化渲染**（`SwarmRenderer` 批量绘制，零 GameObject） | [`Battle/SwarmRenderer.cs`](../Assets/Game/Outpost/Scripts/Battle/SwarmRenderer.cs) | 本文§2 |
+| 数千同屏的敌人海 + 铺满战场的残骸 | **实例化渲染**（`SwarmRenderer` 批量绘制活敌；残骸烘焙成静态批次永久留存，零 GameObject） | [`Battle/SwarmRenderer.cs`](../Assets/Game/Outpost/Scripts/Battle/SwarmRenderer.cs) | 本文§2 |
 | 曳光 / 脉冲 / 飘字 / 碎片成群出现又消失 | **对象池** `IPoolUtility`（`Bag.Spawn`/`Despawn` 自动借还） | [`Battle/BattleDirectorSystem.cs`](../Assets/Game/Outpost/Scripts/Battle/BattleDirectorSystem.cs) | guide §7 / [ADR-0007](adr/0007-custom-object-pool.md) |
 | 敌人五种、升级六种、波次成长曲线、表现参数 | **配置表** Luban（数值列进模拟、表现列表现层直读——加敌人=加一行） | [`Configs~/`](../Assets/Game/Outpost/Configs~/) → [`Config/Gen/`](../Assets/Game/Outpost/Config/Gen/) | guide §16 / [ADR-0009](adr/0009-luban-integration.md) |
 | 整个战斗的规则演算 | **纯 C# 模拟接缝** `IBattleSim`（可 AOT / 可单测 / 可置换 ECS） | [`Sim/`](../Assets/Game/Outpost/Sim/) | [ADR-0014](adr/0014-realtime-simulation-ownership.md) |
@@ -33,9 +33,9 @@
 
 战斗的所有数值演算（刷怪、移动、转向开火、结算、波次成长）都在 [`Sim/`](../Assets/Game/Outpost/Sim/) 里，那是一个 **`noEngineReferences` 的程序集**：不 `using UnityEngine`，坐标用 `System.Numerics.Vector2`。
 
-- **可单测 / AI 可验证**：规则是确定性纯函数，`new ReferenceBattleSim()` 喂一段 Tick 序列毫秒级跑完，不用进 Play。本轮全部难度标定就是无头跑数做的（托管策略跑 110 波、逐波打印消耗/峰值/耗时曲线）。
+- **可单测 / AI 可验证**：规则是确定性纯函数，`new ReferenceBattleSim()` 喂一段 Tick 序列毫秒级跑完，不用进 Play。本轮全部难度标定就是无头跑数做的（托管策略跑 110 波、逐波打印消耗/峰值/耗时曲线）。同一红利还做成了游玩入口：director 的 `_startWave` > 1 时开局**无头快进**——加载期静默跑完前面的波次（升级按托管贪心自动拿、击杀直接铺成残骸），快进 19 波实测 85ms。
 - **可 AOT**：热更/裁剪环境永不炸。
-- **可置换后端**：`BattleDirectorSystem` 顶部有一个 `BattleSimBackend` 枚举 + `CreateSim()` 工厂——M6 的 ECS/DOTS 后端只需加一个分支，事件→表现翻译层、Model、HUD 全部零改动。HUD 左下角的**性能行**（后端名 · 敌人数 · 模拟耗时 · fps）就是为"同题对比"准备的度量面板。
+- **可置换后端**：`BattleDirectorSystem` 顶部有一个 `BattleSimBackend` 枚举 + `CreateSim()` 工厂——M6 的 ECS/DOTS 后端只需加一个分支，事件→表现翻译层、Model、HUD 全部零改动。HUD 左下角的**性能行**（后端名 · 敌人数 · 残骸数 · 模拟耗时 · fps）就是为"同题对比"准备的度量面板。
 
 ### 2. 事件 → 表现翻译层，与"实例化渲染 × 对象池"的分工
 
@@ -44,6 +44,7 @@
 表现层按"数量级"分两条路径，这是海量同屏下的关键取舍：
 
 - **海量常驻单位 → 实例化渲染**：[`SwarmRenderer`](../Assets/Game/Outpost/Scripts/Battle/SwarmRenderer.cs) 每帧直接遍历模拟快照，`Graphics.DrawMeshInstanced` 按原型分批绘制全部敌人（出生弹出/呼吸/白闪/血量变暗全部逐实例数值计算）——敌人不占任何 GameObject，两三千同屏不掉帧。
+- **死亡 → 残骸层**：击杀不是消失——每具尸体沿弹道短促滑出落定后，**烘焙进静态实例批次**永久留存（环形上限复写，默认 3 万），战场地面逐渐积出击杀分布的"历史地图"。这既是千级击杀率下的保底反馈（爆炸特效有每帧预算、残骸没有），也是实例化渲染的持续压力源：数万静态实例的矩阵/颜色只在落定时写一次，每帧零重建直接提交（实测 3000 活敌 + 3.6 万残骸约 100fps）。
 - **少量瞬时特效 → 对象池**：曳光/脉冲/烟/碎片/飘字走 `Bag.Spawn` 借还，并有**每帧演出预算**（命中/击毁/出生特效各有限量，超出只结算数值不演出）；玩家受创（漏怪自爆+拦截溅射）在 0.25s 窗口内**聚合**成一次震屏/红闪/汇总飘字——每秒上百次受创时逐条演出会刷屏。
 
 ### 3. 难度模型：数量爬坡到平台期 + 双方全封顶 = 托管永续
@@ -54,7 +55,7 @@
 - **敌人规模平台期**：各角色数量按 `CountGrowth^波次` 指数爬坡（约 20 波到每波数千）、到 `MaxCount` 封顶；数值成长 `StatGrowth^波次` 同样有 `MaxStatScale` 封顶——否则后期单只漏怪伤害无界，任何稳态都会被击穿。
 - **玩家全成长封顶**：六种升级（攻击/攻速/射程/回转/血量/回血）全部有顶，到顶的移出三选一池、全部到顶后不再弹面板——若玩家火力无限成长，平台期的每波消耗会衰减到零。攻速下限 0.004s（每分钟一万五千发的火墙）；**回转封顶**是漏怪的结构性来源：360° 密集来袭时炮塔扫不过来，约半数炮灰漏网、每只只削一小口血。
 
-于是：托管（自动选卡）可以永续观战、每波消耗稳定在四到六成；**「撤离」是一局的常规结束方式**（把分数落袋进结算/存档）；失守只在极端情况发生。难度数值全在 4 个 json（`battleglobal` / `enemy` / `waverole` / `wavescaling` / `upgrade`），改完重生成即调、无需碰代码。
+于是：托管（自动选卡）可以永续观战、每波消耗稳定在四到六成；**「撤离」是一局的常规结束方式**（把分数落袋进结算/存档）；失守只在极端情况发生。难度数值全在 5 个 json（`battleglobal` / `enemy` / `waverole` / `wavescaling` / `upgrade`），改完重生成即调、无需碰代码。
 
 ---
 
