@@ -129,4 +129,5 @@ DOTS 是数据/Job/Burst 范式，与引用式 OOP 不同。框架的定位是**
 - `Assets/Game/AGENTS.md` —— 框架 **API 使用规则**（写业务代码时就近加载）
 - `Assets/Game/Framework/AGENTS.md` —— 框架 **内部编码规则**（改框架源码时就近加载）
 - [adr/](adr/) —— 架构决策记录（为什么这样设计）
+- [Outpost 导读](../Assets/Game/Outpost/Documentation~/outpost-guide.md) / [技术笔记](../Assets/Game/Outpost/Documentation~/outpost-tech-notes.md) —— 垂直切片 demo 的对照地图与实现方案（随游戏放在其 `Documentation~/`，将来随包提取）
 - [unity-mcp-tips.md](unity-mcp-tips.md) —— Unity MCP 调用陷阱
