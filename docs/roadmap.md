@@ -117,9 +117,16 @@ DOTS 是数据/Job/Burst 范式，与引用式 OOP 不同。框架的定位是**
 7. **响应式集合与列表绑定** ✅ 已落地（ADR-0027）：R3 单值订阅覆盖不到的集合空缺——集合状态用 `ObservableList<T>` 持有（如单值用 `RP<T>`），UI 用 `Bag.BindList` 增量绑定（Toolkit 绑 `VisualElement`、UGUI 绑 `Transform`，同一套心智）：集合增删移换只动对应子视图、不整表重建；每行独享子 bag 随行进出自动退订。后端中立的增量引擎（`Game.Framework.UI/ReactiveListBinding.cs`）单点实现、纯 C# 可测，内核零改动、不新增内核依赖。刻意不做虚拟化（大列表用 Toolkit 原生 `ListView`）/ 过滤视图 / 字典绑定。ObservableCollections 从「Cysharp 候选」变成「已融入、藏在 `Bag.BindList` 后」。五件套齐：ADR / 引擎 + 双后端适配 / 测试（`ReactiveListBindingTests`）/ demo「响应式列表 · 集合绑定」章 / guide §24 + AGENTS #31。
 8. **网络（HTTP / WebSocket）** ✅ 已落地（ADR-0028）：消息建模双轨——请求-响应 = `IHttpUtility`（REST 动词 `Get/Post` 非 2xx 抛 `NetworkException` 分级 + `Send` 逃生舱交换完成即返回）；服务器推送 = `IWebSocketUtility` 经 JSON envelope `{type,payload}` + `RegisterPush<TEvent>` 映射为框架 Event，`Bag.Subscribe` 消费。传输（默认 UnityWebRequest / ClientWebSocket）× 序列化（默认 JSON）双接缝构造注入、零第三方依赖留内核；超时与外部取消严格区分；接收循环后台收帧→切主线程→扇出（事件系统主线程铁律）。刻意不做自动重试 / 重连 / WebGL 的 WS（给退避样板 + 留 provider 接缝）。环境实测坑：Mono HttpListener 做不了 WS 服务端（demo 用 TcpListener + 手写 RFC6455）、ClientWebSocket 默认直连绕系统代理。五件套齐：ADR / 内核（`Core/Network/`）/ 测试（`HttpTests` + `WebSocketTests`，307 全绿）/ demo「网络 · HTTP 与 WebSocket」章（内嵌离线服务器）/ guide §25 + AGENTS #32。
 
+### 垂直切片 Outpost（13 模块整合验收，ADR-0029）
+
+M0 骨架 → M1 战斗核心 → M2 升级 → M3 存档/音频/本地化 → M4 网络排行（Protobuf + WS 二进制）→ **M5 构建收口 ✅ 全部完成**（2026-07-11）：GameEntry 代码引导资源栈拉起首场景、`Game.Outpost` 入热更列表（Sim 留 AOT）、第二业务包 OutpostExpansionPackage（清单内置 + 内容 CDN、显式下载器 DLC 姿势）、Windows IL2CPP 玩家包端到端实跑（含热更一轮 + 扩展包真下载 + 正式包网络门控验证）、`Tools/run-tests.ps1` 关编辑器实跑。接缝发现六处发现即修（场景激活取反 / 卸载 teardown / WS envelope 二进制 / EditorSimulate 进包 / Configure 无代码路径 / UxmlSerializedData 裁剪），清单见 ADR-0029。剩余：
+
+- **M6 DOTS 后端置换**（`EcsBattleSim` + ADR-0030，roadmap Phase 3 落地）。
+- **proto 生产化**（官方 protoc + Google.Protobuf 适配器，接缝已就位）→ **服务端生产化**（dev server 逻辑移植 ASP.NET Core 上云）——两个独立小里程碑，2026-07-11 排期。
+
 ### 长期（已有 ADR / 规划，时机到再动）
 
-- DOTS 接缝（Phase 3）、UPM 抽包（ADR-0010）、Odin 解耦（ADR-0015）。
+- DOTS 接缝（Phase 3）、UPM 抽包（ADR-0010，**前置验收已由切片完成**）、Odin 解耦（ADR-0015）。
 - **第二个 `IAssetProvider` 实现**（如 Addressables）——目的不是替换 YooAsset，而是用第二实现**验证抽象边界**：只有一个实现的接口不算真抽象。
 
 ## 文档地图
