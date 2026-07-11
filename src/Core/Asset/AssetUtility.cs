@@ -125,11 +125,15 @@ namespace Game.Framework
         }
 
         /// <summary>
-        /// 由 <see cref="AssetInitSystem"/> 在初始化前写入运行时配置、默认包名与运行模式。重复调用会更新后续包初始化使用的配置。
+        /// 在初始化前写入运行时配置、默认包名与运行模式。重复调用会更新后续包初始化使用的配置。两类调用方：
+        /// <b>场景三件套路径</b>由 <see cref="AssetInitSystem"/> 从 <see cref="AssetSystemConfigModel"/> 读出后调用（业务勿再调）；
+        /// <b>代码引导路径</b>（热更入口在首场景加载前搭的最小资源栈——Boot 场景只能挂 AOT 组件、场景三件套此刻还不存在）
+        /// 由入口代码直接调用，后接 <see cref="Initialize"/> 与 <c>LoadScene</c> 拉起首场景；首场景内的三件套随后照常初始化，
+        /// provider 对已初始化的包按名复用、不会重复拉清单。
         /// <para>运行模式在此即写入 <see cref="CurrentPlayMode"/>（而非等到 <see cref="InitializePackageAsync"/>）：
         /// 某些包关闭自动初始化、延迟到业务显式 <c>Initialize</c> 触发时，仍能用正确模式初始化，而不是回落到默认值。</para>
         /// </summary>
-        internal void Configure(string defaultPackageName, AssetProviderConfig config, AssetPlayMode mode)
+        public void Configure(string defaultPackageName, AssetProviderConfig config, AssetPlayMode mode)
         {
             ThrowIfDisposed();
             // 允许空默认包名（= 无默认包：不带 packageName 的便捷重载会清晰报错，而不是兜一个写死的名字）。

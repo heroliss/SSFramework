@@ -37,14 +37,21 @@ namespace Game.Framework
         [FormerlySerializedAs("PackageName")]
         [SerializeField] private string _defaultPackageName = DefaultPackage;
 
-        [Tooltip("全局运行模式（内置首包 = 随包体打进 StreamingAssets 的资源；远端 = CDN）：\n" +
+        [Tooltip("编辑器运行模式（内置首包 = 随包体打进 StreamingAssets 的资源；远端 = CDN）：\n" +
                  "EditorSimulate = 编辑器直接读 AssetDatabase，免打包 / 免下载（开发期默认）；\n" +
                  "Offline = 仅内置首包（StreamingAssets），完全不联网；\n" +
                  "Host = 内置首包（StreamingAssets）+ 远端 CDN，缺的按需下载并缓存；\n" +
-                 "Web = 纯远端 HTTP（WebGL），不落地缓存。\n" +
-                 "WebGL 构建会强制 Web 模式。")]
+                 "Web = 纯远端 HTTP，不落地缓存。\n" +
+                 "只在编辑器 Play 生效——玩家包用下面的「玩家包运行模式」（模拟模式是编辑器专属能力，进不了包）。")]
         [FormerlySerializedAs("PlayMode")]
         [SerializeField] private AssetPlayMode _playMode = AssetPlayMode.EditorSimulate;
+
+        [Tooltip("玩家包运行模式（构建出的玩家端实际用的模式，编辑器 Play 不用它）：\n" +
+                 "Offline = 仅内置首包（StreamingAssets），完全不联网（默认，无需任何部署即可出包）；\n" +
+                 "Host = 内置首包 + 远端 CDN，缺的按需下载并缓存（资源热更的常规形态）；\n" +
+                 "Web = 纯远端 HTTP（WebGL 构建会强制此模式）。\n" +
+                 "⚠ 不能选 EditorSimulate——模拟模式依赖 AssetDatabase，只存在于编辑器（选了会在启动校验时报错）。")]
+        [SerializeField] private AssetPlayMode _playerPlayMode = AssetPlayMode.Offline;
 
         [Header("CDN 配置")]
         [Tooltip("CDN 地址列表（远端模式查找版本文件 / 资源包）。第一条为主地址，其余为备用。\n" +
@@ -85,7 +92,9 @@ namespace Game.Framework
         // 运行期没有合法的外部读取方——需要读时从 DTO（AssetProviderConfig）拿，别在这里重新开洞。
 
         /// <summary>
-        /// 运行期实际生效的模式。WebGL 平台强制远端 Web 模式，避免构建后误用本地或编辑器模式。
+        /// 运行期实际生效的模式：编辑器 Play 用「编辑器运行模式」（可选 EditorSimulate），玩家包用「玩家包运行模式」——
+        /// 两个字段让同一份场景配置既能在编辑器免打包开发、又能出真实的 Offline / Host 玩家包。
+        /// WebGL 平台强制 Web 模式（纯远端是该平台唯一形态）。
         /// </summary>
         public AssetPlayMode ActualPlayMode
         {
@@ -93,8 +102,10 @@ namespace Game.Framework
             {
 #if UNITY_WEBGL && !UNITY_EDITOR
                 return AssetPlayMode.Web;
-#else
+#elif UNITY_EDITOR
                 return _playMode;
+#else
+                return _playerPlayMode;
 #endif
             }
         }
@@ -173,14 +184,18 @@ namespace Game.Framework
         }
 
         /// <summary>
-        /// 校验配置一致性，返回首个错误描述；无误返回 null。
-        /// 目前只校验「默认包名非空时必须在包列表中」——指向不存在的默认包会让所有便捷重载失效，须在启动时清晰暴露。
+        /// 校验配置一致性，返回首个错误描述；无误返回 null。校验项：
+        /// ① 默认包名非空时必须在包列表中（指向不存在的默认包会让所有便捷重载失效）；
+        /// ② 玩家包运行模式不能是 EditorSimulate（模拟模式依赖 AssetDatabase，只存在于编辑器——
+        /// 该错误配置在编辑器 Play 完全无症状、进玩家包才在 provider 处炸成 NotSupportedException，必须在启动校验清晰暴露）。
         /// </summary>
         public string GetConfigError()
         {
             if (!string.IsNullOrWhiteSpace(_defaultPackageName) && FindPackage(_defaultPackageName) == null)
                 return $"默认包 '{_defaultPackageName}' 不在资源包列表中——请在列表里加一条同名包，或清空 Default Package Name" +
                        "（清空 = 无默认包，加载须用带 packageName 的重载）。";
+            if (_playerPlayMode == AssetPlayMode.EditorSimulate)
+                return "玩家包运行模式不能是 EditorSimulate（模拟模式只存在于编辑器）——单机包选 Offline，资源热更选 Host。";
             return null;
         }
 
