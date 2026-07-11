@@ -1,0 +1,8 @@
+<!-- UI Toolkit 引擎模块防 IL2CPP 裁剪：uxml（VisualTreeAsset）从 AssetBundle 加载时，各元素的嵌套
+     UxmlSerializedData 类型只被「反序列化」引用，linker 静态分析看不到，裁掉后玩家包加载 uxml 直接失败
+     （YooAsset 报 Failed to load asset + Unity 报 "Should not occur! Internal logic error"，Unity 6 已知问题）。
+     随包场景里没有任何 UI Toolkit 组件的项目（本框架热更档位下 Boot 场景只有 AOT 引导件）必然命中——
+     整模块 preserve 兜住全部元素类型，代价是包体略增；编辑器与 Mono 构建不受影响。 -->
+<linker>
+    <assembly fullname="UnityEngine.UIElementsModule" preserve="all" />
+</linker>

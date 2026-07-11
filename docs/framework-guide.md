@@ -1329,6 +1329,8 @@ await this.GetUtility<IAssetUtility>().Initialize("DlcPack"); // 指定包
 
 > ⚠ 既没开自动初始化、也没 `Initialize` 过的包，`Load` 它会**直接抛**「未初始化」异常（fail-fast，不是无限等待）——要加载的包要么开自动初始化、要么先 `Initialize`。
 
+**运行模式按「编辑器 / 玩家包」分开配**：`AssetSystemConfigModel` 有两个模式字段——「编辑器运行模式」只在编辑器 Play 生效（日常 `EditorSimulate` 免打包；也可临时切 Offline / Host 在编辑器里联调真实模式，不影响出包），「玩家包运行模式」是构建出的玩家端实际用的模式（默认 `Offline` 纯内置首包；资源热更选 `Host`）。同一份场景配置两头通用。模拟模式是编辑器专属能力（依赖 AssetDatabase），进不了玩家包——玩家包模式选它会在启动校验时清晰报错，而不是等 provider 初始化才炸。
+
 资源释放分三层，别混用：
 
 | 操作 | 清理对象 | 常见时机 |
@@ -1637,6 +1639,22 @@ Bag.Subscribe(
 - **模式**：`Host`（远端检查更新，取不到回退本地）/ `Offline`（纯单机，永不联网）。
 
 **编辑器旁路**：编辑器下程序集本就在 AppDomain，Launcher 直接反射进入口——不走下载/加载，日常开发与热更机制零接触。
+
+**入口里的代码引导资源栈**：Boot 场景是 AOT 世界、挂不了热更组件（框架组件也是热更的），场景三件套没法放随包场景——首场景加载前的资源初始化由入口代码搭一个最小引导栈完成：
+
+```csharp
+var go = new GameObject("GameEntryBoot");
+Object.DontDestroyOnLoad(go);                    // Single 切场景会清场，引导栈要活到交棒完成
+go.AddComponent<MonoGameContextBase>();          // Context 在前（AddComponent 即 Awake，后者沿父链注册）
+var assets = go.AddComponent<AssetUtility>();
+assets.Configure(AssetPackages.DefaultPackage,
+    new AssetProviderConfig { CdnUrls = cdnUrls }, AssetPlayMode.Host);
+await assets.Initialize();
+await assets.LoadScene("FirstScene");            // Single：卸掉 Boot 场景、拉起首场景
+Object.Destroy(go);                              // 交棒：首场景根 Context 与其场景内三件套接管
+```
+
+首场景内的三件套随后照常初始化——provider 对已初始化的包按名复用、不重复拉清单，引导栈与场景三件套两个 `AssetUtility` 实例可安全并存。完整样板（编辑器旁路 `EditorSimulate` / 玩家包 Host 的 `#if` 分支）见 `Assets/Game/Main/GameEntry.cs`。
 
 ### 铁则（违反会在构建期被校验器拦下或真机才爆雷）
 

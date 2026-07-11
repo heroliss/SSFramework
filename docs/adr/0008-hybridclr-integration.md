@@ -105,3 +105,8 @@ Boot 场景（唯一随包场景：Launcher + 朴素进度 UI，只挂 Boot 程�
   **不能用 `includePlatforms:["Editor"]`**：编辑器平台程序集的 MonoBehaviour 挂在场景上进 Play 模式会被剔成 missing，DemoScene 直接报废；define 约束在编辑器域恒满足、Play 正常，仅出包时不编译）。
 - 热更入口：`Game.Main.GameEntry` 静态类 + `static void Enter()`（游戏的 main，类型全名在 Launcher Inspector 可配）。
 - 边玩边下/版本灰度：本期不做；YooAsset 按需下载原语已具备，需要时组合。
+- **入口的启动编排落地（2026-07，Outpost M5 驱动，详见 ADR-0029）**：`GameEntry.Enter` 从「挂自检」模板换成真实编排——
+  代码搭最小引导资源栈（`MonoGameContextBase` + `AssetUtility` 双 AddComponent → `Configure`(为此提升 public) →
+  `Initialize` → `LoadScene` 首场景 → Destroy 交棒），编辑器旁路走 EditorSimulate、玩家包走 Host。
+  首个真实业务程序集 `Game.Outpost` 入热更列表（9 个）；`Game.Outpost.Sim` 刻意留 AOT（M6 ECS 后端只依赖它）——
+  「热更程序集引用 AOT 程序集」方向合法，Generate 的 link.xml 保住仅被热更侧引用的 AOT 类型不被裁剪。
