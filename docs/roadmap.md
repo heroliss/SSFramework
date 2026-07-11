@@ -44,12 +44,12 @@
 - ✅ 数据绑定走 R3 订阅（`UIBindingExtensions`：`BindText` / `BindEnabled` / `SubscribeClick`），与 UGUI 一套心智；**刻意不引入** UI Toolkit 原生 DataBinding。
 - ✅ UGUI 与 UI Toolkit 共存于同一 Context，按界面选视图技术；核心层对 UI 技术无感。
 
-### Phase 3 —— DOTS / ECS
+### Phase 3 —— DOTS / ECS ✅ 组合姿势已验证（ADR-0030）
 
 DOTS 是数据/Job/Burst 范式，与引用式 OOP 不同。框架的定位是**协调 ECS，而非替换**：
 - `System`/`Utility` 包装 ECS `World`，对外仍暴露接口；`Command` 调度 ECS 系统或写入 `EntityCommandBuffer`。
 - Model 中的大规模实体数据交给 ECS，框架负责"用户意图 → ECS 调度"的接缝。
-- 当前架构不阻断这条路；具体接入时补充 ADR 与适配层。
+- ✅ **已由切片 M6 验证**（ADR-0030）：`EcsBattleSim`（Entities chunk + Burst job，自建 World 藏在纯 C# 接缝后）整体置换 OOP 后端，Command/Model/View/事件翻译层零改动；对拍证明行为等价（关 Burst 逐位全等）；4.2 万实体 3.5~4.9× 提速。**框架侧零改动、暂不需要 DOTS 专用模块**——既有原语接得住；可复用样板成形（World 生命周期助手、ECS↔R3 桥）再按五件套立项。
 
 ## 正交能力（不分阶段，按需推进）
 
@@ -119,14 +119,14 @@ DOTS 是数据/Job/Burst 范式，与引用式 OOP 不同。框架的定位是**
 
 ### 垂直切片 Outpost（13 模块整合验收，ADR-0029）
 
-M0 骨架 → M1 战斗核心 → M2 升级 → M3 存档/音频/本地化 → M4 网络排行（Protobuf + WS 二进制）→ **M5 构建收口 ✅ 全部完成**（2026-07-11）：GameEntry 代码引导资源栈拉起首场景、`Game.Outpost` 入热更列表（Sim 留 AOT）、第二业务包 OutpostExpansionPackage（清单内置 + 内容 CDN、显式下载器 DLC 姿势）、Windows IL2CPP 玩家包端到端实跑（含热更一轮 + 扩展包真下载 + 正式包网络门控验证）、`Tools/run-tests.ps1` 关编辑器实跑。接缝发现六处发现即修（场景激活取反 / 卸载 teardown / WS envelope 二进制 / EditorSimulate 进包 / Configure 无代码路径 / UxmlSerializedData 裁剪），清单见 ADR-0029。剩余：
+M0 骨架 → M1 战斗核心 → M2 升级 → M3 存档/音频/本地化 → M4 网络排行（Protobuf + WS 二进制）→ M5 构建收口（玩家包端到端，ADR-0029 六处接缝发现即修）→ **M6 DOTS 后端置换 ✅ 切片全部完成**（2026-07-11，ADR-0030）：`Game.Outpost.Sim.Ecs`（AOT、永不入热更）的 `EcsBattleSim` 整体置换 OOP 后端、消费方零改动；对拍两级验证（关 Burst 12 波逐 tick 全等 = 移植零逻辑偏差；开 Burst 规格级等价 + **跨编译域浮点 ulp 边界发现**）；4.2 万实体 3.5×（编辑器）/4.9×（近玩家包）提速；场景默认后端已切 Ecs、Reference 保留为规格基线。剩余两个独立小里程碑（2026-07-11 排期）：
 
-- **M6 DOTS 后端置换**（`EcsBattleSim` + ADR-0030，roadmap Phase 3 落地）。
-- **proto 生产化**（官方 protoc + Google.Protobuf 适配器，接缝已就位）→ **服务端生产化**（dev server 逻辑移植 ASP.NET Core 上云）——两个独立小里程碑，2026-07-11 排期。
+- **proto 生产化**（官方 protoc + Google.Protobuf 适配器，接缝已就位）。
+- **服务端生产化**（dev server 逻辑移植 ASP.NET Core + SQLite + Docker 上云、真实部署验证一轮；服务端代码放 Outpost `Server~/` 作参考实现，不进框架）。
 
 ### 长期（已有 ADR / 规划，时机到再动）
 
-- DOTS 接缝（Phase 3）、UPM 抽包（ADR-0010，**前置验收已由切片完成**）、Odin 解耦（ADR-0015）。
+- UPM 抽包（ADR-0010，**前置验收已由切片 M0-M6 全程完成**）、Odin 解耦（ADR-0015）。DOTS 接缝已验证（Phase 3 / ADR-0030），框架侧可选模块待真实需求再立项。
 - **第二个 `IAssetProvider` 实现**（如 Addressables）——目的不是替换 YooAsset，而是用第二实现**验证抽象边界**：只有一个实现的接口不算真抽象。
 
 ## 文档地图
