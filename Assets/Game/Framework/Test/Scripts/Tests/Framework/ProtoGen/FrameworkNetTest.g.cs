@@ -24,20 +24,21 @@ namespace Game.Framework.Test.ProtoGen {
     static FrameworkNetTestReflection() {
       byte[] descriptorData = global::System.Convert.FromBase64String(
           string.Concat(
-            "ChhmcmFtZXdvcmtfbmV0X3Rlc3QucHJvdG8iXAoRVGVzdFNjYWxhck1lc3Nh",
-            "Z2USDAoEbmFtZRgBIAEoCRINCgVjb3VudBgCIAEoBRIMCgRmbGFnGAMgASgI",
-            "Eg0KBXJhdGlvGAQgASgBEg0KBWRlbHRhGAUgASgRItQBChFUZXN0TmVzdGVk",
-            "TWVzc2FnZRInCgVpbm5lchgBIAEoCzIYLlRlc3ROZXN0ZWRNZXNzYWdlLklu",
-            "bmVyEiEKBWl0ZW1zGAIgAygLMhIuVGVzdFNjYWxhck1lc3NhZ2USLgoGc2Nv",
-            "cmVzGAMgAygLMh4uVGVzdE5lc3RlZE1lc3NhZ2UuU2NvcmVzRW50cnkaFAoF",
-            "SW5uZXISCwoDdGFnGAEgASgJGi0KC1Njb3Jlc0VudHJ5EgsKA2tleRgBIAEo",
-            "CRINCgV2YWx1ZRgCIAEoBToCOAFCH6oCHEdhbWUuRnJhbWV3b3JrLlRlc3Qu",
-            "UHJvdG9HZW5iBnByb3RvMw=="));
+            "ChhmcmFtZXdvcmtfbmV0X3Rlc3QucHJvdG8aGmZyYW1ld29ya19uZXRfY29t",
+            "bW9uLnByb3RvIlwKEVRlc3RTY2FsYXJNZXNzYWdlEgwKBG5hbWUYASABKAkS",
+            "DQoFY291bnQYAiABKAUSDAoEZmxhZxgDIAEoCBINCgVyYXRpbxgEIAEoARIN",
+            "CgVkZWx0YRgFIAEoESLvAQoRVGVzdE5lc3RlZE1lc3NhZ2USJwoFaW5uZXIY",
+            "ASABKAsyGC5UZXN0TmVzdGVkTWVzc2FnZS5Jbm5lchIhCgVpdGVtcxgCIAMo",
+            "CzISLlRlc3RTY2FsYXJNZXNzYWdlEi4KBnNjb3JlcxgDIAMoCzIeLlRlc3RO",
+            "ZXN0ZWRNZXNzYWdlLlNjb3Jlc0VudHJ5EhkKBG1ldGEYBCABKAsyCy5Db21t",
+            "b25NZXRhGhQKBUlubmVyEgsKA3RhZxgBIAEoCRotCgtTY29yZXNFbnRyeRIL",
+            "CgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAU6AjgBQh+qAhxHYW1lLkZyYW1l",
+            "d29yay5UZXN0LlByb3RvR2VuYgZwcm90bzM="));
       descriptor = pbr::FileDescriptor.FromGeneratedCode(descriptorData,
-          new pbr::FileDescriptor[] { },
+          new pbr::FileDescriptor[] { global::Game.Framework.Test.ProtoGen.FrameworkNetCommonReflection.Descriptor, },
           new pbr::GeneratedClrTypeInfo(null, null, new pbr::GeneratedClrTypeInfo[] {
             new pbr::GeneratedClrTypeInfo(typeof(global::Game.Framework.Test.ProtoGen.TestScalarMessage), global::Game.Framework.Test.ProtoGen.TestScalarMessage.Parser, new[]{ "Name", "Count", "Flag", "Ratio", "Delta" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Game.Framework.Test.ProtoGen.TestNestedMessage), global::Game.Framework.Test.ProtoGen.TestNestedMessage.Parser, new[]{ "Inner", "Items", "Scores" }, null, null, null, new pbr::GeneratedClrTypeInfo[] { new pbr::GeneratedClrTypeInfo(typeof(global::Game.Framework.Test.ProtoGen.TestNestedMessage.Types.Inner), global::Game.Framework.Test.ProtoGen.TestNestedMessage.Types.Inner.Parser, new[]{ "Tag" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Game.Framework.Test.ProtoGen.TestNestedMessage), global::Game.Framework.Test.ProtoGen.TestNestedMessage.Parser, new[]{ "Inner", "Items", "Scores", "Meta" }, null, null, null, new pbr::GeneratedClrTypeInfo[] { new pbr::GeneratedClrTypeInfo(typeof(global::Game.Framework.Test.ProtoGen.TestNestedMessage.Types.Inner), global::Game.Framework.Test.ProtoGen.TestNestedMessage.Types.Inner.Parser, new[]{ "Tag" }, null, null, null, null),
             null, })
           }));
     }
@@ -402,7 +403,7 @@ namespace Game.Framework.Test.ProtoGen {
   }
 
   /// <summary>
-  /// 嵌套 + repeated + map：验证 RegisterFile 递归注册嵌套类型并跳过 map entry。
+  /// 嵌套 + repeated + map + 跨文件引用：验证 RegisterFile 递归注册嵌套类型、跳过 map entry、带上 import 依赖。
   /// </summary>
   [global::System.Diagnostics.DebuggerDisplayAttribute("{ToString(),nq}")]
   public sealed partial class TestNestedMessage : pb::IMessage<TestNestedMessage>
@@ -442,6 +443,7 @@ namespace Game.Framework.Test.ProtoGen {
       inner_ = other.inner_ != null ? other.inner_.Clone() : null;
       items_ = other.items_.Clone();
       scores_ = other.scores_.Clone();
+      meta_ = other.meta_ != null ? other.meta_.Clone() : null;
       _unknownFields = pb::UnknownFieldSet.Clone(other._unknownFields);
     }
 
@@ -485,6 +487,21 @@ namespace Game.Framework.Test.ProtoGen {
       get { return scores_; }
     }
 
+    /// <summary>Field number for the "meta" field.</summary>
+    public const int MetaFieldNumber = 4;
+    private global::Game.Framework.Test.ProtoGen.CommonMeta meta_;
+    /// <summary>
+    /// 来自 import 的 framework_net_common.proto
+    /// </summary>
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public global::Game.Framework.Test.ProtoGen.CommonMeta Meta {
+      get { return meta_; }
+      set {
+        meta_ = value;
+      }
+    }
+
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public override bool Equals(object other) {
@@ -503,6 +520,7 @@ namespace Game.Framework.Test.ProtoGen {
       if (!object.Equals(Inner, other.Inner)) return false;
       if(!items_.Equals(other.items_)) return false;
       if (!Scores.Equals(other.Scores)) return false;
+      if (!object.Equals(Meta, other.Meta)) return false;
       return Equals(_unknownFields, other._unknownFields);
     }
 
@@ -513,6 +531,7 @@ namespace Game.Framework.Test.ProtoGen {
       if (inner_ != null) hash ^= Inner.GetHashCode();
       hash ^= items_.GetHashCode();
       hash ^= Scores.GetHashCode();
+      if (meta_ != null) hash ^= Meta.GetHashCode();
       if (_unknownFields != null) {
         hash ^= _unknownFields.GetHashCode();
       }
@@ -537,6 +556,10 @@ namespace Game.Framework.Test.ProtoGen {
       }
       items_.WriteTo(output, _repeated_items_codec);
       scores_.WriteTo(output, _map_scores_codec);
+      if (meta_ != null) {
+        output.WriteRawTag(34);
+        output.WriteMessage(Meta);
+      }
       if (_unknownFields != null) {
         _unknownFields.WriteTo(output);
       }
@@ -553,6 +576,10 @@ namespace Game.Framework.Test.ProtoGen {
       }
       items_.WriteTo(ref output, _repeated_items_codec);
       scores_.WriteTo(ref output, _map_scores_codec);
+      if (meta_ != null) {
+        output.WriteRawTag(34);
+        output.WriteMessage(Meta);
+      }
       if (_unknownFields != null) {
         _unknownFields.WriteTo(ref output);
       }
@@ -568,6 +595,9 @@ namespace Game.Framework.Test.ProtoGen {
       }
       size += items_.CalculateSize(_repeated_items_codec);
       size += scores_.CalculateSize(_map_scores_codec);
+      if (meta_ != null) {
+        size += 1 + pb::CodedOutputStream.ComputeMessageSize(Meta);
+      }
       if (_unknownFields != null) {
         size += _unknownFields.CalculateSize();
       }
@@ -588,6 +618,12 @@ namespace Game.Framework.Test.ProtoGen {
       }
       items_.Add(other.items_);
       scores_.MergeFrom(other.scores_);
+      if (other.meta_ != null) {
+        if (meta_ == null) {
+          Meta = new global::Game.Framework.Test.ProtoGen.CommonMeta();
+        }
+        Meta.MergeFrom(other.Meta);
+      }
       _unknownFields = pb::UnknownFieldSet.MergeFrom(_unknownFields, other._unknownFields);
     }
 
@@ -622,6 +658,13 @@ namespace Game.Framework.Test.ProtoGen {
             scores_.AddEntriesFrom(input, _map_scores_codec);
             break;
           }
+          case 34: {
+            if (meta_ == null) {
+              Meta = new global::Game.Framework.Test.ProtoGen.CommonMeta();
+            }
+            input.ReadMessage(Meta);
+            break;
+          }
         }
       }
     #endif
@@ -654,6 +697,13 @@ namespace Game.Framework.Test.ProtoGen {
           }
           case 26: {
             scores_.AddEntriesFrom(ref input, _map_scores_codec);
+            break;
+          }
+          case 34: {
+            if (meta_ == null) {
+              Meta = new global::Game.Framework.Test.ProtoGen.CommonMeta();
+            }
+            input.ReadMessage(Meta);
             break;
           }
         }

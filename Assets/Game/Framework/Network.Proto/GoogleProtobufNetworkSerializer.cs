@@ -38,40 +38,56 @@ namespace Game.Framework.Network
 
         public bool UseBinaryFrames => true;
 
-        /// <summary>注册单个消息类型的解析器（传生成类的静态 <c>T.Parser</c>）。返回自身可链式注册；重复注册抛。
-        /// 消息集中在少数 .proto 文件时，用 <see cref="RegisterFile"/> 整文件注册更省事。</summary>
+        /// <summary>注册单个消息类型的解析器（传生成类的静态 <c>T.Parser</c>）。返回自身可链式注册；
+        /// 显式点名重复注册抛（代码写错了）。消息集中在少数 .proto 文件时，用 <see cref="RegisterFile"/> 整文件注册更省事。</summary>
         public GoogleProtobufNetworkSerializer Register<T>(MessageParser<T> parser) where T : IMessage<T>
         {
             if (parser == null) throw new ArgumentNullException(nameof(parser));
-            AddParser(typeof(T), parser);
+            AddParser(typeof(T), parser, throwOnDuplicate: true);
             return this;
         }
 
         /// <summary>
-        /// 注册一个 .proto 文件的<b>全部</b>消息类型（含嵌套），传生成代码里的 <c>XxxReflection.Descriptor</c>。
-        /// 往 .proto 加新消息后重新生成即自动纳入注册，不存在「加了消息忘记 Register」的缝。
-        /// map 字段的内部 entry 类型没有 CLR 类型，自动跳过；重复注册（同类型出现两次）抛。
+        /// 注册一个 .proto 文件的<b>全部</b>消息类型，传生成代码里的 <c>XxxReflection.Descriptor</c>。
+        /// 递归覆盖：① 文件内消息含<b>嵌套</b>类型；② 该文件 <c>import</c> 的<b>依赖文件</b>（传递闭包）——
+        /// 跨文件拆分 + import 是 protobuf 常规用法，注册入口只给顶层 file、依赖自动带上，无需逐个 file 点名。
+        /// map 字段的内部 entry 类型没有 CLR 类型，自动跳过。
+        /// <b>幂等</b>：对已注册类型跳过（多个 file 经 diamond import 共享同一依赖、或 well-known types 被多处引用是常态，
+        /// 不视为错误）——与单消息 <see cref="Register{T}"/> 的「显式重复即抛」区分。
         /// </summary>
         public GoogleProtobufNetworkSerializer RegisterFile(FileDescriptor file)
         {
             if (file == null) throw new ArgumentNullException(nameof(file));
+            RegisterFileTree(file, new HashSet<FileDescriptor>());
+            return this;
+        }
+
+        // 传递闭包遍历：先注册依赖文件、再注册本文件消息；visited 去重防 diamond import 重复处理（proto import 无环）。
+        private void RegisterFileTree(FileDescriptor file, HashSet<FileDescriptor> visited)
+        {
+            if (!visited.Add(file)) return;
+            foreach (var dependency in file.Dependencies)
+                RegisterFileTree(dependency, visited);
             foreach (var message in file.MessageTypes)
                 RegisterMessageTree(message);
-            return this;
         }
 
         private void RegisterMessageTree(MessageDescriptor message)
         {
             if (message.ClrType != null && message.Parser != null) // map entry 等编译器合成类型无 CLR 类型，跳过
-                AddParser(message.ClrType, message.Parser);
+                AddParser(message.ClrType, message.Parser, throwOnDuplicate: false); // 整文件注册对已登记类型幂等跳过
             foreach (var nested in message.NestedTypes)
                 RegisterMessageTree(nested);
         }
 
-        private void AddParser(Type type, MessageParser parser)
+        private void AddParser(Type type, MessageParser parser, bool throwOnDuplicate)
         {
             if (_parsers.ContainsKey(type))
-                throw new InvalidOperationException($"[GoogleProtobufNetworkSerializer] {type.Name} 已注册解析器。");
+            {
+                if (throwOnDuplicate)
+                    throw new InvalidOperationException($"[GoogleProtobufNetworkSerializer] {type.Name} 已注册解析器。");
+                return; // 幂等：RegisterFile 对已注册类型（共享依赖 / well-known types）跳过
+            }
             _parsers[type] = parser;
         }
 
