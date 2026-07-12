@@ -58,8 +58,10 @@ namespace Game.Framework.Network
     /// <see cref="Send{T}"/> 在未连接、或发送中途连接断掉时 → （ConnectionError，传输层原始异常不外泄）；
     /// 未注册的推送 type → Editor/Dev 一次性 warning + 丢弃；
     /// 坏消息（烂 JSON / 载荷不符）→ warning + 丢弃当条，不毒化接收循环。<br/>
-    /// <b>推送事件类型约定：</b><c>[Serializable] struct XxxPushEvent : IEvent</c> + <b>公共字段</b>承载数据——
-    /// 默认 JsonUtility 只认字段，<b>不能用 record 位置参数</b>（那是属性、反序列化不出来）。<br/>
+    /// <b>推送事件类型约定：</b>默认 JSON 序列化器下用 <c>[Serializable] struct XxxPushEvent : IEvent</c> + <b>公共字段</b>承载数据
+    /// （JsonUtility 只认字段，<b>不能用 record 位置参数</b>——那是属性、反序列化不出来）；
+    /// <b>class 事件也允许</b>（约束只要求 <see cref="IEvent"/>）——二进制序列化器（如 Google.Protobuf 生成的 <c>IMessage</c> class）即走此路，
+    /// 但引用类型事件<b>必须带 payload</b>（空 payload 无法构造默认实例，会被丢弃告警；struct 事件空 payload 仍取 <c>default</c>）。<br/>
     /// <b>刻意不做</b>：自动重连（订 <see cref="WebSocketClosedEvent"/> + 退避 Connect 样板见 guide §25）、
     /// WebGL（<see cref="ClientWebSocketProvider"/> 不支持）、RPC correlation id。<br/>
     /// <b>扩展点：</b>换传输 <see cref="IWebSocketProvider"/> / 换格式 <see cref="INetworkSerializer"/>（构造注入；
@@ -73,9 +75,9 @@ namespace Game.Framework.Network
         /// <summary>
         /// 把服务器推送的 <paramref name="type"/> 映射为框架事件：收到该 type 时把 payload 反序列化为 TEvent 并 SendEvent。
         /// 连接前后均可注册；同 type 重复注册抛 <see cref="InvalidOperationException"/>（代码写错了）。
-        /// TEvent 用 <c>[Serializable] struct</c> + 公共字段（见类型 remarks 的约定）。
+        /// TEvent 默认 JSON 下用 <c>[Serializable] struct</c> + 公共字段；二进制序列化器可用 class 消息（见类型 remarks 的约定）。
         /// </summary>
-        void RegisterPush<TEvent>(string type) where TEvent : struct, IEvent;
+        void RegisterPush<TEvent>(string type) where TEvent : IEvent;
 
         /// <summary>建立连接（<c>ws://</c> / <c>wss://</c>）。已在 Connecting/Connected 时调用抛
         /// <see cref="InvalidOperationException"/>；失败/超时抛 <see cref="NetworkException"/> 且状态回 Disconnected。</summary>
