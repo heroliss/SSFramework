@@ -1,0 +1,16 @@
+{
+    "name": "Game.Framework.Network.Proto.Editor",
+    "rootNamespace": "Game.Framework.Network.Proto.Editor",
+    "references": [],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+// 框架测试专用 .proto 契约：给 GoogleProtobufNetworkSerializer 的 PlayMode 测试提供生成消息——
+// 覆盖标量 / repeated / 嵌套消息 / map（map entry 合成类型应被 RegisterFile 跳过）。
+// 生成：菜单 SSFramework/Protobuf/生成全部（TestProtoProfile 套）→ Scripts/Tests/Framework/ProtoGen/。
+// 仅测试消费，不是任何对端契约——字段号可随测试需要调整。
+
+option csharp_namespace = "Game.Framework.Test.ProtoGen";
+
+// 标量字段消息（也用于与内核 ProtoWire 手写编解码的 wire 互通测试——
+// 前三个字段刻意只用 varint / length-delimited，ProtoWriter/ProtoReader 支持的子集）。
+message TestScalarMessage {
+  string name = 1;
+  int32 count = 2;
+  bool flag = 3;
+  double ratio = 4;   // ProtoWire 不支持的类型：验证真库覆盖面（互通测试不碰它）
+  sint32 delta = 5;   // zigzag 编码，同上
+}
+
+// 嵌套 + repeated + map：验证 RegisterFile 递归注册嵌套类型并跳过 map entry。
+message TestNestedMessage {
+  message Inner {
+    string tag = 1;
+  }
+  Inner inner = 1;
+  repeated TestScalarMessage items = 2;
+  map<string, int32> scores = 3;
+}

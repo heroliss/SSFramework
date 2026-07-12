@@ -12,8 +12,9 @@ namespace Game.Framework.Network
     /// <remarks>
     /// <b>定位</b>：轻量真 wire 格式实现——字节与标准 protobuf 互通（对端 .proto 字段号对上即可对讲），
     /// 但无 protoc 代码生成、无反射：每个消息类型手写几行编解码。适合消息数量有限的自建后端 / dev server。
-    /// 消息多到手写吃力、或需要 map / oneof / 有符号 / 浮点 / .proto 契约共享时，换 Google.Protobuf 等真库
-    /// 实现 <see cref="INetworkSerializer"/> 替换本类（构造注入，业务调用代码零改动）。<br/>
+    /// 消息多到手写吃力、或需要 map / oneof / 有符号 / 浮点 / .proto 契约共享时，换官方 Google.Protobuf——
+    /// 框架已提供增强模块 <c>Game.Framework.Network.Proto</c>（<c>GoogleProtobufNetworkSerializer</c> + protoc 生成管线，
+    /// envelope 与本类逐字节一致、可对讲互换）实现 <see cref="INetworkSerializer"/> 替换本类，构造注入、业务调用代码零改动。<br/>
     /// <b>注册时机</b>：<see cref="Register{T}"/> 只在构造 / 服务注册期调用（未加锁）；之后字典只读 + 编解码纯函数，
     /// 任意线程可安全并发 Serialize / Deserialize（回环 dev server 的后台线程与主线程共用同一实例是安全的——
     /// <see cref="INetworkSerializer"/> 的"主线程被调"契约约束的是框架调用侧，本实现自身无线程亲和）。<br/>
