@@ -69,14 +69,16 @@ namespace Game.Framework.Network
 
         public ReadOnlyReactiveProperty<NetworkConnectionState> State => _state;
 
-        public void RegisterPush<TEvent>(string type) where TEvent : struct, IEvent
+        public void RegisterPush<TEvent>(string type) where TEvent : IEvent
         {
             ThrowIfDisposed();
             if (string.IsNullOrEmpty(type)) throw new ArgumentException("推送 type 不能为空。", nameof(type));
             if (_pushHandlers.ContainsKey(type))
                 throw new InvalidOperationException($"[WebSocketUtility] 推送 type '{type}' 已注册过——一个 type 只能映射一个事件类型。");
 
-            // 闭包捕获 TEvent：收到该 type 时把 payload 反序列化为 TEvent 再发事件。空 payload → default(TEvent)（无载荷推送）。
+            // 闭包捕获 TEvent：收到该 type 时把 payload 反序列化为 TEvent 再发事件。
+            // 空 payload（无载荷推送）：struct 事件取 default(TEvent)（零值即合法）；引用类型（class 消息，如 Protobuf）
+            // 无法凭空造默认实例——丢弃告警（约束已从 struct 放宽到 IEvent 以支持二进制序列化器的 class 消息）。
             _pushHandlers[type] = payloadBytes =>
             {
                 TEvent evt = default;
@@ -91,6 +93,11 @@ namespace Game.Framework.Network
                         Debug.LogWarning($"[WebSocketUtility] 推送 '{type}' 载荷无法反序列化为 {typeof(TEvent).Name}，已丢弃（{e.GetType().Name}: {e.Message}）。");
                         return;
                     }
+                }
+                else if (evt == null) // 引用类型事件的空 payload：无默认实例可发
+                {
+                    Debug.LogWarning($"[WebSocketUtility] 推送 '{type}' 无载荷、而 {typeof(TEvent).Name} 是引用类型（无法取默认实例），已丢弃。");
+                    return;
                 }
                 _context?.SendEvent(evt);
             };
