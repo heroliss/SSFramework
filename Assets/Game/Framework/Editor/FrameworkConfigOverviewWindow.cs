@@ -69,6 +69,15 @@ namespace Game.Framework.Editor
             },
             new()
             {
+                Title = "网络协议（protoc 生成）",
+                TypeName = "ProtoConfigProfile",
+                QualifiedType = "Game.Framework.Network.Proto.Editor.ProtoConfigProfile, Game.Framework.Network.Proto.Editor",
+                Singleton = false,
+                Note = "多套并存（每套一个 .proto 源目录 + 输出目录）；无自动创建，经 Assets/Create/SSFramework/Protobuf 生成配置 或总览窗口新建。",
+                JumpMenu = "SSFramework/Protobuf/配置总览 (定位 · 打开目录 · 生成)", JumpLabel = "打开总览",
+            },
+            new()
+            {
                 Title = "资源构建",
                 TypeName = "FrameworkAssetBuildProfile",
                 QualifiedType = "Game.Framework.Build.FrameworkAssetBuildProfile, Game.Framework.Build.Editor",

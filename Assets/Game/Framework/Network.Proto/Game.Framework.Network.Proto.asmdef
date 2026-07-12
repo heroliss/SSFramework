@@ -1,0 +1,16 @@
+{
+    "name": "Game.Framework.Network.Proto",
+    "rootNamespace": "Game.Framework",
+    "references": [
+        "Game.Framework"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

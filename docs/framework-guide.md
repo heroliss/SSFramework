@@ -2572,7 +2572,22 @@ builder.RegisterOwned(new HttpUtility(baseUrl, serializer: proto), typeof(IHttpU
 
 **WS 的二进制格式还差一步**：默认 envelope 是「JSON `{type, payload}` + payload 文本二次编码 + 文本帧」，对二进制字节是破坏性的。`ProtobufNetworkSerializer` 已实现可选接缝 **`IWebSocketEnvelopeSerializer`**——整体接管 envelope 编解码（proto 消息 `{string type=1; bytes payload=2}`）与帧类型（二进制帧），payload 全程 `byte[]`。自写二进制序列化器（MemoryPack 等）照此接口补三个成员即可；JSON 序列化器不实现它，走原兼容路径、wire 字节不变。
 
-内置实现的定位是「消息不多的自建后端 / dev server」（Outpost M4 的排行榜是完整落地样例）：消息多到手写吃力、或要 `.proto` 契约共享 / map / oneof / 有符号 / 浮点，换 Google.Protobuf 等真库实现同一接口即弃——字段号对上，wire 字节不用迁移。MemoryPack 的 source generator 与 HybridCLR 热更的兼容性仍需专门验证。
+内置实现的定位是「消息不多的自建后端 / dev server」（Outpost 的排行榜是完整落地样例）：消息多到手写吃力、或要 `.proto` 契约共享 / map / oneof / 有符号 / 浮点，换官方 Google.Protobuf——框架已提供**增强模块 `Game.Framework.Network.Proto`** 承接这一档（可选启用，同 `Asset.Yoo` 收口姿势：Google.Protobuf 依赖收口于模块、内核仍零依赖，可整块删/抽 UPM）。接入三步：
+
+1. **加引用 + 装 DLL**：业务 asmdef 引用 `Game.Framework.Network.Proto`；Google.Protobuf 经 NuGetForUnity 装入（模块自带 link.xml 防 IL2CPP 裁剪）。
+2. **配 + 生成**：新建 `ProtoConfigProfile`（`Assets/Create/SSFramework/Protobuf 生成配置`，或总览窗口「新建」）→ Inspector 填 .proto 源目录（放模块下的 `Proto~`，`~` 后缀不被 Unity 导入源文件）与 C# 输出目录 → 菜单 `SSFramework/Protobuf/生成全部`（多套按目录并存、逐套生成；差量同步：内容未变不落盘、陈旧 `*.g.cs` 自动清理）。总览与健康检查在 `SSFramework/Protobuf/配置总览` 及框架配置总览 hub（`SSFramework/配置总览`）。
+3. **装配序列化器**：`RegisterFile` 整文件注册一个 .proto 的全部消息（含嵌套、跳过 map entry），换真库后业务调用代码零改动：
+
+```csharp
+// 生成代码里每个 .proto 文件有一个 XxxReflection.Descriptor，整文件注册免逐消息点名：
+var proto = new GoogleProtobufNetworkSerializer()
+    .RegisterFile(OutpostNetReflection.Descriptor); // 加消息重新生成即自动纳入
+builder.RegisterOwned(new HttpUtility(baseUrl, serializer: proto), typeof(IHttpUtility));
+builder.RegisterOwned(new WebSocketUtility(serializer: proto), typeof(IWebSocketUtility));
+// 推送事件：protoc 生成的 IMessage 是 class，用 partial 补 IEvent 即可 RegisterPush（class 消息合法，见 §25 推送约定）。
+```
+
+`GoogleProtobufNetworkSerializer` 也实现 `IWebSocketEnvelopeSerializer`，envelope 与内核 `ProtobufNetworkSerializer` 逐字节一致、可对讲互换（灰度换端）。MemoryPack 的 source generator 与 HybridCLR 热更的兼容性仍需专门验证。
 
 ### 扩展点与刻意不做
 

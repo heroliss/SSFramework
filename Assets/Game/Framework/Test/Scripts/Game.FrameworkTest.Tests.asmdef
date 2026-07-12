@@ -5,6 +5,7 @@
         "YooAsset",
         "UniTask",
         "Game.Framework",
+        "Game.Framework.Network.Proto",
         "Game.Framework.UI",
         "Game.Framework.UI.UGui",
         "Game.Framework.Fonts",
@@ -21,7 +22,8 @@
         "ObservableCollections.dll",
         "ObservableCollections.R3.dll",
         "Sirenix.OdinInspector.Attributes.dll",
-        "Sirenix.Serialization.dll"
+        "Sirenix.Serialization.dll",
+        "Google.Protobuf.dll"
     ],
     "autoReferenced": false,
     "defineConstraints": [
