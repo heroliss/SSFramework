@@ -34,7 +34,7 @@ public interface IHttpUtility : IUtility          // 无状态请求-响应
 public interface IWebSocketUtility : IUtility     // 有状态长连接（一个实例 = 一条逻辑连接）
 {
     ReadOnlyReactiveProperty<NetworkConnectionState> State { get; }   // Disconnected/Connecting/Connected
-    void RegisterPush<TEvent>(string type) where TEvent : struct, IEvent;
+    void RegisterPush<TEvent>(string type) where TEvent : IEvent;   // 2026-07 修订：struct→IEvent（见下）
     UniTask Connect(string url, CancellationToken ct = default);
     UniTask Disconnect(CancellationToken ct = default);
     UniTask Send<T>(string type, T payload, CancellationToken ct = default) where T : class;
@@ -82,6 +82,7 @@ public interface IWebSocketUtility : IUtility     // 有状态长连接（一个
 - payload 是**字符串二次编码**而非嵌套对象：默认 `JsonUtility` 无法从泛型外层提取嵌套原始 JSON 片段，字符串载荷让零依赖序列化稳定工作。envelope 是 v1 的 wire 契约（demo 服务器同款）。
 - **2026-07 修订（Outpost M4 驱动）**：字符串二次编码对二进制格式是破坏性的（Protobuf 字节过 `UTF8.GetString` 不保真）。新增可选接缝 `IWebSocketEnvelopeSerializer : INetworkSerializer`——序列化器实现它即整体接管 envelope 编解码与帧类型（payload 全程 `byte[]`、`UseBinaryFrames` 决定发二进制帧；`IWebSocketProvider.SendAsync` 相应加 `binary` 参数）。不实现的序列化器走原 JSON 兼容路径（wire 字节不变，零迁移）。envelope 的线上形态由格式自定（如 Protobuf 的 `{string type=1; bytes payload=2}`），框架不再规定嵌套编码方式。
 - 推送事件类型约定：`[Serializable] struct + 公共字段`（`JsonUtility` 只认字段，**record 位置参数是属性、反序列化不出来**）。框架自产事件（如 `WebSocketClosedEvent`）不经反序列化、本无此约束，但内核程序集无 `IsExternalInit` polyfill、位置参数 record 的 init 访问器编译不过，故照 `FlowChangedEvent` 先例用 `readonly struct` + 显式字段。
+- **2026-07 修订（Outpost proto 生产化驱动）**：`RegisterPush<TEvent>` 约束从 `struct, IEvent` 放宽为 `IEvent`——`struct` 是绑死默认 `JsonUtility` 的（它只反序列化 struct 字段），把二进制序列化器的 **class 消息挡在外**（Google.Protobuf 生成的 `IMessage` 是 class）。放宽后：struct 事件空 payload 仍取 `default(TEvent)`（零值合法），**引用类型事件空 payload 无默认实例可造 → 丢弃告警**（引用类型推送必须带 payload）。这是「换真 protobuf 库时才现形」的接缝内屈——JSON 单实现期约束设过紧、切二进制库时才暴露。
 - 连接关闭统一发 `WebSocketClosedEvent(ByUser, Reason)`：用户主动 `Disconnect` 与意外断开都发，业务重连逻辑过滤 `!ByUser`。
 
 ### 5. 双接缝：传输 provider × 序列化 serializer，默认实现零依赖留内核
@@ -103,7 +104,7 @@ IWebSocketUtility ── WebSocketUtility（状态机 / envelope / 推送注册�
 
 - **BestHTTP**：未来的 `IHttpProvider` / `IWebSocketProvider` 第二传输实现。值回票价的场景：WebGL 的 WS、HTTP/2 复用与连接调优、后端上 SignalR / Socket.IO / SSE。付费插件 license 不可随框架分发，形态永远是「~100 行适配器菜谱」而非内置依赖。接入后业务代码零改动——正是「第二实现验证抽象边界」的路径。
 - **MagicOnion**：整套 RPC 范式（强类型服务接口 + MemoryPack + gRPC），**不是本接缝后的传输**。真用它时的正确姿势是「MagicOnion 直接用 + 框架管其余」，不要试图塞进 `IHttpProvider`。
-- **Protobuf / MemoryPack**：`INetworkSerializer` 第二实现。**2026-07 修订（Outpost M4 驱动）**：内核新增轻量 `ProtobufNetworkSerializer`（`ProtoWriter`/`ProtoReader` 手写 wire 原语 + per-message 显式编解码注册，零依赖零反射、字节与标准 protobuf 互通）——覆盖「消息不多的自建后端 / dev server」段位，并让二进制 envelope 接缝有内置的第二实现验证。消息多到需要 `.proto` 契约共享 / map / oneof / 有符号 / 浮点时，仍换 Google.Protobuf 等真库（protoc 工具链），构造注入替换本类即可；MemoryPack 的 source generator 与 HybridCLR 热更兼容性仍需专门验证。
+- **Protobuf / MemoryPack**：`INetworkSerializer` 第二实现。**2026-07 修订（Outpost M4 驱动）**：内核新增轻量 `ProtobufNetworkSerializer`（`ProtoWriter`/`ProtoReader` 手写 wire 原语 + per-message 显式编解码注册，零依赖零反射、字节与标准 protobuf 互通）——覆盖「消息不多的自建后端 / dev server」段位，并让二进制 envelope 接缝有内置的第二实现验证。消息多到需要 `.proto` 契约共享 / map / oneof / 有符号 / 浮点时，仍换 Google.Protobuf 等真库（protoc 工具链），构造注入替换本类即可；MemoryPack 的 source generator 与 HybridCLR 热更兼容性仍需专门验证。**2026-07 追加（Outpost proto 生产化）**：换真库这条路已走通一次——Outpost 用官方 protoc + Google.Protobuf 写了 `GoogleProtobufNetworkSerializer : IWebSocketEnvelopeSerializer`（全泛型、住业务侧保内核第三方零依赖，envelope 用官方 `CodedOutputStream` 手写、与内置 `ProtobufNetworkSerializer` 的 envelope 逐字节一致），构造注入替换手写实现、消费方零改动；生成 `IMessage` 与手写 `ProtoWire` wire 互通（反证 `ProtoWire` 是真 wire 格式）。踩到的接缝内屈（`RegisterPush` 的 struct 约束）见上「消息建模双轨」节修订。IL2CPP 防裁剪加 link.xml preserve `Google.Protobuf`；HybridCLR 侧 Google.Protobuf 泛型实例的 AOT 元数据由构建期 SuperSet 补充。
 
 ### 7. 注册与生命周期
 
