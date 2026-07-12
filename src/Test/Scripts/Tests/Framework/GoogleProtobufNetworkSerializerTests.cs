@@ -55,6 +55,30 @@ namespace Game.Framework.Test
         }
 
         [Test]
+        public void RegisterFile_RecursesImportDependencies()
+        {
+            // 只给顶层 file（framework_net_test import framework_net_common）——依赖文件的 CommonMeta 应被递归带上
+            var serializer = new GoogleProtobufNetworkSerializer().RegisterFile(FrameworkNetTestReflection.Descriptor);
+
+            var meta = new CommonMeta { Origin = "依赖", Timestamp = 123456789012L };
+            var back = serializer.Deserialize<CommonMeta>(serializer.Serialize(meta));
+            Assert.AreEqual("依赖", back.Origin);
+            Assert.AreEqual(123456789012L, back.Timestamp);
+        }
+
+        [Test]
+        public void RegisterFile_Idempotent_OnSharedDependency()
+        {
+            // 顶层 file 递归已注册 CommonMeta，再单独整包注册它所在的依赖 file——幂等跳过、不抛（diamond import 常态）
+            var serializer = new GoogleProtobufNetworkSerializer()
+                .RegisterFile(FrameworkNetTestReflection.Descriptor)
+                .RegisterFile(FrameworkNetCommonReflection.Descriptor);
+
+            var back = serializer.Deserialize<CommonMeta>(serializer.Serialize(new CommonMeta { Origin = "x" }));
+            Assert.AreEqual("x", back.Origin);
+        }
+
+        [Test]
         public void Envelope_ByteCompatible_WithKernelSerializer()
         {
             var google = CreateSerializer();

@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+// 被 framework_net_test.proto import 的公共契约——验证 GoogleProtobufNetworkSerializer.RegisterFile
+// 递归注册 import 依赖（只给顶层 file、依赖文件的消息自动带上）。仅测试消费，非任何对端契约。
+
+option csharp_namespace = "Game.Framework.Test.ProtoGen";
+
+message CommonMeta {
+  string origin = 1;
+  int64 timestamp = 2;
+}

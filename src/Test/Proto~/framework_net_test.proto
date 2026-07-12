@@ -7,6 +7,8 @@ syntax = "proto3";
 
 option csharp_namespace = "Game.Framework.Test.ProtoGen";
 
+import "framework_net_common.proto"; // 跨文件依赖：验证 RegisterFile 递归带上 import 的消息
+
 // 标量字段消息（也用于与内核 ProtoWire 手写编解码的 wire 互通测试——
 // 前三个字段刻意只用 varint / length-delimited，ProtoWriter/ProtoReader 支持的子集）。
 message TestScalarMessage {
@@ -17,7 +19,7 @@ message TestScalarMessage {
   sint32 delta = 5;   // zigzag 编码，同上
 }
 
-// 嵌套 + repeated + map：验证 RegisterFile 递归注册嵌套类型并跳过 map entry。
+// 嵌套 + repeated + map + 跨文件引用：验证 RegisterFile 递归注册嵌套类型、跳过 map entry、带上 import 依赖。
 message TestNestedMessage {
   message Inner {
     string tag = 1;
@@ -25,4 +27,5 @@ message TestNestedMessage {
   Inner inner = 1;
   repeated TestScalarMessage items = 2;
   map<string, int32> scores = 3;
+  CommonMeta meta = 4; // 来自 import 的 framework_net_common.proto
 }
