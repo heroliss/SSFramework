@@ -1,6 +1,8 @@
 using System;
 using Game.Framework.UI.Toolkit;
 using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.UI;
 
 namespace Game.Framework.UI.Bridge
 {
@@ -20,11 +22,13 @@ namespace Game.Framework.UI.Bridge
     /// 与「浮层对齐」的伪嵌入不同，纹理是 Toolkit 的真内容——能被 ScrollView 裁剪 / 滚动、被后续元素遮挡。
     /// </summary>
     /// <remarks>
-    /// v1 <b>只读显示</b>：事件不穿透 RenderTexture（输入转发是公认难点，留待后续）。<br/>
     /// 用法：把本组件挂在 Context 子树下的场景节点上，Inspector 配 <c>Content Prefab</c>（一段 RectTransform 面板，
     /// <b>自身不带 Canvas</b>，由本组件的托管 Canvas 承载）+ 隔离层名（该 layer 需在工程里预留，且主相机剔除它，
-    /// 否则嵌入内容会同时出现在游戏画面里）；再在视图代码里 <see cref="Bind"/> 一个 <see cref="RenderTextureElement"/>。<br/>
-    /// 相机拍什么由本组件装配的 <c>ScreenSpaceCamera</c> Canvas 决定；纹理尺寸随元素布局自动同步（元素上报所需设备像素）。
+    /// 否则嵌入内容会同时出现在游戏画面里）；再在视图代码里 <see cref="Bind"/> 一个 <see cref="RenderTextureElement"/>。
+    /// prefab 之外也可经 <see cref="EnsureContentRoot"/> 往托管 Canvas 挂 code-built / 动态 UGUI 内容。<br/>
+    /// 相机拍什么由本组件装配的 <c>ScreenSpaceCamera</c> Canvas 决定；纹理尺寸随元素布局自动同步（元素上报所需设备像素）。<br/>
+    /// <b>输入</b>：默认只读显示；开 <c>Interactive</c> 后经 <see cref="UGuiEmbedInputForwarder"/> 把 Toolkit 指针事件
+    /// 转发进嵌入 UGUI（点击 / 悬停 / 拖拽 / 滚轮，需场景有 EventSystem；文本输入 / IME、多点触控不做，ADR-0033 §v2）。
     /// </remarks>
     public sealed class MonoUGuiEmbed : MonoBehaviour
     {
@@ -40,10 +44,17 @@ namespace Game.Framework.UI.Bridge
         [Tooltip("RenderTexture 单边像素上限，透传给 RenderTextureElement，避免高 DPI 大面板申请巨型显存。")]
         [SerializeField] private int _maxTextureSize = 2048;
 
+        [Tooltip("开启输入穿透：托管 Canvas 加 GraphicRaycaster（禁用自动注册），把 Toolkit 指针事件转发进嵌入 UGUI（点击/悬停/拖拽/滚轮）。需场景有 EventSystem。纯显示留关。")]
+        [SerializeField] private bool _interactive;
+
         private GameObject _rig;              // 托管的相机 + Canvas 子树根
         private Camera _camera;
-        private GameObject _content;          // 实例化出来的内容根
+        private Canvas _canvas;               // 托管的 ScreenSpaceCamera Canvas（内容都挂它下）
+        private GraphicRaycaster _raycaster;  // 仅交互模式：禁用自动注册、手动 Raycast
+        private GameObject _content;          // 实例化出来的内容根（prefab 路径）
+        private int _layer;                   // 解析出的隔离层
         private CameraTextureRenderer _renderer;
+        private UGuiEmbedInputForwarder _input;
         private RenderTextureElement _element;
 
         /// <summary>实例化出来的内容根（供消费方驱动其动画 / 状态）；未初始化时为 <c>null</c>。</summary>
@@ -59,20 +70,35 @@ namespace Game.Framework.UI.Bridge
             if (_element == element) return;
             Unbind();
             EnsureRig();
+            SetLayerRecursive(_rig, _layer); // code-built 内容可能在 EnsureRig 后才挂进来，Bind 时统一补隔离层
 
             _element = element;
             _element.MaxTextureSize = _maxTextureSize;
             _element.DesiredPixelSizeChanged += OnDesiredSizeChanged;
+
+            if (_interactive) SetupInput();
 
             // 元素可能已完成布局（Bind 晚于首次 GeometryChanged），此时主动拉一次当前尺寸补渲。
             var size = _element.DesiredPixelSize;
             if (size.x > 0 && size.y > 0) OnDesiredSizeChanged(size.x, size.y);
         }
 
-        /// <summary>解绑当前元素，清空它的纹理显示（相机 / 内容保留，可再次 <see cref="Bind"/>）。</summary>
+        /// <summary>
+        /// 确保 rig 建好并返回托管 Canvas 的 <see cref="RectTransform"/>，供 code-built / 动态 UGUI 内容挂入
+        /// （prefab 之外的第二条路，如运行时搭的 TMP 样本）。挂完内容后 <see cref="Bind"/> 会统一补隔离层。
+        /// </summary>
+        public RectTransform EnsureContentRoot()
+        {
+            EnsureRig();
+            return _canvas.GetComponent<RectTransform>();
+        }
+
+        /// <summary>解绑当前元素，清空它的纹理显示、拆掉输入转发（相机 / 内容保留，可再次 <see cref="Bind"/>）。</summary>
         public void Unbind()
         {
             if (_element == null) return;
+            _input?.Dispose();
+            _input = null;
             _element.DesiredPixelSizeChanged -= OnDesiredSizeChanged;
             _element.SetTexture(null);
             _element = null;
@@ -97,7 +123,7 @@ namespace Game.Framework.UI.Bridge
         {
             if (_rig != null) return;
 
-            int layer = ResolveLayer();
+            _layer = ResolveLayer();
 
             _rig = new GameObject("[UGuiEmbed Rig]");
             _rig.transform.SetParent(transform, worldPositionStays: false);
@@ -106,22 +132,44 @@ namespace Game.Framework.UI.Bridge
             _camera.orthographic = true;                       // 平面 UI，避免透视畸变
             _camera.clearFlags = CameraClearFlags.SolidColor;
             _camera.backgroundColor = new Color(0f, 0f, 0f, 0f); // 透明背景，UI 空白处在纹理里透出、可与 Toolkit 合成
-            _camera.cullingMask = 1 << layer;                   // 只拍隔离层，不碰场景其它内容
+            _camera.cullingMask = 1 << _layer;                  // 只拍隔离层，不碰场景其它内容
             _camera.enabled = _refreshMode == UGuiEmbedRefreshMode.EveryFrame; // OnDemand 靠 camera.Render() 手动触发
 
             var canvasGo = new GameObject("Canvas");
             canvasGo.transform.SetParent(_rig.transform, worldPositionStays: false);
-            var canvas = canvasGo.AddComponent<Canvas>();
-            canvas.renderMode = RenderMode.ScreenSpaceCamera;   // 画布贴合相机视口 → 随 RenderTexture 尺寸自适应
-            canvas.worldCamera = _camera;
+            _canvas = canvasGo.AddComponent<Canvas>();
+            _canvas.renderMode = RenderMode.ScreenSpaceCamera;  // 画布贴合相机视口 → 随 RenderTexture 尺寸自适应
+            _canvas.worldCamera = _camera;
+
+            if (_interactive)
+            {
+                // GraphicRaycaster 供转发器手动 Raycast；enabled=false 让全局 InputSystemUIInputModule 不发现它、
+                // 不会拿真实鼠标坐标误射这块离屏画布（禁用只停自动注册，Raycast() 仍可手动调）。
+                _raycaster = canvasGo.AddComponent<GraphicRaycaster>();
+                _raycaster.enabled = false;
+            }
 
             if (_contentPrefab != null)
             {
                 _content = Instantiate(_contentPrefab, canvasGo.transform, worldPositionStays: false);
             }
 
-            SetLayerRecursive(_rig, layer);
+            SetLayerRecursive(_rig, _layer);
             _renderer = new CameraTextureRenderer(_camera);
+        }
+
+        // 交互模式：用托管 Canvas 的 GraphicRaycaster + 场景 EventSystem 驱动指针转发器。
+        private void SetupInput()
+        {
+            if (_raycaster == null) return;
+            var es = EventSystem.current != null ? EventSystem.current : FindFirstObjectByType<EventSystem>();
+            if (es == null)
+            {
+                Debug.LogWarning("[MonoUGuiEmbed] 开了输入穿透但场景没有 EventSystem——嵌入 UGUI 不会响应输入。", this);
+                return;
+            }
+            _input = new UGuiEmbedInputForwarder(_element, _raycaster, es,
+                () => _renderer.Texture != null ? new Vector2Int(_renderer.Texture.width, _renderer.Texture.height) : Vector2Int.zero);
         }
 
         // 隔离层解析：配了名就查，查不到（工程未预留该 layer）回退默认层并告警——嵌入内容会漏进主画面，属需修的配置错。
