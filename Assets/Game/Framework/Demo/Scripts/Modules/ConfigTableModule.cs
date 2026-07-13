@@ -100,6 +100,10 @@ namespace Game.Framework.Demo.Modules
                          "（View 没有 `GetModel`），做成 Utility 才让 View 也能直读（View 有 `ICanGetUtility`）；配置加载又没有资源系统那种多包 / CDN / 下载的" +
                          "复杂度，不必拆出 System——一个组件就够（资源系统才是「Model + System + Utility」三件套，因为它加载复杂、且持的是可变运行期配置）。",
                 new CodeRef("Assets/Game/Framework/Demo/Config/DemoConfigUtility.cs", "class DemoConfigUtility", "Demo 接入 · 仅两个 override"));
+#if UNITY_EDITOR
+            host.AddActionRow("选中 ConfigService 节点（DemoConfigUtility · 自加载配置服务）",
+                () => DemoEditorNav.PingSceneObject(GameObject.Find("ConfigService")));
+#endif
 
             host.AddSubNote("接入就是一个一行子类闭合泛型 `class DemoConfigUtility : MonoConfigUtilityBase<Tables>`，只补两个 override——" +
                             "它们是框架（后端无关）与项目（Luban）之间仅有的接缝：");
