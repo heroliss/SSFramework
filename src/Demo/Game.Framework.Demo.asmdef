@@ -8,6 +8,7 @@
         "Game.Framework.UI",
         "Game.Framework.UI.Toolkit",
         "Game.Framework.UI.UGui",
+        "Game.Framework.UI.Bridge",
         "Luban.Runtime",
         "R3",
         "R3.Unity",
