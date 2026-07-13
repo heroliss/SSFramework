@@ -27,7 +27,12 @@ namespace Game.Framework.Demo.Modules
 
         public override void Build(DemoModuleHost host)
         {
-            host.AddSectionTitle("演示：弹出一个纯 C# UIToolkit View");
+            // ── 定位 ──
+            host.AddSectionTitle("定位：同一层、换个载体——UI Toolkit");
+            host.AddNote("与「View · MonoViewBase」是**同一层、不同载体**：纯 C# 的 `UIToolkitViewBase` 无需 prefab、代码即可搭；同享 `IView` 权限、自动注入、`Bag`、`ExecuteCommand`。状态与 UGUI 章**共用同一份** `MonoScoreModel`——直观证明核心层对 UI 技术无感。");
+
+            // ── 动手试 ──
+            host.AddSectionTitle("动手试：弹出一个纯 C# UIToolkit View");
             host.AddActionRow("弹出 UIToolkit View（无 prefab）", () =>
             {
                 if (_view != null && !_view.IsDisposed) return; // 已经开着就不重复弹

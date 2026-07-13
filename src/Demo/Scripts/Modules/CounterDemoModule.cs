@@ -26,8 +26,12 @@ namespace Game.Framework.Demo.Modules
 
         public override void Build(DemoModuleHost host)
         {
-            host.AddSectionTitle("演示");
+            // ── 定位 ──
+            host.AddSectionTitle("定位：View →(Command)→ Model 单向数据流的最小闭环");
+            host.AddNote("最简计数器走通一圈：View 点按钮发 `Command` 表达意图 → Command 改 `Model` → View 只读订阅 Model 的状态流自动刷新。**View 从不直接碰 Model，写操作全走 Command 接缝**——这是框架强制的规矩，后面每一章都建在它之上。");
 
+            // ── 动手试 ──
+            host.AddSectionTitle("动手试：按钮改 Model，标签自动刷新");
             var valueLabel = host.AddValueDisplay("", CodeRef.Here("struct GetCountCommand", "GetCountCommand"));
             // 只读查询 Command 返回 Model 的状态流；订阅即拿当前值（R3 内置），之后每次变化自动推送。
             var count = this.ExecuteCommand(new GetCountCommand());
@@ -36,17 +40,16 @@ namespace Game.Framework.Demo.Modules
             // CodeRef.Here(...)：指向"本文件"内的声明，路径由编译期自动注入（见 CodeRef.Here 文档）。
             host.AddActionRow("+1", () => this.ExecuteCommand(new IncrementCommand()),
                 CodeRef.Here("struct IncrementCommand", "IncrementCommand"));
-
             host.AddActionRow("重置", () => this.ExecuteCommand(new ResetCountCommand()),
                 CodeRef.Here("struct ResetCountCommand", "ResetCountCommand"));
+            host.AddSubNote("标签订阅的是 `GetCountCommand` 返回的只读状态流，Model 一变就自动推——没有一行手动刷新代码。");
 
-            host.AddSectionTitle("说明");
-            host.AddNote("• 点 +1 → 执行 `IncrementCommand` → 在 `ICommandContext` 里 `GetModel<CounterModel>()` 自增 `Count`。",
+            // ── 拆开看 ──
+            host.AddSectionTitle("拆开看：一次「+1」经过哪些接缝");
+            host.AddNote("点 +1 → `IncrementCommand` 在 `ICommandContext` 里 `GetModel<CounterModel>()` 自增 `Count`；标签那侧只订阅、不参与写。",
                 CodeRef.Here("class CounterModel", "CounterModel"));
-            host.AddNote("• 标签订阅的是 `GetCountCommand` 返回的 `ReadOnlyReactiveProperty<int>`，Model 一变就自动刷新。");
-            host.AddTip("注意：View 角色没有 GetModel 权限，只能经 Command 读写 Model——这正是框架强制的单向数据流。");
-            host.AddNote("• 这里 Command 直接改 Model 是最简单的形态，逻辑简单时够用；逻辑一多就把它抽到 System，"
-                + "Command 退化成只表达意图、调用 System。别把 Command→Model 直连当成终态——见后面「System · 逻辑归位」。");
+            host.AddTip("View 角色没有 GetModel 权限（编译期就挡），只能经 Command 读写 Model——这正是「单向数据流」被框架强制的地方。");
+            host.AddNote("Command 直接改 Model 是最简形态，逻辑简单够用；逻辑一多就抽到 System、Command 退化成只表达意图——别把 Command→Model 直连当成终态，见「System · 逻辑归位」。");
 
             // 第一次出现 RP / ReadOnlyReactiveProperty，顺手交代清楚，后续章节不再赘述。
             host.AddSectionTitle("概念说明：响应式属性");

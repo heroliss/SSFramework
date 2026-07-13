@@ -25,8 +25,12 @@ namespace Game.Framework.Demo.Modules
 
         public override void Build(DemoModuleHost host)
         {
+            // ── 定位 ──
+            host.AddSectionTitle("定位：状态有当前值、事件只在发生时通知");
+            host.AddNote("两种数据流并存：**状态**（Model / RP）有当前值、随时可读、订阅即得最新；**事件**（Event Bus）没有当前值，只在发生时广播给 N 个监听者。下面并排跑一遍，切走再回来对比两者的本质区别。");
+
             // ── 状态：Model / RP（有当前值、持久） ──
-            host.AddSectionTitle("状态（Model / RP）");
+            host.AddSectionTitle("状态（Model / RP）：有当前值、切走再回来还在");
             var stateLabel = host.AddValueDisplay("", CodeRef.Here("struct GetTickCountCommand", "GetTickCountCommand"));
             Bag.Subscribe(this.ExecuteCommand(new GetTickCountCommand()), v => stateLabel.text = $"状态计数：{v}");
             host.AddActionRow("状态 +1", () => this.ExecuteCommand(new IncTickCommand()),
@@ -34,7 +38,7 @@ namespace Game.Framework.Demo.Modules
             host.AddNote("订阅即得当前值；切到别章再回来，这个值还在——因为它是 Context 里的持久状态。");
 
             // ── 事件：Event Bus（无当前值、瞬时） ──
-            host.AddSectionTitle("事件（Event Bus）");
+            host.AddSectionTitle("事件（Event Bus）：无当前值、切走再回来从头数");
             int seen = 0;
             var eventLabel = host.AddValueDisplay("", CodeRef.Here("Bag.Subscribe<TickEvent>", "订阅累加"));
             eventLabel.text = "本次进入收到广播：0 次";
