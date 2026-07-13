@@ -23,7 +23,12 @@ namespace Game.Framework.Demo.Modules
             var clock = new ReactiveProperty<int>(0);
             Bag.Add(clock); // 流本身也是 IDisposable —— 进 Bag，随本章（Teardown）一起释放
 
-            host.AddSectionTitle("演示：子作用域可提前释放，父级不受影响");
+            // ── 定位 ──
+            host.AddSectionTitle("定位：有生命周期的东西都进 Bag，宿主销毁一次性释放");
+            host.AddNote("订阅 / 资源句柄 / 池租借 / 子作用域全登记进 `Bag`，宿主销毁时批量释放、一个不漏，业务不写手动清理。需要比宿主更短的作用域就 `CreateChild`：子 Bag 可提前 Dispose、不碰父级，父级释放自动级联子级。");
+
+            // ── 动手试 ──
+            host.AddSectionTitle("动手试：子作用域可提前释放，父级不受影响");
 
             var parentLabel = host.AddValueDisplay();
             Bag.Subscribe(clock, v => parentLabel.text = $"父作用域订阅看到：{v}");

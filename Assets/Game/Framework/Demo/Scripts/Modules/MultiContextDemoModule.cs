@@ -39,6 +39,10 @@ namespace Game.Framework.Demo.Modules
                 return;
             }
 
+            // ── 定位 ──
+            host.AddSectionTitle("定位：Context 是作用域树，挂载位置决定用哪份数据");
+            host.AddNote("`GameContext` 嵌套成作用域树（全局 / 场景 / 局部）：同类型就近注册形成**覆盖**，子级没有的类型**回退**父级。下面用「View」章的同一个弹窗演示——挂到哪个子树，就读写哪个作用域的数据，零代码切换。");
+
             // ── 覆盖：同一个 View prefab，挂到哪个子树就用哪个作用域 ──
             host.AddSectionTitle("覆盖：同一个 View，挂哪儿就用哪个作用域的数据");
             var rootLabel = host.AddValueDisplay();

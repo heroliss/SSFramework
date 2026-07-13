@@ -25,7 +25,12 @@ namespace Game.Framework.Demo.Modules
 
         public override void Build(DemoModuleHost host)
         {
-            host.AddSectionTitle("演示：RegisterFactory 懒构造 + 单例");
+            // ── 定位 ──
+            host.AddSectionTitle("定位：注册进容器、按类型解析、自动注入依赖");
+            host.AddNote("容器管「谁提供 / 谁需要」某个类型：注册（现成实例 `RegisterValue` / 懒构造工厂 `RegisterFactory`）→ 按**精确类型键**解析 → 消费方经 `[Inject]` 字段或 `GetXxx` 拿到。本章看懒构造 + 单例复用，以及「拿依赖的几种方式」。");
+
+            // ── 动手试 ──
+            host.AddSectionTitle("动手试：RegisterFactory 懒构造 + 单例复用");
             var countLabel = host.AddValueDisplay();
             countLabel.text = "点「使用服务」试试（服务是懒构造：注册了，用到才建）";
             host.AddActionRow("使用服务", () =>
@@ -33,9 +38,10 @@ namespace Game.Framework.Demo.Modules
                 var n = this.ExecuteCommand(new UseLazyServiceCommand());
                 countLabel.text = $"服务已构造 {n} 次——首次用才构造，之后复用同一实例（单例）";
             }, CodeRef.Here("class LazyService", "LazyService"));
-            host.AddNote("`RegisterFactory` 给的是工厂：首次 Resolve 才调用、结果缓存为单例。所以点几次都只构造一次，"
-                + "适合“用到才建”的重对象（音频 / 网络 / 配置）。", CodeRef.Here("InstallBindings", "注册代码"));
+            host.AddSubNote("`RegisterFactory` 给的是工厂：首次 Resolve 才调用、结果缓存为单例。点几次都只构造一次，适合「用到才建」的重对象（音频 / 网络 / 配置）。",
+                CodeRef.Here("InstallBindings", "注册代码"));
 
+            // ── 拿依赖 ──
             host.AddSectionTitle("拿依赖的几种方式：[Inject] / ctx / this.GetXxx");
             var injectLabel = host.AddValueDisplay("点下面按钮：class Command 用 [Inject] 拿同一个服务");
             host.AddActionRow("class Command + [Inject]", () =>
@@ -43,10 +49,10 @@ namespace Game.Framework.Demo.Modules
                 var n = this.ExecuteCommand(new InjectServiceCommand());
                 injectLabel.text = $"[Inject] 注入的服务：已构造 {n} 次（与「使用服务」是同一个单例）";
             }, CodeRef.Here("class InjectServiceCommand", "InjectServiceCommand"));
-            host.AddNote("class Command 把依赖声明成 `[Inject]` 字段，`CommandSystem` 在 Execute 前自动注入；前面「使用服务」是 struct Command，不能 `[Inject]`（反射只会写到装箱副本），改用 `ctx.GetUtility` 实时解析——两者拿到的是同一个单例。");
-            host.AddNote("能 `[Inject]` 的：class Command + System / Model / Utility 各层（Mono 在 `Awake` 注入、纯 C# 经绑定注入）；唯独 struct Command 不行。另外禁止 `[Inject]` `GameContext` / `IGameContext`（拿到完整 Context 会绕过权限接口，框架黑名单报错）。");
-            host.AddNote("别以为只能 `[Inject]`：层（System / Model / Utility）里既能用 `[Inject]` 字段（`Awake` / 绑定时注入一次、快照到字段），也能用扩展方法 `this.GetModel<T>()` / `this.GetSystem<T>()` / `this.GetUtility<T>()` 实时解析。Command 里则是 class 用 `[Inject]`、struct / 通用用 `ctx.GetXxx`；View 没有 `GetModel` / `GetSystem` 权限，只能经 Command 间接拿（编译期挡）。");
-            host.AddNote("权限校验也覆盖 `[Inject]`：注入目标按宿主层的权限闸门校验——宿主有 `ICanGetModel` / `ICanGetSystem` / `ICanGetUtility` 才能注入对应层（与 `this.GetXxx` 同源）。所以 View 注 Model / System、Model 注 Model / System、Utility 注任何层都会在注入期 `LogError` 拦下，`[Inject]` 不是绕过权限的后门。Command 例外：它经 `ctx` 有完整层访问权，可注入三层。`GameContext` / `IGameContext` 始终禁注。");
+            host.AddNote("class Command 把依赖声明成 `[Inject]` 字段，`CommandSystem` 在 Execute 前自动注入；上面「使用服务」是 struct Command，不能 `[Inject]`（反射只写到装箱副本），改用 `ctx.GetUtility` 实时解析——两者拿到同一个单例。");
+            host.AddConcept("[Inject] 字段", "class Command 与三层（Model / System / Utility）可用：Mono 在 `Awake`、纯 C# 在绑定时注入一次、快照到字段。struct Command 不能用。");
+            host.AddConcept("this.GetXxx / ctx.GetXxx", "层里也能 `this.GetModel/System/Utility<T>()` 实时解析；struct Command 只能 `ctx.GetXxx`。View 没有 GetModel/GetSystem 权限，只能经 Command 间接拿。");
+            host.AddSubNote("权限对 `[Inject]` 一视同仁：注入目标按宿主层的权限闸门校验（与 `this.GetXxx` 同源）——View 注 Model/System、Model 注 System 等越权在注入期 `LogError` 拦下，不是绕权限的后门。Command 例外（经 `ctx` 有完整层访问权）；`GameContext`/`IGameContext` 始终禁注（万能门会绕过权限接口）。");
 
             host.AddSectionTitle("注册与注入");
             host.AddConcept("RegisterValue", "直接给现成实例——前面各章注册 Model 用的就是它。");

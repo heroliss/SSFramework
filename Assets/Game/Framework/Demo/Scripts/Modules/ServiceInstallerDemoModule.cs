@@ -35,7 +35,12 @@ namespace Game.Framework.Demo.Modules
 
         public override void Build(DemoModuleHost host)
         {
-            host.AddSectionTitle("演示");
+            // ── 定位 ──
+            host.AddSectionTitle("定位：把 InstallBindings 注册样板交给代码生成");
+            host.AddNote("纯 C# 服务的注册样板可以生成掉：固定目录放服务类 → 菜单生成一份**显式**安装器（`.g.cs`，注册关系 git 可审）→ Context 里一行接线。启动零反射、AOT / 热更友好；配套演示构建期值绑定的「注册即注入」（ADR-0019）。");
+
+            // ── 动手试 ──
+            host.AddSectionTitle("动手试：生成注册的服务 vs 手写注册的服务");
             var greetLabel = host.AddValueDisplay("点「问候」→ 生成安装器注册的 System 返回一句话",
                 CodeRef.Here("struct GreetDemoCommand", "GreetDemoCommand"));
             host.AddActionRow("问候（生成注册的 System）",

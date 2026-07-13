@@ -29,6 +29,10 @@ namespace Game.Framework.Demo.Modules
 
         public override void Build(DemoModuleHost host)
         {
+            // ── 定位 ──
+            host.AddSectionTitle("定位：同一种状态，两条进容器的路");
+            host.AddNote("Model 用 `RP<T>` 持有响应式状态（RP 基础见「最小闭环」）。本章焦点是**两条注册路径**：纯 C#（代码 new + 注册，原理透明、可热更可单测）vs Mono（挂成 Hierarchy 节点，自动注册 + Inspector 实时可见可配）。同一份状态，两种进容器方式。");
+
             // ── 纯 C# 路径：原理最透明 ──
             host.AddSectionTitle("纯 C# Model（白盒原理）");
             var codeLabel = host.AddValueDisplay("", CodeRef.Here("struct GetCodeScoreCommand", "GetCodeScoreCommand"));

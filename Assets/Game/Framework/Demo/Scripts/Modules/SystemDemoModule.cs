@@ -29,7 +29,12 @@ namespace Game.Framework.Demo.Modules
 
         public override void Build(DemoModuleHost host)
         {
-            host.AddSectionTitle("演示");
+            // ── 定位 ──
+            host.AddSectionTitle("定位：带规则的逻辑从 Command 归位到 System");
+            host.AddNote("一步操作（赚金币）Command 直接改 Model 就够；带规则的操作（够钱才扣、扣钱再加道具）把逻辑抽到 `System`——一类相关逻辑聚成的、能独立运转的「系统」，Command 只说「我要买」、调用它。下面两个按钮就是这两种形态的对照。");
+
+            // ── 动手试 ──
+            host.AddSectionTitle("动手试：一步操作 vs 带规则操作");
             var goldLabel = host.AddValueDisplay("", CodeRef.Here("struct GetGoldCommand", "GetGoldCommand"));
             var potionLabel = host.AddValueDisplay("", CodeRef.Here("struct GetPotionsCommand", "GetPotionsCommand"));
             Bag.Subscribe(this.ExecuteCommand(new GetGoldCommand()), v => goldLabel.text = $"金币：{v}");

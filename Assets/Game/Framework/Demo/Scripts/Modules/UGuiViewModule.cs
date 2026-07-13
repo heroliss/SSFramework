@@ -25,7 +25,12 @@ namespace Game.Framework.Demo.Modules
                 return;
             }
 
-            host.AddSectionTitle("演示：弹出一个真实 UGUI View");
+            // ── 定位 ──
+            host.AddSectionTitle("定位：View 是 MVCS 的一层，不是单独门类");
+            host.AddNote("View 是 UI 接缝，核心层对它用什么 UI 技术一无所知。这里弹出一个真实的 `MonoViewBase`（UGUI）：`Instantiate` 到 Context 下即自动注入 + 绑 `Bag`，只读订阅查询 Command、只写经 `ExecuteCommand`，关闭时 Bag 自动退订。");
+
+            // ── 动手试 ──
+            host.AddSectionTitle("动手试：弹出一个真实 UGUI View");
             host.AddActionRow("弹出 UGUI View（自动注入）", () =>
             {
                 if (Object.FindFirstObjectByType<UGuiDemoView>() != null) return; // 已经开着就不重复弹
