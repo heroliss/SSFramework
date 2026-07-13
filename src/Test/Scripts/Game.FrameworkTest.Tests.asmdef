@@ -8,6 +8,7 @@
         "Game.Framework.Network.Proto",
         "Game.Framework.UI",
         "Game.Framework.UI.UGui",
+        "Game.Framework.UI.Toolkit",
         "Game.Framework.Fonts",
         "Unity.TextMeshPro",
         "UnityEngine.TestRunner"
