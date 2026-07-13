@@ -233,7 +233,7 @@ namespace Game.Framework.Demo.Modules
                     + "预热后「真正实例化」涨、之后反复生成 / 清理却不再涨 = 池在复用旧实例、省掉 `Instantiate`。归还时 `OnReturn` 复位颜色，复用不带上一手的脏状态——和 C# 段 `Stamp` 清零同理。",
                     new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/Support/PooledChip.cs", "void OnRent", "PooledChip.OnRent/OnReturn"));
                 host.AddNote("预热（`Prewarm`）把实例化尖峰挪到加载期、收缩（`Trim`）在内存吃紧时回收过度预热的空闲实例；两者都分帧摊开开销（每帧 `perFrame` 个），避免一次性 `Instantiate`/`Destroy` 一大批造成卡顿。C# 池开销小，用同步 `Prewarm`/`Trim` 即可。");
-                host.AddNote("`Bag.Spawn` 和 `Bag.Rent` 心智一致：借来的东西进 `Bag`，`Bag.Dispose`（清理本轮 / 切走本章）统一自动 `Despawn` 归还，而不是留在场景里。右侧方块区是 UGUI 容器通过 UI Toolkit 占位框对齐出来的“镶嵌效果”：两套 UI 不能互为子节点，但可以用占位元素同步位置。",
+                host.AddNote("`Bag.Spawn` 和 `Bag.Rent` 心智一致：借来的东西进 `Bag`，`Bag.Dispose`（清理本轮 / 切走本章）统一自动 `Despawn` 归还，而不是留在场景里。右侧方块区是 UGUI 容器通过 UI Toolkit 占位框对齐出来的“镶嵌效果”：两套 UI 不能互为子节点，但可以用占位元素同步位置——这是**浮层对齐**，方块浮在面板上、不会被 Toolkit 裁剪。要方块真正被 Toolkit 内容裁剪 / 滚动，改用「UI 融合」章的 RenderTexture 桥。",
                     CodeRef.Here("assets.BindAnchor", "UI Toolkit 占位对齐"));
                 host.AddNote("「手动 Spawn / Despawn 单个」对应 C# 段的手动 `Rent` / `Return`：实例不进 bag、归还时机完全自己掌管（弹幕级高频热路径配领域 List 走这条），和 `Bag.Spawn` 取的是同一个池——`Despawn` 单个归还后下次 Spawn 会复用它。注意 `Bag.Spawn` 出来的实例别绕过 bag 直接 `goPool.Despawn`（会和 bag 的自动归还叠成重复归还）——要提前还，用上面同一 bag 的 `Bag.Despawn(go)`。");
                 host.AddNote("归还的空闲实例停在一个停用的 DontDestroyOnLoad 节点 `[Game.Framework PooledObjects]` 下（点上面按钮可选中它看）。该节点被外部误删后，下次归还会自愈重建，实例不会散落到场景根。");

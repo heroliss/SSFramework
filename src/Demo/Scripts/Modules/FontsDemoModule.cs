@@ -2,6 +2,7 @@ using Game.Framework.Common;
 using Game.Framework.Demo.Core;
 using Game.Framework.Fonts;
 using Game.Framework.Localization;
+using Game.Framework.UI.Bridge;
 using Game.Framework.UI.Toolkit;
 using R3;
 using TMPro;
@@ -39,7 +40,6 @@ namespace Game.Framework.Demo.Modules
         private const string LatinTtfPath = "Assets/TextMesh Pro/Fonts/LiberationSans.ttf";
 
         private LocaleFontChain _osOnlyChain;
-        private GameObject _tmpOverlay;
         private TMP_FontAsset _tmpOsDemoFont; // ③演示用：不在场景链上的独立 TMP 字体（随 Bag 销毁）
 
         public override void Build(DemoModuleHost host)
@@ -98,17 +98,16 @@ namespace Game.Framework.Demo.Modules
                 "切 zh：第一行变 Noto 字形（笔画末端平切、字面更大）；切 en：② 撤下，两行都退到系统字形。",
                 CodeRef.Here("SetFont(protectedLabel, toolkitMain)", "两行的字体接线"));
 
-            // ── TMP 侧：真·豆腐块与 ③ ──
+            // ── TMP 侧：真·豆腐块与 ③（经 RenderTexture 桥内联嵌入，不再是浮层）──
             host.AddSectionTitle("TMP（UGUI 侧）：真·豆腐块——②③ 在这里是刚需");
-            host.AddNote("TMP **没有**引擎级 OS 兜底：缺字就是豆腐块（□）。浮层是屏幕左下角一张**不透明样本卡**（两行 row1 / row2）：" +
+            host.AddNote("TMP **没有**引擎级 OS 兜底：缺字就是豆腐块（□）。下面是一块**内联嵌入**的 TMP 样本卡（经 RenderTexture 桥嵌进本章内容、随章滚动，不再是浮在角落的浮层——TMP 是 UGUI/mesh 渲染塞不进 VisualElement，桥把它渲进纹理当 Toolkit 内容显示，见「UI 融合」章）：" +
                 "**row1** 用 TMP 主字体（场景链 ①②）——**切 en → 豆腐块，切 zh → ②NotoSansSC 接住**；" +
-                "**row2** 用**不在场景链上**的独立字体，演示 ③——用下面按钮给它挂 / 撤纯 OS 候选链（不带 ②），看 OS 字体单独接住中文。");
-            host.AddActionRow("弹出 / 关闭 TMP 浮层（左下角样本卡 row1 / row2）", () => ToggleTmpOverlay(host),
-                CodeRef.Here("private void ToggleTmpOverlay", "运行时搭 TMP 浮层"));
+                "**row2** 用**不在场景链上**的独立字体，演示 ③——用下面按钮给它挂 / 撤纯 OS 候选链（不带 ②），看 OS 字体单独接住中文。",
+                CodeRef.Here("void BuildInlineTmpSample", "内联搭 TMP 样本（嵌入桥）"));
+            BuildInlineTmpSample(host);
 
             host.AddActionRow("③ 给 row2 挂 OS 兜底链（Microsoft YaHei → PingFang SC → Noto Sans CJK SC）", () =>
             {
-                if (_tmpOverlay == null) ToggleTmpOverlay(host); // 浮层没开先开，保证看得见效果
                 if (_tmpOsDemoFont == null) return;
                 if (_osOnlyChain == null || _osOnlyChain.IsDisposed)
                 {
@@ -187,90 +186,103 @@ namespace Game.Framework.Demo.Modules
         }
 
         /// <summary>
-        /// 左下角 TMP 浮层（两行）：行一用 TMP 主字体（场景链，①②——切语言看豆腐块⇄中文，顺带验证框架的 ForceMeshUpdate 强刷）；
-        /// 行二用独立运行时 TMP 字体（不在场景链上），配合 ③ 按钮演示纯 OS 兜底链。
+        /// 内联 TMP 样本卡（两行）：经 RenderTexture 桥嵌进本章内容流（不再是浮层）。row1 用 TMP 主字体（场景链 ①②——
+        /// 切语言看豆腐块⇄中文，靠 MonoLocaleFonts + 本处 locale 订阅 ForceMeshUpdate 强刷）；row2 用独立运行时字体，配合 ③ 演示纯 OS 兜底链。
         /// </summary>
-        private void ToggleTmpOverlay(DemoModuleHost host)
+        private void BuildInlineTmpSample(DemoModuleHost host)
         {
-            if (_tmpOverlay != null)
-            {
-                Object.Destroy(_tmpOverlay);
-                _tmpOverlay = null;
-                return;
-            }
-
+            var loc = this.GetUtility<ILocalizationUtility>();
             var tmpMain = UnityEditor.AssetDatabase.LoadAssetAtPath<TMP_FontAsset>(TmpMainPath);
             var ttf = UnityEditor.AssetDatabase.LoadAssetAtPath<Font>(LatinTtfPath);
-            if (tmpMain == null || ttf == null)
+            var embed = FindFontsEmbed();
+            if (embed == null || tmpMain == null || ttf == null)
             {
-                host.AddSubNote($"没找到 TMP 主字体或 Latin ttf（`{TmpMainPath}` / `{LatinTtfPath}`）。");
+                host.AddSubNote($"场景没挂字体嵌入宿主 `UGuiEmbedFontsHost`，或缺 TMP 字体 / Latin ttf（`{TmpMainPath}` / `{LatinTtfPath}`）——跳过内联 TMP 样本。");
                 return;
             }
 
-            if (_tmpOsDemoFont == null)
-            {
-                _tmpOsDemoFont = TMP_FontAsset.CreateFontAsset(ttf);
-                _tmpOsDemoFont.name = "DemoTmpLatin-OsOnly";
-                var osFont = _tmpOsDemoFont;
-                Bag.Add(Disposable.Create(() =>
-                {
-                    if (osFont == null) return;
-                    if (osFont.material != null) Object.Destroy(osFont.material);
-                    if (osFont.atlasTextures != null)
-                        foreach (var tex in osFont.atlasTextures)
-                            if (tex != null) Object.Destroy(tex);
-                    Object.Destroy(osFont);
-                }));
-            }
+            EnsureOsDemoFont(ttf);
 
-            _tmpOverlay = new GameObject("FontsDemo TMP Overlay");
+            var root = embed.EnsureContentRoot();
+            ClearChildren(root); // 每次进章重建，先清旧
+
+            var bgGo = new GameObject("Backdrop", typeof(RectTransform));
+            bgGo.transform.SetParent(root, false);
+            var bgRt = (RectTransform)bgGo.transform;
+            bgRt.anchorMin = Vector2.zero; bgRt.anchorMax = Vector2.one; bgRt.offsetMin = Vector2.zero; bgRt.offsetMax = Vector2.zero;
+            bgGo.AddComponent<RawImage>().color = new Color(0.05f, 0.06f, 0.09f, 1f);
+
+            // 标题行用 ASCII（避免解释文字被 Latin 主字体渲成豆腐——本章正演示这件事）
+            AddSampleLine(root, tmpMain, "TMP inline sample  (row1 主字体 / row2 独立字体)", new Vector2(0.5f, 0.80f), 15f);
+            var row1 = AddSampleLine(root, tmpMain, "row1)  " + SampleZh, new Vector2(0.5f, 0.50f), 26f);
+            var row2 = AddSampleLine(root, _tmpOsDemoFont, "row2)  " + SampleZh, new Vector2(0.5f, 0.20f), 26f);
+
+            var sample = new RenderTextureElement();
+            sample.style.height = 150;
+            sample.style.marginTop = 6;
+            sample.style.marginBottom = 6;
+            host.Content.Add(sample);
+            embed.Bind(sample);
+
+            // 固定文本：链条变化不自动重排，切语言时强刷这两行重新查 fallback 字形（本地化文本天然免疫、无需此步）。
+            Bag.Subscribe(loc.Locale, _ =>
+            {
+                if (row1 != null) row1.ForceMeshUpdate(false, true);
+                if (row2 != null) row2.ForceMeshUpdate(false, true);
+            });
+
             Bag.Add(Disposable.Create(() =>
             {
-                if (_tmpOverlay != null) Object.Destroy(_tmpOverlay);
-                _tmpOverlay = null;
+                embed.Unbind();
+                ClearChildren(root);
             }));
-            var canvas = _tmpOverlay.AddComponent<Canvas>();
-            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            canvas.sortingOrder = 200; // 盖在 demo 的 UI Toolkit 外壳之上（Overlay 才能与 Toolkit 同屏）
-
-            // 不透明背景卡：把浮层做成一张清晰的样本卡，整块挡住下层 demo 文字——否则透明浮层会与章内容透叠看不清。
-            // （TMP 是 UGUI/mesh 渲染，塞不进 UI Toolkit 的 VisualElement，只能作独立 Overlay Canvas，所以自带背景来隔断。）
-            AddOverlayBackdrop(12f, 12f, 900f, 150f);
-            // 行内标注用 ASCII（row1/row2 + 卡片标题）——中文说明留在章内容里，避免解释文字被 Latin 主字体渲成豆腐（本章正演示这件事）。
-            CreateOverlayLine(tmpMain, "TMP overlay sample   (row1 / row2 — see chapter text)", 118f, 14f);
-            CreateOverlayLine(tmpMain, "row1)  " + SampleZh, 66f, 24f);
-            CreateOverlayLine(_tmpOsDemoFont, "row2)  " + SampleZh, 22f, 24f);
         }
 
-        // 浮层背景板：近乎不透明的深色矩形，铺在样本行之下把下层文字整块挡掉。RawImage(texture=null) 即渲染纯色块。
-        private void AddOverlayBackdrop(float x, float y, float w, float h)
+        // 运行时创建 ③演示用独立 TMP 字体（不在场景链上，随 Bag 销毁）。
+        private void EnsureOsDemoFont(Font ttf)
         {
-            var go = new GameObject("Backdrop");
-            go.transform.SetParent(_tmpOverlay.transform, false); // 先加 = 最底层，样本行在其上
-            var img = go.AddComponent<RawImage>();
-            img.color = new Color(0.05f, 0.06f, 0.09f, 0.98f);
-            var rect = img.rectTransform;
-            rect.anchorMin = Vector2.zero;
-            rect.anchorMax = Vector2.zero;
-            rect.pivot = Vector2.zero;
-            rect.anchoredPosition = new Vector2(x, y);
-            rect.sizeDelta = new Vector2(w, h);
+            if (_tmpOsDemoFont != null) return;
+            _tmpOsDemoFont = TMP_FontAsset.CreateFontAsset(ttf);
+            _tmpOsDemoFont.name = "DemoTmpLatin-OsOnly";
+            var osFont = _tmpOsDemoFont;
+            Bag.Add(Disposable.Create(() =>
+            {
+                if (osFont == null) return;
+                if (osFont.material != null) Object.Destroy(osFont.material);
+                if (osFont.atlasTextures != null)
+                    foreach (var tex in osFont.atlasTextures)
+                        if (tex != null) Object.Destroy(tex);
+                Object.Destroy(osFont);
+            }));
         }
 
-        private void CreateOverlayLine(TMP_FontAsset font, string text, float y, float fontSize)
+        // 往嵌入桥的托管 Canvas 加一行居中 TMP，返回它（供 locale 强刷）。
+        private static TMP_Text AddSampleLine(RectTransform root, TMP_FontAsset font, string text, Vector2 anchor, float fontSize)
         {
-            var go = new GameObject("TMP Line");
-            go.transform.SetParent(_tmpOverlay.transform, false);
+            var go = new GameObject("TMP Line", typeof(RectTransform));
+            go.transform.SetParent(root, false);
             var tmp = go.AddComponent<TextMeshProUGUI>();
             tmp.font = font;
             tmp.fontSize = fontSize;
             tmp.text = text;
+            tmp.alignment = TextAlignmentOptions.Center;
+            tmp.color = Color.white;
             var rect = tmp.rectTransform;
-            rect.anchorMin = Vector2.zero;
-            rect.anchorMax = Vector2.zero;
-            rect.pivot = Vector2.zero;
-            rect.anchoredPosition = new Vector2(24, y);
-            rect.sizeDelta = new Vector2(860, 40);
+            rect.anchorMin = rect.anchorMax = anchor;
+            rect.anchoredPosition = Vector2.zero;
+            rect.sizeDelta = new Vector2(620f, 46f);
+            return tmp;
+        }
+
+        private static void ClearChildren(Transform root)
+        {
+            for (int i = root.childCount - 1; i >= 0; i--) Object.Destroy(root.GetChild(i).gameObject);
+        }
+
+        private static MonoUGuiEmbed FindFontsEmbed()
+        {
+            var go = GameObject.Find("UGuiEmbedFontsHost");
+            return go != null ? go.GetComponent<MonoUGuiEmbed>() : null;
         }
     }
 }
