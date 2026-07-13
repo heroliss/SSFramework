@@ -61,6 +61,10 @@ namespace Game.Framework.Demo.Modules
                     CodeRef.Here("display.Bind(dview)", "Bind 用法"));
                 host.AddSubNote("一键组件与其相机 / RT 装配的完整契约看框架实现（隔离层、刷新模式、透明背景合成都在这）。",
                     new CodeRef(BridgeFile, "class MonoUGuiEmbed", "MonoUGuiEmbed · 框架组件"));
+#if UNITY_EDITOR
+                host.AddActionRow("选中只读嵌入宿主 UGuiEmbedHost（看 MonoUGuiEmbed 配置）",
+                    () => DemoEditorNav.PingSceneObject(display.gameObject));
+#endif
             }
 
             // ── 交互（输入穿透 v2）──
@@ -86,7 +90,19 @@ namespace Game.Framework.Demo.Modules
                     CodeRef.Here("interactive.Bind(iview)", "交互 Bind"));
                 host.AddSubNote("穿透怎么做的看框架转发器：元素内指针坐标翻成 RT 空间屏幕点 → 禁用注册的 GraphicRaycaster 手动命中 → ExecuteEvents 分发（点击 / 悬停 / 拖拽 / 滚轮）。",
                     new CodeRef(ForwarderFile, "class UGuiEmbedInputForwarder", "UGuiEmbedInputForwarder · 输入转发（看框架实现）"));
+#if UNITY_EDITOR
+                host.AddActionRow("选中交互嵌入宿主 UGuiEmbedInteractiveHost（看 Interactive 勾选）",
+                    () => DemoEditorNav.PingSceneObject(interactive.gameObject));
+#endif
             }
+
+            // ── 场景怎么搭（给节点跳转，省得自己翻树）──
+            host.AddSectionTitle("场景怎么搭（两步，点按钮直接跳到节点）");
+            host.AddNote("① 工程 Tags & Layers 留一个专用隔离层（本 demo 是 `UGuiEmbed`），填进 `MonoUGuiEmbed`；② 主相机 `cullingMask` **剔除**该层——否则嵌入的 UGUI 会同时漏进游戏画面。被嵌内容 / 托管相机是运行时建的，进 Play 后可在 Hierarchy 里看 `[UGuiEmbed Rig]`。");
+#if UNITY_EDITOR
+            host.AddActionRow("选中主相机（看它的 Culling Mask 剔除了 UGuiEmbed 层）",
+                () => { if (Camera.main != null) DemoEditorNav.PingSceneObject(Camera.main.gameObject); });
+#endif
 
             // ── 边界 ──
             host.AddSectionTitle("刻意不做");
