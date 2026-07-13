@@ -37,8 +37,8 @@ namespace Game.Framework.Demo.Modules
                 return;
             }
 
-            host.AddSectionTitle("窗口 = View 的一种 + 层级调度");
-            host.AddNote("窗口经 `this.GetUtility<IUIUtility>().Open<T>()` 打开；落哪层 / 缓存 / 模态由窗口类上的 `[UIWindow]` 特性声明。本章窗口都是代码搭建（无 authored 资产），开关即自动注入 + Bag 释放订阅。");
+            host.AddSectionTitle("定位：窗口 = View 的一种，框架管层级/栈/模态调度");
+            host.AddNote("窗口经 `this.GetUtility<IUIUtility>().Open<T>()` 打开；落哪层 / 缓存 / 模态由窗口类上的 `[UIWindow]` 特性声明。本章窗口都是代码搭建（无 authored 资产），开关即自动注入 + Bag 释放订阅。渲染后端无关：UGUI 与 UI Toolkit 共用同一套调度、可同屏并存。");
             host.AddNote("**怎么分辨两套 UI**：每个窗口左上角有后端标识药丸——**蓝色「UI Toolkit」**（下面前三节）/ **绿色「UGUI」**（末节）。两套渲染后端可**同屏并存**：开一个 Toolkit 窗口再开 UGUI 窗口，蓝、绿两张卡片会同时出现在屏幕上（UGUI 窗口刻意偏右下错开），各自能点，改的是**同一份分数**。");
             host.AddTip("怎么操作：按下面从浮到顶逐个试，注意「可点性」——这些控制按钮在 demo 内容区里。"
                 + "Window 层浮窗不挡它们，能接着点；但 Page（全屏盖住整个 demo）和模态弹窗（遮罩拦截下层）打开后，这些按钮就点不到了——那是层级/模态的正常效果，改用窗口自带的「返回/关闭」导航。"
