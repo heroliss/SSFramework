@@ -56,14 +56,14 @@ namespace Game.Framework.Demo.Modules
             host.AddSectionTitle("五步：把一个 DOTS 后端塞进框架");
             host.AddStep("⓪", "定义零依赖接缝接口：`Tick(dt)` + 只读快照（按索引零分配遍历）+ 事件（在 Tick 调用栈内同步触发）。" +
                               "接口住在 `noEngineReferences` 的 asmdef，永保 AOT 与可测。", SeamInterface);
-            host.AddStep("①", "先写 OOP 参考实现（直白 List + 逐帧演算）——它是规则的<b>可执行规格</b>，也是后面 DOTS 后端的<b>对拍基线</b>。" +
+            host.AddStep("①", "先写 OOP 参考实现（直白 List + 逐帧演算）——它是规则的**可执行规格**，也是后面 DOTS 后端的**对拍基线**。" +
                               "「先 OOP、留接缝」：不预先为性能上重武器，但把后路留好。");
             host.AddStep("②", "System 层每帧 Tick：逐帧实时仿真归 System（ADR-0014），不走 Command。System 持有接缝实例，`Update` 里 `Tick(dt)`，" +
                               "把事件翻成表现（渲染/特效/音效）、把聚合值写进 Model 供 View 只读订阅。", SystemDriver);
             host.AddStep("③", "加 DOTS 后端（引 Entities/Burst，另开一个 AOT asmdef）：自建 `World` 不进 player loop、不用 SystemGroup——" +
                               "接缝契约是「外部逐帧 Tick、同步返回」，所以所有 job 当帧 `Complete`，事件以记录缓冲带回主线程按序重放" +
                               "（托管委托进不了 Burst）。换后端只改工厂一个分支，和换 `IAssetProvider` 一模一样。", SeamPrecedent);
-            host.AddStep("④", "AOT 边界：DOTS 后端程序集<b>永不进热更列表</b>——Burst 产物是 AOT 原生码，HybridCLR 解释器执行不了。" +
+            host.AddStep("④", "AOT 边界：DOTS 后端程序集**永不进热更列表**——Burst 产物是 AOT 原生码，HybridCLR 解释器执行不了。" +
                               "接缝接口在内核/热更侧、实现在 AOT 侧，ports & adapters 让这条边界自然成立，且由构建期校验器机器执行。", AotBoundary);
 
             // ── 驱动契约 ──
@@ -78,11 +78,11 @@ namespace Game.Framework.Demo.Modules
 
             // ── 对拍两级 ──
             host.AddSectionTitle("对拍两级：怎么证明两个后端「是同一个游戏」");
-            host.AddNote("这是 DOTS 后端最容易翻车的地方：同一套规则、两种执行模型，凭什么相信它们结果一致？靠<b>对拍</b>——" +
+            host.AddNote("这是 DOTS 后端最容易翻车的地方：同一套规则、两种执行模型，凭什么相信它们结果一致？靠**对拍**——" +
                          "同 Setup + 同种子 + 同 Tick 序列跑两个后端，比对输出。分两级：");
             host.AddTable(
                 new[] { "级别", "怎么做", "证明什么" },
-                new[] { "逻辑级", "关 Burst（`EnableBurstCompilation=false`，job 走 Mono JIT＝与参考实现同浮点语义），逐 tick <b>逐位</b>断言全部聚合值", "移植零逻辑偏差——纯算法搬对了" },
+                new[] { "逻辑级", "关 Burst（`EnableBurstCompilation=false`，job 走 Mono JIT＝与参考实现同浮点语义），逐 tick **逐位**断言全部聚合值", "移植零逻辑偏差——纯算法搬对了" },
                 new[] { "规格级", "开 Burst，两后端各自独立跑，按波比聚合值", "「同一个游戏、不是逐位同一局」：跨编译域浮点 ulp 差异会被混沌放大成极小的归属漂移，但规格等价" });
             host.AddTip("关键发现：FloatMode.Strict 也挡不住 Burst×Mono 的 ulp 级差异——lockstep 级确定性（帧同步/回放/断线重连）必须把参与的运算收口在单一编译域。" +
                         "把 DOTS 和网络同步结合时，这是绕不开的硬约束。");
@@ -93,14 +93,14 @@ namespace Game.Framework.Demo.Modules
                 new[] { "负载特征", "OOP（托管 List）", "DOTS（Burst + chunk）", "怎么选" },
                 new[] { "数百实体", "够用", "过度工程", "别上——接缝留着就行" },
                 new[] { "数千实体逐帧全算", "开始吃紧", "从容", "考虑，先量再换" },
-                new[] { "<b>累计增长</b>的状态（如残骸、弹幕历史）", "随时间/规模持续劣化", "并行摊平、耗时平坦", "值得——差距随规模<b>和时间</b>拉大" });
+                new[] { "**累计增长**的状态（如残骸、弹幕历史）", "随时间/规模持续劣化", "并行摊平、耗时平坦", "值得——差距随规模**和时间**拉大" });
             host.AddNote("「先 OOP、留接缝，规模真到了再换 DOTS」——这就是接缝优先的价值：接缝的成本只是多写一个接口，" +
                          "换来的是「不赌未来性能、但永远留着换后端的后路」。等 profiler 告诉你 OOP 后端在帧预算边缘了，换 adapter 就行，消费方一行不改。");
 
             // ── 活样板（Outpost，纯文字指路，不硬链路径）──
             host.AddSectionTitle("活样板：垂直切片 Outpost");
             host.AddNote("本框架的垂直切片 demo「Outpost」（塔式生存自动战斗）把上面每一步都走了一遍真的：战斗仿真藏在零依赖接缝 " +
-                         "`IBattleSim` 后，OOP 参考后端与 DOTS 后端（自建 World + Burst job）<b>可对拍、可一键切换</b>（战斗设置窗里选，下一局生效）；" +
+                         "`IBattleSim` 后，OOP 参考后端与 DOTS 后端（自建 World + Burst job）**可对拍、可一键切换**（战斗设置窗里选，下一局生效）；" +
                          "敌人海 + 真弹道扫掠碰撞 + 残骸推挤被推到「切 OOP 后期肉眼掉帧、切 DOTS 满帧」的量级——后端置换的收益从「基准里的数字」变成了「手感」。" +
                          "若你的工程里带着 Outpost 切片，去它的 `Sim/`（接缝 + 参考实现）与 `Sim.Ecs/`（DOTS 后端）看真实现，以及各自的 ADR（对拍方法论 / 规模基准）。");
             host.AddSubNote("为什么这里只指路不给跳转按钮：框架与 Outpost 切片未来可能拆成两个独立 package，框架 demo 硬链 Outpost 文件路径会在拆分后断链。" +

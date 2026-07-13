@@ -73,7 +73,7 @@ namespace Game.Framework.Demo.Modules
             // ── 注册方式 ──
             host.AddSectionTitle("注册：纯 C# 服务的三选一");
             host.AddNote("本章的 `IStorageUtility` 在 `InstallBindings` 里 `RegisterOwned` 注册（随 Context Dispose 自动释放 provider，纯 C# 服务推荐路径；也正是「服务注册生成」章会替你生成的那类代码）。另两条路：全局唯一不管释放用 `RegisterValue`；要 Inspector 配根目录 / 跟随场景节点用 `MonoStorageUtility`（同一套逻辑的 Mono 壳，挂 Context 子节点即注册）。",
-                CodeRef.Here("builder.RegisterOwned(new StorageUtility(_provider)", "本章的注册代码"));
+                CodeRef.Here("builder.RegisterOwned(new StorageUtility(new FileStorageProvider", "本章的注册代码"));
 
             // ── 基础操作 ──
             host.AddSectionTitle("基础操作：Save / Load / Exists / Delete（原子按钮）");

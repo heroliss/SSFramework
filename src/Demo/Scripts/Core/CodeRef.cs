@@ -66,7 +66,9 @@ namespace Game.Framework.Demo.Core
     /// <remarks>
     /// 用 <c>AssetDatabase.LoadAssetAtPath&lt;MonoScript&gt;</c> 读取脚本资源，在全文里找锚点字符串所在行，
     /// 再 <c>AssetDatabase.OpenAsset(script, line)</c> 用默认 IDE 打开。所有 Editor 调用都包在
-    /// <c>#if UNITY_EDITOR</c> 内，发布包里不残留编辑器依赖。
+    /// <c>#if UNITY_EDITOR</c> 内，发布包里不残留编辑器依赖。<br/>
+    /// 锚点匹配规则集中在 <see cref="ResolveAnchor"/>——跳转（本类）与锚点校验（<c>DemoCodeRefValidator</c>）
+    /// 共用它，保证「校验通过」= 「真能跳到该声明」，不会两套规则相互漂移。
     /// </remarks>
     public static class CodeNavigator
     {
@@ -88,20 +90,38 @@ namespace Game.Framework.Demo.Core
                 Debug.LogWarning($"[CodeNavigator] 找不到源码资源：{code.Path}（文件可能被移动/重命名，需更新 CodeRef）。");
                 return;
             }
-            int line = FindLineByAnchor(script.text, code.Anchor);
+            ResolveAnchor(script.text, code.Anchor, out int line);
             UnityEditor.AssetDatabase.OpenAsset(script, line);
 #endif
         }
 
 #if UNITY_EDITOR
-        // 找锚点字符串所在行（1-based）。锚点为空或未命中返回 1。
-        // 关键细节：demo 常把类型和它的 CodeRef 写在同一文件里，于是锚点串会先以 CodeRef
-        // 的字符串实参形态（"anchor"）出现在调用点——位置还在真正声明之前。朴素 IndexOf 会
-        // 命中那处字面量、跳到调用行而非声明行。所以跳过"被双引号紧邻包裹"的命中（即 CodeRef
-        // 实参自身），定位到第一处真正的代码声明。
-        private static int FindLineByAnchor(string content, string anchor)
+        /// <summary>锚点解析的结果分级——供校验器区分「精准命中」与各类退化命中。</summary>
+        internal enum AnchorVerdict
         {
-            if (string.IsNullOrEmpty(content) || string.IsNullOrEmpty(anchor)) return 1;
+            /// <summary>锚点为空：有意跳文件开头（如指向整个文件）。</summary>
+            FileTop,
+            /// <summary>命中真正的代码声明行。</summary>
+            Ok,
+            /// <summary>全文找不到锚点：会退化跳到第 1 行（锚点已失效，多因目标改名）。</summary>
+            NoHit,
+            /// <summary>只在「被双引号包裹」处命中：锚点串只等于某个 <c>CodeRef</c> 实参自身、不匹配真实代码。</summary>
+            OnlyLiteral,
+            /// <summary>命中落在 <c>//</c> 注释行：多半锚点取得太泛，撞上了说明而非声明。</summary>
+            CommentHit,
+        }
+
+        /// <summary>
+        /// 在 <paramref name="content"/> 里定位锚点所在的 1-based 行，并给出命中质量分级。
+        /// <para>关键细节：demo 常把类型和它的 <c>CodeRef</c> 写在同一文件，于是锚点串会先以实参形态
+        /// （<c>"anchor"</c>）出现在调用点、位置还在真正声明之前。朴素 IndexOf 会命中那处字面量、跳到调用行。
+        /// 所以跳过「被双引号紧邻包裹」的命中，定位到第一处真正的代码声明。</para>
+        /// </summary>
+        /// <returns>命中的 1-based 行号（未命中退化为 1）。</returns>
+        internal static int ResolveAnchor(string content, string anchor, out AnchorVerdict verdict)
+        {
+            if (string.IsNullOrEmpty(anchor)) { verdict = AnchorVerdict.FileTop; return 1; }
+            if (string.IsNullOrEmpty(content)) { verdict = AnchorVerdict.NoHit; return 1; }
 
             int searchFrom = 0;
             int firstHit = -1;
@@ -114,12 +134,31 @@ namespace Game.Framework.Demo.Core
                 bool quotedBefore = idx > 0 && content[idx - 1] == '"';
                 int end = idx + anchor.Length;
                 bool quotedAfter = end < content.Length && content[end] == '"';
-                if (!(quotedBefore && quotedAfter)) // 非 "anchor" 字面量 → 真正的声明行
+                if (!(quotedBefore && quotedAfter)) // 非 "anchor" 字面量 → 真正的代码行
+                {
+                    verdict = IsCommentLine(content, idx) ? AnchorVerdict.CommentHit : AnchorVerdict.Ok;
                     return LineOf(content, idx);
-
+                }
                 searchFrom = end;
             }
+            verdict = firstHit < 0 ? AnchorVerdict.NoHit : AnchorVerdict.OnlyLiteral;
             return firstHit < 0 ? 1 : LineOf(content, firstHit);
+        }
+
+        // Open 用的薄壳：只要行号、吞掉分级。
+        private static int ResolveAnchor(string content, string anchor, out int line)
+        {
+            line = ResolveAnchor(content, anchor, out AnchorVerdict _);
+            return line;
+        }
+
+        // idx 所在行去掉前导空白后是否以 // 起头（单行注释）。
+        private static bool IsCommentLine(string content, int idx)
+        {
+            int ls = content.LastIndexOf('\n', idx > 0 ? idx - 1 : 0) + 1;
+            int i = ls;
+            while (i < idx && (content[i] == ' ' || content[i] == '\t')) i++;
+            return i + 1 < content.Length && content[i] == '/' && content[i + 1] == '/';
         }
 
         // 计算字符偏移所在的 1-based 行号。
