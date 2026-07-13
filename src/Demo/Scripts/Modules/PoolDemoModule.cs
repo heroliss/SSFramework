@@ -31,6 +31,10 @@ namespace Game.Framework.Demo.Modules
             PooledBox held = null;
             int rentCount = 0;
 
+            // ── 定位 ──
+            host.AddSectionTitle("定位：对象复用，借还随 Bag 自动管");
+            host.AddNote("高频创建 / 销毁的对象（子弹、特效、列表行）走对象池复用，免 GC 抖动。首选 `Bag.Rent<T>()` / `Bag.Spawn(prefab)`——借来的随宿主 `Bag` 自动归还，不必先建池、不必手动 Return。下面从推荐做法到手动控制逐层展开。");
+
             // ── 默认做法（推荐）：Bag.Rent，不必先建池 ──
             host.AddSectionTitle("默认做法（推荐）：Bag.Rent —— 不必先建池");
             var autoLabel = host.AddValueDisplay();
