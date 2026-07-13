@@ -177,7 +177,7 @@ Camera:
   m_Depth: 0
   m_CullingMask:
     serializedVersion: 2
-    m_Bits: 4294967295
+    m_Bits: 4294967039
   m_RenderingPath: -1
   m_TargetTexture: {fileID: 0}
   m_TargetDisplay: 0
@@ -256,6 +256,54 @@ AudioListener:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 97341510}
   m_Enabled: 1
+--- !u!1 &425387437
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 425387438}
+  - component: {fileID: 425387439}
+  m_Layer: 0
+  m_Name: UGuiEmbedHost
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &425387438
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 425387437}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 1235070507}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &425387439
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 425387437}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 88d1ca9b27601e84283cf4797a8fce43, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.Framework.UI.Bridge::Game.Framework.UI.Bridge.MonoUGuiEmbed
+  _contentPrefab: {fileID: 2682999428440735969, guid: a60f550060deab64f92e872c7c6a9346, type: 3}
+  _isolationLayer: UGuiEmbed
+  _refreshMode: 0
+  _maxTextureSize: 2048
 --- !u!1 &481252683
 GameObject:
   m_ObjectHideFlags: 0
@@ -881,6 +929,7 @@ MonoBehaviour:
     _enableOnDemandDownload: 1
   _defaultPackageName: FrameworkSamplesPackage
   _playMode: 0
+  _playerPlayMode: 1
   _cdnUrls:
   - http://127.0.0.1:8080/
   _downloadingMaxNumber: 10
@@ -1044,6 +1093,7 @@ Transform:
   - {fileID: 1038919720}
   - {fileID: 481252684}
   - {fileID: 1395205783}
+  - {fileID: 425387438}
   m_Father: {fileID: 962892730}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1395205782
