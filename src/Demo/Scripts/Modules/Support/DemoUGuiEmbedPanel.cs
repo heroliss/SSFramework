@@ -26,7 +26,7 @@ namespace Game.Framework.Demo.Modules
             _text = textGo.AddComponent<TextMeshProUGUI>();
             Stretch(_text.rectTransform);
             _text.alignment = TextAlignmentOptions.Center;
-            _text.enableWordWrapping = true;
+            _text.textWrappingMode = TextWrappingModes.Normal;
             _text.fontSize = 30;
             _text.color = Color.white;
 

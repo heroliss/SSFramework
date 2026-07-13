@@ -59,6 +59,13 @@ namespace Game.Framework.Demo.Modules
             host.AddCodeLink(new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/Support/MonoScoreModel.cs", "class MonoScoreModel", "MonoScoreModel · 共用状态"));
             host.AddCodeLink(new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/ModelReactiveModule.cs", "struct GetMonoScoreCommand", "只读查询 Command"));
             host.AddCodeLink(new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/ModelReactiveModule.cs", "struct RaiseMonoScoreCommand", "写操作 Command"));
+#if UNITY_EDITOR
+            host.AddActionRow("选中共享分数 Model（运行时 Inspector 看 Score 值跳变）", () =>
+            {
+                var model = UnityEngine.Object.FindFirstObjectByType<MonoScoreModel>();
+                if (model != null) DemoEditorNav.PingSceneObject(model.gameObject);
+            });
+#endif
 
             host.AddTip("本章只演示「UIToolkit 视图怎么接入框架」这一层；真正的窗口/层级/模态/栈管理在「UI 框架 · 窗口/层级」章——那里 UGUI 与 UIToolkit 共用同一套调度，按界面选载体。");
         }
