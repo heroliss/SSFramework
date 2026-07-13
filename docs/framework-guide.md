@@ -2704,7 +2704,7 @@ embed.Bind(view);
 
 - **刷新模式**：内容会动（动画 / 频繁变化）用 `EveryFrame`（相机每帧自动渲）；静态内容用 `OnDemand`（省电，内容变了调 `embed.RequestRender()`）。
 - **DPI 清晰**：`RenderTextureElement` 按「面板点 × 面板→屏幕缩放」算设备像素、向上取整、钳到 `MaxTextureSize`（默认 2048），高 DPI 下不发虚、也不会意外申请巨型显存。
-- **内容 prefab 约定**：一段 RectTransform 面板，**自身不带 Canvas**（由桥的托管 Canvas 承载）；它铺满显示元素的框，锚点 / 布局自己定。
-- **v1 只读显示**：事件不穿透 RenderTexture（要交互的 UI 仍用 Toolkit / UGUI 各自原生事件）。覆盖 TMP 富文本、3D 预览、小地图等绝大多数场景。
+- **内容来源两条路**：Inspector 配 `Content Prefab`（静态面板 prefab，自身不带 Canvas）；或代码经 `embed.EnsureContentRoot()` 拿托管 Canvas 的 RectTransform，往里挂 code-built / 动态 UGUI（`Bind` 时自动补隔离层）。
+- **输入穿透**：勾 `MonoUGuiEmbed` 的 `Interactive` 后，指针事件（**点击 / 悬停 / 拖拽 / 滚轮**）穿透 RT 进嵌入 UGUI——按钮 / 开关 / Slider / ScrollRect 都能用（需场景有 EventSystem）。原理：转发器把元素内坐标翻成 RT 空间屏幕点 → 托管 Canvas 上一个 `enabled=false` 的 `GraphicRaycaster`（不被全局输入模块误触发）手动 `Raycast` → `ExecuteEvents` 分发。**文本输入 / IME、多点触控不做**（要在嵌入 UGUI 里打字直接用原生 UGUI 层）。纯显示（TMP 富文本 / 3D 预览 / 小地图）留 `Interactive` 关。
 
 可运行演示见 demo「UI 融合 · UGUI 嵌进 Toolkit」章（`Modules/UIEmbedModule.cs`）。详见 ADR-0033、AGENTS #33。
