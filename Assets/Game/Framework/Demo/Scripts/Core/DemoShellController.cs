@@ -37,6 +37,7 @@ namespace Game.Framework.Demo.Core
         private IDemoModule _current;
 
         private VisualElement _navList;
+        private ScrollView _contentScroll;
         private VisualElement _contentArea;
         private Label _headerTitle;
         private Label _headerSummary;
@@ -138,11 +139,11 @@ namespace Game.Framework.Demo.Core
             body.Add(nav);
             _navList = nav.contentContainer;
 
-            var contentScroll = new ScrollView();
-            contentScroll.AddToClassList("demo-content");
-            contentScroll.horizontalScrollerVisibility = ScrollerVisibility.Hidden;
-            body.Add(contentScroll);
-            var contentRoot = contentScroll.contentContainer;
+            _contentScroll = new ScrollView();
+            _contentScroll.AddToClassList("demo-content");
+            _contentScroll.horizontalScrollerVisibility = ScrollerVisibility.Hidden;
+            body.Add(_contentScroll);
+            var contentRoot = _contentScroll.contentContainer;
 
             _headerTitle = new Label();
             _headerTitle.AddToClassList("demo-content-title");
@@ -198,6 +199,11 @@ namespace Game.Framework.Demo.Core
             _headerSummary.text = module.Summary;
             _contentArea.Clear();
             module.Build(new DemoModuleHost(_contentArea));
+
+            // 每章独立的滚动位置：换章回到顶部，不继承上一章滚到的位置（否则新章一进来就停在半中间）。
+            // 直接置 0 立即生效；再调度一帧兜底——内容布局在本帧末才算完，个别情况即时设的偏移会被布局后的钳制覆盖。
+            _contentScroll.scrollOffset = Vector2.zero;
+            _contentScroll.schedule.Execute(() => _contentScroll.scrollOffset = Vector2.zero);
         }
     }
 }

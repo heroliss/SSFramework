@@ -6,6 +6,7 @@ using Game.Framework.UI.Toolkit;
 using R3;
 using TMPro;
 using UnityEngine;
+using UnityEngine.UI;
 using UnityEngine.UIElements;
 using TextCoreFontAsset = UnityEngine.TextCore.Text.FontAsset;
 
@@ -53,10 +54,11 @@ namespace Game.Framework.Demo.Modules
 
             // ── 定位 ──
             host.AddSectionTitle("定位：砍字库不砍显示——三层字体策略");
-            host.AddNote("CJK 全量字库 15~30MB 起步，全量随包不现实；砍了字库，生僻字 / 用户输入又变豆腐块。" +
-                "策略 = **①精简常用字集随包（99% 显示量）+ ②locale 补充字体（语言差集）+ ③OS 字体运行时兜底（不可预知文本）**，" +
-                "三层都挂在**主字体资产的 fallback 表**上——文本渲染自动逐层找字形，业务代码零感知、零调用。");
-            host.AddConcept("为什么写主字体的表、不写全局 settings", "per-font 表在 TMP 与 TextCore 双后端都是 public 可写（对称）；「共享主字体不换、换链上的语言层」正是它的形状。代价：主字体要显式列出，没列的字体不受链管理。");
+            host.AddNote("CJK 全量字库 15~30MB 起步，全量随包不现实；砍了字库，生僻字 / 用户输入又变豆腐块。策略是把字形分**三层**，都挂在**主字体资产的 fallback 表**上——文本渲染自动逐层找字形，业务代码零感知、零调用：");
+            host.AddConcept("① 精简主字体（随包）", "常用字集烘焙进随包的主字体，覆盖约 99% 显示量：秒显、体积可控。");
+            host.AddConcept("② locale 补充字体", "每种语言补自己的差集字形（如中文的 NotoSansSC），挂进 fallback 表，换语言自动切换。");
+            host.AddConcept("③ OS 字体兜底（运行时）", "按系统字体族名运行时建动态字体，接住不可预知文本（用户名 / 聊天 / UGC）；找不到降级不炸。");
+            host.AddConcept("为什么写主字体的表、不写全局 settings", "per-font 表在 TMP 与 TextCore 双后端都 public 可写（对称）；「共享主字体不换、换链上的语言层」正是它的形状。代价：主字体要显式列出，没列的不受链管理。");
 
             // ── 实物接线 ──
             host.AddSectionTitle("实物：场景组件 MonoLocaleFonts（订阅 Locale，零业务调用）");
@@ -98,13 +100,13 @@ namespace Game.Framework.Demo.Modules
 
             // ── TMP 侧：真·豆腐块与 ③ ──
             host.AddSectionTitle("TMP（UGUI 侧）：真·豆腐块——②③ 在这里是刚需");
-            host.AddNote("TMP **没有**引擎级 OS 兜底：缺字就是豆腐块（□）。浮层第一行用 TMP 主字体（场景链）：" +
-                "**切 en → 豆腐块，切 zh → ②Rude NotoSansSC 接住**；第二行用**不在场景链上**的独立字体，演示 ③——" +
-                "用下面按钮给它挂 / 撤纯 OS 候选链（不带 ②），看 OS 字体单独接住中文。");
-            host.AddActionRow("弹出 / 关闭 TMP 浮层（屏幕左下角两行字）", () => ToggleTmpOverlay(host),
+            host.AddNote("TMP **没有**引擎级 OS 兜底：缺字就是豆腐块（□）。浮层是屏幕左下角一张**不透明样本卡**（两行 row1 / row2）：" +
+                "**row1** 用 TMP 主字体（场景链 ①②）——**切 en → 豆腐块，切 zh → ②NotoSansSC 接住**；" +
+                "**row2** 用**不在场景链上**的独立字体，演示 ③——用下面按钮给它挂 / 撤纯 OS 候选链（不带 ②），看 OS 字体单独接住中文。");
+            host.AddActionRow("弹出 / 关闭 TMP 浮层（左下角样本卡 row1 / row2）", () => ToggleTmpOverlay(host),
                 CodeRef.Here("private void ToggleTmpOverlay", "运行时搭 TMP 浮层"));
 
-            host.AddActionRow("③ 给第二行挂 OS 兜底链（Microsoft YaHei → PingFang SC → Noto Sans CJK SC）", () =>
+            host.AddActionRow("③ 给 row2 挂 OS 兜底链（Microsoft YaHei → PingFang SC → Noto Sans CJK SC）", () =>
             {
                 if (_tmpOverlay == null) ToggleTmpOverlay(host); // 浮层没开先开，保证看得见效果
                 if (_tmpOsDemoFont == null) return;
@@ -231,24 +233,44 @@ namespace Game.Framework.Demo.Modules
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             canvas.sortingOrder = 200; // 盖在 demo 的 UI Toolkit 外壳之上（Overlay 才能与 Toolkit 同屏）
 
-            CreateOverlayLine(tmpMain, SampleZh + "  ← 行一：TMP 主字体（场景链 ①②，切语言看它变）", 64);
-            CreateOverlayLine(_tmpOsDemoFont, SampleZh + "  ← 行二：不在场景链上（用 ③ 按钮挂 OS 兜底链）", 16);
+            // 不透明背景卡：把浮层做成一张清晰的样本卡，整块挡住下层 demo 文字——否则透明浮层会与章内容透叠看不清。
+            // （TMP 是 UGUI/mesh 渲染，塞不进 UI Toolkit 的 VisualElement，只能作独立 Overlay Canvas，所以自带背景来隔断。）
+            AddOverlayBackdrop(12f, 12f, 900f, 150f);
+            // 行内标注用 ASCII（row1/row2 + 卡片标题）——中文说明留在章内容里，避免解释文字被 Latin 主字体渲成豆腐（本章正演示这件事）。
+            CreateOverlayLine(tmpMain, "TMP overlay sample   (row1 / row2 — see chapter text)", 118f, 14f);
+            CreateOverlayLine(tmpMain, "row1)  " + SampleZh, 66f, 24f);
+            CreateOverlayLine(_tmpOsDemoFont, "row2)  " + SampleZh, 22f, 24f);
         }
 
-        private void CreateOverlayLine(TMP_FontAsset font, string text, float y)
+        // 浮层背景板：近乎不透明的深色矩形，铺在样本行之下把下层文字整块挡掉。RawImage(texture=null) 即渲染纯色块。
+        private void AddOverlayBackdrop(float x, float y, float w, float h)
+        {
+            var go = new GameObject("Backdrop");
+            go.transform.SetParent(_tmpOverlay.transform, false); // 先加 = 最底层，样本行在其上
+            var img = go.AddComponent<RawImage>();
+            img.color = new Color(0.05f, 0.06f, 0.09f, 0.98f);
+            var rect = img.rectTransform;
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.zero;
+            rect.pivot = Vector2.zero;
+            rect.anchoredPosition = new Vector2(x, y);
+            rect.sizeDelta = new Vector2(w, h);
+        }
+
+        private void CreateOverlayLine(TMP_FontAsset font, string text, float y, float fontSize)
         {
             var go = new GameObject("TMP Line");
             go.transform.SetParent(_tmpOverlay.transform, false);
             var tmp = go.AddComponent<TextMeshProUGUI>();
             tmp.font = font;
-            tmp.fontSize = 24;
+            tmp.fontSize = fontSize;
             tmp.text = text;
             var rect = tmp.rectTransform;
             rect.anchorMin = Vector2.zero;
             rect.anchorMax = Vector2.zero;
             rect.pivot = Vector2.zero;
-            rect.anchoredPosition = new Vector2(16, y);
-            rect.sizeDelta = new Vector2(1100, 40);
+            rect.anchoredPosition = new Vector2(24, y);
+            rect.sizeDelta = new Vector2(860, 40);
         }
     }
 }
