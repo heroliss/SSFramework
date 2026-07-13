@@ -9,6 +9,7 @@
         "Game.Framework.UI",
         "Game.Framework.UI.UGui",
         "Game.Framework.UI.Toolkit",
+        "Game.Framework.UI.Bridge",
         "Game.Framework.Fonts",
         "Unity.TextMeshPro",
         "UnityEngine.TestRunner"
