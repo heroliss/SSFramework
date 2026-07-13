@@ -237,7 +237,7 @@ struct 不能用 `this.GetXxx<T>()` 扩展方法（值类型接口调用必然�
 
 UGUI 与 UI Toolkit 是两套渲染系统、不能互为子节点。要把 UGUI/TMP（或 3D 预览 / 小地图 / 相机画面）放进 Toolkit **内容流**（要被 `ScrollView` 裁剪 / 滚动 / 被遮挡）用 RenderTexture 桥；只要盖在最上层、不需被裁剪则用「浮层对齐」（overlay Canvas + 每帧对齐 `worldBound`，更省）。
 
-- **一键 UGUI 嵌入**：`asmdef` 加引用 `Game.Framework.UI.Bridge`（可整块删模块）；场景挂 `MonoUGuiEmbed`（Inspector 配被嵌 UGUI 面板 prefab + 隔离层名 + 刷新模式）；视图代码 `new RenderTextureElement()` 放进 Toolkit 内容 → `embed.Bind(view)`（`Bag.Add(Disposable.Create(embed.Unbind))` 随视图释放）。纹理尺寸随元素布局自动同步、DPI 清晰，业务不碰相机 / RT。
+- **一键 UGUI 嵌入**：`asmdef` 加引用 `Game.Framework.UI.Bridge`（可整块删模块）；场景挂 `MonoUGuiEmbed`（Inspector 配被嵌 UGUI 面板 prefab + 隔离层名 + 刷新模式 + 要不要 `Interactive`）；视图代码 `new RenderTextureElement()` 放进 Toolkit 内容 → `embed.Bind(view)`（`Bag.Add(Disposable.Create(embed.Unbind))` 随视图释放）。纹理尺寸随元素布局自动同步、DPI 清晰，业务不碰相机 / RT。**动态 / code-built 内容**（非静态 prefab）经 `embed.EnsureContentRoot()` 拿托管 Canvas 往里挂。
 - **后端无关件**（`Game.Framework.UI.Toolkit`）：`RenderTextureElement`（显示一张 RT 的 `[UxmlElement]`）+ `CameraTextureRenderer`（相机→RT 生命周期，`Resize` 幂等 / `Render` / `Dispose`）——3D 道具预览 / 小地图配自己的相机直接用这对。
 - **两步场景配置**：① 工程 Tags & Layers 预留一个专用 layer 填进组件；② 主相机（及其它场景相机）`cullingMask` **剔除该层**，否则嵌入内容会漏进游戏画面。被嵌 prefab 是一段 RectTransform 面板、**自身不带 Canvas**（桥的托管 Canvas 承载）。
-- ⚠ **v1 只读显示**：事件不穿透 RenderTexture（要交互的 UI 用 Toolkit / UGUI 各自原生事件）。刷新：动态内容 `EveryFrame`、静态内容 `OnDemand`（变了调 `RequestRender()`）。详见 guide §27、ADR-0033。
+- ⚠ **输入穿透**：勾 `Interactive` 后指针（点击 / 悬停 / 拖拽 / 滚轮）穿透 RT 进嵌入 UGUI（需场景有 EventSystem）；**文本输入 / IME、多点触控不做**。纯显示留 `Interactive` 关。刷新：动态内容 `EveryFrame`、静态内容 `OnDemand`（变了调 `RequestRender()`）。详见 guide §27、ADR-0033。

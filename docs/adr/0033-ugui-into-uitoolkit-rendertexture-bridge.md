@@ -32,13 +32,13 @@ demo 里现有两处「UGUI 嵌在 Toolkit」其实都是**伪嵌入**——`Dem
 - 模块 `references` = `Game.Framework.UI.Toolkit` + **引擎 UGUI**（`UnityEngine.UI`，`overrideReferences:false` 自动可见）——它桥的是**原生 UGUI → Toolkit**，不耦合框架的 `UI.UGui` 模块，故不引用它。`autoReferenced:false`、可整块删除，同 `Game.Framework.Network.Proto` / `Game.Framework.Asset.Yoo` 先例（第三方 / 后端特化接缝单独开 asmdef 隔离）。
 - **隔离层**：托管 Canvas + 内容置于一个专用 layer（demo 用 `UGuiEmbed`），专用相机只拍此层、主相机剔除此层——否则嵌入内容会同时漏进游戏画面。这是接入方要在工程 Tags & Layers 预留的一步。
 
-### 4. v1 只读显示，输入穿透显式推迟
+### 4. 输入穿透：v1 只读、v2 加指针（受控场景可解，见文末增补）
 
-事件不从 Toolkit 传进 RT 里的 UGUI。v1 定位「只读显示」——覆盖 TMP 富文本、3D 道具预览、小地图等绝大多数场景。要交互的 UI 仍用 Toolkit / UGUI 各自原生事件。输入转发（坐标翻译 + 假 raycaster）留待真有需求再上，不猜测性预留复杂接缝（[[feedback-no-over-engineering]]）。
+v1 只读显示——覆盖 TMP 富文本、3D 道具预览、小地图等绝大多数场景。v2 补上**指针输入穿透**：「事件不穿透 RT」是**通用**方案的硬骨头（任意 raycaster / world-space…没人打包），但**自控相机 + 画布的受控场景**里可解（详见文末「增补 · v2」）。
 
 ### 5. 刻意不做
 
-- **输入穿透**（见上）。
+- **文本输入 / IME、多点触控**：成本陡增、嵌入场景罕见——要在嵌入 UGUI 里打字直接用原生 UGUI 层（v2 输入穿透只做指针）。
 - **CanvasScaler / 复杂缩放策略**：托管 Canvas 走 `ScreenSpaceCamera` 贴合 RT 像素，内容 prefab 自己定锚点填充即可；不引入 CanvasScaler 档位。
 - **自动预留隔离层 / 自动配主相机**：layer 是工程级共享资源（32 个上限），由接入方显式预留 + 配相机剔除，工具只在缺层时告警，不擅改工程 layer 表。
 
@@ -49,3 +49,20 @@ demo 里现有两处「UGUI 嵌在 Toolkit」其实都是**伪嵌入**——`Dem
 - 核心逻辑（尺寸换算、重建判定）纯函数可测，`UIEmbedTests` 8 例绿，不依赖场景 / 帧推进 / GPU；渲染管线经 demo Play 头less验证（相机把 UGUI 渲进 RT、整幅非透明、中心像素 = 面板底色）。
 - 五件套齐：本 ADR / 接缝（`UI.Toolkit/RenderTextureElement.cs` + `CameraTextureRenderer.cs`）+ 模块（`UI.Bridge/MonoUGuiEmbed.cs`）/ 测试（`UIEmbedTests`）/ demo「UI 融合 · UGUI 嵌进 Toolkit」章（`Modules/UIEmbedModule.cs`）/ guide §27 + AGENTS #33。
 - RenderTexture 从「项目零使用」变成「收口在 UI 嵌入桥后」的一等接缝，延续 `IAssetProvider` 隔离 YooAsset 的一贯做法。
+
+## 增补 · v2（2026-07-13）：输入穿透 + 内容泛化
+
+v1 落地后做了两处增强（用户驱动）：
+
+### 输入穿透（指针）
+`MonoUGuiEmbed.Interactive` 开关 + `UGuiEmbedInputForwarder`（`UI.Bridge`，因需 UGUI + Toolkit 双依赖）。手动驱动，不走全局 EventSystem 的屏幕路由（它按真实鼠标位置走、够不到离屏 RT）：
+- 托管 Canvas 挂一个 **`enabled=false` 的 `GraphicRaycaster`**——`enabled=false` 让全局 `InputSystemUIInputModule`（本项目新输入系统）**不发现它**、不会拿真实鼠标坐标误射这块离屏画布；但 `Raycast()` 只停自动注册、仍可手动调（**已实测**：禁用的 raycaster 手动 Raycast 命中正常）。
+- `RenderTextureElement` 交互时 `pickingMode=Position`，转发器把元素内指针坐标翻成 **RT 空间屏幕点**（`x=u·rtW`、`y=(1-v)·rtH` 翻 y），构造 `PointerEventData`（复用场景 EventSystem）手动 `Raycast` + `ExecuteEvents` 分发。
+- 全指针状态机：enter/exit、down/up + 同目标判 click、**拖拽**（超 `pixelDragThreshold` 触发 beginDrag→drag→endDrag，拖拽期捕获指针）、**滚轮**。文本输入 / IME、多点触控不做。
+- 坐标换算与拖拽阈值抽纯静态函数进 `UIEmbedTests`；渲染 + 输入经 demo Play **头less实测**（向按钮 RT 位置手动 Raycast 命中 → click 计数 0→1；Slider 拖拽 0→1）。
+
+### 内容泛化（不止 prefab）
+`EnsureContentRoot()` 暴露托管 Canvas 供 **code-built / 动态** UGUI 内容挂入（如运行时搭的 TMP 样本）；`Bind` 时对托管 Canvas 子树重跑 `SetLayerRecursive`，解决「后加内容不在隔离层」。
+
+### demo 消费
+UI 融合章加**可交互嵌入**（UGUI 计数 + 按钮 + Slider，点 / 拖穿透 RT 生效）；**字体章** TMP 样本卡从 ScreenSpaceOverlay 浮层 retrofit 为**内联嵌入**（经 `EnsureContentRoot`，随章滚动、化解「TMP 塞不进 Toolkit 只能作浮层」的张力）。对象池的 overlay-align 伪嵌入**保留**（那章刻意教它），仅加一句指路本桥。
