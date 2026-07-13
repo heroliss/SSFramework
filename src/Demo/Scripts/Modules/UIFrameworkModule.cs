@@ -3,6 +3,7 @@ using Cysharp.Threading.Tasks;
 using Game.Framework.Common;
 using Game.Framework.Demo.Core;
 using Game.Framework.UI;
+using Game.Framework.UI.Toolkit;
 using Game.Framework.UI.UGui;
 using Game.Framework.Utility;
 using UnityEngine;
@@ -43,6 +44,13 @@ namespace Game.Framework.Demo.Modules
             host.AddTip("怎么操作：按下面从浮到顶逐个试，注意「可点性」——这些控制按钮在 demo 内容区里。"
                 + "Window 层浮窗不挡它们，能接着点；但 Page（全屏盖住整个 demo）和模态弹窗（遮罩拦截下层）打开后，这些按钮就点不到了——那是层级/模态的正常效果，改用窗口自带的「返回/关闭」导航。"
                 + "所以「关闭所有窗口」只在没有 Page/模态盖住时才够得着。");
+#if UNITY_EDITOR
+            host.AddActionRow("选中 Toolkit UI 入口 MonoToolkitUI（本章窗口的默认后端）", () =>
+            {
+                var tk = UnityEngine.Object.FindFirstObjectByType<MonoToolkitUI>();
+                if (tk != null) DemoEditorNav.PingSceneObject(tk.gameObject);
+            });
+#endif
 
             host.AddSectionTitle("Window 层 · 浮动窗口（UI Toolkit · 蓝标）");
             host.AddActionRow("打开计数窗口", () => Open<DemoCounterWindow>(),
@@ -94,6 +102,13 @@ namespace Game.Framework.Demo.Modules
             }, CodeRef.Here("MonoUIBackKeyDriver", "接线组件"));
             host.AddNote("**预期**：先开几个窗口再点——按 **Popup → Window → Page** 从高到低关第一个非空层的栈顶（弹窗优先于浮窗、浮窗优先于页面）。"
                 + "真机/键盘接线：把 `MonoUIBackKeyDriver` 挂在 UI 入口同节点即通（**本场景已挂**，Play 中直接按 **Esc** 试）。");
+#if UNITY_EDITOR
+            host.AddActionRow("选中返回键接线组件 MonoUIBackKeyDriver（挂在 UI 入口同节点）", () =>
+            {
+                var drv = UnityEngine.Object.FindFirstObjectByType<MonoUIBackKeyDriver>();
+                if (drv != null) DemoEditorNav.PingSceneObject(drv.gameObject);
+            });
+#endif
 
             host.AddNote("**安全区**（刘海/挖孔屏）：UGUI 内容根挂 `UGuiSafeArea`、Toolkit 内容放进 `SafeAreaContainer`（UXML 可摆）——"
                 + "编辑器全屏看不出差异，用 **Device Simulator** 选带刘海机型可见内容避让；层根/背景刻意保持全屏出血。");
@@ -119,6 +134,11 @@ namespace Game.Framework.Demo.Modules
                 host.AddNote("场景里没找到 `MonoUGuiUI`——UGUI 后端入口未挂，跳过本段。它需要挂在**另一个子 Context** 下（同 Context 只能注册一个 `IUIUtility`，UGUI/Toolkit 要分两个 Context）。");
                 return;
             }
+
+#if UNITY_EDITOR
+            host.AddActionRow("选中 UGUI 后端入口 MonoUGuiUI（挂在另一个子 Context）",
+                () => DemoEditorNav.PingSceneObject(ugui.gameObject));
+#endif
 
             host.AddActionRow("打开 UGUI 计数窗口", () => ugui.Open<UGuiCounterWindow>().Forget(),
                 new CodeRef(UGuiWindowsFile, "class UGuiCounterWindow", "UGuiCounterWindow"));
