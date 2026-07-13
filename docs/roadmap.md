@@ -128,6 +128,8 @@ M0 骨架 → M1 战斗核心 → M2 升级 → M3 存档/音频/本地化 → M
 
 **框架 demo 侧**（2026-07-12）：进阶新增「DOTS/ECS · 与框架融合」章（`DotsIntegrationModule`）——讲「框架对 DOTS 零耦合、把它藏在纯 C# 接缝后」的融合模式（五步接入 + World 驱动契约 + 对拍两级 + 何时值得）；刻意只跳转框架自身接缝先例（`IAssetProvider`），Outpost 仅文字指路，保证框架/切片拆包后零断链。
 
+**框架 UI 侧 · UI 嵌入桥 ✅**（2026-07-13，ADR-0033）：把 UGUI/相机内容以 RenderTexture **真嵌入** UI Toolkit 内容流（纹理是 Toolkit 真内容，能被 ScrollView 裁剪/滚动、被遮挡），区别于既有「浮层对齐」伪嵌入（浮在最上层、会被 NaN 坑、不能被裁剪）。调研确认无现成成熟第三方包、事件不穿透 RT 是公认硬骨头。分层：后端无关 `RenderTextureElement` + `CameraTextureRenderer`（`UI.Toolkit`，也能拍 3D 预览/小地图）+ 一键 `MonoUGuiEmbed`（可整块删模块 `Game.Framework.UI.Bridge`，引用 Toolkit + 引擎 UGUI，同 Network.Proto 姿势）。v1 只读显示（输入穿透留 v2）。五件套齐：ADR-0033 / 接缝 + 模块 / `UIEmbedTests` 8 绿（尺寸换算/重建判定纯函数）+ Play 头less验证渲染管线 / demo「UI 融合 · UGUI 嵌进 Toolkit」章 / guide §27 + AGENTS #33。
+
 ### 长期（已有 ADR / 规划，时机到再动）
 
 - UPM 抽包（ADR-0010，**前置验收已由切片 M0-M6 全程完成**）、Odin 解耦（ADR-0015）。DOTS 接缝已验证（Phase 3 / ADR-0030），框架侧可选模块待真实需求再立项。

@@ -232,3 +232,12 @@ struct 不能用 `this.GetXxx<T>()` 扩展方法（值类型接口调用必然�
 - 注册 `RegisterOwned(new HttpUtility(baseUrl[, defaultTimeoutSeconds]), typeof(IHttpUtility))` + `RegisterOwned(new WebSocketUtility(), typeof(IWebSocketUtility))`（WS 靠注册即注入回填 Context 才能 SendEvent，别脱离容器 new）。`RegisterPush` 放服务创建处配一次（连接前后均可，避免重复注册抛）。auth = 登录后 `http.SetHeader("Authorization", ...)`；query 写 path 里（动态值 `Uri.EscapeDataString`）。
 - **重试 / 重连业务自己写**（框架给退避样板，见 guide §25），不做黑盒；换传输（BestHTTP/HttpClient）= `IHttpProvider`/`IWebSocketProvider`，换格式（Protobuf/MemoryPack）= `INetworkSerializer`，都构造注入、业务零改动。WebGL 的 WS 刻意不支持（HTTP 天然兼容）。详见 guide §25、ADR-0028。
 - **序列化格式三档**（按消息规模选，都构造注入 `WebSocketUtility`/`HttpUtility`、业务零改动）：① 默认 `JsonUtilityNetworkSerializer`（零依赖、`[Serializable]` 字段）；② 内核 `ProtobufNetworkSerializer`（手写 `ProtoWriter/ProtoReader` per-message 编解码，零依赖零反射、字节与标准 protobuf 互通——消息不多的自建后端）；③ 框架模块 `Game.Framework.Network.Proto` 的 `GoogleProtobufNetworkSerializer`（官方 protoc + Google.Protobuf，`.proto` 契约共享 / map / oneof / 有符号 / 浮点）。②③ envelope 逐字节一致、可对讲互换。用 ③ 时：asmdef 加引用 `Game.Framework.Network.Proto`；`.proto` 放模块可配的源目录，菜单 `SSFramework/Protobuf/生成全部` 生成 `IMessage`（多套 profile 按目录配置、总览窗口见配置总览 hub）；构造处 `new GoogleProtobufNetworkSerializer().RegisterFile(生成的 XxxReflection.Descriptor)` 整文件注册解析器。
+
+## 33. 把 UGUI / 相机内容嵌进 UI Toolkit（RenderTexture 桥）
+
+UGUI 与 UI Toolkit 是两套渲染系统、不能互为子节点。要把 UGUI/TMP（或 3D 预览 / 小地图 / 相机画面）放进 Toolkit **内容流**（要被 `ScrollView` 裁剪 / 滚动 / 被遮挡）用 RenderTexture 桥；只要盖在最上层、不需被裁剪则用「浮层对齐」（overlay Canvas + 每帧对齐 `worldBound`，更省）。
+
+- **一键 UGUI 嵌入**：`asmdef` 加引用 `Game.Framework.UI.Bridge`（可整块删模块）；场景挂 `MonoUGuiEmbed`（Inspector 配被嵌 UGUI 面板 prefab + 隔离层名 + 刷新模式）；视图代码 `new RenderTextureElement()` 放进 Toolkit 内容 → `embed.Bind(view)`（`Bag.Add(Disposable.Create(embed.Unbind))` 随视图释放）。纹理尺寸随元素布局自动同步、DPI 清晰，业务不碰相机 / RT。
+- **后端无关件**（`Game.Framework.UI.Toolkit`）：`RenderTextureElement`（显示一张 RT 的 `[UxmlElement]`）+ `CameraTextureRenderer`（相机→RT 生命周期，`Resize` 幂等 / `Render` / `Dispose`）——3D 道具预览 / 小地图配自己的相机直接用这对。
+- **两步场景配置**：① 工程 Tags & Layers 预留一个专用 layer 填进组件；② 主相机（及其它场景相机）`cullingMask` **剔除该层**，否则嵌入内容会漏进游戏画面。被嵌 prefab 是一段 RectTransform 面板、**自身不带 Canvas**（桥的托管 Canvas 承载）。
+- ⚠ **v1 只读显示**：事件不穿透 RenderTexture（要交互的 UI 用 Toolkit / UGUI 各自原生事件）。刷新：动态内容 `EveryFrame`、静态内容 `OnDemand`（变了调 `RequestRender()`）。详见 guide §27、ADR-0033。
