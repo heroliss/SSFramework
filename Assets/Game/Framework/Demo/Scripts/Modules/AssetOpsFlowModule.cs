@@ -61,6 +61,11 @@ namespace Game.Framework.Demo.Modules
             // 各包当前版本：GetPackageVersion 是设置页 / 客服排查「你是什么资源版本」的那个 API。
             var versionLabel = host.AddValueDisplay("", CodeRef.Here("asset.GetPackageVersion", "读包版本"));
             versionLabel.style.whiteSpace = WhiteSpace.Normal;
+#if UNITY_EDITOR
+            if (settingsModel != null)
+                host.AddActionRow("选中资源配置节点 AssetSystemConfigModel（包列表 / CDN）",
+                    () => DemoEditorNav.PingSceneObject(settingsModel.gameObject));
+#endif
 
             void RefreshVersions()
             {
