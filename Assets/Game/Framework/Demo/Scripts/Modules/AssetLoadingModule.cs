@@ -82,7 +82,7 @@ namespace Game.Framework.Demo.Modules
             Button offlineBtn = null;
             offlineBtn = host.AddActionRow("", () =>
                 asset.SetSimulateOffline(!asset.SimulateOffline.CurrentValue),
-                CodeRef.Here("asset.SetSimulateOffline(...)", "切换模拟断网"));
+                CodeRef.Here("asset.SetSimulateOffline(!asset.SimulateOffline", "切换模拟断网"));
             Bag.Subscribe(asset.SimulateOffline, on =>
                 offlineBtn.text = $"模拟断网：{(on ? "开" : "关")}（点击切换，仅 Host/Web）");
 #endif

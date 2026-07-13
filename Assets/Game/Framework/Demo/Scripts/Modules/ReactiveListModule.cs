@@ -34,7 +34,7 @@ namespace Game.Framework.Demo.Modules
         public override void Build(DemoModuleHost host)
         {
             host.AddNote(
-                "单个值用 `RP<T>` + `BindText`。可是「一串会增删的东西」（背包格子、聊天记录、在线列表）是<b>集合</b>——"
+                "单个值用 `RP<T>` + `BindText`。可是「一串会增删的东西」（背包格子、聊天记录、在线列表）是**集合**——"
                 + "若塞进 `RP<List>` 整包推送，View 每次都得清空重建整张列表，丢滚动/选中、还抖 GC。"
                 + "改用 `ObservableList<T>` 持有集合，`Bag.BindList` 订阅它的增删移换、只增量维护对应子视图。",
                 CodeRef.Here("Bag.BindList(listContainer", "BindList 调用点"));
@@ -63,7 +63,7 @@ namespace Game.Framework.Demo.Modules
             Bag.BindList(listContainer, items, BuildRow);
 
             host.AddNote(
-                "上方任一操作后，只有<b>变化的那一行</b>被增删或移动，其余行原地不动——这正是 `ObservableList` 的增量通知，"
+                "上方任一操作后，只有**变化的那一行**被增删或移动，其余行原地不动——这正是 `ObservableList` 的增量通知，"
                 + "而非「重算整表再 diff」。行数适中的 UI 列表（背包/设置项/聊天）用它正合适；上万项要虚拟化滚动复用则用 Toolkit 原生 `ListView`。");
             host.AddTip("每行末尾的 ✕ 用「行专属子 bag」接点击（BindList 第二参给的就是它）：这一行被移除时，行内订阅随子 bag 自动退订，不用手动清理。"
                 + "同一套写法在 UGUI 侧是 Bag.BindList(Transform, ...)——只换容器类型，绑定心智一致。");
