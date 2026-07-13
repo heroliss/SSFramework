@@ -2662,3 +2662,49 @@ builder.RegisterOwned(new WebSocketUtility(serializer: proto), typeof(IWebSocket
 - demo 里的 `DemoModuleBase` 章节脚手架是教学专用，正式项目没有这层。
 
 其余（模块自洽、`Res/` 只放可寻址资源、编辑器配置外置、配置源 `~` 目录、独立 asmdef）都可直接借鉴。
+
+## 27. UI 嵌入桥（把 UGUI / 相机内容嵌进 UI Toolkit）
+
+UGUI 与 UI Toolkit 是两套渲染系统，谁都不能当对方的子节点。要把一段 UGUI/TMP（或 3D 道具预览、小地图、相机画面）放进一张 Toolkit 面板的**内容流**里，用 **RenderTexture 桥**：一台隔离相机把内容渲进 `RenderTexture`，纹理当 Toolkit 元素显示——于是它是 Toolkit 的**真内容**，能被 `ScrollView` 裁剪 / 滚动、被后续元素遮挡。设计与取舍见 ADR-0033。
+
+### 什么时候用（vs 浮层对齐）
+
+| 需求 | 用哪套 |
+|---|---|
+| 嵌入内容要**被 Toolkit 裁剪 / 随 ScrollView 滚动 / 被遮挡** | **RenderTexture 桥**（本节） |
+| 只要一直**盖在最上层**、不需要被裁剪（如全屏 HUD 叠一块 UGUI） | 浮层对齐（UGUI Canvas `ScreenSpaceOverlay` + 每帧对齐占位元素 `worldBound`），更省，无相机 / RT 开销 |
+
+### 三个零件
+
+- **`RenderTextureElement`**（`Game.Framework.UI.Toolkit`，`[UxmlElement]`）：显示一张 RenderTexture 的 Toolkit 元素，随布局尺寸 × DPI 上报所需像素、不拥有纹理。后端无关——也能显示 3D 预览 / 小地图。
+- **`CameraTextureRenderer`**（纯 C#）：相机 → RenderTexture 生命周期，`Resize` 幂等（同尺寸不重建）、`Render` 按需、`Dispose` 释放。配一台你自己的相机即可用（3D 道具预览就走这条）。
+- **`MonoUGuiEmbed`**（`Game.Framework.UI.Bridge` 模块，可整块删）：一键把一段 UGUI 面板 prefab 嵌进去，自动装配隔离相机 + Canvas + RT。
+
+### UGUI 嵌入：三步接法
+
+```csharp
+// 1) Toolkit 视图里放一个显示元素（给它一个尺寸）
+var view = new RenderTextureElement { style = { height = 200 } };
+container.Add(view);
+
+// 2) 拿到场景里配好的 MonoUGuiEmbed（Inspector 指定被嵌 UGUI 面板 prefab + 隔离层）
+var embed = Object.FindFirstObjectByType<MonoUGuiEmbed>();
+
+// 3) 绑定即显示；纹理尺寸随元素布局自动同步，业务不碰相机 / RT
+embed.Bind(view);
+// 视图销毁时 embed.Unbind()（进 Bag：Bag.Add(Disposable.Create(embed.Unbind))）
+```
+
+### 接入方要做的两步场景配置
+
+1. **预留隔离层**：在工程 Tags & Layers 留一个专用 layer（如 `UGuiEmbed`），填进 `MonoUGuiEmbed` 的隔离层名。托管 Canvas + 内容都置于此层，专用相机只拍此层。
+2. **主相机剔除该层**：把该 layer 从主相机（及其它场景相机）的 `cullingMask` 去掉——否则嵌入的 UGUI 会同时漏进游戏画面。
+
+### 几点
+
+- **刷新模式**：内容会动（动画 / 频繁变化）用 `EveryFrame`（相机每帧自动渲）；静态内容用 `OnDemand`（省电，内容变了调 `embed.RequestRender()`）。
+- **DPI 清晰**：`RenderTextureElement` 按「面板点 × 面板→屏幕缩放」算设备像素、向上取整、钳到 `MaxTextureSize`（默认 2048），高 DPI 下不发虚、也不会意外申请巨型显存。
+- **内容 prefab 约定**：一段 RectTransform 面板，**自身不带 Canvas**（由桥的托管 Canvas 承载）；它铺满显示元素的框，锚点 / 布局自己定。
+- **v1 只读显示**：事件不穿透 RenderTexture（要交互的 UI 仍用 Toolkit / UGUI 各自原生事件）。覆盖 TMP 富文本、3D 预览、小地图等绝大多数场景。
+
+可运行演示见 demo「UI 融合 · UGUI 嵌进 Toolkit」章（`Modules/UIEmbedModule.cs`）。详见 ADR-0033、AGENTS #33。
