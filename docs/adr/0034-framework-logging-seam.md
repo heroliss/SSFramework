@@ -93,7 +93,19 @@ roadmap「Cysharp 生态候选」里 **ZLogger**（零分配结构化日志）�
 
 **⑦ 仍然刻意不做**：**消息模板**（Serilog / MEL 的 `"处理了 {Count} 条"`，占位符自动变结构化字段）。它是服务端共识，但客户端几乎不产结构化日志（正是不上 ZLogger 的同一条理由），为它自研模板解析 + 缓存不划算。要结构化就 `Log.Write(level, msg, fields)` 显式传。
 
-**⑧ 编辑器可观测性（`Log.Sinks` / `Log.IsCapturingUnityLogs` + 诊断面板日志栏）**：sink 与 `CaptureUnityLogs` 都是业务在**启动期用代码**装配的（§3 决定：显式注册、不走配置资产），代价是**编辑器里完全看不见**——「我的日志怎么没落盘？」时无从判断是压根没装、还是被 `MinLevel` 卡掉了。故补两个只读自省 API，并在「框架诊断面板」顶部加一栏日志状态（Verbose 开关 + 是否接管 + sink 列表及各自 MinLevel；无 sink 时红字告警）。Verbose 开关与菜单 `SSFramework/诊断/Verbose 日志` **共用同一个 setter**，避免两处各写各的而漂移。
+**⑧ 编辑器可观测 + 可就地改（`Log.Sinks` / `Log.IsCapturingUnityLogs` + 诊断面板日志栏）**：sink 与 `CaptureUnityLogs` 都是业务在**启动期用代码**装配的（§3 决定：显式注册、不走配置资产），代价有两层——**编辑器里完全看不见**（「我的日志怎么没落盘？」无从判断是压根没装、还是被 `MinLevel` 卡掉了），而且**想临时调一下就得改代码 + 重进 Play**。
+
+故补两个只读自省 API（`Log.Sinks` / `Log.IsCapturingUnityLogs`），并在「框架诊断面板」顶部加一栏，三样都**可读可改**：
+- **Verbose** 勾选框——与菜单 `SSFramework/诊断/Verbose 日志` **共用同一个 setter**（`FrameworkVerboseLogMenu.SetVerbose`），两处各写各的必然漂移。
+- **接管 Unity 日志流** 勾选框——`CaptureUnityLogs` 本就幂等、可随时开关。
+- **每个 sink 的 MinLevel 下拉**——典型用法：想把这次复现的细粒度日志抓进文件，把文件 sink 调到 `Trace` + 开 Verbose 即可，不必改代码重进 Play。
+- 无 sink 时红字「日志无处可去！」。
+
+`MinLevel` 在 `ILogSink` 上**刻意保持只读**（不强迫所有 sink 可变——固定级别的 sink 只有 getter 是合理的），面板改而在**具体类型**上反射找可写的 `MinLevel`：找得到给下拉、找不到只读显示。反射只发生在 sink 组成变化时、且按类型缓存。
+
+面板改动**立即生效但不持久**——下次运行仍由业务启动代码决定，面板不悄悄改变正式行为。
+
+**这一栏刻意不做的**：一键装/卸 sink（会让「日志去哪」变成两个真源：代码 + 面板，正是 §3 要避免的）。
 
 **刻意不加的日志菜单**（想过但否掉）：① Console 级别过滤——**Unity Console 自带 Log/Warning/Error 过滤按钮**，重复造轮子；② 编辑器内一键开文件日志——编辑器里 Unity **已经把全量日志写进 `Editor.log`**，文件 sink 的战场是玩家包而玩家包没有菜单；③ 日志配置 ScriptableObject——与 §3「显式注册」直接冲突，两行 bootstrap 比「配置藏在 SO 里被隐式读取」清晰；④ 「日志自检」菜单——demo 章已覆盖。（「打开持久化数据目录」也想过，但 `FrameworkFolderMenu` 早就有了。）
 

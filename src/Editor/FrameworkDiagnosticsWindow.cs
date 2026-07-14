@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using Game.Framework.Context;
 using Game.Framework.Diagnostics;
+using Game.Framework.Logging;
 using Game.Framework.Pool;
 using Game.Framework.Systems;
 using UnityEditor;
@@ -60,8 +62,10 @@ namespace Game.Framework.Editor
         private TextField _commandDetail;
         private Label _ctxCountLabel, _bagCountLabel, _cmdCountLabel;
         private Sparkline _ctxSpark, _bagSpark;
-        private Toggle _verboseToggle;
-        private Label _captureLabel, _sinkLabel;
+        private Toggle _verboseToggle, _captureToggle;
+        private VisualElement _sinkContainer;
+        private string _sinkSignature;
+        private readonly List<(ILogSink Sink, EnumField Field)> _sinkRows = new(); // Field 为 null = 该 sink 级别固定、只读显示
         private IVisualElementScheduledItem _ticker;
 
         // ── 状态 ────────────────────────────────────────────────────────────
@@ -195,12 +199,18 @@ namespace Game.Framework.Editor
         // ── 日志状态条（全局） ───────────────────────────────────────────────
 
         /// <summary>
-        /// 日志系统的全局状态：Verbose 开关 + 是否接管 Unity 日志流 + 装了哪些 sink（及各自 MinLevel）。
+        /// 日志系统的全局状态**且可就地改**：Verbose 开关 + 接管 Unity 日志流 + 各 sink 的 MinLevel 下拉。
         /// </summary>
         /// <remarks>
-        /// 为什么值得占一行：这三样**在编辑器里原本完全看不见**。sink 与 <c>CaptureUnityLogs</c> 都是业务在
-        /// 启动期用代码装配的，一旦「日志怎么没落盘 / 引擎报错怎么没进文件」，此前没有任何地方能查
-        /// 是压根没装、还是被 <c>MinLevel</c> 卡掉了。日志是全局静态的，故放顶部全局区而不是 per-Context 明细里。
+        /// 为什么值得占一行：这些在编辑器里原本**完全看不见、也只能改代码**。sink 与 <c>CaptureUnityLogs</c>
+        /// 都是业务在启动期用代码装配的（ADR-0034 §3：显式注册、不走配置资产），代价就是
+        /// 「日志怎么没落盘 / 引擎报错怎么没进文件」时无从查证，而想临时调一下还得改代码 + 重进 Play。
+        /// 本栏把这三样做成可读可改，改动**立即生效但不持久**（下次运行仍由业务的启动代码决定，
+        /// 面板不悄悄改变正式行为）。日志是全局静态的，故放顶部全局区而不是 per-Context 明细里。
+        /// <br/>
+        /// ⚠ UI 细节：Unity 的 <c>Toggle(string)</c> 构造器设的是 <b>BaseField 的 label</b>——它渲染在勾选框
+        /// **左侧且带固定宽度**，会把文字推远、让勾选框贴到后一个控件上，看不出勾选框属于谁。
+        /// 故一律用 <c>text</c>（渲染在勾选框**右侧紧贴着**）。
         /// </remarks>
         private VisualElement BuildLoggingStrip()
         {
@@ -216,38 +226,51 @@ namespace Game.Framework.Editor
 
             strip.Add(new Label("日志")
             {
-                style = { unityFontStyleAndWeight = FontStyle.Bold, fontSize = 11, marginRight = 8, color = ColMuted },
+                style = { unityFontStyleAndWeight = FontStyle.Bold, fontSize = 11, marginRight = 10, color = ColMuted },
             });
 
-            // Verbose 开关与菜单 SSFramework/诊断/Verbose 日志 共用同一个 setter，避免两处各写各的导致漂移。
-            _verboseToggle = new Toggle("Verbose")
+            // Verbose：与菜单 SSFramework/诊断/Verbose 日志 共用同一个 setter，避免两处各写各的导致漂移。
+            _verboseToggle = new Toggle
             {
+                text = "Verbose",
                 value = FrameworkVerboseLogMenu.Verbose,
                 tooltip = "放行 Trace 级框架诊断日志（容器注册 / 解析、资源重试…）。\n" +
                           "仅 Editor / Development Build 生效；与菜单「SSFramework/诊断/Verbose 日志」是同一个开关。\n" +
                           "关闭时 Log.Trace($\"...\") 的插值表达式根本不会求值（零成本）。",
-                style = { marginRight = 10, fontSize = 11 },
+                style = { marginRight = 12, fontSize = 11 },
             };
             _verboseToggle.RegisterValueChangedCallback(e => FrameworkVerboseLogMenu.SetVerbose(e.newValue));
             strip.Add(_verboseToggle);
 
-            _captureLabel = MutedLabel("");
-            _captureLabel.tooltip =
-                "Log.CaptureUnityLogs()：接管 Application.logMessageReceivedThreaded，把引擎报错 / 第三方包日志 /\n" +
-                "裸 Debug.Log / 未捕获异常也灌进 sink。**不开的话，玩家崩溃的那个 NullReferenceException\n" +
-                "根本不在你的日志文件里**。由业务在启动期调用（框架不擅自接管进程级回调）。";
-            strip.Add(_captureLabel);
+            // 接管 Unity 日志流：CaptureUnityLogs 幂等、可随时开关，故直接做成勾选框。
+            _captureToggle = new Toggle
+            {
+                text = "接管 Unity 日志流",
+                value = Log.IsCapturingUnityLogs,
+                tooltip = "Log.CaptureUnityLogs()：接管 Application.logMessageReceivedThreaded，把引擎报错 /\n" +
+                          "第三方包日志 / 裸 Debug.Log / 未捕获异常也灌进 sink。\n" +
+                          "不开的话，玩家崩溃的那个 NullReferenceException 根本不在你的日志文件里。\n\n" +
+                          "⚠ 这里改只对当前运行有效、不持久——下次运行仍由业务启动代码里的调用决定。",
+                style = { marginRight = 12, fontSize = 11 },
+            };
+            _captureToggle.RegisterValueChangedCallback(e => Log.CaptureUnityLogs(e.newValue));
+            strip.Add(_captureToggle);
 
-            strip.Add(new Label("·") { style = { color = ColMuted, marginLeft = 8, marginRight = 8 } });
+            strip.Add(new Label("·") { style = { color = ColMuted, marginRight = 8 } });
 
-            _sinkLabel = MutedLabel("");
-            _sinkLabel.style.flexShrink = 1;
-            _sinkLabel.style.overflow = Overflow.Hidden;
-            _sinkLabel.style.textOverflow = TextOverflow.Ellipsis;
-            _sinkLabel.tooltip =
-                "当前装配的日志去向（Log.Sinks），括号内是各自的 MinLevel——低于它的日志不会投递给该 sink。\n" +
-                "落盘：启动时 Log.AddSink(new FileLogSink(路径, minLevel))。";
-            strip.Add(_sinkLabel);
+            strip.Add(new Label("Sink")
+            {
+                tooltip = "当前装配的日志去向（Log.Sinks）。右侧下拉 = 该 sink 的 MinLevel，低于它的日志不投递给它。\n" +
+                          "改了立即生效（不持久）——想临时把细粒度日志抓进文件，把文件 sink 调到 Trace 再配合 Verbose 即可，\n" +
+                          "不必改代码重进 Play。",
+                style = { color = ColMuted, fontSize = 11, marginRight = 4 },
+            });
+
+            _sinkContainer = new VisualElement
+            {
+                style = { flexDirection = FlexDirection.Row, alignItems = Align.Center, flexShrink = 1, overflow = Overflow.Hidden },
+            };
+            strip.Add(_sinkContainer);
 
             return strip;
         }
@@ -256,31 +279,81 @@ namespace Game.Framework.Editor
         {
             if (_verboseToggle == null) return;
 
-            // 菜单可能在面板之外被切换过（或刚域重载），每次 tick 对齐一次显示。
+            // 菜单 / 代码都可能在面板之外改过状态（或刚域重载），每次 tick 对齐一次显示。
             bool verbose = FrameworkVerboseLogMenu.Verbose;
             if (_verboseToggle.value != verbose) _verboseToggle.SetValueWithoutNotify(verbose);
 
-            bool capturing = Logging.Log.IsCapturingUnityLogs;
-            _captureLabel.text = capturing ? "接管 Unity 日志流 ✓" : "接管 Unity 日志流 ✗";
-            _captureLabel.style.color = capturing ? ColOk : ColWarnDur;
+            bool capturing = Log.IsCapturingUnityLogs;
+            if (_captureToggle.value != capturing) _captureToggle.SetValueWithoutNotify(capturing);
 
-            var sinks = Logging.Log.Sinks;
+            var sinks = Log.Sinks;
+
+            // sink 组成变了才重建行（否则每 500ms 重建会打断正在操作的下拉）；MinLevel 变化只同步下拉的值。
+            var sig = new StringBuilder();
+            foreach (var s in sinks) sig.Append(s.GetType().FullName).Append(';');
+            string signature = sig.ToString();
+            if (signature != _sinkSignature)
+            {
+                _sinkSignature = signature;
+                RebuildSinkRows(sinks);
+            }
+
+            foreach (var (sink, field) in _sinkRows)
+                if (field != null && !Equals(field.value, sink.MinLevel))
+                    field.SetValueWithoutNotify(sink.MinLevel); // 代码侧改过 MinLevel：面板跟上
+        }
+
+        private void RebuildSinkRows(IReadOnlyList<ILogSink> sinks)
+        {
+            _sinkContainer.Clear();
+            _sinkRows.Clear();
+
             if (sinks.Count == 0)
             {
-                // ClearSinks 之后没再装 —— 日志此刻无处可去（测试里常见，正式运行时是事故）。
-                _sinkLabel.text = "Sink：无（日志无处可去！）";
-                _sinkLabel.style.color = ColError;
+                // ClearSinks 之后没再装——日志此刻无处可去（测试里正常，正式运行时是事故）。
+                _sinkContainer.Add(new Label("无（日志无处可去！）") { style = { color = ColError, fontSize = 11 } });
                 return;
             }
 
-            var sb = new StringBuilder("Sink：");
-            for (int i = 0; i < sinks.Count; i++)
+            foreach (var sink in sinks)
             {
-                if (i > 0) sb.Append(" · ");
-                sb.Append(sinks[i].GetType().Name).Append("(≥").Append(sinks[i].MinLevel).Append(')');
+                var box = new VisualElement
+                {
+                    style = { flexDirection = FlexDirection.Row, alignItems = Align.Center, marginRight = 10, flexShrink = 0 },
+                };
+                box.Add(new Label(sink.GetType().Name) { style = { fontSize = 11, color = ColMuted, marginRight = 2 } });
+
+                // MinLevel 在 ILogSink 上是只读的（不强迫所有 sink 可变——测试里的固定级别 sink 就只有 getter）；
+                // 具体实现（UnityDebugLogSink / FileLogSink）才有 setter。故在具体类型上找可写的 MinLevel：
+                // 找得到就给下拉，找不到就只读显示。反射只发生在重建时、且按类型缓存。
+                var setter = FindMinLevelSetter(sink.GetType());
+                if (setter != null)
+                {
+                    var field = new EnumField(sink.MinLevel) { style = { minWidth = 76, marginTop = 0, marginBottom = 0 } };
+                    var captured = sink;
+                    field.RegisterValueChangedCallback(e => setter.SetValue(captured, e.newValue));
+                    box.Add(field);
+                    _sinkRows.Add((sink, field));
+                }
+                else
+                {
+                    box.Add(new Label($"(≥{sink.MinLevel})") { style = { fontSize = 11, color = ColMuted } });
+                    _sinkRows.Add((sink, null));
+                }
+
+                _sinkContainer.Add(box);
             }
-            _sinkLabel.text = sb.ToString();
-            _sinkLabel.style.color = ColMuted;
+        }
+
+        // 具体 sink 类型上「可写的 MinLevel 属性」缓存（没有则为 null，代表该 sink 的级别固定、面板只读显示）。
+        private static readonly Dictionary<Type, PropertyInfo> MinLevelSetters = new();
+
+        private static PropertyInfo FindMinLevelSetter(Type sinkType)
+        {
+            if (MinLevelSetters.TryGetValue(sinkType, out var cached)) return cached;
+            var p = sinkType.GetProperty(nameof(ILogSink.MinLevel), BindingFlags.Public | BindingFlags.Instance);
+            if (p != null && (!p.CanWrite || p.PropertyType != typeof(LogLevel))) p = null;
+            return MinLevelSetters[sinkType] = p;
         }
 
         // ── Context 树（左） ─────────────────────────────────────────────────
