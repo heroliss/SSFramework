@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using System.Reflection;
 using System.Text.RegularExpressions;
 using Game.Framework.Logging;
 using NUnit.Framework;
@@ -178,6 +180,42 @@ namespace Game.Framework.Test
 
             Assert.AreEqual(1, sink.Entries.Count);
             Assert.AreEqual("n=7 d=3.14 pad=[  7]", sink.Entries[0].Message);
+        }
+
+        // ── Console 双击定位（[HideInCallstack] 全链覆盖）────────────────────
+
+        /// <summary>
+        /// 守住「Console 双击日志落到**业务调用点**而不是框架内部」。
+        /// </summary>
+        /// <remarks>
+        /// Unity 的规则：从 <c>Debug.Log</c> 那一帧往外走，**跳过所有标了 <c>[HideInCallstack]</c> 的帧，
+        /// 停在第一个没标的帧**上做双击定位。因此整条链
+        /// （调用点 → <c>Log.Info/Warning/Error/Trace/Write</c> → <c>Log.Dispatch</c> → <c>UnityDebugLogSink.Log</c> → <c>Debug.Log</c>）
+        /// 上**每一层**都必须标——**漏一层就前功尽弃**（实测确认过：只标最外层门面时，双击落在
+        /// <c>UnityDebugLogSink.cs</c>）。这是所有「包一层 Debug.Log」的日志门面最常见的死因，
+        /// 且症状只有人肉双击才看得见，故用本用例机器守住：将来给链条加层（新 sink 包装、装饰器）忘了标，这里会红。
+        /// </remarks>
+        [Test]
+        public void EntireForwardingChain_IsHiddenFromCallstack()
+        {
+            static void AssertHidden(MethodInfo m, string what)
+            {
+                Assert.IsNotNull(m, $"{what} 没找到——签名变了？");
+                Assert.IsTrue(
+                    m.GetCustomAttributes(typeof(HideInCallstackAttribute), false).Length > 0,
+                    $"{what} 缺 [HideInCallstack]——Console 双击会落进框架内部而不是业务调用点");
+            }
+
+            var logType = typeof(Log);
+
+            // 门面的每个公开重载（含 Trace 的 string / 插值处理器两个重载）。
+            foreach (var m in logType.GetMethods(BindingFlags.Public | BindingFlags.Static)
+                         .Where(m => m.Name is "Info" or "Warning" or "Error" or "Trace" or "Write"))
+                AssertHidden(m, $"Log.{m.Name}({string.Join(", ", m.GetParameters().Select(p => p.ParameterType.Name))})");
+
+            // 中间层：私有广播器 + 默认 sink（真正调 Debug.Log 的那一帧）。
+            AssertHidden(logType.GetMethod("Dispatch", BindingFlags.NonPublic | BindingFlags.Static), "Log.Dispatch");
+            AssertHidden(typeof(UnityDebugLogSink).GetMethod(nameof(UnityDebugLogSink.Log)), "UnityDebugLogSink.Log");
         }
 
         // ── 异常 / 堆栈 / 结构化载荷 / context ────────────────────────────
