@@ -183,9 +183,15 @@ namespace Game.Framework.Logging
         // ── 广播 ───────────────────────────────────────────────────────────
 
         /// <summary>桥接入口：由 <see cref="UnityLogBridge"/> 把 Unity 日志流转进来（标记 <c>fromUnity</c>）。</summary>
+        [HideInCallstack]
         internal static void DispatchFromUnity(LogLevel level, string message, string stackTrace)
             => Dispatch(level, message, "Unity", null, null, null, true, stackTrace);
 
+        // [HideInCallstack] 必须标在**调用链上的每一层**，不能只标最外层门面：
+        // Unity 是从 Debug.Log 那一帧往外走、跳过所有标了该特性的帧、停在**第一个没标的**帧上做双击定位。
+        // 链条是 调用点 → Info/Warning/Error/Trace → Dispatch → UnityDebugLogSink.Log → Debug.Log，
+        // 中间任何一层漏标，双击就会落进框架内部而不是业务的调用点。
+        [HideInCallstack]
         private static void Dispatch(
             LogLevel level, string message, string category, Exception exception,
             IReadOnlyList<KeyValuePair<string, object>> fields, UnityEngine.Object context,

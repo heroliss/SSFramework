@@ -198,6 +198,14 @@ namespace Game.Framework.Test
             var t = _flow.GoTo(a);
 
             Assert.AreEqual(UniTaskStatus.Faulted, t.Status);
+
+            // ⚠ 必须把这个异常「观测」掉。UniTask 对 faulted 却从未被 await 的任务，会在 GC 时经
+            // UniTaskScheduler.UnobservedTaskException 兜底 Debug.LogException——**时机不确定**，
+            // 于是这条 enter-boom 会落到当时恰好在跑的**其它**用例头上，让无辜用例以
+            // 「Unhandled log message」失败（实际坑到过 BattleSimRegressionTests）。
+            // GetResult() 既消费掉异常（标记已观测），又顺带断言了异常类型——比单看 Status 更严格。
+            Assert.Throws<InvalidOperationException>(() => t.GetAwaiter().GetResult());
+
             Assert.IsNull(_flow.Current, "Enter 失败 = 明确的无状态");
             Assert.IsFalse(_flow.IsTransitioning);
             Assert.IsTrue(probe.Disposed);

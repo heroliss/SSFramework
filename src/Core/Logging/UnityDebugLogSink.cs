@@ -17,6 +17,10 @@ namespace Game.Framework.Logging
         /// <summary>最低级别，默认 <see cref="LogLevel.Trace"/>（全收）。</summary>
         public LogLevel MinLevel { get; set; } = LogLevel.Trace;
 
+        // [HideInCallstack]：本方法是**真正调用 Debug.Log 的那一帧**，不标它双击就会落在这里。
+        // Unity 从 Debug.Log 往外走、跳过所有标了该特性的帧、停在第一个没标的帧——故调用链上
+        // （Log.Info/Warning/Error/Trace → Log.Dispatch → 本方法）每一层都必须标，漏一层就前功尽弃。
+        [HideInCallstack]
         public void Log(in LogEntry entry)
         {
             // 桥接自 Unity 日志流的条目（引擎报错 / 第三方 / 裸 Debug.Log）：Console 里**已经有了**。

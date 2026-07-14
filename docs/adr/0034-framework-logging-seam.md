@@ -78,7 +78,11 @@ roadmap「Cysharp 生态候选」里 **ZLogger**（零分配结构化日志）�
 - **依赖**：Unity BCL（netstandard2.1 档）没有 `InterpolatedStringHandlerAttribute`（实测确认），框架自带一份 `internal` polyfill——R3 / ObservableCollections / Roslyn 自己都是这么做的（实测均为 `internal`）。**跨程序集可用性已实测**：`Game.Framework.Test` / `Asset.Yoo` 都不声明 polyfill，仍能正确绑到处理器重载（`LoggingTests.Trace_Interpolation_IsLazy_WhenDisabled` 就是这条的回归测试）。
 - **顺带**：ZLogger 的两大卖点之一「零分配」我们自己拿到了，进一步坐实了「客户端不引 ZLogger」的决定。
 
-**④ `[HideInCallstack]` 是前提、不是可选**：任何「包一层 `Debug.Log`」的门面，若不标它，Console 双击日志会跳进门面的转发方法而不是真正的调用点——这一条足以让所有人退回裸 `Debug.Log`，是此类封装最常见的死因。全部门面方法都标。
+**④ `[HideInCallstack]` 是前提、不是可选，且必须**全链**覆盖**：任何「包一层 `Debug.Log`」的门面，若不标它，Console 双击日志会跳进门面的转发方法而不是真正的调用点——这一条足以让所有人退回裸 `Debug.Log`，是此类封装最常见的死因。
+
+⚠ **踩到的坑**：Unity 的规则是「从 `Debug.Log` 那帧往外走，**跳过所有标了该特性的帧，停在第一个没标的帧**」。所以只标最外层门面**不够**——实测（读 `UnityEditor.LogEntries` 的 `file`/`line`，那正是双击真正打开的位置）当时双击落在 `UnityDebugLogSink.cs:44`：`Log.Info` 被跳过了，但链上的 `Log.Dispatch` 与 `UnityDebugLogSink.Log` 没标，Unity 就停在了后者。补齐这两层后，门面日志与裸 `Debug.Log` 的定位结果**完全一致**。
+（`in` 参数在接口实现处会生成一个 `modreq` 桥接帧、无法标注，但它没有调试信息，Unity 做 file/line 解析时天然跳过，不影响。）
+症状只有人肉双击才看得见，故用 `LoggingTests.EntireForwardingChain_IsHiddenFromCallstack` 反射断言全链已标——将来给链条加层（新 sink 包装 / 装饰器）忘了标，测试会红。
 
 **⑤ 接管 Unity 日志流 `Log.CaptureUnityLogs()`（补上最大的缺口）**：订阅 `Application.logMessageReceivedThreaded`，把**引擎报错、第三方包日志（YooAsset / UniTask / R3）、业务裸 `Debug.Log`、未捕获异常**全部灌进 sink。
 - **动机**：阶段 A 的 `FileLogSink` 只收显式调用门面的日志——玩家崩在 `NullReferenceException` 上时，那条崩溃**根本不在日志文件里**，而它恰恰最该捞到。

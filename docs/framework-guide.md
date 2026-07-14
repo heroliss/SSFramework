@@ -2774,7 +2774,8 @@ Log.AddSink(new FileLogSink(
 - **每个 sink 自带 `MinLevel`**：让 Console 只留 Warning 以上（`new UnityDebugLogSink { MinLevel = LogLevel.Warning }`），细粒度日志交给文件 sink。
 - **自定义去向**：实现 `ILogSink`（`Log(in LogEntry)` + `MinLevel`）。⚠ 可能被后台线程调用（如网络接收循环记日志），持有可变状态要自行加锁（参考 `FileLogSink`）。
 - **测试静音 / 捕获**：`Log.ClearSinks()` 后装一个收集用的 sink（见 `LoggingTests`）。
-- **双击定位靠 `[HideInCallstack]`**：门面方法都标了它，Console 双击才会跳到**真正的调用点**而不是框架的转发方法——所有「包一层 `Debug.Log`」的门面最常见的死因就是丢了这个。
+- **双击定位靠 `[HideInCallstack]`**：Console 双击日志会跳到**你的调用点**，而不是框架的转发方法——所有「包一层 `Debug.Log`」的门面最常见的死因就是丢了这个。
+  > ⚠ Unity 的规则是「从 `Debug.Log` 那帧往外走，**跳过所有标了该特性的帧，停在第一个没标的帧**」，所以**调用链上每一层都得标**（`Log.Info` → `Log.Dispatch` → `UnityDebugLogSink.Log`），**漏一层就前功尽弃**（实测：只标最外层门面时，双击落在 `UnityDebugLogSink.cs`）。给链条加层（新 sink 包装 / 装饰器）时记得标上——`LoggingTests.EntireForwardingChain_IsHiddenFromCallstack` 会守住这条。
 
 ### 接管 Unity 日志流（启动时开一次）
 
