@@ -24,8 +24,21 @@ namespace Game.Framework.Logging
     /// </remarks>
     public static class Log
     {
-        /// <summary>是否放行 <see cref="LogLevel.Trace"/>（框架诊断噪音：注册/覆盖/解析/重试等）。默认关闭。</summary>
-        public static bool Verbose = false;
+        /// <summary>
+        /// **全局最低级别**（默认 <see cref="LogLevel.Info"/>）：低于它的日志一律不投递，连
+        /// <see cref="LogEntry"/> 都不构造。这是日志的**总闸门**，各 <see cref="ILogSink.MinLevel"/> 是**分闸门**——
+        /// 一条日志要同时过这两道才到得了某个 sink。
+        /// </summary>
+        /// <remarks>
+        /// <b>为什么是级别而不是一个 <c>Verbose</c> 布尔</b>：早期确实是 <c>Verbose</c> 开关，但 sink + <c>MinLevel</c>
+        /// 体系落地后它就被吸收了——「Verbose=false」≡「所有 sink 的 MinLevel ≥ Info」，两者做的是同一件事，
+        /// 并存反而制造陷阱：sink 明明写着接收 <c>Trace</c>，日志却因为另一个布尔被挡住，怎么调都不出来。
+        /// 收敛成**一个概念（级别）、两个作用域（全局 / 各 sink）**，与 Serilog / MS.Extensions.Logging 的模型一致。<br/>
+        /// 顺带获得原来做不到的能力：<c>Log.MinLevel = LogLevel.Warning</c> 可全局压掉 Info 噪音，不必逐个改 sink。<br/>
+        /// 「开 Verbose」= 把它设成 <see cref="LogLevel.Trace"/>（Editor 菜单 <c>SSFramework/诊断/Verbose 日志</c>
+        /// 或诊断面板的下拉；本会话有效）。<see cref="LogLevel.Trace"/> 另有「仅 Editor/Development」的编译期门控。
+        /// </remarks>
+        public static LogLevel MinLevel = LogLevel.Info;
 
         // sink 列表用 copy-on-write：广播（热路径）读快照无锁，仅增删时在锁内重建数组。
         // volatile 保证其它线程看到新数组引用；元素不就地修改，故引用级 volatile 足够。
@@ -93,14 +106,14 @@ namespace Game.Framework.Logging
         public static bool IsEnabled(LogLevel level)
         {
 #if !(UNITY_EDITOR || DEVELOPMENT_BUILD)
-            if (level == LogLevel.Trace) return false;   // 发布版 Trace 恒关
+            if (level == LogLevel.Trace) return false;   // 发布版 Trace 恒关（与 Trace 方法上的 [Conditional] 互为保险）
 #endif
-            if (level == LogLevel.Trace && !Verbose) return false;
+            if (level < MinLevel) return false;          // 总闸门
 
             var sinks = _sinks;
             for (int i = 0; i < sinks.Length; i++)
                 if (level >= sinks[i].MinLevel) return true;
-            return false;   // 全部 sink 的 MinLevel 都高于它 —— 记了也没人收
+            return false;   // 全部 sink 的分闸门都高于它 —— 记了也没人收
         }
 
         /// <summary>
@@ -126,15 +139,12 @@ namespace Game.Framework.Logging
         /// <remarks>
         /// 发布版整个调用（含实参求值）被 <see cref="ConditionalAttribute"/> 从 IL 中删除，零成本。
         /// 带插值的用 <c>Log.Trace($"...")</c> 走 <see cref="TraceInterpolatedStringHandler"/> 重载——
-        /// Verbose 关时连字符串都不拼。
+        /// <see cref="MinLevel"/> 没放行到 Trace 时连字符串都不拼。
         /// </remarks>
         [HideInCallstack]
         [Conditional("UNITY_EDITOR"), Conditional("DEVELOPMENT_BUILD")]
         public static void Trace(string message, string category = null, UnityEngine.Object context = null)
-        {
-            if (!Verbose) return;
-            Dispatch(LogLevel.Trace, message, category, null, null, context, false, null);
-        }
+            => Dispatch(LogLevel.Trace, message, category, null, null, context, false, null);
 
         /// <summary>
         /// 诊断噪音的**插值版**：<c>Log.Trace($"解析 {type.Name} 耗时 {ms}ms")</c>。
@@ -185,9 +195,9 @@ namespace Game.Framework.Logging
             UnityEngine.Object context = null)
         {
 #if !(UNITY_EDITOR || DEVELOPMENT_BUILD)
+            // Trace 方法有 [Conditional] 兜底，但 Write 是通用入口、发布版仍会被调用——这里显式挡住。
             if (level == LogLevel.Trace) return;
 #endif
-            if (level == LogLevel.Trace && !Verbose) return;
             Dispatch(level, message, category, exception, fields, context, false, null);
         }
 
@@ -208,6 +218,10 @@ namespace Game.Framework.Logging
             IReadOnlyList<KeyValuePair<string, object>> fields, UnityEngine.Object context,
             bool fromUnity, string stackTrace)
         {
+            // 总闸门。放在这里（而不是各便利方法里）才能一处覆盖 Info/Warning/Error、Write 和
+            // Unity 桥接进来的条目——低于它的日志连 LogEntry 都不构造、不抓栈。
+            if (level < MinLevel) return;
+
             var sinks = _sinks;   // 快照
             if (sinks.Length == 0) return;
 
@@ -220,7 +234,7 @@ namespace Game.Framework.Logging
             for (int i = 0; i < sinks.Length; i++)
             {
                 var sink = sinks[i];
-                if (level < sink.MinLevel) continue;
+                if (level < sink.MinLevel) continue;   // 分闸门
                 try
                 {
                     sink.Log(in entry);

@@ -91,6 +91,19 @@ roadmap「Cysharp 生态候选」里 **ZLogger**（零分配结构化日志）�
 
 **⑥ 补齐两处实用信息**：`LogEntry.Context`（`UnityEngine.Object`——点 Console 高亮定位场景物体，Unity 独有的实用能力）；`LogEntry.StackTrace`（`Error` 且无异常时自动补抓——落盘的 error 若既无异常又无栈，事后只剩一句话、无从定位）。`FileLogSink` 每次开档写**会话头**（设备 / 系统 / 版本 / 时间）：日志追加叠加，没有分隔就分不清哪段是哪次运行、玩家用的什么机器。
 
+**⑥.5 `Verbose` 布尔被级别体系吸收 → 收敛成全局 `Log.MinLevel`（默认 `Info`）。**
+
+`Verbose` 是 sink/`MinLevel` 体系（阶段 A）**出现之前**就有的老开关，级别体系落地后它其实已经被吸收了，只是没人回头清理——两者**同构**：
+
+- `Verbose = false` ≡ 「所有 sink 的 `MinLevel` ≥ `Info`」
+- `Verbose = true` ≡ 「至少一个 sink 的 `MinLevel` ≤ `Trace`」
+
+并存不只是冗余，而是**有害**：`UnityDebugLogSink.MinLevel` 默认是 `Trace`（全收），于是面板上会出现「sink 明明写着接收 Trace，但发 Trace 就是不出现」——用户去调那个下拉，调了也没用，真正挡住它的是旁边那个布尔。**讽刺的是：正是把诊断面板做出来（⑧），才让这个藏了很久的重复变得刺眼**——此前 `Verbose` 在菜单里、`MinLevel` 在代码里，两者不照面。
+
+改为**一个概念（级别）、两个作用域**：全局 `Log.MinLevel`（总闸，短路掉连 `LogEntry` 都不构造）+ 各 sink 的 `MinLevel`（分闸，路由），串联。这正是 Serilog / MS.Extensions.Logging 的模型。附带获得原来做不到的能力：`Log.MinLevel = Warning` 可全局压掉 Info 噪音，不必逐个改 sink。
+
+「开 Verbose」只是「把总闸门放行到 `Trace`」的俗称，菜单名保留（大家嘴里就是这么叫的），但**API 里不再有 `Verbose` 这个概念**。惰性求值不受影响：`IsEnabled` 本就在扫 sink 的 `MinLevel`，换个判断条件而已。
+
 **⑦ 仍然刻意不做**：**消息模板**（Serilog / MEL 的 `"处理了 {Count} 条"`，占位符自动变结构化字段）。它是服务端共识，但客户端几乎不产结构化日志（正是不上 ZLogger 的同一条理由），为它自研模板解析 + 缓存不划算。要结构化就 `Log.Write(level, msg, fields)` 显式传。
 
 **⑧ 编辑器可观测 + 可就地改（`Log.Sinks` / `Log.IsCapturingUnityLogs` + 诊断面板日志栏）**：sink 与 `CaptureUnityLogs` 都是业务在**启动期用代码**装配的（§3 决定：显式注册、不走配置资产），代价有两层——**编辑器里完全看不见**（「我的日志怎么没落盘？」无从判断是压根没装、还是被 `MinLevel` 卡掉了），而且**想临时调一下就得改代码 + 重进 Play**。

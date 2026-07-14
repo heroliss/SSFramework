@@ -62,7 +62,8 @@ namespace Game.Framework.Editor
         private TextField _commandDetail;
         private Label _ctxCountLabel, _bagCountLabel, _cmdCountLabel;
         private Sparkline _ctxSpark, _bagSpark;
-        private Toggle _verboseToggle, _captureToggle;
+        private EnumField _minLevelField;
+        private Toggle _captureToggle;
         private VisualElement _sinkContainer;
         private string _sinkSignature;
         private readonly List<(ILogSink Sink, EnumField Field)> _sinkRows = new(); // Field 为 null = 该 sink 级别固定、只读显示
@@ -108,6 +109,13 @@ namespace Game.Framework.Editor
 
         public void CreateGUI()
         {
+            // ⚠ 这几个签名是「当前可视树已经按这份数据建好了」的缓存，可视树一重建就必须作废。
+            // 域重载后 Unity 会用反序列化的窗口实例重新调 CreateGUI：VisualElement 引用是全新的空容器，
+            // 而这些字段可能带着上一轮的值活过来——不清就会「签名没变 → 跳过重建 → 容器永远空着」。
+            _sinkSignature = null;
+            _treeSignature = "";
+            _detailSignature = null;
+
             var root = rootVisualElement;
             root.Add(BuildToolbar());
             root.Add(BuildCountersStrip());
@@ -229,18 +237,23 @@ namespace Game.Framework.Editor
                 style = { unityFontStyleAndWeight = FontStyle.Bold, fontSize = 11, marginRight = 10, color = ColMuted },
             });
 
-            // Verbose：与菜单 SSFramework/诊断/Verbose 日志 共用同一个 setter，避免两处各写各的导致漂移。
-            _verboseToggle = new Toggle
+            // 全局 MinLevel（总闸门）。与菜单 SSFramework/诊断/Verbose 日志 共用同一个 setter，避免两处各写各的导致漂移。
+            // 摆在各 sink 的分闸门左边，「总闸门 → 分闸门」的串联关系一眼可见——日志要同时过这两道。
+            strip.Add(new Label("全局 ≥")
             {
-                text = "Verbose",
-                value = FrameworkVerboseLogMenu.Verbose,
-                tooltip = "放行 Trace 级框架诊断日志（容器注册 / 解析、资源重试…）。\n" +
-                          "仅 Editor / Development Build 生效；与菜单「SSFramework/诊断/Verbose 日志」是同一个开关。\n" +
-                          "关闭时 Log.Trace($\"...\") 的插值表达式根本不会求值（零成本）。",
-                style = { marginRight = 12, fontSize = 11 },
+                tooltip = "Log.MinLevel：日志的【总闸门】。低于它的日志一律不投递、连 LogEntry 都不构造。\n" +
+                          "右边每个 sink 还各有一道【分闸门】(MinLevel)——一条日志要【同时】过这两道才到得了那个 sink。\n\n" +
+                          "设成 Trace = 俗称的「开 Verbose」（看容器注册 / 解析、资源重试等框架诊断噪音）；\n" +
+                          "设成 Warning = 全局压掉 Info 噪音，不必逐个改 sink。\n" +
+                          "与菜单「SSFramework/诊断/Verbose 日志」是同一个东西。",
+                style = { color = ColMuted, fontSize = 11, marginRight = 3 },
+            });
+            _minLevelField = new EnumField(FrameworkLogMenu.IsVerbose ? LogLevel.Trace : Log.MinLevel)
+            {
+                style = { minWidth = 76, marginRight = 12, marginTop = 0, marginBottom = 0 },
             };
-            _verboseToggle.RegisterValueChangedCallback(e => FrameworkVerboseLogMenu.SetVerbose(e.newValue));
-            strip.Add(_verboseToggle);
+            _minLevelField.RegisterValueChangedCallback(e => FrameworkLogMenu.SetMinLevel((LogLevel)e.newValue));
+            strip.Add(_minLevelField);
 
             // 接管 Unity 日志流：CaptureUnityLogs 幂等、可随时开关，故直接做成勾选框。
             _captureToggle = new Toggle
@@ -277,11 +290,10 @@ namespace Game.Framework.Editor
 
         private void RefreshLogging()
         {
-            if (_verboseToggle == null) return;
+            if (_minLevelField == null) return;
 
             // 菜单 / 代码都可能在面板之外改过状态（或刚域重载），每次 tick 对齐一次显示。
-            bool verbose = FrameworkVerboseLogMenu.Verbose;
-            if (_verboseToggle.value != verbose) _verboseToggle.SetValueWithoutNotify(verbose);
+            if (!Equals(_minLevelField.value, Log.MinLevel)) _minLevelField.SetValueWithoutNotify(Log.MinLevel);
 
             bool capturing = Log.IsCapturingUnityLogs;
             if (_captureToggle.value != capturing) _captureToggle.SetValueWithoutNotify(capturing);
@@ -780,7 +792,27 @@ namespace Game.Framework.Editor
                     sig.Append(IdOf(ctx)).Append(',');
             string signature = sig.ToString();
 
-            _treeHint.style.display = contexts.Count == 0 ? DisplayStyle.Flex : DisplayStyle.None;
+            // 提示语分三态。此前只在「列表为空」时显示解释，恰恰在最需要解释的时候（编辑模式下列表里
+            // 堆着一批上局残留）把它藏了起来——看到一堆 Context 却不知道它们是什么，正是这个面板最容易误导人的地方。
+            if (EditorApplication.isPlaying || contexts.Count == 0)
+            {
+                _treeHint.messageType = HelpBoxMessageType.Info;
+                _treeHint.text =
+                    "进入 Play 模式后，这里展示存活 Context 作用域树。\n" +
+                    "退出 Play 后仍留在树上的 Context = 上一局没 Dispose 的泄漏嫌疑（下次进 Play 时清空）。";
+                _treeHint.style.display = contexts.Count == 0 ? DisplayStyle.Flex : DisplayStyle.None;
+            }
+            else
+            {
+                // 未运行却有存活 Context：登记表刻意持强引用不判活（ADR-0026），故这些就是「创建了却没 Dispose」的。
+                // 最常见的来源是刚跑完 PlayMode 测试——测试里 new 的 Context 不少没在 TearDown 里 Dispose。
+                _treeHint.messageType = HelpBoxMessageType.Warning;
+                _treeHint.text =
+                    $"未运行，但仍有 {contexts.Count} 个 Context 存活 —— 它们是**上一次 Play / PlayMode 测试结束时没有 Dispose** 的（泄漏嫌疑）。\n" +
+                    "登记表刻意持强引用、不判活：留在这里的正是「创建了却忘记 Dispose」本身，这就是本面板要暴露的东西。\n" +
+                    "下次进入 Play 时会自动清空。若你刚跑过 PlayMode 测试，这里通常是测试残留，不代表游戏代码有泄漏。";
+                _treeHint.style.display = DisplayStyle.Flex;
+            }
             _tree.style.display = contexts.Count == 0 ? DisplayStyle.None : DisplayStyle.Flex;
 
             if (signature == _treeSignature)
