@@ -2767,4 +2767,6 @@ FrameworkLog.AddSink(new FileLogSink(
 
 正确落点是**服务端**（Outpost `Server~/` 本就是 .NET，直接用 ZLogger、无包体顾虑）。客户端将来若确有「结构化日志上报后台」刚需，再实现一个 `ZLoggerLogSink : ILogSink` 接进来即可——**接缝已为此留好位置，业务零改动**。这正是「先做零依赖接缝、把第三方隔在接口后」的价值：试错第三方库的代价被压到「删依赖」，内核不受牵连。
 
+> **活样板**：demo「能力 · 日志 · 分级 + 可插拔 sink」章（`LoggingDemoModule`）把上面每一点做成可点的按钮——装 demo 捕获 sink 看多播（同一条日志同时进 Console + 面板）、调它的 `MinLevel` 看每个 sink 独立过滤、装 `FileLogSink` 看落盘、`Log(fields)` 看结构化字段、切 `Verbose` 看 Trace 门控。
+
 详见 ADR-0034、AGENTS #34。
