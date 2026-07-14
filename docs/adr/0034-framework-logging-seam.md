@@ -72,5 +72,5 @@ roadmap「Cysharp 生态候选」里 **ZLogger**（零分配结构化日志）�
 - ① ADR：本文。
 - ② 接口在内核、实现在模块：`Core/Logging/`（门面 + `ILogSink` + 两个默认 sink）✅；`Game.Framework.Logging.ZLogger/`（可选 sink 模块）——阶段 B 实测放弃、未落地（见「实测复盘」）。
 - ③ 测试：接缝多播 / 过滤 / `LogEntry` 短路纯 C# 可测；`FileLogSink` 落盘往返；ZLogger sink 往返（模块落地后）。
-- ④ demo：日志是内部基础设施、无业务 API——参照 ADR-0026（诊断面板）「demo 章不适用」，guide 章节 + 现有 demo 场景即覆盖；若 ZLogger 模块落地，可在进阶章补一个「接文件 / 结构化 sink」的活样板。
+- ④ demo：能力章「日志 · 分级 + 可插拔 sink」（`LoggingDemoModule`）✅——装 demo 捕获 sink 看多播、调其 `MinLevel` 看每 sink 独立过滤、装 `FileLogSink` 看落盘、`Log(fields)` 看结构化字段、切 `Verbose` 看 Trace 门控，把「接缝 + 多播 + 分级」做成可交互活样板。（原判「无业务 API、参照 ADR-0026 诊断面板 demo 不适用」——后修正：门面/sink 虽是基础设施，但「可替换接缝 + 广播 + 分级过滤」这套心智值得一个可点的章，比纯文字更直观。）
 - ⑤ guide 章节 + AGENTS 规则（`Assets/Game/AGENTS.md` 新增「日志」条）。
