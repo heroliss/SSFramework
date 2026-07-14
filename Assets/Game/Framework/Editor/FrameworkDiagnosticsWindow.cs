@@ -60,6 +60,8 @@ namespace Game.Framework.Editor
         private TextField _commandDetail;
         private Label _ctxCountLabel, _bagCountLabel, _cmdCountLabel;
         private Sparkline _ctxSpark, _bagSpark;
+        private Toggle _verboseToggle;
+        private Label _captureLabel, _sinkLabel;
         private IVisualElementScheduledItem _ticker;
 
         // ── 状态 ────────────────────────────────────────────────────────────
@@ -105,6 +107,7 @@ namespace Game.Framework.Editor
             var root = rootVisualElement;
             root.Add(BuildToolbar());
             root.Add(BuildCountersStrip());
+            root.Add(BuildLoggingStrip());
 
             // 上下分割：上 = Context 树 + 明细（左右分割），下 = 命令流水。
             var vSplit = new TwoPaneSplitView(1, 220, TwoPaneSplitViewOrientation.Vertical) { style = { flexGrow = 1 } };
@@ -187,6 +190,97 @@ namespace Game.Framework.Editor
             return strip;
 
             static Label Dot() => new("·") { style = { color = ColMuted, marginLeft = 8, marginRight = 8 } };
+        }
+
+        // ── 日志状态条（全局） ───────────────────────────────────────────────
+
+        /// <summary>
+        /// 日志系统的全局状态：Verbose 开关 + 是否接管 Unity 日志流 + 装了哪些 sink（及各自 MinLevel）。
+        /// </summary>
+        /// <remarks>
+        /// 为什么值得占一行：这三样**在编辑器里原本完全看不见**。sink 与 <c>CaptureUnityLogs</c> 都是业务在
+        /// 启动期用代码装配的，一旦「日志怎么没落盘 / 引擎报错怎么没进文件」，此前没有任何地方能查
+        /// 是压根没装、还是被 <c>MinLevel</c> 卡掉了。日志是全局静态的，故放顶部全局区而不是 per-Context 明细里。
+        /// </remarks>
+        private VisualElement BuildLoggingStrip()
+        {
+            var strip = new VisualElement
+            {
+                style =
+                {
+                    flexDirection = FlexDirection.Row, alignItems = Align.Center,
+                    paddingLeft = 8, paddingRight = 8, paddingTop = 3, paddingBottom = 3,
+                    borderBottomWidth = 1, borderBottomColor = new Color(0, 0, 0, 0.3f),
+                },
+            };
+
+            strip.Add(new Label("日志")
+            {
+                style = { unityFontStyleAndWeight = FontStyle.Bold, fontSize = 11, marginRight = 8, color = ColMuted },
+            });
+
+            // Verbose 开关与菜单 SSFramework/诊断/Verbose 日志 共用同一个 setter，避免两处各写各的导致漂移。
+            _verboseToggle = new Toggle("Verbose")
+            {
+                value = FrameworkVerboseLogMenu.Verbose,
+                tooltip = "放行 Trace 级框架诊断日志（容器注册 / 解析、资源重试…）。\n" +
+                          "仅 Editor / Development Build 生效；与菜单「SSFramework/诊断/Verbose 日志」是同一个开关。\n" +
+                          "关闭时 Log.Trace($\"...\") 的插值表达式根本不会求值（零成本）。",
+                style = { marginRight = 10, fontSize = 11 },
+            };
+            _verboseToggle.RegisterValueChangedCallback(e => FrameworkVerboseLogMenu.SetVerbose(e.newValue));
+            strip.Add(_verboseToggle);
+
+            _captureLabel = MutedLabel("");
+            _captureLabel.tooltip =
+                "Log.CaptureUnityLogs()：接管 Application.logMessageReceivedThreaded，把引擎报错 / 第三方包日志 /\n" +
+                "裸 Debug.Log / 未捕获异常也灌进 sink。**不开的话，玩家崩溃的那个 NullReferenceException\n" +
+                "根本不在你的日志文件里**。由业务在启动期调用（框架不擅自接管进程级回调）。";
+            strip.Add(_captureLabel);
+
+            strip.Add(new Label("·") { style = { color = ColMuted, marginLeft = 8, marginRight = 8 } });
+
+            _sinkLabel = MutedLabel("");
+            _sinkLabel.style.flexShrink = 1;
+            _sinkLabel.style.overflow = Overflow.Hidden;
+            _sinkLabel.style.textOverflow = TextOverflow.Ellipsis;
+            _sinkLabel.tooltip =
+                "当前装配的日志去向（Log.Sinks），括号内是各自的 MinLevel——低于它的日志不会投递给该 sink。\n" +
+                "落盘：启动时 Log.AddSink(new FileLogSink(路径, minLevel))。";
+            strip.Add(_sinkLabel);
+
+            return strip;
+        }
+
+        private void RefreshLogging()
+        {
+            if (_verboseToggle == null) return;
+
+            // 菜单可能在面板之外被切换过（或刚域重载），每次 tick 对齐一次显示。
+            bool verbose = FrameworkVerboseLogMenu.Verbose;
+            if (_verboseToggle.value != verbose) _verboseToggle.SetValueWithoutNotify(verbose);
+
+            bool capturing = Logging.Log.IsCapturingUnityLogs;
+            _captureLabel.text = capturing ? "接管 Unity 日志流 ✓" : "接管 Unity 日志流 ✗";
+            _captureLabel.style.color = capturing ? ColOk : ColWarnDur;
+
+            var sinks = Logging.Log.Sinks;
+            if (sinks.Count == 0)
+            {
+                // ClearSinks 之后没再装 —— 日志此刻无处可去（测试里常见，正式运行时是事故）。
+                _sinkLabel.text = "Sink：无（日志无处可去！）";
+                _sinkLabel.style.color = ColError;
+                return;
+            }
+
+            var sb = new StringBuilder("Sink：");
+            for (int i = 0; i < sinks.Count; i++)
+            {
+                if (i > 0) sb.Append(" · ");
+                sb.Append(sinks[i].GetType().Name).Append("(≥").Append(sinks[i].MinLevel).Append(')');
+            }
+            _sinkLabel.text = sb.ToString();
+            _sinkLabel.style.color = ColMuted;
         }
 
         // ── Context 树（左） ─────────────────────────────────────────────────
@@ -542,6 +636,7 @@ namespace Game.Framework.Editor
                     _monoByCtx[m.RawContext] = m;
 
             RefreshCounters(contexts.Count);
+            RefreshLogging();
             RefreshTree(contexts);
             RefreshDetail();
             RefreshCommands();

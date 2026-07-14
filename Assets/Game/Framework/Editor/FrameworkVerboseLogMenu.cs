@@ -28,20 +28,29 @@ namespace Game.Framework.Editor
             EditorApplication.delayCall += () => Menu.SetChecked(MenuPath, Log.Verbose);
         }
 
-        [MenuItem(MenuPath)]
-        private static void Toggle()
+        /// <summary>会话内的 Verbose 开关状态（真源是 <see cref="SessionState"/>，跨域重载存活）。</summary>
+        internal static bool Verbose => SessionState.GetBool(StateKey, false);
+
+        /// <summary>
+        /// 设开关。**菜单与「框架诊断面板」共用这一个入口**——两处各自写状态必然会漂移
+        /// （面板勾了但菜单没打钩、或域重载后运行期字段没跟上），故收敛到一处：
+        /// 同时写会话状态、运行期字段与菜单勾选。
+        /// </summary>
+        internal static void SetVerbose(bool enabled)
         {
-            bool enabled = !SessionState.GetBool(StateKey, false);
             SessionState.SetBool(StateKey, enabled);
             Log.Verbose = enabled;
             Menu.SetChecked(MenuPath, enabled);
         }
 
+        [MenuItem(MenuPath)]
+        private static void Toggle() => SetVerbose(!Verbose);
+
         [MenuItem(MenuPath, validate = true)]
         private static bool ToggleValidate()
         {
-            // 打开菜单时同步勾选状态，保证显示与实际一致。
-            Menu.SetChecked(MenuPath, SessionState.GetBool(StateKey, false));
+            // 打开菜单时同步勾选状态，保证显示与实际一致（面板改过之后尤其重要）。
+            Menu.SetChecked(MenuPath, Verbose);
             return true;
         }
     }
