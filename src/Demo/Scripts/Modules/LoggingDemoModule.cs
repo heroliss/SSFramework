@@ -159,7 +159,7 @@ namespace Game.Framework.Demo.Modules
                 new CodeRef("Assets/Game/Framework/Core/Logging/TraceInterpolatedStringHandler.cs", "public ref struct TraceInterpolatedStringHandler", "插值处理器实现"));
             host.AddSubNote("对比普通 `string` 参数：`Log.Trace($\"解析 {type.Name} 耗时 {ms}ms\")` 会**先把字符串拼好**，进到方法里才发现级别没放行、直接丢弃——白拼、白分配。容器每解析一次就白拼一个字符串，这是真实存在、天天在发生的浪费。框架内 `Container` / `YooAssetProvider` 的诊断日志现在都走这条惰性路径。");
             host.AddSubNote("⚠ **唯一要守的纪律**：惰性意味着求值语义变了——参数里只放**纯读取**（属性、`ToString()`、拼字符串），**不要放有副作用的表达式**（`i++` / `list.Pop()`），因为级别没放行时它们不会执行。这与手写 `if (Log.IsEnabled(LogLevel.Trace)) Log.Trace(...)` 是完全相同的语义，处理器只是把守卫自动化了。");
-            host.AddSubNote("发布版里 `Trace` 调用连同实参**整个从 IL 中删除**（`[Conditional(\"UNITY_EDITOR\")]` + `[Conditional(\"DEVELOPMENT_BUILD\")]`），比「方法体空转」更彻底。也可在 Editor 菜单 `SSFramework/诊断/Verbose 日志` 或「框架诊断面板」顶部的日志栏直接调总闸门。");
+            host.AddSubNote("发布版里 `Trace` 调用连同实参**整个从 IL 中删除**（`[Conditional(\"UNITY_EDITOR\")]` + `[Conditional(\"DEVELOPMENT_BUILD\")]`），比「方法体空转」更彻底。也可在 Editor 菜单 `SSFramework/诊断/日志级别` 或「框架诊断面板」顶部的日志栏直接调总闸门。");
 
             // ── 可插拔 sink ──
             host.AddSectionTitle("接缝：装一个捕获 sink，看多播 + 每 sink 自带 MinLevel");

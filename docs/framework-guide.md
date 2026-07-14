@@ -2736,7 +2736,7 @@ embed.Bind(view);
 
 `Trace` 另有一道**编译期**门控：`[Conditional("UNITY_EDITOR"), Conditional("DEVELOPMENT_BUILD")]`，发布版整个调用（含实参求值）从 IL 中删除。
 
-「开 Verbose」= 把总闸门放行到 `Trace`：`Log.MinLevel = LogLevel.Trace`，或 Editor 菜单 `SSFramework/诊断/Verbose 日志`，或「框架诊断面板」顶部日志栏的下拉（都是本会话有效）。
+「开 Verbose」= 把总闸门放行到 `Trace`：`Log.MinLevel = LogLevel.Trace`，或 Editor 菜单 `SSFramework/诊断/日志级别 ▸ Trace`，或「框架诊断面板」顶部日志栏的下拉（都是本会话有效）。
 
 ### 记录
 

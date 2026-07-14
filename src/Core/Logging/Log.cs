@@ -17,7 +17,7 @@ namespace Game.Framework.Logging
     /// 启动时按需 <see cref="AddSink"/> 追加 <see cref="FileLogSink"/>（落盘）或自定义遥测 sink。<br/>
     /// <b>捞全量日志</b>：<see cref="CaptureUnityLogs"/> 把 Unity 自己的日志流（引擎报错 / 第三方包 / 业务裸
     /// <c>Debug.Log</c> / 未捕获异常）也灌进 sink——**不接管的话，玩家崩溃的那个 NullReferenceException 根本不在你的日志文件里**。<br/>
-    /// <b>级别语义</b>：<see cref="LogLevel.Trace"/> 是诊断噪音，受 <see cref="Verbose"/> 开关 + 仅
+    /// <b>级别语义</b>：<see cref="LogLevel.Trace"/> 是诊断噪音，受 <see cref="MinLevel"/>（放行到 Trace）+ 仅
     /// <c>UNITY_EDITOR || DEVELOPMENT_BUILD</c> 双重门控（发布版整个调用被 <see cref="ConditionalAttribute"/> 从 IL 删除）；
     /// <see cref="LogLevel.Info"/> 及以上始终广播。<br/>
     /// <b>线程</b>：可从任意线程调用；sink 列表用 copy-on-write，广播无锁。
@@ -35,7 +35,7 @@ namespace Game.Framework.Logging
         /// 并存反而制造陷阱：sink 明明写着接收 <c>Trace</c>，日志却因为另一个布尔被挡住，怎么调都不出来。
         /// 收敛成**一个概念（级别）、两个作用域（全局 / 各 sink）**，与 Serilog / MS.Extensions.Logging 的模型一致。<br/>
         /// 顺带获得原来做不到的能力：<c>Log.MinLevel = LogLevel.Warning</c> 可全局压掉 Info 噪音，不必逐个改 sink。<br/>
-        /// 「开 Verbose」= 把它设成 <see cref="LogLevel.Trace"/>（Editor 菜单 <c>SSFramework/诊断/Verbose 日志</c>
+        /// 「开 Verbose」= 把它设成 <see cref="LogLevel.Trace"/>（Editor 菜单 <c>SSFramework/诊断/日志级别</c>
         /// 或诊断面板的下拉；本会话有效）。<see cref="LogLevel.Trace"/> 另有「仅 Editor/Development」的编译期门控。
         /// </remarks>
         public static LogLevel MinLevel = LogLevel.Info;
@@ -134,7 +134,7 @@ namespace Game.Framework.Logging
         // 而不是本文件——没有它，任何包一层 Debug.Log 的门面都会毁掉双击定位，这是此类封装最常见的死因。
 
         /// <summary>
-        /// 诊断噪音（容器注册 / 解析、资源重试…）：仅 <see cref="Verbose"/> 开启且非 Release 构建时输出。
+        /// 诊断噪音（容器注册 / 解析、资源重试…）：仅 <see cref="MinLevel"/> 放行到 Trace 且非 Release 构建时输出。
         /// </summary>
         /// <remarks>
         /// 发布版整个调用（含实参求值）被 <see cref="ConditionalAttribute"/> 从 IL 中删除，零成本。

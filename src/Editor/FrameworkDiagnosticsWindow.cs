@@ -207,7 +207,7 @@ namespace Game.Framework.Editor
         // ── 日志状态条（全局） ───────────────────────────────────────────────
 
         /// <summary>
-        /// 日志系统的全局状态**且可就地改**：Verbose 开关 + 接管 Unity 日志流 + 各 sink 的 MinLevel 下拉。
+        /// 日志系统的全局状态**且可就地改**：全局级别（总闸门）+ 接管 Unity 日志流 + 各 sink 的 MinLevel 下拉。
         /// </summary>
         /// <remarks>
         /// 为什么值得占一行：这些在编辑器里原本**完全看不见、也只能改代码**。sink 与 <c>CaptureUnityLogs</c>
@@ -237,7 +237,7 @@ namespace Game.Framework.Editor
                 style = { unityFontStyleAndWeight = FontStyle.Bold, fontSize = 11, marginRight = 10, color = ColMuted },
             });
 
-            // 全局 MinLevel（总闸门）。与菜单 SSFramework/诊断/Verbose 日志 共用同一个 setter，避免两处各写各的导致漂移。
+            // 全局 MinLevel（总闸门）。与菜单 SSFramework/诊断/日志级别 共用同一个 setter，避免两处各写各的导致漂移。
             // 摆在各 sink 的分闸门左边，「总闸门 → 分闸门」的串联关系一眼可见——日志要同时过这两道。
             strip.Add(new Label("全局 ≥")
             {
@@ -245,10 +245,10 @@ namespace Game.Framework.Editor
                           "右边每个 sink 还各有一道【分闸门】(MinLevel)——一条日志要【同时】过这两道才到得了那个 sink。\n\n" +
                           "设成 Trace = 俗称的「开 Verbose」（看容器注册 / 解析、资源重试等框架诊断噪音）；\n" +
                           "设成 Warning = 全局压掉 Info 噪音，不必逐个改 sink。\n" +
-                          "与菜单「SSFramework/诊断/Verbose 日志」是同一个东西。",
+                          "与菜单「SSFramework/诊断/日志级别」是同一个东西。",
                 style = { color = ColMuted, fontSize = 11, marginRight = 3 },
             });
-            _minLevelField = new EnumField(FrameworkLogMenu.IsVerbose ? LogLevel.Trace : Log.MinLevel)
+            _minLevelField = new EnumField(Log.MinLevel)
             {
                 style = { minWidth = 76, marginRight = 12, marginTop = 0, marginBottom = 0 },
             };
@@ -274,7 +274,7 @@ namespace Game.Framework.Editor
             strip.Add(new Label("Sink")
             {
                 tooltip = "当前装配的日志去向（Log.Sinks）。右侧下拉 = 该 sink 的 MinLevel，低于它的日志不投递给它。\n" +
-                          "改了立即生效（不持久）——想临时把细粒度日志抓进文件，把文件 sink 调到 Trace 再配合 Verbose 即可，\n" +
+                          "改了立即生效（不持久）——想临时把细粒度日志抓进文件，把文件 sink 调到 Trace 再把总闸门放行到 Trace 即可，\n" +
                           "不必改代码重进 Play。",
                 style = { color = ColMuted, fontSize = 11, marginRight = 4 },
             });
