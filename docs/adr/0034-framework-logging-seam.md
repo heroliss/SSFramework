@@ -1,6 +1,6 @@
 # ADR-0034：框架日志接缝 —— 内核 ILogSink 多播 + 默认 Console/File sink + ZLogger 可选模块
 
-**Status:** Accepted（阶段 A 接缝，2026-07-14）——ZLogger 客户端模块经实测放弃（依赖过重，见 §Decision 3「实测复盘」），服务端直接用；接缝已为将来接入留位。
+**Status:** Accepted（阶段 A 接缝 + 阶段 C 门面通用化，2026-07-14）——ZLogger 客户端模块（原规划的阶段 B）经实测放弃（依赖过重，见 §Decision 3「实测复盘」），服务端直接用；接缝已为将来接入留位。阶段 C 把门面从「框架内部诊断」升为「框架与业务共用的通用日志」，并补上零分配 / 全量捕获两块，见 §Decision 6。
 
 ## Context
 
@@ -59,18 +59,49 @@ roadmap「Cysharp 生态候选」里 **ZLogger**（零分配结构化日志）�
 - **不自研结构化 JSON / MessagePack 序列化 / 异步批处理 / 遥测传输**：要这些就上 ZLogger，不重造半吊子。
 - **不全量替换 `Debug.Log`**：见迁移策略。
 
+### 6. 阶段 C（2026-07-14）：门面通用化 —— `FrameworkLog` → `Log`
+
+> 「阶段 B」原指 ZLogger 可选模块（见 §Decision 3，实测后放弃）；本节是接缝落地后的下一步，故记为阶段 C。
+
+阶段 A 的门面定位是「框架内部诊断」，放在 `Game.Framework.Internal`。但目标本就是「业务新代码也走接缝」——而 `Internal` 这个命名空间在向所有人喊「别用我」，与目标直接矛盾。阶段 B 把它升为**框架与业务共用**的通用日志门面。
+
+**① 重命名 + 搬家**：`Game.Framework.Internal.FrameworkLog` → `Game.Framework.Logging.Log`。方法名 `Info` / `Warning` / `Error` / `Trace`（先例：Serilog 的 `Log.Information`、Unity 官方 `com.unity.logging` 包的 `Log.Info`）。旧 `LogVerbose` 别名删除（调用点全部迁移，共 8 处）。
+
+**② 参数形状：重新设计，不对齐 `Debug.Log`，也不做兼容层。**
+`Debug.Log(object)` 有三个硬伤——`object` 参数（装箱）、无惰性求值、除级别外无任何维度（无 category / context / 结构化）。对齐它等于把三个伤一起继承过来。也**不做 `using Debug = Log` 的 alias 迁移法**：它靠一个别处的 `global using` 隐形改写 `Debug.Log` 的语义（正是 #6「`System` 段劫持」烧过一次的那类隐式解析惊喜），且 alias 掉 `Debug` 就得连 `DrawLine` / `Break` / `isDebugBuild` 一起转发——一个日志门面上挂画 gizmo 的方法，架构上说不通。迁移直接改调用点（AI 批量替换成本极低），换来的是**调用点明写着 `Log.`，读代码的人一眼知道走了框架**。
+
+**③ `Trace` 走 C# 10 插值字符串处理器（本阶段最大的收获）**：`Log.Trace($"[Container] REGISTER {type.Name}")`。
+- **动机是一个真实存在的浪费**：阶段 A 的 `#if` 写在**方法体内**，发布版方法体是空的，但**调用点的实参照样求值**——`Trace($"解析 {type.Name} 耗时 {ms}ms")` 在 Verbose 关时仍会拼字符串、调 `ToString()`、分配内存，然后丢弃。容器每解析一次就白拼一个字符串。
+- **处理器把守卫下沉到编译期**：编译器把 `$"..."` 改写成一串 `Append` 调用，外裹 `if (shouldAppend)`（值来自处理器构造函数里的 `Log.IsEnabled`）。级别没开 → 整块跳过 → 表达式一次都不求值。
+- **代价（唯一的）**：求值语义变了——插值参数里的副作用（`i++`）在级别没开时不执行。但这与手写 `if (Verbose) Trace(...)` 是**完全相同**的语义，而「日志开不开会改变程序行为」本身就是 bug，故此语义是刻意接受的，并写进 AGENTS #34 与 XML doc。
+- 另叠 `[Conditional("UNITY_EDITOR"), Conditional("DEVELOPMENT_BUILD")]`：发布版整个调用连同实参从 IL 中删除，比「方法体空转」更彻底。
+- **依赖**：Unity BCL（netstandard2.1 档）没有 `InterpolatedStringHandlerAttribute`（实测确认），框架自带一份 `internal` polyfill——R3 / ObservableCollections / Roslyn 自己都是这么做的（实测均为 `internal`）。**跨程序集可用性已实测**：`Game.Framework.Test` / `Asset.Yoo` 都不声明 polyfill，仍能正确绑到处理器重载（`LoggingTests.Trace_Interpolation_IsLazy_WhenDisabled` 就是这条的回归测试）。
+- **顺带**：ZLogger 的两大卖点之一「零分配」我们自己拿到了，进一步坐实了「客户端不引 ZLogger」的决定。
+
+**④ `[HideInCallstack]` 是前提、不是可选**：任何「包一层 `Debug.Log`」的门面，若不标它，Console 双击日志会跳进门面的转发方法而不是真正的调用点——这一条足以让所有人退回裸 `Debug.Log`，是此类封装最常见的死因。全部门面方法都标。
+
+**⑤ 接管 Unity 日志流 `Log.CaptureUnityLogs()`（补上最大的缺口）**：订阅 `Application.logMessageReceivedThreaded`，把**引擎报错、第三方包日志（YooAsset / UniTask / R3）、业务裸 `Debug.Log`、未捕获异常**全部灌进 sink。
+- **动机**：阶段 A 的 `FileLogSink` 只收显式调用门面的日志——玩家崩在 `NullReferenceException` 上时，那条崩溃**根本不在日志文件里**，而它恰恰最该捞到。
+- 它也**大幅降低了「迁移调用点」的紧迫性**：裸 `Debug.Log` 照样进文件/遥测，迁移只为拿更好的 API（category / context / 结构化 / Trace 门控），可以慢慢来。
+- **防回声**：`UnityDebugLogSink` 转发的 `Debug.Log` 会触发桥接回调 → 不拦就重复落盘 + 坏 sink 的告警无限递归。用 `[ThreadStatic]` 标记「本线程正在由框架往 Console 写」让回调忽略；桥接条目标 `LogEntry.FromUnity`，`UnityDebugLogSink` 跳过（Console 里已有）。用 ThreadStatic 而非普通静态：`logMessageReceivedThreaded` 在**产生日志的那个线程**上同步回调，而框架日志可能来自任意线程。
+
+**⑥ 补齐两处实用信息**：`LogEntry.Context`（`UnityEngine.Object`——点 Console 高亮定位场景物体，Unity 独有的实用能力）；`LogEntry.StackTrace`（`Error` 且无异常时自动补抓——落盘的 error 若既无异常又无栈，事后只剩一句话、无从定位）。`FileLogSink` 每次开档写**会话头**（设备 / 系统 / 版本 / 时间）：日志追加叠加，没有分隔就分不清哪段是哪次运行、玩家用的什么机器。
+
+**⑦ 仍然刻意不做**：**消息模板**（Serilog / MEL 的 `"处理了 {Count} 条"`，占位符自动变结构化字段）。它是服务端共识，但客户端几乎不产结构化日志（正是不上 ZLogger 的同一条理由），为它自研模板解析 + 缓存不划算。要结构化就 `Log.Write(level, msg, fields)` 显式传。
+
 ## Consequences
 
 - 日志获得可替换接缝：按模块过滤 / 静音、落文件、测试捕获断言、遥测重定向，全部有了统一着力点；`FrameworkLog` 从「一个 bool」长成真正的日志门面。
 - **内核零新增依赖、Console 观感与定位不变**；「落文件」由内核 `FileLogSink` 零依赖兜底，覆盖绝大多数客户端排查场景。
 - ZLogger 成为**可选升级**：客户端默认不吞 `Microsoft.Extensions.Logging` DLL；要结构化 / 遥测时按需接入，且服务端（Outpost `Server~/` 已是 ASP.NET Core）能与客户端共用同一套日志抽象心智。
-- 180 处 `Debug.Log` 渐进迁移，无一次性大改风险。
+- 180 处 `Debug.Log` 渐进迁移，无一次性大改风险。**阶段 C 后这件事进一步降级**：`CaptureUnityLogs()` 让裸 `Debug.Log`（乃至引擎与第三方的）也进 sink，迁移只为拿更好的 API（category / context / 结构化 / Trace 门控），不再是「进不了文件」的硬伤。
+- **阶段 C 的净收益**：门面对业务开放（`Log.Info` / `Log.Error`）；`Trace` 关掉时**真·零成本**（插值处理器，实测回归覆盖）——顺带自己拿到了 ZLogger 两大卖点之一的「零分配」，坐实客户端不引它；`CaptureUnityLogs` 补上「玩家崩溃不在日志文件里」这个最大缺口；`[HideInCallstack]` 保住双击定位（否则这类门面必然被弃用）。代价是 `Trace` 插值参数不得有副作用（已入 AGENTS #34 + XML doc）。
 - **依赖引入分界**：接缝 + 两个内核 sink（阶段 A）零第三方依赖、**已落地**。ZLogger 模块（阶段 B）实测后**放弃**（依赖 ≈ 1.4 MB，见上「实测复盘」）——客户端框架保持零第三方日志依赖，ZLogger 留作服务端 / 将来客户端遥测刚需时、接缝后的可选实现。**接缝先行的价值在此兑现**：试错第三方库的代价被压到「删依赖」，内核与业务代码零改动。
 
 ## 五件套落地
 
 - ① ADR：本文。
-- ② 接口在内核、实现在模块：`Core/Logging/`（门面 + `ILogSink` + 两个默认 sink）✅；`Game.Framework.Logging.ZLogger/`（可选 sink 模块）——阶段 B 实测放弃、未落地（见「实测复盘」）。
-- ③ 测试：接缝多播 / 过滤 / `LogEntry` 短路纯 C# 可测；`FileLogSink` 落盘往返；ZLogger sink 往返（模块落地后）。
-- ④ demo：能力章「日志 · 分级 + 可插拔 sink」（`LoggingDemoModule`）✅——装 demo 捕获 sink 看多播、调其 `MinLevel` 看每 sink 独立过滤、装 `FileLogSink` 看落盘、`Log(fields)` 看结构化字段、切 `Verbose` 看 Trace 门控，把「接缝 + 多播 + 分级」做成可交互活样板。（原判「无业务 API、参照 ADR-0026 诊断面板 demo 不适用」——后修正：门面/sink 虽是基础设施，但「可替换接缝 + 广播 + 分级过滤」这套心智值得一个可点的章，比纯文字更直观。）
-- ⑤ guide 章节 + AGENTS 规则（`Assets/Game/AGENTS.md` 新增「日志」条）。
+- ② 接口在内核、实现在模块：`Core/Logging/`（`Log` 门面 + `ILogSink` + 两个默认 sink + `UnityLogBridge` + 插值处理器 & polyfill）✅；`Game.Framework.Logging.ZLogger/`（可选 sink 模块）——实测放弃、未落地（见「实测复盘」）。
+- ③ 测试：`LoggingTests`（PlayMode）✅ 覆盖多播 / per-sink `MinLevel` / `IsEnabled` / Trace 门控 / **插值惰性求值（兼跨程序集处理器识别的回归测试）** / 异常与自动抓栈 / `context` 透传 / sink 异常隔离 / **Unity 日志流桥接 + 防回声** / `FileLogSink` 落盘·会话头·滚动。
+- ④ demo：能力章「日志 · 分级 + 可插拔 sink」（`LoggingDemoModule`）✅——装 demo 捕获 sink 看多播、调其 `MinLevel` 看每 sink 独立过滤、**用一个计数器亲眼验证「Verbose 关时插值表达式一次都没求值」**、点「发一条裸 `Debug.LogError`」看它经桥接进入 sink、装 `FileLogSink` 看落盘、`Write(fields)` 看结构化字段。（原判「无业务 API、参照 ADR-0026 诊断面板 demo 不适用」——后修正：门面/sink 虽是基础设施，但「可替换接缝 + 广播 + 分级 + 惰性求值」这套心智值得一个可点的章，尤其惰性求值这种「看不见的行为」，用计数器演示远胜纯文字。）
+- ⑤ guide §28 + AGENTS #18 / #34 ✅。

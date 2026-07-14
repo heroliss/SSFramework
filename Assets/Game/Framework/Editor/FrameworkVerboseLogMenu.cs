@@ -1,11 +1,11 @@
 #if UNITY_EDITOR
-using Game.Framework.Internal;
+using Game.Framework.Logging;
 using UnityEditor;
 
 namespace Game.Framework.Editor
 {
     /// <summary>
-    /// 框架诊断日志开关（<see cref="FrameworkLog.Verbose"/>）的编辑器菜单。
+    /// 框架诊断日志开关（<see cref="Log.Verbose"/>）的编辑器菜单。
     ///
     /// 菜单 <c>SSFramework/诊断/Verbose 日志</c> 勾选即开启：打印容器注册 / 注入 / 资源初始化逐条 CDN 尝试等框架诊断输出。
     /// 取代「在代码里硬编码 <c>Verbose = true</c>」或「靠脚本宏 + 重编译」——勾一下即生效、随手开关、全项目复用。
@@ -19,13 +19,13 @@ namespace Game.Framework.Editor
     internal static class FrameworkVerboseLogMenu
     {
         private const string MenuPath = "SSFramework/诊断/Verbose 日志";
-        private const string StateKey = "SSFramework.FrameworkLog.Verbose";
+        private const string StateKey = "SSFramework.Log.Verbose";
 
         static FrameworkVerboseLogMenu()
         {
-            FrameworkLog.Verbose = SessionState.GetBool(StateKey, false);
+            Log.Verbose = SessionState.GetBool(StateKey, false);
             // 域重载期间菜单尚未就绪，勾选状态延后一帧设置。
-            EditorApplication.delayCall += () => Menu.SetChecked(MenuPath, FrameworkLog.Verbose);
+            EditorApplication.delayCall += () => Menu.SetChecked(MenuPath, Log.Verbose);
         }
 
         [MenuItem(MenuPath)]
@@ -33,7 +33,7 @@ namespace Game.Framework.Editor
         {
             bool enabled = !SessionState.GetBool(StateKey, false);
             SessionState.SetBool(StateKey, enabled);
-            FrameworkLog.Verbose = enabled;
+            Log.Verbose = enabled;
             Menu.SetChecked(MenuPath, enabled);
         }
 

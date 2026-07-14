@@ -4,8 +4,8 @@ namespace Game.Framework.Logging
     /// 日志去向的接缝：把一条 <see cref="LogEntry"/> 送到某个后端（Unity Console / 文件 / ZLogger / 遥测…）。
     /// </summary>
     /// <remarks>
-    /// <c>FrameworkLog</c> 门面持有一组 sink 并**广播**——一条日志可同时进 Console + 落文件 + 上报。
-    /// 注册 / 移除经 <c>FrameworkLog.AddSink / RemoveSink / ClearSinks</c>。<br/>
+    /// <see cref="Log"/> 门面持有一组 sink 并**广播**——一条日志可同时进 Console + 落文件 + 上报。
+    /// 注册 / 移除经 <c>Log.AddSink / RemoveSink / ClearSinks</c>。<br/>
     /// <b>线程约定</b>：<see cref="Log"/> 可能从任意线程被调用（如网络接收循环在后台线程记日志），
     /// 实现若持有可变状态（文件句柄、缓冲）**必须自行加锁**（见 <see cref="FileLogSink"/>）。
     /// 门面对 sink 列表用 copy-on-write，广播本身无锁。<br/>

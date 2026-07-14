@@ -1,4 +1,5 @@
 using Game.Framework.Context;
+using Game.Framework.Logging;
 using UnityEngine;
 
 namespace Game.Framework.Internal
@@ -49,8 +50,7 @@ namespace Game.Framework.Internal
 
             if (contextProvider == null && GameContext.Main != null)
             {
-                FrameworkLog.LogVerbose(
-                    $"[{roleLabel}] '{self.name}': no parent context, falling back to GameContext.Main.");
+                Log.Trace($"[{roleLabel}] '{self.name}': no parent context, falling back to GameContext.Main.");
                 contextProvider = GameContext.Main;
             }
 

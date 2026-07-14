@@ -119,9 +119,9 @@ struct 不能用 `this.GetXxx<T>()` 扩展方法（值类型接口调用必然�
 - 覆写 `OnDestroy` 必须调 `base.OnDestroy()`。纯 C# 场景 `new DisposableBag(ctx)`；Command 内 `using var bag = ctx.CreateBag()`。
 - Unity 对象判空用 `if (x != null)`、不用 `?.`（fake null）；null UnityEvent 订阅 Editor/Dev 下 LogError（Inspector 漏配 fail-fast，见 #22）。
 
-## 18. FrameworkLog 全局诊断开关
+## 18. Log 全局诊断开关
 
-`FrameworkLog.Verbose = true` 开启框架诊断日志，仅 Editor / Development Build 生效。
+`Log.Verbose = true`（`Game.Framework.Logging`）放行 `Trace` 级框架诊断日志，仅 Editor / Development Build 生效；也可勾编辑器菜单 `SSFramework/诊断/Verbose 日志`（本会话有效）。完整日志规则见 #34。
 
 ## 19. 资源系统最佳实践
 
@@ -242,8 +242,10 @@ UGUI 与 UI Toolkit 是两套渲染系统、不能互为子节点。要把 UGUI/
 - **两步场景配置**：① 工程 Tags & Layers 预留一个专用 layer 填进组件；② 主相机（及其它场景相机）`cullingMask` **剔除该层**，否则嵌入内容会漏进游戏画面。被嵌 prefab 是一段 RectTransform 面板、**自身不带 Canvas**（桥的托管 Canvas 承载）。
 - ⚠ **输入穿透**：勾 `Interactive` 后指针（点击 / 悬停 / 拖拽 / 滚轮）穿透 RT 进嵌入 UGUI（需场景有 EventSystem）；**文本输入 / IME、多点触控不做**。纯显示留 `Interactive` 关。刷新：动态内容 `EveryFrame`、静态内容 `OnDemand`（变了调 `RequestRender()`）。详见 guide §27、ADR-0033。
 
-## 34. 日志 FrameworkLog（分级 + 可插拔 sink）
+## 34. 日志 Log（分级 + 可插拔 sink）
 
-- 框架统一日志门面（`Game.Framework.Internal.FrameworkLog`，静态、出厂即用）：`Info/Warning/Error(msg[, ex][, category])` 始终广播给 sink；`Trace` / 兼容用 `LogVerbose` 是诊断噪音，受 `Verbose` 开关 + **仅 Editor/Development** 双重门控。**框架 / 业务新代码的日志走门面，别裸 `Debug.Log`**——裸 Debug.Log 拦不住、进不了文件 / 遥测、测试也捕获不了；错误 / 警告尤其应走门面。`category` 可选（给结构化 sink 分组用），一般 message 前缀 `[Xxx]` 即可。
-- **日志去向 = sink**：出厂装一个 `UnityDebugLogSink`（转 `Debug.Log`，Console 观感 / 定位不变）。落盘用 `FrameworkLog.AddSink(new FileLogSink(路径, minLevel))`（`Game.Framework.Logging`，零依赖、超阈值自动滚动），**启动时配一次**。多 sink 广播、每 sink 自带 `MinLevel`（可让 Console 只留 Warning+、细粒度进文件）。自定义去向实现 `ILogSink`（`Log(in LogEntry)` + `MinLevel`）——⚠ 可能被后台线程调用，持可变状态自行加锁。测试静音 / 捕获用 `ClearSinks()` + 自装 sink。
-- **结构化 / 零分配 / 遥测**：内核 Console + File 已覆盖绝大多数客户端排查。ZLogger 实测**客户端不引入**（装它拖进 `System.Text.Json` 全家桶 ≈1.4MB、最大开销纯为客户端用不上的 JSON 日志，见 ADR-0034 实测复盘）；真需要（尤其服务端 .NET）时实现一个 `ZLoggerLogSink : ILogSink` 接进来即可——**接缝已留位、业务零改动**，不为落文件吞重依赖。详见 guide §28、ADR-0034。
+- **框架与业务共用一个门面** `Game.Framework.Logging.Log`（静态、出厂即用）：`Info/Warning/Error(msg[, ex][, category][, context])` 始终广播给 sink。**新代码日志一律走门面，别裸 `Debug.Log`**——裸的进不了文件 / 遥测 / 测试。`category` 可选（给结构化 sink 分组）；`context` 传 `UnityEngine.Object` 后，点 Console 那条日志会高亮定位到它。结构化字段走 `Log.Write(level, msg, fields)`。
+- **`Trace` 一律写成插值**：`Log.Trace($"[Container] REGISTER {type.Name}")`。它走插值字符串处理器——`Verbose` 关时**连字符串都不拼、插值表达式根本不求值**；发布版整个调用被 `[Conditional]` 从 IL 删除。⚠ **因此 Trace 的插值参数只放纯读取，不要放有副作用的表达式**（`i++` / `list.Pop()`）：级别没开时它们不会执行（与手写 `if (Verbose)` 守卫同语义）。也别写 `Log.Trace("x " + y)`（字符串拼接会退回「先拼再丢」）。
+- **日志去向 = sink**：出厂装一个 `UnityDebugLogSink`（转 `Debug.Log`；Console 观感与**双击定位**不变——靠门面方法上的 `[HideInCallstack]` 保住，包一层日志门面最常见的死因就是丢了它）。落盘 `Log.AddSink(new FileLogSink(路径, minLevel))`（零依赖、会话头、Error 自动带栈、超阈值滚动），**启动时配一次**。多 sink 广播、每 sink 自带 `MinLevel`。自定义去向实现 `ILogSink`（`Log(in LogEntry)` + `MinLevel`）——⚠ 可能被后台线程调用，持可变状态自行加锁。测试静音 / 捕获用 `ClearSinks()` + 自装 sink。
+- **启动时开 `Log.CaptureUnityLogs()`**：接管 `Application.logMessageReceivedThreaded`，把**引擎报错 / 第三方包日志 / 裸 `Debug.Log` / 未捕获异常**也灌进 sink，一行调用点都不用改。不开的话玩家崩溃的那个 `NullReferenceException` **根本不在你的日志文件里**——而它恰恰最该捞到。桥接条目标 `LogEntry.FromUnity`，`UnityDebugLogSink` 跳过它们防回声（Console 里已经有了）。
+- **刻意不做**：消息模板（Serilog 的 `"处理了 {Count} 条"` 那套）、异步批处理、结构化 JSON / 遥测传输。ZLogger 实测**客户端不引入**（拖进 `System.Text.Json` 全家桶 ≈1.4MB，最大开销纯为客户端几乎不产的 JSON 日志——而「零分配」我们用插值处理器已经拿到了）；真需要（尤其服务端 .NET）实现一个 `ZLoggerLogSink : ILogSink` 接进来即可——接缝已留位、业务零改动。详见 guide §28、ADR-0034。
