@@ -2761,8 +2761,10 @@ FrameworkLog.AddSink(new FileLogSink(
 - **自定义去向**：实现 `ILogSink`（`Log(in LogEntry)` + `MinLevel`）。⚠ 可能被后台线程调用（如网络接收循环记日志），持有可变状态要自行加锁（参考 `FileLogSink`）。
 - **测试静音 / 捕获**：`FrameworkLog.ClearSinks()` 后装一个收集用的 sink（见 `LoggingTests`）。
 
-### 什么时候上 ZLogger
+### 需要结构化 / 遥测时（为什么客户端不上 ZLogger）
 
-内核这两个 sink（Console + File）覆盖了「开发期按模块过滤」与「落盘捞日志」——**绝大多数客户端排查够用**。当需要**零分配 / 结构化 JSON / 精细滚动 / HTTP 遥测**（尤其服务端、线上运营）时，接入可选模块 `Game.Framework.Logging.ZLogger` 的 sink：它藏在同一个 `ILogSink` 接缝后、业务零改动，但会引入 `Microsoft.Extensions.Logging` 一串依赖，故做成可整块删的独立模块、**按需引入**——不为「写个日志文件」就让客户端吞下重依赖。
+内核这两个 sink（Console + File）覆盖了「开发期按模块过滤」与「落盘捞日志」——**绝大多数客户端排查够用**。更进阶的**零分配 / 结构化 JSON / 精细滚动 / HTTP 遥测**能力，评估过 Cysharp ZLogger，实测后**客户端不引入**：装 ZLogger 会拖进 `System.Text.Json` 全家桶等 ≈1.4 MB 托管 DLL，而最大的一块纯为客户端几乎不产的 JSON 日志，性价比不划算（详见 ADR-0034 实测复盘）。
+
+正确落点是**服务端**（Outpost `Server~/` 本就是 .NET，直接用 ZLogger、无包体顾虑）。客户端将来若确有「结构化日志上报后台」刚需，再实现一个 `ZLoggerLogSink : ILogSink` 接进来即可——**接缝已为此留好位置，业务零改动**。这正是「先做零依赖接缝、把第三方隔在接口后」的价值：试错第三方库的代价被压到「删依赖」，内核不受牵连。
 
 详见 ADR-0034、AGENTS #34。
