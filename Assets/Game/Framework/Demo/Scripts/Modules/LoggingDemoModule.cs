@@ -14,7 +14,7 @@ namespace Game.Framework.Demo.Modules
     /// 定位是「日志有一层可替换的接缝」——按级别 / 来源过滤、落文件、测试捕获、遥测重定向都在这一层着力，
     /// 而不是把 <c>Debug.Log</c> 散落一地、事后无从拦截（ADR-0034）。
     /// 本章把三件不可见的事做成可见：① 多播（装捕获 sink 看同一条日志两处落地）；
-    /// ② 插值惰性求值（Verbose 关时表达式根本不求值，用计数器证明）；
+    /// ② 插值惰性求值（总闸门没放行到 Trace 时表达式根本不求值，用计数器证明）；
     /// ③ 接管 Unity 日志流（裸 <c>Debug.LogError</c> / 引擎报错也能进文件）。
     /// </summary>
     public sealed class LoggingDemoModule : DemoModuleBase
@@ -25,8 +25,9 @@ namespace Game.Framework.Demo.Modules
         public override int Order => 35;   // 排在「本地存储(30)」「音频(40)」之间，归到基础设施类 Utility
         public override string Summary =>
             "Log 静态门面：Trace/Info/Warning/Error 分级，广播到一组可插拔 ILogSink（Console / 文件 / 遥测）。" +
-            "Trace 走插值处理器——没开时连字符串都不拼；CaptureUnityLogs 把引擎报错 / 第三方 / 裸 Debug.Log 也灌进 sink；" +
-            "每个 sink 自带 MinLevel；落文件零依赖（带会话头 + error 堆栈）。ZLogger 客户端刻意不引。ADR-0034。";
+            "两道闸门：全局 Log.MinLevel（总闸）+ 每个 sink 的 MinLevel（分闸）。" +
+            "Trace 走插值处理器——没放行时连字符串都不拼；CaptureUnityLogs 把引擎报错 / 第三方 / 裸 Debug.Log 也灌进 sink；" +
+            "落文件零依赖（带会话头 + error 堆栈）。ZLogger 客户端刻意不引。ADR-0034。";
 
         // 本章发出的日志统一打这个 category，便于和框架内部日志区分（也演示 category 的用法）。
         private const string DemoCategory = "Demo";
@@ -52,7 +53,7 @@ namespace Game.Framework.Demo.Modules
             public void Log(in LogEntry entry) => _onLog(entry);
         }
 
-        // 插值惰性求值的探针：被求值就自增。用它证明「Verbose 关时 $"..." 里的表达式一次都没跑」。
+        // 插值惰性求值的探针：被求值就自增。用它证明「总闸门没放行到 Trace 时 $"..." 里的表达式一次都没跑」。
         private int _touchCount;
 
         private string Touch()
@@ -64,8 +65,8 @@ namespace Game.Framework.Demo.Modules
         public override void Build(DemoModuleHost host)
         {
             // 进入本章时的全局日志状态快照，切走本章时原样恢复：Log 是进程级静态门面，
-            // demo 不能把它留在「装着捕获 sink / Verbose 开着 / 接管着 Unity 日志流」的脏状态里污染其它章。
-            bool prevVerbose = Log.Verbose;
+            // demo 不能把它留在「装着捕获 sink / 总闸门开着 / 接管着 Unity 日志流」的脏状态里污染其它章。
+            var prevMinLevel = Log.MinLevel;
 
             CapturingSink capturing = null;    // 当前装着的捕获 sink（null = 没装）
             FileLogSink fileSink = null;       // 当前装着的文件 sink（null = 没装）
@@ -112,8 +113,14 @@ namespace Game.Framework.Demo.Modules
                     : "场景里没找到可用作 context 的物体，但 API 用法就是第三参 context。";
             }, CodeRef.Here("context: assets", "context 参数"));
 
+            // ── 两道闸门 ──
+            host.AddSectionTitle("两道闸门：全局 MinLevel（总闸）+ 每个 sink 的 MinLevel（分闸）");
+            host.AddNote("一条日志要送达某个 sink，得**同时**过两道：**总闸门** `Log.MinLevel`（全局，默认 `Info`）和该 sink 自己的**分闸门** `MinLevel`。这是**一个概念（级别）、两个作用域**，与 Serilog / MS.Extensions.Logging 的模型一致。",
+                new CodeRef("Assets/Game/Framework/Core/Logging/Log.cs", "public static LogLevel MinLevel", "总闸门"));
+            host.AddSubNote("**为什么不是一个 `Verbose` 布尔**：早期确实是。但 sink + `MinLevel` 体系落地后它就被吸收了——「`Verbose=false`」≡「所有 sink 的 `MinLevel` ≥ `Info`」，两者做的是同一件事。并存反而制造陷阱：sink 明明写着接收 `Trace`，日志却被另一个布尔挡着，怎么调都不出来。收敛成单一的级别概念后，串联关系一目了然。附带好处：`Log.MinLevel = Warning` 可**全局压掉 Info 噪音**，这是原来做不到的。");
+
             // ── Trace + 惰性求值（核心） ──
-            host.AddSectionTitle("Trace + Verbose：诊断噪音，且「关掉时真·零成本」");
+            host.AddSectionTitle("Trace：诊断噪音，且「关掉时真·零成本」");
             var traceLabel = host.AddValueDisplay();
             traceLabel.style.whiteSpace = WhiteSpace.Normal;
             var touchLabel = host.AddValueDisplay();
@@ -121,19 +128,24 @@ namespace Game.Framework.Demo.Modules
 
             void RefreshTrace()
             {
-                traceLabel.text = $"Log.Verbose = {Log.Verbose}　｜　Trace 只在 Verbose 开 + 仅 Editor/Development 构建时输出。";
-                touchLabel.text = $"插值表达式被求值的次数：{_touchCount}　（Verbose 关时点「发一条插值 Trace」，这个数**不该涨**）";
+                traceLabel.text = $"总闸门 Log.MinLevel = {Log.MinLevel}　｜　Trace 要送达，总闸门得放行到 Trace（俗称「开 Verbose」），且仅 Editor / Development 构建。";
+                touchLabel.text = $"插值表达式被求值的次数：{_touchCount}　（总闸门没放行到 Trace 时点「发一条插值 Trace」，这个数不该涨）";
             }
             RefreshTrace();
 
-            host.AddActionRow("切换 Verbose", () =>
+            host.AddActionRow("总闸门放行到 Trace（= 开 Verbose）", () =>
             {
-                Log.Verbose = !Log.Verbose;
+                Log.MinLevel = LogLevel.Trace;
                 RefreshTrace();
-            }, new CodeRef("Assets/Game/Framework/Core/Logging/Log.cs", "public static bool Verbose", "Verbose 开关"));
+            }, CodeRef.Here("Log.MinLevel = LogLevel.Trace", "开总闸门"));
+            host.AddActionRow("总闸门收回到 Info（默认）", () =>
+            {
+                Log.MinLevel = LogLevel.Info;
+                RefreshTrace();
+            }, CodeRef.Here("Log.MinLevel = LogLevel.Info", "收总闸门"));
             host.AddActionRow("发一条插值 Trace（含一个会计数的表达式）", () =>
             {
-                // ★ 本章最值钱的一行：Trace 没开时，Touch() 根本不会被调用——编译器在调用点插了 if (shouldAppend) 守卫。
+                // ★ 本章最值钱的一行：Trace 没放行时，Touch() 根本不会被调用——编译器在调用点插了 if (shouldAppend) 守卫。
                 Log.Trace($"诊断噪音：{Touch()}", DemoCategory);
                 RefreshTrace();
             }, CodeRef.Here("Log.Trace($\"诊断噪音：{Touch()}\"", "插值 Trace（惰性求值）"));
@@ -143,11 +155,11 @@ namespace Game.Framework.Demo.Modules
                 RefreshTrace();
             });
 
-            host.AddNote("**先在 Verbose 关的状态下连点几次「发一条插值 Trace」——求值次数纹丝不动。再开 Verbose 点，它才开始涨。** 这就是插值字符串处理器（C# 10）：`Log.Trace($\"...\")` 的参数不是先拼好的字符串，而是被编译器改写成一串 `Append` 调用，外面裹着一个 `if (级别开着吗)` 守卫。级别没开 → 整块跳过 → **表达式一次都不求值、字符串一个字符都不拼**。",
+            host.AddNote("**先在总闸门 = `Info`（默认）时连点几次「发一条插值 Trace」——求值次数纹丝不动。再把总闸门放行到 `Trace` 去点，它才开始涨。** 这就是插值字符串处理器（C# 10）：`Log.Trace($\"...\")` 的参数不是先拼好的字符串，而是被编译器改写成一串 `Append` 调用，外面裹着一个 `if (级别放行吗)` 守卫。级别没放行 → 整块跳过 → **表达式一次都不求值、字符串一个字符都不拼**。",
                 new CodeRef("Assets/Game/Framework/Core/Logging/TraceInterpolatedStringHandler.cs", "public ref struct TraceInterpolatedStringHandler", "插值处理器实现"));
-            host.AddSubNote("对比普通 `string` 参数：`Log.Trace($\"解析 {type.Name} 耗时 {ms}ms\")` 会**先把字符串拼好**，进到方法里才发现 Verbose 是关的、直接丢弃——白拼、白分配。容器每解析一次就白拼一个字符串，这是真实存在、天天在发生的浪费。框架内 `Container` / `YooAssetProvider` 的诊断日志现在都走这条惰性路径。");
-            host.AddSubNote("⚠ **唯一要守的纪律**：惰性意味着求值语义变了——参数里只放**纯读取**（属性、`ToString()`、拼字符串），**不要放有副作用的表达式**（`i++` / `list.Pop()`），因为级别没开时它们不会执行。这与手写 `if (Log.Verbose) Log.Trace(...)` 是完全相同的语义，处理器只是把守卫自动化了。");
-            host.AddSubNote("发布版里 `Trace` 调用连同实参**整个从 IL 中删除**（`[Conditional(\"UNITY_EDITOR\")]` + `[Conditional(\"DEVELOPMENT_BUILD\")]`），比「方法体空转」更彻底。");
+            host.AddSubNote("对比普通 `string` 参数：`Log.Trace($\"解析 {type.Name} 耗时 {ms}ms\")` 会**先把字符串拼好**，进到方法里才发现级别没放行、直接丢弃——白拼、白分配。容器每解析一次就白拼一个字符串，这是真实存在、天天在发生的浪费。框架内 `Container` / `YooAssetProvider` 的诊断日志现在都走这条惰性路径。");
+            host.AddSubNote("⚠ **唯一要守的纪律**：惰性意味着求值语义变了——参数里只放**纯读取**（属性、`ToString()`、拼字符串），**不要放有副作用的表达式**（`i++` / `list.Pop()`），因为级别没放行时它们不会执行。这与手写 `if (Log.IsEnabled(LogLevel.Trace)) Log.Trace(...)` 是完全相同的语义，处理器只是把守卫自动化了。");
+            host.AddSubNote("发布版里 `Trace` 调用连同实参**整个从 IL 中删除**（`[Conditional(\"UNITY_EDITOR\")]` + `[Conditional(\"DEVELOPMENT_BUILD\")]`），比「方法体空转」更彻底。也可在 Editor 菜单 `SSFramework/诊断/Verbose 日志` 或「框架诊断面板」顶部的日志栏直接调总闸门。");
 
             // ── 可插拔 sink ──
             host.AddSectionTitle("接缝：装一个捕获 sink，看多播 + 每 sink 自带 MinLevel");
@@ -305,13 +317,13 @@ namespace Game.Framework.Demo.Modules
 
             host.AddTip("速记：新代码日志一律走 Log 门面、别裸 Debug.Log（裸的进不了文件 / 遥测 / 测试）——但真有漏网的（第三方 / 引擎），CaptureUnityLogs 会兜住。Trace 用插值 $\"...\" 写，关掉时零成本，但参数别放副作用。落文件 AddSink(new FileLogSink(...)) 启动配一次。深度见 framework-guide 日志章 / ADR-0034。");
 
-            // 切走本章：拆掉 demo 装的 sink、取消接管、恢复 Verbose——不给全局静态门面留脏状态。
+            // 切走本章：拆掉 demo 装的 sink、取消接管、恢复总闸门——不给全局静态门面留脏状态。
             Bag.Add(Disposable.Create(() =>
             {
                 if (capturing != null) Log.RemoveSink(capturing);
                 if (fileSink != null) { Log.RemoveSink(fileSink); fileSink.Dispose(); }
                 if (capturingUnity) Log.CaptureUnityLogs(false);
-                Log.Verbose = prevVerbose;
+                Log.MinLevel = prevMinLevel;
             }));
         }
     }

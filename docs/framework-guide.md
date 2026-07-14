@@ -2721,14 +2721,22 @@ embed.Bind(view);
 
 日志要在**任何地方**可用，包括身处 DI 之下、没有 `Context` 的内核基础设施（`Container` / 构造期）——它们不能反向依赖容器去取 logger。所以 `Log` 是静态的、出厂即用（默认装配一个转 `Debug.Log` 的 sink）。
 
-### 级别与门控
+### 两道闸门（串联）
 
-| 级别 | 语义 | 输出条件 |
+一条日志要送达某个 sink，得**同时**过两道：
+
+| 闸门 | 是什么 | 默认 |
 |---|---|---|
-| `Trace` | 诊断噪音（注册 / 解析 / 重试等） | `Verbose` 开 **且** 仅 Editor / Development 构建（发布版整个调用被 `[Conditional]` 从 IL 删除） |
-| `Info` / `Warning` / `Error` | 正常日志 | 始终广播给 sink（由 sink 决定去向） |
+| **总闸门** `Log.MinLevel` | 全局最低级别。低于它的日志**连 `LogEntry` 都不构造** | `Info` |
+| **分闸门** `sink.MinLevel` | 每个 sink 自己的最低级别（路由） | 各 sink 自定 |
 
-`Log.Verbose = true` 开框架诊断（或 Editor 菜单 `SSFramework/诊断/Verbose 日志`，本会话有效）。
+这是**一个概念（级别）、两个作用域**——与 Serilog / MS.Extensions.Logging 的模型一致。
+
+> **为什么没有 `Verbose` 布尔**：早期有过。但 sink + `MinLevel` 体系落地后它就被吸收了——「`Verbose=false`」≡「所有 sink 的 `MinLevel` ≥ `Info`」，两者做的是同一件事。并存反而制造陷阱：sink 明明写着接收 `Trace`，日志却被另一个布尔挡着，怎么调都不出来。收敛成单一级别后，串联关系一目了然，还顺带获得了原来做不到的能力——`Log.MinLevel = LogLevel.Warning` 可**全局压掉 Info 噪音**，不必逐个改 sink。
+
+`Trace` 另有一道**编译期**门控：`[Conditional("UNITY_EDITOR"), Conditional("DEVELOPMENT_BUILD")]`，发布版整个调用（含实参求值）从 IL 中删除。
+
+「开 Verbose」= 把总闸门放行到 `Trace`：`Log.MinLevel = LogLevel.Trace`，或 Editor 菜单 `SSFramework/诊断/Verbose 日志`，或「框架诊断面板」顶部日志栏的下拉（都是本会话有效）。
 
 ### 记录
 
@@ -2751,11 +2759,11 @@ Log.Write(LogLevel.Info, "purchase",
 Log.Trace($"[Container] REGISTER {type.Name}: {label}");
 ```
 
-`Trace` 的插值重载走 **C# 10 插值字符串处理器**：编译器把 `$"..."` 改写成一串 `Append` 调用，外面裹一个 `if (级别开着吗)` 守卫。**`Verbose` 关时整块跳过——插值表达式一次都不求值、字符串一个字符都不拼。**
+`Trace` 的插值重载走 **C# 10 插值字符串处理器**：编译器把 `$"..."` 改写成一串 `Append` 调用，外面裹一个 `if (级别放行吗)` 守卫。**总闸门没放行到 `Trace` 时整块跳过——插值表达式一次都不求值、字符串一个字符都不拼。**
 
-对比普通 `string` 参数：`Log.Trace($"解析 {type.Name} 耗时 {ms}ms")` 会**先把字符串拼好**，进到方法里才发现 Verbose 是关的、直接丢弃——白拼、白分配。容器每解析一次就白拼一个字符串，这是真实的浪费。
+对比普通 `string` 参数：`Log.Trace($"解析 {type.Name} 耗时 {ms}ms")` 会**先把字符串拼好**，进到方法里才发现级别没放行、直接丢弃——白拼、白分配。容器每解析一次就白拼一个字符串，这是真实的浪费。
 
-> ⚠ **唯一要守的纪律**：惰性意味着求值语义变了——`Trace` 的插值参数里只放**纯读取**（属性、`ToString()`），**不要放有副作用的表达式**（`i++` / `list.Pop()`），级别没开时它们不会执行。这与手写 `if (Log.Verbose) Log.Trace(...)` 是**完全相同**的语义，处理器只是把守卫自动化了。另：别写 `Log.Trace("x " + y)`（字符串拼接会退回「先拼再丢」）。
+> ⚠ **唯一要守的纪律**：惰性意味着求值语义变了——`Trace` 的插值参数里只放**纯读取**（属性、`ToString()`），**不要放有副作用的表达式**（`i++` / `list.Pop()`），级别没放行时它们不会执行。这与手写 `if (Log.IsEnabled(LogLevel.Trace)) Log.Trace(...)` 是**完全相同**的语义，处理器只是把守卫自动化了。另：别写 `Log.Trace("x " + y)`（字符串拼接会退回「先拼再丢」）。
 
 处理器所需的两个 C# 10 attribute 在 Unity BCL 里没有，框架自带一份 `internal` polyfill（R3 / ObservableCollections 等库也都这么做）。
 

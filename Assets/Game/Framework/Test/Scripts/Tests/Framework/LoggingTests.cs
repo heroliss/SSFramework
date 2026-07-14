@@ -49,7 +49,7 @@ namespace Game.Framework.Test
         {
             // Log 是全局静态——每个用例先清干净，避免默认 UnityDebugLogSink 往 Console 刷 + 用例间串味。
             Log.ClearSinks();
-            Log.Verbose = false;
+            Log.MinLevel = LogLevel.Info;
             Log.CaptureUnityLogs(false);
             _touchCount = 0;
         }
@@ -61,7 +61,7 @@ namespace Game.Framework.Test
             Log.CaptureUnityLogs(false);
             Log.ClearSinks();
             Log.AddSink(new UnityDebugLogSink());
-            Log.Verbose = false;
+            Log.MinLevel = LogLevel.Info;
         }
 
         // ── 多播 / 过滤 ──────────────────────────────────────────────────
@@ -145,32 +145,52 @@ namespace Game.Framework.Test
         {
             Log.AddSink(new CapturingSink { MinLevel = LogLevel.Error });
 
-            Assert.IsFalse(Log.IsEnabled(LogLevel.Info), "所有 sink 的 MinLevel 都高于它 → 记了也没人收");
+            Assert.IsFalse(Log.IsEnabled(LogLevel.Info), "所有 sink 的分闸门都高于它 → 记了也没人收");
             Assert.IsTrue(Log.IsEnabled(LogLevel.Error));
+        }
+
+        /// <summary>
+        /// 总闸门（<see cref="Log.MinLevel"/>）与分闸门（<see cref="ILogSink.MinLevel"/>）是**串联**的：
+        /// 一条日志要**同时**过两道。这也是「<c>Verbose</c> 布尔被级别体系吸收」后新获得的能力——
+        /// 全局压掉 Info 噪音，不必逐个去改 sink（原来的 bool 做不到）。
+        /// </summary>
+        [Test]
+        public void GlobalMinLevel_GatesEveryLevel_EvenWhenSinkAcceptsIt()
+        {
+            var sink = new CapturingSink { MinLevel = LogLevel.Trace };   // 分闸门全开
+            Log.AddSink(sink);
+
+            Log.MinLevel = LogLevel.Warning;   // 总闸门只放 Warning 及以上
+            Log.Info("info");                  // 分闸门全开，但过不了总闸门
+            Log.Warning("warn");
+
+            Assert.AreEqual(1, sink.Entries.Count, "sink 的分闸门再低，也得先过总闸门");
+            Assert.AreEqual(LogLevel.Warning, sink.Entries[0].Level);
+            Assert.IsFalse(Log.IsEnabled(LogLevel.Info), "总闸门挡住时 IsEnabled 应为 false（调用点据此跳过昂贵构造）");
         }
 
         // ── Trace 门控 + 插值惰性求值（跨程序集验证处理器）─────────────────
 
         [Test]
-        public void Trace_OnlyDeliveredWhenVerbose()
+        public void Trace_OnlyDeliveredWhenGlobalGateAllowsIt()
         {
             var sink = new CapturingSink();
             Log.AddSink(sink);
 
-            Log.Verbose = false;
+            Log.MinLevel = LogLevel.Info;
             Log.Trace("noise");
-            Assert.AreEqual(0, sink.Entries.Count, "Verbose 关时 Trace 不投递");
+            Assert.AreEqual(0, sink.Entries.Count, "总闸门未放行到 Trace 时 Trace 不投递");
 
-            // 测试在 Editor 下跑（UNITY_EDITOR 为真，[Conditional] 不会剥掉调用），故 Verbose 开后 Trace 应放行。
-            Log.Verbose = true;
+            // 测试在 Editor 下跑（UNITY_EDITOR 为真，[Conditional] 不会剥掉调用），故总闸门放行到 Trace 后应投递。
+            Log.MinLevel = LogLevel.Trace;
             Log.Trace("visible");
-            Assert.AreEqual(1, sink.Entries.Count, "Verbose 开时 Trace 投递");
+            Assert.AreEqual(1, sink.Entries.Count, "总闸门放行到 Trace 时 Trace 投递");
             Assert.AreEqual(LogLevel.Trace, sink.Entries[0].Level);
         }
 
         /// <summary>
         /// 本用例是整套插值处理器设计的地基验证，一箭双雕：<br/>
-        /// ① <b>惰性求值</b>——Verbose 关时 <c>$"..."</c> 里的 <c>Touch()</c> 一次都不该被调用
+        /// ① <b>惰性求值</b>——总闸门未放行到 Trace 时 <c>$"..."</c> 里的 <c>Touch()</c> 一次都不该被调用
         ///    （编译器在调用点插了 <c>if (shouldAppend)</c> 守卫）；<br/>
         /// ② <b>跨程序集识别</b>——本测试程序集没有声明 polyfill attribute，若编译器仍把
         ///    <c>Log.Trace($"...")</c> 绑到处理器重载（而不是 string 重载），说明处理器可跨程序集正常工作。
@@ -182,14 +202,14 @@ namespace Game.Framework.Test
             var sink = new CapturingSink();
             Log.AddSink(sink);
 
-            Log.Verbose = false;
+            Log.MinLevel = LogLevel.Info;
             Log.Trace($"noise {Touch()}");
-            Assert.AreEqual(0, _touchCount, "Verbose 关时插值表达式不应求值——否则处理器没生效（绑到了 string 重载）");
+            Assert.AreEqual(0, _touchCount, "总闸门未放行到 Trace 时插值表达式不应求值——否则处理器没生效（绑到了 string 重载）");
             Assert.AreEqual(0, sink.Entries.Count);
 
-            Log.Verbose = true;
+            Log.MinLevel = LogLevel.Trace;
             Log.Trace($"noise {Touch()}");
-            Assert.AreEqual(1, _touchCount, "Verbose 开时插值正常求值");
+            Assert.AreEqual(1, _touchCount, "总闸门放行到 Trace 时插值正常求值");
             Assert.AreEqual(1, sink.Entries.Count);
             StringAssert.Contains("touched", sink.Entries[0].Message);
         }
@@ -199,7 +219,7 @@ namespace Game.Framework.Test
         {
             var sink = new CapturingSink();
             Log.AddSink(sink);
-            Log.Verbose = true;
+            Log.MinLevel = LogLevel.Trace;
 
             int n = 7;
             double d = 3.14159;
@@ -407,7 +427,7 @@ namespace Game.Framework.Test
                     Log.AddSink(file);
                     Log.Info("line one", "A");
                     Log.Warning("line two");
-                    Log.Trace("filtered"); // Verbose 关 + 低于 Info，落不进文件
+                    Log.Trace("filtered"); // 总闸门是 Info，Trace 过不了，落不进文件
                 } // Dispose 释放句柄后再读
 
                 string content = File.ReadAllText(path);

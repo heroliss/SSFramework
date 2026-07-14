@@ -121,7 +121,7 @@ struct 不能用 `this.GetXxx<T>()` 扩展方法（值类型接口调用必然�
 
 ## 18. Log 全局诊断开关
 
-`Log.Verbose = true`（`Game.Framework.Logging`）放行 `Trace` 级框架诊断日志，仅 Editor / Development Build 生效；也可勾编辑器菜单 `SSFramework/诊断/Verbose 日志`（本会话有效）。完整日志规则见 #34。
+`Log.MinLevel = LogLevel.Trace`（`Game.Framework.Logging`）放行 `Trace` 级框架诊断日志（俗称「开 Verbose」），仅 Editor / Development Build 生效；也可勾编辑器菜单 `SSFramework/诊断/Verbose 日志`，或在「框架诊断面板」顶部日志栏直接调（本会话有效）。**没有独立的 `Verbose` 布尔**——它已被级别体系吸收，见 #34。
 
 ## 19. 资源系统最佳实践
 
@@ -245,7 +245,8 @@ UGUI 与 UI Toolkit 是两套渲染系统、不能互为子节点。要把 UGUI/
 ## 34. 日志 Log（分级 + 可插拔 sink）
 
 - **框架与业务共用一个门面** `Game.Framework.Logging.Log`（静态、出厂即用）：`Info/Warning/Error(msg[, ex][, category][, context])` 始终广播给 sink。**新代码日志一律走门面，别裸 `Debug.Log`**——裸的进不了文件 / 遥测 / 测试。`category` 可选（给结构化 sink 分组）；`context` 传 `UnityEngine.Object` 后，点 Console 那条日志会高亮定位到它。结构化字段走 `Log.Write(level, msg, fields)`。
-- **`Trace` 一律写成插值**：`Log.Trace($"[Container] REGISTER {type.Name}")`。它走插值字符串处理器——`Verbose` 关时**连字符串都不拼、插值表达式根本不求值**；发布版整个调用被 `[Conditional]` 从 IL 删除。⚠ **因此 Trace 的插值参数只放纯读取，不要放有副作用的表达式**（`i++` / `list.Pop()`）：级别没开时它们不会执行（与手写 `if (Verbose)` 守卫同语义）。也别写 `Log.Trace("x " + y)`（字符串拼接会退回「先拼再丢」）。
+- **两道闸门（串联）**：一条日志要**同时**过 **全局 `Log.MinLevel`（总闸，默认 `Info`）** 和 **该 sink 的 `MinLevel`（分闸）**。是**一个概念（级别）、两个作用域**（同 Serilog / MEL），**不存在独立的 `Verbose` 布尔**——那个老开关与级别体系语义重叠（「Verbose=false」≡「所有 sink 的 MinLevel ≥ Info」），并存会制造「sink 明明收 Trace 却怎么调都不出来」的陷阱，已收敛掉。全局压噪音：`Log.MinLevel = LogLevel.Warning`。
+- **`Trace` 一律写成插值**：`Log.Trace($"[Container] REGISTER {type.Name}")`。它走插值字符串处理器——总闸门没放行到 Trace 时**连字符串都不拼、插值表达式根本不求值**；发布版整个调用被 `[Conditional]` 从 IL 删除。⚠ **因此 Trace 的插值参数只放纯读取，不要放有副作用的表达式**（`i++` / `list.Pop()`）：级别没放行时它们不会执行（与手写 `if (Log.IsEnabled(...))` 守卫同语义）。也别写 `Log.Trace("x " + y)`（字符串拼接会退回「先拼再丢」）。
 - **日志去向 = sink**：出厂装一个 `UnityDebugLogSink`（转 `Debug.Log`；Console 观感与**双击定位**不变——双击落到你的调用点而非框架内部）。落盘 `Log.AddSink(new FileLogSink(路径, minLevel))`（零依赖、会话头、Error 自动带栈、超阈值滚动），**启动时配一次**。多 sink 广播、每 sink 自带 `MinLevel`。自定义去向实现 `ILogSink`（`Log(in LogEntry)` + `MinLevel`）——⚠ 可能被后台线程调用，持可变状态自行加锁。测试静音 / 捕获用 `ClearSinks()` + 自装 sink。
   - ⚠ **给转发链加层时（新 sink 包装 / 装饰器）必须标 `[HideInCallstack]`**：Unity 从 `Debug.Log` 那帧往外走、跳过标了该特性的帧、停在**第一个没标的**帧——漏一层，双击就落进框架内部而不是调用点（`LoggingTests.EntireForwardingChain_IsHiddenFromCallstack` 守住这条）。
 - **启动时开 `Log.CaptureUnityLogs()`**：接管 `Application.logMessageReceivedThreaded`，把**引擎报错 / 第三方包日志 / 裸 `Debug.Log` / 未捕获异常**也灌进 sink，一行调用点都不用改。不开的话玩家崩溃的那个 `NullReferenceException` **根本不在你的日志文件里**——而它恰恰最该捞到。桥接条目标 `LogEntry.FromUnity`，`UnityDebugLogSink` 跳过它们防回声（Console 里已经有了）。
