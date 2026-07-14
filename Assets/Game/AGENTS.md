@@ -241,3 +241,9 @@ UGUI 与 UI Toolkit 是两套渲染系统、不能互为子节点。要把 UGUI/
 - **后端无关件**（`Game.Framework.UI.Toolkit`）：`RenderTextureElement`（显示一张 RT 的 `[UxmlElement]`）+ `CameraTextureRenderer`（相机→RT 生命周期，`Resize` 幂等 / `Render` / `Dispose`）——3D 道具预览 / 小地图配自己的相机直接用这对。
 - **两步场景配置**：① 工程 Tags & Layers 预留一个专用 layer 填进组件；② 主相机（及其它场景相机）`cullingMask` **剔除该层**，否则嵌入内容会漏进游戏画面。被嵌 prefab 是一段 RectTransform 面板、**自身不带 Canvas**（桥的托管 Canvas 承载）。
 - ⚠ **输入穿透**：勾 `Interactive` 后指针（点击 / 悬停 / 拖拽 / 滚轮）穿透 RT 进嵌入 UGUI（需场景有 EventSystem）；**文本输入 / IME、多点触控不做**。纯显示留 `Interactive` 关。刷新：动态内容 `EveryFrame`、静态内容 `OnDemand`（变了调 `RequestRender()`）。详见 guide §27、ADR-0033。
+
+## 34. 日志 FrameworkLog（分级 + 可插拔 sink）
+
+- 框架统一日志门面（`Game.Framework.Internal.FrameworkLog`，静态、出厂即用）：`Info/Warning/Error(msg[, ex][, category])` 始终广播给 sink；`Trace` / 兼容用 `LogVerbose` 是诊断噪音，受 `Verbose` 开关 + **仅 Editor/Development** 双重门控。**框架 / 业务新代码的日志走门面，别裸 `Debug.Log`**——裸 Debug.Log 拦不住、进不了文件 / 遥测、测试也捕获不了；错误 / 警告尤其应走门面。`category` 可选（给结构化 sink 分组用），一般 message 前缀 `[Xxx]` 即可。
+- **日志去向 = sink**：出厂装一个 `UnityDebugLogSink`（转 `Debug.Log`，Console 观感 / 定位不变）。落盘用 `FrameworkLog.AddSink(new FileLogSink(路径, minLevel))`（`Game.Framework.Logging`，零依赖、超阈值自动滚动），**启动时配一次**。多 sink 广播、每 sink 自带 `MinLevel`（可让 Console 只留 Warning+、细粒度进文件）。自定义去向实现 `ILogSink`（`Log(in LogEntry)` + `MinLevel`）——⚠ 可能被后台线程调用，持可变状态自行加锁。测试静音 / 捕获用 `ClearSinks()` + 自装 sink。
+- **结构化 / 零分配 / 遥测**才上可选模块 `Game.Framework.Logging.ZLogger`（引 `Microsoft.Extensions.Logging` 一串，藏在同一 `ILogSink` 接缝后、可整块删）——不为「写个日志文件」吞重依赖；内核 Console + File 覆盖绝大多数客户端排查。详见 guide §28、ADR-0034。

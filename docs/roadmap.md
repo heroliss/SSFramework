@@ -67,6 +67,7 @@ DOTS 是数据/Job/Burst 范式，与引用式 OOP 不同。框架的定位是**
 | 响应式集合 / 列表绑定 | ✅ 已落地 | `ObservableList<T>` 持有集合状态（如单值用 `RP<T>`）+ `Bag.BindList` 增量绑定（Toolkit / UGUI 双后端，只动变化项、不整表重建，每行独享子 bag）。后端中立增量引擎单点可测、内核零改动；藏在 `Bag.BindList` 后隔离 ObservableCollections。ADR-0027 |
 | 网络（HTTP / WebSocket） | ✅ 已落地 | 消息建模双轨：请求-响应 = `IHttpUtility` UniTask 返回值（REST 动词 + `Send` 逃生舱，非 2xx 抛 `NetworkException` 分级）；服务器推送 = `IWebSocketUtility` 经 envelope 映射为框架 Event（`RegisterPush`）。传输（UnityWebRequest / ClientWebSocket）× 序列化（默认 JSON）双接缝可插拔，零第三方依赖留内核。接收循环后台收帧→切主线程扇出。刻意不做自动重试 / 重连 / WebGL 的 WS（给样板 + 留接缝）。ADR-0028 |
 | 字体（多语言字体链） | ✅ 已落地 | `MonoLocaleFonts` / `LocaleFontChain`：三层字体策略（①精简主字体随包 + ②per-locale 补充字体 + ③OS 字体运行时兜底）写进主字体 fallback 表，订阅 `Locale` 自动切换、业务零调用；未配置 locale 降级不炸、销毁还原原始表。Editor「生成常用字集」菜单产 charset 喂 TMP Font Asset Creator。刻意不做全字库随包 / atlas 调优 / 远程字体协议。ADR-0025 |
+| 日志（分级 + 可插拔 sink） | ✅ 接缝已落地 | `FrameworkLog` 门面（分级 Trace/Info/Warning/Error）+ `ILogSink` 多播（每 sink 独立 MinLevel）+ 内核默认 `UnityDebugLogSink`（转 Debug.Log，Console 不变）/ `FileLogSink`（零依赖、按大小滚动、落盘捞日志）。ZLogger 作可选结构化/遥测 sink 模块（`Game.Framework.Logging.ZLogger`，按需装 Microsoft.Extensions.Logging，尚未落地）。ADR-0034 |
 | UPM 抽包 | 🔮 规划 | 框架稳定后从 `Assets/Game/Framework` 抽成内嵌/独立 UPM 包。ADR-0010 |
 
 ## 规划中的模块（待选型研究）
@@ -81,7 +82,7 @@ DOTS 是数据/Job/Burst 范式，与引用式 OOP 不同。框架的定位是**
 **Cysharp 生态候选**（已用 UniTask + R3 + ObservableCollections）：
 - **MessagePipe** —— 高性能消息/事件管线，评估与框架 Event 总线的关系（替代/互补）。
 - **MemoryPack** —— 高性能二进制序列化，可作存储/网络的序列化后端。
-- **ZLogger** —— 零分配结构化日志，评估与 `FrameworkLog` 的整合。
+- **ZLogger** —— ✅ 评估完成（ADR-0034）：结论是**框架不全量迁移**（客户端日志量下零分配/结构化边际收益低、Console 定位不可替代）。已先补内核日志接缝（`FrameworkLog` 门面 + `ILogSink` 多播 + 默认 Console/File sink，零依赖，覆盖「按模块过滤 + 落盘」两个最常用需求）；ZLogger 留作接缝后的**可选升级 sink 模块**，要结构化 JSON / 遥测（尤其服务端）时按需装。
 - **MagicOnion** —— 基于 gRPC 的实时通信；网络模块（ADR-0028）已落地 JSON 起步，MagicOnion 是整套 RPC 范式（非本模块传输接缝），真用时「直接用 + 框架管其余」。
 - ~~**ObservableCollections**~~ —— ✅ 已融入（ADR-0027）：`ObservableList<T>` + `Bag.BindList` 补 R3 集合响应式空缺，藏在绑定接口后。
 - **ZString** —— 零分配字符串构造，UI/日志高频拼接场景。
