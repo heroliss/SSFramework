@@ -4,7 +4,7 @@ namespace Game.Framework.Logging
     /// 框架日志级别。数值递增表示越重要，<see cref="ILogSink.MinLevel"/> 按 <c>&gt;=</c> 过滤。
     /// </summary>
     /// <remarks>
-    /// <see cref="Trace"/> 是诊断噪音（注册/解析/重试等），受 <c>Log.Verbose</c> 开关 + 仅 Editor/Development 输出双重门控
+    /// <see cref="Trace"/> 是诊断噪音（注册/解析/重试等），受 <c>Log.MinLevel</c>（放行到 Trace）+ 仅 Editor/Development 输出双重门控
     /// （发布版整个调用被 <c>[Conditional]</c> 从 IL 删除）。<see cref="Info"/> 及以上始终广播给 sink，由各 sink 自行决定去向
     /// （默认 <see cref="UnityDebugLogSink"/> 转 <c>Debug.Log</c>，发布版 Warning/Error 照常进 player.log）。
     /// </remarks>

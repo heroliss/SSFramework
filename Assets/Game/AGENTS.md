@@ -121,7 +121,7 @@ struct 不能用 `this.GetXxx<T>()` 扩展方法（值类型接口调用必然�
 
 ## 18. Log 全局诊断开关
 
-`Log.MinLevel = LogLevel.Trace`（`Game.Framework.Logging`）放行 `Trace` 级框架诊断日志（俗称「开 Verbose」），仅 Editor / Development Build 生效；也可勾编辑器菜单 `SSFramework/诊断/Verbose 日志`，或在「框架诊断面板」顶部日志栏直接调（本会话有效）。**没有独立的 `Verbose` 布尔**——它已被级别体系吸收，见 #34。
+`Log.MinLevel = LogLevel.Trace`（`Game.Framework.Logging`）放行 `Trace` 级框架诊断日志（俗称「开 Verbose」），仅 Editor / Development Build 生效；也可用编辑器菜单 `SSFramework/诊断/日志级别 ▸ Trace`，或在「框架诊断面板」顶部日志栏直接调（本会话有效）。**没有独立的 `Verbose` 布尔**——它已被级别体系吸收，见 #34。
 
 ## 19. 资源系统最佳实践
 
