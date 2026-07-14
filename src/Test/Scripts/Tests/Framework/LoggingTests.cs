@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.RegularExpressions;
-using Game.Framework.Internal;
 using Game.Framework.Logging;
 using NUnit.Framework;
 using UnityEngine;
@@ -11,9 +10,14 @@ using UnityEngine.TestTools;
 namespace Game.Framework.Test
 {
     /// <summary>
-    /// 验证框架日志接缝（ADR-0034）：<c>FrameworkLog</c> 门面的分级 / 多播 / 过滤 / Trace 门控 / 异常隔离，
-    /// 以及内核 <see cref="FileLogSink"/> 的落盘与按大小滚动。全部纯 C# 无头可测——接缝本身不依赖场景。
+    /// 验证框架日志门面（ADR-0034）：分级 / 多播 / 过滤 / Trace 门控 / 异常隔离 / Unity 日志流接管，
+    /// 以及内核 <see cref="FileLogSink"/> 的落盘与滚动。
     /// </summary>
+    /// <remarks>
+    /// 本程序集（<c>Game.Framework.Test</c>）与 <c>Game.Framework</c> 是**不同程序集**，且**没有**声明
+    /// 插值处理器所需的 polyfill attribute——因此这里的 <c>Log.Trace($"...")</c> 同时充当
+    /// 「处理器能否跨程序集被调用方编译器识别」的验证（见 <see cref="Trace_Interpolation_IsLazy_WhenDisabled"/>）。
+    /// </remarks>
     public class LoggingTests
     {
         // 收集投递到本 sink 的日志，供断言。
@@ -30,21 +34,32 @@ namespace Game.Framework.Test
             public void Log(in LogEntry entry) => throw new InvalidOperationException("sink boom");
         }
 
+        // 插值惰性求值的探针：被求值就自增。
+        private static int _touchCount;
+        private static string Touch()
+        {
+            _touchCount++;
+            return "touched";
+        }
+
         [SetUp]
         public void SetUp()
         {
-            // FrameworkLog 是全局静态——每个用例先清干净，避免默认 UnityDebugLogSink 往 Console 刷 + 用例间串味。
-            FrameworkLog.ClearSinks();
-            FrameworkLog.Verbose = false;
+            // Log 是全局静态——每个用例先清干净，避免默认 UnityDebugLogSink 往 Console 刷 + 用例间串味。
+            Log.ClearSinks();
+            Log.Verbose = false;
+            Log.CaptureUnityLogs(false);
+            _touchCount = 0;
         }
 
         [TearDown]
         public void TearDown()
         {
-            // 恢复出厂默认（一个 UnityDebugLogSink），不给后续测试留下被清空的日志系统。
-            FrameworkLog.ClearSinks();
-            FrameworkLog.AddSink(new UnityDebugLogSink());
-            FrameworkLog.Verbose = false;
+            // 恢复出厂默认（一个 UnityDebugLogSink），不给后续测试留下被清空 / 被接管的日志系统。
+            Log.CaptureUnityLogs(false);
+            Log.ClearSinks();
+            Log.AddSink(new UnityDebugLogSink());
+            Log.Verbose = false;
         }
 
         // ── 多播 / 过滤 ──────────────────────────────────────────────────
@@ -54,10 +69,10 @@ namespace Game.Framework.Test
         {
             var a = new CapturingSink();
             var b = new CapturingSink();
-            FrameworkLog.AddSink(a);
-            FrameworkLog.AddSink(b);
+            Log.AddSink(a);
+            Log.AddSink(b);
 
-            FrameworkLog.Info("hello", "Cat");
+            Log.Info("hello", "Cat");
 
             Assert.AreEqual(1, a.Entries.Count);
             Assert.AreEqual(1, b.Entries.Count, "一条日志应广播到每个 sink");
@@ -70,11 +85,11 @@ namespace Game.Framework.Test
         public void MinLevel_FiltersBelowThreshold()
         {
             var warnOnly = new CapturingSink { MinLevel = LogLevel.Warning };
-            FrameworkLog.AddSink(warnOnly);
+            Log.AddSink(warnOnly);
 
-            FrameworkLog.Info("info");         // 低于阈值，被挡
-            FrameworkLog.Warning("warn");      // 命中
-            FrameworkLog.Error("err");         // 高于阈值，命中
+            Log.Info("info");         // 低于阈值，被挡
+            Log.Warning("warn");      // 命中
+            Log.Error("err");         // 高于阈值，命中
 
             Assert.AreEqual(2, warnOnly.Entries.Count, "低于 MinLevel 的条目不应投递");
             Assert.AreEqual(LogLevel.Warning, warnOnly.Entries[0].Level);
@@ -85,47 +100,96 @@ namespace Game.Framework.Test
         public void RemoveSink_StopsDelivery()
         {
             var sink = new CapturingSink();
-            FrameworkLog.AddSink(sink);
-            FrameworkLog.Info("first");
+            Log.AddSink(sink);
+            Log.Info("first");
 
-            Assert.IsTrue(FrameworkLog.RemoveSink(sink));
-            FrameworkLog.Info("second");
+            Assert.IsTrue(Log.RemoveSink(sink));
+            Log.Info("second");
 
             Assert.AreEqual(1, sink.Entries.Count, "移除后不再收到");
             Assert.AreEqual("first", sink.Entries[0].Message);
-            Assert.IsFalse(FrameworkLog.RemoveSink(sink), "重复移除返回 false");
+            Assert.IsFalse(Log.RemoveSink(sink), "重复移除返回 false");
         }
 
-        // ── Trace 门控（受 Verbose + 仅 Editor/Dev）─────────────────────────
+        [Test]
+        public void IsEnabled_FalseWhenEverySinkFiltersLevelOut()
+        {
+            Log.AddSink(new CapturingSink { MinLevel = LogLevel.Error });
+
+            Assert.IsFalse(Log.IsEnabled(LogLevel.Info), "所有 sink 的 MinLevel 都高于它 → 记了也没人收");
+            Assert.IsTrue(Log.IsEnabled(LogLevel.Error));
+        }
+
+        // ── Trace 门控 + 插值惰性求值（跨程序集验证处理器）─────────────────
 
         [Test]
         public void Trace_OnlyDeliveredWhenVerbose()
         {
             var sink = new CapturingSink();
-            FrameworkLog.AddSink(sink);
+            Log.AddSink(sink);
 
-            FrameworkLog.Verbose = false;
-            FrameworkLog.Trace("noise");
-            FrameworkLog.LogVerbose("legacy noise");
+            Log.Verbose = false;
+            Log.Trace("noise");
             Assert.AreEqual(0, sink.Entries.Count, "Verbose 关时 Trace 不投递");
 
-            // 测试在 Editor 下跑（UNITY_EDITOR 为真），故 Verbose 开后 Trace 应放行。
-            FrameworkLog.Verbose = true;
-            FrameworkLog.Trace("visible");
+            // 测试在 Editor 下跑（UNITY_EDITOR 为真，[Conditional] 不会剥掉调用），故 Verbose 开后 Trace 应放行。
+            Log.Verbose = true;
+            Log.Trace("visible");
             Assert.AreEqual(1, sink.Entries.Count, "Verbose 开时 Trace 投递");
             Assert.AreEqual(LogLevel.Trace, sink.Entries[0].Level);
         }
 
-        // ── 异常 / 结构化载荷 ────────────────────────────────────────────
+        /// <summary>
+        /// 本用例是整套插值处理器设计的地基验证，一箭双雕：<br/>
+        /// ① <b>惰性求值</b>——Verbose 关时 <c>$"..."</c> 里的 <c>Touch()</c> 一次都不该被调用
+        ///    （编译器在调用点插了 <c>if (shouldAppend)</c> 守卫）；<br/>
+        /// ② <b>跨程序集识别</b>——本测试程序集没有声明 polyfill attribute，若编译器仍把
+        ///    <c>Log.Trace($"...")</c> 绑到处理器重载（而不是 string 重载），说明处理器可跨程序集正常工作。
+        ///    若绑错到 string 重载，<c>_touchCount</c> 会变成 1，本用例即失败。
+        /// </summary>
+        [Test]
+        public void Trace_Interpolation_IsLazy_WhenDisabled()
+        {
+            var sink = new CapturingSink();
+            Log.AddSink(sink);
+
+            Log.Verbose = false;
+            Log.Trace($"noise {Touch()}");
+            Assert.AreEqual(0, _touchCount, "Verbose 关时插值表达式不应求值——否则处理器没生效（绑到了 string 重载）");
+            Assert.AreEqual(0, sink.Entries.Count);
+
+            Log.Verbose = true;
+            Log.Trace($"noise {Touch()}");
+            Assert.AreEqual(1, _touchCount, "Verbose 开时插值正常求值");
+            Assert.AreEqual(1, sink.Entries.Count);
+            StringAssert.Contains("touched", sink.Entries[0].Message);
+        }
+
+        [Test]
+        public void Trace_Interpolation_FormatsValuesAndAlignment()
+        {
+            var sink = new CapturingSink();
+            Log.AddSink(sink);
+            Log.Verbose = true;
+
+            int n = 7;
+            double d = 3.14159;
+            Log.Trace($"n={n} d={d:F2} pad=[{n,3}]");
+
+            Assert.AreEqual(1, sink.Entries.Count);
+            Assert.AreEqual("n=7 d=3.14 pad=[  7]", sink.Entries[0].Message);
+        }
+
+        // ── 异常 / 堆栈 / 结构化载荷 / context ────────────────────────────
 
         [Test]
         public void Error_CarriesException()
         {
             var sink = new CapturingSink();
-            FrameworkLog.AddSink(sink);
+            Log.AddSink(sink);
 
             var ex = new InvalidOperationException("boom");
-            FrameworkLog.Error("failed", ex, "Net");
+            Log.Error("failed", ex, "Net");
 
             Assert.AreEqual(1, sink.Entries.Count);
             Assert.AreSame(ex, sink.Entries[0].Exception);
@@ -133,17 +197,40 @@ namespace Game.Framework.Test
         }
 
         [Test]
-        public void Log_PassesStructuredFields()
+        public void Error_WithoutException_AutoCapturesStackTrace()
         {
             var sink = new CapturingSink();
-            FrameworkLog.AddSink(sink);
+            Log.AddSink(sink);
+
+            Log.Error("no exception here");
+
+            Assert.IsNotNull(sink.Entries[0].StackTrace, "没带异常的 Error 应自动补抓调用栈，否则落盘后无从定位");
+            StringAssert.Contains(nameof(Error_WithoutException_AutoCapturesStackTrace), sink.Entries[0].StackTrace);
+        }
+
+        [Test]
+        public void Info_DoesNotCaptureStackTrace()
+        {
+            var sink = new CapturingSink();
+            Log.AddSink(sink);
+
+            Log.Info("cheap");
+
+            Assert.IsNull(sink.Entries[0].StackTrace, "抓栈不便宜，只对 Error 做");
+        }
+
+        [Test]
+        public void Write_PassesStructuredFields()
+        {
+            var sink = new CapturingSink();
+            Log.AddSink(sink);
 
             var fields = new List<KeyValuePair<string, object>>
             {
                 new("userId", 42),
                 new("action", "login"),
             };
-            FrameworkLog.Log(LogLevel.Info, "structured", fields);
+            Log.Write(LogLevel.Info, "structured", fields);
 
             var entry = sink.Entries[0];
             Assert.IsNotNull(entry.Fields);
@@ -153,17 +240,85 @@ namespace Game.Framework.Test
         }
 
         [Test]
+        public void Context_IsCarriedToSink()
+        {
+            var sink = new CapturingSink();
+            Log.AddSink(sink);
+
+            var go = new GameObject("ctx-probe");
+            try
+            {
+                Log.Info("with context", context: go);
+                Assert.AreSame(go, sink.Entries[0].Context, "Unity context 应透传给 sink（Console 点击可定位）");
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(go);
+            }
+        }
+
+        [Test]
         public void SinkException_DoesNotBreakOtherSinks()
         {
             var good = new CapturingSink();
-            FrameworkLog.AddSink(new ThrowingSink()); // 先抛的排前面，验证不影响后面的
-            FrameworkLog.AddSink(good);
+            Log.AddSink(new ThrowingSink()); // 先抛的排前面，验证不影响后面的
+            Log.AddSink(good);
 
             // 抛异常的 sink 会被门面吞掉并降级为一条 Debug.LogWarning。
             LogAssert.Expect(LogType.Warning, new Regex("sink ThrowingSink 抛异常"));
-            FrameworkLog.Info("survives");
+            Log.Info("survives");
 
             Assert.AreEqual(1, good.Entries.Count, "一个 sink 抛异常不应阻断其它 sink");
+        }
+
+        // ── Unity 日志流接管 ──────────────────────────────────────────────
+
+        [Test]
+        public void CaptureUnityLogs_BridgesBareDebugLogIntoSinks()
+        {
+            var sink = new CapturingSink();
+            Log.AddSink(sink);              // 注意：SetUp 已 ClearSinks，此时没有 UnityDebugLogSink
+            Log.CaptureUnityLogs(true);
+
+            LogAssert.Expect(LogType.Error, "bare engine error");
+            Debug.LogError("bare engine error");   // 完全没走门面——模拟引擎 / 第三方 / 业务裸 Debug.Log
+
+            Assert.AreEqual(1, sink.Entries.Count, "裸 Debug.LogError 应经桥接进入 sink（否则玩家的崩溃不在日志文件里）");
+            Assert.AreEqual(LogLevel.Error, sink.Entries[0].Level);
+            Assert.IsTrue(sink.Entries[0].FromUnity, "桥接来的条目应标记 FromUnity");
+            Assert.AreEqual("Unity", sink.Entries[0].Category);
+            Assert.IsNotNull(sink.Entries[0].StackTrace, "Unity 传来的栈应保留");
+        }
+
+        [Test]
+        public void CaptureUnityLogs_DoesNotEchoFacadeLogsTwice()
+        {
+            var sink = new CapturingSink();
+            Log.AddSink(new UnityDebugLogSink());   // 它会把门面日志转成 Debug.Log → 可能被桥接抓回来
+            Log.AddSink(sink);
+            Log.CaptureUnityLogs(true);
+
+            LogAssert.Expect(LogType.Log, "once");
+            Log.Info("once");
+
+            Assert.AreEqual(1, sink.Entries.Count,
+                "门面日志经 UnityDebugLogSink 回到 Console 后，不应被桥接当成新日志重复计入（重入 guard 生效）");
+            Assert.IsFalse(sink.Entries[0].FromUnity);
+        }
+
+        [Test]
+        public void UnityDebugLogSink_SkipsBridgedEntries()
+        {
+            // 桥接来的条目 Console 里已经有了，UnityDebugLogSink 必须跳过——否则重复刷屏 + 无限回环。
+            // 这里只装 UnityDebugLogSink：若它不跳过，转发会再触发桥接，LogAssert 将看到多于一条。
+            Log.AddSink(new UnityDebugLogSink());
+            Log.CaptureUnityLogs(true);
+
+            LogAssert.Expect(LogType.Warning, "bridged once");
+            Debug.LogWarning("bridged once");
+
+            // 没有额外的 Console 输出即通过（LogAssert 在 TearDown 会对未预期日志报错）。
+            Assert.Pass();
         }
 
         // ── FileLogSink 落盘 / 滚动 ───────────────────────────────────────
@@ -184,10 +339,10 @@ namespace Game.Framework.Test
             {
                 using (var file = new FileLogSink(path, LogLevel.Info))
                 {
-                    FrameworkLog.AddSink(file);
-                    FrameworkLog.Info("line one", "A");
-                    FrameworkLog.Warning("line two");
-                    FrameworkLog.Trace("filtered"); // Verbose 关 + 低于 Info，落不进文件
+                    Log.AddSink(file);
+                    Log.Info("line one", "A");
+                    Log.Warning("line two");
+                    Log.Trace("filtered"); // Verbose 关 + 低于 Info，落不进文件
                 } // Dispose 释放句柄后再读
 
                 string content = File.ReadAllText(path);
@@ -195,6 +350,30 @@ namespace Game.Framework.Test
                 StringAssert.Contains("[A]", content);
                 StringAssert.Contains("line two", content);
                 StringAssert.DoesNotContain("filtered", content);
+            }
+            finally
+            {
+                Directory.Delete(dir, recursive: true);
+            }
+        }
+
+        [Test]
+        public void FileLogSink_WritesSessionHeader()
+        {
+            string dir = TempDir();
+            string path = Path.Combine(dir, "framework.log");
+            try
+            {
+                using (var file = new FileLogSink(path, LogLevel.Info))
+                {
+                    Log.AddSink(file);
+                    Log.Info("after header");
+                }
+
+                string content = File.ReadAllText(path);
+                StringAssert.Contains("session", content, "每次开档应写会话头，否则多次启动的日志混在一起无从分辨");
+                StringAssert.Contains("unity", content);
+                StringAssert.Contains(Application.unityVersion, content);
             }
             finally
             {

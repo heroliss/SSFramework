@@ -1,4 +1,5 @@
 using System;
+using Game.Framework.Logging;
 using UnityEngine;
 
 namespace Game.Framework.Internal
@@ -39,7 +40,7 @@ namespace Game.Framework.Internal
                 if (existing is UnityEngine.Object uObj && uObj == null)
                 {
                     container.ReplaceOverride(contractType, instance);
-                    FrameworkLog.LogVerbose($"[Container] REPLACE {contractType.Name}: {label} (old destroyed)");
+                    Log.Trace($"[Container] REPLACE {contractType.Name}: {label} (old destroyed)");
                     return;
                 }
 
@@ -49,7 +50,8 @@ namespace Game.Framework.Internal
             }
 
             container.ReplaceOverride(contractType, instance);
-            FrameworkLog.LogVerbose($"[Container] REGISTER {contractType.Name}: {label}");
+            // 容器每注册一次就走这里：插值处理器让 Verbose 关时连字符串都不拼（旧的 LogVerbose(string) 是先拼好再丢弃）。
+            Log.Trace($"[Container] REGISTER {contractType.Name}: {label}");
         }
     }
 }

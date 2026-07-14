@@ -2359,7 +2359,7 @@ var ctx = new GameContext(builder.Build()) { DebugName = "MiniGame" };
 
 ### 边界（刻意行为）
 
-- **采集仅在 Editor**：存活登记表 / 订阅计数 / Bag 计数在玩家包（含 Development Build）里编译消除，零成本；真机诊断走 `FrameworkSelfCheck` 冒烟 + `FrameworkLog` 日志。
+- **采集仅在 Editor**：存活登记表 / 订阅计数 / Bag 计数在玩家包（含 Development Build）里编译消除，零成本；真机诊断走 `FrameworkSelfCheck` 冒烟 + `Log` 日志（配 `CaptureUnityLogs()` + `FileLogSink` 可把引擎报错 / 崩溃一并落盘，见 §28）。
 - **登记表持强引用**：没 Dispose 的 Context 会一直挂在树上——这不是面板的 bug，这就是它要暴露的泄漏。
 - 池概要的「借出」计数：GameObject 池实例被外部 Destroy 时计数停在借出侧（该实例再也不会归还了，本身就是线索）；C# 池在 Release 下无归属校验，误用会漂移（Editor / Dev 精确）。
 
@@ -2715,43 +2715,57 @@ embed.Bind(view);
 
 ## 28. 日志（分级 + 可插拔 sink）
 
-`FrameworkLog` 是框架统一的日志门面：**分级记录 + 广播到一组可插拔 `ILogSink`**。定位是「日志有一层可替换的接缝」——按模块过滤 / 静音、落文件、测试捕获、遥测重定向都在这一层着力，而不是把 `Debug.Log` 散落一地无从拦截（ADR-0034）。
+`Log`（`Game.Framework.Logging`）是**框架与业务共用**的日志门面：**分级记录 + 广播到一组可插拔 `ILogSink`**。定位是「日志有一层可替换的接缝」——按级别 / 来源过滤、落文件、测试捕获、遥测重定向都在这一层着力，而不是把 `Debug.Log` 散落一地无从拦截（ADR-0034）。
 
 ### 为什么是静态门面（而非 DI 服务）
 
-日志要在**任何地方**可用，包括身处 DI 之下、没有 `Context` 的内核基础设施（`Container` / 构造期）——它们不能反向依赖容器去取 logger。所以 `FrameworkLog` 是静态的、出厂即用（默认装配一个转 `Debug.Log` 的 sink）。
+日志要在**任何地方**可用，包括身处 DI 之下、没有 `Context` 的内核基础设施（`Container` / 构造期）——它们不能反向依赖容器去取 logger。所以 `Log` 是静态的、出厂即用（默认装配一个转 `Debug.Log` 的 sink）。
 
 ### 级别与门控
 
 | 级别 | 语义 | 输出条件 |
 |---|---|---|
-| `Trace` | 诊断噪音（注册 / 解析 / 重试等） | `Verbose` 开 **且** 仅 Editor / Development 构建 |
+| `Trace` | 诊断噪音（注册 / 解析 / 重试等） | `Verbose` 开 **且** 仅 Editor / Development 构建（发布版整个调用被 `[Conditional]` 从 IL 删除） |
 | `Info` / `Warning` / `Error` | 正常日志 | 始终广播给 sink（由 sink 决定去向） |
 
-- `FrameworkLog.Verbose = true` 开框架诊断（或 Editor 菜单 `SSFramework/诊断/Verbose 日志`，本会话有效）。
-- 旧 `FrameworkLog.LogVerbose(msg)` 保留 = `Trace` 的别名，既有调用零改动。
+`Log.Verbose = true` 开框架诊断（或 Editor 菜单 `SSFramework/诊断/Verbose 日志`，本会话有效）。
 
 ### 记录
 
 ```csharp
-FrameworkLog.Info("玩家进入战斗", "Battle");     // 第二参 category 可选
-FrameworkLog.Warning("配置缺省，回退默认值");
-FrameworkLog.Error("存档写入失败", ex, "Storage"); // 带异常：默认 sink 额外 LogException 保留堆栈
+Log.Info("玩家进入战斗", "Battle");            // 第二参 category 可选
+Log.Warning("配置缺省，回退默认值");
+Log.Error("存档写入失败", ex, "Storage");       // 带异常：默认 sink 额外 LogException 保留堆栈
+Log.Error("校验失败");                          // 不带异常：门面自动补抓调用栈进 LogEntry.StackTrace
+
+Log.Info("载入完成", context: gameObject);      // context：点 Console 那条日志会高亮定位到这个对象
 
 // 结构化字段（给结构化 sink 消费，文本 sink 忽略）
-FrameworkLog.Log(LogLevel.Info, "purchase",
+Log.Write(LogLevel.Info, "purchase",
     new[] { new KeyValuePair<string, object>("sku", skuId) });
 ```
 
-`category` 是可选的来源分类：多数日志用 message 内前缀 `[Xxx]` 区分即可，`category` 主要给结构化 sink 分组 / 过滤用。
+### `Trace` 写成插值 —— 关掉时真·零成本
+
+```csharp
+Log.Trace($"[Container] REGISTER {type.Name}: {label}");
+```
+
+`Trace` 的插值重载走 **C# 10 插值字符串处理器**：编译器把 `$"..."` 改写成一串 `Append` 调用，外面裹一个 `if (级别开着吗)` 守卫。**`Verbose` 关时整块跳过——插值表达式一次都不求值、字符串一个字符都不拼。**
+
+对比普通 `string` 参数：`Log.Trace($"解析 {type.Name} 耗时 {ms}ms")` 会**先把字符串拼好**，进到方法里才发现 Verbose 是关的、直接丢弃——白拼、白分配。容器每解析一次就白拼一个字符串，这是真实的浪费。
+
+> ⚠ **唯一要守的纪律**：惰性意味着求值语义变了——`Trace` 的插值参数里只放**纯读取**（属性、`ToString()`），**不要放有副作用的表达式**（`i++` / `list.Pop()`），级别没开时它们不会执行。这与手写 `if (Log.Verbose) Log.Trace(...)` 是**完全相同**的语义，处理器只是把守卫自动化了。另：别写 `Log.Trace("x " + y)`（字符串拼接会退回「先拼再丢」）。
+
+处理器所需的两个 C# 10 attribute 在 Unity BCL 里没有，框架自带一份 `internal` polyfill（R3 / ObservableCollections 等库也都这么做）。
 
 ### sink：日志去哪
 
 出厂装一个 `UnityDebugLogSink`（转 `Debug.Log`，Console 观感 / 双击定位 / 堆栈全不变）。按需追加：
 
 ```csharp
-// 落文件（玩家包 / QA 捞日志）——零依赖，超阈值自动按大小滚动、保留最近几份
-FrameworkLog.AddSink(new FileLogSink(
+// 落文件（玩家包 / QA 捞日志）——零依赖，带会话头、Error 自动带栈、超阈值按大小滚动
+Log.AddSink(new FileLogSink(
     Path.Combine(Application.persistentDataPath, "logs", "game.log"),
     minLevel: LogLevel.Info));
 ```
@@ -2759,14 +2773,29 @@ FrameworkLog.AddSink(new FileLogSink(
 - **多 sink 广播**：一条日志可同时进 Console + 文件（+ 未来的遥测）。
 - **每个 sink 自带 `MinLevel`**：让 Console 只留 Warning 以上（`new UnityDebugLogSink { MinLevel = LogLevel.Warning }`），细粒度日志交给文件 sink。
 - **自定义去向**：实现 `ILogSink`（`Log(in LogEntry)` + `MinLevel`）。⚠ 可能被后台线程调用（如网络接收循环记日志），持有可变状态要自行加锁（参考 `FileLogSink`）。
-- **测试静音 / 捕获**：`FrameworkLog.ClearSinks()` 后装一个收集用的 sink（见 `LoggingTests`）。
+- **测试静音 / 捕获**：`Log.ClearSinks()` 后装一个收集用的 sink（见 `LoggingTests`）。
+- **双击定位靠 `[HideInCallstack]`**：门面方法都标了它，Console 双击才会跳到**真正的调用点**而不是框架的转发方法——所有「包一层 `Debug.Log`」的门面最常见的死因就是丢了这个。
+
+### 接管 Unity 日志流（启动时开一次）
+
+```csharp
+Log.CaptureUnityLogs();   // 订阅 Application.logMessageReceivedThreaded
+```
+
+把 **Unity 自己的日志流**灌进 sink：不只是你的裸 `Debug.Log`，还包括**引擎级报错**（`NullReferenceException`、shader 错误）、**第三方包**（YooAsset / UniTask / R3）内部日志、**未捕获异常**。**一行调用点都不用改**，全量日志自动落盘 / 上报。
+
+> **不开的后果**：`FileLogSink` 只收显式调用门面的日志——玩家崩在一个 `NullReferenceException` 上时，那条崩溃**根本不在你的日志文件里**，而它恰恰是最该捞到的东西。
+
+**防回声**是这里的关键坑：`UnityDebugLogSink` 会把门面日志转发成 `Debug.Log`，而那次 `Debug.Log` 又会触发桥接回调——不拦就会重复落盘、甚至无限回环。桥用一个**线程私有**（`[ThreadStatic]`）标记记住「本线程此刻正在由框架往 Console 写」，回调见到就忽略；桥接来的条目标 `LogEntry.FromUnity`，`UnityDebugLogSink` 直接跳过（Console 里已经有了），而文件 / 遥测 sink 照常收。
 
 ### 需要结构化 / 遥测时（为什么客户端不上 ZLogger）
 
-内核这两个 sink（Console + File）覆盖了「开发期按模块过滤」与「落盘捞日志」——**绝大多数客户端排查够用**。更进阶的**零分配 / 结构化 JSON / 精细滚动 / HTTP 遥测**能力，评估过 Cysharp ZLogger，实测后**客户端不引入**：装 ZLogger 会拖进 `System.Text.Json` 全家桶等 ≈1.4 MB 托管 DLL，而最大的一块纯为客户端几乎不产的 JSON 日志，性价比不划算（详见 ADR-0034 实测复盘）。
+内核这两个 sink（Console + File）+ Unity 日志流接管，覆盖了「开发期按级别过滤」「落盘捞日志」「引擎/第三方/崩溃全量捕获」——**绝大多数客户端排查够用**。剩下的**结构化 JSON / 精细滚动 / HTTP 遥测**能力，评估过 Cysharp ZLogger，实测后**客户端不引入**：装它会拖进 `System.Text.Json` 全家桶等 ≈1.4 MB 托管 DLL，而最大的一块纯为客户端几乎不产的 JSON 日志，性价比不划算（详见 ADR-0034 实测复盘）。**而 ZLogger 的另一大卖点「零分配」，我们用插值处理器已经拿到了**——这也是不引它的底气。
 
 正确落点是**服务端**（Outpost `Server~/` 本就是 .NET，直接用 ZLogger、无包体顾虑）。客户端将来若确有「结构化日志上报后台」刚需，再实现一个 `ZLoggerLogSink : ILogSink` 接进来即可——**接缝已为此留好位置，业务零改动**。这正是「先做零依赖接缝、把第三方隔在接口后」的价值：试错第三方库的代价被压到「删依赖」，内核不受牵连。
 
-> **活样板**：demo「能力 · 日志 · 分级 + 可插拔 sink」章（`LoggingDemoModule`）把上面每一点做成可点的按钮——装 demo 捕获 sink 看多播（同一条日志同时进 Console + 面板）、调它的 `MinLevel` 看每个 sink 独立过滤、装 `FileLogSink` 看落盘、`Log(fields)` 看结构化字段、切 `Verbose` 看 Trace 门控。
+**刻意不做的还有消息模板**（Serilog / MEL 的 `Log.Information("处理了 {Count} 条", count)` 那套）：占位符自动变结构化字段是服务端的共识，但客户端几乎不产结构化日志（正是不上 ZLogger 的同一条理由），为它自研一套模板解析 + 缓存不划算。要结构化就用 `Log.Write(level, msg, fields)` 显式传字段。
+
+> **活样板**：demo「能力 · 日志 · 分级 + 可插拔 sink」章（`LoggingDemoModule`）把上面每一点做成可点的按钮——装 demo 捕获 sink 看多播、调 `MinLevel` 看每个 sink 独立过滤、**用一个计数器亲眼验证「Verbose 关时插值表达式一次都没求值」**、点「发一条裸 `Debug.LogError`」看它经桥接进入 sink、装 `FileLogSink` 看落盘。
 
 详见 ADR-0034、AGENTS #34。

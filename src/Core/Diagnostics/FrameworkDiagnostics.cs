@@ -13,7 +13,8 @@ namespace Game.Framework.Diagnostics
     /// <b>只在 Unity Editor 下采集</b>：挂钩方法标 <c>[Conditional("UNITY_EDITOR")]</c>，玩家包（含 Development Build）
     /// 里调用点整体编译消除、登记表不存在——登记表持强引用会改变 GC 行为（未 Dispose 的 Context 永不回收），
     /// 这种「观察改变被观察者」的代价只允许发生在编辑器。真机诊断走 <see cref="FrameworkSelfCheck"/> 冒烟 +
-    /// <c>FrameworkLog</c> 日志 + <see cref="Systems.LoggingCommandSystem"/>（opt-in）。<br/>
+    /// <c>Log</c> 日志（<see cref="Logging.Log"/>，配 <c>CaptureUnityLogs</c> + <c>FileLogSink</c> 可全量落盘）+
+    /// <see cref="Systems.LoggingCommandSystem"/>（opt-in）。<br/>
     /// <b>登记表刻意持强引用不判活</b>：Context 构造登记、Dispose 注销——列表里长期存在且业务已不再使用的条目，
     /// 正是「创建了却忘记 Dispose」的泄漏本身，诊断面板要暴露的就是它。<br/>
     /// <b>线程契约</b>：主线程独占（与 Container 一致），不加锁。<br/>

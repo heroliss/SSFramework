@@ -423,10 +423,10 @@ namespace Game.Framework
             string lastVersionError = null;
             bool versionOk = false;
             string configured = (cdnUrls == null || cdnUrls.Count == 0) ? "(未配置)" : string.Join(", ", cdnUrls);
-            // 逐次尝试的诊断走 FrameworkLog.Verbose（开 Verbose 才打、不污染正常运行）。
+            // 逐次尝试的诊断走 Log.Verbose（开 Verbose 才打、不污染正常运行）。
             // 失败 Error 通常已含实际 URL + HttpCode，配合开头候选清单即可定位是哪条 CDN 出问题。
-            Internal.FrameworkLog.LogVerbose(
-                $"[YooAssetProvider] '{packageName}' 拉版本：候选 CDN {attempts} 条 [{configured}]");
+            // 走插值处理器重载：Verbose 关时这些 $"..." 连拼都不拼（旧的 LogVerbose(string) 是先拼好再丢弃）。
+            Logging.Log.Trace($"[YooAssetProvider] '{packageName}' 拉版本：候选 CDN {attempts} 条 [{configured}]");
             for (int i = 0; i < attempts; i++)
             {
                 var versionOp = package.RequestPackageVersionAsync();
@@ -437,11 +437,11 @@ namespace Game.Framework
                 {
                     version = versionOp.PackageVersion;
                     versionOk = true;
-                    Internal.FrameworkLog.LogVerbose($"[YooAssetProvider] '{packageName}' 拉版本第 {i + 1}/{attempts} 次成功，版本 {version}。");
+                    Logging.Log.Trace($"[YooAssetProvider] '{packageName}' 拉版本第 {i + 1}/{attempts} 次成功，版本 {version}。");
                     break;
                 }
                 lastVersionError = versionOp.Error;
-                Internal.FrameworkLog.LogVerbose($"[YooAssetProvider] '{packageName}' 拉版本第 {i + 1}/{attempts} 次失败：{lastVersionError}");
+                Logging.Log.Trace($"[YooAssetProvider] '{packageName}' 拉版本第 {i + 1}/{attempts} 次失败：{lastVersionError}");
             }
 
             if (!versionOk)
@@ -465,12 +465,12 @@ namespace Game.Framework
 
                 if (manifestOp.Status == EOperationStatus.Succeeded)
                 {
-                    Internal.FrameworkLog.LogVerbose($"[YooAssetProvider] '{packageName}' 拉清单第 {i + 1}/{attempts} 次成功。");
+                    Logging.Log.Trace($"[YooAssetProvider] '{packageName}' 拉清单第 {i + 1}/{attempts} 次成功。");
                     return;
                 }
 
                 lastManifestError = manifestOp.Error;
-                Internal.FrameworkLog.LogVerbose($"[YooAssetProvider] '{packageName}' 拉清单第 {i + 1}/{attempts} 次失败：{lastManifestError}");
+                Logging.Log.Trace($"[YooAssetProvider] '{packageName}' 拉清单第 {i + 1}/{attempts} 次失败：{lastManifestError}");
             }
 
             throw new InvalidOperationException(
