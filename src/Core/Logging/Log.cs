@@ -72,6 +72,17 @@ namespace Game.Framework.Logging
         }
 
         /// <summary>
+        /// 当前已注册的 sink（只读快照，遍历安全）。**自省用**——sink 由业务在启动期装配，
+        /// 出问题时（「我的日志怎么没落盘？」）没有别的地方能查是不是压根没装 / <see cref="ILogSink.MinLevel"/> 卡掉了。
+        /// 「框架诊断面板」的日志一栏读的就是它。
+        /// </summary>
+        /// <remarks>返回的是 copy-on-write 的当前快照数组，元素永不就地修改；请勿强转回数组去改。</remarks>
+        public static IReadOnlyList<ILogSink> Sinks => _sinks;
+
+        /// <summary>是否已接管 Unity 日志流（见 <see cref="CaptureUnityLogs"/>）。同样是自省用。</summary>
+        public static bool IsCapturingUnityLogs => UnityLogBridge.Enabled;
+
+        /// <summary>
         /// 该级别当前是否会被**任何** sink 消费。用于在调用点跳过昂贵的消息构造：
         /// <c>if (Log.IsEnabled(LogLevel.Info)) Log.Info(BuildExpensiveReport());</c>
         /// </summary>

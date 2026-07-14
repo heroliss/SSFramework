@@ -113,6 +113,33 @@ namespace Game.Framework.Test
             Assert.IsFalse(Log.RemoveSink(sink), "重复移除返回 false");
         }
 
+        /// <summary>
+        /// 自省 API（<see cref="Log.Sinks"/> / <see cref="Log.IsCapturingUnityLogs"/>）：
+        /// sink 与「是否接管 Unity 日志流」都是业务在启动期用代码装配的，出问题时
+        /// （「我的日志怎么没落盘？」）得有地方能查是压根没装、还是被 MinLevel 卡掉了。
+        /// 「框架诊断面板」的日志一栏读的就是这两个。
+        /// </summary>
+        [Test]
+        public void Sinks_And_IsCapturingUnityLogs_ReflectCurrentState()
+        {
+            Assert.AreEqual(0, Log.Sinks.Count, "SetUp 已 ClearSinks");
+            Assert.IsFalse(Log.IsCapturingUnityLogs);
+
+            var sink = new CapturingSink { MinLevel = LogLevel.Warning };
+            Log.AddSink(sink);
+            Assert.AreEqual(1, Log.Sinks.Count);
+            Assert.AreSame(sink, Log.Sinks[0]);
+            Assert.AreEqual(LogLevel.Warning, Log.Sinks[0].MinLevel, "面板要显示每个 sink 的 MinLevel");
+
+            Log.CaptureUnityLogs(true);
+            Assert.IsTrue(Log.IsCapturingUnityLogs);
+            Log.CaptureUnityLogs(false);
+            Assert.IsFalse(Log.IsCapturingUnityLogs, "关掉后应如实反映（幂等）");
+
+            Log.RemoveSink(sink);
+            Assert.AreEqual(0, Log.Sinks.Count);
+        }
+
         [Test]
         public void IsEnabled_FalseWhenEverySinkFiltersLevelOut()
         {
