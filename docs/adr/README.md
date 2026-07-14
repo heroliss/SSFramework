@@ -38,3 +38,5 @@
 | [0030](0030-outpost-ecs-battle-backend.md) | Outpost M6：DOTS 后端置换（EcsBattleSim）+ 两级对拍 + 跨编译域浮点边界 | Accepted |
 | [0031](0031-outpost-real-projectiles-wreck-interaction.md) | Outpost M7：真弹道碰撞 + 残骸减速泥地（让后端优势在真实游玩中可见） | Accepted |
 | [0032](0032-outpost-wreck-entities-sim-push.md) | Outpost M8：残骸实体化 + 推挤入模拟（让后端差距随战局拉大） | Accepted |
+| [0033](0033-ugui-into-uitoolkit-rendertexture-bridge.md) | UI 嵌入桥：RenderTexture 把 UGUI / 相机内容真嵌进 UI Toolkit 内容流（+ v2 输入穿透） | Accepted |
+| [0034](0034-framework-logging-seam.md) | 框架日志接缝：内核 `ILogSink` 多播 + 默认 Console/File sink + ZLogger 可选模块 | Proposed |

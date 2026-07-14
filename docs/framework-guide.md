@@ -28,6 +28,8 @@
 24. [响应式集合与列表绑定](#24-响应式集合与列表绑定)
 25. [网络（HTTP / WebSocket）](#25-网络http--websocket)
 26. [推荐项目结构](#26-推荐项目结构)
+27. [UI 嵌入桥（把 UGUI / 相机内容嵌进 UI Toolkit）](#27-ui-嵌入桥把-ugui--相机内容嵌进-ui-toolkit)
+28. [日志（分级 + 可插拔 sink）](#28-日志分级--可插拔-sink)
 
 ---
 
@@ -2708,3 +2710,59 @@ embed.Bind(view);
 - **输入穿透**：勾 `MonoUGuiEmbed` 的 `Interactive` 后，指针事件（**点击 / 悬停 / 拖拽 / 滚轮**）穿透 RT 进嵌入 UGUI——按钮 / 开关 / Slider / ScrollRect 都能用（需场景有 EventSystem）。原理：转发器把元素内坐标翻成 RT 空间屏幕点 → 托管 Canvas 上一个 `enabled=false` 的 `GraphicRaycaster`（不被全局输入模块误触发）手动 `Raycast` → `ExecuteEvents` 分发。**文本输入 / IME、多点触控不做**（要在嵌入 UGUI 里打字直接用原生 UGUI 层）。纯显示（TMP 富文本 / 3D 预览 / 小地图）留 `Interactive` 关。
 
 可运行演示见 demo「UI 融合 · UGUI 嵌进 Toolkit」章（`Modules/UIEmbedModule.cs`）。详见 ADR-0033、AGENTS #33。
+
+---
+
+## 28. 日志（分级 + 可插拔 sink）
+
+`FrameworkLog` 是框架统一的日志门面：**分级记录 + 广播到一组可插拔 `ILogSink`**。定位是「日志有一层可替换的接缝」——按模块过滤 / 静音、落文件、测试捕获、遥测重定向都在这一层着力，而不是把 `Debug.Log` 散落一地无从拦截（ADR-0034）。
+
+### 为什么是静态门面（而非 DI 服务）
+
+日志要在**任何地方**可用，包括身处 DI 之下、没有 `Context` 的内核基础设施（`Container` / 构造期）——它们不能反向依赖容器去取 logger。所以 `FrameworkLog` 是静态的、出厂即用（默认装配一个转 `Debug.Log` 的 sink）。
+
+### 级别与门控
+
+| 级别 | 语义 | 输出条件 |
+|---|---|---|
+| `Trace` | 诊断噪音（注册 / 解析 / 重试等） | `Verbose` 开 **且** 仅 Editor / Development 构建 |
+| `Info` / `Warning` / `Error` | 正常日志 | 始终广播给 sink（由 sink 决定去向） |
+
+- `FrameworkLog.Verbose = true` 开框架诊断（或 Editor 菜单 `SSFramework/诊断/Verbose 日志`，本会话有效）。
+- 旧 `FrameworkLog.LogVerbose(msg)` 保留 = `Trace` 的别名，既有调用零改动。
+
+### 记录
+
+```csharp
+FrameworkLog.Info("玩家进入战斗", "Battle");     // 第二参 category 可选
+FrameworkLog.Warning("配置缺省，回退默认值");
+FrameworkLog.Error("存档写入失败", ex, "Storage"); // 带异常：默认 sink 额外 LogException 保留堆栈
+
+// 结构化字段（给结构化 sink 消费，文本 sink 忽略）
+FrameworkLog.Log(LogLevel.Info, "purchase",
+    new[] { new KeyValuePair<string, object>("sku", skuId) });
+```
+
+`category` 是可选的来源分类：多数日志用 message 内前缀 `[Xxx]` 区分即可，`category` 主要给结构化 sink 分组 / 过滤用。
+
+### sink：日志去哪
+
+出厂装一个 `UnityDebugLogSink`（转 `Debug.Log`，Console 观感 / 双击定位 / 堆栈全不变）。按需追加：
+
+```csharp
+// 落文件（玩家包 / QA 捞日志）——零依赖，超阈值自动按大小滚动、保留最近几份
+FrameworkLog.AddSink(new FileLogSink(
+    Path.Combine(Application.persistentDataPath, "logs", "game.log"),
+    minLevel: LogLevel.Info));
+```
+
+- **多 sink 广播**：一条日志可同时进 Console + 文件（+ 未来的遥测）。
+- **每个 sink 自带 `MinLevel`**：让 Console 只留 Warning 以上（`new UnityDebugLogSink { MinLevel = LogLevel.Warning }`），细粒度日志交给文件 sink。
+- **自定义去向**：实现 `ILogSink`（`Log(in LogEntry)` + `MinLevel`）。⚠ 可能被后台线程调用（如网络接收循环记日志），持有可变状态要自行加锁（参考 `FileLogSink`）。
+- **测试静音 / 捕获**：`FrameworkLog.ClearSinks()` 后装一个收集用的 sink（见 `LoggingTests`）。
+
+### 什么时候上 ZLogger
+
+内核这两个 sink（Console + File）覆盖了「开发期按模块过滤」与「落盘捞日志」——**绝大多数客户端排查够用**。当需要**零分配 / 结构化 JSON / 精细滚动 / HTTP 遥测**（尤其服务端、线上运营）时，接入可选模块 `Game.Framework.Logging.ZLogger` 的 sink：它藏在同一个 `ILogSink` 接缝后、业务零改动，但会引入 `Microsoft.Extensions.Logging` 一串依赖，故做成可整块删的独立模块、**按需引入**——不为「写个日志文件」就让客户端吞下重依赖。
+
+详见 ADR-0034、AGENTS #34。
