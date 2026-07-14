@@ -24,6 +24,9 @@ namespace Game.Framework.Test
             _gameContext = new GameContext(builder.Build());
         }
 
+        [TearDown]
+        public void TearDown() => _gameContext?.Dispose();
+
         [Test]
         public void SendEvent_WithParameters_ShouldBeReceived()
         {
@@ -176,7 +179,7 @@ namespace Game.Framework.Test
         {
             var builder = new ContainerBuilder();
             builder.RegisterValue(new CommandSystem(), new[] { typeof(ICommandSystem) });
-            var ctx = new GameContext(builder.Build());
+            using var ctx = new GameContext(builder.Build());
 
             var count = 0;
             var subscription = ctx.RegisterEvent<TestEvent>(_ => count++);

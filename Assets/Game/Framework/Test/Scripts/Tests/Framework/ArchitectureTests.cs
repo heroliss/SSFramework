@@ -41,6 +41,9 @@ namespace Game.Framework.Test
             _gameContext.AttachTo(_testSystem);
         }
 
+        [TearDown]
+        public void TearDown() => _gameContext?.Dispose();
+
         [Test]
         public void Initialize_ShouldSetContainer()
         {
@@ -138,7 +141,7 @@ namespace Game.Framework.Test
             builderA.RegisterValue(modelA, new[] { typeof(Game.Framework.Model.IModel), typeof(TestModel) });
             builderA.RegisterValue(systemA, new[] { typeof(ISystem), typeof(TestSystem) });
             builderA.RegisterValue(new CommandSystem(), new[] { typeof(ICommandSystem) });
-            var ctxA = new GameContext(builderA.Build());
+            using var ctxA = new GameContext(builderA.Build());
             ctxA.Inject(systemA);
             ctxA.AttachTo(systemA);
 
@@ -149,7 +152,7 @@ namespace Game.Framework.Test
             builderB.RegisterValue(modelB, new[] { typeof(Game.Framework.Model.IModel), typeof(TestModel) });
             builderB.RegisterValue(systemB, new[] { typeof(ISystem), typeof(TestSystem) });
             builderB.RegisterValue(new CommandSystem(), new[] { typeof(ICommandSystem) });
-            var ctxB = new GameContext(builderB.Build());
+            using var ctxB = new GameContext(builderB.Build());
             ctxB.Inject(systemB);
             ctxB.AttachTo(systemB);
 
@@ -162,10 +165,6 @@ namespace Game.Framework.Test
             ctxB.ExecuteCommand(new TestCommand { Name = "B_cmd" });
             Assert.AreEqual("A_cmd", modelA.Value);
             Assert.AreEqual("B_cmd", modelB.Value);
-
-            // Dispose
-            ctxA.Dispose();
-            ctxB.Dispose();
         }
 
         /// <summary>
@@ -188,7 +187,7 @@ namespace Game.Framework.Test
         {
             var builder = new ContainerBuilder();
             builder.RegisterValue(new CommandSystem(), new[] { typeof(ICommandSystem) });
-            var ctx = new GameContext(builder.Build());
+            using var ctx = new GameContext(builder.Build());
             ctx.Dispose();
 
             Assert.DoesNotThrow(() => ctx.SendEvent(new TestEvent("x", 1)));
@@ -207,7 +206,7 @@ namespace Game.Framework.Test
             builder.RegisterValue(new CommandSystem(), new[] { typeof(ICommandSystem) });
             builder.RegisterValue(systemA, new[] { typeof(TestSystem) });
             builder.RegisterValue(systemB, new[] { typeof(DependentSystem) });
-            var ctx = new GameContext(builder.Build());
+            using var ctx = new GameContext(builder.Build());
 
             // 具体类型可解析
             Assert.AreSame(systemA, ctx.GetSystem<TestSystem>());
@@ -236,7 +235,7 @@ namespace Game.Framework.Test
         {
             var builder = new ContainerBuilder();
             builder.RegisterValue(new CommandSystem(), new[] { typeof(ICommandSystem) });
-            var ctx = new GameContext(builder.Build());
+            using var ctx = new GameContext(builder.Build());
 
             ctx.Dispose();
             Assert.DoesNotThrow(() => ctx.Dispose());
@@ -304,14 +303,14 @@ namespace Game.Framework.Test
             var mainBuilder = new ContainerBuilder();
             mainBuilder.RegisterValue(mainModel, new[] { typeof(Game.Framework.Model.IModel), typeof(TestModel) });
             mainBuilder.RegisterValue(new CommandSystem(), new[] { typeof(ICommandSystem) });
-            var mainCtx = new GameContext(mainBuilder.Build());
+            using var mainCtx = new GameContext(mainBuilder.Build());
             GameContext.Main = mainCtx;
 
             try
             {
                 var childBuilder = new ContainerBuilder();
                 childBuilder.RegisterValue(new CommandSystem(), new[] { typeof(ICommandSystem) });
-                var childCtx = new GameContext(childBuilder.Build());
+                using var childCtx = new GameContext(childBuilder.Build());
 
                 var model = childCtx.GetModel<TestModel>();
                 Assert.AreEqual("main_model", model.Value);
@@ -332,7 +331,7 @@ namespace Game.Framework.Test
 
             var builder = new ContainerBuilder();
             builder.RegisterValue(new CommandSystem(), new[] { typeof(ICommandSystem) });
-            var ctx = new GameContext(builder.Build());
+            using var ctx = new GameContext(builder.Build());
 
             Assert.Throws<InvalidOperationException>(() => ctx.GetModel<TestModel>());
         }
@@ -347,7 +346,7 @@ namespace Game.Framework.Test
         {
             var builder = new ContainerBuilder();
             builder.RegisterValue(new CommandSystem(), new[] { typeof(ICommandSystem) });
-            var ctx = new GameContext(builder.Build());
+            using var ctx = new GameContext(builder.Build());
 
             var model = new TestModel { Value = "dynamic" };
             ctx.RegisterModel(model);
@@ -365,7 +364,7 @@ namespace Game.Framework.Test
         {
             var builder = new ContainerBuilder();
             builder.RegisterValue(new CommandSystem(), new[] { typeof(ICommandSystem) });
-            var ctx = new GameContext(builder.Build());
+            using var ctx = new GameContext(builder.Build());
 
             var model = new TestModel { Value = "dynamic" };
             ctx.RegisterModel(model);
@@ -382,7 +381,7 @@ namespace Game.Framework.Test
         {
             var builder = new ContainerBuilder();
             builder.RegisterValue(new CommandSystem(), new[] { typeof(ICommandSystem) });
-            var ctx = new GameContext(builder.Build());
+            using var ctx = new GameContext(builder.Build());
 
             var system = new TestSystem();
             ctx.RegisterSystem(system);
@@ -399,7 +398,7 @@ namespace Game.Framework.Test
         {
             var builder = new ContainerBuilder();
             builder.RegisterValue(new CommandSystem(), new[] { typeof(ICommandSystem) });
-            var ctx = new GameContext(builder.Build());
+            using var ctx = new GameContext(builder.Build());
 
             var utility = new TestUtility { Name = "dynamic_utility" };
             ctx.RegisterUtility(utility);
@@ -417,7 +416,7 @@ namespace Game.Framework.Test
         {
             var builder = new ContainerBuilder();
             builder.RegisterValue(new CommandSystem(), new[] { typeof(ICommandSystem) });
-            var ctx = new GameContext(builder.Build());
+            using var ctx = new GameContext(builder.Build());
 
             var model = new TestModel { Value = "injected_dynamic" };
             ctx.RegisterModel(model);
@@ -441,13 +440,12 @@ namespace Game.Framework.Test
                 _ => new TestModel { Value = "factory_shared" },
                 Resolution.Lazy,
                 typeof(Game.Framework.Model.IModel), typeof(TestModel));
-            var ctx = new GameContext(builder.Build());
+            using var ctx = new GameContext(builder.Build());
 
             var resolvedAsInterface = ctx.GetModel<Game.Framework.Model.IModel>();
             var resolvedAsConcrete  = ctx.GetModel<TestModel>();
 
             Assert.AreSame(resolvedAsInterface, resolvedAsConcrete, "Multi-contract factory must return the same instance");
-            ctx.Dispose();
         }
 
         /// <summary>
@@ -458,7 +456,7 @@ namespace Game.Framework.Test
         {
             var builder = new ContainerBuilder();
             builder.RegisterValue(new CommandSystem(), new[] { typeof(ICommandSystem) });
-            var ctx = new GameContext(builder.Build());
+            using var ctx = new GameContext(builder.Build());
             ctx.Dispose();
 
             Assert.Throws<ObjectDisposedException>(() => ctx.ExecuteCommand(new TestCommand { Name = "x" }));
@@ -474,7 +472,7 @@ namespace Game.Framework.Test
         {
             var builder = new ContainerBuilder();
             builder.RegisterValue(new CommandSystem(), new[] { typeof(ICommandSystem) });
-            var ctx = new GameContext(builder.Build());
+            using var ctx = new GameContext(builder.Build());
 
             var target = new ForbiddenInjectTarget();
             LogAssert.ignoreFailingMessages = true;
@@ -488,7 +486,6 @@ namespace Game.Framework.Test
             }
 
             Assert.IsNull(target.Ctx, "IGameContext must not be injected (forbidden type)");
-            ctx.Dispose();
         }
 
         // ---- [Inject] 注入期权限校验：宿主有对应 ICanGetX 权限才能注入该层（与 this.GetXxx 同源；Command 经 ctx 有完整访问权）----
@@ -499,7 +496,7 @@ namespace Game.Framework.Test
         {
             var builder = new ContainerBuilder();
             builder.RegisterValue(new TestModel(), new[] { typeof(TestModel) });
-            var ctx = new GameContext(builder.Build());
+            using var ctx = new GameContext(builder.Build());
 
             var target = new ViewInjectsModel();
             LogAssert.ignoreFailingMessages = true;   // 越权注入会打 LogError（按类型缓存，仅首次）
@@ -507,7 +504,6 @@ namespace Game.Framework.Test
             finally { LogAssert.ignoreFailingMessages = false; }
 
             Assert.IsNull(target.Model, "View 无 GetModel 权限，[Inject] Model 应被注入期校验拦下");
-            ctx.Dispose();
         }
 
         /// <summary>View 有 ICanGetUtility：注入 Utility 应放行——对照组，证明校验按权限、不是一刀切禁 View。</summary>
@@ -517,13 +513,12 @@ namespace Game.Framework.Test
             var builder = new ContainerBuilder();
             var utility = new TestUtility { Name = "u" };
             builder.RegisterValue(utility, new[] { typeof(TestUtility) });
-            var ctx = new GameContext(builder.Build());
+            using var ctx = new GameContext(builder.Build());
 
             var target = new ViewInjectsUtility();
             ctx.Inject(target);
 
             Assert.AreSame(utility, target.Utility, "View 有 GetUtility 权限，[Inject] Utility 应放行");
-            ctx.Dispose();
         }
 
         /// <summary>Model 无 ICanGetSystem：注入 System 应被拦下。</summary>
@@ -532,7 +527,7 @@ namespace Game.Framework.Test
         {
             var builder = new ContainerBuilder();
             builder.RegisterValue(new TestSystem(), new[] { typeof(TestSystem) });
-            var ctx = new GameContext(builder.Build());
+            using var ctx = new GameContext(builder.Build());
 
             var target = new ModelInjectsSystem();
             LogAssert.ignoreFailingMessages = true;
@@ -540,7 +535,6 @@ namespace Game.Framework.Test
             finally { LogAssert.ignoreFailingMessages = false; }
 
             Assert.IsNull(target.System, "Model 无 GetSystem 权限，[Inject] System 应被拦下");
-            ctx.Dispose();
         }
 
         /// <summary>Model 有 ICanGetUtility：注入 Utility 应放行。</summary>
@@ -550,13 +544,12 @@ namespace Game.Framework.Test
             var builder = new ContainerBuilder();
             var utility = new TestUtility();
             builder.RegisterValue(utility, new[] { typeof(TestUtility) });
-            var ctx = new GameContext(builder.Build());
+            using var ctx = new GameContext(builder.Build());
 
             var target = new ModelInjectsUtility();
             ctx.Inject(target);
 
             Assert.AreSame(utility, target.Utility, "Model 有 GetUtility 权限，[Inject] Utility 应放行");
-            ctx.Dispose();
         }
 
         /// <summary>Utility 有 ICanGetUtility（IUtility : ICanGetUtility，基础设施互相组合，如配置服务取资源服务）：注入其他 Utility 应放行；Model/System 仍被拦（见下）。</summary>
@@ -566,13 +559,12 @@ namespace Game.Framework.Test
             var builder = new ContainerBuilder();
             var utility = new TestUtility();
             builder.RegisterValue(utility, new[] { typeof(TestUtility) });
-            var ctx = new GameContext(builder.Build());
+            using var ctx = new GameContext(builder.Build());
 
             var target = new UtilityInjectsUtility();
             ctx.Inject(target);
 
             Assert.AreSame(utility, target.Utility, "IUtility : ICanGetUtility，[Inject] 其他 Utility 应放行");
-            ctx.Dispose();
         }
 
         /// <summary>Utility 只有 ICanGetUtility：注入 Model 仍应被拦下（基础设施不反向依赖业务状态）。</summary>
@@ -581,7 +573,7 @@ namespace Game.Framework.Test
         {
             var builder = new ContainerBuilder();
             builder.RegisterValue(new TestModel { Value = "m" }, new[] { typeof(TestModel) });
-            var ctx = new GameContext(builder.Build());
+            using var ctx = new GameContext(builder.Build());
 
             var target = new UtilityInjectsModel();
             LogAssert.ignoreFailingMessages = true;
@@ -589,7 +581,6 @@ namespace Game.Framework.Test
             finally { LogAssert.ignoreFailingMessages = false; }
 
             Assert.IsNull(target.Model, "Utility 无 GetModel 权限，[Inject] Model 应被拦下");
-            ctx.Dispose();
         }
 
         /// <summary>System 有 ICanGetModel：注入 Model 应放行。</summary>
@@ -599,13 +590,12 @@ namespace Game.Framework.Test
             var builder = new ContainerBuilder();
             var model = new TestModel { Value = "m" };
             builder.RegisterValue(model, new[] { typeof(TestModel) });
-            var ctx = new GameContext(builder.Build());
+            using var ctx = new GameContext(builder.Build());
 
             var target = new SystemInjectsModel();
             ctx.Inject(target);
 
             Assert.AreSame(model, target.Model, "System 有 GetModel 权限，[Inject] Model 应放行");
-            ctx.Dispose();
         }
 
         /// <summary>Command 不实现 ICanXxx，但经 ctx 有完整层访问权：宿主无 ICanGetModel 也应放行 Model 注入（Command 特判）。</summary>
@@ -615,13 +605,12 @@ namespace Game.Framework.Test
             var builder = new ContainerBuilder();
             var model = new TestModel { Value = "cmd" };
             builder.RegisterValue(model, new[] { typeof(TestModel) });
-            var ctx = new GameContext(builder.Build());
+            using var ctx = new GameContext(builder.Build());
 
             var target = new CommandInjectsModel();
             ctx.Inject(target);
 
             Assert.AreSame(model, target.Model, "Command 经 ctx 有完整访问权，[Inject] Model 应放行");
-            ctx.Dispose();
         }
 
         /// <summary>
@@ -646,7 +635,7 @@ namespace Game.Framework.Test
         {
             var builder = new ContainerBuilder();
             builder.RegisterValue(new CommandSystem(), new[] { typeof(ICommandSystem) });
-            var ctx = new GameContext(builder.Build());
+            using var ctx = new GameContext(builder.Build());
 
             var token = ctx.CancellationToken;
             Assert.IsFalse(token.IsCancellationRequested);
@@ -663,14 +652,13 @@ namespace Game.Framework.Test
         {
             var builder = new ContainerBuilder();
             builder.RegisterValue(new CommandSystem(), new[] { typeof(ICommandSystem) });
-            var ctx = new GameContext(builder.Build());
+            using var ctx = new GameContext(builder.Build());
 
             var model1 = new TestModel { Value = "first" };
             var model2 = new TestModel { Value = "second" };
             ctx.RegisterModel(model1);
 
             Assert.Throws<InvalidOperationException>(() => ctx.RegisterModel(model2));
-            ctx.Dispose();
         }
 
         // ---- 辅助类型 ----

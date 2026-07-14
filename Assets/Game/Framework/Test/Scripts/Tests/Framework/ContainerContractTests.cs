@@ -43,7 +43,7 @@ namespace Game.Framework.Test
             builder.RegisterValue(modelB, typeof(IModel));
             builder.RegisterValue(new CommandSystem(), typeof(ICommandSystem));
 
-            var ctx = new GameContext(builder.Build(), inheritFromGlobal: false);
+            using var ctx = new GameContext(builder.Build(), inheritFromGlobal: false);
             Assert.AreSame(modelB, ctx.Resolve(typeof(IModel)),
                 "ContainerBuilder 构建期重复 RegisterValue 应当后注册胜出（覆盖）");
         }
@@ -59,7 +59,7 @@ namespace Game.Framework.Test
             builder.RegisterFactory(_ => modelB, typeof(IModel));
             builder.RegisterValue(new CommandSystem(), typeof(ICommandSystem));
 
-            var ctx = new GameContext(builder.Build(), inheritFromGlobal: false);
+            using var ctx = new GameContext(builder.Build(), inheritFromGlobal: false);
             Assert.AreSame(modelB, ctx.Resolve(typeof(IModel)),
                 "ContainerBuilder 构建期 Factory 重复注册也应后注册胜出");
         }
@@ -71,7 +71,7 @@ namespace Game.Framework.Test
         {
             var builder = new ContainerBuilder();
             builder.RegisterValue(new CommandSystem(), typeof(ICommandSystem));
-            var ctx = new GameContext(builder.Build(), inheritFromGlobal: false);
+            using var ctx = new GameContext(builder.Build(), inheritFromGlobal: false);
 
             var modelA = new ModelA();
             var modelB = new ModelA();
@@ -87,7 +87,7 @@ namespace Game.Framework.Test
         {
             var builder = new ContainerBuilder();
             builder.RegisterValue(new CommandSystem(), typeof(ICommandSystem));
-            var ctx = new GameContext(builder.Build(), inheritFromGlobal: false);
+            using var ctx = new GameContext(builder.Build(), inheritFromGlobal: false);
 
             var systemA = new SystemA();
             var systemA2 = new SystemA();
@@ -103,7 +103,7 @@ namespace Game.Framework.Test
         {
             var builder = new ContainerBuilder();
             builder.RegisterValue(new CommandSystem(), typeof(ICommandSystem));
-            var ctx = new GameContext(builder.Build(), inheritFromGlobal: false);
+            using var ctx = new GameContext(builder.Build(), inheritFromGlobal: false);
 
             var util1 = new TestUtility();
             var util2 = new TestUtility();
@@ -121,7 +121,7 @@ namespace Game.Framework.Test
         {
             var builder = new ContainerBuilder();
             builder.RegisterValue(new CommandSystem(), typeof(ICommandSystem));
-            var ctx = new GameContext(builder.Build(), inheritFromGlobal: false);
+            using var ctx = new GameContext(builder.Build(), inheritFromGlobal: false);
 
             var modelA = new ModelA { Tag = "first" };
             var modelA2 = new ModelA { Tag = "second" };
@@ -143,12 +143,12 @@ namespace Game.Framework.Test
             var parentBuilder = new ContainerBuilder();
             parentBuilder.RegisterValue(parentModel, typeof(ModelA), typeof(IModel));
             parentBuilder.RegisterValue(new CommandSystem(), typeof(ICommandSystem));
-            var parentCtx = new GameContext(parentBuilder.Build(), inheritFromGlobal: false);
+            using var parentCtx = new GameContext(parentBuilder.Build(), inheritFromGlobal: false);
 
             // 子级 Container 设置 parent，运行期再注册一个 ModelA
             var childBuilder = new ContainerBuilder();
             childBuilder.SetParent(ContextInternals.GetContainer(parentCtx));
-            var childCtx = new GameContext(childBuilder.Build(), inheritFromGlobal: false);
+            using var childCtx = new GameContext(childBuilder.Build(), inheritFromGlobal: false);
 
             var childModel = new ModelA { Tag = "child" };
             childCtx.RegisterModel(childModel);
@@ -176,7 +176,7 @@ namespace Game.Framework.Test
             var builder = new ContainerBuilder();
             builder.RegisterValue(new CommandSystem(), typeof(ICommandSystem));
             builder.RegisterOwned(owned, typeof(TrackedDisposable));
-            var ctx = new GameContext(builder.Build(), inheritFromGlobal: false);
+            using var ctx = new GameContext(builder.Build(), inheritFromGlobal: false);
 
             Assert.AreSame(owned, ctx.Resolve(typeof(TrackedDisposable)), "RegisterOwned 也应能正常解析");
             Assert.AreEqual(0, owned.DisposeCount, "Dispose 前不应被释放");
@@ -192,7 +192,7 @@ namespace Game.Framework.Test
             var builder = new ContainerBuilder();
             builder.RegisterValue(new CommandSystem(), typeof(ICommandSystem));
             builder.RegisterValue(notOwned, typeof(TrackedDisposable));
-            var ctx = new GameContext(builder.Build(), inheritFromGlobal: false);
+            using var ctx = new GameContext(builder.Build(), inheritFromGlobal: false);
 
             ctx.Dispose();
             Assert.AreEqual(0, notOwned.DisposeCount,
@@ -206,7 +206,7 @@ namespace Game.Framework.Test
             var builder = new ContainerBuilder();
             builder.RegisterValue(new CommandSystem(), typeof(ICommandSystem));
             builder.RegisterOwned(owned, typeof(TrackedDisposable));
-            var ctx = new GameContext(builder.Build(), inheritFromGlobal: false);
+            using var ctx = new GameContext(builder.Build(), inheritFromGlobal: false);
 
             ctx.Dispose();
             ctx.Dispose();
@@ -230,7 +230,7 @@ namespace Game.Framework.Test
             builder.RegisterOwned(new OrderedDisposable(log, "A"), typeof(OrderedDisposable));
             builder.RegisterOwned(new OrderedDisposable(log, "B"), typeof(OrderedDisposable));
             builder.RegisterOwned(new OrderedDisposable(log, "C"), typeof(OrderedDisposable));
-            var ctx = new GameContext(builder.Build(), inheritFromGlobal: false);
+            using var ctx = new GameContext(builder.Build(), inheritFromGlobal: false);
 
             ctx.Dispose();
             Assert.AreEqual(new[] { "C", "B", "A" }, log.ToArray(),
@@ -244,12 +244,12 @@ namespace Game.Framework.Test
             var parentBuilder = new ContainerBuilder();
             parentBuilder.RegisterValue(new CommandSystem(), typeof(ICommandSystem));
             parentBuilder.RegisterOwned(new OrderedDisposable(log, "parent"), typeof(OrderedDisposable));
-            var parentCtx = new GameContext(parentBuilder.Build(), inheritFromGlobal: false);
+            using var parentCtx = new GameContext(parentBuilder.Build(), inheritFromGlobal: false);
 
             var childBuilder = new ContainerBuilder();
             childBuilder.SetParent(ContextInternals.GetContainer(parentCtx));
             childBuilder.RegisterOwned(new OrderedDisposable(log, "child"), typeof(OrderedDisposable));
-            var childCtx = new GameContext(childBuilder.Build(), inheritFromGlobal: false);
+            using var childCtx = new GameContext(childBuilder.Build(), inheritFromGlobal: false);
 
             childCtx.Dispose();
             Assert.AreEqual(new[] { "child" }, log.ToArray(),

@@ -41,6 +41,9 @@ namespace Game.Framework.Test
             _gameContext.AttachTo(dependentSystem);
         }
 
+        [TearDown]
+        public void TearDown() => _gameContext?.Dispose();
+
         [Test]
         public void ISystem_ShouldHaveCorrectPermissions()
         {
