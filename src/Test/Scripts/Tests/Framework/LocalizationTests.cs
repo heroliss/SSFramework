@@ -120,7 +120,7 @@ namespace Game.Framework.Test
         {
             var builder = new ContainerBuilder();
             builder.RegisterOwned(new LocalizationUtility(_source, "zh-CN"), typeof(ILocalizationUtility));
-            var ctx = new GameContext(builder.Build(), inheritFromGlobal: false);
+            using var ctx = new GameContext(builder.Build(), inheritFromGlobal: false);
 
             var resolved = (ILocalizationUtility)ctx.Resolve(typeof(ILocalizationUtility));
             Assert.AreEqual("开始游戏", resolved.Get("menu/start"));

@@ -36,6 +36,9 @@ namespace Game.Framework.Test
             _gameContext.AttachTo(_testSystem);
         }
 
+        [TearDown]
+        public void TearDown() => _gameContext?.Dispose();
+
         [Test]
         public void SyncCommand_ShouldExecuteAndModifyModel()
         {

@@ -306,7 +306,7 @@ namespace Game.Framework.Test
             var builder = new ContainerBuilder();
             builder.RegisterValue(new CommandSystem(), new[] { typeof(ICommandSystem) });
             builder.RegisterValue(new PoolUtility(), typeof(IPoolUtility));
-            var ctx = new GameContext(builder.Build());
+            using var ctx = new GameContext(builder.Build());
             var pool = ctx.GetUtility<IPoolUtility>().GetGameObjectPool(_prefab);
 
             var bag = ctx.CreateBag();
@@ -319,7 +319,6 @@ namespace Game.Framework.Test
 
             bag.Dispose();       // 登记已摘除：不产生重复 Despawn / 死实例归还的错误日志
             Assert.AreEqual(0, pool.CountInactive);
-            ctx.Dispose();
         }
 
         // ── 归还防护（Release 也生效的短路）─────────────────────────────────
