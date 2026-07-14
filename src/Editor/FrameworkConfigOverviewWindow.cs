@@ -103,6 +103,15 @@ namespace Game.Framework.Editor
                 Note = "全工程单例（首次使用自动创建）；产出 charset 文件喂 TMP Font Asset Creator 烘焙主字体。",
                 JumpMenu = "SSFramework/字体/常用字集配置 (Charset Profile)", JumpLabel = "打开配置",
             },
+            new()
+            {
+                Title = "场景快捷入口",
+                TypeName = "SceneShortcutProfile",
+                QualifiedType = "Game.Framework.Editor.SceneShortcutProfile, Game.Framework.Editor",
+                Singleton = true,
+                Note = "全工程单例（首次使用自动创建，按默认种入工程已知场景）；驱动 SSFramework/场景 菜单，加场景 = 加一行。",
+                JumpMenu = "SSFramework/场景/⚙ 编辑场景快捷入口", JumpLabel = "打开配置",
+            },
         };
 
         private Vector2 _scroll;
