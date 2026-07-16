@@ -84,11 +84,13 @@
     padding: 28px 34px;
 }
 
+/* 标题 / 简介 / 正文统一限宽：宽屏下不让一行文字铺满全屏（长行难扫读），左对齐贴导航。 */
 .demo-content-title {
     font-size: 22px;
     -unity-font-style: bold;
     color: rgb(236, 238, 243);
     margin-bottom: 6px;
+    max-width: 960px;
 }
 
 .demo-content-summary {
@@ -96,10 +98,12 @@
     color: rgb(150, 156, 168);
     margin-bottom: 20px;
     white-space: normal;
+    max-width: 960px;
 }
 
 .demo-content-body {
     flex-grow: 1;
+    max-width: 960px;
 }
 
 /* ---- 模块内容元素 ---- */

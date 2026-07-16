@@ -31,8 +31,8 @@ namespace Game.Framework.Demo.Modules
 
         public override void Build(DemoModuleHost host)
         {
-            // ── 1. 概念 + 心智模型 ──
-            host.AddSectionTitle("配置表是什么：策划填的数值，编译成强类型只读数据");
+            // ── 定位 ──
+            host.AddSectionTitle("定位：策划填的数值表，构建期编译成强类型只读数据");
             host.AddNote("「配置表」就是物品 / 怪物 / 全局参数这类策划填的数值表。本框架用 Luban：**构建期**把表编译成强类型 C# 类 + 二进制数据，" +
                          "**运行期**只读字节、做内存查询——Excel / JSON 解析、数据校验全发生在构建期，运行期对它们零感知。" +
                          "两种数据源都有活样例：`item.json`（文本，git diff 可读、AI 可维护）与 `monster.xlsx`（策划顺手），" +
