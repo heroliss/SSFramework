@@ -29,8 +29,8 @@ namespace Game.Framework.Demo.Modules
 
         public override void Build(DemoModuleHost host)
         {
-            // ── 入口总览 ──
-            host.AddSectionTitle("四种来源，一种出口");
+            // ── 定位 ──
+            host.AddSectionTitle("定位：一切皆流——四种来源，一种出口");
             host.AddConcept("RP<T>（Model 状态）", "本身就是 Observable<T>（IS-A），订阅即得当前值——不需要任何转换。");
             host.AddConcept("框架 Event", "`this.OnEvent<T>()` 桥成流。只是简单收通知时用 `Bag.Subscribe<T>(handler)` 就够，要接操作符才转。");
             host.AddConcept("UnityEvent", "`unityEvent.AsObservable()`（R3 Unity 集成）。UGUI 的 `Button.onClick` 就是 UnityEvent，同一个入口。");
