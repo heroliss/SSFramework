@@ -71,8 +71,8 @@ namespace Game.Framework.Audio
         public AudioHandle PlaySfx(AudioClip clip, float volume = 1f, float pitch = 1f, bool loop = false, string group = AudioGroups.Sfx)
             => _impl.PlaySfx(clip, volume, pitch, loop, group);
 
-        public AudioHandle PlaySfxAt(AudioClip clip, Vector3 position, float volume = 1f, float pitch = 1f, bool loop = false, string group = AudioGroups.Sfx)
-            => _impl.PlaySfxAt(clip, position, volume, pitch, loop, group);
+        public AudioHandle PlaySfxAt(AudioClip clip, Vector3 position, float volume = 1f, float pitch = 1f, bool loop = false, string group = AudioGroups.Sfx, float minDistance = 1f, float maxDistance = 500f)
+            => _impl.PlaySfxAt(clip, position, volume, pitch, loop, group, minDistance, maxDistance);
 
         public void StopAllSfx() => _impl.StopAllSfx();
 

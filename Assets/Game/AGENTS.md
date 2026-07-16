@@ -191,7 +191,7 @@ struct 不能用 `this.GetXxx<T>()` 扩展方法（值类型接口调用必然�
 ## 27. 音频 IAudioUtility
 
 - 定位是**全局播放编排**：BGM 用 `PlayMusic/StopMusic`（单通道、切换自动交叉淡变、同 clip 幂等——别自己先查 `CurrentMusic` 再决定调不调）；一次性音效 `PlaySfx` 直接丢返回值（播完自动回收）；**循环音效必须管句柄**——`handle.Stop(fade)` 或 `Bag.Add(handle)` 随宿主自动停，别播了就忘。
-- **跟随对象的持续 3D 音源直接挂 `AudioSource` 组件**（引擎组件可跨层），框架不替代它；`PlaySfxAt` 只用于「发声体可能先销毁但声音要播完」的一次性位置音效。
+- **跟随对象的持续 3D 音源直接挂 `AudioSource` 组件**（引擎组件可跨层），框架不替代它；`PlaySfxAt` 只用于「发声体可能先销毁但声音要播完」的一次性位置音效。⚠ 其 `minDistance` 默认 1 是第一人称尺度——固定俯视 / 远机位要调到「监听器到战场的典型距离」量级，否则全被距离衰减压哑。
 - 注册三选一同对象池：`RegisterOwned(new AudioUtility(), typeof(IAudioUtility))`（推荐）/ `RegisterValue` / 场景挂 `MonoAudioUtility`（Inspector 配初始音量）。clip 经 `Bag.Load<AudioClip>(location)` 加载后传入——没有按 location 播放的重载。
 - 音量 = 主 × 组 × 单次（`MasterVolume` / `SetGroupVolume`，即时生效）；组是开放字符串、用常量管理（预置 `AudioGroups.Music/Sfx`）；**音量持久化归业务**（设置数据走 IStorageUtility，启动回灌）。全局暂停用 Unity 的 `AudioListener.pause`。详见 guide §19、ADR-0022。
 
