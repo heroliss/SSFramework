@@ -2056,7 +2056,7 @@ clip 经资源系统 `Bag.Load<AudioClip>(location)` 取到再传入——加载
 | `PlayMusic(clip, fade, loop, volume)` | 音乐单通道：切换自动交叉淡变；同 clip 在播 = no-op；`volume` 用于曲目间响度对齐 |
 | `StopMusic(fade)` / `CurrentMusic` | 停止（淡出）当前音乐 / 查询在播 clip（无音乐为 null） |
 | `PlaySfx(clip, volume, pitch, loop, group)` | 池化音效：一次性丢弃返回值；循环持 `AudioHandle` 停 |
-| `PlaySfxAt(clip, position, …)` | 一次性 3D 位置音效（爆炸 / 命中——发声体可先销毁，声音播完） |
+| `PlaySfxAt(clip, position, …, minDistance, maxDistance)` | 一次性 3D 位置音效（爆炸 / 命中——发声体可先销毁，声音播完）。⚠ `minDistance` 默认 1 是第一人称尺度：固定俯视 / 远机位要调到「监听器到战场的典型距离」量级，否则全被距离衰减压哑 |
 | `AudioHandle.Stop(fade)` / `IsPlaying` / `Dispose()` | 陈旧安全（播完后 Stop 是 no-op）；`Dispose` = 立即停，可进 `DisposableBag` |
 | `StopAllSfx()` | 清场（音乐通道不受影响）：场景硬切 / 过场开始用 |
 | `MasterVolume` / `Get/SetGroupVolume(group)` | 三级音量：主 × 组 × 单次，Set 即时作用于所有在播声音 |

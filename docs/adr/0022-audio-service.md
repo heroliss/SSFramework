@@ -28,7 +28,7 @@ public interface IAudioUtility : IUtility
 
     // 音效：池化 AudioSource，一次性播完自动回收；loop=true 时用返回的 handle 停
     AudioHandle PlaySfx(AudioClip clip, float volume = 1f, float pitch = 1f, bool loop = false, string group = AudioGroups.Sfx);
-    AudioHandle PlaySfxAt(AudioClip clip, Vector3 position, float volume = 1f, float pitch = 1f, bool loop = false, string group = AudioGroups.Sfx);
+    AudioHandle PlaySfxAt(AudioClip clip, Vector3 position, float volume = 1f, float pitch = 1f, bool loop = false, string group = AudioGroups.Sfx, float minDistance = 1f, float maxDistance = 500f);
     void StopAllSfx();
 
     // 分组音量（含总音量），Set 即时作用于所有在播声音

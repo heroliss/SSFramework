@@ -101,12 +101,12 @@ namespace Game.Framework.Audio
         // ── 音效 ──────────────────────────────────────────────────────────────
 
         public AudioHandle PlaySfx(AudioClip clip, float volume = 1f, float pitch = 1f, bool loop = false, string group = AudioGroups.Sfx)
-            => PlayCore(clip, null, volume, pitch, loop, group);
+            => PlayCore(clip, null, volume, pitch, loop, group, 1f, 500f);
 
-        public AudioHandle PlaySfxAt(AudioClip clip, Vector3 position, float volume = 1f, float pitch = 1f, bool loop = false, string group = AudioGroups.Sfx)
-            => PlayCore(clip, position, volume, pitch, loop, group);
+        public AudioHandle PlaySfxAt(AudioClip clip, Vector3 position, float volume = 1f, float pitch = 1f, bool loop = false, string group = AudioGroups.Sfx, float minDistance = 1f, float maxDistance = 500f)
+            => PlayCore(clip, position, volume, pitch, loop, group, minDistance, maxDistance);
 
-        private AudioHandle PlayCore(AudioClip clip, Vector3? position, float volume, float pitch, bool loop, string group)
+        private AudioHandle PlayCore(AudioClip clip, Vector3? position, float volume, float pitch, bool loop, string group, float minDistance, float maxDistance)
         {
             if (clip == null) throw new ArgumentNullException(nameof(clip));
             ValidateGroup(group);
@@ -121,6 +121,8 @@ namespace Game.Framework.Audio
             {
                 src.transform.position = position.Value;
                 src.spatialBlend = 1f; // 完全 3D；2D 路径保持默认 0（归还时复位）
+                src.minDistance = minDistance;
+                src.maxDistance = maxDistance;
             }
             ApplyVolume(voice);
             src.Play();
@@ -288,6 +290,8 @@ namespace Game.Framework.Audio
             src.loop = false;
             src.pitch = 1f;
             src.spatialBlend = 0f;
+            src.minDistance = 1f;   // 3D 路径可能改过距离衰减：还原引擎默认
+            src.maxDistance = 500f;
             src.transform.localPosition = Vector3.zero;
             src.gameObject.SetActive(false);
         }

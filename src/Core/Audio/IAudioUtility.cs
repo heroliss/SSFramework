@@ -53,10 +53,15 @@ namespace Game.Framework.Audio
         AudioHandle PlaySfx(AudioClip clip, float volume = 1f, float pitch = 1f, bool loop = false, string group = AudioGroups.Sfx);
 
         /// <summary>
-        /// 在世界坐标播放 3D 音效（spatialBlend = 1）。适合「发声体可能先销毁但声音要播完」的一次性音效（爆炸 / 命中）；
+        /// 在世界坐标播放 3D 音效（spatialBlend = 1，声像与衰减由 <c>AudioListener</c> 相对位置决定）。
+        /// 适合「发声体可能先销毁但声音要播完」的一次性音效（爆炸 / 命中）；
         /// 需要跟随对象移动的持续音源请直接挂 <c>AudioSource</c> 组件。
+        /// <para><paramref name="minDistance"/> / <paramref name="maxDistance"/> 对应 AudioSource 的距离衰减参数
+        /// （对数衰减：距离 ≤ min 全音量，之后按 min/距离 滚降；默认值即引擎默认）。⚠ 引擎默认 min=1 是
+        /// 第一人称尺度——固定俯视 / 远机位下监听器到发声点动辄十几个单位，不调 min 会整体衰减到几乎无声；
+        /// min 取「监听器到战场的典型距离」量级，场内全响、只留方位与远近差。</para>
         /// </summary>
-        AudioHandle PlaySfxAt(AudioClip clip, Vector3 position, float volume = 1f, float pitch = 1f, bool loop = false, string group = AudioGroups.Sfx);
+        AudioHandle PlaySfxAt(AudioClip clip, Vector3 position, float volume = 1f, float pitch = 1f, bool loop = false, string group = AudioGroups.Sfx, float minDistance = 1f, float maxDistance = 500f);
 
         /// <summary>立即停止所有音效（不含音乐通道）。场景硬切 / 过场开始等「清场」时机用。</summary>
         void StopAllSfx();
