@@ -22,7 +22,7 @@ namespace Game.Framework.Demo.Modules
         public override string Id => "reactive-list";
         public override string Title => "响应式列表 · 集合绑定";
         public override string Category => "能力";
-        public override int Order => 75; // 紧跟「UI 框架 · 窗口/层级」(70)：先有窗口，再看怎么把活集合绑进去
+        public override int Order => 71; // 紧跟「UI 框架 · 窗口/层级」(70)：先有窗口，再看怎么把活集合绑进去
 
         public override string Summary =>
             "集合状态（背包 / 聊天 / 排行榜）用 ObservableList<T> 持有，UI 用 Bag.BindList 增量绑定：只动变化那一项、不整表重建。" +

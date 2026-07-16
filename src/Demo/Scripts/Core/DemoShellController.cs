@@ -37,6 +37,7 @@ namespace Game.Framework.Demo.Core
         private IDemoModule _current;
 
         private VisualElement _navList;
+        private ScrollView _navScroll;
         private ScrollView _contentScroll;
         private VisualElement _contentArea;
         private Label _headerTitle;
@@ -110,11 +111,19 @@ namespace Game.Framework.Demo.Core
         internal static List<IDemoModule> DiscoverModules()
         {
             var contract = typeof(IDemoModule);
-            return typeof(DemoShellController).Assembly.GetTypes()
+            var modules = typeof(DemoShellController).Assembly.GetTypes()
                 .Where(t => !t.IsAbstract && contract.IsAssignableFrom(t) && t.GetConstructor(Type.EmptyTypes) != null)
                 .Select(t => (IDemoModule)Activator.CreateInstance(t))
                 .OrderBy(m => CategoryIndex(m.Category)).ThenBy(m => m.Order).ThenBy(m => m.Title)
                 .ToList();
+
+            // 同组 Order 撞号时顺序退化为标题字符串比较（文化相关、跨机器不稳定），章节编排意图会被打乱。
+            for (int i = 1; i < modules.Count; i++)
+                if (modules[i].Category == modules[i - 1].Category && modules[i].Order == modules[i - 1].Order)
+                    Debug.LogWarning($"[DemoShell] 「{modules[i].Category}」组内 Order 撞号（{modules[i].Order}）：" +
+                                     $"「{modules[i - 1].Title}」与「{modules[i].Title}」——请错开 Order 以固定导航顺序。");
+
+            return modules;
         }
 
         private void BuildUI()
@@ -137,6 +146,7 @@ namespace Game.Framework.Demo.Core
             nav.AddToClassList("demo-nav");
             nav.horizontalScrollerVisibility = ScrollerVisibility.Hidden;
             body.Add(nav);
+            _navScroll = nav;
             _navList = nav.contentContainer;
 
             _contentScroll = new ScrollView();
@@ -204,6 +214,11 @@ namespace Game.Framework.Demo.Core
             // 直接置 0 立即生效；再调度一帧兜底——内容布局在本帧末才算完，个别情况即时设的偏移会被布局后的钳制覆盖。
             _contentScroll.scrollOffset = Vector2.zero;
             _contentScroll.schedule.Execute(() => _contentScroll.scrollOffset = Vector2.zero);
+
+            // 导航滚到选中项（延一帧等布局）：用户点击时按钮本就可见，这是给「UI 重建后恢复选中」兜底——
+            // 重建让导航回到顶部，恢复的选中章可能在可视区外。ScrollTo 只滚最小距离，可见时是空操作。
+            if (_navButtons.TryGetValue(module.Id, out var navBtn))
+                _navScroll.schedule.Execute(() => _navScroll.ScrollTo(navBtn));
         }
     }
 }
