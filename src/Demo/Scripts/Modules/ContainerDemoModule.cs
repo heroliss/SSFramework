@@ -67,7 +67,7 @@ namespace Game.Framework.Demo.Modules
                 var ctx = Object.FindFirstObjectByType<MonoDemoContext>();
                 if (ctx != null) DemoEditorNav.PingSceneObject(ctx.gameObject);
             }, new CodeRef("Assets/Game/Framework/Demo/Scripts/Core/MonoDemoContext.cs", "class MonoDemoContext", "demo 根 Context 定义"));
-            host.AddNote("各章纯 C# 的 Model / Service 都注册在这个 `Context` 的容器里——它们是运行时对象，Inspector 看不到。想 Inspector 可视化就走 Mono 路径（见「Model · 状态与 Inspector」）。");
+            host.AddNote("各章纯 C# 的 Model / Service 都注册在这个 `Context` 的容器里——它们是运行时对象，Inspector 看不到。想 Inspector 可视化就走 Mono 路径（见「Model · 状态与 Inspector」）；想直接翻这个容器的注册表（契约 → 实例），开诊断窗口选中它即可（见「框架诊断面板」章）。");
 #endif
         }
     }
