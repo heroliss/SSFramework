@@ -55,12 +55,12 @@ namespace Game.Framework.Demo.Modules
                 new CodeRef(Dir + "/Services/DemoExcludedService.cs", "class DemoExcludedService", "DemoExcludedService"));
 
             host.AddSectionTitle("生成工作流（三步）");
-            host.AddStep("1", "服务类放固定目录，文件名 = 类名——本章的两个服务就在 `ServiceInstaller/Services/`。",
+            host.AddStep("①", "服务类放固定目录，文件名 = 类名——本章的两个服务就在 `ServiceInstaller/Services/`。",
                 new CodeRef(Dir + "/Services/DemoTimeUtility.cs", "class DemoTimeUtility", "看服务类"));
-            host.AddStep("2", "`ServiceInstallerProfile` 资产配「扫描目录 → 输出路径/命名空间」（本章样板在 `ServiceInstaller/` 下），"
+            host.AddStep("②", "`ServiceInstallerProfile` 资产配「扫描目录 → 输出路径/命名空间」（本章样板在 `ServiceInstaller/` 下），"
                 + "菜单「SSFramework/服务注册/生成服务安装器代码」生成 .g.cs。",
                 new CodeRef(Dir + "/Generated/DemoServicesInstaller.g.cs", "public static void Install", "看生成产物"));
-            host.AddStep("3", "Context 的 `InstallBindings` 里一行接线调用——测试 Context / 子 Context 想装同一批服务就再调一次。",
+            host.AddStep("③", "Context 的 `InstallBindings` 里一行接线调用——测试 Context / 子 Context 想装同一批服务就再调一次。",
                 CodeRef.Here("Generated.DemoServicesInstaller.Install", "本模块的接线"));
 
             host.AddSectionTitle("要点");

@@ -99,6 +99,10 @@ namespace Game.Framework.Demo.Modules
             host.AddNote("查询 Command（`ICommand<T>`）同步返回值：可返回只读状态流（`ReadOnlyReactiveProperty`，给 View 持续订阅——本 demo 到处在用），"
                 + "也可返回一次性快照值——这里返回 `int`，读的就是上方异步任务的累计完成数在“查询那一刻”的值（之后再完成任务它不会自己变，要重新点才更新）。"
                 + "View 经查询读状态，不直接碰 Model。");
+            host.AddSubNote("性能细节：带返回值的 struct 查询走可推断调用 `this.ExecuteCommand(new CountDoneCommand())` 会**装箱一次**——"
+                + "`TResult` 只出现在泛型约束里、无法被推断，编译器选中的是接口参数的重载。取一次订阅源这类场景完全无所谓；"
+                + "真在热路径高频查询，显式写双泛型 `this.ExecuteCommand<CountDoneCommand, int>(...)` 即零装箱。"
+                + "无返回值的 struct Command 走泛型重载、永远零装箱，与此无关。见框架手册 §9。");
 
             // ── 查询进阶：只读投影（一面板一查询）——模式简单，文字说明即可，完整代码在框架手册 §8 ──
             host.AddSectionTitle("查询进阶：只读投影（一面板一查询）");

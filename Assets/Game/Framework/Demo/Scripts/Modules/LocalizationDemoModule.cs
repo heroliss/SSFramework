@@ -163,7 +163,7 @@ namespace Game.Framework.Demo.Modules
             host.AddConcept("复数 / 性别 / CLDR 规则", "ICU 级复杂度；绝大多数游戏文案用「{0} 个」直译绕开，真需要的项目接专门库，在 Get 的输出上再包一层。");
             host.AddConcept("翻译导出导入工具", "Luban 的 Excel 一列一语言，本身就是翻译工作流（本章 l10n.xlsx 就是活样例）。");
             host.AddConcept("场景静态文本收集", "本框架 UI 全代码驱动（窗口 = View 类），文本入口天然收敛在 BindLocalizedText，没有「散落场景里的 Text 组件」问题。");
-            host.AddConcept("字体切换", "归字体策略（ADR-0025，规划中）：字体模块订阅 `Locale` RP，本模块只出信号。");
+            host.AddConcept("字体切换", "不在本接口——由「字体 · 多语言字体链」章的 `MonoLocaleFonts` 承接（订阅 `Locale` 自动切换 fallback 链，ADR-0025），本模块只出信号。");
 
             host.AddTip("速记：文本源 = ~10 行表 adapter（吃别的服务就 RegisterFactory）；UI 全用 Bag.BindLocalizedText(label, key)；图片 = 后缀约定 + 子 Bag 重载；音频 = 播放时按 CurrentValue 取；设置页 = SetLocale + 存档回灌。深度见 framework-guide 本地化章 / ADR-0024。");
         }
