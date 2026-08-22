@@ -172,6 +172,14 @@ namespace Game.Framework.Build
                     var result = BuildPackage(pkg, entry, profile, version, target, clearBuildCache, useAssetDependencyDB);
                     if (result.Success)
                     {
+                        var (bundledOk, bundledError) = ValidateBundledOutput(pkg, entry, version);
+                        if (!bundledOk)
+                        {
+                            failed.Add($"{pkg}：构建管线报告成功，但首包产物校验失败：{bundledError}");
+                            Debug.LogError($"[AssetBuilder] 包 '{pkg}' 首包产物不完整：{bundledError}");
+                            continue;
+                        }
+
                         built.Add(pkg);
                         CleanupOldVersions(pkg, profile);
                         continue;
@@ -362,6 +370,98 @@ namespace Game.Framework.Build
             string info = $"{r.ErrorInfo} {r.FailedTask}";
             return info.IndexOf("asset list is empty", StringComparison.OrdinalIgnoreCase) >= 0
                 || info.IndexOf("PackAssetListIsEmpty", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        /// <summary>
+        /// YooAsset 的 <see cref="BuildResult.Success"/> 只表示构建任务没有抛错，不代表首包目录真的满足 profile。
+        /// 发包前在框架侧再核对一次，避免出现“清单能加载、bundle 却仍访问 CDN”的半成品 Player。
+        /// </summary>
+        private static (bool ok, string error) ValidateBundledOutput(
+            string packageName, PackageBuildEntry entry, string version)
+        {
+            var copyOption = entry?.BuiltinCopy ?? EBundledCopyOption.ClearAndCopyByTags;
+            if (copyOption == EBundledCopyOption.None)
+                return (true, null);
+
+            string outputDir = Path.Combine(PackageOutputRoot(packageName), version);
+            string bundledDir = Path.Combine(BundleBuilderHelper.GetStreamingAssetsRoot(), packageName);
+            if (!Directory.Exists(outputDir))
+                return (false, $"找不到版本输出目录：{outputDir}");
+            if (!Directory.Exists(bundledDir))
+                return (false, $"找不到 StreamingAssets 包目录：{bundledDir}");
+
+            string[] requiredPipelineFiles =
+            {
+                YooAssetConfiguration.GetManifestBinaryFileName(packageName, version),
+                YooAssetConfiguration.GetPackageHashFileName(packageName, version),
+                YooAssetConfiguration.GetPackageVersionFileName(packageName),
+                "BuiltinCatalog.bytes",
+            };
+            var missingPipelineFiles = requiredPipelineFiles
+                .Where(file => !File.Exists(Path.Combine(bundledDir, file)))
+                .ToArray();
+            if (missingPipelineFiles.Length > 0)
+                return (false, $"缺少内置清单文件：{string.Join(", ", missingPipelineFiles)}");
+
+            var outputBundles = Directory.GetFiles(outputDir, "*.bundle", SearchOption.TopDirectoryOnly)
+                .Select(Path.GetFileName)
+                .ToArray();
+            var bundledBundles = new HashSet<string>(
+                Directory.GetFiles(bundledDir, "*.bundle", SearchOption.TopDirectoryOnly)
+                    .Select(Path.GetFileName),
+                StringComparer.Ordinal);
+
+            if (copyOption == EBundledCopyOption.ClearAndCopyAll ||
+                copyOption == EBundledCopyOption.OnlyCopyAll)
+            {
+                var missingBundles = outputBundles.Where(file => !bundledBundles.Contains(file)).ToArray();
+                if (outputBundles.Length == 0)
+                    return (false, $"版本输出目录没有 bundle：{outputDir}");
+                if (missingBundles.Length > 0)
+                    return (false, $"配置要求全部内置，但缺少 {missingBundles.Length}/{outputBundles.Length} 个 bundle：" +
+                                   string.Join(", ", missingBundles.Take(5)) +
+                                   (missingBundles.Length > 5 ? "…" : ""));
+            }
+
+            bool copyByTags = copyOption == EBundledCopyOption.ClearAndCopyByTags ||
+                              copyOption == EBundledCopyOption.OnlyCopyByTags;
+            if (copyByTags && !string.IsNullOrWhiteSpace(entry?.BuiltinTags))
+            {
+                string reportPath = Path.Combine(
+                    outputDir, YooAssetConfiguration.GetBuildReportFileName(packageName, version));
+                if (!File.Exists(reportPath))
+                    return (false, $"按标签校验需要构建报告，但文件不存在：{reportPath}");
+
+                BuildReport report;
+                try
+                {
+                    report = BuildReport.Deserialize(File.ReadAllText(reportPath, Encoding.UTF8));
+                }
+                catch (Exception e)
+                {
+                    return (false, $"构建报告无法解析：{reportPath}（{e.Message}）");
+                }
+
+                var requestedTags = new HashSet<string>(
+                    entry.BuiltinTags.Split(';').Select(tag => tag.Trim()).Where(tag => tag.Length > 0),
+                    StringComparer.Ordinal);
+                var expectedBundles = (report?.BundleInfos ?? new List<ReportBundleInfo>())
+                    .Where(bundle => bundle.Tags != null && bundle.Tags.Any(requestedTags.Contains))
+                    .Select(bundle => bundle.FileName)
+                    .Where(file => !string.IsNullOrEmpty(file))
+                    .Distinct(StringComparer.Ordinal)
+                    .ToArray();
+                if (expectedBundles.Length == 0)
+                    return (false, $"配置了首包标签 '{entry.BuiltinTags}'，但本次构建报告中没有任何 bundle 命中；请检查收集器标签是否匹配。");
+
+                var missingTaggedBundles = expectedBundles.Where(file => !bundledBundles.Contains(file)).ToArray();
+                if (missingTaggedBundles.Length > 0)
+                    return (false, $"配置要求按标签内置，但缺少 {missingTaggedBundles.Length}/{expectedBundles.Length} 个本次应复制的 bundle：" +
+                                   string.Join(", ", missingTaggedBundles.Take(5)) +
+                                   (missingTaggedBundles.Length > 5 ? "…" : ""));
+            }
+
+            return (true, null);
         }
 
         // 构建成功后清理旧版本目录，只保留最近 N 个（按写入时间），跳过 OutputCache 临时目录。

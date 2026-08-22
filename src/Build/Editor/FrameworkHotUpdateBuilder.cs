@@ -2,11 +2,13 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using Game.Framework.Boot;
 using HybridCLR.Editor;
 using HybridCLR.Editor.Commands;
+using HybridCLR.Editor.Installer;
 using HybridCLR.Editor.Settings;
 using UnityEditor;
 using UnityEngine;
@@ -34,7 +36,8 @@ namespace Game.Framework.Build
     ///
     /// <para><b>AOT 补元数据清单</b>来自 Generate 产出的 <c>AOTGenericReferences.cs</c>（解析其中
     /// <c>PatchedAOTAssemblyList</c>），对应裁剪 DLL 取自 <c>AssembliesPostIl2CppStrip</c>——
-    /// 没跑过 Generate 时清单为空并显著警告：编辑器联调不受影响（编辑器旁路不加载 DLL），真机会缺元数据。</para>
+    /// 没跑过 Generate，或生成时的 Unity / HybridCLR / 平台 / Development / 热更列表任一项变化，构建会在产出代码包前停止；
+    /// 编辑器联调会旁路 DLL 加载，不能作为生成物新鲜度的依据。</para>
     /// </summary>
     public static class FrameworkHotUpdateBuilder
     {
@@ -47,6 +50,11 @@ namespace Game.Framework.Build
         // YooAsset 构建管线的临时输出子目录名（同 FrameworkAssetBuilder 内联常量，清理版本时跳过）。
         private const string OutputCacheFolderName = "OutputCache";
 
+        // Generate 的结果同时依赖这些编辑器状态。stamp 放在 HybridCLRData（本地生成物目录）里，
+        // BuildCodePackage 据此拒绝消费旧版本/旧平台的桥接和裁剪产物。
+        private static string GenerationStampPath =>
+            Path.Combine(SettingsUtil.HybridCLRDataDir, "SSFramework", "generation-stamp.json");
+
         /// <summary>包装 HybridCLR <c>Generate/All</c>（先同步校验热更列表，违规即停）。耗时分钟级，见类型注释的触发时机。</summary>
         public static (bool ok, string message) Generate(FrameworkHotUpdateProfile profile)
         {
@@ -55,10 +63,18 @@ namespace Game.Framework.Build
                 string sync = profile.SyncToHybridCLRSettings();
                 if (sync.Contains("✗")) return (false, sync);
 
+                var (installerOk, installerMessage) = ValidateHybridClrInstaller();
+                if (!installerOk) return (false, sync + "\n" + installerMessage);
+
+                // Generate 失败时不能继续沿用旧 stamp，否则下一次日常构建会把旧产物误判为新鲜。
+                InvalidateGenerationStamp();
+
                 PrebuildCommand.GenerateAll();
                 AssetDatabase.Refresh(); // link.xml / AOTGenericReferences.cs 落在 Assets 下，刷新入库
+                WriteGenerationStamp(profile);
 
-                return (true, sync + "\n✓ Generate/All 完成（Il2CppDef / link.xml / 裁剪 AOT DLL / 桥接函数 / AOT 泛型引用）。");
+                return (true, sync + "\n" + installerMessage +
+                    "\n✓ Generate/All 完成并记录生成环境（Il2CppDef / link.xml / 裁剪 AOT DLL / 桥接函数 / AOT 泛型引用）。");
             }
             catch (Exception e)
             {
@@ -85,8 +101,18 @@ namespace Game.Framework.Build
                 sb.AppendLine(sync);
                 if (sync.Contains("✗")) return (false, sb.ToString().TrimEnd());
 
+                var (installerOk, installerMessage) = ValidateHybridClrInstaller();
+                sb.AppendLine(installerMessage);
+                if (!installerOk) return (false, sb.ToString().TrimEnd());
+
                 // 2. 编译热更 DLL（读刚同步过的 HybridCLRSettings）。
                 var hotNames = profile.HotUpdateAssemblyNames;
+                if (hotNames.Count > 0)
+                {
+                    var (fresh, freshnessMessage) = ValidateGenerationStamp(profile);
+                    sb.AppendLine(freshnessMessage);
+                    if (!fresh) return (false, sb.ToString().TrimEnd());
+                }
                 if (hotNames.Count > 0)
                     CompileDllCommand.CompileDll(target, EditorUserBuildSettings.development);
 
@@ -104,7 +130,7 @@ namespace Game.Framework.Build
                     manifest.HotUpdateDlls.Add(name + ".dll");
                 }
 
-                var (aotCopied, aotWarning) = CopyAotMetadataDlls(target, manifest);
+                var (aotCopied, aotWarning) = CopyAotMetadataDlls(target, manifest, requireComplete: hotNames.Count > 0);
                 if (aotWarning != null) sb.AppendLine(aotWarning);
 
                 File.WriteAllText(Path.Combine(DllAssetDir, HotUpdateManifest.Location + ".bytes"), manifest.ToJson(prettyPrint: true));
@@ -159,13 +185,37 @@ namespace Game.Framework.Build
         }
 
         // 按 AOTGenericReferences.PatchedAOTAssemblyList 拷裁剪后的 AOT DLL；返回 (拷贝数, 警告或 null)。
-        // 个别 DLL 缺失只警告不中断：清单里没有它，真机补元数据会缺这一个——警告里说清后果让人决策。
-        private static (int copied, string warning) CopyAotMetadataDlls(BuildTarget target, HotUpdateManifest manifest)
+        // 有热更程序集时缺生成清单/裁剪 DLL 必须失败：继续打包只会把错误推迟到 IL2CPP 真机启动。
+        private static (int copied, string warning) CopyAotMetadataDlls(
+            BuildTarget target,
+            HotUpdateManifest manifest,
+            bool requireComplete)
         {
-            var patched = ReadPatchedAotList();
+            List<string> patched;
+            try
+            {
+                patched = ReadPatchedAotList();
+            }
+            catch (InvalidDataException e)
+            {
+                string message = "AOTGenericReferences.cs 格式异常，无法确认补元数据程序集清单：" + e.Message +
+                    "。请重新执行「2. 生成桥接与裁剪文件」；若仍失败，请检查 HybridCLR 新版本的生成格式。";
+                if (requireComplete) throw new InvalidOperationException(message, e);
+                return (0, "⚠ " + message);
+            }
+
             if (patched == null)
-                return (0, "⚠ 未找到 AOTGenericReferences.cs（没跑过 Generate/All？）——本包 AOT 补元数据清单为空：" +
-                           "编辑器联调不受影响，但 IL2CPP 真机运行热更代码会因缺泛型元数据报错。先执行「2. 生成桥接与裁剪文件」。");
+            {
+                const string message = "未找到 AOTGenericReferences.cs（没跑过 Generate/All？）——" +
+                    "IL2CPP 真机运行热更代码会缺泛型元数据。先执行「2. 生成桥接与裁剪文件」。";
+                if (requireComplete) throw new InvalidOperationException(message);
+                return (0, "⚠ " + message);
+            }
+
+            if (patched.Count == 0 && requireComplete)
+                throw new InvalidOperationException(
+                    "AOTGenericReferences.cs 的 PatchedAOTAssemblyList 合法但为空；当前存在热更程序集，" +
+                    "无法确认 IL2CPP 真机所需泛型元数据。请重新执行「2. 生成桥接与裁剪文件」。");
 
             string stripDir = SettingsUtil.GetAssembliesPostIl2CppStripDir(target);
             var missing = new List<string>();
@@ -183,11 +233,152 @@ namespace Game.Framework.Build
                 copied++;
             }
 
+            if (missing.Count > 0 && requireComplete)
+                throw new InvalidOperationException(
+                    $"裁剪 AOT DLL 缺失 {missing.Count} 个（{string.Join(", ", missing)}）。" +
+                    $"重跑「2. 生成桥接与裁剪文件」后再构建（来源：{stripDir}）。");
+
             string warning = missing.Count == 0
                 ? null
-                : $"⚠ 裁剪 AOT DLL 缺失 {missing.Count} 个（{string.Join(", ", missing)}）——清单已跳过它们，" +
-                  $"真机若用到对应泛型会缺元数据。重跑「2. 生成桥接与裁剪文件」可补全（来源：{stripDir}）。";
+                : $"⚠ 裁剪 AOT DLL 缺失 {missing.Count} 个（{string.Join(", ", missing)}）；当前没有热更程序集，已跳过。";
             return (copied, warning);
+        }
+
+        /// <summary>
+        /// HybridCLR Package 与 Installer 写入的本地 libil2cpp 必须同版；只升级 UPM 包不会自动替换 C++ Runtime。
+        /// 把官方 Player 构建期检查前移到 Generate/代码包入口，错误能在耗时工作开始前暴露。
+        /// </summary>
+        private static (bool ok, string message) ValidateHybridClrInstaller()
+        {
+            var installer = new InstallerController();
+            if (!installer.HasInstalledHybridCLR())
+                return (false, "✗ HybridCLR Runtime 尚未安装。请先执行 HybridCLR/Installer...");
+            if (!string.Equals(installer.PackageVersion, installer.InstalledLibil2cppVersion, StringComparison.Ordinal))
+                return (false, $"✗ HybridCLR Package {installer.PackageVersion} 与已安装 Runtime " +
+                    $"{installer.InstalledLibil2cppVersion ?? "<无>"} 不一致。请重新执行 HybridCLR/Installer...");
+            return (true, $"✓ HybridCLR Package / Runtime 均为 {installer.PackageVersion}");
+        }
+
+        private static void InvalidateGenerationStamp()
+        {
+            if (File.Exists(GenerationStampPath))
+                File.Delete(GenerationStampPath);
+        }
+
+        private static void WriteGenerationStamp(FrameworkHotUpdateProfile profile)
+        {
+            var installer = new InstallerController();
+            var stamp = new GenerationStamp
+            {
+                FormatVersion = 2,
+                UnityVersion = Application.unityVersion,
+                HybridClrVersion = installer.PackageVersion,
+                BuildTarget = EditorUserBuildSettings.activeBuildTarget.ToString(),
+                Development = EditorUserBuildSettings.development,
+                HotUpdateAssemblies = GetSortedHotUpdateAssemblyNames(profile),
+                PackageLockSha256 = HashRequiredProjectFile("Packages/packages-lock.json"),
+                NuGetPackagesSha256 = HashRequiredProjectFile("Packages/nuget-packages/packages.config"),
+                HybridClrSettingsSha256 = HashRequiredProjectFile("ProjectSettings/HybridCLRSettings.asset"),
+                PlayerBuildSettings = GetPlayerBuildSettingsFingerprint(),
+                GeneratedAtUtc = DateTime.UtcNow.ToString("O"),
+            };
+            string dir = Path.GetDirectoryName(GenerationStampPath);
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+            File.WriteAllText(GenerationStampPath, JsonUtility.ToJson(stamp, prettyPrint: true), Encoding.UTF8);
+        }
+
+        private static (bool ok, string message) ValidateGenerationStamp(FrameworkHotUpdateProfile profile)
+        {
+            if (!File.Exists(GenerationStampPath))
+                return (false, "✗ 未找到 Generate/All 环境记录。请先执行「2. 生成桥接与裁剪文件」。");
+
+            GenerationStamp stamp;
+            try
+            {
+                stamp = JsonUtility.FromJson<GenerationStamp>(File.ReadAllText(GenerationStampPath, Encoding.UTF8));
+            }
+            catch (Exception e)
+            {
+                return (false, "✗ Generate/All 环境记录损坏：" + e.Message + "。请重新执行生成。");
+            }
+
+            if (stamp == null || stamp.FormatVersion != 2)
+                return (false, "✗ Generate/All 环境记录版本不兼容。请重新执行生成。");
+
+            var installer = new InstallerController();
+            var mismatches = new List<string>();
+            if (!string.Equals(stamp.UnityVersion, Application.unityVersion, StringComparison.Ordinal))
+                mismatches.Add($"Unity {stamp.UnityVersion} → {Application.unityVersion}");
+            if (!string.Equals(stamp.HybridClrVersion, installer.PackageVersion, StringComparison.Ordinal))
+                mismatches.Add($"HybridCLR {stamp.HybridClrVersion} → {installer.PackageVersion}");
+            string target = EditorUserBuildSettings.activeBuildTarget.ToString();
+            if (!string.Equals(stamp.BuildTarget, target, StringComparison.Ordinal))
+                mismatches.Add($"平台 {stamp.BuildTarget} → {target}");
+            if (stamp.Development != EditorUserBuildSettings.development)
+                mismatches.Add($"Development {stamp.Development} → {EditorUserBuildSettings.development}");
+            if (!(stamp.HotUpdateAssemblies ?? new List<string>()).SequenceEqual(GetSortedHotUpdateAssemblyNames(profile)))
+                mismatches.Add("热更程序集列表已变化");
+            if (!string.Equals(stamp.PackageLockSha256, HashRequiredProjectFile("Packages/packages-lock.json"), StringComparison.Ordinal))
+                mismatches.Add("Packages/packages-lock.json 已变化");
+            if (!string.Equals(stamp.NuGetPackagesSha256, HashRequiredProjectFile("Packages/nuget-packages/packages.config"), StringComparison.Ordinal))
+                mismatches.Add("NuGet packages.config 已变化");
+            if (!string.Equals(stamp.HybridClrSettingsSha256, HashRequiredProjectFile("ProjectSettings/HybridCLRSettings.asset"), StringComparison.Ordinal))
+                mismatches.Add("HybridCLRSettings 已变化");
+            string playerSettings = GetPlayerBuildSettingsFingerprint();
+            if (!string.Equals(stamp.PlayerBuildSettings, playerSettings, StringComparison.Ordinal))
+                mismatches.Add($"AOT PlayerSettings {stamp.PlayerBuildSettings} → {playerSettings}");
+
+            return mismatches.Count == 0
+                ? (true, $"✓ Generate/All 产物与当前环境一致（{stamp.GeneratedAtUtc}）")
+                : (false, "✗ Generate/All 产物已过期：" + string.Join("；", mismatches) +
+                    "。请重新执行「2. 生成桥接与裁剪文件」。");
+        }
+
+        private static List<string> GetSortedHotUpdateAssemblyNames(FrameworkHotUpdateProfile profile)
+            => profile.HotUpdateAssemblyNames.OrderBy(name => name, StringComparer.Ordinal).ToList();
+
+        // UPM 包锁和 NuGet 清单决定实际进入 AOT 世界的第三方程序集版本；HybridCLRSettings 决定桥接、裁剪与生成策略。
+        // 只看“版本显示值”不够，直接记内容哈希能覆盖 lock 重解析、显式 DLL 依赖与设置新增字段等变化。
+        private static string HashRequiredProjectFile(string relativePath)
+        {
+            string path = Path.Combine(AssetBuildLayout.ProjectRoot, relativePath);
+            if (!File.Exists(path))
+                throw new FileNotFoundException($"生成环境输入文件不存在：{relativePath}", path);
+            using var stream = File.OpenRead(path);
+            using var sha256 = SHA256.Create();
+            return BitConverter.ToString(sha256.ComputeHash(stream)).Replace("-", "").ToLowerInvariant();
+        }
+
+        // 只记录确实影响 AOT 裁剪/代码生成的 PlayerSettings，避免产品名、图标等无关改动让日常热更被迫重跑 Generate。
+        private static string GetPlayerBuildSettingsFingerprint()
+        {
+            var target = EditorUserBuildSettings.activeBuildTarget;
+            var group = BuildPipeline.GetBuildTargetGroup(target);
+            var namedTarget = UnityEditor.Build.NamedBuildTarget.FromBuildTargetGroup(group);
+            return string.Join("|", new[]
+            {
+                PlayerSettings.GetScriptingBackend(namedTarget).ToString(),
+                PlayerSettings.GetApiCompatibilityLevel(namedTarget).ToString(),
+                PlayerSettings.GetManagedStrippingLevel(namedTarget).ToString(),
+                PlayerSettings.GetIl2CppCompilerConfiguration(namedTarget).ToString(),
+                $"StripEngineCode={PlayerSettings.stripEngineCode}",
+            });
+        }
+
+        [Serializable]
+        private sealed class GenerationStamp
+        {
+            public int FormatVersion;
+            public string UnityVersion;
+            public string HybridClrVersion;
+            public string BuildTarget;
+            public bool Development;
+            public List<string> HotUpdateAssemblies;
+            public string PackageLockSha256;
+            public string NuGetPackagesSha256;
+            public string HybridClrSettingsSha256;
+            public string PlayerBuildSettings;
+            public string GeneratedAtUtc;
         }
 
         // 解析 Generate 产物 AOTGenericReferences.cs 里的 PatchedAOTAssemblyList。
@@ -199,9 +390,15 @@ namespace Game.Framework.Build
 
             string text = File.ReadAllText(path);
             int start = text.IndexOf("PatchedAOTAssemblyList", StringComparison.Ordinal);
-            if (start < 0) return new List<string>();
-            int end = text.IndexOf("};", start, StringComparison.Ordinal);
-            string block = end > start ? text.Substring(start, end - start) : text.Substring(start);
+            if (start < 0)
+                throw new InvalidDataException("找不到 PatchedAOTAssemblyList 标记");
+            int blockStart = text.IndexOf('{', start);
+            if (blockStart < 0)
+                throw new InvalidDataException("PatchedAOTAssemblyList 缺少列表起始符 '{'");
+            int end = text.IndexOf("};", blockStart, StringComparison.Ordinal);
+            if (end < 0)
+                throw new InvalidDataException("PatchedAOTAssemblyList 缺少列表结束符 '};'");
+            string block = text.Substring(blockStart, end - blockStart);
             return Regex.Matches(block, "\"([^\"]+\\.dll)\"")
                         .Select(m => m.Groups[1].Value)
                         .Distinct()

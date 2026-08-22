@@ -1333,6 +1333,8 @@ await this.GetUtility<IAssetUtility>().Initialize("DlcPack"); // 指定包
 
 **运行模式按「编辑器 / 玩家包」分开配**：`AssetSystemConfigModel` 有两个模式字段——「编辑器运行模式」只在编辑器 Play 生效（日常 `EditorSimulate` 免打包；也可临时切 Offline / Host 在编辑器里联调真实模式，不影响出包），「玩家包运行模式」是构建出的玩家端实际用的模式（默认 `Offline` 纯内置首包；资源热更选 `Host`）。同一份场景配置两头通用。模拟模式是编辑器专属能力（依赖 AssetDatabase），进不了玩家包——玩家包模式选它会在启动校验时清晰报错，而不是等 provider 初始化才炸。
 
+`Host` 在全新安装且 CDN 暂时不可用时会先尝试远端，失败后显式激活随包内置版本清单；因此“全部内置”的启动必需包仍可离线进入游戏，已有本地清单的老客户端也会继续用当前版本。初始化前会先探测内置版本文件，纯 CDN（`BuiltinCopy=None`）的包不会开启 manifest 复制，也就不会因“没有内置文件”在访问远端前失败。这个回退只覆盖真正随包携带的内容：按 tag / 零内置的 bundle 仍需 CDN。资源构建器会在成功后核对 `StreamingAssets` 的清单和 bundle，`ClearAndCopyAll` 少拷任何文件都会让构建失败，避免产出“清单可用、资源却意外联网”的半成品。
+
 资源释放分三层，别混用：
 
 | 操作 | 清理对象 | 常见时机 |
@@ -1630,6 +1632,13 @@ Bag.Subscribe(
 
 日常改完热更代码只需 3 + 4；玩家包（安装包）只在 AOT 部分变化时才重出。
 
+构建器会把最近一次 Generate 的 Unity / HybridCLR 版本、目标平台、Development、热更程序集列表、UPM 包锁、NuGet 清单与 HybridCLRSettings 内容哈希，以及会影响 AOT 的 PlayerSettings 指纹记录在
+`HybridCLRData/SSFramework/generation-stamp.json`。构建代码包时任一项不一致都会提前失败，并要求重跑第 2 步；有热更程序集时，
+`AOTGenericReferences.cs` 缺失、格式异常、意外生成空清单，或任一裁剪 AOT DLL 缺失也会直接失败。这样不会把编辑器旁路下看不见的旧生成物问题推迟到 IL2CPP 真机启动。
+
+> 只升级 `com.code-philosophy.hybridclr` UPM 包还不完整：本机 `HybridCLRData` 里的 libil2cpp Runtime 也必须经
+> `HybridCLR/Installer...` 更新到同版。框架构建入口会校验两者版本，不一致时在耗时生成/编译前停止。
+
 **迭代边界（真机实测）**：热更代码**新增跨 AOT 泛型用法**（如对热更类型做 Odin 序列化、新的 R3 订阅泛型、新的命令双泛型实例化）也**不需要**重跑 Generate / 重出安装包——SuperSet 补元数据 + 解释器兜底已覆盖（IL2CPP 真机自检 8/8 通过于「只重打代码包」前提下）。真正需要 Generate + 重出安装包的是 **AOT 集合本身的变化**：增删第三方库、调整热更列表档位、升级 Unity / HybridCLR。
 
 ### 运行时：Boot 场景与入口约定
@@ -1638,7 +1647,7 @@ Bag.Subscribe(
 
 - **入口类型名**：默认 `"Game.Main.GameEntry, Game.Main"`——约定入口是公共静态无参方法 `Enter()`，DLL 全部加载完后反射调用。入口即业务的 main：创建全局 Context、初始化资源系统、加载首场景都从这往下走。
 - **CDN 地址列表**：第一条主、其余备，取址 `{CDN}/{包名}/{文件}`，与资源包同一套部署结构。
-- **模式**：`Host`（远端检查更新，取不到回退本地）/ `Offline`（纯单机，永不联网）。
+- **模式**：`Host`（远端检查更新；fresh install 也可回退随包内置代码清单）/ `Offline`（纯单机，永不联网）。
 
 **编辑器旁路**：编辑器下程序集本就在 AppDomain，Launcher 直接反射进入口——不走下载/加载，日常开发与热更机制零接触。
 

@@ -97,10 +97,10 @@ namespace Game.Framework.Fonts
                 if (profile != null)
                 {
                     foreach (var f in profile.TmpFonts)
-                        if (f != null && f != main) table.Add(f); // 排除把主字体配进自己链里的配置错误
+                        AppendFallback(table, main, f);
                     var os = ResolveOsFont(profile.OsFontNames, _tmpOsFonts,
                         static name => TMP_FontAsset.CreateFontAsset(name, null, OsFontPointSize));
-                    if (os != null) table.Add(os);
+                    AppendFallback(table, main, os);
                 }
                 main.fallbackFontAssetTable = table;
             }
@@ -114,10 +114,10 @@ namespace Game.Framework.Fonts
                 if (profile != null)
                 {
                     foreach (var f in profile.ToolkitFonts)
-                        if (f != null && f != main) table.Add(f);
+                        AppendFallback(table, main, f);
                     var os = ResolveOsFont(profile.OsFontNames, _toolkitOsFonts,
                         static name => TextCoreFontAsset.CreateFontAsset(name, null, OsFontPointSize));
-                    if (os != null) table.Add(os);
+                    AppendFallback(table, main, os);
                 }
                 main.fallbackFontAssetTable = table;
             }
@@ -284,6 +284,16 @@ namespace Game.Framework.Fonts
                 if (item != null && !list.Contains(item)) // 过滤 Inspector 空槽与重复项（重复会导致快照互相覆盖）
                     list.Add(item);
             return list.ToArray();
+        }
+
+        /// <summary>
+        /// 保留 fallback 首次出现的位置：资产原始链优先于 locale 补充，locale 补充又优先于 OS 兜底。
+        /// 同一字体若同时出现在原始表和 Profile，重复追加既不会提高覆盖率，还会让共享字体资产在 Editor Play 后留下脏数据。
+        /// </summary>
+        private static void AppendFallback<T>(List<T> table, T main, T fallback) where T : UnityEngine.Object
+        {
+            if (fallback != null && fallback != main && !table.Contains(fallback))
+                table.Add(fallback);
         }
 
         private LocaleFontProfile[] CompactProfiles(IReadOnlyList<LocaleFontProfile> source)

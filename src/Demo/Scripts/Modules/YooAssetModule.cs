@@ -93,7 +93,7 @@ namespace Game.Framework.Demo.Modules
                 new CodeRef("Assets/Game/Framework/Asset.Yoo/YooAssetProvider.cs", "class GameRemoteService", "远端取址实现"));
             host.AddStep("③", "起服务：菜单「3. 启动本地 CDN 服务」= python -m http.server（端口取自构建 profile 的 `LocalServePort`，须与场景 `AssetSystemConfigModel.CdnUrls` 第一条端口一致）；生产里这步换成 CDN 厂商。",
                 new CodeRef("Assets/Game/Framework/Build/Editor/AssetBuildMenu.cs", "StartServer", "本地起服务（仅联调）"));
-            host.AddStep("④", "进 Play(`Host`)：先读 `StreamingAssets` 的 `BuiltinCatalog` → 拉 `.version` → 拉对应版本清单 → 缺的 bundle 按需从 CDN 下载并缓存到 项目根/`AssetBuild/Downloaded/<包>`。",
+            host.AddStep("④", "进 Play(`Host`)：先读 `StreamingAssets` 的 `BuiltinCatalog` → 拉远端 `.version` / 对应清单；远端不可用则激活随包内置版本清单 → 缺的非内置 bundle 按需从 CDN 下载并缓存到 项目根/`AssetBuild/Downloaded/<包>`。",
                 new CodeRef("Assets/Game/Framework/Asset.Yoo/YooAssetProvider.cs", "case AssetPlayMode.Host", "Host 初始化实现"));
             host.AddSubNote("`CdnUrls` 是候选列表：本地联调通常只填 `http://127.0.0.1:8080/`，多条时版本号 / 清单请求会随 YooAsset 的失败计数轮转重试；候选必须是等价镜像。包级「启用按需下载」（默认勾选）只影响 Host 下未缓存 bundle 的 `Load`：取消勾选后直接失败，强制先显式跑下载器。",
                 new CodeRef("Assets/Game/Framework/Core/Asset/AssetSystemConfigModel.cs", "CdnUrls", "运行时 CDN 配置"));
@@ -105,7 +105,7 @@ namespace Game.Framework.Demo.Modules
                 if (settingsModel != null) DemoEditorNav.PingSceneObject(settingsModel.gameObject);
             }, new CodeRef("Assets/Game/Framework/Core/Asset/AssetSystemConfigModel.cs", "class AssetSystemConfigModel", "资源系统配置(Model)"));
 #endif
-            host.AddTip("两个最常踩的坑：① 平台——AssetBundle 按平台区分，且编辑器进程本身是 Windows，加载不了为 Android 等移动平台构建的 bundle；要在编辑器里测 Host，先把 Build Target 切到 Standalone Windows 再重新构建，测移动平台请上真机。② 顺序——必须先「构建+部署 CDN」再进 Play：init 只在进游戏时跑一次，先进 Play 会因 StreamingAssets 内置清单缺失而 404 失败，补构建后也要重进 Play 才生效。");
+            host.AddTip("两个最常踩的坑：① 平台——AssetBundle 按平台区分，且编辑器进程本身是 Windows，加载不了为 Android 等移动平台构建的 bundle；要在编辑器里测 Host，先把 Build Target 切到 Standalone Windows 再重新构建，测移动平台请上真机。② 顺序——至少先构建再进 Play；要验证远端更新或加载非内置 bundle，还需部署并启动 CDN。Host 可以在远端失败时回退内置清单，但补构建后仍要重进 Play 才会重新初始化。");
 
             // ── 机制：清缓存 ──
             host.AddSectionTitle("机制：清缓存");

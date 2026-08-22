@@ -50,7 +50,17 @@ namespace Game.Framework
 
             if (package.InitializeStatus != EOperationStatus.Succeeded)
             {
-                var initOp = package.InitializePackageAsync(CreateInitOptions(packageName, mode, config));
+                // 纯 CDN 的 Host 包可以合法地没有任何 StreamingAssets 文件。只有确实存在内置版本文件时才让
+                // Builtin FS 复制 manifest；否则 YooAsset 会在初始化阶段因缺 <包>.version 失败，甚至还没机会访问远端。
+                bool copyBuiltinManifest = false;
+                if (mode == AssetPlayMode.Host)
+                {
+                    var builtin = await TryReadBuiltinVersionAsync(packageName, ct);
+                    copyBuiltinManifest = builtin.ok;
+                }
+
+                var initOp = package.InitializePackageAsync(
+                    CreateInitOptions(packageName, mode, config, copyBuiltinManifest));
                 await WaitOp(initOp, ct);
                 ct.ThrowIfCancellationRequested();
 
@@ -446,11 +456,25 @@ namespace Game.Framework
 
             if (!versionOk)
             {
+                if (package.PackageValid)
+                {
+                    Logging.Log.Warning($"[YooAssetProvider] '{packageName}' 远端版本不可用，继续使用当前本地清单：{lastVersionError}");
+                    return;
+                }
+
+                var (fallbackOk, fallbackMessage) = await TryLoadBuiltinManifestAsync(packageName, package, token);
+                if (fallbackOk)
+                {
+                    Logging.Log.Warning($"[YooAssetProvider] '{packageName}' 远端版本不可用，{fallbackMessage} 远端错误：{lastVersionError}");
+                    return;
+                }
+
                 // 把「配置了哪些 CDN」「最终请求形如什么」一并写进异常，让 CDN 配错（端口 / 多余路径段 / 没部署）一眼可查，
                 // 不必去翻底层日志拼凑。lastVersionError 通常已含实际 URL 与 HttpCode。
                 throw new InvalidOperationException(
                     $"[YooAssetProvider] 拉包版本失败 '{packageName}'：已尝试配置的 {attempts} 个 CDN 地址 [{configured}]，" +
-                    $"最终请求形如 <CDN地址>/{packageName}/{packageName}.version——请对照部署目录与端口核对（端口须等于 LocalServePort，服务伺服 Deploy 根、无多余路径段）。底层错误：{lastVersionError}");
+                    $"最终请求形如 <CDN地址>/{packageName}/{packageName}.version——请对照部署目录与端口核对（端口须等于 LocalServePort，服务伺服 Deploy 根、无多余路径段）。" +
+                    $"远端错误：{lastVersionError}；内置回退错误：{fallbackMessage}");
             }
 
             // 3.0：UpdatePackageManifestAsync(version) → LoadPackageManifestAsync(options)。第二个参数为超时秒数。
@@ -473,14 +497,91 @@ namespace Game.Framework
                 Logging.Log.Trace($"[YooAssetProvider] '{packageName}' 拉清单第 {i + 1}/{attempts} 次失败：{lastManifestError}");
             }
 
+            if (package.PackageValid)
+            {
+                Logging.Log.Warning($"[YooAssetProvider] '{packageName}' 远端清单不可用，继续使用当前本地清单：{lastManifestError}");
+                return;
+            }
+
+            var (manifestFallbackOk, manifestFallbackMessage) = await TryLoadBuiltinManifestAsync(packageName, package, token);
+            if (manifestFallbackOk)
+            {
+                Logging.Log.Warning($"[YooAssetProvider] '{packageName}' 远端清单不可用，{manifestFallbackMessage} 远端错误：{lastManifestError}");
+                return;
+            }
+
             throw new InvalidOperationException(
                 $"[YooAssetProvider] 拉包清单失败 '{packageName}'（版本 {version}）：已尝试配置的 {attempts} 个 CDN 地址 [{configured}]，" +
-                $"最终请求形如 <CDN地址>/{packageName}/{packageName}_{version}.bytes。底层错误：{lastManifestError}");
+                $"最终请求形如 <CDN地址>/{packageName}/{packageName}_{version}.bytes。" +
+                $"远端错误：{lastManifestError}；内置回退错误：{manifestFallbackMessage}");
+        }
+
+        /// <summary>
+        /// fresh install 没有 ActiveManifest，远端失败时需要显式读取内置版本并激活初始化阶段复制到主沙盒的 manifest。
+        /// UnityWebRequest 同时覆盖桌面文件路径和 Android 的 jar:file StreamingAssets，避免真机退化成桌面专用实现。
+        /// </summary>
+        private static async UniTask<(bool ok, string message)> TryLoadBuiltinManifestAsync(
+            string packageName,
+            ResourcePackage package,
+            CancellationToken token)
+        {
+            var builtin = await TryReadBuiltinVersionAsync(packageName, token);
+            if (!builtin.ok)
+                return (false, builtin.error);
+
+            var manifestOp = package.LoadPackageManifestAsync(new LoadPackageManifestOptions(builtin.version, 60));
+            await WaitOp(manifestOp, token);
+            token.ThrowIfCancellationRequested();
+            return manifestOp.Status == EOperationStatus.Succeeded
+                ? (true, $"已降级使用随包内置清单 {builtin.version}。")
+                : (false, $"激活内置清单 {builtin.version} 失败：{manifestOp.Error}");
+        }
+
+        /// <summary>
+        /// 探测随包版本文件。Host 初始化前用它决定是否启用 manifest 复制，远端失败后复用它取得回退版本；
+        /// “文件不存在”是纯 CDN 包的正常配置，因此只返回结果、不主动打错误日志。
+        /// </summary>
+        private static async UniTask<(bool ok, string version, string error)> TryReadBuiltinVersionAsync(
+            string packageName,
+            CancellationToken token)
+        {
+            string folder = YooAssetConfiguration.GetYooFolderName();
+            string versionFile = YooAssetConfiguration.GetPackageVersionFileName(packageName);
+            string path = Application.streamingAssetsPath.TrimEnd('/', '\\');
+            if (!string.IsNullOrEmpty(folder)) path += "/" + folder.Trim('/', '\\');
+            path += "/" + packageName + "/" + versionFile;
+            string url = ToLocalFileUrl(path);
+
+            using var request = UnityEngine.Networking.UnityWebRequest.Get(url);
+            var send = request.SendWebRequest();
+            await UniTask.WaitUntil(() => send.isDone, cancellationToken: token);
+            token.ThrowIfCancellationRequested();
+            if (request.result != UnityEngine.Networking.UnityWebRequest.Result.Success)
+                return (false, null, $"读取内置版本失败：{request.error}（{url}）");
+
+            string version = request.downloadHandler.text?.Trim();
+            return string.IsNullOrWhiteSpace(version)
+                ? (false, null, $"内置版本文件为空（{url}）")
+                : (true, version, null);
+        }
+
+        // YooAsset 内部 DownloadUrlHelper 不公开；适配层按同一规则把 Windows 路径 / Android jar 路径交给 UnityWebRequest。
+        private static string ToLocalFileUrl(string filePath)
+        {
+            string url = filePath.StartsWith("file://", StringComparison.OrdinalIgnoreCase) ||
+                         filePath.StartsWith("jar:file://", StringComparison.OrdinalIgnoreCase)
+                ? filePath
+                : new Uri(filePath).ToString();
+            return url.Replace("+", "%2B").Replace("#", "%23").Replace("?", "%3F");
         }
 
         // 按运行模式构建 3.0 初始化选项。解密器经 EFileSystemParameter 注入对应文件系统参数。
         // 非 static：Host/Web 分支要把实例上的「模拟断网」开关源（编辑器期）注入 GameRemoteService。
-        private InitializePackageOptions CreateInitOptions(string packageName, AssetPlayMode mode, AssetProviderConfig config)
+        private InitializePackageOptions CreateInitOptions(
+            string packageName,
+            AssetPlayMode mode,
+            AssetProviderConfig config,
+            bool copyBuiltinManifest)
         {
             switch (mode)
             {
@@ -509,6 +610,10 @@ namespace Game.Framework
                     remoteService.SimulateOffline = SimulateOffline; // 注入模拟断网开关源（实时读取）
 #endif
                     var builtin = FileSystemParameters.CreateDefaultBuiltinFileSystemParameters();
+                    // Host 主文件系统是沙盒：有内置版本时先把 hash/manifest 复制进去，远端失败才能显式激活；
+                    // 纯 CDN 包没有版本文件，必须保持关闭，否则 Builtin FS 会在访问远端前直接初始化失败。
+                    if (copyBuiltinManifest)
+                        builtin.AddParameter(EFileSystemParameter.CopyBuiltinPackageManifest, true);
 #if UNITY_EDITOR
                     // 编辑器期把「下载缓存」和「内置解包/足迹」都收进 项目根/AssetBuild/Downloaded/<包>，
                     // 否则根目录又会冒出 YooAsset 默认的 yoo/（每次 Host Play 重生）。两处是分开的两套根、要分别设：
@@ -520,6 +625,13 @@ namespace Game.Framework
                     // 真机（#else）一律用 YooAsset 各平台默认 persistentDataPath，不改变设备行为。这是 YooAsset 特有能力，换后端各自处理（见类型注释）。
                     var editorPackageCacheRoot = Path.Combine(AssetBuildLayout.DownloadedRoot, packageName);
                     builtin.AddParameter(EFileSystemParameter.UnpackFileSystemRoot, editorPackageCacheRoot);
+                    // 指向自定义 Sandbox 根的 ManifestFiles；否则 CopyBuiltinPackageManifest 会写到 YooAsset 默认缓存根，
+                    // 主文件系统在当前自定义根下看不到刚复制的清单。
+                    if (copyBuiltinManifest)
+                    {
+                        builtin.AddParameter(EFileSystemParameter.CopyBuiltinPackageManifestDestRoot,
+                            Path.Combine(editorPackageCacheRoot, "ManifestFiles"));
+                    }
                     var cache = FileSystemParameters.CreateDefaultSandboxFileSystemParameters(remoteService, editorPackageCacheRoot);
 #else
                     var cache = FileSystemParameters.CreateDefaultSandboxFileSystemParameters(remoteService);

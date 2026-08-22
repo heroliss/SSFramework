@@ -53,6 +53,8 @@
   热更类型在真机是运行时谜案，关掉隐式引用让它变成编译期显式决策（业务代码必须住 asmdef，本就是项目纪律；
   这收紧了 [0004](0004-assembly-structure-and-rp-location.md) 「业务在 Assembly-CSharp 仍可用」的旧承诺）。
 - 构建管线沿 asmdef 引用图**校验列表合法性**（存在 AOT→热更引用即报错并指出元凶）；DLL 加载顺序由引用图**拓扑排序自动生成**进 manifest，无人工排序规则。
+- 构建管线记录 Generate 环境 stamp（Unity / HybridCLR Package 与本地 Runtime / 平台 / Development / 热更列表 / UPM 包锁、NuGet 清单与 HybridCLRSettings 哈希 / AOT PlayerSettings 指纹），
+  代码包构建只消费与当前环境完全一致的生成物；热更列表非空时，AOT 清单缺失、格式异常、意外为空或裁剪 DLL 缺失一律失败，不把错误推迟到真机。
 
 ### 4. 引导流程
 

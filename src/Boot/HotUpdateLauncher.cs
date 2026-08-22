@@ -197,9 +197,13 @@ namespace Game.Framework.Boot
                 case BootPlayMode.Host:
                 {
                     var remote = new BootRemoteService(_codePackageName, _cdnUrls);
+                    var builtin = FileSystemParameters.CreateDefaultBuiltinFileSystemParameters();
+                    // Host 的主文件系统是沙盒缓存。把随包清单复制进去后，远端不可用时才能用内置版本
+                    // 激活同一份清单；只带 BuiltinCatalog 只能定位文件，PackageValid 仍会是 false。
+                    builtin.AddParameter(EFileSystemParameter.CopyBuiltinPackageManifest, true);
                     return new HostPlayModeOptions
                     {
-                        BuiltinFileSystemParameters = FileSystemParameters.CreateDefaultBuiltinFileSystemParameters(),
+                        BuiltinFileSystemParameters = builtin,
                         CacheFileSystemParameters = FileSystemParameters.CreateDefaultSandboxFileSystemParameters(remote)
                     };
                 }
@@ -235,8 +239,16 @@ namespace Game.Framework.Boot
                     Debug.LogWarning($"[HotUpdateLauncher] 取远端代码版本失败（{lastError}），降级使用本地已有代码清单。");
                     return;
                 }
+
+                var (fallbackOk, fallbackMessage) = await TryLoadBuiltinManifest(package, ct);
+                if (fallbackOk)
+                {
+                    Debug.LogWarning($"[HotUpdateLauncher] 取远端代码版本失败（{lastError}），{fallbackMessage}");
+                    return;
+                }
                 throw new InvalidOperationException(
-                    $"取代码包版本失败且本地无可用清单：已尝试 {attempts} 个 CDN。底层错误：{lastError}");
+                    $"取代码包版本失败且本地无可用清单：已尝试 {attempts} 个 CDN。" +
+                    $"远端错误：{lastError}；内置回退错误：{fallbackMessage}");
             }
 
             string lastManifestError = null;
@@ -247,7 +259,70 @@ namespace Game.Framework.Boot
                 if (manifestOp.Status == EOperationStatus.Succeeded) return;
                 lastManifestError = manifestOp.Error;
             }
-            throw new InvalidOperationException($"取代码包清单失败（版本 {version}）：{lastManifestError}");
+
+            if (package.PackageValid)
+            {
+                Debug.LogWarning($"[HotUpdateLauncher] 取远端代码清单失败（版本 {version}：{lastManifestError}），" +
+                                 "降级使用当前已激活的本地清单。");
+                return;
+            }
+
+            var (manifestFallbackOk, manifestFallbackMessage) = await TryLoadBuiltinManifest(package, ct);
+            if (manifestFallbackOk)
+            {
+                Debug.LogWarning($"[HotUpdateLauncher] 取远端代码清单失败（版本 {version}：{lastManifestError}），" +
+                                 manifestFallbackMessage);
+                return;
+            }
+            throw new InvalidOperationException($"取代码包清单失败（版本 {version}）：{lastManifestError}；" +
+                                                $"内置回退错误：{manifestFallbackMessage}");
+        }
+
+        /// <summary>
+        /// fresh install 尚无 ActiveManifest，不能只靠 <see cref="ResourcePackage.PackageValid"/> 判断内置首包是否可用。
+        /// Host 初始化已把内置 hash/manifest 复制到主沙盒文件系统；这里再读取 StreamingAssets 的版本文件并显式激活它。
+        /// 版本文件用 UnityWebRequest 读取，兼容 Android 的 jar:file 路径，避免只在桌面端可用的 <c>File.ReadAllText</c>。
+        /// </summary>
+        private async UniTask<(bool ok, string message)> TryLoadBuiltinManifest(
+            ResourcePackage package,
+            System.Threading.CancellationToken ct)
+        {
+            string folder = YooAssetConfiguration.GetYooFolderName();
+            string versionFile = YooAssetConfiguration.GetPackageVersionFileName(_codePackageName);
+            string path = Application.streamingAssetsPath.TrimEnd('/', '\\');
+            if (!string.IsNullOrEmpty(folder)) path += "/" + folder.Trim('/', '\\');
+            path += "/" + _codePackageName + "/" + versionFile;
+            string url = ToLocalFileUrl(path);
+
+            string builtinVersion;
+            using (var request = UnityEngine.Networking.UnityWebRequest.Get(url))
+            {
+                var send = request.SendWebRequest();
+                await UniTask.WaitUntil(() => send.isDone, cancellationToken: ct);
+                ct.ThrowIfCancellationRequested();
+                if (request.result != UnityEngine.Networking.UnityWebRequest.Result.Success)
+                    return (false, $"读取内置版本失败：{request.error}（{url}）");
+                builtinVersion = request.downloadHandler.text?.Trim();
+            }
+
+            if (string.IsNullOrWhiteSpace(builtinVersion))
+                return (false, $"内置版本文件为空（{url}）");
+
+            var manifestOp = package.LoadPackageManifestAsync(new LoadPackageManifestOptions(builtinVersion, 60));
+            await WaitOp(manifestOp, ct);
+            return manifestOp.Status == EOperationStatus.Succeeded
+                ? (true, $"已降级使用随包内置代码清单 {builtinVersion}。")
+                : (false, $"激活内置代码清单 {builtinVersion} 失败：{manifestOp.Error}");
+        }
+
+        // 与 YooAsset 内部 DownloadUrlHelper 的平台语义保持一致；该类型是 internal，Boot 只能在适配边界复刻这一步。
+        private static string ToLocalFileUrl(string filePath)
+        {
+            string url = filePath.StartsWith("file://", StringComparison.OrdinalIgnoreCase) ||
+                         filePath.StartsWith("jar:file://", StringComparison.OrdinalIgnoreCase)
+                ? filePath
+                : new Uri(filePath).ToString();
+            return url.Replace("+", "%2B").Replace("#", "%23").Replace("?", "%3F");
         }
 
         private static async UniTask<string> LoadRawText(ResourcePackage package, string location, System.Threading.CancellationToken ct)

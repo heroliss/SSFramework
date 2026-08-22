@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using Game.Framework.Command;
@@ -198,6 +199,24 @@ namespace Game.Framework.Test
 
             rp.Value = 100;
             Assert.AreEqual(100, received);
+        }
+
+        [UnityTest]
+        public IEnumerator Subscribe_Debounce_UsesPlayerLoopTimer_AndEmitsLastValue()
+        {
+            var rp = new RP<int>(0);
+            _bag.Add(rp);
+            var received = -1;
+            _bag.Subscribe(
+                rp.Skip(1).Debounce(TimeSpan.FromMilliseconds(30)),
+                value => received = value);
+
+            rp.Value = 1;
+            rp.Value = 2;
+
+            yield return new WaitForSecondsRealtime(0.1f);
+
+            Assert.AreEqual(2, received, "PlayerLoop 防抖应只发出静默期前的最后一个值");
         }
 
         // ─── child bag 级联 ──────────────────────────────────────────────
