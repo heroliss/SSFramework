@@ -1,6 +1,8 @@
 # Unity MCP 工具调用要点
 
-本项目用 **ab-unity-mcp**（Unity 包 `Packages/com.anklebreaker.unity-mcp`，工具前缀 `unity_*`）。下面是调用时容易踩的点，出错前先看。截图见 [.claude/skills/unity-screenshot/SKILL.md](../.claude/skills/unity-screenshot/SKILL.md)。
+本项目用 **ab-unity-mcp**（Unity Plugin **2.39.5** + 本地 Server **2.35.6**，工具前缀 `unity_*`）。
+Plugin 与 Server 是两个独立仓库、版本号不要求相同；升级时按各自 release 配套检查，项目 `manifest.json` 固定 Plugin tag，
+Codex 的 MCP 配置指向 `D:/unity-mcp-server/src/index.js`。下面是调用时容易踩的点，出错前先看。截图见 [.claude/skills/unity-screenshot/SKILL.md](../.claude/skills/unity-screenshot/SKILL.md)。
 
 ## 1. 实例与端口
 
@@ -30,25 +32,33 @@
 
 场景结构改动（增删节点 / 加组件 / 改属性）前先确认编辑器**不在 Play 模式**（`EditorApplication.isPlayingOrWillChangePlaymode`）。Play 下的场景修改是运行时状态——**停止运行即全部回滚**，工具返回 success 也是白做；且 Play 下 GameObject 路径解析可能异常（见过 `component_add` 报 "GameObject not found"）。在 Play 就先停掉再动手，改完 `unity_scene_save` 落盘。
 
-## 7. 长耗时 `execute_code` 会被桥接重试执行两遍
+## 7. 长耗时操作优先用 Job / 队列轮询
 
-桥接层对超时调用**自动重试**，而首次调用可能已在 Unity 侧正常执行——主线程阻塞超过超时阈值（约 20–45s）的操作会被**执行两遍**（实测：`BuildCodePackage` 一次调用产出两个版本目录，相隔约 30s）。
+Server 2.35.6 对队列 ticket 的瞬时断连会继续轮询，不再盲目重发已经执行的非幂等操作；默认 bridge / queue poll 超时为 60 / 120 秒。
+这是相对旧服务端的重要可靠性修复，但分钟级构建仍可能超过 MCP 调用窗口：工具侧超时不等于 Unity 侧失败，先查 job、Editor.log 或目标产物，不能直接重跑。
 
-- **幂等长操作**（构建、刷新）：可以走 `execute_code`，接受偶发双跑（产物以最后一次为准）。
-- **非幂等 / 分钟级操作**（HybridCLR `Generate/All`、出 player 包）：**别走 `execute_code`**——双跑代价大且可能交错。让用户点编辑器菜单，或拆成多个短调用轮询状态。
-- **防双跑的锁文件模式**（实测有效）：代码开头查 `Temp/<操作名>.lock`，存在即直接返回；不存在先写锁再干活，结果同时写进 `Temp/<操作名>.result`。重试请求在主线程排队，等首次执行完才轮到——那时锁已存在，安全跳过；即便工具调用侧超时报错，事后也能从 result 文件取回真实结果。用完删锁（Temp 随 Unity 重启自动清）。
-- **别用 `EditorApplication.delayCall` 异步调度长操作**：编辑器窗口失焦时（AI 操作期间几乎必然失焦）Interaction Mode 节流，update/delayCall 可能长期不 tick，调度的构建一直不执行；且域重载会吞掉未执行的 delayCall。长操作就同步跑 + 上面的锁文件保护。
+- 测试等已有 Job API 的操作：启动后拿 `jobId`，用 `get_job(waitTimeout: ...)` 服务端等待。
+- `Generate/All`、Player 构建等同步长操作：优先用专用构建工具；需要 `execute_code` 时仍在 `Temp/` 写操作锁和结果文件，使调用可恢复、可判定。
+- 不用 `EditorApplication.delayCall` 调度关键长操作：编辑器失焦节流或域重载可能让回调迟迟不执行，甚至被吞掉。
+- 超时后先确认 Unity 是否还在构建（Editor.log / 输出目录 / `BuildPipeline.isBuildingPlayer`），只有明确失败或已经结束且无产物才重试。
 - `unity_component_set_property` 不支持数组/泛型属性（报 "Cannot set property type: Generic"），数组字段改用 `execute_code` + `SerializedObject`。
 
-## 8. Play 验证先开 `Application.runInBackground`
+## 8. 新版工具发现与低 token 用法
+
+- Server 端启用 `UNITY_MCP_COMPACT_TOOLS=1`：保留全部工具与参数结构，只裁掉注册表里重复的长说明；具体参数按需查 `unity_list_advanced_tools`。
+- 发现高级工具优先用 `search` / `category` / `tool` 缩小结果，再让 `includeSchemas:true` 回显单个 schema，避免一次载入整份目录。
+- `unity_scene_get_hierarchy` 默认是稠密输出（缺失字段代表默认值）；只有诊断序列化细节时才传 `verbose:true`。
+- 资产创建/覆盖必须显式 `overwrite:true`，删除前先查清精确对象；可撤销操作用 `unity_undo_last` / `unity_undo_history`，不要假设每个工具都自动落成独立 Undo。
+
+## 9. Play 验证先开 `Application.runInBackground`
 
 AI 经 MCP 驱动 Play 验证时编辑器几乎必然**失焦**，默认设置下 Play 循环暂停（Update 不 tick）——异步初始化/加载会一直卡住，看起来像"加载死了"。进 Play 后先 `execute_code` 执行 `Application.runInBackground = true;` 再做断言。该值是运行时状态，不写工程设置，停止 Play 自动失效。
 
-## 9. 反射断言生成代码/第三方类型时注意成员形态
+## 10. 反射断言生成代码/第三方类型时注意成员形态
 
 `execute_code` 动态编译只引用部分程序集，项目 asmdef（如 `Game.Framework.Build.Editor`）和 YooAsset.Editor 里的类型都要走 `AppDomain.CurrentDomain.GetAssemblies()` 反射拿。常见翻车点：Luban 生成 bean 的成员是 **readonly 字段**（`GetField`），不是属性（`GetProperty` 返回 null → NRE）；元组返回值取 `Item1/Item2` 字段。
 
-## 10. 改完代码立刻 Play 验证：防「Play 中域重载」毁掉验证现场
+## 11. 改完代码立刻 Play 验证：防「Play 中域重载」毁掉验证现场
 
 改 .cs 后进 Play，若编译/重载恰好迟到发生在 Play 期间（MCP 桥重启日志是信号），**非序列化运行时状态全被清空、`Start()` 不会重跑**，而 `[SerializeField]` 字段保留重载前的值——现场呈现自相矛盾的状态（实测：配置 Model `State=Ready` 但 `Tables=null`，像 bug 其实是现场被毁）。验证流程固定为：改完代码 → `AssetDatabase.Refresh` → 确认 `unity_get_compilation_errors` 的 `isCompiling=false` 且 0 错 → 再进 Play；Play 中看到 MCP 桥重启日志就别采信本轮结果，停掉重进。
 

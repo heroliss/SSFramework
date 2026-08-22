@@ -4,9 +4,12 @@
 碰到下面任一现象、或升级了下方版本，请回来核对——有些规避代码在库修了之后就是冗余、应删掉。
 
 ## 适用版本（升级后请重新评估本文）
-- Unity **6000.3.14f1**
-- YooAsset **3.0.2-beta**（`com.tuyoogame.yooasset@d72def5721d4`）
-- Scriptable Build Pipeline **`com.unity.scriptablebuildpipeline@36e3b5898ee2`**
+- Unity **6000.3.22f1**
+- YooAsset **3.0.5**
+- Scriptable Build Pipeline **2.6.1**（`com.unity.scriptablebuildpipeline@36e3b5898ee2`）
+
+2026-08-22 已重新核对并实构建四个启用包：YooAsset 3.0.5 没有修复下述 SBP 内置 shader 空布局问题，
+逐包空包容错与每包独立下载根目录也仍符合当前 API 语义，因此本文所有规避继续保留。
 
 ---
 
@@ -68,3 +71,21 @@ YooAsset 编辑器期默认把下载缓存放 `项目根/yoo`（`YooAssetConfigu
 **规避**：代码创建收集器配置时必须显式 `pkg.EnableAddressable = true`（见 `FrameworkHotUpdateBuilder.EnsureCollector`，对已存在的包也强制刷一遍）。手工在 Collector 窗口建包同理，勾选 Enable Addressable。
 
 **升级注意**：这是 YooAsset 设计语义（地址规则与寻址开关分离），不是 bug，预计长期如此。
+
+---
+
+## 坑 6（已规避）：Host 全新安装时，只有 BuiltinCatalog 不等于已有 ActiveManifest
+
+**现象**：包明明把版本清单和全部 bundle 放进了 `StreamingAssets`，断网启动仍在拉远端 `.version` 失败后报
+“本地无可用清单”；或者清单回退成功，但加载首场景时仍访问 CDN。
+
+**根因**：`BuiltinCatalog` 只告诉 Builtin FileSystem“随包有哪些文件”，不会自动把版本清单激活成 `ResourcePackage.PackageValid`。
+Host 的主文件系统又是 Sandbox；全新安装没有缓存过的 ActiveManifest，不能把“内置文件存在”误当成“包已有有效清单”。后一种现象则是首包配置与实际拷贝产物不一致。
+
+**我们的处理**：
+
+- Host 初始化前先用同一套跨平台读取探测内置 `<包>.version`；存在时才给 Builtin FileSystem 打开 `CopyBuiltinPackageManifest`。编辑器自定义缓存根同时显式指定 `CopyBuiltinPackageManifestDestRoot`，确保复制目标与主 Sandbox 的 `ManifestFiles` 一致；不存在则按纯 CDN 包正常初始化，不让内置文件系统抢先报错。
+- 远端版本 / 清单失败且当前包尚无有效清单时，用 `UnityWebRequest` 读取内置 `<包>.version`（兼容 Android `jar:file`），再调用 `LoadPackageManifestAsync` 显式激活；已有清单则继续用当前版本。
+- `FrameworkAssetBuilder.ValidateBundledOutput` 在构建成功后检查内置清单；`ClearAndCopyAll` 会逐个核对输出 bundle 是否真的进入 `StreamingAssets`；按 tag 则读取**本次** `.report` 计算应复制集合并逐个核对，因此零命中和 `OnlyCopyByTags` 目录里的旧 bundle 残留都不能伪装成本次成功。
+
+**边界**：回退不把远端内容凭空变成本地内容。零内置 / 按 tag 未命中的 bundle 仍须 CDN；真正要求断网可启动的代码包、首场景包必须配置为全部内置或覆盖完整的启动资源 tag。

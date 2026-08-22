@@ -11,6 +11,7 @@
         "Game.Framework.UI.Toolkit",
         "Game.Framework.UI.Bridge",
         "Game.Framework.Fonts",
+        "R3.Unity",
         "Unity.TextMeshPro",
         "UnityEngine.TestRunner"
     ],
@@ -23,6 +24,7 @@
         "R3.dll",
         "ObservableCollections.dll",
         "ObservableCollections.R3.dll",
+        "Microsoft.Bcl.TimeProvider.dll",
         "Sirenix.OdinInspector.Attributes.dll",
         "Sirenix.Serialization.dll",
         "Google.Protobuf.dll"

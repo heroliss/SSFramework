@@ -81,6 +81,34 @@ namespace Game.Framework.Test
             CollectionAssert.AreEqual(new[] { supp }, main.fallbackFontAssetTable, "主字体不应出现在自己的 fallback 链里");
         }
 
+        [Test]
+        public void Apply_SupplementAlreadyInOriginalOrRepeated_AppendsOnlyOnce()
+        {
+            // Profile 常会复用主字体资产里已有的中文 fallback；重复项不应改变原始优先级，也不应污染共享资产。
+            var tmpMain = CreateTmp();
+            var tmpSupp = CreateTmp();
+            tmpMain.fallbackFontAssetTable = new List<TMP_FontAsset> { tmpSupp };
+            var tkMain = CreateToolkit();
+            var tkSupp = CreateToolkit();
+            tkMain.fallbackFontAssetTable = new List<TextCoreFontAsset> { tkSupp };
+
+            _chain = new LocaleFontChain(
+                new[] { tmpMain },
+                new[] { tkMain },
+                new[]
+                {
+                    new LocaleFontProfile(
+                        "zh-CN",
+                        tmpFonts: new[] { tmpSupp, tmpSupp },
+                        toolkitFonts: new[] { tkSupp, tkSupp }),
+                });
+
+            _chain.Apply("zh-CN");
+
+            CollectionAssert.AreEqual(new[] { tmpSupp }, tmpMain.fallbackFontAssetTable);
+            CollectionAssert.AreEqual(new[] { tkSupp }, tkMain.fallbackFontAssetTable);
+        }
+
         // ── 切 locale：每次从原始表重建，无上个语言的残留 ────────────────────
 
         [Test]
