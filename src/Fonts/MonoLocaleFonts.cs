@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Text;
 using Game.Framework.Common;
 using Game.Framework.Localization;
+using Game.Framework.Logging;
 using Game.Framework.Utility;
 using Sirenix.OdinInspector;
 using TMPro;
@@ -59,7 +60,10 @@ namespace Game.Framework.Fonts
             // Start 而非 Awake：Locale 信号源可能由工厂注册 / 同优先级脚本注册，Start 时已全部就绪（AGENTS #3）。
             if (_tmpMainFonts.Length == 0 && _toolkitMainFonts.Length == 0)
             {
-                Debug.LogWarning("[MonoLocaleFonts] 未配置任何主字体——组件无事可做。在 Inspector 里配置 TMP / Toolkit 主字体列表。", this);
+                Log.Warning(
+                    "未配置任何主字体——组件无事可做。在 Inspector 里配置 TMP / Toolkit 主字体列表。",
+                    category: nameof(MonoLocaleFonts),
+                    context: this);
                 return;
             }
 

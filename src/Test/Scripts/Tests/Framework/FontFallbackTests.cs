@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using Game.Framework.Fonts;
+using Game.Framework.Logging;
 using NUnit.Framework;
 using TMPro;
 using UnityEngine;
@@ -19,6 +20,14 @@ namespace Game.Framework.Test
     /// </summary>
     public class FontFallbackTests
     {
+        private sealed class CapturingSink : ILogSink
+        {
+            public LogLevel MinLevel => LogLevel.Trace;
+            public readonly List<LogEntry> Entries = new();
+
+            public void Log(in LogEntry entry) => Entries.Add(entry);
+        }
+
         private readonly List<UnityEngine.Object> _createdAssets = new();
         private LocaleFontChain _chain;
 
@@ -147,12 +156,25 @@ namespace Game.Framework.Test
             _chain = new LocaleFontChain(new[] { main }, null,
                 new[] { new LocaleFontProfile("zh-CN", tmpFonts: new[] { zhFont }) });
 
-            _chain.Apply("zh-CN"); // 先切到有档案的语言，再切走——验证降级会撤掉 zh 的补充
-            LogAssert.Expect(LogType.Warning, new Regex("没有字体档案"));
-            _chain.Apply("fr");
-            _chain.Apply("fr"); // 同一 locale 只警告一次（绑定推送可能重复触发）
+            var sink = new CapturingSink();
+            Log.AddSink(sink);
+            try
+            {
+                _chain.Apply("zh-CN"); // 先切到有档案的语言，再切走——验证降级会撤掉 zh 的补充
+                LogAssert.Expect(LogType.Warning, new Regex("没有字体档案"));
+                _chain.Apply("fr");
+                _chain.Apply("fr"); // 同一 locale 只警告一次（绑定推送可能重复触发）
+            }
+            finally
+            {
+                Log.RemoveSink(sink);
+            }
 
             CollectionAssert.AreEqual(new[] { original }, main.fallbackFontAssetTable, "未配置的 locale 应还原为原始表");
+            Assert.AreEqual(1, sink.Entries.Count, "一次性降级警告也必须只进入日志 Seam 一次");
+            Assert.AreEqual(LogLevel.Warning, sink.Entries[0].Level);
+            Assert.AreEqual(nameof(LocaleFontChain), sink.Entries[0].Category);
+            StringAssert.Contains("locale 'fr'", sink.Entries[0].Message);
             LogAssert.NoUnexpectedReceived();
         }
 

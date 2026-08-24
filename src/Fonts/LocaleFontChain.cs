@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Game.Framework.Logging;
 using TMPro;
 using UnityEngine;
 using TextCoreFontAsset = UnityEngine.TextCore.Text.FontAsset;
@@ -47,9 +48,13 @@ namespace Game.Framework.Fonts
         private readonly HashSet<string> _warned = new();
 #endif
 
-        /// <param name="tmpMainFonts">TMP（UGUI 侧）主字体列表；链条写到这些资产的 fallback 表上。null 项自动跳过。</param>
-        /// <param name="toolkitMainFonts">TextCore（UI Toolkit 侧）主字体列表；两栏可只配一栏（单后端项目）。</param>
-        /// <param name="profiles">各 locale 的字体档案；locale 重复时首个生效（Editor/Dev 警告）。</param>
+        /// <summary>
+        /// 创建一条字体链并立即快照所有主字体的当前 fallback 表。实例拥有之后创建的 OS 字体资产；
+        /// 调用方必须在不再接管这些主字体时 <see cref="Dispose"/>，以还原快照并释放运行时资产。
+        /// </summary>
+        /// <param name="tmpMainFonts">TMP（UGUI 侧）主字体列表；链条写到这些资产的 fallback 表上。null 列表、null 项与重复项自动忽略。</param>
+        /// <param name="toolkitMainFonts">TextCore（UI Toolkit 侧）主字体列表；两栏可只配一栏（单后端项目）。null 规则同上。</param>
+        /// <param name="profiles">各 locale 的字体档案；null 按空列表处理，locale 重复时首个生效（Editor/Dev 警告）。</param>
         public LocaleFontChain(
             IReadOnlyList<TMP_FontAsset> tmpMainFonts,
             IReadOnlyList<TextCoreFontAsset> toolkitMainFonts,
@@ -76,6 +81,9 @@ namespace Game.Framework.Fonts
         /// 未配置该 locale 的档案 = 还原为原始表（degrade，Editor/Dev 一次性警告）；档案里 ②/③ 缺哪层跳哪层。
         /// 应用后对使用主字体的存活 TMP 文本强制重建网格（TMP 有字形解析缓存；Toolkit 文本随后续文本变更自然刷新）。
         /// </summary>
+        /// <param name="locale">要应用的 locale code；必须与 <see cref="LocaleFontProfile.Locale"/> 使用同一命名契约。</param>
+        /// <exception cref="ArgumentException"><paramref name="locale"/> 为 null 或空字符串。</exception>
+        /// <exception cref="ObjectDisposedException">本实例已经释放；释放后的链不会再次接管字体资产。</exception>
         public void Apply(string locale)
         {
             if (_disposed) throw new ObjectDisposedException(nameof(LocaleFontChain));
@@ -85,7 +93,9 @@ namespace Game.Framework.Fonts
             var profile = FindProfile(locale);
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             if (profile == null && _warned.Add("no-profile:" + locale))
-                Debug.LogWarning($"[LocaleFontChain] locale '{locale}' 没有字体档案——主字体保持原始 fallback 表（仅共享字形层）。");
+                Log.Warning(
+                    $"locale '{locale}' 没有字体档案——主字体保持原始 fallback 表（仅共享字形层）。",
+                    category: nameof(LocaleFontChain));
 #endif
 
             for (int i = 0; i < _tmpMainFonts.Length; i++)
@@ -200,8 +210,10 @@ namespace Game.Framework.Fonts
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             if (_warned.Add("no-os-font:" + string.Join("|", candidates)))
-                Debug.LogWarning($"[LocaleFontChain] OS 字体候选全部不可用（{string.Join(", ", candidates)}）——" +
-                                 "降级为仅①主字体+②补充字体。候选需用英文族名（本地化名查不到）。");
+                Log.Warning(
+                    $"OS 字体候选全部不可用（{string.Join(", ", candidates)}）——" +
+                    "降级为仅①主字体+②补充字体。候选需用英文族名（本地化名查不到）。",
+                    category: nameof(LocaleFontChain));
 #endif
             return null;
         }
@@ -246,8 +258,10 @@ namespace Game.Framework.Fonts
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             if (_warnedTextCoreCacheMissing) return;
             _warnedTextCoreCacheMissing = true;
-            Debug.LogWarning($"[LocaleFontChain] TextCore 的 ClearFontAssetGlyphCache {reason}——" +
-                             "UI Toolkit 侧已解析字符可能沿用旧链字形，直到文本内容变化。");
+            Log.Warning(
+                $"TextCore 的 ClearFontAssetGlyphCache {reason}——" +
+                "UI Toolkit 侧已解析字符可能沿用旧链字形，直到文本内容变化。",
+                category: nameof(LocaleFontChain));
 #endif
         }
 
@@ -307,7 +321,9 @@ namespace Game.Framework.Fonts
                 foreach (var existing in list)
                     if (string.Equals(existing.Locale, p.Locale, StringComparison.Ordinal) &&
                         _warned.Add("dup-profile:" + p.Locale))
-                        Debug.LogWarning($"[LocaleFontChain] locale '{p.Locale}' 配置了多份字体档案，仅第一份生效。");
+                        Log.Warning(
+                            $"locale '{p.Locale}' 配置了多份字体档案，仅第一份生效。",
+                            category: nameof(LocaleFontChain));
 #endif
                 list.Add(p);
             }
