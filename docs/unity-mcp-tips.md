@@ -69,9 +69,11 @@ Server 2.35.6 对队列 ticket 的瞬时断连会继续轮询，不再盲目重�
 
 AI 经 MCP 驱动 Play 验证时编辑器几乎必然**失焦**，默认设置下 Play 循环暂停（Update 不 tick）——异步初始化/加载会一直卡住，看起来像"加载死了"。进 Play 后先 `execute_code` 执行 `Application.runInBackground = true;` 再做断言。该值是运行时状态，不写工程设置，停止 Play 自动失效。
 
-真实 PlayMode 测试不能只依赖 Agent 在外面“碰巧设到正确一帧”：Test Runner 可能切换域/Play 状态。需要持续 PlayerLoop 的测试应在自己的 `UnitySetUp` 保存旧值并设为 `true`，在 `UnityTearDown` 的 `finally` 恢复。MCP job 返回的 `blockedReason: editor_unfocused` 只是诊断提示；先同时看 `Time.frameCount`、当前里程碑与 Console，不要仅凭失焦把业务等待判成死锁。
+真实 PlayMode 测试不能只依赖 Agent 在外面“碰巧设到正确一帧”：Test Runner 可能切换域/Play 状态。需要持续 PlayerLoop 的测试应在自己的 `UnitySetUp` 保存旧值并设为 `true`，在 `UnityTearDown` 的 `finally` 恢复。MCP job 在**尚未真正开始**时返回 `blockedReason: editor_unfocused`，启动器可能正在等 Editor 获得一次焦点；先把 Unity 切回前台再观察 job。测试已经进入 PlayerLoop 后则同时看 `Time.frameCount`、当前里程碑与 Console，不要仅凭失焦把业务等待判成死锁。
 
 用 Additive 场景隔离用户现场时，也不要清空启动场景的全部根节点：Unity Test Framework 的 `Code-based tests runner` 本身就是根节点，销毁后业务帧仍会走，但测试协程再也不会恢复。只撤项目自己的 Composition Root（如 `MonoGameContextBase`），并在 TearDown 卸载测试加载的场景。
+
+动态 TextCore / TMP 字体会在 Editor 测试中把新 glyph 与 atlas 缓存延迟写回源资产，单个 fixture TearDown 后清理仍可能被迟到写回覆盖。Demo EditMode / PlayMode TestRun 守卫会快照两份动态字体，整轮回到稳定 EditMode 后恢复，并持续确认原字节不再变化后才消费快照；Domain Reload / Editor 重启也能从 `Library` 续恢复。新增会触发动态字体的测试时沿用同一事务边界，不要在结束后笼统调用 `ClearFontAssetData`，它可能误删资产原有的 feature / atlas 基线。
 
 ## 10. 反射断言生成代码/第三方类型时注意成员形态
 
@@ -80,6 +82,19 @@ AI 经 MCP 驱动 Play 验证时编辑器几乎必然**失焦**，默认设置�
 ## 11. 改完代码立刻 Play 验证：防「Play 中域重载」毁掉验证现场
 
 改 .cs 后进 Play，若编译/重载恰好迟到发生在 Play 期间（MCP 桥重启日志是信号），**非序列化运行时状态全被清空、`Start()` 不会重跑**，而 `[SerializeField]` 字段保留重载前的值——现场呈现自相矛盾的状态（实测：配置 Model `State=Ready` 但 `Tables=null`，像 bug 其实是现场被毁）。验证流程固定为：改完代码 → `AssetDatabase.Refresh` → 确认 `unity_get_compilation_errors` 的 `isCompiling=false` 且 0 错 → 再进 Play；Play 中看到 MCP 桥重启日志就别采信本轮结果，停掉重进。
+
+## 12. Module 体积矩阵走隔离构建探针
+
+Core / UGUI / Toolkit 的真实体积比较不要在主工程临时改 `link.xml`、HybridCLR 清单或 Build Settings。打开 `SSFramework/诊断/真实构建体积证据`，它在 `Library/SSFramework/BuildSizeProbe/` 创建无 MCP 插件的最小 Unity 子工程，物理删除未选 Module 后顺序构建。
+
+- 先正常切到想测的 BuildTarget；探针不会替 Agent 静默切平台。
+- 启动后轮询最近一轮 `report.json` 或窗口状态；不要因为单次 MCP 超时重复点击构建。
+- 子 Unity 没有 ab-unity-mcp，不会抢主工程端口；主工程 Domain Reload 后 MCP 端口仍可能改变，按 §1 重新 list + select。
+- PID、队列和结果路径已经落盘；主 Unity 重载 / 重启会自动重新附着子进程，或从已完成的结果继续下一档。
+- 停止用“当前完成后停止”，不要从任务管理器强杀正在落盘的 Player Build。
+- 默认比较“可发布输出”，不是 Unity 把 BackUp / DoNotShip / PDB 也算进去的 BuildReport 总量。Windows 结果不能外推成 WebGL。
+
+完整证据口径见 ADR-0038；具体游戏的业务资源、HybridCLR CodePackage 和 shader / 字体仍看正式产品构建。
 
 ---
 经验沉淀文档：踩到新坑、确认调用方式后追加一节即可。

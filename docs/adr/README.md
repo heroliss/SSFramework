@@ -43,3 +43,4 @@
 | [0035](0035-container-factory-ownership.md) | Container 工厂所有权：构造时机与生命周期正交，显式 `RegisterOwnedFactory` | Accepted |
 | [0036](0036-ai-playmode-preflight.md) | AI PlayMode 预检：显式保存有路径脏场景，不以全局 Hook 劫持人工 Play | Accepted |
 | [0037](0037-ui-loading-ownership.md) | 全局 Loading 所有权：引用计数 lease + 陈旧句柄安全 | Accepted |
+| [0038](0038-isolated-framework-build-size-probe.md) | Framework Module 隔离构建体积探针：真实删除 + Player BuildReport 上界证据 | Accepted |

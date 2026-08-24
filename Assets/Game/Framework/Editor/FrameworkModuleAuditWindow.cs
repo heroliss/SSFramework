@@ -54,6 +54,8 @@ namespace Game.Framework.Editor
             _actions.Add(CreateActionButton("复制完整报告", CopyReport, "复制可粘贴到 issue 或评审中的纯文本报告。"));
             _actions.Add(CreateActionButton("打开模块地图", () => OpenAsset("docs/framework-module-map.md"),
                 "查看各程序集的职责、依赖方向与删除标准。"));
+            _actions.Add(CreateActionButton("真实构建对比", FrameworkBuildSizeProbeWindow.Open,
+                "在隔离空工程里真正删除未选 Module，并读取当前平台 Player BuildReport。"));
             root.Add(_actions);
 
             _status = new HelpBox("正在读取当前目标平台的模块关系……", HelpBoxMessageType.Info)

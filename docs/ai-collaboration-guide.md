@@ -97,6 +97,8 @@ Hook 适合格式化、配置审计、阻止危险命令、结束前确定性验
 
 Unity 交互式 Editor 还有一类更适合“项目内代码门禁”的固定时机：PlayMode 测试前若存在脏场景，原生保存弹窗会同时阻塞 Unity 主线程与 MCP 队列。项目没有为此复制 Claude/Codex Hook，而是在 `Game.Framework.Editor` 提供跨工具菜单 `SSFramework/诊断/AI 自动化/PlayMode 测试预检（保存脏场景）`。Agent 先显式调用它，再调用各自的 Unity 测试工具；详细失败语义与恢复流程见 `docs/unity-mcp-tips.md`。这种实现比某个客户端的 Hook 更靠近事件源，也不会把人工 Play 变成全局静默保存。
 
+分钟级 Module 体积矩阵采用同一原则：项目内 `SSFramework/诊断/真实构建体积证据` 把隔离工程、最小依赖、Unity 子进程、BuildReport 解析和 Domain Reload 恢复集中在 `Game.Framework.Editor`，Claude / Codex 不各写一套临时脚本。Agent 只选择组合并观察 `Library/SSFramework/BuildSizeProbe/<run>/report.json`；主 Unity 重载后按落盘 PID 自动重新附着，避免工具调用超时后盲目重跑。证据口径和刻意不做见 ADR-0038，操作要点见 `docs/unity-mcp-tips.md` §12。
+
 ### Subagents
 
 两边都支持隔离上下文的 Subagent。Claude 项目定义位于 `.claude/agents/`，见 [Claude subagents](https://code.claude.com/docs/en/sub-agents)；Codex 项目定义位于 `.codex/agents/*.toml`，见 [Codex subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents)。

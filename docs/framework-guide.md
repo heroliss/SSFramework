@@ -2734,7 +2734,11 @@ builder.RegisterOwned(new WebSocketUtility(serializer: proto), typeof(IWebSocket
 
 “不在业务 asmdef 引用列表里”只说明依赖方向正确，不足以证明最终包体已经裁掉。先从入口选组合：只要 MVCS/Context 用 `Game.Framework`；窗口框架再加 `Game.Framework.UI` 与一个后端；UGUI、Toolkit、Bridge、Fonts、Proto 等不需要就不要引用，也不要放进 HybridCLR 热更列表。Demo 有 `UNITY_EDITOR` 约束，不进入玩家包。
 
-编辑器菜单 `SSFramework/诊断/模块裁剪审计` 会显示四种参考档位（Core-only / Core + UGUI / Core + Toolkit / 全部 Runtime Module）以及当前热更档位，列出 DLL **真实元数据引用**、隐式外部依赖和删除测试。报告的原始 DLL 字节用于比较组合，不是最终安装包大小；WebGL/小游戏仍要对目标平台实际构建并看 Player BuildReport。HybridCLR 以程序集为最小粒度：强体积约束时，先决定哪些 Module 根本不热更，再谈是否值得继续拆程序集。
+编辑器菜单 `SSFramework/诊断/模块裁剪审计` 会显示四种参考档位（Core-only / Core + UGUI / Core + Toolkit / 全部 Runtime Module）以及当前热更档位，列出 DLL **真实元数据引用**、隐式外部依赖和删除测试。它适合快速找候选，不把原始 DLL 字节冒充最终安装包大小。
+
+需要 Player BuildReport 时打开 `SSFramework/诊断/真实构建体积证据`。探针在 `Library` 下创建隔离空工程，每档只复制审计闭包中的 Runtime Module，主工程业务场景、未选目录、HybridCLR 生成物和它们的 `link.xml` 都不会混入；当前平台 / 脚本后端 / stripping 原样使用，主工程设置不变。所选程序集会完整保留，因此数字是**体积上界**：适合在同一环境比较“加一个 UI 后端最多带来多少”，不等于具体游戏只用部分类型后的精确增量，也不能把 Windows 数字外推成 WebGL。窗口默认比较“可发布输出”，会排除 Unity 标记为 BackUp / DoNotShip 的 IL2CPP 中间产物与调试符号；原始 BuildReport 总量仍保留用于诊断。测 WebGL/小游戏前先正常切到对应 BuildTarget，再运行同一组组合。
+
+HybridCLR 以程序集为最小粒度：强体积约束时，先决定哪些 Module 根本不热更，再用隔离探针判断是否值得继续拆程序集。探针不包含业务 CodePackage 与资源包；正式产品仍要看完整发布构建。
 
 ### 参考结构
 

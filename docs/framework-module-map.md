@@ -16,7 +16,7 @@
 
 菜单 `SSFramework/诊断/模块裁剪审计` 会读取当前目标平台的 Player 编译图，再读取已编译 DLL 的**真实元数据引用**，给出 Core-only、Core + UGUI、Core + Toolkit、全部 Runtime Module 和当前 HybridCLR 热更档位的闭包。窗口默认先显示健康结论、关键数字、值得关注的候选与常用组合；完整闭包和原始报告按需展开。它同时机器执行三条删除测试：Core 不带 UI、UGUI 不带 Toolkit/Bridge、Toolkit 不带 UGUI/Bridge。
 
-报告里的大小是链接、AOT、压缩前的原始托管 DLL，只用于发现“一个很小的 Adapter 意外拖入很大的外部依赖”以及比较组合；它不是最终包体承诺。WebGL、小游戏等强体积约束项目仍应对真实目标平台出 Player BuildReport，再决定是否值得增加程序集粒度。
+报告里的大小是链接、AOT、压缩前的原始托管 DLL，只用于发现“一个很小的 Adapter 意外拖入很大的外部依赖”以及比较组合；它不是最终包体承诺。需要真实平台证据时打开 `SSFramework/诊断/真实构建体积证据`：探针在 `Library` 下创建隔离空工程，只复制所选 Runtime Module 和当前版本依赖，再用当前目标平台 / 脚本后端读取 Player BuildReport。所选程序集完整保留，因此结果是可重复的体积上界；详情见 ADR-0038。
 
 ## 程序集地图
 
@@ -38,7 +38,7 @@
 | `Game.Framework.UI.Toolkit` | `UI.Toolkit/` | UI Toolkit Window/View Adapter、`VisualElement` 的 `Bag.BindList` Adapter 与 RenderTexture 显示原语。 | 删除后 UGUI 后端与 UI Core 仍可编译。 |
 | `Game.Framework.UI.Bridge` | `UI.Bridge/` | UGUI/相机内容嵌入 Toolkit 的 RenderTexture Adapter。 | 删除后两套独立 UI 后端仍可用。 |
 | `Game.Framework.Boot` | `Boot/` | HybridCLR/YooAsset 热更启动 AOT 薄壳。 | 可在无热更项目删除；不得反向依赖 Framework Runtime。 |
-| `Game.Framework.Editor` | `Editor/` | Core 通用 Drawer、诊断窗口、菜单与配置总览。 | 玩家构建不包含；可替换 Editor 体验而不动 Runtime API。 |
+| `Game.Framework.Editor` | `Editor/` | Core 通用 Drawer、诊断窗口、菜单与配置总览；Module Audit 与隔离 Player Build 体积探针共用结构化组合。 | 玩家构建不包含；可替换 Editor 体验而不动 Runtime API。 |
 | `Game.Framework.Editor.Tests` | `Editor/Tests/` | 通用 Editor 工具的 EditMode 契约；覆盖 AI PlayMode 预检的无弹窗保存与未命名场景拒绝。 | 随 Editor Module 删除；不进入玩家构建。 |
 | `Game.Framework.Build.Editor` | `Build/Editor/` | YooAsset/HybridCLR 构建管线与 Profile。 | 无资源/热更构建需求时可删，不污染通用 Editor。 |
 | `Game.Framework.Demo` | `Demo/` | 32 个可运行教学章节，是所有 Module 的消费方与集成样板；Catalog 集中拥有章节 Adapter、生命周期与 Host 教学语义校验。 | 可整体删除；`UNITY_EDITOR` define 保证不进玩家包。 |
@@ -53,4 +53,5 @@
 - 新增第三方库时，先放入 Adapter Module；不要为了“以后也许替换”把每个类都拆成一对 Interface/Implementation。
 - 修改 asmdef 引用后，运行完整 Unity 测试，并检查 Boot、Core、两个 UI 后端与可选 Module 的依赖方向。
 - 运行 `SSFramework/诊断/模块裁剪审计`；隐式外部引用应为 0，三条删除测试应通过。报告变大只作为调查信号，不以原始 DLL 字节直接宣称最终包体回归。
+- 对包体敏感的结构决策再运行 `SSFramework/诊断/真实构建体积证据`；先切到目标平台，比较同环境下相对 Core 的体积上界，不跨平台外推。
 - 本文与实际 `.asmdef` 不一致时，以 `.asmdef` 为准并立即修正文档。

@@ -21,3 +21,7 @@ Demo 教学内容与自动化之间的运行时 Seam。`DemoModuleHost` 在真�
 ## Framework Module Audit
 
 编辑器侧的 Module 删除测试与体积证据入口。它以当前目标平台的 Player 编译图确定候选 Module，再读已编译 DLL 的真实元数据引用，避免把 `auto-reference` 带来的“编译可见”误当成“运行时依赖”；报告 Core-only / 单 UI 后端 / 完整 / 当前热更档位的原始托管闭包。原始 DLL 字节只用于组合对比，最终包体仍以目标平台 Player BuildReport 为准。
+
+## Framework Build Size Probe
+
+Framework Module Audit 的真实玩家构建验证 Adapter。它在 `Library` 下创建隔离空工程，只复制某个审计组合的 Runtime Module Implementation 与当前版本依赖，再调用当前目标平台 Player Build；主工程的业务场景、未选 Module、`link.xml` 和 HybridCLR 生成物都不进入证据。所选程序集完整保留，因此结果是确定性的体积上界，不是假装成具体游戏实际用量的包体承诺。
