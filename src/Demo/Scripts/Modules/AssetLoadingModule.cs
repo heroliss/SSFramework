@@ -166,7 +166,7 @@ namespace Game.Framework.Demo.Modules
                     ? "类型不符 → Load 返回 null（控制台另有一条 error 说明），同样 null 检查兜底。"
                     : $"意外得到 AudioClip：{clip.name}";
             }, CodeRef.Here("Bag.Load<AudioClip>(LogoAddress, ct)", "类型不符 → null"));
-            host.AddNote("地址无效 / 类型不符 / 空地址都走同一条：`Load` 返回 `null` + 打日志，业务 `null` 检查后用占位资源 / 默认值兜底即可，这一类「不需要 try/catch」。想在加载前就拦掉无效地址，用下方·查询的 `CheckLocationValid` 预检。这与上一节「init 失败会抛」是两套：init 没就绪才抛，包 `Ready` 后加载只返 `null`。");
+            host.AddNote("地址无效 / 类型不符 / 空地址都走同一条：`Load` 返回 `null` + 打日志，业务 `null` 检查后用占位资源 / 默认值兜底即可，这一类「不需要 try/catch」。想在加载前就拦掉无效地址，用下方·查询的 `GetLocationState` 预检。这与上一节「init 失败会抛」是两套：init 没就绪才抛，包 `Ready` 后加载只返 `null`。");
 
             // ── 失败语义小结：两套别用混（demo 后的对照锚点）──
             host.AddSectionTitle("失败语义小结：预期内的缺失给 null，系统性失败给异常");
@@ -327,9 +327,8 @@ namespace Game.Framework.Demo.Modules
                 new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/Support/DemoAssetConfig.cs", "class DemoAssetConfig", "配置 SO 定义"));
 #endif
 
-            // ── 4. 查询：地址有效 / 是否需下载 ──
-            host.AddSectionTitle("查询：地址有效 / 是否需下载");
-            // 把布尔结果做成绿/红徽标，一眼可辨，比纯文字直观。
+            // ── 4. 查询：资源地址四态快照 ──
+            host.AddSectionTitle("查询：一个四态快照替代两次布尔猜测");
             var checkBadgeLabel = new Label("点下面按钮检测");
             checkBadgeLabel.AddToClassList("demo-badge");
             host.Content.Add(checkBadgeLabel);
@@ -342,20 +341,30 @@ namespace Game.Framework.Demo.Modules
                 checkBadgeLabel.AddToClassList(good ? "demo-badge--yes" : "demo-badge--no");
             }
 
-            host.AddActionRow("CheckLocationValid(Logo)", () =>
+            host.AddActionRow("GetLocationState(Logo)", () =>
             {
-                // 包未就绪时这两个查询都返回 false——先判就绪，否则会把"查不了"误显示成"地址无效/已在本地"。
-                if (!asset.IsInitialized) { SetCheckBadge(false, "资源系统未就绪（初始化失败或未完成）——查询无意义，先看上方初始化状态。"); return; }
-                bool valid = asset.CheckLocationValid(LogoAddress);
-                SetCheckBadge(valid, valid ? "地址有效 ✓（manifest 里有这个地址）" : "地址无效 ✗（manifest 里没有）");
-            }, CodeRef.Here("asset.CheckLocationValid", "地址有效性"));
-            host.AddActionRow("IsNeedDownload(Logo)", () =>
-            {
-                if (!asset.IsInitialized) { SetCheckBadge(false, "资源系统未就绪（初始化失败或未完成）——查询无意义，先看上方初始化状态。"); return; }
-                bool needDownload = asset.IsNeedDownload(LogoAddress);
-                SetCheckBadge(!needDownload, needDownload ? "需要下载 ↓（远端缺，要从 CDN 拉）" : "无需下载 ✓（已在本地）");
-            }, CodeRef.Here("bool needDownload = asset.IsNeedDownload(LogoAddress)", "是否需下载"));
-            host.AddNote("`CheckLocationValid` 判断 manifest 里有没有这个地址；`IsNeedDownload` 判断该资源要不要从远端拉。⚠ 两者在「包未就绪」（未初始化 / 初始化失败）时也返回 `false`——所以 `false` ≠「地址无效 / 无需下载 / 已在本地」，得先确认初始化 `Ready`（上方状态）再读结果，本 demo 已加这层判断。`EditorSimulate` / `Offline` 下资源都在本地，`IsNeedDownload` 恒为「无需下载」；只有远端模式（`Host`）才会变真，底层见「YooAsset · 底层实现」章。");
+                var locationState = asset.GetLocationState(LogoAddress);
+                switch (locationState)
+                {
+                    case AssetLocationState.AvailableLocally:
+                        SetCheckBadge(true, "AvailableLocally ✓　地址有效，资源已内置或已缓存");
+                        break;
+                    case AssetLocationState.RequiresDownload:
+                        SetCheckBadge(false, "RequiresDownload ↓　地址有效，需要从远端下载");
+                        break;
+                    case AssetLocationState.Invalid:
+                        SetCheckBadge(false, "Invalid ✗　空地址或 manifest 中不存在");
+                        break;
+                    case AssetLocationState.PackageNotReady:
+                        SetCheckBadge(false, $"PackageNotReady　当前包状态：{defaultState}");
+                        break;
+                    default:
+                        SetCheckBadge(false, $"未知资源地址状态：{locationState}");
+                        break;
+                }
+            }, CodeRef.Here("var locationState = asset.GetLocationState(LogoAddress)", "资源地址四态快照"));
+            host.AddNote("`GetLocationState` 一次返回四种互斥结果：`PackageNotReady`（还不能查）、`Invalid`（地址无效）、`AvailableLocally`（已内置 / 已缓存）、`RequiresDownload`（要从远端拉）。这比「先看初始化，再拼 `CheckLocationValid` 与 `IsNeedDownload` 两个 bool」更难误用；要继续区分未就绪究竟是 Idle、排队、初始化中还是失败，再读 `GetInitState(package)`。`EditorSimulate` / `Offline` 下有效资源通常是 `AvailableLocally`；只有远端模式（`Host` / `Web`）才可能是 `RequiresDownload`，底层见「YooAsset · 底层实现」章。");
+            host.AddSubNote("为什么不把初始化细节也塞进这个枚举？资源位置和包生命周期是两个正交概念：前者回答「这份内容现在在哪里」，后者回答「包为何还不能工作」。四态快照只给高频决策所需的最小信息，诊断与重试仍由 `AssetInitState` 负责，避免一个结果类型无限膨胀。");
 
             // ── 5. 下载与清缓存（三种范围的下载器）──
             host.AddSectionTitle("下载与清缓存：下载器（按 tag / 全部 / 按地址）");
@@ -447,7 +456,7 @@ namespace Game.Framework.Demo.Modules
                 }
             }), CodeRef.Here("currentDownloader.Download(ct)", "启动下载（失败会抛，已 try/catch）"));
 
-            // 运行时清缓存：清完内存缓存记录同步更新，IsNeedDownload 立刻变真，同一次 Play 里就能再测真实下载——免去停 Play。
+            // 运行时清缓存：清完内存缓存记录同步更新，地址快照立刻变 RequiresDownload，同一次 Play 里就能再测真实下载——免去停 Play。
             host.AddAsyncActionRow("清空下载缓存（运行时，免停 Play 即可重测）", chapterCt => RunDownloadOperation(chapterCt, async ct =>
             {
                 await Bag.EnsureInitialized(ct);
@@ -459,8 +468,8 @@ namespace Game.Framework.Demo.Modules
                 downloader = null;  // 老下载器的待下载列表是创建时的快照，缓存清了它不会更新；置空逼重建，否则点「开始下载」会执行旧快照（0 个）瞬间完成。
                 progressBar.value = 0f;
                 progressBar.title = string.Empty;
-                bool need = asset.IsNeedDownload(LogoAddress);
-                progressLabel.text = $"已清空下载缓存 ✓　IsNeedDownload(Logo)={need}（远端模式下应变 true）。下载器已重置——请重新点「创建下载器」再「开始下载」才会重新统计。";
+                var postClearLocationState = asset.GetLocationState(LogoAddress);
+                progressLabel.text = $"已清空下载缓存 ✓　GetLocationState(Logo)={postClearLocationState}（远端模式下应为 RequiresDownload）。下载器已重置——请重新点「创建下载器」再「开始下载」才会重新统计。";
             }), CodeRef.Here("asset.ClearCache(AssetCacheClearMode.All, CancellationToken.None)", "运行时清缓存"));
             host.AddAsyncActionRow("清除无用缓存（Unused，清旧版本残留 bundle）", chapterCt => RunDownloadOperation(chapterCt, async ct =>
             {
@@ -496,7 +505,7 @@ namespace Game.Framework.Demo.Modules
                 progressLabel.text = $"已按地址「{LogoAddress}」清缓存 ✓——点名清这个资源所在的 bundle；注意是 bundle 粒度，同 bundle 的邻居会被连带清。下载器已重置，重测请重新「创建下载器」。";
             }), CodeRef.Here("asset.ClearCacheByLocations(new[] { LogoAddress }, CancellationToken.None)", "按地址清缓存"));
             host.AddNote("下载器有三种范围：`CreateTagDownloader(tags)` 按 tag（某关卡 / DLC 整批）、`CreateAllDownloader()` 全部尚未缓存的 bundle（整包预下）、`CreateLocationDownloader(locations)` 按地址点名（含依赖）——都订阅 `Progress`（R3 状态流）驱动进度条、`Download()` 启动。`ClearCache` 清本地已下载缓存（`All` 全清 / `Unused` 清旧版本），按 tag 清用 `ClearCacheByTags`、按地址清用 `ClearCacheByLocations`，与下载器三种范围一一对应。单文件下载失败由下载器自带按 `AssetSystemConfigModel.FailedTryAgain`（默认 3）重试，业务不必手写重试循环；但**整体最终失败**（重试耗尽 / 持续断网）时 `Download()` 会**抛**——和 init 失败同属「抛」那套，要 `try/catch`（见「开始下载」按钮）。重试靠**重建下载器**再下：已下分片已缓存会被跳过，即断点续传。");
-            host.AddSubNote("下载器是「创建那一刻的待下载快照」，不是「下载时去看缺什么补什么」：清缓存并不会更新已建好的下载器，得重新 `CreateTagDownloader` 才会按最新缓存重新统计。所以「清缓存 → 重建下载器 → 开始下载」是固定顺序。`IsNeedDownload` / `Create*Downloader` 又是同步快照：同包维护正在运行或已排队时会立即提示维护后重试，不会卡住 Unity 主线程，也不会越过维护读中间态。");
+            host.AddSubNote("下载器是「创建那一刻的待下载快照」，不是「下载时去看缺什么补什么」：清缓存并不会更新已建好的下载器，得重新 `CreateTagDownloader` 才会按最新缓存重新统计。所以「清缓存 → 重建下载器 → 开始下载」是固定顺序。`GetLocationState` / `Create*Downloader` 又是同步快照：同包维护正在运行或已排队时会立即提示维护后重试，不会卡住 Unity 主线程，也不会越过维护读中间态。");
             host.AddSubNote("取消还有一条容易漏掉的边界：YooAsset 的下载 / 清理一旦开始就不能安全强停，调用者令牌只让当前等待者离开，进程级 package owner 仍观察到真实终态；无人接收的成功 handle 会释放，后台失败会进日志。因此本 demo 在**提交清理前**响应切章取消；提交后用 `CancellationToken.None` 保持本组业务闸门直到物理清理结束，再检查章节令牌且不更新旧 UI。若产品真要“停止网络流量”，需要另设计显式 Stop/终止契约，不能把等待 OCE 当成底层已停。");
             host.AddSubNote("`ClearCacheByTags` 多 tag 是并集（命中任意一个就清）；`ClearCacheByLocations` 与 tag 清一样都是 bundle 粒度——按地址清会连带同 bundle 的其他资源，想精确隔离要在打包时让该资源独占 bundle。");
             host.AddSubNote("默认 `Load` 未缓存资源时会**当场按需下载**（Host 模式，每包「启用按需下载」默认勾选）。想避免「误 Load 一个资源就自动拖下整批」（典型如大型 DLC）：在 `AssetSystemConfigModel` 的包列表里把该包的「启用按需下载」**取消勾选**，之后 Load 本包未缓存资源**直接失败**（不下载），强制先显式跑下载器（带进度 UI）。按包配置，基础包通常留默认（启用）；仅 Host 模式有意义。");
@@ -532,7 +541,7 @@ namespace Game.Framework.Demo.Modules
             host.AddSectionTitle("使用路径");
             host.AddConcept("Bag.Load / LoadScene / LoadText", "动态加载：借来的资源进 `Bag`，宿主销毁自动释放，心智同 `Bag.Rent` / `Bag.Spawn`。");
             host.AddConcept("AssetReference", "Inspector 拖拽引用：`MonoXxxBase` 字段 `Awake` 自动绑定 + 入 `Bag`；`ScriptableObject` / 手动创建的 ref 由宿主 `Bag.BindAssetReferences`(对象) 一键绑。");
-            host.AddConcept("IAssetUtility", "手动入口：`this.GetUtility<IAssetUtility>()`——查初始化状态、`CheckLocationValid` / `IsNeedDownload`、建下载器、清下载缓存（`ClearCache`）。");
+            host.AddConcept("IAssetUtility", "手动入口：`this.GetUtility<IAssetUtility>()`——查初始化状态、读 `GetLocationState` 四态快照、建下载器、清下载缓存（`ClearCache`）。");
 
             host.AddSectionTitle("注册 = 生命周期");
             host.AddConcept("三层 Mono", "`AssetSystemConfigModel` + `AssetUtility` + `AssetInitSystem` 挂同一 `Context` 节点，`Awake` 顺序由 `ExecutionOrder` 保证（`Utility` -400 / `Model` -300 / `System` -200）。");

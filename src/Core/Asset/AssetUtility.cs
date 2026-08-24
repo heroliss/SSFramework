@@ -458,22 +458,30 @@ namespace Game.Framework
             return await _provider.LoadBytesAsync(packageName, location, lct);
         }
 
-        public bool CheckLocationValid(string location)
-            => CheckLocationValid(_defaultPackageName, location);
+        public AssetLocationState GetLocationState(string location)
+            => GetLocationState(_defaultPackageName, location);
 
-        public bool CheckLocationValid(string packageName, string location)
+        public AssetLocationState GetLocationState(string packageName, string location)
         {
+            ThrowIfDisposed();
             packageName = NormalizePackageName(packageName);
-            return _provider != null && _provider.CheckLocationValid(packageName, location);
-        }
+            if (string.IsNullOrWhiteSpace(location))
+                return AssetLocationState.Invalid;
 
-        public bool IsNeedDownload(string location)
-            => IsNeedDownload(_defaultPackageName, location);
+            // 初始化状态由 Core 持有，是资源查询的唯一真源。未 Ready 时不触碰 Adapter，避免 provider 的 false
+            // 再次混入“地址无效 / 已在本地”；调用方需要具体原因时读取同包 GetInitState。
+            if (string.IsNullOrWhiteSpace(packageName) ||
+                GetState(packageName).State.Value != AssetInitState.Ready)
+                return AssetLocationState.PackageNotReady;
 
-        public bool IsNeedDownload(string packageName, string location)
-        {
-            packageName = NormalizePackageName(packageName);
-            return _provider != null && _provider.IsNeedDownload(packageName, location);
+            if (!_provider.CheckLocationValid(packageName, location))
+                return AssetLocationState.Invalid;
+
+            // 先证实 manifest 地址有效，再做受 Reader/Writer lane 保护的下载缓存快照。
+            // 若两步间 Writer 开始或排队，provider 会 fail-fast，而不是拼出跨世代的伪快照。
+            return _provider.IsNeedDownload(packageName, location)
+                ? AssetLocationState.RequiresDownload
+                : AssetLocationState.AvailableLocally;
         }
 
         public string GetPackageVersion(string packageName = null)

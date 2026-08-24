@@ -169,7 +169,7 @@ namespace Game.Framework.Demo.Modules
                         ct.ThrowIfCancellationRequested();
                         cleared++;
                     }
-                    repairLabel.text = $"已清空 {cleared} 个就绪包的下载缓存 ✓（Host 下 IsNeedDownload 全部变真）。现在点上方「运行启动更新流程」= 全量重下——这就是「修复资源 / 新装机首下」的完整路径。";
+                    repairLabel.text = $"已清空 {cleared} 个就绪包的下载缓存 ✓（Host 下对应地址重新成为 RequiresDownload）。现在点上方「运行启动更新流程」= 全量重下——这就是「修复资源 / 新装机首下」的完整路径。";
                 }
             }, CodeRef.Here("asset.ClearCache(pkg, AssetCacheClearMode.All, CancellationToken.None)", "全清缓存"));
             host.AddNote("资源损坏（玩家手机存储出错 / 下载残缺）的标准恢复路径就是这两步：`ClearCache(All)` 删掉本地全部已下载 bundle → 重跑启动更新流程全量重下。设置页的「修复客户端」按钮背后就是它。`EditorSimulate` / `Offline` 下没有下载缓存，全清是 no-op。");

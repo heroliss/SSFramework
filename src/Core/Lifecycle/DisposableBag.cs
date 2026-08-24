@@ -27,7 +27,7 @@ namespace Game.Framework
     /// 设计要点：
     /// - 所有"持有 = 拥有生命周期"的对象都是 IDisposable，bag 是它们的根。
     /// - <b>只有「借出 + 跟随生命周期」的操作上 Bag</b>（Load / Rent / Spawn / 订阅 / 子作用域）；
-    ///   纯查询（CheckLocationValid / IsNeedDownload）和用完即弃的工厂产物（CreateXxxDownloader）
+    ///   纯查询（GetLocationState）和用完即弃的工厂产物（CreateXxxDownloader）
     ///   走 <see cref="IAssetUtility"/>，避免 Bag 退化成 utility 的全量转发门面。
     /// - 子作用域用 <see cref="CreateChild"/>：child 是 IDisposable，自动登记到 parent，parent.Dispose 级联。
     /// - <c>Load</c> 直接返回 <c>T</c>：业务无感知句柄，handle 由 bag 持有，bag.Dispose 时统一释放。
@@ -321,7 +321,7 @@ namespace Game.Framework
             AssetReferenceBindPlan.For(target.GetType()).Bind(target, ResolveUtility(), DisposeToken, this);
         }
 
-        // 注意：CheckLocationValid / IsNeedDownload / CreateXxxDownloader 这类「纯查询 / 工厂」入口刻意不在 Bag 上——
+        // 注意：GetLocationState / CreateXxxDownloader 这类「纯查询 / 工厂」入口刻意不在 Bag 上——
         // 它们不产生需要 bag 托管的生命周期（下载器用完即弃、查询无状态），走 this.GetUtility<IAssetUtility>()。
         // Bag 只收「借出 + 跟随生命周期」的操作（Load / Rent / Spawn / 订阅 / 子作用域）。
 

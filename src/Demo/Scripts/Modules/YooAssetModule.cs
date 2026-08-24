@@ -110,7 +110,7 @@ namespace Game.Framework.Demo.Modules
 
             // ── 机制：清缓存 ──
             host.AddSectionTitle("机制：清缓存");
-            host.AddSubNote("清缓存（`ClearCache`，正式游戏也用）：清的是 项目根/`AssetBuild/Downloaded` 里已下载的 bundle，同步内存缓存记录后 `IsNeedDownload` 重新变真。`All` = 设置里「清除缓存」/ 损坏恢复 / 强制全量重下；`Unused` = 热更到新版本后回收旧版本残留（省空间）。它不卸载已加载到内存的资源（那是另一回事）。");
+            host.AddSubNote("清缓存（`ClearCache`，正式游戏也用）：清的是 项目根/`AssetBuild/Downloaded` 里已下载的 bundle，同步内存缓存记录后 `GetLocationState` 在远端模式重新变为 `RequiresDownload`。`All` = 设置里「清除缓存」/ 损坏恢复 / 强制全量重下；`Unused` = 热更到新版本后回收旧版本残留（省空间）。它不卸载已加载到内存的资源（那是另一回事）。");
 
             // ── 机制：加密（可选，两端成对）──
             host.AddSectionTitle("机制：资源加密（可选）");
