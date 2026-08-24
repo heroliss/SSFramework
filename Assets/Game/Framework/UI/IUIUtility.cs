@@ -53,17 +53,29 @@ namespace Game.Framework.UI
 
         /// <summary>
         /// 弹 Toast（Top 层内置件，ADR-0020 §4）：短暂显示 <paramref name="text"/> 后自动关闭，不拦截输入。
-        /// 连续调用复用同一窗口（刷新文本、重置计时）。返回的 task 在窗口打开后完成（不含显示时长）。
+        /// 连续调用复用同一窗口（刷新文本、重置计时）。返回的 task 在窗口打开后完成（不含显示时长）；
+        /// <paramref name="ct"/> 只管打开过程，调用方生命周期结束时不会留下延迟出现的窗口。
         /// </summary>
-        UniTask ShowToast(string text, float duration = 2f);
+        UniTask ShowToast(string text, float duration = 2f, CancellationToken ct = default);
 
         /// <summary>
-        /// 显示全局 Loading（Top 层内置件，模态挡输入）：<paramref name="text"/> 可空（只显示指示动画）。
-        /// 用 <see cref="HideLoading"/> 关闭。重复调用刷新文本。
+        /// 占用全局 Loading（Top 层内置件，模态挡输入）：<paramref name="text"/> 可空（只显示指示动画）。
+        /// 返回的 <see cref="LoadingHandle"/> 代表本次所有权；多个调用方重叠时，释放最后一个有效句柄才真正关闭窗口。
+        /// 重复占用复用同一窗口并刷新文本；<paramref name="ct"/> 只管异步打开过程，业务任务结束由调用方释放句柄。
+        /// 推荐写法：<c>using var loading = await ui.AcquireLoading(...)</c>。
         /// </summary>
-        UniTask ShowLoading(string text = null);
+        UniTask<LoadingHandle> AcquireLoading(string text = null, CancellationToken ct = default);
 
-        /// <summary>关闭全局 Loading（未显示则忽略）。</summary>
+        /// <summary>
+        /// 以兼容的单 owner 语义显示全局 Loading。重复调用刷新文本；<paramref name="ct"/> 只管打开过程。
+        /// 新代码优先用 <see cref="AcquireLoading"/>，避免多个异步流程的 <see cref="HideLoading"/> 互相误关。
+        /// </summary>
+        UniTask ShowLoading(string text = null, CancellationToken ct = default);
+
+        /// <summary>
+        /// 释放由 <see cref="ShowLoading"/> 建立的兼容单 owner；未显示则忽略。
+        /// 有效的 <see cref="AcquireLoading"/> 句柄仍存在时不会关闭窗口。
+        /// </summary>
         void HideLoading();
     }
 }

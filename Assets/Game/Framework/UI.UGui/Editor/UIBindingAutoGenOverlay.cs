@@ -17,25 +17,39 @@ namespace Game.Framework.UI.UGui.Editor
     public sealed class UIBindingAutoGenOverlay : Overlay
     {
         public const string OverlayId = "ssframework-ui-binding-autogen";
-        private const string PrefKey = "SSFramework.UIBinding.AutoGenerate";
+        internal const string AutoGeneratePreferenceKey = "SSFramework.UIBinding.AutoGenerate";
 
         /// <summary>是否「保存 prefab 时自动重新生成绑定代码」。</summary>
         public static bool AutoGenerate
         {
-            get => EditorPrefs.GetBool(PrefKey, false);
-            set => EditorPrefs.SetBool(PrefKey, value);
+            get => EditorPrefs.GetBool(AutoGeneratePreferenceKey, false);
+            set => EditorPrefs.SetBool(AutoGeneratePreferenceKey, value);
         }
 
         public override VisualElement CreatePanelContent()
         {
-            var toggle = new Toggle("绑定改后自动生成代码")
+            var toggle = new Toggle("保存时自动生成绑定代码")
             {
+                name = "ui-binding-autogen-toggle",
                 value = AutoGenerate,
                 tooltip = "勾上后：保存 prefab（Ctrl+S）时，若根上有 UIBindingData，自动重新生成节点绑定代码（会触发一次重编译）。",
             };
+            toggle.style.minWidth = 0f;
+            toggle.style.flexShrink = 1f;
+            toggle.labelElement.style.minWidth = 0f;
+            toggle.labelElement.style.flexShrink = 1f;
+            toggle.labelElement.style.whiteSpace = WhiteSpace.Normal;
             toggle.RegisterValueChangedCallback(evt => AutoGenerate = evt.newValue);
 
-            var root = new VisualElement { style = { minWidth = 180 } };
+            var root = new VisualElement
+            {
+                name = "ui-binding-autogen-root",
+                style =
+                {
+                    minWidth = 0f,
+                    flexShrink = 1f,
+                },
+            };
             root.Add(toggle);
             return root;
         }

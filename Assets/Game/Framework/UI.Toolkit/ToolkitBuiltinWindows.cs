@@ -64,7 +64,7 @@ namespace Game.Framework.UI.Toolkit
 
     /// <summary>
     /// UI Toolkit 版全局 Loading 内置窗口（ADR-0020 §4）：模态挡输入 + 中央提示文本 + 旋转指示块。
-    /// 业务经 <see cref="IUIUtility.ShowLoading"/> / <see cref="IUIUtility.HideLoading"/> 使用；重复 Show 刷新文本。
+    /// 业务优先经 <see cref="IUIUtility.AcquireLoading"/> 取得所有权句柄；兼容的 Show/Hide 调用仍可刷新与关闭。
     /// </summary>
     [UIWindow(Layer = UILayer.Top, Cache = UICachePolicy.Cache, Modal = true, BackClosable = false)]
     public sealed class ToolkitLoadingWindow : UIToolkitWindowBase

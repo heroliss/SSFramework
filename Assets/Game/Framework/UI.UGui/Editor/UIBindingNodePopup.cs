@@ -18,6 +18,7 @@ namespace Game.Framework.UI.UGui.Editor
         private readonly string _path;
         private readonly GameObject _node;
         private readonly bool _editable;
+        private Vector2 _scroll;
         private Vector2 _dragMouseStart; // 标题条拖拽起点（屏幕坐标）
         private Vector2 _dragWinStart;   // 标题条拖拽起点（窗口左上角）
 
@@ -63,7 +64,7 @@ namespace Game.Framework.UI.UGui.Editor
                         rows++;
                     }
                 }
-                h = (3 + Mathf.Max(1, rows)) * line + 30f; // 标题 + 表头 + N 行(至少 1) + 只读提示
+                h = CalculateRequestedHeight(false, rows, line);
             }
             else
             {
@@ -80,10 +81,24 @@ namespace Game.Framework.UI.UGui.Editor
                         w = Mathf.Max(w, ToggleRowWidth(entry, comp.GetType(), comp.GetType().Name, rootName, profile, typeCount));
                     }
                 }
-                h = (5 + compCount) * line + 34f; // 标题 + 字段名 + 组件标签 + (GameObject + N 组件) + 解绑
+                h = CalculateRequestedHeight(true, compCount, line);
             }
 
-            return new Vector2(Mathf.Clamp(w + pad + rightGap, minW, maxW), h);
+            float maxHeight = UIBindingPopupLayout.ResolveMaxWindowHeight(editorWindow);
+            return new Vector2(Mathf.Clamp(w + pad + rightGap, minW, maxW),
+                UIBindingPopupLayout.ClampRequestedHeight(h, maxHeight));
+        }
+
+        /// <summary>
+        /// 只计算节点弹窗的内容请求高度，不解析配置资产。布局测试走这里，避免一次尺寸断言在空工程里
+        /// 因 <see cref="UICodeGenProfile.Resolve"/> 的“缺失则创建”语义意外写入项目。
+        /// </summary>
+        internal static float CalculateRequestedHeight(bool editable, int rowCount, float lineHeight)
+        {
+            int safeRows = Mathf.Max(0, rowCount);
+            return editable
+                ? (5 + safeRows) * lineHeight + 34f // 标题 + 字段名 + 组件标签 + GameObject/组件 + 解绑
+                : (3 + Mathf.Max(1, safeRows)) * lineHeight + 30f; // 标题 + 表头 + N 行(至少 1) + 只读提示
         }
 
         // 一行组件勾选项的渲染宽：勾选框+组件名 + 最小间隔 + 右侧字段名（勾上时）。与 ToggleType 的渲染口径一致，确保窗口够宽、字段名能右对齐。
@@ -117,7 +132,14 @@ namespace Game.Framework.UI.UGui.Editor
                 new GUIContent(FitPathFront(titleText, EditorStyles.boldLabel, rect.width - 12f), titleText),
                 EditorStyles.boldLabel);
 
-            if (!_editable) { DrawReadonly(entry); return; }
+            // 标题固定，编辑内容在工作区高度不足时滚动；组件很多也不会把解绑或只读提示推到屏幕外。
+            _scroll = EditorGUILayout.BeginScrollView(_scroll);
+            if (!_editable)
+            {
+                DrawReadonly(entry);
+                EditorGUILayout.EndScrollView();
+                return;
+            }
 
             EditorGUI.BeginChangeCheck();
             string newName = EditorGUILayout.TextField(new GUIContent("字段名", "留空 = 由节点名推导；非法字符即时清成合法标识符"), entry.FieldName);
@@ -139,17 +161,18 @@ namespace Game.Framework.UI.UGui.Editor
                 // GameObject 不是 Component（不在 GetComponents 里），单列一个勾选项——绑节点本身用于 SetActive / 销毁 / 换父等。
                 ToggleType(data, entry, typeof(GameObject),
                     new GUIContent("GameObject", "绑定该节点的 GameObject 本身（生成 GameObject 字段，用 SetActive / 销毁 / 换父等）"),
-                    rootName, profile, typeCount, dups);
+                    rootName, profile, typeCount, dups, rect.width - 18f);
 
                 foreach (var comp in _node.GetComponents<Component>())
                 {
                     if (comp == null) continue;
-                    ToggleType(data, entry, comp.GetType(), new GUIContent(comp.GetType().Name),
-                        rootName, profile, typeCount, dups);
+                    ToggleType(data, entry, comp.GetType(),
+                        new GUIContent(comp.GetType().Name, comp.GetType().FullName),
+                        rootName, profile, typeCount, dups, rect.width - 18f);
                 }
             }
 
-            GUILayout.FlexibleSpace();
+            EditorGUILayout.Space(4f);
             if (GUILayout.Button("解绑"))
             {
                 Undo.RecordObject(data, "解绑 UI 节点");
@@ -157,6 +180,7 @@ namespace Game.Framework.UI.UGui.Editor
                 MarkDirty(data);
                 editorWindow.Close();
             }
+            EditorGUILayout.EndScrollView();
         }
 
         // 只读视图（运行实例点徽标）：复用编辑模式的「逐组件竖排」呈现——每个绑定组件单独一行「组件 → 字段名」，
@@ -181,21 +205,23 @@ namespace Game.Framework.UI.UGui.Editor
                 }
             }
 
-            GUILayout.FlexibleSpace();
+            EditorGUILayout.Space(4f);
             EditorGUILayout.LabelField("只读——停止运行、进 prefab 编辑模式才能改。", EditorStyles.miniLabel);
         }
 
         // 一个「绑定某类型 = 各生成一个字段」勾选项：左侧勾选框 + 组件名，按类型 id 在条目里增删（GameObject / 各组件共用）；
         // 勾上的项右侧显示它将生成的字段名（含命名模板/别名/多组件后缀/自定义名，撞名加 ⚠ 橙色）——所见即所得。
         private static void ToggleType(UIBindingData data, UIBindingEntry entry, System.Type type, GUIContent label,
-            string rootName, UICodeGenProfile profile, int typeCount, HashSet<string> dups)
+            string rootName, UICodeGenProfile profile, int typeCount, HashSet<string> dups, float availableWidth)
         {
             string id = UIBindingUtil.TypeId(type);
             bool on = entry.ComponentTypes.Contains(id);
 
             EditorGUILayout.BeginHorizontal();
             // 勾选项定宽（勾选框 + 组件名），余下空间留给 FlexibleSpace，把右侧字段名稳定顶到最右——比 ExpandWidth(false) 在窄窗里更可控。
-            bool now = EditorGUILayout.ToggleLeft(label, on, GUILayout.Width(CheckboxW + EditorStyles.label.CalcSize(label).x));
+            float naturalToggleWidth = CheckboxW + EditorStyles.label.CalcSize(label).x;
+            float toggleWidth = Mathf.Min(naturalToggleWidth, Mathf.Max(80f, availableWidth * 0.46f));
+            bool now = EditorGUILayout.ToggleLeft(label, on, GUILayout.Width(toggleWidth));
             if (on)
             {
                 string fn = UIBindingUtil.EffectiveFieldName(entry, type, typeCount, rootName, profile);
@@ -203,8 +229,10 @@ namespace Game.Framework.UI.UGui.Editor
                 GUILayout.FlexibleSpace();
                 var prev = GUI.color;
                 if (dup) GUI.color = new Color(0.95f, 0.74f, 0.33f);
+                float fieldWidth = Mathf.Max(44f, availableWidth - toggleWidth - 22f);
                 GUILayout.Label(new GUIContent((dup ? "⚠ " : "→ ") + fn,
-                    dup ? $"字段名「{fn}」与其它节点重复——生成时会跳过其一" : "勾上后将生成的字段名"), FieldHint);
+                        dup ? $"字段名「{fn}」与其它节点重复——生成时会跳过其一" : "勾上后将生成的字段名"),
+                    FieldHint, GUILayout.Width(fieldWidth));
                 GUILayout.Space(6f); // 与窗口右缘留一点缝隙，别贴边
                 GUI.color = prev;
             }

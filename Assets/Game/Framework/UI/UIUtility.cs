@@ -17,7 +17,7 @@ namespace Game.Framework.UI
     /// cover/reveal 按<b>层内</b>计算：同层新窗口盖住前一个栈顶 → 前者 OnCover；栈顶关闭 → 新栈顶 OnReveal。
     /// 因为不持有 Unity 对象、只依赖注入的 backend 与 context，本类可脱离场景单测（fake backend + 桩 context）。
     /// </remarks>
-    public sealed class UIUtility : IUIUtility
+    public sealed class UIUtility : IUIUtility, ILoadingHandleOwner
     {
         private readonly IGameContext _context;
         private readonly IUIBackend _backend;
@@ -42,6 +42,15 @@ namespace Game.Framework.UI
         // Toast / Loading 内置窗口类型表（adapter 入口提供）；null = 未配置，Show* 调用报错提示。
         private readonly UIBuiltinWindows _builtins;
 
+        // AcquireLoading 的并发所有权：集合大小就是占用计数，id 让重复 Dispose 与 CloseAll 后的陈旧句柄安全 no-op。
+        private readonly HashSet<int> _loadingHandleIds = new();
+        private int _nextLoadingHandleId;
+        // 旧 Show/Hide 对作为一个兼容 owner；generation 让“打开途中 Hide/CloseAll”不会在加载完成后幽灵重现。
+        // pending 也算 owner：窗口尚在创建时，别让其它 lease 的释放误把这次请求强制清场。
+        private long _legacyLoadingGeneration;
+        private bool _legacyLoadingHeld;
+        private int _legacyLoadingPending;
+
         public UIUtility(IGameContext context, IUIBackend backend, UIBuiltinWindows builtins = null)
         {
             _context = context ?? throw new ArgumentNullException(nameof(context));
@@ -55,11 +64,12 @@ namespace Game.Framework.UI
         public async UniTask<T> Open<T>(object args, CancellationToken ct = default) where T : class, IUIWindow
             => (T)await OpenCore(typeof(T), args, ct);
 
-        // Open 的非泛型主体：泛型壳与内置件（ShowToast/ShowLoading 按注册的 Type 开窗）共用。
+        // Open 的非泛型主体：泛型壳与内置件（ShowToast/AcquireLoading 按注册的 Type 开窗）共用。
         private async UniTask<IUIWindow> OpenCore(Type type, object args, CancellationToken ct)
         {
             ThrowIfDisposed();
             EnsureInitialized();
+            ct.ThrowIfCancellationRequested();
 
             // 已打开 → 置顶并重新 OnOpen（刷新参数），不重建。
             if (_open.TryGetValue(type, out var already))
@@ -112,7 +122,12 @@ namespace Game.Framework.UI
                     window = await _backend.CreateWindow(meta, _context, ct);
                     if (window == null) return null; // 资源加载失败，已由资源系统打日志
                     // 加载期间被释放、或 token 在加载完成后才被取消（竞态）：物理拆掉刚建好的窗口，不入栈。
-                    if (_disposed || ct.IsCancellationRequested) { _backend.DestroyWindow(window); return null; }
+                    if (_disposed) { _backend.DestroyWindow(window); return null; }
+                    if (ct.IsCancellationRequested)
+                    {
+                        _backend.DestroyWindow(window);
+                        ct.ThrowIfCancellationRequested();
+                    }
                     SafeOnCreate(window);
                 }
 
@@ -179,6 +194,9 @@ namespace Game.Framework.UI
 
         public void CloseAll(UILayer layer)
         {
+            // Loading 可能尚在异步创建、还没进入层栈。先使其 owner/句柄失效，创建续体回来后会发现陈旧并立即关掉。
+            if (IsLoadingLayer(layer)) InvalidateLoadingOwners();
+
             // 批量关闭抑制中间 reveal：从顶往下逐个关时，每个"新栈顶"下一刻就会被关掉，
             // 给它发 OnReveal 会让做「露出恢复」逻辑的窗口白跑一轮（恢复→立即关闭）。
             var list = GetLayerList(layer);
@@ -205,29 +223,84 @@ namespace Game.Framework.UI
 
         // ── Top 层内置件（ADR-0020 §4）：按注册的类型表开窗，业务对后端零感知 ──
 
-        public async UniTask ShowToast(string text, float duration = 2f)
+        public async UniTask ShowToast(string text, float duration = 2f, CancellationToken ct = default)
         {
             if (_builtins?.Toast == null)
             {
                 Debug.LogError("[UIUtility] 未注册 Toast 内置窗口类型（UIBuiltinWindows.Toast）——本后端入口未提供内置件。");
                 return;
             }
-            await OpenCore(_builtins.Toast, new UIToastArgs(text, duration), default);
+            await OpenCore(_builtins.Toast, new UIToastArgs(text, duration), ct);
         }
 
-        public async UniTask ShowLoading(string text = null)
+        public async UniTask<LoadingHandle> AcquireLoading(string text = null, CancellationToken ct = default)
         {
-            if (_builtins?.Loading == null)
+            ThrowIfDisposed();
+            if (!TryGetLoadingType(out var loadingType)) return default;
+
+            int id = AllocateLoadingHandleId();
+            _loadingHandleIds.Add(id);
+            try
             {
-                Debug.LogError("[UIUtility] 未注册 Loading 内置窗口类型（UIBuiltinWindows.Loading）——本后端入口未提供内置件。");
-                return;
+                var window = await OpenCore(loadingType, new UILoadingArgs(text), ct);
+                // Close/CloseAll 可能发生在异步创建途中：此时 id 已被清掉，不得把陈旧所有权交给调用方，
+                // 也不得让刚完成创建的窗口在无 owner 时留下来。
+                if (window == null || !_loadingHandleIds.Contains(id))
+                {
+                    _loadingHandleIds.Remove(id);
+                    ReconcileLoadingVisibility();
+                    return default;
+                }
+
+                return new LoadingHandle(this, id);
             }
-            await OpenCore(_builtins.Loading, new UILoadingArgs(text), default);
+            catch
+            {
+                _loadingHandleIds.Remove(id);
+                ReconcileLoadingVisibility();
+                throw;
+            }
+        }
+
+        public async UniTask ShowLoading(string text = null, CancellationToken ct = default)
+        {
+            ThrowIfDisposed();
+            if (!TryGetLoadingType(out var loadingType)) return;
+
+            // generation 只由 Hide/Close/CloseAll 推进；同一代内的重复 Show 都是同一个 legacy owner 的刷新请求。
+            // pending 用计数而不是布尔：多个刷新重叠时，一个失败不能抹掉其它仍在创建的请求或既有 owner。
+            long generation = _legacyLoadingGeneration;
+            _legacyLoadingPending++;
+            try
+            {
+                var window = await OpenCore(loadingType, new UILoadingArgs(text), ct);
+                if (window != null && generation == _legacyLoadingGeneration)
+                    _legacyLoadingHeld = true;
+            }
+            finally
+            {
+                // Hide/CloseAll 已换代时 pending 已被统一清零；旧续体不能再减新一代的计数。
+                if (generation == _legacyLoadingGeneration)
+                    _legacyLoadingPending--;
+                // 打开途中可能发生 Hide/CloseAll；无论成功、失败或取消，都按最新 owner 状态复核。
+                ReconcileLoadingVisibility();
+            }
         }
 
         public void HideLoading()
         {
-            if (_builtins?.Loading != null) CloseType(_builtins.Loading);
+            ++_legacyLoadingGeneration;
+            _legacyLoadingHeld = false;
+            ReconcileLoadingVisibility();
+        }
+
+        public bool IsLoadingActive(int id)
+            => !_disposed && id != 0 && _loadingHandleIds.Contains(id);
+
+        public void ReleaseLoading(int id)
+        {
+            if (_disposed || id == 0 || !_loadingHandleIds.Remove(id)) return;
+            ReconcileLoadingVisibility();
         }
 
         /// <summary>释放：拆掉所有窗口与层根。<b>不</b>触发窗口生命周期 hook（此时 Context 通常已在销毁、调 hook 会触碰已释放的 Context）——纯物理拆除，窗口各自的 Bag 由 backend 销毁时释放。</summary>
@@ -235,6 +308,7 @@ namespace Game.Framework.UI
         {
             if (_disposed) return;
             _disposed = true;
+            InvalidateLoadingOwners();
             // 兜底唤醒仍在等「创建中窗口」的 Open 调用（以 null 唤醒，等待者检查 _disposed 后直接返回 null）。
             foreach (var tcs in _creating.Values) tcs.TrySetResult(null);
             _creating.Clear();
@@ -248,6 +322,8 @@ namespace Game.Framework.UI
 
         private void CloseType(Type type)
         {
+            // Close/CloseAll 是强制清场语义：让所有旧 handle 失效，之后新 Acquire 得到的新 id 不会被旧句柄误关。
+            if (IsLoadingType(type)) InvalidateLoadingOwners();
             if (!_open.TryGetValue(type, out var window)) return;
             var meta = UIWindowMeta.Of(type);
             var layerList = GetLayerList(meta.Layer);
@@ -277,6 +353,45 @@ namespace Game.Framework.UI
                 return;
             }
             RunCloseTransition(window, meta, transition).Forget();
+        }
+
+        private bool TryGetLoadingType(out Type loadingType)
+        {
+            loadingType = _builtins?.Loading;
+            if (loadingType != null) return true;
+            Debug.LogError("[UIUtility] 未注册 Loading 内置窗口类型（UIBuiltinWindows.Loading）——本后端入口未提供内置件。");
+            return false;
+        }
+
+        private int AllocateLoadingHandleId()
+        {
+            do
+            {
+                unchecked { _nextLoadingHandleId++; }
+                if (_nextLoadingHandleId <= 0) _nextLoadingHandleId = 1;
+            } while (_loadingHandleIds.Contains(_nextLoadingHandleId));
+
+            return _nextLoadingHandleId;
+        }
+
+        private bool IsLoadingType(Type type)
+            => type != null && type == _builtins?.Loading;
+
+        private bool IsLoadingLayer(UILayer layer)
+            => _builtins?.Loading != null && UIWindowMeta.Of(_builtins.Loading).Layer == layer;
+
+        private void InvalidateLoadingOwners()
+        {
+            ++_legacyLoadingGeneration;
+            _legacyLoadingHeld = false;
+            _legacyLoadingPending = 0;
+            _loadingHandleIds.Clear();
+        }
+
+        private void ReconcileLoadingVisibility()
+        {
+            if (_disposed || _legacyLoadingHeld || _legacyLoadingPending > 0 || _loadingHandleIds.Count > 0) return;
+            if (_builtins?.Loading != null) CloseType(_builtins.Loading);
         }
 
         // 出场过渡期间挡输入；结束（含异常/取消）后走真正的关闭收尾。

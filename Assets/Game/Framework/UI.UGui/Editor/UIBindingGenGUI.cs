@@ -12,6 +12,8 @@ namespace Game.Framework.UI.UGui.Editor
     /// </summary>
     internal static class UIBindingGenGUI
     {
+        private const float CompactBreakpoint = 320f;
+
         public static void Draw(UIBindingData data, string assetPath, bool editable)
         {
             var profile = UICodeGenProfile.Resolve();
@@ -22,7 +24,7 @@ namespace Game.Framework.UI.UGui.Editor
             string logicPath = outDir + "/" + className + ".cs";
             string nodesPath = genDir + "/" + className + ".nodes.g.cs";
 
-            EditorGUILayout.LabelField("生成目标（留空 = 继承目录配置 / 全工程默认）", EditorStyles.boldLabel);
+            GUILayout.Label("生成目标（留空 = 继承目录配置 / 全工程默认）", SectionHeading);
             EditorGUILayout.HelpBox("覆盖项留空即继承；占位符：{PrefabName} / {DirectoryName} / {ParentDirectoryName}", MessageType.None);
             using (new EditorGUI.DisabledScope(!editable))
             {
@@ -34,24 +36,24 @@ namespace Game.Framework.UI.UGui.Editor
 
             // 生效：按本 prefab 路径展开占位符后的最终结果（只读），看清覆盖 / 继承落地成什么。
             EditorGUILayout.Space(2);
-            EditorGUILayout.LabelField("生效（解析后）", EditorStyles.boldLabel);
+            GUILayout.Label("生效（解析后）", SectionHeading);
             using (new EditorGUI.DisabledScope(true))
             {
-                EditorGUILayout.TextField("命名空间", ns);
-                EditorGUILayout.TextField("文件名/类名", className);
-                EditorGUILayout.TextField("逻辑目录", outDir);
-                EditorGUILayout.TextField("生成目录", genDir);
+                ReadOnlyField("命名空间", ns);
+                ReadOnlyField("文件名/类名", className);
+                ReadOnlyField("逻辑目录", outDir);
+                ReadOnlyField("生成目录", genDir);
             }
 
             EditorGUILayout.Space(2);
-            EditorGUILayout.LabelField("脚本（点击定位；尚未生成则为 None）", EditorStyles.boldLabel);
+            GUILayout.Label("脚本（点击定位；尚未生成则为 None）", SectionHeading);
             ScriptField("逻辑", logicPath);
             ScriptField("绑定", nodesPath);
 
             EditorGUILayout.Space(4);
             // 运行时不显示生成按钮——Play 下本就不能生成（会触发重编译），藏掉避免误点。
             if (EditorApplication.isPlaying)
-                EditorGUILayout.LabelField("（运行中——停止后可生成代码）", EditorStyles.miniLabel);
+                GUILayout.Label("（运行中——停止后可生成代码）", EditorStyles.wordWrappedMiniLabel);
             else
                 using (new EditorGUI.DisabledScope(data.Entries.Count == 0))
                     if (GUILayout.Button("生成 / 重新生成代码"))
@@ -70,8 +72,13 @@ namespace Game.Framework.UI.UGui.Editor
         /// <summary>画一行「标签 + 文本框（目录字段附 … 选择器）」，返回（可能变更后的）值。Profile 根字段直接用，与勾选式覆盖的标签列宽一致，两套 Inspector 视觉统一。</summary>
         internal static string DrawLabeledField(string label, bool isDir, string value)
         {
+            bool compact = UseCompactLayout(EditorGUIUtility.currentViewWidth);
+            if (compact)
+                EditorGUILayout.LabelField(label, EditorStyles.miniBoldLabel);
+
             EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.LabelField(label, GUILayout.Width(96f));
+            if (!compact)
+                EditorGUILayout.LabelField(label, GUILayout.Width(96f));
             string v = EditorGUILayout.TextField(value);
             if (isDir && GUILayout.Button(new GUIContent("…", "选择目录（自动转工程相对路径）"), GUILayout.Width(24)))
             {
@@ -81,6 +88,20 @@ namespace Game.Framework.UI.UGui.Editor
             EditorGUILayout.EndHorizontal();
             return v;
         }
+
+        private static void ReadOnlyField(string label, string value)
+        {
+            if (UseCompactLayout(EditorGUIUtility.currentViewWidth))
+            {
+                EditorGUILayout.LabelField(label, EditorStyles.miniBoldLabel);
+                EditorGUILayout.TextField(value);
+                return;
+            }
+
+            EditorGUILayout.TextField(label, value);
+        }
+
+        internal static bool UseCompactLayout(float viewWidth) => viewWidth < CompactBreakpoint;
 
         // 选目录对话框：选完把绝对路径转工程相对（Assets/…）返回；取消 / 选到工程外 → 返回 null（外部不改值）。
         internal static string PickProjectDir(string current)
@@ -119,7 +140,21 @@ namespace Game.Framework.UI.UGui.Editor
         private static void ScriptField(string label, string path)
         {
             var script = AssetDatabase.LoadAssetAtPath<MonoScript>(path);
-            EditorGUILayout.ObjectField(label, script, typeof(MonoScript), false);
+            if (UseCompactLayout(EditorGUIUtility.currentViewWidth))
+            {
+                EditorGUILayout.LabelField(label, EditorStyles.miniBoldLabel);
+                EditorGUILayout.ObjectField(script, typeof(MonoScript), false);
+            }
+            else
+            {
+                EditorGUILayout.ObjectField(label, script, typeof(MonoScript), false);
+            }
         }
+
+        private static GUIStyle _sectionHeading;
+        private static GUIStyle SectionHeading => _sectionHeading ??= new GUIStyle(EditorStyles.boldLabel)
+        {
+            wordWrap = true,
+        };
     }
 }

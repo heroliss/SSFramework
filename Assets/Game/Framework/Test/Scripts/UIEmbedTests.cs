@@ -6,7 +6,7 @@ using UnityEngine;
 namespace Game.Framework
 {
     /// <summary>
-    /// UI 嵌入桥（ADR-0033）的纯函数回归：纹理尺寸换算（DPI 缩放 + 向上取整 + 钳上限）与
+    /// UI 嵌入桥（ADR-0033）的纯函数回归：纹理尺寸换算（DPI 缩放 + 向上取整 + 等比降采样上限）与
     /// 「同尺寸不重建」判定。只覆盖不触 GPU 的逻辑；渲染本身不单测（交 demo Play 抽查）。
     /// </summary>
     public sealed class UIEmbedTests
@@ -28,10 +28,23 @@ namespace Game.Framework
         }
 
         [Test]
-        public void ComputeTextureSize_ClampsToMaxDimension()
+        public void ComputeTextureSize_SquareHitsMaxDimension()
         {
             var size = RenderTextureElement.ComputeTextureSize(new Vector2(10000f, 10000f), Vector2.one, 2048);
             Assert.AreEqual(new Vector2Int(2048, 2048), size);
+        }
+
+        [Test]
+        public void ComputeTextureSize_LowBudgetPreservesWideAndTallAspectRatio()
+        {
+            // 宽高必须共用同一降采样比例：最长边命中预算，短边随之按比例收缩，显示时才不会被拉伸。
+            var wide = RenderTextureElement.ComputeTextureSize(new Vector2(908f, 190f), Vector2.one, 128);
+            var tall = RenderTextureElement.ComputeTextureSize(new Vector2(190f, 908f), Vector2.one, 128);
+
+            Assert.AreEqual(new Vector2Int(128, 27), wide);
+            Assert.AreEqual(new Vector2Int(27, 128), tall);
+            Assert.That((float)wide.x / wide.y, Is.EqualTo(908f / 190f).Within(0.05f));
+            Assert.That((float)tall.y / tall.x, Is.EqualTo(908f / 190f).Within(0.05f));
         }
 
         [Test]

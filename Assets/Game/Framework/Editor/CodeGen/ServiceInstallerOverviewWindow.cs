@@ -17,13 +17,24 @@ namespace Game.Framework.Editor
 
         private Vector2 _scroll;
 
+        private void OnEnable() => minSize = new Vector2(280, 320);
+
         private void OnGUI()
         {
+            bool compact = position.width < 420f;
             EditorGUILayout.Space(4);
-            using (new EditorGUILayout.HorizontalScope())
+            if (compact)
             {
                 EditorGUILayout.LabelField("服务安装器 · 配置总览", EditorStyles.boldLabel);
-                if (GUILayout.Button("刷新", GUILayout.Width(60))) Repaint();
+                if (GUILayout.Button("刷新")) Repaint();
+            }
+            else
+            {
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    EditorGUILayout.LabelField("服务安装器 · 配置总览", EditorStyles.boldLabel);
+                    if (GUILayout.Button("刷新", GUILayout.Width(60))) Repaint();
+                }
             }
             EditorGUILayout.HelpBox(
                 "每份 profile 若干条目：扫描目录下的纯 C# 服务类 → 生成一个静态安装器 (.g.cs)；" +
@@ -34,32 +45,43 @@ namespace Game.Framework.Editor
             var profiles = ServiceInstallerProfile.ResolveAll();
             bool playing = EditorApplication.isPlayingOrWillChangePlaymode;
 
-            using (new EditorGUILayout.HorizontalScope())
+            _scroll = EditorGUILayout.BeginScrollView(_scroll);
+            if (compact)
             {
                 EditorGUILayout.LabelField($"共 {profiles.Count} 份", EditorStyles.miniBoldLabel);
-                GUILayout.FlexibleSpace();
                 using (new EditorGUI.DisabledScope(playing || profiles.Count == 0))
-                    if (GUILayout.Button("生成全部", GUILayout.Width(90)))
+                    if (GUILayout.Button("生成全部"))
                         ServiceInstallerMenu.GenerateProfiles(profiles);
+            }
+            else
+            {
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    EditorGUILayout.LabelField($"共 {profiles.Count} 份", EditorStyles.miniBoldLabel);
+                    GUILayout.FlexibleSpace();
+                    using (new EditorGUI.DisabledScope(playing || profiles.Count == 0))
+                        if (GUILayout.Button("生成全部", GUILayout.Width(90)))
+                            ServiceInstallerMenu.GenerateProfiles(profiles);
+                }
             }
             if (playing)
                 EditorGUILayout.LabelField("（运行中——停止后可生成）", EditorStyles.miniLabel);
             if (profiles.Count == 0)
-                EditorGUILayout.LabelField("（无——经 Assets/Create/SSFramework/服务安装器配置 创建）", EditorStyles.miniLabel);
+                EditorGUILayout.LabelField("（无——经 Assets/Create/SSFramework/服务安装器配置 创建）", EditorStyles.wordWrappedMiniLabel);
 
-            _scroll = EditorGUILayout.BeginScrollView(_scroll);
             foreach (var profile in profiles)
-                DrawCard(profile, playing);
+                DrawCard(profile, playing, compact);
             EditorGUILayout.EndScrollView();
         }
 
         // 一份 profile 一张卡片：资产名（点击定位选中）+ 逐条目「扫描目录 → 输出 / 命名空间」+ 生成按钮。
-        private static void DrawCard(ServiceInstallerProfile profile, bool playing)
+        private static void DrawCard(ServiceInstallerProfile profile, bool playing, bool compact)
         {
             using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
             {
                 string path = AssetDatabase.GetAssetPath(profile);
-                if (GUILayout.Button(new GUIContent(Path.GetFileName(path), path + "\n点击定位并选中"), EditorStyles.objectField))
+                var assetRect = EditorGUILayout.GetControlRect(false, EditorGUIUtility.singleLineHeight);
+                if (GUI.Button(assetRect, new GUIContent(Path.GetFileName(path), path + "\n点击定位并选中"), EditorStyles.objectField))
                 {
                     EditorGUIUtility.PingObject(profile);
                     Selection.activeObject = profile;
@@ -69,7 +91,7 @@ namespace Game.Framework.Editor
                     EditorGUILayout.LabelField("（没有任何安装器条目）", EditorStyles.miniLabel);
                 else
                     foreach (var entry in profile.Installers)
-                        DrawEntry(entry);
+                        DrawEntry(entry, compact);
 
                 using (new EditorGUI.DisabledScope(playing))
                     if (GUILayout.Button("生成这份"))
@@ -77,7 +99,7 @@ namespace Game.Framework.Editor
             }
         }
 
-        private static void DrawEntry(ServiceInstallerProfile.InstallerEntry entry)
+        private static void DrawEntry(ServiceInstallerProfile.InstallerEntry entry, bool compact)
         {
             using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
             {
@@ -88,18 +110,41 @@ namespace Game.Framework.Editor
                     EditorGUILayout.LabelField("扫描目录", "（未配置）", EditorStyles.miniLabel);
                 else
                     for (int i = 0; i < folders.Count; i++)
-                        EditorGUILayout.LabelField(i == 0 ? "扫描目录" : " ", folders[i]);
+                        DrawValue(i == 0 ? "扫描目录" : null, folders[i], compact);
 
-                using (new EditorGUILayout.HorizontalScope())
+                var generated = AssetDatabase.LoadAssetAtPath<MonoScript>(entry.OutputPath);
+                if (compact)
                 {
-                    EditorGUILayout.LabelField("输出", entry.OutputPath);
+                    DrawValue("输出", entry.OutputPath, compact: true);
                     // 生成过才有资产可定位；没生成过按钮不出现（而非置灰——避免误解为「点了会生成」）。
-                    var generated = AssetDatabase.LoadAssetAtPath<MonoScript>(entry.OutputPath);
-                    if (generated != null && GUILayout.Button("定位 .g.cs", GUILayout.Width(80)))
+                    if (generated != null && GUILayout.Button("定位 .g.cs"))
                         EditorGUIUtility.PingObject(generated);
                 }
-                EditorGUILayout.LabelField("命名空间", entry.Namespace);
+                else
+                {
+                    using (new EditorGUILayout.HorizontalScope())
+                    {
+                        EditorGUILayout.LabelField("输出", entry.OutputPath);
+                        if (generated != null && GUILayout.Button("定位 .g.cs", GUILayout.Width(80)))
+                            EditorGUIUtility.PingObject(generated);
+                    }
+                }
+                DrawValue("命名空间", entry.Namespace, compact);
             }
+        }
+
+        private static void DrawValue(string label, string value, bool compact)
+        {
+            value = string.IsNullOrEmpty(value) ? "（未配置）" : value;
+            if (!compact)
+            {
+                EditorGUILayout.LabelField(label ?? " ", value);
+                return;
+            }
+
+            if (!string.IsNullOrEmpty(label))
+                EditorGUILayout.LabelField(label, EditorStyles.miniBoldLabel);
+            GUILayout.Label(value, EditorStyles.wordWrappedMiniLabel);
         }
     }
 }

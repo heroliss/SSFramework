@@ -19,7 +19,7 @@ namespace Game.Framework.UI.Toolkit
     [UxmlElement]
     public partial class RenderTextureElement : VisualElement
     {
-        // RenderTexture 单边像素上限：内容框 × DPI 再大也钳在此，避免超大 / 高 DPI 面板意外申请巨型显存。
+        // RenderTexture 最长边像素预算：内容框 × DPI 再大也整张等比缩进此预算，避免意外申请巨型显存。
         private int _maxTextureSize = 2048;
 
         /// <summary>当前显示所需的设备像素尺寸（最近一次布局算得）。</summary>
@@ -31,11 +31,21 @@ namespace Game.Framework.UI.Toolkit
         /// </summary>
         public event Action<int, int> DesiredPixelSizeChanged;
 
-        /// <summary>RenderTexture 单边像素上限（默认 2048）。</summary>
+        /// <summary>
+        /// RenderTexture 最长边像素预算（默认 2048）。原始尺寸超过预算时会整张等比降采样，
+        /// 因此调低它只牺牲清晰度，不会把宽画面钳成方形或改变相机宽高比。
+        /// </summary>
         public int MaxTextureSize
         {
             get => _maxTextureSize;
-            set => _maxTextureSize = Mathf.Max(1, value);
+            set
+            {
+                int next = Mathf.Max(1, value);
+                if (_maxTextureSize == next) return;
+                _maxTextureSize = next;
+                // 运行时调画质预算也要立即重算；未挂 panel 时本方法安全空返，首次 GeometryChanged 会补算。
+                RecomputeDesiredSize();
+            }
         }
 
         public RenderTextureElement()
@@ -72,13 +82,21 @@ namespace Game.Framework.UI.Toolkit
         }
 
         /// <summary>
-        /// 由内容框尺寸（面板点）与面板→屏幕缩放算出清晰所需的设备像素尺寸：逐轴相乘、向上取整（免少一行像素发虚）、
-        /// 钳到 <paramref name="maxDimension"/>。抽成纯函数便于单测（不触 GPU）。
+        /// 由内容框尺寸（面板点）与面板→屏幕缩放算出清晰所需的设备像素尺寸：逐轴相乘；若最长边超过
+        /// <paramref name="maxDimension"/>，用同一个缩放因子整张降采样；最后向上取整（免少一行像素发虚）。
+        /// 统一缩放保证低分辨率预算下仍保持显示区域的宽高比。抽成纯函数便于单测（不触 GPU）。
         /// </summary>
         public static Vector2Int ComputeTextureSize(Vector2 contentSizePoints, Vector2 panelToScreenScale, int maxDimension)
         {
-            int w = Mathf.Clamp(Mathf.CeilToInt(contentSizePoints.x * panelToScreenScale.x), 0, maxDimension);
-            int h = Mathf.Clamp(Mathf.CeilToInt(contentSizePoints.y * panelToScreenScale.y), 0, maxDimension);
+            if (maxDimension <= 0) return Vector2Int.zero;
+
+            float rawWidth = Mathf.Max(0f, contentSizePoints.x * panelToScreenScale.x);
+            float rawHeight = Mathf.Max(0f, contentSizePoints.y * panelToScreenScale.y);
+            float longestSide = Mathf.Max(rawWidth, rawHeight);
+            float downscale = longestSide > maxDimension ? maxDimension / longestSide : 1f;
+
+            int w = Mathf.Clamp(Mathf.CeilToInt(rawWidth * downscale), 0, maxDimension);
+            int h = Mathf.Clamp(Mathf.CeilToInt(rawHeight * downscale), 0, maxDimension);
             return new Vector2Int(w, h);
         }
     }

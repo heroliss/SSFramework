@@ -1,0 +1,24 @@
+{
+    "name": "Game.Framework.UI.UGui.Editor.Tests",
+    "rootNamespace": "Game.Framework.UI.UGui.Editor.Tests",
+    "references": [
+        "Game.Framework.UI.UGui.Editor",
+        "Game.Framework.UI.UGui",
+        "UnityEngine.TestRunner"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
