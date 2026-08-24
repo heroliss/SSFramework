@@ -48,12 +48,16 @@ namespace Game.Framework.Demo.Modules
             var toolkitMain = UnityEditor.AssetDatabase.LoadAssetAtPath<TextCoreFontAsset>(ToolkitMainPath);
             if (toolkitMain == null)
             {
-                host.AddNote($"没找到 demo 主字体资产：`{ToolkitMainPath}`——请确认 demo 字体资产在工程里。");
+                host.AddUnavailable(
+                    $"工程中找不到本章的 UI Toolkit 主字体资产：`{ToolkitMainPath}`，无法构造可对照的三层 fallback 链。",
+                    "恢复 Demo/Res/Fonts 下的 DemoLatin SDF 字体资产，或同步修改 `ToolkitMainPath` 指向等价的 Latin-only TextCore 字体。",
+                    "资产恢复后重新进入本章即可观察字形切换；恢复前可先阅读“本地化”章理解驱动字体链切换的 Locale 状态。",
+                    CodeRef.Here("private const string ToolkitMainPath", "主字体资产接线"));
                 return;
             }
 
             // ── 定位 ──
-            host.AddSectionTitle("定位：砍字库不砍显示——三层字体策略");
+            host.AddPositioning("砍字库不砍显示——三层字体策略");
             host.AddNote("CJK 全量字库 15~30MB 起步，全量随包不现实；砍了字库，生僻字 / 用户输入又变豆腐块。策略是把字形分**三层**，都挂在**主字体资产的 fallback 表**上——文本渲染自动逐层找字形，业务代码零感知、零调用：");
             host.AddConcept("① 精简主字体（随包）", "常用字集烘焙进随包的主字体，覆盖约 99% 显示量：秒显、体积可控。");
             host.AddConcept("② locale 补充字体", "每种语言补自己的差集字形（如中文的 NotoSansSC），挂进 fallback 表，换语言自动切换。");

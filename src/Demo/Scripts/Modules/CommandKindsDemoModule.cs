@@ -28,7 +28,7 @@ namespace Game.Framework.Demo.Modules
         public override void Build(DemoModuleHost host)
         {
             // ── 定位 ──
-            host.AddSectionTitle("定位：Command 的三种形态");
+            host.AddPositioning("Command 的三种形态");
             host.AddNote("同一套 Command 接缝有三态：**同步** `ICommand`（计数器已演）、**异步** `IAsyncCommand`（带取消令牌）、**查询** `ICommand<T>`（返回值）。本章聚焦异步与查询，含查询进阶「只读投影」。");
 
             host.AddSectionTitle("为什么 View 不直接调用 System");

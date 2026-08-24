@@ -28,18 +28,32 @@ namespace Game.Framework.Demo.Modules
             var subCtxNode = Object.FindFirstObjectByType<DemoSubContext>();
             if (assets == null || assets.ViewPrefab == null || subCtxNode == null)
             {
-                host.AddNote("没找到演示所需节点——请确认 ChapterAssets 下有 UGuiAssets（含 ViewPrefab）和挂 DemoSubContext 的 SubContext 节点（含 MonoScoreModel 子节点）。");
+                host.AddUnavailable(
+                    "当前场景缺少 UGUI View prefab 或 `DemoSubContext` 子树，无法并排演示父子作用域解析。",
+                    "确认 ChapterAssets 下有 `DemoUGuiAssets`（已指定 ViewPrefab），并保留挂 `DemoSubContext` 的 SubContext 节点。",
+                    "接线恢复后重新进入本章即可对比两份分数；恢复前先读“容器”章理解注册与解析，再回来看作用域覆盖。",
+                    new CodeRef(
+                        "Assets/Game/Framework/Demo/Scripts/Modules/Support/DemoSubContext.cs",
+                        "class DemoSubContext",
+                        "子 Context 接线"));
                 return;
             }
             var subScore = subCtxNode.GetComponentInChildren<MonoScoreModel>(true);
             if (subScore == null)
             {
-                host.AddNote("SubContext 子节点下没找到 MonoScoreModel——覆盖演示需要它。");
+                host.AddUnavailable(
+                    "`DemoSubContext` 子树中没有 `MonoScoreModel`，因此子作用域没有可覆盖父级的同类型状态。",
+                    "把一个 `MonoScoreModel` 节点放到 SubContext 子树下，让它在 Awake 时就近注册进子 Context。",
+                    "恢复后重新进入本章即可观察根/子两份分数；恢复前可先看“Model · 状态与 Inspector”了解 Mono 自动注册。",
+                    new CodeRef(
+                        "Assets/Game/Framework/Demo/Scripts/Modules/Support/MonoScoreModel.cs",
+                        "class MonoScoreModel",
+                        "子树状态组件"));
                 return;
             }
 
             // ── 定位 ──
-            host.AddSectionTitle("定位：Context 是作用域树，挂载位置决定用哪份数据");
+            host.AddPositioning("Context 是作用域树，挂载位置决定用哪份数据");
             host.AddNote("`GameContext` 嵌套成作用域树（全局 / 场景 / 局部）：同类型就近注册形成**覆盖**，子级没有的类型**回退**父级。下面用「View」章的同一个弹窗演示——挂到哪个子树，就读写哪个作用域的数据，零代码切换。");
 
             // ── 覆盖：同一个 View prefab，挂到哪个子树就用哪个作用域 ──

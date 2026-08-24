@@ -17,6 +17,7 @@ namespace Game.Framework.Demo.Modules
         public override string Title => "框架诊断面板";
         public override string Category => "核心";
         public override int Order => 55;
+        public override DemoTeachingKind TeachingKind => DemoTeachingKind.Workflow;
         public override string Summary =>
             "前面各章「看不见的运行时」其实都可见：Context 作用域树 / 容器注册表 / Command 流水 / Bag 存活趋势，" +
             "聚合在一个调试器窗口里（左树 · 右明细 · 下流水）。Demo 已接好 Command 流水，打开即看；设计见 ADR-0026。";
@@ -24,7 +25,7 @@ namespace Game.Framework.Demo.Modules
         public override void Build(DemoModuleHost host)
         {
             // ── 定位 ──
-            host.AddSectionTitle("定位：把前面各章「看不见的运行时」变成一个窗口");
+            host.AddPositioning("把前面各章「看不见的运行时」变成一个窗口");
             host.AddNote("「依赖注入」章说纯 C# 注册在 Inspector 看不到、「多 Context」章的作用域树只能靠想象、Command 执行更是无影无踪——诊断面板把它们全部可视化：**左侧 Context 作用域树 · 右侧选中 Context 的注册明细 · 底部 Command 流水**，顶栏还有 Context / Bag 存活计数（带约 30 秒趋势线）。进 Play 后打开，自动增量刷新，定位是**调试与泄漏排查入口**。");
 
             // ── 动手试 ──

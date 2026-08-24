@@ -23,10 +23,14 @@ namespace Game.Framework.Demo.Core
         // 当前 Add* 的目标容器栈：空栈时落到根 Content（默认）。用于把一段构建临时塞进子容器（如分栏布局的某一列）。
         private readonly Stack<VisualElement> _targets = new();
         private readonly CancellationTokenSource _lifetimeCts = new();
+        private readonly DemoTeachingTrace _teachingTrace = new();
         private bool _disposed;
 
         // 后续 Add* 实际落到的容器：栈顶优先，否则根 Content。
         private VisualElement Target => _targets.Count > 0 ? _targets.Peek() : Content;
+
+        /// <summary>本次真实 Build 产生的教学语义；由目录在章节对外可见前统一校验。</summary>
+        internal DemoTeachingTrace TeachingTrace => _teachingTrace;
 
         public DemoModuleHost(VisualElement content) => Content = content;
 
@@ -82,8 +86,24 @@ namespace Game.Framework.Demo.Core
             }
         }
 
-        /// <summary>小节标题。</summary>
+        /// <summary>
+        /// 章节开篇定位：一句话说明“这一章解决什么问题、边界在哪里”。必须是正常章节的第一个教学元素，
+        /// Host 统一补上“定位：”前缀，避免普通小节伪装成定位而绕过教学契约。
+        /// </summary>
+        public Label AddPositioning(string text)
+        {
+            _teachingTrace.Record(DemoTeachingElement.Positioning);
+            return AddSectionTitleCore("定位：" + text);
+        }
+
+        /// <summary>小节标题。开篇定位请使用 <see cref="AddPositioning"/>。</summary>
         public Label AddSectionTitle(string text)
+        {
+            _teachingTrace.Record(DemoTeachingElement.Section);
+            return AddSectionTitleCore(text);
+        }
+
+        private Label AddSectionTitleCore(string text)
         {
             var l = new Label(text);
             l.AddToClassList("demo-section-title");
@@ -94,6 +114,7 @@ namespace Game.Framework.Demo.Core
         /// <summary>讲解段落（说明使用方法 / 设计理念）。自动换行。</summary>
         public Label AddNote(string text)
         {
+            _teachingTrace.Record(DemoTeachingElement.Note);
             var l = new Label(DemoRichText.Render(text));
             l.AddToClassList("demo-note");
             l.style.whiteSpace = WhiteSpace.Normal;
@@ -107,6 +128,7 @@ namespace Game.Framework.Demo.Core
         /// </summary>
         public Label AddNote(string text, CodeRef code)
         {
+            _teachingTrace.Record(DemoTeachingElement.Note, code);
             var row = new VisualElement();
             row.AddToClassList("demo-note-row");
 
@@ -127,6 +149,7 @@ namespace Game.Framework.Demo.Core
         /// </summary>
         public Label AddStep(string badge, string text, CodeRef code = default)
         {
+            _teachingTrace.Record(DemoTeachingElement.Step, code);
             var row = new VisualElement();
             row.AddToClassList("demo-step");
 
@@ -152,6 +175,7 @@ namespace Game.Framework.Demo.Core
         /// </summary>
         public Label AddSubNote(string text, CodeRef code = default)
         {
+            _teachingTrace.Record(DemoTeachingElement.SubNote, code);
             if (!code.HasTarget || !CodeNavigator.IsAvailable)
             {
                 var only = new Label(DemoRichText.Render(text));
@@ -178,6 +202,7 @@ namespace Game.Framework.Demo.Core
         /// <summary>提示 / 注意事项（强调样式）。自动换行。</summary>
         public Label AddTip(string text)
         {
+            _teachingTrace.Record(DemoTeachingElement.Tip);
             var l = new Label(text);
             l.AddToClassList("demo-tip");
             l.style.whiteSpace = WhiteSpace.Normal;
@@ -191,6 +216,7 @@ namespace Game.Framework.Demo.Core
         /// </summary>
         public VisualElement AddConcept(string term, string description)
         {
+            _teachingTrace.Record(DemoTeachingElement.Concept);
             var row = new VisualElement();
             row.AddToClassList("demo-concept");
 
@@ -215,6 +241,7 @@ namespace Game.Framework.Demo.Core
         /// </summary>
         public VisualElement AddTable(string[] headers, params string[][] rows)
         {
+            _teachingTrace.Record(DemoTeachingElement.Table);
             var table = new VisualElement();
             table.AddToClassList("demo-table");
 
@@ -255,6 +282,7 @@ namespace Game.Framework.Demo.Core
         /// <returns>动作按钮本身，便于调用方进一步配置（禁用、改文案等）。</returns>
         public Button AddActionRow(string buttonText, Action onClick, CodeRef code = default)
         {
+            _teachingTrace.Record(DemoTeachingElement.Action, code);
             var row = new VisualElement();
             row.AddToClassList("demo-action-row");
 
@@ -311,6 +339,8 @@ namespace Game.Framework.Demo.Core
             if (onClick == null) throw new ArgumentNullException(nameof(onClick));
             if (_disposed) throw new ObjectDisposedException(nameof(DemoModuleHost));
 
+            _teachingTrace.Record(DemoTeachingElement.Action, code);
+
             var row = new VisualElement();
             row.AddToClassList("demo-action-row");
 
@@ -332,6 +362,7 @@ namespace Game.Framework.Demo.Core
         /// </summary>
         public Label AddValueDisplay(string initial = "", CodeRef code = default)
         {
+            _teachingTrace.Record(DemoTeachingElement.Value, code);
             var l = new Label(initial);
             l.AddToClassList("demo-value");
 
@@ -354,10 +385,44 @@ namespace Game.Framework.Demo.Core
         /// <summary>单独的一个源码跳转链接（不带动作按钮）。Build 环境下不显示。</summary>
         public void AddCodeLink(CodeRef code)
         {
+            _teachingTrace.Record(DemoTeachingElement.CodeReference, code);
             var row = new VisualElement();
             row.AddToClassList("demo-action-row");
             if (AppendCodeLink(row, code))
                 Target.Add(row);
+        }
+
+        /// <summary>
+        /// 构建“当前环境暂不可运行”的结构化降级页。说明缺失原因、恢复方式与继续学习的入口，
+        /// 并提供一处能帮助修复接线的源码跳转；这种页面走独立契约，不会被误判为正常交互章节。
+        /// </summary>
+        public void AddUnavailable(string reason, string recovery, string continuation, CodeRef setupCode)
+        {
+            _teachingTrace.RecordUnavailable(reason, recovery, continuation, setupCode);
+            AddSectionTitleCore("本章当前暂不可运行");
+            AddConceptCore("为什么不可用", reason);
+            AddConceptCore("如何恢复", recovery);
+            AddConceptCore("接下来怎么学", continuation, setupCode);
+        }
+
+        private void AddConceptCore(string term, string description, CodeRef code = default)
+        {
+            var row = new VisualElement();
+            row.AddToClassList("demo-concept");
+
+            var t = new Label(term);
+            t.AddToClassList("demo-concept-term");
+            t.enableRichText = false;
+            row.Add(t);
+
+            var d = new Label(DemoRichText.Render(description));
+            d.AddToClassList("demo-concept-desc");
+            d.style.whiteSpace = WhiteSpace.Normal;
+            d.style.flexGrow = 1;
+            row.Add(d);
+
+            AppendCodeLink(row, code);
+            Target.Add(row);
         }
 
         // 若 code 有效且当前可跳转，往 row 追加一个源码链接按钮。返回是否追加了。

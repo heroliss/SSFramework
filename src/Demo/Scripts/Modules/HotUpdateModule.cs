@@ -25,7 +25,7 @@ namespace Game.Framework.Demo.Modules
         public override void Build(DemoModuleHost host)
         {
             // ── 定位 ──
-            host.AddSectionTitle("定位：编辑器看不到热更，因为它被刻意旁路了");
+            host.AddPositioning("编辑器看不到热更，因为它被刻意旁路了");
             host.AddNote("编辑器下所有程序集本就在 AppDomain 里，引导器直接反射进入口——没有下载、没有 Assembly.Load，开发期对热更机制零感知（这是设计目标，不是缺演示）。真实链路只在 IL2CPP 真机发生：改完热更代码只重打代码包，玩家包重启即用新逻辑。",
                 new CodeRef("Assets/Game/Framework/Boot/HotUpdateLauncher.cs", "class HotUpdateLauncher", "Boot 引导器（编辑器旁路 + 真机全流程）"));
 

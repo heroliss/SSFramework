@@ -16,13 +16,14 @@ namespace Game.Framework.Demo.Modules
         public override string Title => "框架总览";
         public override string Category => "入门";
         public override int Order => 0;
+        public override DemoTeachingKind TeachingKind => DemoTeachingKind.Concept;
         public override string Summary =>
             "先建立整体认知再看具体功能就不会懵：MVCS 五层各管什么、写操作为什么只能单向流动、" +
             "“谁能调用谁”如何在编译期就被钉死，以及依赖注入和统一生命周期带来了什么。";
 
         public override void Build(DemoModuleHost host)
         {
-            host.AddSectionTitle("定位：先建立全局地图，再进入具体能力");
+            host.AddPositioning("先建立全局地图，再进入具体能力");
             host.AddNote("SSFramework 是一套面向 Unity 的游戏框架：用分层、受限接口和统一生命周期，让依赖方向清楚、状态变化可追踪。",
                 new CodeRef("Assets/Game/Framework/Core/Internal/IGameContext.cs", "interface IGameContext", "IGameContext · 能力面"));
             host.AddSubNote("它不追求替你决定所有业务结构，而是把常见边界做成低摩擦默认值；小项目会多一点类型和 Command，大项目则换来更稳定的导航、测试与自动化接缝。");

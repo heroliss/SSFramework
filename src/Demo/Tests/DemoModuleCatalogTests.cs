@@ -173,6 +173,7 @@ namespace Game.Framework.Demo.Tests
             public int Order { get; }
             public string Summary => "记录生命周期。";
             public bool IsComingSoon => false;
+            public DemoTeachingKind TeachingKind => DemoTeachingKind.Capability;
             internal IGameContext InitializedContext { get; private set; }
             internal Exception BuildException { get; set; }
             internal int BuildCount { get; private set; }
@@ -192,6 +193,13 @@ namespace Game.Framework.Demo.Tests
                 BuildCount++;
                 _calls?.Add("build");
                 if (BuildException != null) throw BuildException;
+
+                host.AddPositioning("生命周期测试章节");
+                host.AddNote("用于验证目录持有同一个 Adapter 实例。");
+                host.AddSectionTitle("可运行内容");
+                host.AddActionRow("执行", () => { });
+                host.AddSectionTitle("边界");
+                host.AddNote("本测试只关心生命周期，不依赖实际业务服务。");
             }
 
             public void Teardown()

@@ -34,8 +34,9 @@
 | `Game.Framework.Editor` | `Editor/` | Core 通用 Drawer、诊断窗口、菜单与配置总览。 | 玩家构建不包含；可替换 Editor 体验而不动 Runtime API。 |
 | `Game.Framework.Editor.Tests` | `Editor/Tests/` | 通用 Editor 工具的 EditMode 契约；覆盖 AI PlayMode 预检的无弹窗保存与未命名场景拒绝。 | 随 Editor Module 删除；不进入玩家构建。 |
 | `Game.Framework.Build.Editor` | `Build/Editor/` | YooAsset/HybridCLR 构建管线与 Profile。 | 无资源/热更构建需求时可删，不污染通用 Editor。 |
-| `Game.Framework.Demo` | `Demo/` | 32 个可运行教学章节，是所有 Module 的消费方与集成样板；`DemoModuleCatalog` 集中拥有章节 Adapter、排序校验与 Build/Teardown 生命周期。 | 可整体删除；`UNITY_EDITOR` define 保证不进玩家包。 |
-| `Game.Framework.Demo.Tests` | `Demo/Tests/` | Demo 专属 EditMode 门禁：章节同实例生命周期/乱序/回滚、内嵌服务器端口/释放契约、目录元数据、教学骨架、关键示例行为与全部 CodeRef 路径/锚点防腐。 | 随 Demo 一起删除；不让 Demo 专属依赖反向进入通用 Test Module。 |
+| `Game.Framework.Demo` | `Demo/` | 32 个可运行教学章节，是所有 Module 的消费方与集成样板；Catalog 集中拥有章节 Adapter、生命周期与 Host 教学语义校验。 | 可整体删除；`UNITY_EDITOR` define 保证不进玩家包。 |
+| `Game.Framework.Demo.Tests` | `Demo/Tests/` | Demo 专属 EditMode 门禁：章节生命周期/回滚、教学形态与结构化降级契约、内嵌服务器、关键示例行为及全部 CodeRef 防腐。 | 随 Demo 一起删除；不让 Demo 专属依赖反向进入通用 Test Module。 |
+| `Game.Framework.Demo.PlayMode.Tests` | `Demo/Tests/PlayMode/` | 加载真实 DemoScene，穿过 Context、Catalog 与 Shell 逐章 Build 32 个 Adapter，并验证真实缺依赖降级页。 | 随 Demo 一起删除；不进入玩家构建，也不把场景集成依赖塞回纯 EditMode 门禁。 |
 | `Game.Framework.Test` | `Test/Scripts/` | Framework PlayMode/EditMode 契约和回归测试；`Test/Res/SuspendedSceneProbe` 是无业务 Awake 的 Yoo 场景激活门 fixture。 | 产品运行不依赖；开发/CI 不应删除。 |
 
 ## 维护检查清单

@@ -4,6 +4,21 @@ using Game.Framework.Internal;
 namespace Game.Framework.Demo.Core
 {
     /// <summary>
+    /// 章节的主要教学形态。目录据此校验真实 <see cref="IDemoModule.Build"/> 结果，而不是扫描源码里是否出现过某个方法名。
+    /// </summary>
+    public enum DemoTeachingKind
+    {
+        /// <summary>以可操作、可观察结果讲清一项框架能力。</summary>
+        Capability,
+
+        /// <summary>以概念、对比或结构解释建立心智模型，不强求交互按钮。</summary>
+        Concept,
+
+        /// <summary>以有序步骤讲清一条可执行工作流，并提供至少一个实际入口。</summary>
+        Workflow,
+    }
+
+    /// <summary>
     /// 一个演示模块 = 一个框架功能的演示页。<see cref="DemoModuleCatalog"/> 反射收集所有实现，
     /// 按 <see cref="Category"/> + <see cref="Order"/> 排进左侧导航——新增一个模块即自动出现，无需改目录或外壳。
     /// </summary>
@@ -32,6 +47,9 @@ namespace Game.Framework.Demo.Core
 
         /// <summary>是否为"规划中"占位章节（导航里弱化显示，点开只是预告）。已实现的模块为 false。</summary>
         bool IsComingSoon { get; }
+
+        /// <summary>本章的主要教学形态；运行时教学契约会按形态检查真实构建结果。</summary>
+        DemoTeachingKind TeachingKind { get; }
 
         /// <summary>
         /// 在 Context 构建前贡献本模块需要的框架层绑定（Model/System/Utility）。这里只声明注册关系；

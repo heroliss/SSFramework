@@ -18,6 +18,7 @@ namespace Game.Framework.Demo.Modules
         public override string Title => "服务注册生成 · 安装器";
         public override string Category => "核心";
         public override int Order => 46;   // 紧跟「容器」章：先懂注册/解析机制，再看注册样板如何生成掉
+        public override DemoTeachingKind TeachingKind => DemoTeachingKind.Workflow;
         public override string Summary =>
             "纯 C# 服务的 InstallBindings 注册样板可以生成：固定目录放服务类 → 菜单生成一份显式安装器（.g.cs，注册关系 git 可审）→ "
             + "Context 里一行接线。刻意不做运行时反射扫描（启动零反射、AOT/热更友好）；值绑定实例在 Context 构造时自动完成 [Inject] 注入与附着。";
@@ -36,7 +37,7 @@ namespace Game.Framework.Demo.Modules
         public override void Build(DemoModuleHost host)
         {
             // ── 定位 ──
-            host.AddSectionTitle("定位：把 InstallBindings 注册样板交给代码生成");
+            host.AddPositioning("把 InstallBindings 注册样板交给代码生成");
             host.AddNote("纯 C# 服务的注册样板可以生成掉：固定目录放服务类 → 菜单生成一份**显式**安装器（`.g.cs`，注册关系 git 可审）→ Context 里一行接线。启动零反射、AOT / 热更友好；配套演示构建期值绑定的「注册即注入」（ADR-0019）。");
 
             // ── 动手试 ──

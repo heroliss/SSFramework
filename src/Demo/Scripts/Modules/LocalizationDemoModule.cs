@@ -115,7 +115,7 @@ namespace Game.Framework.Demo.Modules
             var loc = this.GetUtility<ILocalizationUtility>();
 
             // ── 定位 ──
-            host.AddSectionTitle("定位：语言状态、文本查询、内容失效各管一件事");
+            host.AddPositioning("语言状态、文本查询、内容失效各管一件事");
             host.AddNote("框架把 `Locale`（语言身份）、`Lookup`（Found / Missing / Unavailable）与 `TextRevision`（文本应重取）分开；语言列表、`SystemLanguage` 映射和选择持久化仍归业务。",
                 new CodeRef("Assets/Game/Framework/Core/Localization/ILocalizationUtility.cs", "public interface ILocalizationUtility", "本地化入口契约"));
             host.AddSubNote("locale code 是开放字符串 + 业务常量（本章 `Zh = \"zh-CN\"` / `En = \"en\"`）。其他多语言方案也能当源接入；原则只有一条：**别让两个系统都认为自己管着当前语言**。文本 UI 订 `TextRevision`，字体和按语言换图/音频仍只订 `Locale`，避免源就绪时无谓重载资源。");

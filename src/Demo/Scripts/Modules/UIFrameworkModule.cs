@@ -33,13 +33,18 @@ namespace Game.Framework.Demo.Modules
         {
             if (!TryGetUI(out _))
             {
-                host.AddSectionTitle("场景未挂 UI 框架入口");
-                host.AddNote("本章需要 demo 根 Context 子树下挂一个 UI 框架入口（`MonoToolkitUI` 带 UIDocument，或 `MonoUGuiUI` 带 Canvas）来注册 `IUIUtility`。当前 Context 解析不到——补好入口后回到本章即可操作。");
-                host.AddNote("入口是单个 Mono 组件（镜像 `MonoPoolUtility`），自动注册为 `IUIUtility`；同一 Context 只挂一个（UGUI / Toolkit 二选一）。");
+                host.AddUnavailable(
+                    "当前 Demo 根 Context 解析不到 `IUIUtility`，窗口调度没有可用的 UI 后端入口。",
+                    "在该 Context 子树下挂一个 `MonoToolkitUI`（带 UIDocument）或 `MonoUGuiUI`（带 Canvas）；同一 Context 只选一个后端。",
+                    "接好入口后重新进入本章即可操作；恢复前可先看“UGUI View / UI Toolkit View”，理解窗口背后的 View 契约。",
+                    new CodeRef(
+                        "Assets/Game/Framework/UI.Toolkit/MonoToolkitUI.cs",
+                        "class MonoToolkitUI",
+                        "Toolkit UI 入口"));
                 return;
             }
 
-            host.AddSectionTitle("定位：窗口 = View 的一种，框架管层级/栈/模态调度");
+            host.AddPositioning("窗口 = View 的一种，框架管层级/栈/模态调度");
             host.AddNote("窗口经 `this.GetUtility<IUIUtility>().Open<T>()` 打开；落哪层 / 缓存 / 模态由窗口类上的 `[UIWindow]` 特性声明。本章窗口都是代码搭建（无 authored 资产），开关即自动注入 + Bag 释放订阅。渲染后端无关：UGUI 与 UI Toolkit 共用同一套调度、可同屏并存。");
             host.AddNote("**怎么分辨两套 UI**：每个窗口左上角有后端标识药丸——**蓝色「UI Toolkit」**（下面前三节）/ **绿色「UGUI」**（末节）。两套渲染后端可**同屏并存**：开一个 Toolkit 窗口再开 UGUI 窗口，蓝、绿两张卡片会同时出现在屏幕上（UGUI 窗口刻意偏右下错开），各自能点，改的是**同一份分数**。");
             host.AddTip("怎么操作：按下面从浮到顶逐个试，注意「可点性」——这些控制按钮在 demo 内容区里。"

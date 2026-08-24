@@ -22,6 +22,7 @@ namespace Game.Framework.Demo.Modules
         public override string Title => "资源运营 · 端到端";
         public override string Category => "进阶";
         public override int Order => 15;   // 紧跟「YooAsset · 底层实现」(10)：先懂构建/部署原理，再看运营链路怎么转
+        public override DemoTeachingKind TeachingKind => DemoTeachingKind.Workflow;
         public override string Summary =>
             "启动器更新流程的活样板：运营侧发版本（构建+部署改 CDN 的 .version）→ 客户端启动检查（拉版本/清单）→ " +
             "强更下载（进度/重试/断点续传）→ 回收旧缓存 → 进游戏。EditorSimulate 可跑通流程（恒 0 下载），真实下载切 Host。";
@@ -49,7 +50,7 @@ namespace Game.Framework.Demo.Modules
                     packages.Add(name);
 
             // ── 定位 ──
-            host.AddSectionTitle("定位：把原子 API 串成「发版 → 启动更新」的完整运营链路");
+            host.AddPositioning("把原子 API 串成「发版 → 启动更新」的完整运营链路");
             host.AddNote("「资源加载」章给了原子 API（初始化 / 查询 / 下载器 / 清缓存），「YooAsset · 底层实现」章讲了构建与部署——本章把两侧串起来：**运营侧发一个新版本，客户端启动时检查并更到最新**。核心是一段可整段搬进真实项目的启动器流程方法（右侧跳源码），本页按钮就是在跑它。",
                 CodeRef.Here("private static async UniTask<bool> RunUpdateFlow", "启动器流程活样板"));
 
