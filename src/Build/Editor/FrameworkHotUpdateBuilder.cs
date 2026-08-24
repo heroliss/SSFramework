@@ -11,12 +11,49 @@ using HybridCLR.Editor.Commands;
 using HybridCLR.Editor.Installer;
 using HybridCLR.Editor.Settings;
 using UnityEditor;
+using UnityEditorInternal;
 using UnityEngine;
 using YooAsset;        // EBundleType / EFileNameStyle / EBundledCopyOption
 using YooAsset.Editor; // RawFileBuildParameters / RawFileBuildPipeline / 收集器配置
 
 namespace Game.Framework.Build
 {
+    /// <summary>
+    /// 热更 Profile 到 HybridCLR 设置、Generate 环境记录和当前 DLL 中转清单的只读证据。
+    /// 它不代表 CDN 已部署版本，只回答本地构建输入与最近一次中转产物是否一致。
+    /// </summary>
+    [Serializable]
+    internal sealed class FrameworkHotUpdateEvidence
+    {
+        internal string[] ProfileAssemblies = Array.Empty<string>();
+        internal string[] HybridClrSettingsAssemblies = Array.Empty<string>();
+        internal string[] HybridClrLegacyAssemblies = Array.Empty<string>();
+        internal bool SettingsAvailable;
+        internal bool SettingsMatch;
+        internal string SettingsMessage;
+        internal bool GenerationRequired;
+        internal bool GenerationFresh;
+        internal string GenerationMessage;
+        internal bool StagingRequired;
+        internal bool StagedManifestExists;
+        internal bool StagedManifestAvailable;
+        internal bool StagedManifestMatches;
+        internal string StagedVersion;
+        internal string[] StagedAssemblies = Array.Empty<string>();
+        internal string[] ExpectedAotMetadataDlls = Array.Empty<string>();
+        internal string[] StagedAotMetadataDlls = Array.Empty<string>();
+        internal string[] MissingStagedFiles = Array.Empty<string>();
+        internal string[] UnexpectedStagedFiles = Array.Empty<string>();
+        internal string[] InvalidStagedEntries = Array.Empty<string>();
+        internal string StagedMessage;
+
+        internal bool RequiresAttention => !SettingsAvailable || !SettingsMatch ||
+                                           (GenerationRequired && !GenerationFresh) ||
+                                           (StagingRequired
+                                               ? !StagedManifestAvailable || !StagedManifestMatches
+                                               : StagedManifestExists && !StagedManifestMatches);
+    }
+
     /// <summary>
     /// 热更代码构建实现——把「C# 源码改动」变成「CDN 上可下发的代码包」的全部编辑器侧逻辑，
     /// 菜单（<c>SSFramework/热更构建/*</c>）与将来的 CI 都只调这里。两个入口对应两种频率的工作：
@@ -54,6 +91,392 @@ namespace Game.Framework.Build
         // BuildCodePackage 据此拒绝消费旧版本/旧平台的桥接和裁剪产物。
         private static string GenerationStampPath =>
             Path.Combine(SettingsUtil.HybridCLRDataDir, "SSFramework", "generation-stamp.json");
+
+        /// <summary>
+        /// 只读检查 Profile 的三层派生状态。不会同步设置、Generate、CompileDll 或写文件，
+        /// 供 Module Audit、CI 与问题排查在执行昂贵构建前解释“期望配置是否已经落到产物”。
+        /// </summary>
+        internal static FrameworkHotUpdateEvidence InspectEvidence(FrameworkHotUpdateProfile profile)
+        {
+            if (profile == null) throw new ArgumentNullException(nameof(profile));
+
+            var evidence = new FrameworkHotUpdateEvidence
+            {
+                ProfileAssemblies = GetSortedHotUpdateAssemblyNames(profile).ToArray(),
+            };
+            evidence.StagingRequired = evidence.ProfileAssemblies.Length > 0;
+
+            InspectHybridClrSettings(evidence);
+            InspectGenerationStamp(profile, evidence);
+            InspectStagedManifest(evidence);
+            return evidence;
+        }
+
+        private static void InspectHybridClrSettings(FrameworkHotUpdateEvidence evidence)
+        {
+            try
+            {
+                var settings = HybridCLRSettings.Instance;
+                string[] definitions = (settings.hotUpdateAssemblyDefinitions ?? Array.Empty<AssemblyDefinitionAsset>())
+                    .Where(asset => asset != null)
+                    .Select(ReadAssemblyDefinitionName)
+                    .Where(name => !string.IsNullOrWhiteSpace(name))
+                    .Distinct(StringComparer.Ordinal)
+                    .OrderBy(name => name, StringComparer.Ordinal)
+                    .ToArray();
+                string[] legacy = (settings.hotUpdateAssemblies ?? Array.Empty<string>())
+                    .Where(name => !string.IsNullOrWhiteSpace(name))
+                    .Distinct(StringComparer.Ordinal)
+                    .OrderBy(name => name, StringComparer.Ordinal)
+                    .ToArray();
+                ApplyHybridClrSettingsEvidence(evidence, definitions, legacy);
+            }
+            catch (Exception ex)
+            {
+                evidence.SettingsAvailable = false;
+                evidence.SettingsMatch = false;
+                evidence.SettingsMessage = "✗ 无法读取 HybridCLRSettings：" + ex.Message;
+            }
+        }
+
+        internal static void ApplyHybridClrSettingsEvidence(
+            FrameworkHotUpdateEvidence evidence,
+            IEnumerable<string> definitionAssemblies,
+            IEnumerable<string> legacyAssemblies)
+        {
+            if (evidence == null) throw new ArgumentNullException(nameof(evidence));
+            string[] definitions = (definitionAssemblies ?? Array.Empty<string>())
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(name => name, StringComparer.Ordinal)
+                .ToArray();
+            string[] legacy = (legacyAssemblies ?? Array.Empty<string>())
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(name => name, StringComparer.Ordinal)
+                .ToArray();
+            string[] effective = definitions.Concat(legacy)
+                    .Distinct(StringComparer.Ordinal)
+                    .OrderBy(name => name, StringComparer.Ordinal)
+                    .ToArray();
+            evidence.SettingsAvailable = true;
+            evidence.HybridClrSettingsAssemblies = effective;
+            evidence.HybridClrLegacyAssemblies = legacy;
+            bool definitionsMatch = evidence.ProfileAssemblies.SequenceEqual(definitions);
+            evidence.SettingsMatch = definitionsMatch && legacy.Length == 0;
+            evidence.SettingsMessage = evidence.SettingsMatch
+                ? $"✓ HybridCLRSettings 与 Profile 一致（{definitions.Length} 个，字符串名第二来源为空）"
+                : "✗ HybridCLRSettings 与 Profile 漂移：" +
+                  (definitionsMatch
+                      ? "asmdef 列表一致"
+                      : DescribeSetDifference(evidence.ProfileAssemblies, definitions,
+                          "asmdef 设置缺少", "asmdef 设置多出")) +
+                  (legacy.Length > 0
+                      ? "；字符串名第二来源仍含 " + string.Join("、", legacy)
+                      : string.Empty) +
+                  (legacy.Length > 0
+                      ? "。确认这些名称并非刻意配置后，在 HybridCLR Settings 清空 hotUpdateAssemblies 字符串列表；" +
+                        (definitionsMatch ? "无需重复同步 asmdef 列表。" : "再执行“1. 同步热更设置”。")
+                      : "。执行“1. 同步热更设置”。");
+        }
+
+        private static void InspectGenerationStamp(
+            FrameworkHotUpdateProfile profile,
+            FrameworkHotUpdateEvidence evidence)
+        {
+            evidence.GenerationRequired = evidence.ProfileAssemblies.Length > 0;
+            if (!evidence.GenerationRequired)
+            {
+                evidence.GenerationFresh = true;
+                evidence.GenerationMessage = "✓ Profile 为纯 AOT，代码包构建不要求 HybridCLR Generate stamp。";
+                return;
+            }
+
+            try
+            {
+                (evidence.GenerationFresh, evidence.GenerationMessage) = ValidateGenerationStamp(profile);
+            }
+            catch (Exception ex)
+            {
+                evidence.GenerationFresh = false;
+                evidence.GenerationMessage = "✗ 无法校验 Generate 环境记录：" + ex.Message;
+            }
+        }
+
+        private static void InspectStagedManifest(FrameworkHotUpdateEvidence evidence)
+        {
+            string path = Path.Combine(DllAssetDir, HotUpdateManifest.Location + ".bytes");
+            if (!File.Exists(path))
+            {
+                ApplyMissingStagedManifestEvidence(evidence);
+                return;
+            }
+            evidence.StagedManifestExists = true;
+
+            try
+            {
+                HotUpdateManifest manifest = HotUpdateManifest.FromJson(File.ReadAllText(path));
+                if (manifest == null)
+                    throw new InvalidDataException("JSON 解析结果为空");
+
+                bool aotEvidenceAvailable = TryReadExpectedAotMetadata(
+                    evidence.ProfileAssemblies.Length > 0,
+                    out string[] expectedAot,
+                    out string aotEvidenceError);
+                string[] actualDllFiles = Directory.Exists(DllAssetDir)
+                    ? Directory.GetFiles(DllAssetDir, "*.dll.bytes", SearchOption.AllDirectories)
+                        .Select(file => Path.GetRelativePath(DllAssetDir, file).Replace('\\', '/'))
+                        .Where(file => !string.IsNullOrWhiteSpace(file))
+                        .ToArray()
+                    : Array.Empty<string>();
+
+                string[] expectedHotOrder = HotUpdateAssemblyGraph
+                    .SortByDependency(evidence.ProfileAssemblies)
+                    .ToArray();
+                ApplyStagedManifestEvidence(evidence, manifest, expectedHotOrder, expectedAot,
+                    aotEvidenceAvailable, aotEvidenceError, actualDllFiles);
+            }
+            catch (Exception ex)
+            {
+                evidence.StagedManifestAvailable = false;
+                evidence.StagedManifestMatches = false;
+                evidence.StagedMessage = "✗ DLL 中转清单无法解析：" + ex.Message +
+                                         "。删除损坏中转产物后重新执行“3. 构建代码包”。";
+            }
+        }
+
+        internal static void ApplyMissingStagedManifestEvidence(FrameworkHotUpdateEvidence evidence)
+        {
+            if (evidence == null) throw new ArgumentNullException(nameof(evidence));
+            evidence.StagedManifestExists = false;
+            evidence.StagedManifestAvailable = false;
+            evidence.StagedManifestMatches = !evidence.StagingRequired;
+            evidence.StagedMessage = evidence.StagingRequired
+                ? "✗ 未找到当前 DLL 中转清单；执行“3. 构建代码包”后才会生成。"
+                : "○ Profile 为纯 AOT：DLL 中转 / CodePackage 可选；未发现中转清单不影响纯 AOT Player。";
+        }
+
+        internal static void ApplyStagedManifestEvidence(
+            FrameworkHotUpdateEvidence evidence,
+            HotUpdateManifest manifest,
+            IReadOnlyCollection<string> expectedHotOrder,
+            IReadOnlyCollection<string> expectedAotMetadata,
+            bool aotEvidenceAvailable,
+            string aotEvidenceError,
+            IEnumerable<string> actualRelativeDllFiles)
+        {
+            if (evidence == null) throw new ArgumentNullException(nameof(evidence));
+            if (manifest == null) throw new ArgumentNullException(nameof(manifest));
+
+            evidence.StagedManifestExists = true;
+            evidence.StagedManifestAvailable = true;
+            evidence.StagedVersion = manifest.Version ?? string.Empty;
+            string[] rawHotEntries = (manifest.HotUpdateDlls ?? new List<string>()).ToArray();
+            string[] rawHotAssemblies = rawHotEntries
+                .Select(RemoveDllExtension)
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .ToArray();
+            evidence.StagedAssemblies = rawHotAssemblies
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            evidence.StagedAotMetadataDlls = (manifest.AotMetadataDlls ?? new List<string>())
+                .Where(file => !string.IsNullOrWhiteSpace(file))
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(file => file, StringComparer.Ordinal)
+                .ToArray();
+            evidence.ExpectedAotMetadataDlls = (expectedAotMetadata ?? Array.Empty<string>())
+                .Where(file => !string.IsNullOrWhiteSpace(file))
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(file => file, StringComparer.Ordinal)
+                .ToArray();
+
+            string[] manifestEntries = (manifest.HotUpdateDlls ?? new List<string>())
+                .Concat(manifest.AotMetadataDlls ?? new List<string>())
+                .ToArray();
+            evidence.InvalidStagedEntries = manifestEntries
+                .Where(file => !IsPlainDllFileName(file))
+                .Select(file => string.IsNullOrWhiteSpace(file) ? "<空条目>" : file)
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(file => file, StringComparer.Ordinal)
+                .ToArray();
+            string[] manifestFiles = manifestEntries
+                .Where(IsPlainDllFileName)
+                .Select(file => file + ".bytes")
+                .ToArray();
+            var manifestFileSet = new HashSet<string>(manifestFiles, StringComparer.OrdinalIgnoreCase);
+            var actualFileSet = new HashSet<string>(
+                (actualRelativeDllFiles ?? Array.Empty<string>())
+                    .Where(file => !string.IsNullOrWhiteSpace(file))
+                    .Select(file => file.Replace('\\', '/')),
+                StringComparer.OrdinalIgnoreCase);
+            evidence.MissingStagedFiles = manifestFileSet
+                .Where(file => !actualFileSet.Contains(file))
+                .OrderBy(file => file, StringComparer.Ordinal)
+                .ToArray();
+            evidence.UnexpectedStagedFiles = actualFileSet
+                .Where(file => !manifestFileSet.Contains(file))
+                .OrderBy(file => file, StringComparer.Ordinal)
+                .ToArray();
+
+            string[] hotOrder = (expectedHotOrder ?? Array.Empty<string>()).ToArray();
+            bool hotOrderMatches = hotOrder.SequenceEqual(evidence.StagedAssemblies);
+            bool hotEntriesUnique = rawHotEntries.Length ==
+                                    new HashSet<string>(rawHotEntries,
+                                        StringComparer.OrdinalIgnoreCase).Count;
+            bool aotListMatches = aotEvidenceAvailable &&
+                                  evidence.ExpectedAotMetadataDlls.SequenceEqual(evidence.StagedAotMetadataDlls);
+            bool manifestEntriesUnique = manifestEntries.Length ==
+                                         new HashSet<string>(manifestEntries,
+                                             StringComparer.OrdinalIgnoreCase).Count;
+            evidence.StagedManifestMatches = hotOrderMatches && hotEntriesUnique &&
+                                             aotListMatches && manifestEntriesUnique &&
+                                             evidence.InvalidStagedEntries.Length == 0 &&
+                                             evidence.MissingStagedFiles.Length == 0 &&
+                                             evidence.UnexpectedStagedFiles.Length == 0;
+            evidence.StagedMessage = evidence.StagedManifestMatches
+                ? $"✓ DLL 中转清单结构与当前派生输入一致（版本 {DisplayVersion(evidence.StagedVersion)}，" +
+                  $"热更 DLL {evidence.StagedAssemblies.Length} 个，AOT 补元数据 {evidence.ExpectedAotMetadataDlls.Length} 个，所列文件齐全）"
+                : BuildStagedDriftMessage(
+                    evidence,
+                    hotOrder,
+                    hotEntriesUnique,
+                    aotEvidenceAvailable,
+                    aotEvidenceError,
+                    aotListMatches,
+                    manifestEntriesUnique);
+        }
+
+        private static string ReadAssemblyDefinitionName(AssemblyDefinitionAsset asset)
+        {
+            try
+            {
+                return JsonUtility.FromJson<AssemblyDefinitionName>(asset.text)?.name;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        private static string RemoveDllExtension(string fileName) =>
+            fileName != null && fileName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+                ? fileName.Substring(0, fileName.Length - 4)
+                : fileName;
+
+        private static bool IsPlainDllFileName(string fileName) =>
+            !string.IsNullOrWhiteSpace(fileName) &&
+            !Path.IsPathRooted(fileName) &&
+            string.Equals(Path.GetFileName(fileName), fileName, StringComparison.Ordinal) &&
+            fileName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) &&
+            fileName.Length > 4;
+
+        private static string DisplayVersion(string version) =>
+            string.IsNullOrWhiteSpace(version) ? "未标记" : version;
+
+        private static bool TryReadExpectedAotMetadata(
+            bool required,
+            out string[] expected,
+            out string error)
+        {
+            if (!required)
+            {
+                expected = Array.Empty<string>();
+                error = string.Empty;
+                return true;
+            }
+
+            try
+            {
+                List<string> patched = ReadPatchedAotList();
+                if (patched == null)
+                {
+                    expected = Array.Empty<string>();
+                    error = "未找到 AOTGenericReferences.cs";
+                    return false;
+                }
+
+                expected = patched
+                    .Where(file => !string.IsNullOrWhiteSpace(file))
+                    .Distinct(StringComparer.Ordinal)
+                    .OrderBy(file => file, StringComparer.Ordinal)
+                    .ToArray();
+                if (expected.Length > 0)
+                {
+                    error = string.Empty;
+                    return true;
+                }
+
+                error = "PatchedAOTAssemblyList 为空";
+                return false;
+            }
+            catch (Exception ex)
+            {
+                expected = Array.Empty<string>();
+                error = "无法读取 PatchedAOTAssemblyList：" + ex.Message;
+                return false;
+            }
+        }
+
+        private static string BuildStagedDriftMessage(
+            FrameworkHotUpdateEvidence evidence,
+            IReadOnlyCollection<string> expectedHotOrder,
+            bool hotEntriesUnique,
+            bool aotEvidenceAvailable,
+            string aotEvidenceError,
+            bool aotListMatches,
+            bool manifestEntriesUnique)
+        {
+            var reasons = new List<string>();
+            if (!expectedHotOrder.SequenceEqual(evidence.StagedAssemblies))
+            {
+                var expectedSet = new HashSet<string>(expectedHotOrder, StringComparer.Ordinal);
+                if (expectedSet.SetEquals(evidence.StagedAssemblies))
+                    reasons.Add("热更加载顺序漂移：期望 " + string.Join(" → ", expectedHotOrder) +
+                                "；清单 " + string.Join(" → ", evidence.StagedAssemblies));
+                else
+                    reasons.Add(DescribeSetDifference(expectedHotOrder, evidence.StagedAssemblies,
+                        "热更清单缺少", "热更清单多出"));
+            }
+            if (!hotEntriesUnique || !manifestEntriesUnique)
+                reasons.Add("清单含重复 DLL 条目");
+            if (evidence.InvalidStagedEntries.Length > 0)
+                reasons.Add("清单含非法文件名 " + string.Join("、", evidence.InvalidStagedEntries));
+            if (!aotEvidenceAvailable)
+                reasons.Add(aotEvidenceError);
+            else if (!aotListMatches)
+                reasons.Add(DescribeSetDifference(evidence.ExpectedAotMetadataDlls,
+                    evidence.StagedAotMetadataDlls, "AOT 清单缺少", "AOT 清单多出"));
+            if (evidence.MissingStagedFiles.Length > 0)
+                reasons.Add("清单所列文件缺失 " + string.Join("、", evidence.MissingStagedFiles));
+            if (evidence.UnexpectedStagedFiles.Length > 0)
+                reasons.Add("目录残留未入清单文件 " + string.Join("、", evidence.UnexpectedStagedFiles));
+            if (reasons.Count == 0)
+                reasons.Add("清单证据不完整");
+            return "✗ DLL 中转清单与当前派生输入 / 中转目录漂移：" + string.Join("；", reasons) +
+                   "。执行“3. 构建代码包”重建；这不证明 DLL 内容相对源码新鲜，也不代表 CDN 已部署。";
+        }
+
+        private static string DescribeSetDifference(
+            IEnumerable<string> expected,
+            IEnumerable<string> actual,
+            string missingLabel,
+            string extraLabel)
+        {
+            var expectedSet = new HashSet<string>(expected ?? Array.Empty<string>(), StringComparer.Ordinal);
+            var actualSet = new HashSet<string>(actual ?? Array.Empty<string>(), StringComparer.Ordinal);
+            string[] missing = expectedSet.Except(actualSet).OrderBy(name => name, StringComparer.Ordinal).ToArray();
+            string[] extra = actualSet.Except(expectedSet).OrderBy(name => name, StringComparer.Ordinal).ToArray();
+            var parts = new List<string>();
+            if (missing.Length > 0) parts.Add(missingLabel + " " + string.Join("、", missing));
+            if (extra.Length > 0) parts.Add(extraLabel + " " + string.Join("、", extra));
+            return parts.Count == 0 ? "列表相同，但文件证据不完整" : string.Join("；", parts);
+        }
+
+        [Serializable]
+        private sealed class AssemblyDefinitionName
+        {
+            public string name;
+        }
 
         /// <summary>包装 HybridCLR <c>Generate/All</c>（先同步校验热更列表，违规即停）。耗时分钟级，见类型注释的触发时机。</summary>
         public static (bool ok, string message) Generate(FrameworkHotUpdateProfile profile)
@@ -130,7 +553,10 @@ namespace Game.Framework.Build
                     manifest.HotUpdateDlls.Add(name + ".dll");
                 }
 
-                var (aotCopied, aotWarning) = CopyAotMetadataDlls(target, manifest, requireComplete: hotNames.Count > 0);
+                // 纯 AOT 档位不需要补元数据 DLL；即使磁盘上还留有旧 Generate 产物，也不应把它们带回空代码包。
+                var (aotCopied, aotWarning) = hotNames.Count > 0
+                    ? CopyAotMetadataDlls(target, manifest, requireComplete: true)
+                    : (0, null);
                 if (aotWarning != null) sb.AppendLine(aotWarning);
 
                 File.WriteAllText(Path.Combine(DllAssetDir, HotUpdateManifest.Location + ".bytes"), manifest.ToJson(prettyPrint: true));
@@ -177,6 +603,8 @@ namespace Game.Framework.Build
             {
                 foreach (var file in Directory.GetFiles(DllAssetDir))
                     File.Delete(file);
+                foreach (var directory in Directory.GetDirectories(DllAssetDir))
+                    Directory.Delete(directory, recursive: true);
             }
             else
             {

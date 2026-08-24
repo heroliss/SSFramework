@@ -15,7 +15,7 @@
 
 ## 轻量组合档位与证据口径
 
-菜单 `SSFramework/诊断/模块裁剪审计` 会读取当前目标平台的 Player 编译图、asmdef、已编译 DLL 的**真实元数据引用**、FrameworkHotUpdateProfile 和全部 `Assets/**/link.xml`。窗口先解释每个 Runtime Module 的项目 / Framework 消费者、热更依赖传播和 linker 根，再给出 Core-only、Core + UGUI、Core + Toolkit、全部 Runtime Module、Profile 期望热更档位，以及任意 Module 作为入口的 what-if 闭包。完整闭包、全局 / HybridCLR 生成的 linker 规则和原始报告按需展开。它同时机器执行三条删除测试：Core 不带 UI、UGUI 不带 Toolkit/Bridge、Toolkit 不带 UGUI/Bridge。
+菜单 `SSFramework/诊断/模块裁剪审计` 会读取当前目标平台的 Player 编译图、asmdef、已编译 DLL 的**真实元数据引用**、FrameworkHotUpdateProfile 和全部 `Assets/**/link.xml`。窗口先只读比较唯一 Profile、HybridCLRSettings、Generate stamp、当前热更加载顺序、AOT 补元数据清单与 DLL 中转目录，再解释每个 Runtime Module 的项目 / Framework 消费者、热更依赖传播和 linker 根；之后给出 Core-only、Core + UGUI、Core + Toolkit、全部 Runtime Module、Profile 期望热更档位，以及任意 Module 作为入口的 what-if 闭包。空 Profile 的纯 AOT 档位不强制 Generate / CodePackage；缺失或重复 Profile 会明确告警。完整闭包、全局 / HybridCLR 生成的 linker 规则和原始报告按需展开。它同时机器执行三条删除测试：Core 不带 UI、UGUI 不带 Toolkit/Bridge、Toolkit 不带 UGUI/Bridge。
 
 报告里的大小是链接、AOT、压缩前的原始托管 DLL，只用于发现“一个很小的 Adapter 意外拖入很大的外部依赖”以及比较组合；它不是最终包体承诺。需要真实平台证据时打开 `SSFramework/诊断/真实构建体积证据`：探针在 `Library` 下创建隔离空工程，只复制所选 Runtime Module 和当前版本依赖，再用当前目标平台 / 脚本后端读取 Player BuildReport。所选程序集完整保留，因此结果是可重复的体积上界；详情见 ADR-0038。
 

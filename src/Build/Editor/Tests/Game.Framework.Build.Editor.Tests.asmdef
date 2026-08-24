@@ -1,0 +1,24 @@
+{
+    "name": "Game.Framework.Build.Editor.Tests",
+    "rootNamespace": "Game.Framework.Build.Tests",
+    "references": [
+        "Game.Framework.Build.Editor",
+        "Game.Framework.Boot",
+        "UnityEngine.TestRunner"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

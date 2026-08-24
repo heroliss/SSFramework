@@ -13,6 +13,7 @@ namespace Game.Framework.Demo.Modules
     {
         private const string ValidateMenu = "SSFramework/热更构建/校验热更程序集列表";
         private const string ProfileMenu = "SSFramework/热更构建/热更配置 (HotUpdate Profile)";
+        private const string ModuleAuditMenu = "SSFramework/诊断/模块裁剪审计";
 
         public override string Id => "hotupdate";
         public override string Title => "热更 · HybridCLR";
@@ -54,6 +55,7 @@ namespace Game.Framework.Demo.Modules
                 new[] { "4. 部署代码包", "跟在 3 后面（平铺到 Deploy，与资源包同套 CDN 结构）", "秒" });
             host.AddSubNote("迭代边界（真机实测）：热更代码新增跨 AOT 泛型用法（Odin 序列化热更类型、新 R3 订阅泛型等）也只需 3+4——SuperSet 补元数据 + 解释器兜底已覆盖；真正需要 2 + 重出安装包的只有 AOT 集合本身的变化。",
                 new CodeRef("Assets/Game/Framework/Build/Editor/FrameworkHotUpdateBuilder.cs", "class FrameworkHotUpdateBuilder", "构建实现（CompileDll → 清单 → RawFile 包）"));
+            host.AddSubNote("不确定自己漏了哪一步时，模块裁剪审计的“热更产物链”会只读比较唯一 Profile → HybridCLRSettings → Generate stamp → 当前热更拓扑 / AOT 补元数据清单 → DLL 中转，并明确建议执行 1 / 2 / 3。绿色只证明结构与所列文件一致，不证明 DLL 已包含最新源码，也不代表步骤 4 的 Deploy / CDN 已完成；空 Profile 的纯 AOT 档位不强制 Generate 或 CodePackage。");
 
             // ── 可现场执行的部分:构建期校验 ──
             host.AddSectionTitle("现场可跑：构建期校验（真实调用，与菜单同源）");
@@ -62,6 +64,8 @@ namespace Game.Framework.Demo.Modules
                 new CodeRef("Assets/Game/Framework/Build/Editor/HotUpdateAssemblyGraph.cs", "class HotUpdateAssemblyGraph", "引用图校验 + 拓扑排序"));
             host.AddActionRow("定位热更配置（FrameworkHotUpdateProfile）", () => RunMenu(ProfileMenu),
                 new CodeRef("Assets/Game/Framework/Build/Editor/FrameworkHotUpdateProfile.cs", "class FrameworkHotUpdateProfile", "热更配置定义"));
+            host.AddActionRow("查看热更产物链（只读，不自动修改）", () => RunMenu(ModuleAuditMenu),
+                new CodeRef("Assets/Game/Framework/Build/Editor/FrameworkHotUpdateBuilder.cs", "InspectEvidence(FrameworkHotUpdateProfile profile)", "Profile → Settings → Generate → DLL 中转证据"));
 
             host.AddTip("深度阅读：docs/framework-guide.md §15（用法手册）、docs/adr/0008（设计取舍与已验证边界）。");
         }

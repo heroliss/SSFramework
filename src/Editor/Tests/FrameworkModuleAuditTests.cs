@@ -189,6 +189,97 @@ namespace Game.Framework.Editor.Tests
         }
 
         [Test]
+        public void HotUpdateInspection_MapsBuildEvidenceWithoutCompileTimeDependency()
+        {
+            var target = new FrameworkModuleAudit.HotUpdateDeploymentEvidence
+            {
+                BuildModuleAvailable = true,
+                ProfileAvailable = true,
+                ProfileCount = 1,
+                ProfilePath = "Assets/Game/Settings/Profile.asset",
+                ProfileAssemblies = new[] { "Old" },
+            };
+            var raw = new FakeHotUpdateEvidence
+            {
+                ProfileAssemblies = new[] { "Core", "Game.Main" },
+                HybridClrSettingsAssemblies = new[] { "Core" },
+                HybridClrLegacyAssemblies = new[] { "Legacy" },
+                SettingsAvailable = true,
+                SettingsMatch = false,
+                SettingsMessage = "settings drift",
+                GenerationRequired = true,
+                GenerationFresh = false,
+                GenerationMessage = "stamp stale",
+                StagingRequired = true,
+                StagedManifestExists = true,
+                StagedManifestAvailable = true,
+                StagedManifestMatches = false,
+                StagedVersion = "42",
+                StagedAssemblies = new[] { "Core" },
+                ExpectedAotMetadataDlls = new[] { "mscorlib.dll" },
+                StagedAotMetadataDlls = Array.Empty<string>(),
+                MissingStagedFiles = new[] { "Game.Main.dll" },
+                UnexpectedStagedFiles = new[] { "Legacy.dll.bytes" },
+                InvalidStagedEntries = new[] { "../Unsafe.dll" },
+                StagedMessage = "manifest drift",
+            };
+
+            FrameworkModuleAudit.ApplyHotUpdateInspection(target, raw);
+
+            Assert.That(target.InspectionAvailable, Is.True);
+            Assert.That(target.ProfileAssemblies, Is.EqualTo(new[] { "Core", "Game.Main" }));
+            Assert.That(target.SettingsAssemblies, Is.EqualTo(new[] { "Core" }));
+            Assert.That(target.LegacySettingsAssemblies, Is.EqualTo(new[] { "Legacy" }));
+            Assert.That(target.StagingRequired, Is.True);
+            Assert.That(target.StagedManifestExists, Is.True);
+            Assert.That(target.StagedVersion, Is.EqualTo("42"));
+            Assert.That(target.ExpectedAotMetadataDlls, Is.EqualTo(new[] { "mscorlib.dll" }));
+            Assert.That(target.MissingStagedFiles, Is.EqualTo(new[] { "Game.Main.dll" }));
+            Assert.That(target.UnexpectedStagedFiles, Is.EqualTo(new[] { "Legacy.dll.bytes" }));
+            Assert.That(target.InvalidStagedEntries, Is.EqualTo(new[] { "../Unsafe.dll" }));
+            Assert.That(target.RequiresAttention, Is.True);
+        }
+
+        [Test]
+        public void HotUpdateAttention_DistinguishesMissingProfileFromOptionalPureAotStage()
+        {
+            var missingProfile = new FrameworkModuleAudit.HotUpdateDeploymentEvidence
+            {
+                BuildModuleAvailable = true,
+            };
+            Assert.That(missingProfile.RequiresAttention, Is.True,
+                "Build 菜单会创建默认热更档位；缺少唯一真源不能静默判作纯 AOT。 ");
+
+            var pureAot = new FrameworkModuleAudit.HotUpdateDeploymentEvidence
+            {
+                BuildModuleAvailable = true,
+                ProfileAvailable = true,
+                ProfileCount = 1,
+                InspectionAvailable = true,
+                SettingsAvailable = true,
+                SettingsMatch = true,
+                GenerationRequired = false,
+                StagingRequired = false,
+                StagedManifestExists = false,
+                StagedManifestAvailable = false,
+                StagedManifestMatches = true,
+            };
+            Assert.That(pureAot.RequiresAttention, Is.False,
+                "空 Profile 可以明确选择无 CodePackage 的纯 AOT 档位。 ");
+
+            pureAot.StagedManifestExists = true;
+            pureAot.StagedManifestAvailable = true;
+            pureAot.StagedManifestMatches = false;
+            Assert.That(pureAot.RequiresAttention, Is.True,
+                "纯 AOT 虽不要求中转，但磁盘上已有漂移清单时应提醒，避免误部署旧代码包。 ");
+
+            pureAot.StagedManifestMatches = true;
+            pureAot.ProfileCount = 2;
+            Assert.That(pureAot.RequiresAttention, Is.True,
+                "多个 Profile 会破坏单一真源，即使首项派生证据全绿也必须提醒。 ");
+        }
+
+        [Test]
         public void CurrentProject_ExternalDependenciesAreExplicit_AndDeletionTestsHold()
         {
             var snapshot = FrameworkModuleAudit.Capture();
@@ -228,6 +319,10 @@ namespace Game.Framework.Editor.Tests
                 "物理删除计划必须覆盖不会进入 Player 的 Demo / Editor / Tests asmdef 引用。 ");
             Assert.That(result.HasRetentionWarnings, Is.True,
                 "当前可选 Module 的无条件 link.xml 必须显式显示，不能让“边界健康”掩盖最终保留原因。");
+            Assert.That(result.HotUpdateDeployment.BuildModuleAvailable, Is.True);
+            Assert.That(result.HotUpdateDeployment.ProfileAvailable, Is.True);
+            Assert.That(result.HotUpdateDeployment.InspectionAvailable, Is.True,
+                "通用 Editor 审计应经只读反射接缝读取可删除的 Build Editor Module，不能建立编译期反向依赖。 ");
             Assert.That(result.GlobalPreservations, Is.Not.Empty,
                 "HybridCLR 生成物与第三方 link.xml 也要可追踪，但不能误归罪于 Framework Module。");
             Assert.That(result.GlobalPreservations, Has.Some.Matches<FrameworkModuleAudit.LinkerPreservation>(
@@ -238,9 +333,13 @@ namespace Game.Framework.Editor.Tests
             string report = FrameworkModuleAudit.CreateReport(result);
             Assert.That(report, Does.Not.Contain("⚠ 无法定位程序集文件"),
                 "当前轻量档位或热更清单里存在无法解析的程序集时，字节闭包不能算完整。");
-            Assert.That(report, Does.Not.Contain("✗ "), "报告中的删除测试不得只靠测试代码另算后假绿。");
+            string deletionSection = report.Substring(
+                report.IndexOf("删除检查（真实元数据引用闭包）", StringComparison.Ordinal));
+            Assert.That(deletionSection, Does.Not.Contain("✗ "),
+                "删除检查的文本结论不得只靠测试代码另算后假绿；本地 Generate / 中转证据可在干净 clone 中独立告警。 ");
             Assert.That(report, Does.Contain("Module 当前保留原因"));
             Assert.That(report, Does.Contain("全局与生成的 link.xml 证据"));
+            Assert.That(report, Does.Contain("热更派生证据（只读）"));
             Assert.That(report, Does.Contain("CodePackage"));
         }
 
@@ -264,6 +363,10 @@ namespace Game.Framework.Editor.Tests
                 var moduleProfiles = window.rootVisualElement.Q<Foldout>("module-audit-module-profiles");
                 var globalPreservations = window.rootVisualElement.Q<Foldout>(
                     "module-audit-global-preservations");
+                var hotUpdateEvidence = window.rootVisualElement.Q<VisualElement>(
+                    "module-audit-hot-update-evidence");
+                var hotUpdateMetrics = window.rootVisualElement.Q<VisualElement>(
+                    "module-audit-hot-update-metrics");
                 Assert.That(actions, Is.Not.Null);
                 Assert.That(content, Is.Not.Null);
                 Assert.That(content.horizontalScrollerVisibility, Is.EqualTo(ScrollerVisibility.Hidden));
@@ -280,6 +383,8 @@ namespace Game.Framework.Editor.Tests
                 Assert.That(globalPreservations, Is.Not.Null);
                 Assert.That(globalPreservations.value, Is.False,
                     "全局和生成规则用于追踪，不应抢占新手的首屏结论。 ");
+                Assert.That(hotUpdateEvidence, Is.Not.Null);
+                Assert.That(hotUpdateMetrics, Is.Not.Null);
                 Assert.That(raw.value, Is.False, "程序集明细和原始报告默认折叠，先展示结论与建议。");
                 Assert.That(window.rootVisualElement.Q<TextField>(), Is.Null,
                     "主体不再使用会整片选中、产生横向长行的多行 TextField。");
@@ -293,6 +398,7 @@ namespace Game.Framework.Editor.Tests
                 Assert.That(actions[0].style.flexBasis.keyword, Is.EqualTo(StyleKeyword.Auto));
                 Assert.That(summaryMetrics[0].style.flexGrow.value, Is.EqualTo(0f),
                     "窄窗纵排时使用内容高度，避免 flexBasis:0 把按钮或指标压扁。 ");
+                Assert.That(hotUpdateMetrics.style.flexDirection.value, Is.EqualTo(FlexDirection.Column));
 
                 window.ApplyResponsiveLayoutForTests(900f);
                 Assert.That(actions.style.flexDirection.value, Is.EqualTo(FlexDirection.Row));
@@ -303,6 +409,31 @@ namespace Game.Framework.Editor.Tests
             {
                 UnityEngine.Object.DestroyImmediate(window);
             }
+        }
+
+        private sealed class FakeHotUpdateEvidence
+        {
+            public string[] ProfileAssemblies;
+            public string[] HybridClrSettingsAssemblies;
+            public string[] HybridClrLegacyAssemblies;
+            public bool SettingsAvailable;
+            public bool SettingsMatch;
+            public string SettingsMessage;
+            public bool GenerationRequired;
+            public bool GenerationFresh;
+            public string GenerationMessage;
+            public bool StagingRequired;
+            public bool StagedManifestExists;
+            public bool StagedManifestAvailable;
+            public bool StagedManifestMatches;
+            public string StagedVersion;
+            public string[] StagedAssemblies;
+            public string[] ExpectedAotMetadataDlls;
+            public string[] StagedAotMetadataDlls;
+            public string[] MissingStagedFiles;
+            public string[] UnexpectedStagedFiles;
+            public string[] InvalidStagedEntries;
+            public string StagedMessage;
         }
     }
 }
