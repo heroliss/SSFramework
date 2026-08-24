@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -89,14 +90,20 @@ namespace Game.Framework.Editor.Tests
             Assert.That(toolkit, Does.Not.Contain(FrameworkModuleAudit.UGuiAssemblyName));
             Assert.That(toolkit, Does.Not.Contain(FrameworkModuleAudit.BridgeAssemblyName));
 
-            string report = FrameworkModuleAudit.CreateReport(snapshot);
+            var result = FrameworkModuleAudit.Analyze(snapshot);
+            Assert.That(result.IsHealthy, Is.True);
+            Assert.That(result.CommonProfiles.Select(profile => profile.Key),
+                Is.EqualTo(new[] { "core", "ugui", "toolkit" }));
+            Assert.That(result.Recommendations, Has.Some.Contains("Player BuildReport"));
+
+            string report = FrameworkModuleAudit.CreateReport(result);
             Assert.That(report, Does.Not.Contain("⚠ 无法定位程序集文件"),
                 "当前轻量档位或热更清单里存在无法解析的程序集时，字节闭包不能算完整。");
             Assert.That(report, Does.Not.Contain("✗ "), "报告中的删除测试不得只靠测试代码另算后假绿。");
         }
 
         [Test]
-        public void NarrowWindow_UsesWrappedActionsAndFlexibleReport()
+        public void Window_UsesProgressiveDisclosureAndResponsiveRows()
         {
             var window = ScriptableObject.CreateInstance<FrameworkModuleAuditWindow>();
             try
@@ -105,11 +112,33 @@ namespace Game.Framework.Editor.Tests
                 window.CreateGUI();
 
                 var actions = window.rootVisualElement.Q<VisualElement>("module-audit-actions");
-                var report = window.rootVisualElement.Q<TextField>("module-audit-report");
+                var content = window.rootVisualElement.Q<ScrollView>("module-audit-content");
+                var summary = window.rootVisualElement.Q<VisualElement>("module-audit-summary");
+                var coreProfile = window.rootVisualElement.Q<VisualElement>("module-audit-profile-core");
+                var raw = window.rootVisualElement.Q<Foldout>("module-audit-raw-details");
                 Assert.That(actions, Is.Not.Null);
-                Assert.That(actions.style.flexWrap.value, Is.EqualTo(Wrap.Wrap));
-                Assert.That(report, Is.Not.Null);
-                Assert.That(report.style.flexGrow.value, Is.EqualTo(1f));
+                Assert.That(content, Is.Not.Null);
+                Assert.That(content.horizontalScrollerVisibility, Is.EqualTo(ScrollerVisibility.Hidden));
+                Assert.That(summary, Is.Not.Null);
+                Assert.That(coreProfile, Is.Not.Null);
+                Assert.That(raw, Is.Not.Null);
+                Assert.That(raw.value, Is.False, "程序集明细和原始报告默认折叠，先展示结论与建议。");
+                Assert.That(window.rootVisualElement.Q<TextField>(), Is.Null,
+                    "主体不再使用会整片选中、产生横向长行的多行 TextField。");
+
+                window.ApplyResponsiveLayoutForTests(360f);
+                Assert.That(actions.style.flexDirection.value, Is.EqualTo(FlexDirection.Column));
+                var summaryMetrics = window.rootVisualElement
+                    .Q<VisualElement>("module-audit-summary-metrics");
+                Assert.That(summaryMetrics.style.flexDirection.value,
+                    Is.EqualTo(FlexDirection.Column));
+                Assert.That(actions[0].style.flexBasis.keyword, Is.EqualTo(StyleKeyword.Auto));
+                Assert.That(summaryMetrics[0].style.flexGrow.value, Is.EqualTo(0f),
+                    "窄窗纵排时使用内容高度，避免 flexBasis:0 把按钮或指标压扁。 ");
+
+                window.ApplyResponsiveLayoutForTests(900f);
+                Assert.That(actions.style.flexDirection.value, Is.EqualTo(FlexDirection.Row));
+                Assert.That(actions[0].style.flexGrow.value, Is.EqualTo(1f));
                 Assert.That(window.minSize.x, Is.LessThanOrEqualTo(360f));
             }
             finally

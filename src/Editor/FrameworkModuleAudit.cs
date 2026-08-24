@@ -82,6 +82,59 @@ namespace Game.Framework.Editor
             internal long ExternalBytes;
         }
 
+        /// <summary>记录“DLL 真实引用存在，但 asmdef 没有直接声明”的模块依赖。</summary>
+        internal sealed class DependencyIssue
+        {
+            internal string ModuleName;
+            internal string[] References = Array.Empty<string>();
+        }
+
+        /// <summary>一个常见入口组合及其真实程序集闭包，供窗口、文本报告和测试共同消费。</summary>
+        internal sealed class AuditProfile
+        {
+            internal string Key;
+            internal string Title;
+            internal string Description;
+            internal string[] Roots = Array.Empty<string>();
+            internal Footprint Footprint;
+        }
+
+        /// <summary>用通俗名称解释一条 Module 删除测试及其结果。</summary>
+        internal sealed class DeletionCheck
+        {
+            internal string Name;
+            internal string Explanation;
+            internal bool Passed;
+        }
+
+        /// <summary>
+        /// 一次审计的结构化结果；所有展示层都从这里取数，避免文本报告与窗口结论各算一套。
+        /// </summary>
+        internal sealed class AuditResult
+        {
+            internal AssemblyInfo[] RuntimeModules = Array.Empty<AssemblyInfo>();
+            internal DependencyIssue[] DependencyIssues = Array.Empty<DependencyIssue>();
+            internal AuditProfile[] CommonProfiles = Array.Empty<AuditProfile>();
+            internal AuditProfile FullProfile;
+            internal AuditProfile HotUpdateProfile;
+            internal string HotUpdateNote;
+            internal DeletionCheck[] DeletionChecks = Array.Empty<DeletionCheck>();
+            internal string[] Recommendations = Array.Empty<string>();
+            internal bool AllRuntimeModulesOptIn;
+
+            internal IEnumerable<AuditProfile> AllProfiles => CommonProfiles
+                .Concat(FullProfile != null ? new[] { FullProfile } : Array.Empty<AuditProfile>())
+                .Concat(HotUpdateProfile != null ? new[] { HotUpdateProfile } : Array.Empty<AuditProfile>());
+
+            internal bool HasUnresolvedAssemblies =>
+                AllProfiles.Any(profile => profile.Footprint.UnresolvedAssemblies.Count > 0);
+
+            internal bool IsHealthy => DependencyIssues.Length == 0 &&
+                                       AllRuntimeModulesOptIn &&
+                                       !HasUnresolvedAssemblies &&
+                                       DeletionChecks.All(check => check.Passed);
+        }
+
         internal static Snapshot Capture()
         {
             var playerAssemblies = CompilationPipeline.GetAssemblies(AssembliesType.Player)
@@ -111,7 +164,10 @@ namespace Game.Framework.Editor
             return new Snapshot(infos, referencePaths, hotRoots, hotNote);
         }
 
-        internal static string CreateReport(Snapshot snapshot)
+        /// <summary>
+        /// 把当前编译快照整理成健康结论、常用组合、删除检查和建议，不在展示层重复推导架构语义。
+        /// </summary>
+        internal static AuditResult Analyze(Snapshot snapshot)
         {
             if (snapshot == null) throw new ArgumentNullException(nameof(snapshot));
 
@@ -119,35 +175,124 @@ namespace Game.Framework.Editor
                 .Where(info => info.IsFrameworkRuntime)
                 .OrderBy(info => info.Name, StringComparer.Ordinal)
                 .ToArray();
+            var dependencyIssues = runtimeModules
+                .Select(module => new DependencyIssue
+                {
+                    ModuleName = module.Name,
+                    References = FindUndeclaredExternalReferences(snapshot, module),
+                })
+                .Where(issue => issue.References.Length > 0)
+                .ToArray();
+
+            AuditProfile Profile(string key, string title, string description, IEnumerable<string> roots)
+            {
+                string[] rootArray = roots.Distinct(StringComparer.Ordinal)
+                    .OrderBy(name => name, StringComparer.Ordinal)
+                    .ToArray();
+                return new AuditProfile
+                {
+                    Key = key,
+                    Title = title,
+                    Description = description,
+                    Roots = rootArray,
+                    Footprint = Measure(snapshot, rootArray),
+                };
+            }
+
+            var commonProfiles = new[]
+            {
+                Profile("core", "只用核心", "适合只使用 Context、Command、Model、System 等基础能力。",
+                    new[] { CoreAssemblyName }),
+                Profile("ugui", "核心 + UGUI", "适合使用 UGUI 窗口框架与增量列表绑定。",
+                    new[] { UGuiAssemblyName }),
+                Profile("toolkit", "核心 + UI Toolkit", "适合使用 UI Toolkit 窗口框架与增量列表绑定。",
+                    new[] { ToolkitAssemblyName }),
+            };
+            var fullProfile = Profile(
+                "full", "全部运行时模块", "用于查看能力上限，不代表推荐所有项目全部引入。",
+                runtimeModules.Select(module => module.Name));
+            AuditProfile hotUpdateProfile = snapshot.HotUpdateRoots.Length > 0
+                ? Profile("hot-update", "当前热更配置", "HybridCLR 以程序集为最小热更粒度。",
+                    snapshot.HotUpdateRoots)
+                : null;
+
+            var coreClosure = ComputeReachableAssemblies(snapshot.Assemblies, new[] { CoreAssemblyName });
+            var uguiClosure = ComputeReachableAssemblies(snapshot.Assemblies, new[] { UGuiAssemblyName });
+            var toolkitClosure = ComputeReachableAssemblies(snapshot.Assemblies, new[] { ToolkitAssemblyName });
+            var result = new AuditResult
+            {
+                RuntimeModules = runtimeModules,
+                DependencyIssues = dependencyIssues,
+                CommonProfiles = commonProfiles,
+                FullProfile = fullProfile,
+                HotUpdateProfile = hotUpdateProfile,
+                HotUpdateNote = snapshot.HotUpdateNote,
+                AllRuntimeModulesOptIn = runtimeModules.All(module => !module.AutoReferenced),
+                DeletionChecks = new[]
+                {
+                    new DeletionCheck
+                    {
+                        Name = "只用核心时不带 UI",
+                        Explanation = "小项目可以只保留 MVCS / Context，不被窗口框架反向拖住。",
+                        Passed = !coreClosure.Any(name => name.Equals(SharedUiAssemblyName, StringComparison.Ordinal) ||
+                                                                  name.StartsWith(SharedUiAssemblyName + ".", StringComparison.Ordinal)),
+                    },
+                    new DeletionCheck
+                    {
+                        Name = "UGUI 不带 Toolkit / Bridge",
+                        Explanation = "只选 UGUI 时，不会顺带引入另一套 UI 后端或嵌入桥。",
+                        Passed = !uguiClosure.Contains(ToolkitAssemblyName) &&
+                                 !uguiClosure.Contains(BridgeAssemblyName),
+                    },
+                    new DeletionCheck
+                    {
+                        Name = "Toolkit 不带 UGUI / Bridge",
+                        Explanation = "只选 Toolkit 时，不会顺带引入 UGUI 后端或嵌入桥。",
+                        Passed = !toolkitClosure.Contains(UGuiAssemblyName) &&
+                                 !toolkitClosure.Contains(BridgeAssemblyName),
+                    },
+                },
+            };
+            result.Recommendations = BuildRecommendations(result);
+            return result;
+        }
+
+        internal static string CreateReport(Snapshot snapshot) => CreateReport(Analyze(snapshot));
+
+        internal static string CreateReport(AuditResult result)
+        {
+            if (result == null) throw new ArgumentNullException(nameof(result));
+
             var sb = new StringBuilder(8192);
             sb.AppendLine("Framework Module 裁剪审计");
             sb.AppendLine("────────────────────────────────────────");
-            sb.AppendLine("证据：当前目标平台的 Player 编译图 + 当前已编译 DLL 的真实元数据引用。");
-            sb.AppendLine("口径：下列字节数均为链接 / AOT / 压缩前的原始托管 DLL，不等于最终安装包增量；最终以 Player BuildReport 为准。");
+            sb.AppendLine(result.IsHealthy
+                ? "结论：当前模块边界健康，没有发现会阻碍按需裁剪的问题。"
+                : "结论：发现需要处理或确认的问题，请先看检查结果。 ");
+            sb.AppendLine("说明：这里比较的是编译后的原始 DLL，不是最终包体；真正发布大小仍以目标平台 Player BuildReport 为准。 ");
             sb.AppendLine();
 
-            sb.AppendLine($"运行时 Framework Module：{runtimeModules.Length} 个");
-            foreach (var module in runtimeModules)
+            sb.AppendLine($"运行时 Framework Module：{result.RuntimeModules.Length} 个");
+            foreach (var module in result.RuntimeModules)
             {
                 string auto = module.AutoReferenced ? "⚠ autoReferenced:true" : "autoReferenced:false";
                 sb.AppendLine($"  • {module.Name}  {FormatBytes(module.OutputBytes)}  {auto}");
             }
             sb.AppendLine();
 
-            AppendDependencyVisibility(sb, snapshot, runtimeModules);
-            AppendPreset(sb, snapshot, "轻量 · Core-only", new[] { CoreAssemblyName });
-            AppendPreset(sb, snapshot, "标准 · Core + UGUI", new[] { UGuiAssemblyName });
-            AppendPreset(sb, snapshot, "标准 · Core + UI Toolkit", new[] { ToolkitAssemblyName });
-            AppendPreset(sb, snapshot, "完整 · 全部 Runtime Module", runtimeModules.Select(module => module.Name));
+            AppendDependencyVisibility(sb, result.DependencyIssues);
+            foreach (var profile in result.CommonProfiles)
+                AppendProfile(sb, profile);
+            AppendProfile(sb, result.FullProfile);
 
             sb.AppendLine("当前热更档位");
             sb.AppendLine("────────────────────────────────────────");
-            sb.AppendLine("  " + snapshot.HotUpdateNote);
-            if (snapshot.HotUpdateRoots.Length > 0)
-                AppendFootprint(sb, snapshot, snapshot.HotUpdateRoots, indent: "  ");
+            sb.AppendLine("  " + result.HotUpdateNote);
+            if (result.HotUpdateProfile != null)
+                AppendFootprint(sb, result.HotUpdateProfile, indent: "  ");
             sb.AppendLine();
 
-            AppendDeletionTests(sb, snapshot);
+            AppendDeletionTests(sb, result.DeletionChecks);
             return sb.ToString().TrimEnd();
         }
 
@@ -206,39 +351,37 @@ namespace Game.Framework.Editor
 
         private static void AppendDependencyVisibility(
             StringBuilder sb,
-            Snapshot snapshot,
-            IEnumerable<AssemblyInfo> runtimeModules)
+            IReadOnlyCollection<DependencyIssue> issues)
         {
             sb.AppendLine("依赖可见性");
             sb.AppendLine("────────────────────────────────────────");
-            int issueCount = 0;
-            foreach (var module in runtimeModules)
+            foreach (var issue in issues)
             {
-                var hidden = FindUndeclaredExternalReferences(snapshot, module);
-                if (hidden.Length == 0) continue;
-                issueCount += hidden.Length;
-                sb.AppendLine($"  ⚠ {module.Name} 的真实外部引用未在 asmdef 显式声明：{string.Join(", ", hidden)}");
+                sb.AppendLine($"  ⚠ {issue.ModuleName} 的真实外部引用未在 asmdef 显式声明：" +
+                              string.Join(", ", issue.References));
             }
-            if (issueCount == 0)
+            if (issues.Count == 0)
                 sb.AppendLine("  ✓ 所有 Runtime Module 的真实外部引用都能从 asmdef 直接读出。");
             else
-                sb.AppendLine($"  共 {issueCount} 条隐式引用；这不等于运行时错误，但会削弱删除测试、UPM 依赖声明与 AI 可导航性。");
+                sb.AppendLine($"  共 {issues.Sum(issue => issue.References.Length)} 条隐式引用；" +
+                              "这不等于运行时错误，但会削弱删除测试、UPM 依赖声明与 AI 可导航性。");
             sb.AppendLine();
         }
 
-        private static void AppendPreset(StringBuilder sb, Snapshot snapshot, string title, IEnumerable<string> roots)
+        private static void AppendProfile(StringBuilder sb, AuditProfile profile)
         {
-            sb.AppendLine(title);
+            sb.AppendLine(profile.Title);
             sb.AppendLine("────────────────────────────────────────");
-            AppendFootprint(sb, snapshot, roots, indent: "  ");
+            AppendFootprint(sb, profile, indent: "  ");
             sb.AppendLine();
         }
 
-        private static void AppendFootprint(StringBuilder sb, Snapshot snapshot, IEnumerable<string> roots, string indent)
+        private static void AppendFootprint(StringBuilder sb, AuditProfile profile, string indent)
         {
-            string[] rootArray = roots.Distinct(StringComparer.Ordinal).OrderBy(name => name, StringComparer.Ordinal).ToArray();
-            var footprint = Measure(snapshot, rootArray);
-            sb.AppendLine(indent + "入口：" + (rootArray.Length == 0 ? "（无）" : string.Join(", ", rootArray)));
+            var footprint = profile.Footprint;
+            sb.AppendLine(indent + "适用：" + profile.Description);
+            sb.AppendLine(indent + "入口：" +
+                          (profile.Roots.Length == 0 ? "（无）" : string.Join(", ", profile.Roots)));
             sb.AppendLine(indent + "Framework：" +
                           (footprint.FrameworkAssemblies.Count == 0
                               ? "（无）"
@@ -310,26 +453,58 @@ namespace Game.Framework.Editor
             footprint.ExternalBytes += bytes;
         }
 
-        private static void AppendDeletionTests(StringBuilder sb, Snapshot snapshot)
+        private static void AppendDeletionTests(StringBuilder sb, IReadOnlyCollection<DeletionCheck> checks)
         {
-            sb.AppendLine("删除测试（真实元数据引用闭包）");
+            sb.AppendLine("删除检查（真实元数据引用闭包）");
             sb.AppendLine("────────────────────────────────────────");
-            var core = ComputeReachableAssemblies(snapshot.Assemblies, new[] { CoreAssemblyName });
-            var ugui = ComputeReachableAssemblies(snapshot.Assemblies, new[] { UGuiAssemblyName });
-            var toolkit = ComputeReachableAssemblies(snapshot.Assemblies, new[] { ToolkitAssemblyName });
-
-            AppendDeletionResult(sb, "Core-only 不带 UI",
-                !core.Any(name => name.Equals(SharedUiAssemblyName, StringComparison.Ordinal) ||
-                                  name.StartsWith(SharedUiAssemblyName + ".", StringComparison.Ordinal)));
-            AppendDeletionResult(sb, "UGUI 不带 Toolkit / Bridge",
-                !ugui.Contains(ToolkitAssemblyName) && !ugui.Contains(BridgeAssemblyName));
-            AppendDeletionResult(sb, "Toolkit 不带 UGUI / Bridge",
-                !toolkit.Contains(UGuiAssemblyName) && !toolkit.Contains(BridgeAssemblyName));
+            foreach (var check in checks)
+                AppendDeletionResult(sb, check.Name, check.Passed);
             sb.AppendLine("  注：通过只证明程序集依赖方向成立，不证明最终玩家包已达到体积预算。");
         }
 
         private static void AppendDeletionResult(StringBuilder sb, string name, bool passed)
             => sb.AppendLine($"  {(passed ? "✓" : "✗")} {name}");
+
+        private static string[] BuildRecommendations(AuditResult result)
+        {
+            var recommendations = new List<string>();
+            if (result.DependencyIssues.Length > 0)
+                recommendations.Add("先把隐式外部引用补进对应 asmdef；否则编辑器能编译，不代表模块真的能独立取舍。");
+            if (!result.AllRuntimeModulesOptIn)
+                recommendations.Add("仍有 Runtime Module 开启 autoReferenced。轻量项目会更难看清是谁把它带进来，建议先改成显式引用。");
+            if (result.HasUnresolvedAssemblies)
+                recommendations.Add("有程序集文件无法定位，本次闭包和字节数不完整；先修编译或热更清单，再比较体积。");
+            if (result.DeletionChecks.Any(check => !check.Passed))
+                recommendations.Add("至少一条删除检查失败，说明可选模块发生了反向耦合；先修依赖方向，再讨论包体优化。");
+
+            if (result.IsHealthy)
+            {
+                recommendations.Add("当前边界允许从“只用核心”开始，再按需增加一个 UI 后端；不要为了备用能力把全部模块都放进业务 asmdef 或热更清单。");
+
+                var coreExternal = result.CommonProfiles[0].Footprint.ExternalAssemblies;
+                var uiOnlyLargest = result.CommonProfiles
+                    .Skip(1)
+                    .SelectMany(profile => profile.Footprint.ExternalAssemblies)
+                    .Where(pair => !coreExternal.ContainsKey(pair.Key))
+                    .OrderByDescending(pair => pair.Value)
+                    .ThenBy(pair => pair.Key, StringComparer.Ordinal)
+                    .FirstOrDefault();
+                if (!string.IsNullOrEmpty(uiOnlyLargest.Key))
+                    recommendations.Add($"单 UI 后端组合新增的最大外部 DLL 是 {uiOnlyLargest.Key}（{FormatBytes(uiOnlyLargest.Value)} 原始托管体积）。若目标是 Web / 小游戏，优先用真实构建验证它。 ");
+
+                long collectionBytes = result.CommonProfiles
+                    .Skip(1)
+                    .SelectMany(profile => profile.Footprint.ExternalAssemblies)
+                    .Where(pair => pair.Key.StartsWith("ObservableCollections", StringComparison.Ordinal))
+                    .GroupBy(pair => pair.Key, StringComparer.Ordinal)
+                    .Sum(group => group.First().Value);
+                if (collectionBytes > 0)
+                    recommendations.Add($"列表集合相关 DLL 原始合计约 {FormatBytes(collectionBytes)}。先看目标平台 BuildReport，再决定是否值得把列表绑定单独拆成 Module。 ");
+            }
+
+            recommendations.Add("原始 DLL 大小只用于发现候选；IL2CPP 裁剪、AOT、压缩后的最终差异必须看目标平台 Player BuildReport。 ");
+            return recommendations.ToArray();
+        }
 
         private static bool IsRelevantExternalReference(Snapshot snapshot, string reference)
         {
@@ -530,7 +705,7 @@ namespace Game.Framework.Editor
         private static string FullPath(string path)
             => string.IsNullOrEmpty(path) ? string.Empty : Path.GetFullPath(path);
 
-        private static string FormatBytes(long bytes)
+        internal static string FormatBytes(long bytes)
         {
             if (bytes < 1024) return bytes + " B";
             if (bytes < 1024 * 1024) return (bytes / 1024d).ToString("0.0") + " KiB";
