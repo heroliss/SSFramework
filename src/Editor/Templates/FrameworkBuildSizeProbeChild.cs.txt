@@ -1,0 +1,209 @@
+using System;
+using System.IO;
+using System.Linq;
+using System.Text;
+using UnityEditor;
+using UnityEditor.Build;
+using UnityEditor.Build.Reporting;
+using UnityEditor.SceneManagement;
+using UnityEngine;
+
+/// <summary>
+/// 由主工程复制到 Library 隔离工程的构建入口。它不进入 SSFramework 程序集，也不修改主工程设置。
+/// </summary>
+public static class SSFrameworkBuildProbeChild
+{
+    [Serializable]
+    private sealed class OutputFileRecord
+    {
+        public string Path;
+        public string Role;
+        public long Bytes;
+    }
+
+    [Serializable]
+    private sealed class ProfileRecord
+    {
+        public string Key;
+        public string Title;
+        public string Status;
+        public string Message;
+        public string[] Assemblies = Array.Empty<string>();
+        public string OutputPath;
+        public string ResultPath;
+        public string LogPath;
+        public long BuildReportBytes;
+        public long RawOutputBytes;
+        public long OutputBytes;
+        public double DurationSeconds;
+        public int Errors;
+        public int Warnings;
+        public int ExitCode;
+        public int ChildProcessId;
+        public OutputFileRecord[] LargestFiles = Array.Empty<OutputFileRecord>();
+    }
+
+    public static void Run()
+    {
+        string profile = GetArgument("-ssProbeProfile");
+        string outputDirectory = GetArgument("-ssProbeOutput");
+        string resultPath = GetArgument("-ssProbeResult");
+        var record = new ProfileRecord
+        {
+            Key = profile,
+            Title = profile,
+            Status = "失败",
+            OutputPath = outputDirectory,
+            ResultPath = resultPath,
+        };
+
+        try
+        {
+            ConfigurePlayer();
+            Directory.CreateDirectory(outputDirectory);
+            string scenePath = "Assets/SSFrameworkBuildProbeScene.unity";
+            var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+            if (!EditorSceneManager.SaveScene(scene, scenePath))
+                throw new InvalidOperationException("无法保存隔离探针空场景。");
+
+            BuildTarget target = EditorUserBuildSettings.activeBuildTarget;
+            string location = GetBuildLocation(outputDirectory, target);
+            BuildOptions options = ParseBool(GetArgument("-ssProbeDevelopment"))
+                ? BuildOptions.Development
+                : BuildOptions.None;
+            BuildReport report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
+            {
+                scenes = new[] { scenePath },
+                locationPathName = location,
+                target = target,
+                options = options,
+            });
+
+            BuildSummary summary = report.summary;
+            record.Status = summary.result == BuildResult.Succeeded ? "成功" : "失败";
+            record.Message = summary.result == BuildResult.Succeeded
+                ? "隔离空工程构建完成；数字为完整保留所选 Module 的体积上界。"
+                : "BuildPipeline 返回：" + summary.result;
+            record.BuildReportBytes = checked((long)summary.totalSize);
+            record.RawOutputBytes = DirectoryBytes(outputDirectory, shippingOnly: false);
+            record.OutputBytes = DirectoryBytes(outputDirectory, shippingOnly: true);
+            record.DurationSeconds = summary.totalTime.TotalSeconds;
+            record.Errors = summary.totalErrors;
+            record.Warnings = summary.totalWarnings;
+            record.LargestFiles = report.GetFiles()
+                .Where(file => IsShippingPath(outputDirectory, file.path))
+                .OrderByDescending(file => file.size)
+                .Take(10)
+                .Select(file => new OutputFileRecord
+                {
+                    Path = MakeRelative(outputDirectory, file.path),
+                    Role = string.IsNullOrWhiteSpace(file.role) ? "data" : file.role,
+                    Bytes = checked((long)file.size),
+                }).ToArray();
+            WriteResult(resultPath, record);
+            if (summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        }
+        catch (Exception ex)
+        {
+            record.Status = "失败";
+            record.Message = ex.ToString();
+            record.Errors = Math.Max(record.Errors, 1);
+            WriteResult(resultPath, record);
+            Debug.LogException(ex);
+            EditorApplication.Exit(1);
+        }
+    }
+
+    private static void ConfigurePlayer()
+    {
+        BuildTarget target = EditorUserBuildSettings.activeBuildTarget;
+        BuildTargetGroup group = BuildPipeline.GetBuildTargetGroup(target);
+        NamedBuildTarget namedTarget = NamedBuildTarget.FromBuildTargetGroup(group);
+        if (Enum.TryParse(GetArgument("-ssProbeBackend"), out ScriptingImplementation backend))
+            PlayerSettings.SetScriptingBackend(namedTarget, backend);
+        if (Enum.TryParse(GetArgument("-ssProbeStripping"), out ManagedStrippingLevel stripping))
+            PlayerSettings.SetManagedStrippingLevel(namedTarget, stripping);
+        PlayerSettings.productName = "SSFramework Build Size Probe";
+        PlayerSettings.companyName = "SSFramework";
+    }
+
+    private static string GetBuildLocation(string outputDirectory, BuildTarget target)
+    {
+        switch (target)
+        {
+            case BuildTarget.StandaloneWindows:
+            case BuildTarget.StandaloneWindows64:
+                return Path.Combine(outputDirectory, "SSFrameworkProbe.exe");
+            case BuildTarget.StandaloneLinux64:
+                return Path.Combine(outputDirectory, "SSFrameworkProbe.x86_64");
+            case BuildTarget.StandaloneOSX:
+                return Path.Combine(outputDirectory, "SSFrameworkProbe.app");
+            case BuildTarget.Android:
+                return Path.Combine(outputDirectory, EditorUserBuildSettings.buildAppBundle
+                    ? "SSFrameworkProbe.aab"
+                    : "SSFrameworkProbe.apk");
+            case BuildTarget.WebGL:
+            case BuildTarget.iOS:
+                return outputDirectory;
+            default:
+                throw new NotSupportedException("构建体积探针暂不支持目标：" + target);
+        }
+    }
+
+    private static string GetArgument(string name)
+    {
+        string[] args = Environment.GetCommandLineArgs();
+        for (int i = 0; i + 1 < args.Length; i++)
+            if (args[i].Equals(name, StringComparison.Ordinal))
+                return args[i + 1];
+        return string.Empty;
+    }
+
+    private static bool ParseBool(string value) =>
+        bool.TryParse(value, out bool parsed) && parsed;
+
+    private static long DirectoryBytes(string directory, bool shippingOnly) =>
+        Directory.Exists(directory)
+            ? Directory.GetFiles(directory, "*", SearchOption.AllDirectories)
+                .Where(path => !shippingOnly || IsShippingPath(directory, path))
+                .Sum(path => new FileInfo(path).Length)
+            : 0L;
+
+    private static bool IsShippingPath(string root, string path)
+    {
+        string normalized = MakeRelative(root, path).Replace('\\', '/');
+        string[] segments = normalized.Split('/');
+        if (segments.Any(segment =>
+                segment.IndexOf("BackUpThisFolder_ButDontShipItWithYourGame",
+                    StringComparison.OrdinalIgnoreCase) >= 0 ||
+                segment.IndexOf("DoNotShip", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                segment.EndsWith(".dSYM", StringComparison.OrdinalIgnoreCase)))
+            return false;
+        return !normalized.EndsWith(".pdb", StringComparison.OrdinalIgnoreCase) &&
+               !normalized.EndsWith(".mdb", StringComparison.OrdinalIgnoreCase) &&
+               !normalized.EndsWith(".dbg", StringComparison.OrdinalIgnoreCase) &&
+               !normalized.EndsWith(".symbols.zip", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string MakeRelative(string root, string path)
+    {
+        try
+        {
+            var rootUri = new Uri(Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar) +
+                                  Path.DirectorySeparatorChar);
+            var pathUri = new Uri(Path.GetFullPath(path));
+            return Uri.UnescapeDataString(rootUri.MakeRelativeUri(pathUri).ToString()).Replace('/', '\\');
+        }
+        catch
+        {
+            return path;
+        }
+    }
+
+    private static void WriteResult(string path, ProfileRecord record)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return;
+        Directory.CreateDirectory(Path.GetDirectoryName(path) ?? ".");
+        File.WriteAllText(path, JsonUtility.ToJson(record, true), new UTF8Encoding(false));
+    }
+}
