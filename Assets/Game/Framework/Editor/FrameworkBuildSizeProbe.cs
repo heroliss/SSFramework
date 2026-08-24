@@ -55,6 +55,7 @@ namespace Game.Framework.Editor
             public string[] RootAssemblies = Array.Empty<string>();
             public string[] Assemblies = Array.Empty<string>();
             public string[] SourceDirectories = Array.Empty<string>();
+            public bool IsAdvanced;
         }
 
         [Serializable]
@@ -168,10 +169,14 @@ namespace Game.Framework.Editor
         internal static ProfilePlan[] CreatePlans()
         {
             var result = FrameworkModuleAudit.Analyze(FrameworkModuleAudit.Capture());
-            var profiles = result.CommonProfiles.Concat(new[] { result.FullProfile });
+            var profiles = result.CommonProfiles
+                .Select(profile => (profile, advanced: false))
+                .Concat(new[] { (profile: result.FullProfile, advanced: false) })
+                .Concat(result.ModuleProfiles.Select(profile => (profile, advanced: true)));
             var runtimeByName = result.RuntimeModules.ToDictionary(module => module.Name, StringComparer.Ordinal);
-            return profiles.Select(profile =>
+            return profiles.Select(item =>
             {
+                FrameworkModuleAudit.AuditProfile profile = item.profile;
                 string[] assemblies = profile.Footprint.FrameworkAssemblies
                     .Where(runtimeByName.ContainsKey)
                     .OrderBy(name => name, StringComparer.Ordinal)
@@ -188,6 +193,7 @@ namespace Game.Framework.Editor
                         .Where(path => !string.IsNullOrWhiteSpace(path))
                         .Distinct(StringComparer.OrdinalIgnoreCase)
                         .ToArray(),
+                    IsAdvanced = item.advanced,
                 };
             }).ToArray();
         }

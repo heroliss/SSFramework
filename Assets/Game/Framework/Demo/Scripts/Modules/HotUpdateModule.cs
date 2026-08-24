@@ -31,13 +31,13 @@ namespace Game.Framework.Demo.Modules
 
             // ── 心智模型 ──
             host.AddSectionTitle("心智模型：热更范围是部署决策，不是代码属性");
-            host.AddNote("哪些程序集热更，由热更配置（FrameworkHotUpdateProfile）里的列表决定——谁进列表谁热更，按版本可调。所以目录与程序集按领域命名（Game.Main / Game.X 模块 / Game.DLC.Y），永远不出现「HotUpdate」这种按部署属性起的名字；框架本体默认也在列表里（可热修框架 bug），性能敏感项目把它移出列表退回 AOT，业务代码零改动。");
+            host.AddNote("哪些程序集热更，由 FrameworkHotUpdateProfile 的列表决定，所以目录与程序集按领域命名（Game.Main / Game.X / Game.DLC.Y），不按「HotUpdate」这种部署属性命名。调整 AOT / 热更归属通常不改业务 API，但必须让列表对引用关系闭合，不能任意逐个取消。");
             host.AddTable(
                 new[] { "层", "程序集", "热更？" },
                 new[] { "引导", "`Game.Framework.Boot`（薄壳：下载/补元数据/加载/反射入口）", "永不（鸡生蛋）" },
                 new[] { "框架", "`Game.Framework`（内核）、`Game.Framework.Asset.Yoo`（YooAsset 适配）", "默认热更，可退 AOT" },
                 new[] { "业务", "`Game.Main` 及未来模块 / DLC", "热更（主战场）" });
-            host.AddSubNote("热更程序集一律 `autoReferenced:false`（防止散落脚本隐式引用构成「AOT→热更」违规）；铁律「AOT 不能引用热更」由构建期校验器机器执行，不靠人脑记。");
+            host.AddSubNote("热更程序集一律 `autoReferenced:false`（防止散落脚本隐式引用构成「AOT→热更」违规）；这只关闭隐式引用，不会让 asmdef 停止编译。若 Core 热更，仍参与 Player 编译且引用 Core 的可选 Module 也必须热更，除非同时删除 / 卸载它；铁律由构建期校验器机器执行。");
 
             // ── 引导流程 ──
             host.AddSectionTitle("真机引导流程（Boot 场景是唯一随包场景）");

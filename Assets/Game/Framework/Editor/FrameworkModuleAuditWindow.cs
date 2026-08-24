@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using UnityEditor;
 using UnityEngine;
@@ -145,10 +146,12 @@ namespace Game.Framework.Editor
                 var result = FrameworkModuleAudit.Analyze(FrameworkModuleAudit.Capture());
                 _rawReport = FrameworkModuleAudit.CreateReport(result);
                 BuildResult(result);
-                _status.text = result.IsHealthy
-                    ? "检测完成：当前模块边界健康。大小数字用于寻找候选，不代表最终包体。"
-                    : "检测完成：发现需要确认的问题。请先看顶部结论和检查结果。";
-                _status.messageType = result.IsHealthy ? HelpBoxMessageType.Info : HelpBoxMessageType.Warning;
+                _status.text = result.RequiresAttention
+                    ? "检测完成：依赖方向与最终保留原因已分开显示；请先看顶部结论和 Module 状态。"
+                    : "检测完成：当前模块边界健康，且没有发现无条件 Module 保留规则。大小数字不代表最终包体。";
+                _status.messageType = result.RequiresAttention
+                    ? HelpBoxMessageType.Warning
+                    : HelpBoxMessageType.Info;
             }
             catch (Exception ex)
             {
@@ -174,6 +177,43 @@ namespace Game.Framework.Editor
                 recommendations.Add(CreateBullet(recommendation));
             _content.Add(recommendations);
 
+            AddSectionTitle("当前 Module · 为什么可能被带入");
+            var model = CreateCard("module-audit-retention-model");
+            model.Add(CreateInfoLabel(
+                "不要把五件事混成“自动裁剪”：① 源码/Package 已安装；② asmdef 参与 Player 编译；③ 业务或 Module 真实引用；④ link.xml / 场景 / 反射成为 UnityLinker 根；⑤ HybridCLR 按 Profile 同步、Generate 后部署完整 DLL。最终 Player 还要经过链接、IL2CPP 与压缩；下面只显示当前可证明的输入。"));
+            _content.Add(model);
+
+            FrameworkModuleAudit.ModuleStatus[] attentionStatuses = result.ModuleStatuses
+                .Where(status => status.HasUnconditionalPreservation || status.HasHotUpdateViolation)
+                .ToArray();
+            if (attentionStatuses.Length > 0)
+            {
+                var attention = new Foldout
+                {
+                    name = "module-audit-attention-statuses",
+                    text = $"优先理解的 Module（{attentionStatuses.Length} 个）",
+                    value = true,
+                    style = { marginTop = 4, marginBottom = 4 },
+                };
+                foreach (var status in attentionStatuses)
+                    attention.Add(CreateModuleStatusCard(status));
+                _content.Add(attention);
+            }
+
+            var moduleStatuses = new Foldout
+            {
+                name = "module-audit-module-statuses",
+                text = $"查看全部 {result.ModuleStatuses.Length} 个 Runtime Module",
+                value = false,
+                style = { marginTop = 4, marginBottom = 4 },
+            };
+            foreach (var status in result.ModuleStatuses)
+                moduleStatuses.Add(CreateModuleStatusCard(status));
+            _content.Add(moduleStatuses);
+
+            if (result.GlobalPreservations.Length > 0)
+                _content.Add(CreateGlobalPreservationsFoldout(result.GlobalPreservations));
+
             AddSectionTitle("常用组合");
             foreach (var profile in result.CommonProfiles)
                 _content.Add(CreateProfileCard(profile));
@@ -181,7 +221,7 @@ namespace Game.Framework.Editor
             var advanced = new Foldout
             {
                 name = "module-audit-advanced-profiles",
-                text = "完整模块与当前热更配置（进阶）",
+                text = "完整模块、任意入口与热更 Profile（进阶）",
                 value = false,
                 style = { marginTop = 8, marginBottom = 4 },
             };
@@ -190,6 +230,18 @@ namespace Game.Framework.Editor
                 advanced.Add(CreateProfileCard(result.HotUpdateProfile));
             else
                 advanced.Add(CreateInfoLabel(result.HotUpdateNote));
+            var arbitraryModules = new Foldout
+            {
+                name = "module-audit-module-profiles",
+                text = "任意 Module 作为入口（自动计算依赖闭包）",
+                value = false,
+                style = { marginTop = 5 },
+            };
+            arbitraryModules.Add(CreateInfoLabel(
+                "这不是全局启用开关，而是 what-if：假设业务只从某个 Module 进入，会自动带上哪些 Framework 与外部依赖。"));
+            foreach (var profile in result.ModuleProfiles)
+                arbitraryModules.Add(CreateProfileCard(profile));
+            advanced.Add(arbitraryModules);
             _content.Add(advanced);
 
             AddSectionTitle("边界检查");
@@ -219,17 +271,25 @@ namespace Game.Framework.Editor
         {
             var card = CreateCard("module-audit-summary");
             card.style.borderLeftWidth = 4;
-            card.style.borderLeftColor = result.IsHealthy ? HealthyColor : WarningColor;
 
-            var title = Wrap(new Label(result.IsHealthy ? "✓ 当前模块边界健康" : "⚠ 当前模块边界需要关注"));
+            bool clear = result.IsHealthy && !result.HasRetentionWarnings;
+            card.style.borderLeftColor = clear ? HealthyColor : WarningColor;
+            string titleText = clear
+                ? "✓ 当前模块边界与保留规则健康"
+                : result.IsHealthy
+                    ? "△ 依赖方向健康，但存在额外保留规则"
+                    : "⚠ 当前模块边界需要关注";
+            var title = Wrap(new Label(titleText));
             title.style.fontSize = 17;
             title.style.unityFontStyleAndWeight = FontStyle.Bold;
-            title.style.color = result.IsHealthy ? HealthyTextColor : WarningTextColor;
+            title.style.color = clear ? HealthyTextColor : WarningTextColor;
             card.Add(title);
 
-            var explanation = Wrap(new Label(result.IsHealthy
-                ? "核心、UGUI、Toolkit 可以按需选择；没有发现隐式外部引用或反向拖入。"
-                : "至少有一项依赖可见性、程序集定位或删除检查未通过。下面会给出处理顺序。"));
+            var explanation = Wrap(new Label(clear
+                ? "Framework Module 由消费方显式选择；没有发现隐式引用、反向拖入或无条件 Module link.xml 根。"
+                : result.IsHealthy
+                    ? "asmdef 删除测试通过，但 link.xml 或热更清单仍可能让“业务没调用”不等于“最终包里没有”。"
+                    : "至少有一项依赖可见性、程序集定位或删除检查未通过。下面会给出处理顺序。"));
             explanation.style.marginTop = 3;
             explanation.style.color = MutedTextColor;
             card.Add(explanation);
@@ -240,8 +300,104 @@ namespace Game.Framework.Editor
             metrics.Add(CreateMetric("运行时模块", result.RuntimeModules.Length.ToString(), "都应由消费方显式选择"));
             metrics.Add(CreateMetric("隐式外部引用", implicitCount.ToString(), implicitCount == 0 ? "没有隐藏代价" : "需要补进 asmdef"));
             metrics.Add(CreateMetric("删除检查", $"{passedChecks}/{result.DeletionChecks.Length}", "核心与两套 UI 后端"));
+            metrics.Add(CreateMetric("无条件保留", result.UnconditionalModulePreservations.Length.ToString(),
+                result.HasRetentionWarnings ? "需要理解为何存在" : "未发现 Module 级根"));
             card.Add(metrics);
             _content.Add(card);
+        }
+
+        private VisualElement CreateModuleStatusCard(FrameworkModuleAudit.ModuleStatus status)
+        {
+            var card = CreateCard("module-audit-status-" + status.Module.Name.Replace('.', '-').ToLowerInvariant());
+            var title = Wrap(new Label(status.Module.Name));
+            title.style.fontSize = 14;
+            title.style.unityFontStyleAndWeight = FontStyle.Bold;
+            card.Add(title);
+
+            var metrics = CreateResponsiveRow("module-audit-status-metrics-" + status.Module.Name);
+            metrics.Add(CreateMetric("Player 实际消费", status.DirectConsumers.Length.ToString(),
+                status.DirectConsumers.Length == 0 ? "未发现元数据引用" : "参与运行时保留判断"));
+            metrics.Add(CreateMetric("删除阻塞", status.RemovalBlockers.Length.ToString(),
+                status.RemovalBlockers.Length == 0 ? "没有 asmdef 声明引用" : "含 Demo / Editor / Tests"));
+            metrics.Add(CreateMetric("Profile 热更", status.IsHotUpdateRoot ? "已列入" : "未列入",
+                status.HasHotUpdateViolation
+                    ? "⚠ 当前 AOT → 热更非法"
+                    : status.IsHotUpdateRoot
+                    ? status.HotUpdateDependencies.Length > 0
+                        ? "受热更依赖传播约束"
+                        : "完整 DLL 进入 CodePackage"
+                    : "不由热更清单保留"));
+            int unconditional = status.TargetingPreservations
+                .Concat(status.OwnedPreservations)
+                .Where(rule => rule.IsUnconditional)
+                .GroupBy(rule => rule.Path + "\0" + rule.AssemblyName, StringComparer.OrdinalIgnoreCase)
+                .Count();
+            metrics.Add(CreateMetric("link.xml 根", unconditional.ToString(),
+                unconditional > 0 ? "可能阻止自动裁剪" : "未发现无条件规则"));
+            card.Add(metrics);
+
+            var details = new Foldout
+            {
+                text = "为什么可能进入构建 · 移除前做什么",
+                value = status.HasHotUpdateViolation,
+                style = { marginTop = 5 },
+            };
+            details.Add(CreateDetailHeading("当前可证明的保留输入"));
+            foreach (string reason in status.RetentionReasons)
+                details.Add(CreateBullet(reason));
+            details.Add(CreateDetailHeading("安全移除顺序"));
+            foreach (string step in status.RemovalSteps)
+                details.Add(CreateBullet(step));
+            card.Add(details);
+
+            var actions = CreateResponsiveRow("module-audit-status-actions-" + status.Module.Name);
+            actions.Add(CreateActionButton("定位 asmdef", () => OpenAsset(status.Module.AsmdefPath),
+                "打开这个 Module 的程序集定义；引用列表是编译期真相。"));
+            if (status.OwnedPreservations.Length > 0)
+            {
+                string linkPath = status.OwnedPreservations[0].Path;
+                actions.Add(CreateActionButton("定位 link.xml", () => OpenAsset(linkPath),
+                    "查看本 Module 声明的 UnityLinker 保留规则。"));
+            }
+            if (status.IsHotUpdateRoot)
+                actions.Add(CreateActionButton("定位热更配置", OpenHotUpdateProfile,
+                    "在单一真源中调整该程序集是否作为热更 DLL 部署。"));
+            actions.Add(CreateActionButton("复制移除清单", () => CopyRemovalChecklist(status),
+                "复制直接消费者、保留原因和安全移除顺序。"));
+            card.Add(actions);
+            return card;
+        }
+
+        private VisualElement CreateGlobalPreservationsFoldout(
+            IReadOnlyCollection<FrameworkModuleAudit.LinkerPreservation> preservations)
+        {
+            var foldout = new Foldout
+            {
+                name = "module-audit-global-preservations",
+                text = $"全局与生成的 link.xml（{preservations.Count} 条，仅供追踪）",
+                value = false,
+                style = { marginTop = 4, marginBottom = 4 },
+            };
+            foldout.Add(CreateInfoLabel(
+                "这些规则不归属于某个 Framework Module，因此不直接算作模块边界失败。HybridCLRGenerate 是生成物，应修改来源配置后重新 Generate；第三方规则应先确认升级与反射边界，不能在这里一键删除。"));
+
+            foreach (var group in preservations.GroupBy(rule => rule.Path, StringComparer.OrdinalIgnoreCase))
+            {
+                var card = CreateCard("module-audit-global-link-" + Math.Abs(group.Key.GetHashCode()));
+                string origin = group.First().IsGenerated ? "HybridCLR 生成物" : "项目 / 第三方规则";
+                var title = Wrap(new Label(origin + " · " + group.Key));
+                title.style.unityFontStyleAndWeight = FontStyle.Bold;
+                card.Add(title);
+                foreach (var rule in group)
+                {
+                    string condition = rule.IsUnconditional ? "无条件根" : "仅被引用时生效";
+                    card.Add(CreateBullet(rule.AssemblyName + " · " + rule.Scope + " · " + condition));
+                }
+                card.Add(CreateActionButton("定位 link.xml", () => OpenAsset(group.Key),
+                    "打开这份规则；生成文件只用于查看，不应直接修改。"));
+                foldout.Add(card);
+            }
+            return foldout;
         }
 
         private VisualElement CreateProfileCard(FrameworkModuleAudit.AuditProfile profile)
@@ -308,6 +464,20 @@ namespace Game.Framework.Editor
                         issue.ModuleName + " → " + string.Join("、", issue.References)))));
             foreach (var check in result.DeletionChecks)
                 card.Add(CreateCheckRow(check.Passed, check.Name, check.Explanation));
+            card.Add(CreateCheckRow(!result.HasRetentionWarnings,
+                "可选 Module 没有无条件 link.xml 根",
+                result.HasRetentionWarnings
+                    ? string.Join("；", result.UnconditionalModulePreservations.Select(rule =>
+                        rule.OwnerModuleName + " → " + rule.AssemblyName + "（" + rule.Scope + "）"))
+                    : "没有发现会独立成为 UnityLinker 根的 Module 内保留规则。"));
+            card.Add(CreateCheckRow(!result.HasHotUpdateViolations,
+                "热更 Profile 对引用关系闭合",
+                result.HasHotUpdateViolations
+                    ? string.Join("；", result.ModuleStatuses
+                        .Where(status => status.HasHotUpdateViolation)
+                        .Select(status => status.Module.Name + "（AOT）→ " +
+                                          string.Join("、", status.HotUpdateDependencies) + "（热更）"))
+                    : "没有发现 AOT Framework Module 直接引用热更程序集。"));
             card.Add(CreateCheckRow(!result.HasUnresolvedAssemblies,
                 "报告没有缺失的程序集文件",
                 result.HasUnresolvedAssemblies
@@ -542,10 +712,52 @@ namespace Game.Framework.Editor
             }
         }
 
+        private void CopyRemovalChecklist(FrameworkModuleAudit.ModuleStatus status)
+        {
+            string text = status.Module.Name + " 移除准备\n" +
+                          "Player 实际消费者：" +
+                          (status.DirectConsumers.Length == 0
+                              ? "（未发现）"
+                              : string.Join("、", status.DirectConsumers)) + "\n\n" +
+                          "asmdef 删除阻塞者：" +
+                          (status.RemovalBlockers.Length == 0
+                              ? "（未发现）"
+                              : string.Join("、", status.RemovalBlockers)) + "\n\n" +
+                          "当前保留原因：\n- " + string.Join("\n- ", status.RetentionReasons) + "\n\n" +
+                          "安全顺序：\n- " + string.Join("\n- ", status.RemovalSteps);
+            EditorGUIUtility.systemCopyBuffer = text;
+            if (_status == null) return;
+            _status.text = status.Module.Name + " 的移除准备清单已复制。";
+            _status.messageType = HelpBoxMessageType.Info;
+        }
+
+        private static void OpenHotUpdateProfile()
+        {
+            if (!EditorApplication.ExecuteMenuItem("SSFramework/热更构建/热更配置 (HotUpdate Profile)"))
+                Debug.LogWarning("[ModuleAudit] 未安装热更构建 Module，无法定位 FrameworkHotUpdateProfile。");
+        }
+
         private static void OpenAsset(string path)
         {
-            var asset = AssetDatabase.LoadAssetAtPath<TextAsset>(path);
-            if (asset == null) return;
+            if (string.IsNullOrWhiteSpace(path)) return;
+            string normalized = path.Replace('\\', '/');
+            if (!normalized.StartsWith("Assets/", StringComparison.OrdinalIgnoreCase) &&
+                !normalized.StartsWith("Packages/", StringComparison.OrdinalIgnoreCase))
+            {
+                string fullPath = Path.GetFullPath(path);
+                if (File.Exists(fullPath))
+                    EditorUtility.OpenWithDefaultApp(fullPath);
+                else
+                    Debug.LogWarning("[ModuleAudit] 找不到文档或资产：" + fullPath);
+                return;
+            }
+
+            var asset = AssetDatabase.LoadMainAssetAtPath(path);
+            if (asset == null)
+            {
+                Debug.LogWarning("[ModuleAudit] AssetDatabase 无法定位：" + path);
+                return;
+            }
             AssetDatabase.OpenAsset(asset);
             EditorGUIUtility.PingObject(asset);
         }

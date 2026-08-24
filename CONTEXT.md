@@ -20,7 +20,7 @@ Demo 教学内容与自动化之间的运行时 Seam。`DemoModuleHost` 在真�
 
 ## Framework Module Audit
 
-编辑器侧的 Module 删除测试与体积证据入口。它以当前目标平台的 Player 编译图确定候选 Module，再读已编译 DLL 的真实元数据引用，避免把 `auto-reference` 带来的“编译可见”误当成“运行时依赖”；报告 Core-only / 单 UI 后端 / 完整 / 当前热更档位的原始托管闭包。原始 DLL 字节只用于组合对比，最终包体仍以目标平台 Player BuildReport 为准。
+编辑器侧的 Module Catalog、删除计划与体积证据入口。它以当前目标平台的 Player 编译图确定候选 Module，再读 asmdef、已编译 DLL 的真实元数据引用、FrameworkHotUpdateProfile 和全部 `Assets/**/link.xml`，把“源码存在、参与编译、Player 真实消费、全 asmdef 删除阻塞、linker 根、热更完整 DLL 部署、最终 Player 证据”保持正交；报告常用组合与任意 Module 入口闭包，并解释受热更依赖传播约束的安全移除事务。它不提供含糊的 `SetEnabled(bool)`，也不接管 UPM 安装/版本管理。原始 DLL 字节只用于组合对比，最终包体仍以目标平台 Player BuildReport 为准。
 
 ## Framework Build Size Probe
 

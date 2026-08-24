@@ -19,6 +19,7 @@ namespace Game.Framework.Editor
         private readonly List<VisualElement> _profileCards = new();
         private VisualElement _actions;
         private VisualElement _profileGrid;
+        private VisualElement _advancedProfileGrid;
         private VisualElement _results;
         private HelpBox _status;
         private Button _startButton;
@@ -79,6 +80,27 @@ namespace Game.Framework.Editor
                 },
             };
             scroll.Add(_profileGrid);
+
+            var advancedProfiles = new Foldout
+            {
+                name = "build-size-probe-advanced-profiles",
+                text = "任意 Module 入口（按需选择，默认不构建）",
+                value = false,
+                style = { marginTop = 5, marginBottom = 4 },
+            };
+            advancedProfiles.Add(Wrap(new Label(
+                "每项以一个 Runtime Module 为入口并自动带上真实依赖闭包；适合验证 Config、Fonts、Proto、Bridge 等任意 Module，不是全局启用开关。")));
+            _advancedProfileGrid = new VisualElement
+            {
+                name = "build-size-probe-module-profiles",
+                style =
+                {
+                    flexDirection = FlexDirection.Row,
+                    flexWrap = UnityEngine.UIElements.Wrap.Wrap,
+                },
+            };
+            advancedProfiles.Add(_advancedProfileGrid);
+            scroll.Add(advancedProfiles);
 
             try
             {
@@ -169,7 +191,7 @@ namespace Game.Framework.Editor
 
             var toggle = new Toggle(plan.Title)
             {
-                value = plan.Key != "full",
+                value = !plan.IsAdvanced && plan.Key != "full",
                 name = "build-size-probe-toggle-" + plan.Key,
                 tooltip = plan.Description,
             };
@@ -183,7 +205,7 @@ namespace Game.Framework.Editor
 
             _profileToggles.Add(plan.Key, toggle);
             _profileCards.Add(card);
-            _profileGrid.Add(card);
+            (plan.IsAdvanced ? _advancedProfileGrid : _profileGrid).Add(card);
         }
 
         private void StartSelected()
@@ -296,6 +318,8 @@ namespace Game.Framework.Editor
             }
             if (_profileGrid != null)
                 _profileGrid.style.flexDirection = compact ? FlexDirection.Column : FlexDirection.Row;
+            if (_advancedProfileGrid != null)
+                _advancedProfileGrid.style.flexDirection = compact ? FlexDirection.Column : FlexDirection.Row;
             foreach (var card in _profileCards)
             {
                 card.style.flexBasis = compact ? StyleKeyword.Auto : 280;

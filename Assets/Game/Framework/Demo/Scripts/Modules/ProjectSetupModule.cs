@@ -50,21 +50,38 @@ namespace Game.Framework.Demo.Modules
 #endif
             host.AddSubNote("一个取舍细节：demo 的根 Context 用的是场景级 `MonoGameContextBase`、**刻意不用** `MonoGlobalContext`——demo 只是「别人项目里的一个客座场景」，不该把 `GameContext.Main` 设成自己、抢走宿主项目的全局根。你的项目**主场景**才是 Global 的位置；被嵌进别人工程的场景（demo / 插件样例 / 子游戏）用场景级 Context。");
 
-            // ── 程序集接线 ──
-            host.AddSectionTitle("程序集接线（asmdef）");
-            host.AddNote("框架程序集 `Game.Framework` 是 `autoReferenced:false`（热更边界要求）——业务 asmdef 必须**显式**把它加进 references 才能用；业务代码直接用到 `R3`（如 `RP<T>`）或 `UniTask` 类型时，把它们也加上。要让业务程序集可热更，再把它登记进热更列表即可（部署决策、代码零改动，见「热更 · HybridCLR」章）。");
-            host.AddSubNote("小体积 / Web 项目从 Core-only 开始，只按需加 UI Core 与一个后端；`autoReferenced:false` 保住依赖方向，但最终包体仍受 DLL 真实引用、IL2CPP 裁剪和热更列表影响。先用模块裁剪审计找候选，再用隔离构建体积探针真正删除未选目录并读取当前平台 Player BuildReport；探针完整保留所选程序集，所以是可比较的体积上界，不是具体游戏的精确增量。");
+            // ── 程序集接线与模块选择 ──
+            host.AddSectionTitle("程序集接线：显式引用不等于自动瘦身");
+            host.AddNote("框架程序集 `Game.Framework` 是 `autoReferenced:false`——业务 asmdef 必须**显式**把它加进 references 才能用；业务代码直接使用 `R3`（如 `RP<T>`）或 `UniTask` 类型时，也显式引用对应程序集。这样能看清依赖方向，但不能单凭 references 判断最终包体。");
+            host.AddTable(
+                new[] { "状态", "回答什么", "不要误读成" },
+                new[] { "源码 / Package 存在", "目录、导入器、asmdef 已安装", "已经被业务使用" },
+                new[] { "参与 Player 编译", "当前平台会产出 DLL", "最终 Player 一定保留" },
+                new[] { "DLL 真实引用", "Framework / 项目谁直接消费它", "能看见字符串反射或场景根" },
+                new[] { "linker / 热更根", "link.xml 是否保留；Profile 是否部署完整 DLL", "已经完成同步和 Generate" },
+                new[] { "目标平台 Build", "IL2CPP、引擎模块、压缩后的结果", "能从 Windows 外推到 WebGL" });
+            host.AddSubNote("一个关键例外：当前可选 Runtime Module 都引用 Core。若 Core 热更，只要某个 Module 仍参与 Player 编译，它就不能被单独留在 AOT；否则会形成 `AOT → 热更` 引用，校验器会拒绝。",
+                new CodeRef("Assets/Game/Framework/Build/Editor/HotUpdateAssemblyGraph.cs", "class HotUpdateAssemblyGraph", "热更传播约束 · AOT 不引用热更"));
+
+            // ── 裁剪工作流 ──
+            host.AddSectionTitle("小体积 / Web：先查原因，再做结构裁剪");
+            host.AddNote("先用模块裁剪审计分开查看 Player 真实消费者与全 asmdef 删除阻塞者（含 Demo / Editor / Tests），再看热更传播和 `link.xml` 根；它还能把任意 Module 当入口做 what-if。然后用隔离构建探针物理排除未选目录，读取当前目标平台 Player BuildReport 的可比较体积上界。");
+            host.AddStep("①", "从 Core-only 起步，只按需加入 UI Core 与一个后端；Bridge、Fonts、Yoo、Proto 等由真实需求驱动，不为‘也许会用’提前接入。");
+            host.AddStep("②", "准备移除时先迁移审计列出的直接消费者；若受热更传播约束，把**退出 Player 编译图**与**清理热更 Profile**作为同一次代码变更，不要先单独取消并同步。");
+            host.AddStep("③", "让 Module 自有 `link.xml` 随目录消失；若只是改成条件保留，先验证反射入口，再做 IL2CPP 回归。随后同步热更设置、重新 Generate / 构建代码包。");
+            host.AddStep("④", "最后跑 Module Audit、Unity 测试和目标平台真实构建。Console 安静只证明没显式报错，不证明 Module 已从发布物消失。");
+            host.AddConcept("和 Unity Package Manager 的分工", "asmdef 管编译依赖，UnityLinker 管成员裁剪，HybridCLR Profile 管热更部署，UPM 管 package 安装与版本。当前工具只给证据和移除清单，不自动删目录或改 manifest；稳定的粗粒度边界以后再抽成独立 UPM package。");
             host.AddSubNote("Module 的职责、依赖方向与删除测试集中记录在 `docs/framework-module-map.md`；新增程序集时先证明它有独立变化原因，而不是按文件数量机械拆分。");
 #if UNITY_EDITOR
-            host.AddActionRow("打开模块裁剪审计（Core / UGUI / Toolkit / 热更档位）",
+            host.AddActionRow("打开模块裁剪审计（逐 Module 保留原因 / 任意入口）",
                 () => RunMenu(ModuleAuditMenu),
                 new CodeRef("Assets/Game/Framework/Editor/FrameworkModuleAudit.cs", "internal static class FrameworkModuleAudit", "Framework Module Audit · 真实引用闭包"));
-            host.AddActionRow("打开真实构建体积证据（隔离工程 / Player BuildReport）",
+            host.AddActionRow("打开真实构建体积证据（隔离删除 / 任意 Module）",
                 () => RunMenu(BuildSizeProbeMenu),
                 new CodeRef("Assets/Game/Framework/Editor/FrameworkBuildSizeProbe.cs", "internal static class FrameworkBuildSizeProbe", "Framework Build Size Probe · 隔离删除构建"));
 #endif
 
-            host.AddTip("速记：主场景根 = MonoGlobalContext 子类（自动 Main / 跨场景 / 查重）；功能层 = 挂子树或 InstallBindings；View = 挂进子树、只发 Command；客座场景用 MonoGameContextBase。完整代码 guide §3、项目结构 §26。");
+            host.AddTip("速记：主场景根 = MonoGlobalContext 子类；功能层 = 挂子树或 InstallBindings；View = 挂进子树、只发 Command。模块裁剪要分清五种状态，完整工作流见 guide §26 / ADR-0039。");
         }
 
 #if UNITY_EDITOR
