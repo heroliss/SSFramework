@@ -85,6 +85,15 @@
 }
 
 /* 标题 / 简介 / 正文统一限宽：宽屏下不让一行文字铺满全屏（长行难扫读），左对齐贴导航。 */
+.demo-content-progress {
+    font-size: 10px;
+    -unity-font-style: bold;
+    color: rgb(105, 145, 205);
+    letter-spacing: 0.6px;
+    margin-bottom: 5px;
+    max-width: 960px;
+}
+
 .demo-content-title {
     font-size: 22px;
     -unity-font-style: bold;
@@ -104,6 +113,53 @@
 .demo-content-body {
     flex-grow: 1;
     max-width: 960px;
+}
+
+/* 章节底部的线性学习导航：入门/核心提示顺读，能力/进阶保留自由挑选。 */
+.demo-chapter-navigation {
+    max-width: 960px;
+    flex-direction: row;
+    align-items: center;
+    margin-top: 26px;
+    padding-top: 14px;
+    padding-bottom: 8px;
+    border-top-width: 1px;
+    border-top-color: rgb(44, 47, 55);
+}
+
+.demo-chapter-navigation-button {
+    min-width: 150px;
+    max-width: 280px;
+    min-height: 32px;
+    padding: 5px 12px;
+    white-space: normal;
+    background-color: rgb(38, 41, 49);
+    color: rgb(150, 178, 230);
+    border-width: 1px;
+    border-color: rgb(55, 60, 72);
+    border-radius: 6px;
+    font-size: 11px;
+    transition-duration: 0.08s;
+}
+
+.demo-chapter-navigation-button:hover {
+    background-color: rgb(36, 48, 70);
+    color: rgb(120, 178, 255);
+    border-color: rgb(96, 165, 250);
+}
+
+.demo-chapter-navigation-button:disabled {
+    opacity: 0.38;
+}
+
+.demo-chapter-navigation-hint {
+    flex-grow: 1;
+    flex-shrink: 1;
+    padding: 0 12px;
+    -unity-text-align: middle-center;
+    white-space: normal;
+    color: rgb(120, 126, 138);
+    font-size: 10px;
 }
 
 /* ---- 模块内容元素 ---- */

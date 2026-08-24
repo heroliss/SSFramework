@@ -22,7 +22,7 @@ namespace Game.Framework.Demo.Modules
         public override int Order => 40;
         public override string Summary =>
             "全局播放编排：音乐单通道（PlayMusic 切换自动交叉淡变）+ 池化音效（PlaySfx 播完自动回收、" +
-            "循环音效 handle 进 Bag 自动停）+ 分组音量实时生效。不替代挂在对象上的 AudioSource 组件。ADR-0022。";
+            "循环音效 handle 进 Bag 自动停）+ 分组音量实时生效。不替代挂在对象上的 AudioSource 组件，设计见 ADR-0022。";
 
         // demo 不带音频资产：程序生成正弦波 clip（真实项目的 clip 经资源系统 Bag.Load<AudioClip>(location) 加载）。
         private AudioClip _musicA;

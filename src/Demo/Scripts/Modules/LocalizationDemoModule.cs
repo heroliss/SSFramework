@@ -1,3 +1,4 @@
+using System.Threading;
 using Cysharp.Threading.Tasks;
 using DemoCfg;
 using Game.Framework.Audio;
@@ -34,14 +35,13 @@ namespace Game.Framework.Demo.Modules
         private const string L10NDataDir = "Assets/Game/Framework/Demo/Configs~/Datas";
 
         /// <summary>
-        /// 注册路径：文本源要吃配置表服务（另一个 Utility）——用 <c>RegisterFactory</c> 让容器解决依赖顺序：
-        /// 首次解析（打开本章）时，场景里的配置服务早已注册完成。
-        /// 工厂产物不被容器 Dispose（LocalizationUtility.Dispose 只完结 Locale 订阅，可接受）；
+        /// 注册路径：文本源要吃配置表服务（另一个 Utility）——用 <c>RegisterOwnedFactory</c> 让容器解决依赖顺序：
+        /// 首次解析（打开本章）时，场景里的配置服务早已注册完成；LocalizationUtility 仍随根 Context 释放。
         /// 不依赖其他服务的源（如字典源）直接 RegisterOwned 即可（见 LocalizationTests）。
         /// </summary>
         public override void InstallBindings(ContainerBuilder builder)
         {
-            builder.RegisterFactory(
+            builder.RegisterOwnedFactory(
                 c => new LocalizationUtility(
                     new LubanTextSource((IConfigUtility<Tables>)c.Resolve(typeof(IConfigUtility<Tables>))),
                     initialLocale: Zh, fallbackLocale: Zh),
@@ -81,13 +81,13 @@ namespace Game.Framework.Demo.Modules
 
             // ── 文本源：Luban 表 adapter ──
             host.AddSectionTitle("文本源：Luban 表 adapter（最常见用法的实物）");
-            host.AddNote("本章注册的源就是 **`LubanTextSource`——~10 行包 `TbL10N` 表**（Excel 一行一 key、一列一语言，加语言 = 加一列，表本身就是翻译工作流）。它要吃配置表服务，所以用 `RegisterFactory` 注册：容器在首次解析时替你解决「配置服务先注册、本地化后构造」的依赖顺序，无需手工排序。",
+            host.AddNote("本章注册的源就是 **`LubanTextSource`——~10 行包 `TbL10N` 表**（Excel 一行一 key、一列一语言，加语言 = 加一列，表本身就是翻译工作流）。它要吃配置表服务，所以用 `RegisterOwnedFactory` 注册：容器在首次解析时替你解决「配置服务先注册、本地化后构造」的依赖顺序，并在根 Context 结束时 Dispose 本地化服务。",
                 CodeRef.Here("private sealed class LubanTextSource", "adapter 全文（~10 行）"));
             var fromTableLabel = host.AddValueDisplay();
             Bag.BindLocalizedText(fromTableLabel, "l10n/from-table");
             host.AddActionRow("打开 l10n.xlsx 所在目录（构建期源，~ 目录不导入）", () =>
                 UnityEditor.EditorUtility.RevealInFinder($"{L10NDataDir}/l10n.xlsx"),
-                CodeRef.Here("builder.RegisterFactory(", "本章的注册代码（工厂解依赖顺序）"));
+                CodeRef.Here("builder.RegisterOwnedFactory(", "本章的注册代码（工厂解依赖顺序 + 生命周期）"));
             host.AddSubNote("改表后菜单「SSFramework/配置表构建/生成全部」重新生成即可生效。配置就绪前查询返回裸 key（可见的「加载中」）；小体量 / 测试用内置 `DictionaryLocalizedTextSource`，不用配表。");
 
             // ── 当前语言与切换 ──
@@ -142,7 +142,7 @@ namespace Game.Framework.Demo.Modules
             var bannerBag = Bag.CreateChild();
             Bag.Subscribe(loc.Locale, l =>
             {
-                // 换语言换图 = 释放旧句柄 + 按新 locale 重载（子 Bag 重建是资源章 §17 的既定写法）。
+                // 换语言换图 = 释放旧句柄 + 按新 locale 重载（子 Bag 重建见用户手册「AssetReference」章）。
                 bannerBag.Dispose();
                 bannerBag = Bag.CreateChild();
                 LoadBanner(bannerBag, banner, l).Forget();
@@ -154,7 +154,7 @@ namespace Game.Framework.Demo.Modules
             host.AddSectionTitle("音频多语言：同一后缀约定，播放时按当前语言取");
             var voiceCaption = host.AddValueDisplay();
             Bag.Bind(loc.Locale.Select(l => loc.Get("l10n/voice-caption", l)), s => voiceCaption.text = s);
-            host.AddActionRow("播放当前语言提示音（中文上行双音 / 英文下行双音）", () => PlayVoice(loc).Forget(),
+            host.AddAsyncActionRow("播放当前语言提示音（中文上行双音 / 英文下行双音）", ct => PlayVoice(loc, ct),
                 CodeRef.Here("Bag.Load<AudioClip>($\"l10n-voice_", "按语言取音频"));
             host.AddSubNote("语音 / 配音类资源播放是**瞬时动作**，不需要「换语言重载」——播放时按 `Locale.CurrentValue` 拼 location 取当前语言的 clip 即可（`Bag.Load<AudioClip>` + `IAudioUtility.PlaySfx` 组合，见「音频」章）。");
 
@@ -165,7 +165,7 @@ namespace Game.Framework.Demo.Modules
             host.AddConcept("场景静态文本收集", "本框架 UI 全代码驱动（窗口 = View 类），文本入口天然收敛在 BindLocalizedText，没有「散落场景里的 Text 组件」问题。");
             host.AddConcept("字体切换", "不在本接口——由「字体 · 多语言字体链」章的 `MonoLocaleFonts` 承接（订阅 `Locale` 自动切换 fallback 链，ADR-0025），本模块只出信号。");
 
-            host.AddTip("速记：文本源 = ~10 行表 adapter（吃别的服务就 RegisterFactory）；UI 全用 Bag.BindLocalizedText(label, key)；图片 = 后缀约定 + 子 Bag 重载；音频 = 播放时按 CurrentValue 取；设置页 = SetLocale + 存档回灌。深度见 framework-guide 本地化章 / ADR-0024。");
+            host.AddTip("速记：文本源 = ~10 行表 adapter（吃别的服务且服务需随 Context 释放就 RegisterOwnedFactory）；UI 全用 Bag.BindLocalizedText(label, key)；图片 = 后缀约定 + 子 Bag 重载；音频 = 播放时按 CurrentValue 取；设置页 = SetLocale + 存档回灌。深度见 framework-guide 本地化章 / ADR-0024 / ADR-0035。");
         }
 
         private static async UniTaskVoid LoadBanner(DisposableBag bag, Image banner, string locale)
@@ -175,9 +175,9 @@ namespace Game.Framework.Demo.Modules
                 banner.sprite = sprite;
         }
 
-        private async UniTaskVoid PlayVoice(ILocalizationUtility loc)
+        private async UniTask PlayVoice(ILocalizationUtility loc, CancellationToken ct)
         {
-            var clip = await Bag.Load<AudioClip>($"l10n-voice_{loc.Locale.CurrentValue}");
+            var clip = await Bag.Load<AudioClip>($"l10n-voice_{loc.Locale.CurrentValue}", ct);
             if (clip != null)
                 this.GetUtility<IAudioUtility>().PlaySfx(clip);
         }

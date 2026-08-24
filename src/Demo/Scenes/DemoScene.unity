@@ -303,7 +303,7 @@ MonoBehaviour:
   _contentPrefab: {fileID: 2682999428440735969, guid: a60f550060deab64f92e872c7c6a9346, type: 3}
   _isolationLayer: UGuiEmbed
   _refreshMode: 0
-  _maxTextureSize: 2048
+  _maxTextureSize: 1024
   _interactive: 0
 --- !u!1 &444800680
 GameObject:
@@ -1394,7 +1394,7 @@ MonoBehaviour:
   _contentPrefab: {fileID: 3279309747085333737, guid: 8bf7efaf01dd58b4c81ae0210d0fc382, type: 3}
   _isolationLayer: UGuiEmbed
   _refreshMode: 0
-  _maxTextureSize: 2048
+  _maxTextureSize: 1024
   _interactive: 1
 --- !u!1 &1819273406
 GameObject:

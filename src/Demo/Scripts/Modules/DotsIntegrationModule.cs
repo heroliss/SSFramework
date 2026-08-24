@@ -20,8 +20,8 @@ namespace Game.Framework.Demo.Modules
         public override string Category => "进阶";
         public override int Order => 40; // 最深一章：建立在「热更(20)」「资源底层(10)」的接缝/AOT 认知之上
         public override string Summary =>
-            "想在框架里用 DOTS？框架不为 DOTS 加任何模块——把它藏在零依赖纯 C# 接缝后（ports & adapters），" +
-            "System 层每帧 Tick、World 自建不进 player loop、ECS 程序集永不进热更（AOT 边界）。同「资源加载」把 YooAsset 藏在 IAssetProvider 后是同一招。";
+            "框架不直接依赖 DOTS，而是让纯 C# 接口隔离 ECS 适配器；System 负责 Tick，ECS 程序集留在 AOT。" +
+            "它与 IAssetProvider 隔离 YooAsset 使用的是同一种接缝设计。";
 
         // 框架自身的接缝先例 / 驱动点 / AOT 边界执行处——本章可点击跳转全部落在这些框架文件上（不跳 Outpost）。
         private static readonly CodeRef SeamPrecedent = new(

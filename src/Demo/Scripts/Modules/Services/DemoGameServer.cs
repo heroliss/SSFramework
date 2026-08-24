@@ -7,6 +7,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Game.Framework.Logging;
 using Game.Framework.Utility;
 
 namespace Game.Framework.Demo.Modules.Services
@@ -49,6 +50,7 @@ namespace Game.Framework.Demo.Modules.Services
         private readonly CancellationTokenSource _cts = new();
         private readonly List<TcpClient> _wsClients = new(); // 活跃 WS 连接（lock 保护）：Stop 时主动关闭，让客户端立刻收到断开
         private volatile bool _running;
+        private bool _disposed;
 
         public string HttpBaseUrl { get; }
         public string WsUrl { get; }
@@ -56,26 +58,49 @@ namespace Game.Framework.Demo.Modules.Services
 
         public DemoGameServer()
         {
-            int httpPort = FindFreeHttpPort(out _http); // HttpListener 要试着 Start 才知道端口能不能用
-            HttpBaseUrl = $"http://127.0.0.1:{httpPort}";
+            HttpListener http = null;
+            TcpListener wsListener = null;
+            try
+            {
+                int httpPort = FindFreeHttpPort(out http); // HttpListener 要试着 Start 才知道端口能不能用
 
-            _wsListener = new TcpListener(IPAddress.Loopback, 0); // 端口 0 = 让 OS 分配空闲端口
-            _wsListener.Start();
-            int wsPort = ((IPEndPoint)_wsListener.LocalEndpoint).Port;
-            WsUrl = $"ws://127.0.0.1:{wsPort}/";
+                wsListener = new TcpListener(IPAddress.Loopback, 0); // 端口 0 = 让 OS 分配空闲端口
+                wsListener.Start();
+                int wsPort = ((IPEndPoint)wsListener.LocalEndpoint).Port;
 
-            _running = true;
-            _ = HttpAcceptLoop();
-            _ = WsAcceptLoop();
+                // 两个监听器都成功后才提交字段并发布 Running，调用方不会看到半启动对象。
+                _http = http;
+                _wsListener = wsListener;
+                HttpBaseUrl = $"http://127.0.0.1:{httpPort}";
+                WsUrl = $"ws://127.0.0.1:{wsPort}/";
+                _running = true;
+                _ = HttpAcceptLoop();
+                _ = WsAcceptLoop();
+            }
+            catch
+            {
+                // 构造函数未返回时无人能调用 Dispose；按获取逆序回滚，且不能让清理异常覆盖启动根因。
+                try { wsListener?.Stop(); } catch { }
+                try { http?.Close(); } catch { }
+                try { _cts.Cancel(); } catch { }
+                try { _cts.Dispose(); } catch { }
+                throw;
+            }
         }
 
         public void Stop()
         {
-            if (!_running) return;
+            bool wasRunning = _running;
             _running = false;
-            _cts.Cancel();
-            try { if (_http.IsListening) _http.Stop(); } catch { /* 已停 */ }
-            try { _wsListener.Stop(); } catch { /* 已停 */ }
+            if (wasRunning)
+            {
+                try { _cts.Cancel(); }
+                catch (Exception e) { Log.Error("Cancellation callback threw while stopping the demo server; listeners will still be closed.", e, "DemoServer"); }
+            }
+            try { if (_http.IsListening) _http.Stop(); }
+            catch (Exception e) { Log.Error("HTTP listener threw while stopping; WebSocket cleanup will continue.", e, "DemoServer"); }
+            try { _wsListener.Stop(); }
+            catch (Exception e) { Log.Error("WebSocket listener threw while stopping; active clients will still be closed.", e, "DemoServer"); }
 
             // 停监听只挡新连接；已建立的 WS 连接的读循环阻塞在 ReadAsync 上（Mono 的 NetworkStream 不响应 ct），
             // 主动关 socket 才能让它退出——客户端侧立刻收到意外断开（WebSocketClosedEvent ByUser:false），也是演示的一部分。
@@ -89,15 +114,18 @@ namespace Game.Framework.Demo.Modules.Services
 
         public void Dispose()
         {
+            if (_disposed) return;
+            _disposed = true;
             Stop();
             try { _http.Close(); } catch { }
-            _cts.Dispose();
+            try { _cts.Dispose(); } catch { }
         }
 
         // ── HTTP ────────────────────────────────────────────────────────────
 
         private static int FindFreeHttpPort(out HttpListener listener)
         {
+            Exception lastError = null;
             for (int port = 18400; port < 18460; port++)
             {
                 var candidate = new HttpListener();
@@ -108,12 +136,26 @@ namespace Game.Framework.Demo.Modules.Services
                     listener = candidate;
                     return port;
                 }
-                catch (HttpListenerException)
+                catch (HttpListenerException e)
                 {
-                    ((IDisposable)candidate).Dispose(); // 端口被占，换下一个
+                    lastError = e;
+                    candidate.Close(); // Windows/部分 Mono 运行时以 HttpListenerException 报端口冲突
+                }
+                catch (SocketException e) when (e.SocketErrorCode == SocketError.AddressAlreadyInUse)
+                {
+                    lastError = e;
+                    candidate.Close(); // Unity Mono 可能直接透出 SocketException；同样应尝试下一端口
+                }
+                catch
+                {
+                    candidate.Close();
+                    throw;
                 }
             }
-            throw new InvalidOperationException("18400-18459 无可用端口，无法启动 demo HTTP 服务器。");
+            listener = null;
+            throw new InvalidOperationException(
+                "18400-18459 无可用端口，无法启动 demo HTTP 服务器。请检查残留 Unity/服务进程或调整端口范围。",
+                lastError);
         }
 
         private async Task HttpAcceptLoop()

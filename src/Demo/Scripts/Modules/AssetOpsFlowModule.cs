@@ -30,17 +30,17 @@ namespace Game.Framework.Demo.Modules
         // 重试靠「重建」而不是复用：下载器一次性、失败后再调只会重抛；已下成功的分片已进缓存会被跳过（断点续传）。
         private const int DownloadAttempts = 3;
 
-        private bool _flowRunning; // 防重入：流程进行中相关按钮禁用
+        // 启动更新与“修复资源”会操作同一批包和缓存。闸门跟模块实例而非某次 Build 走，
+        // 这样 UIDocument 重建后，旧 Host 的取消尚在收尾时，新 UI 不会立刻启动第二条资源运营流程。
+        private readonly DemoOperationGate _operationGate = new();
 
         public override void Build(DemoModuleHost host)
         {
             var asset = this.GetUtility<IAssetUtility>();
             var settingsModel = UnityEngine.Object.FindFirstObjectByType<AssetSystemConfigModel>();
 
-            // 流程的取消令牌随模块生命周期走：切走本章（Teardown → Bag.Dispose）时取消进行中的流程，
-            // 真实项目里这个令牌来自启动器 View 的销毁 / Context——样板方法只管透传。
-            var flowCts = new CancellationTokenSource();
-            Bag.Add(Disposable.Create(() => { flowCts.Cancel(); flowCts.Dispose(); }));
+            // 异步按钮收到 DemoModuleHost 的章节生命周期令牌：切走本章 / UIDocument 重建时取消进行中的流程。
+            // 真实项目里同一令牌通常来自启动器 View 或 Context——样板方法只管逐层透传。
 
             // 本次流程要处理的包：demo 用配置里登记的全部包。
             var packages = new List<string>();
@@ -59,7 +59,7 @@ namespace Game.Framework.Demo.Modules
             host.AddSubNote("推论：同一次 Play 会话里已 `Ready` 的包再跑流程，检查更新一步是幂等空操作（拿不到新版本）——要看「版本切换」生效，须发新版本后**重进 Play**。");
 
             // 各包当前版本：GetPackageVersion 是设置页 / 客服排查「你是什么资源版本」的那个 API。
-            var versionLabel = host.AddValueDisplay("", CodeRef.Here("asset.GetPackageVersion", "读包版本"));
+            var versionLabel = host.AddValueDisplay("", CodeRef.Here("var v = asset.GetPackageVersion(pkg)", "读包版本"));
             versionLabel.style.whiteSpace = WhiteSpace.Normal;
 #if UNITY_EDITOR
             if (settingsModel != null)
@@ -92,7 +92,7 @@ namespace Game.Framework.Demo.Modules
             host.AddStep("③", "本地 CDN 服务（菜单「3. 启动本地 CDN 服务」）只是静态文件服务器，不用重启——下一个来拉 `.version` 的客户端自然读到新值。");
             host.AddStep("④", "重进 Play：客户端 `Initialize` 拉到新版本号 → 加载新版本清单 → 与本地缓存比对出缺口，进入下方客户端流程。");
             host.AddNote("「版本切换」没有任何魔法：CDN 上 `<包>.version` 的内容变了而已。bundle 文件名带哈希、新旧版本**共存**在 CDN 上，所以旧客户端继续用旧清单不受影响、可以灰度/回滚（把 `.version` 改回旧值就是回滚）；清理 CDN 上过老的版本由运维策略决定（本地构建器默认保留最近几个版本）。",
-                new CodeRef("Assets/Game/Framework/Build/Editor/FrameworkAssetBuilder.cs", "CleanupOldVersions", "旧版本清理策略"));
+                new CodeRef("Assets/Game/Framework/Build/Editor/FrameworkAssetBuilder.cs", "private static void CleanupOldVersions(", "旧版本清理策略"));
 #if UNITY_EDITOR
             host.AddActionRow("打开本地 CDN 部署目录（看 <包>.version 文件）", () =>
                 UnityEditor.EditorUtility.RevealInFinder(AssetBuildLayout.DeployRoot),
@@ -124,33 +124,24 @@ namespace Game.Framework.Demo.Modules
                 logLabel.text = string.Join("\n", logLines);
             }
 
-            Button runBtn = null;
-            runBtn = host.AddActionRow("▶ 运行启动更新流程（检查 → 下载 → 回收旧缓存）", async () =>
+            host.AddAsyncActionRow("▶ 运行启动更新流程（检查 → 下载 → 回收旧缓存）", async ct =>
             {
-                if (_flowRunning) return;
                 if (packages.Count == 0) { AppendLog("没有可处理的包（场景缺 AssetSystemConfigModel）。"); return; }
-                _flowRunning = true;
-                runBtn.SetEnabled(false);
-                logLines.Clear();
-                progressBar.value = 0f;
-                progressBar.title = string.Empty;
-                try
+                if (!_operationGate.TryEnter(out var lease)) { AppendLog("上一项资源操作仍在取消 / 收尾，请稍候。"); return; }
+                using (lease)
                 {
+                    logLines.Clear();
+                    progressBar.value = 0f;
+                    progressBar.title = string.Empty;
                     bool ok = await RunUpdateFlow(asset, packages, AppendLog, r =>
                     {
                         progressBar.value = r.Progress;
                         progressBar.title = $"{r.Progress:P0}　{r.CurrentSizeMB}/{r.TotalSizeMB} MB";
-                    }, flowCts.Token);
+                    }, ct);
                     AppendLog(ok
                         ? "★ 全部包已最新——启动器放行，进游戏。"
                         : "★ 有包未就绪——强更语义下挡在启动器，提示玩家「检查网络后重试」（重试就是再跑一遍本流程）。");
                     RefreshVersions();
-                }
-                catch (OperationCanceledException) { AppendLog("流程被取消（模块切走 / 令牌触发）。"); }
-                finally
-                {
-                    _flowRunning = false;
-                    runBtn.SetEnabled(true);
                 }
             }, CodeRef.Here("RunUpdateFlow(asset, packages", "按钮就是在跑活样板"));
 
@@ -160,20 +151,28 @@ namespace Game.Framework.Demo.Modules
             // ── 修复客户端：清空缓存全量重下 ──
             host.AddSectionTitle("修复客户端：清空缓存 → 重跑流程（= 设置页「修复资源」按钮）");
             var repairLabel = host.AddValueDisplay();
-            host.AddActionRow("清空全部包的下载缓存（ClearCache All）", async () =>
+            host.AddAsyncActionRow("清空全部包的下载缓存（ClearCache All）", async ct =>
             {
-                if (_flowRunning) { repairLabel.text = "流程进行中，稍候。"; return; }
-                int cleared = 0;
-                foreach (var pkg in packages)
+                if (!_operationGate.TryEnter(out var lease)) { repairLabel.text = "另一项资源操作进行中，稍候。"; return; }
+                using (lease)
                 {
-                    // ClearCache 要求包已就绪；未就绪的包本来也没有可清的缓存，跳过即可。
-                    if (asset.GetInitState(pkg).CurrentValue != AssetInitState.Ready) continue;
-                    await asset.ClearCache(pkg, AssetCacheClearMode.All);
-                    cleared++;
+                    int cleared = 0;
+                    foreach (var pkg in packages)
+                    {
+                        // ClearCache 要求包已就绪；未就绪的包本来也没有可清的缓存，跳过即可。
+                        if (asset.GetInitState(pkg).CurrentValue != AssetInitState.Ready) continue;
+                        ct.ThrowIfCancellationRequested();
+                        // 清理一旦交给 provider 就不能由页面取消安全中断；保持业务 gate 到物理操作结束，
+                        // 再检查章节令牌，避免新流程与仍在收尾的清理重叠，也不向旧 UI 发布结果。
+                        await asset.ClearCache(pkg, AssetCacheClearMode.All, CancellationToken.None);
+                        ct.ThrowIfCancellationRequested();
+                        cleared++;
+                    }
+                    repairLabel.text = $"已清空 {cleared} 个就绪包的下载缓存 ✓（Host 下 IsNeedDownload 全部变真）。现在点上方「运行启动更新流程」= 全量重下——这就是「修复资源 / 新装机首下」的完整路径。";
                 }
-                repairLabel.text = $"已清空 {cleared} 个就绪包的下载缓存 ✓（Host 下 IsNeedDownload 全部变真）。现在点上方「运行启动更新流程」= 全量重下——这就是「修复资源 / 新装机首下」的完整路径。";
-            }, CodeRef.Here("asset.ClearCache(pkg, AssetCacheClearMode.All)", "全清缓存"));
+            }, CodeRef.Here("asset.ClearCache(pkg, AssetCacheClearMode.All, CancellationToken.None)", "全清缓存"));
             host.AddNote("资源损坏（玩家手机存储出错 / 下载残缺）的标准恢复路径就是这两步：`ClearCache(All)` 删掉本地全部已下载 bundle → 重跑启动更新流程全量重下。设置页的「修复客户端」按钮背后就是它。`EditorSimulate` / `Offline` 下没有下载缓存，全清是 no-op。");
+            host.AddSubNote("两条流程会改同一批包与缓存，必须共享一把互斥闸门；而且闸门要比一次 UI Build 活得久，避免界面重建后旧取消尚未收尾、新流程已经开跑。真实启动器通常把它建模成显式流程状态并统一置灰操作区。");
 
 #if UNITY_EDITOR
             // ── 失败路径（仅 Editor）：断网下跑流程 ──
@@ -213,7 +212,7 @@ namespace Game.Framework.Demo.Modules
             foreach (var pkg in packages)
             {
                 // ① 检查更新：Initialize 拉最新版本号 + 清单（Host 联网；已 Ready 则幂等直返——版本只在启动时拉一次）。
-                //    它本身不抛异常，结果回写 InitState，读状态判成败。
+                //    普通失败不抛、结果回写 InitState；调用者取消保持 OCE，物理初始化继续由 utility owner 持有。
                 log($"[{pkg}] ① 检查更新（拉版本 / 清单）…");
                 await asset.Initialize(pkg, ct);
                 if (asset.GetInitState(pkg).CurrentValue != AssetInitState.Ready)
@@ -244,6 +243,7 @@ namespace Game.Framework.Demo.Modules
                     try
                     {
                         await dl.Download(ct); // 单文件失败下载器内部自动重试；整体最终失败才抛到这里
+                        ct.ThrowIfCancellationRequested();
                         log($"[{pkg}] ③ 下载完成 ✓");
                         upToDate = true;
                     }
@@ -262,7 +262,10 @@ namespace Game.Framework.Demo.Modules
 
                 // ④ 回收旧版本：清掉「不被当前清单引用」的历史 bundle（发过几次版本后才有内容，无残留时是 no-op）。
                 //    放在下载成功之后：确认新版本可用了才丢旧的。
-                await asset.ClearCache(pkg, AssetCacheClearMode.Unused, ct);
+                // 维护调用的 waiter token 取消后会提前返回，但物理清理仍继续；启动器状态机必须等到真正结束才放行下一流程。
+                ct.ThrowIfCancellationRequested();
+                await asset.ClearCache(pkg, AssetCacheClearMode.Unused, CancellationToken.None);
+                ct.ThrowIfCancellationRequested();
                 log($"[{pkg}] ④ 旧版本缓存已回收 ✓");
             }
             return allOk;

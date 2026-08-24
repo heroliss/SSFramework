@@ -49,7 +49,7 @@ namespace Game.Framework.Demo.Modules
             host.AddNote("点 +1 → `IncrementCommand` 在 `ICommandContext` 里 `GetModel<CounterModel>()` 自增 `Count`；标签那侧只订阅、不参与写。",
                 CodeRef.Here("class CounterModel", "CounterModel"));
             host.AddTip("View 角色没有 GetModel 权限（编译期就挡），只能经 Command 读写 Model——这正是「单向数据流」被框架强制的地方。");
-            host.AddNote("Command 直接改 Model 是最简形态，逻辑简单够用；逻辑一多就抽到 System、Command 退化成只表达意图——别把 Command→Model 直连当成终态，见「System · 逻辑归位」。");
+            host.AddNote("Command 直接改 Model 是完整的最简形态，不是等待重构的过渡代码；当规则出现校验、多步协调或复用需求时，再抽到 System，见「System · 逻辑归位」。");
 
             // 第一次出现 RP / ReadOnlyReactiveProperty，顺手交代清楚，后续章节不再赘述。
             host.AddSectionTitle("概念说明：响应式属性");
@@ -62,6 +62,12 @@ namespace Game.Framework.Demo.Modules
             host.AddConcept("ReadOnlyReactiveProperty<T>",
                 "`RP<T>` 的只读视图：只能订阅、读当前值，不能写。查询 Command 把它返回给 View——"
                 + "View 看得到、改不了，写只能走 Command；订阅时 R3 会立即推一次当前值（所以一订阅就显示）。");
+
+            host.AddSectionTitle("从最小闭环往哪走");
+            host.AddConcept("简单原子写入", "继续留在 `Command → Model`，像自增、重置这类一步完成的操作无需额外 System。");
+            host.AddConcept("可复用或多步规则", "抽到 `System`，让多个 Command 共享同一套业务不变量；下一章核心内容会用购买药水演示。");
+            host.AddConcept("持续状态 / 瞬时事实", "当前值放 `Model`，已经发生且只需通知观察者的事实发 `Event`；不要用 Event 代替状态。");
+            host.AddConcept("耗时操作", "改用 `IAsyncCommand` 并透传取消令牌，让异步生命周期跟随 View / Context；见「Command · 三种形态」。");
         }
     }
 

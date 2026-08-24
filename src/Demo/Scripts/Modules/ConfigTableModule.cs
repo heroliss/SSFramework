@@ -26,8 +26,8 @@ namespace Game.Framework.Demo.Modules
         public override string Category => "进阶";
         public override int Order => 30;
         public override string Summary =>
-            "构建期菜单跑 Luban CLI：表定义（XML）+ 数据（JSON / Excel）→ 生成 C# 类 + 二进制数据 + 表清单；运行期一个自加载的" +
-            "配置 Utility 服务按清单预载、构造 Tables，各层（含 View）直读——数据随资源包热更。查询按钮真实读表。深度见 framework-guide §16 / ADR-0009。";
+            "Luban 在构建期把 XML 定义与 JSON/Excel 数据生成强类型 C#、二进制数据和表清单。" +
+            "运行时配置 Utility 按清单加载 Tables，数据可随资源包更新。";
 
         public override void Build(DemoModuleHost host)
         {

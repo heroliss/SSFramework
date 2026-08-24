@@ -27,7 +27,7 @@ namespace Game.Framework.Demo.Core
         /// <summary>组内排序，小的在前——用于"由简入深"。</summary>
         int Order { get; }
 
-        /// <summary>模块顶部讲解文本（这个功能是什么、为什么这样设计）。</summary>
+        /// <summary>模块顶部定位摘要：是什么 + 关键边界，最多 160 字且最多 2 句；细节留给正文小节。</summary>
         string Summary { get; }
 
         /// <summary>是否为"规划中"占位章节（导航里弱化显示，点开只是预告）。已实现的模块为 false。</summary>

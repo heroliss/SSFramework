@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using Cysharp.Threading.Tasks;
 using Game.Framework;
 using Game.Framework.Common;
@@ -31,6 +32,12 @@ namespace Game.Framework.Demo.Modules
 
         // collector 给 demo 资源打的 tag（FrameworkDemoGroup 的 AssetTags=framework-demo）；tag 下载器按它统计需下载的 bundle。
         private const string DemoTag = "framework-demo";
+
+        // 这两组按钮会分别共享同一个子 Bag / 下载缓存。闸门必须跟模块实例走，不能是 Build 局部变量：
+        // UIDocument 重建会先取消旧 Host、再立即 Build 新 UI，而底层异步取消仍可能需要一小段时间才能收尾。
+        // 租约会校验“这一轮 owner”，旧异步续体迟到释放时不会误放行后来进入的新操作。
+        private readonly DemoOperationGate _configOperationGate = new();
+        private readonly DemoOperationGate _downloadOperationGate = new();
 
         public override void Build(DemoModuleHost host)
         {
@@ -90,15 +97,16 @@ namespace Game.Framework.Demo.Modules
             Bag.Subscribe(asset.SimulateOffline, on =>
                 offlineBtn.text = $"模拟断网：{(on ? "开" : "关")}（点击切换，仅 Host/Web）");
 #endif
-            host.AddActionRow("初始化（Initialize）", async () =>
+            host.AddAsyncActionRow("初始化（Initialize）", async ct =>
             {
                 initLabel.text = "初始化中…";
-                await asset.Initialize(); // 不抛，结果回写 InitState（上方状态 + defaultState 跟着变）
+                // 普通初始化失败不抛、结果回写 InitState；调用者取消则保留 OCE，但底层 owner 会继续完成初始化。
+                await asset.Initialize(ct: ct);
                 initLabel.text = defaultState == AssetInitState.Ready
                     ? "已 Ready ✓ 可正常加载。（包一旦 Ready，Initialize 即幂等空操作——运行时再开「模拟断网」也不会回退，见下方说明。）"
                     : $"初始化结果：{defaultState}。要复现 Failed，须在 Play 前就于 AssetUtility 的 Inspector 开「模拟断网」让默认包从一开始拉不到远端——看上方状态 / 控制台。";
-            }, CodeRef.Here("asset.Initialize()", "初始化默认包"));
-            host.AddNote("默认包没自动初始化（本 demo 即如此，状态停在 `Idle`）或 init 失败（CDN 不可达 / 断网 → `Failed`）时，`Load` / `LoadScene` / `ClearCache` 内部的 `EnsureInitialized` 都会**上抛**异常——所以这一类要么 `try/catch`、要么先判 `InitState` / `IsInitialized`。`Initialize` 既是**未自动初始化包的冷启动入口**、也是**失败后的重试**：不抛、结果回写 `InitState`（上方状态会跟着变）。真实项目里「关掉某包自动初始化 → 同意联网后 Initialize」「CDN 不可达 → 修好网络 → Initialize 重试」都不必重启 App。");
+            }, CodeRef.Here("asset.Initialize(ct: ct)", "初始化默认包"));
+            host.AddNote("默认包没自动初始化（本 demo 即如此，状态停在 `Idle`）或 init 失败（CDN 不可达 / 断网 → `Failed`）时，`Load` / `LoadScene` / `ClearCache` 内部的 `EnsureInitialized` 都会**上抛**异常——所以这一类要么 `try/catch`、要么先判 `InitState` / `IsInitialized`。`Initialize` 既是**未自动初始化包的冷启动入口**、也是**失败后的重试**：普通失败不抛、结果回写 `InitState`（上方状态会跟着变）；调用者取消只离开等待并保留 OCE，已启动的物理初始化仍由 utility 完成。真实项目里「关掉某包自动初始化 → 同意联网后 Initialize」「CDN 不可达 → 修好网络 → Initialize 重试」都不必重启 App。");
             host.AddSubNote("⚠ 包 `Idle`（既没自动初始化、也没 Initialize 过）时直接 `Load` 它会**抛**「未初始化」异常，不是无限等待——这是刻意的 fail-fast：要加载的包，要么开自动初始化、要么先 `Initialize`。为什么运行时开「模拟断网」后已 `Ready` 的包仍能加载？因为它只拦截新发起的远端请求——已 `Ready` 的包不回退、已缓存的资源照常加载，此时 `Initialize` 是幂等空操作。要复现初始化失败，请在 `AssetUtility` 的 Inspector 进 Play 前就勾「模拟断网」，或切 `Host` 但不起本地服务。注意「下载」失败另说——单文件失败下载器自动重试，但整体最终失败仍会**抛**、要 `try/catch`（详见下方·下载）。");
 
             // ── 2. 按地址加载（Bag.Load）──
@@ -107,32 +115,33 @@ namespace Game.Framework.Demo.Modules
             host.Content.Add(spritePreview);
             var loadLabel = host.AddValueDisplay("点下面按钮加载");
             // 用子 Bag 装本节借来的句柄：基类 Bag 要切走本章才释放，开个子 Bag 就能在「释放」按钮里随手 Dispose，
-            // 既演示资源释放、又方便反复测加载（AGENTS §17 的「清理一次」子 bag 用法）。
+            // 既演示资源释放、又方便反复测加载（Assets/Game/AGENTS.md「DisposableBag 是默认生命周期入口」的局部子 Bag 用法）。
             var logoBag = Bag.CreateChild();
-            host.AddActionRow("加载 Logo（Sprite）", async () =>
+            host.AddAsyncActionRow("加载 Logo（Sprite）", async ct =>
             {
-                var sprite = await logoBag.Load<Sprite>(LogoAddress);
+                var sprite = await logoBag.Load<Sprite>(LogoAddress, ct);
                 if (sprite != null)
                 {
                     spritePreview.style.backgroundImage = new StyleBackground(sprite);
                     loadLabel.text = $"已加载 Sprite：{sprite.name}（{sprite.rect.width:0}×{sprite.rect.height:0}）";
                 }
-            }, CodeRef.Here("logoBag.Load<Sprite>(LogoAddress)", "Bag.Load 用法"));
+            }, CodeRef.Here("logoBag.Load<Sprite>(LogoAddress, ct)", "Bag.Load 用法"));
             host.AddActionRow("释放 Logo（Dispose 子 Bag → 句柄释放）", () =>
             {
-                // Dispose 子 Bag 释放它托管的全部句柄；再 CreateChild 重建，下次加载用新子 Bag（§17 既定写法）。
+                // Dispose 子 Bag 释放它托管的全部句柄；再 CreateChild 重建，下次加载用新子 Bag。
                 logoBag.Dispose();
                 logoBag = Bag.CreateChild();
                 // 句柄已随 Dispose 释放；UI 上的图是另一份引用，得清掉显示元素画面才消失（同 §3 释放按钮的注释）。
                 spritePreview.style.backgroundImage = StyleKeyword.None;
                 loadLabel.text = "已释放本节 Logo 句柄并清空预览。再点「加载 Logo」会重新加载。";
             }, CodeRef.Here("logoBag.Dispose()", "手动释放本节句柄"));
-            host.AddActionRow("卸载内存中无用 bundle（UnloadUnusedAssets）", async () =>
+            host.AddAsyncActionRow("卸载内存中无用 bundle（UnloadUnusedAssets）", async ct =>
             {
                 // 只卸引用归零的 bundle：要先「释放 Logo」让它引用归零，本按钮才会把它从内存卸掉；仍持有的不受影响。
-                await asset.UnloadUnusedAssets();
+                await asset.UnloadUnusedAssets(ct);
+                ct.ThrowIfCancellationRequested();
                 loadLabel.text = "已卸载引用归零的 bundle（释放内存）。顺序：先「释放 Logo」→ 再本按钮才真卸内存；之后磁盘缓存若也清了，再加载就会重新下载 / 读盘。";
-            }, CodeRef.Here("asset.UnloadUnusedAssets()", "卸载无用内存 bundle"));
+            }, CodeRef.Here("asset.UnloadUnusedAssets(ct)", "卸载无用内存 bundle"));
 #if UNITY_EDITOR
             host.AddActionRow("定位 Logo 资产（被加载的源资源）", () =>
                 DemoEditorNav.PingAsset("Assets/Game/Framework/Branding/SSFramework-Logo.png"));
@@ -143,20 +152,20 @@ namespace Game.Framework.Demo.Modules
 
             // 加载失败 → null（不抛）：地址无效 / 类型不符都走这条，业务 null 检查后兜底即可。
             var nullLabel = host.AddValueDisplay("加载失败时 Bag.Load 返回 null（不抛），业务 null 检查后兜底即可");
-            host.AddActionRow("加载不存在的地址（→ null）", async () =>
+            host.AddAsyncActionRow("加载不存在的地址（→ null）", async ct =>
             {
-                var sprite = await Bag.Load<Sprite>(MissingAddress);
+                var sprite = await Bag.Load<Sprite>(MissingAddress, ct);
                 nullLabel.text = sprite == null
                     ? "地址不在 manifest → Load 返回 null（不抛）→ null 检查后兜底即可，不崩。"
                     : $"意外加载到了：{sprite.name}";
-            }, CodeRef.Here("Bag.Load<Sprite>(MissingAddress)", "地址无效 → null"));
-            host.AddActionRow("把 Logo 当 AudioClip 加载（类型不符 → null）", async () =>
+            }, CodeRef.Here("Bag.Load<Sprite>(MissingAddress, ct)", "地址无效 → null"));
+            host.AddAsyncActionRow("把 Logo 当 AudioClip 加载（类型不符 → null）", async ct =>
             {
-                var clip = await Bag.Load<AudioClip>(LogoAddress);
+                var clip = await Bag.Load<AudioClip>(LogoAddress, ct);
                 nullLabel.text = clip == null
                     ? "类型不符 → Load 返回 null（控制台另有一条 error 说明），同样 null 检查兜底。"
                     : $"意外得到 AudioClip：{clip.name}";
-            }, CodeRef.Here("Bag.Load<AudioClip>(LogoAddress)", "类型不符 → null"));
+            }, CodeRef.Here("Bag.Load<AudioClip>(LogoAddress, ct)", "类型不符 → null"));
             host.AddNote("地址无效 / 类型不符 / 空地址都走同一条：`Load` 返回 `null` + 打日志，业务 `null` 检查后用占位资源 / 默认值兜底即可，这一类「不需要 try/catch」。想在加载前就拦掉无效地址，用下方·查询的 `CheckLocationValid` 预检。这与上一节「init 失败会抛」是两套：init 没就绪才抛，包 `Ready` 后加载只返 `null`。");
 
             // ── 失败语义小结：两套别用混（demo 后的对照锚点）──
@@ -199,18 +208,18 @@ namespace Game.Framework.Demo.Modules
                     }
                 }
 
-                host.AddActionRow("Get() 单个 Logo 引用", async () =>
+                host.AddAsyncActionRow("Get() 单个 Logo 引用", async ct =>
                 {
-                    var sprite = await refs.LogoRef.Get();
+                    var sprite = await refs.LogoRef.Get(ct);
                     if (sprite != null) { ShowSprites(sprite); refLabel.text = $"AssetReference.Get() 得到：{sprite.name}"; }
                     else refLabel.text = "LogoRef 未配置（Inspector 拖一张 Sprite 进去）";
-                }, CodeRef.Here("refs.LogoRef.Get()", "AssetReference.Get"));
-                host.AddActionRow("GetAll() 批量加载列表", async () =>
+                }, CodeRef.Here("refs.LogoRef.Get(ct)", "AssetReference.Get"));
+                host.AddAsyncActionRow("GetAll() 批量加载列表", async ct =>
                 {
-                    var sprites = await refs.LogoList.GetAll();
+                    var sprites = await refs.LogoList.GetAll(ct);
                     ShowSprites(sprites); // 把加载到的每一张都平铺展示出来
                     refLabel.text = $"AssetReferenceList.GetAll() 并行加载了 {sprites.Length} 张";
-                }, CodeRef.Here("refs.LogoList.GetAll()", "批量加载"));
+                }, CodeRef.Here("refs.LogoList.GetAll(ct)", "批量加载"));
                 host.AddActionRow("释放本节图片（Unload / UnloadAll）", () =>
                 {
                     refs.LogoRef.Unload();        // 释放 Get() 的单个引用
@@ -240,34 +249,60 @@ namespace Game.Framework.Demo.Modules
             // config SO 用子 Bag 装：方便「释放配置 SO」按钮一次 Dispose 掉它 + 它内部已绑的引用，便于反复重测整个流程。
             DemoAssetConfig loadedConfig = null;
             var configBag = Bag.CreateChild();
-            host.AddActionRow("① 加载配置 SO（Bag.Load<DemoAssetConfig>）", async () =>
+
+            async UniTask RunConfigOperation(CancellationToken ct, Func<CancellationToken, UniTask> operation)
+            {
+                if (!_configOperationGate.TryEnter(out var lease))
+                {
+                    soLabel.text = "另一个配置 SO 操作正在进行，请稍候。";
+                    return;
+                }
+
+                using (lease)
+                {
+                    await operation(ct);
+                }
+            }
+
+            host.AddAsyncActionRow("① 加载配置 SO（Bag.Load<DemoAssetConfig>）", chapterCt => RunConfigOperation(chapterCt, async ct =>
             {
                 // config SO 像资源一样被加载进来（真实游戏的常见形态：配置也走资源系统下发/热更）。
-                loadedConfig = await configBag.Load<DemoAssetConfig>(ConfigAddress);
+                // 快照本次请求的 owner：释放按钮或 UI 重建都可能换掉闭包里的 configBag，旧请求不得把结果发布给新 owner。
+                var requestBag = configBag;
+                var config = await requestBag.Load<DemoAssetConfig>(ConfigAddress, ct);
+                ct.ThrowIfCancellationRequested();
+                if (requestBag.IsDisposed) return;
+                loadedConfig = config;
                 soLabel.text = loadedConfig != null
                     ? $"已加载配置 {loadedConfig.name}。它内部的 AssetReference 还没绑定——点②（或故意跳过②直接点③，看不绑定的后果）。"
                     : "加载失败（地址 DemoAssetConfig 在 FrameworkSamplesPackage？）";
-            }, CodeRef.Here("configBag.Load<DemoAssetConfig>(ConfigAddress)", "加载配置 SO"));
+            }), CodeRef.Here("requestBag.Load<DemoAssetConfig>(ConfigAddress, ct)", "加载配置 SO"));
             host.AddActionRow("② 绑定它的引用（Bag.BindAssetReferences）", () =>
             {
+                if (_configOperationGate.IsEntered) { soLabel.text = "配置 SO 正在加载 / 取引用，请等操作完成后再绑定。"; return; }
                 if (loadedConfig == null) { soLabel.text = "请先点①加载配置 SO。"; return; }
                 // SO 不是 MonoXxxBase、字段不会自动绑定：一行把它内部所有 AssetReference 绑到本节子 Bag（随它一起释放）。
                 configBag.BindAssetReferences(loadedConfig);
                 soLabel.text = $"已把 {loadedConfig.name} 的全部 AssetReference 绑到本节子 Bag，现在可安全点③取引用。";
             }, CodeRef.Here("configBag.BindAssetReferences(loadedConfig)", "一键绑定 SO 内引用"));
-            host.AddActionRow("③ 取 IconRef（IconRef.Get）", async () =>
+            host.AddAsyncActionRow("③ 取 IconRef（IconRef.Get）", chapterCt => RunConfigOperation(chapterCt, async ct =>
             {
                 if (loadedConfig == null) { soLabel.text = "请先点①加载配置 SO。"; return; }
-                var icon = await loadedConfig.IconRef.Get();
+                var config = loadedConfig;
+                var ownerBag = configBag;
+                var icon = await config.IconRef.Get(ct);
+                ct.ThrowIfCancellationRequested();
+                if (ownerBag.IsDisposed || !ReferenceEquals(config, loadedConfig)) return;
                 if (icon != null)
                 {
                     soPreview.style.backgroundImage = new StyleBackground(icon);
-                    soLabel.text = $"用 {loadedConfig.name} 的 IconRef 取到：{icon.name}";
+                    soLabel.text = $"用 {config.name} 的 IconRef 取到：{icon.name}";
                 }
                 else soLabel.text = "IconRef 未配置（在 DemoAssetConfig 资产里拖一张 Sprite）。";
-            }, CodeRef.Here("loadedConfig.IconRef.Get()", "取 SO 内引用"));
+            }), CodeRef.Here("config.IconRef.Get(ct)", "取 SO 内引用"));
             host.AddActionRow("释放 IconRef（Unload）", () =>
             {
+                if (_configOperationGate.IsEntered) { soLabel.text = "配置 SO 正在加载 / 取引用，请等操作完成后再释放。"; return; }
                 if (loadedConfig == null) { soLabel.text = "请先点①加载配置 SO。"; return; }
                 loadedConfig.IconRef.Unload();
                 // 同理：Unload 只放句柄，清掉显示元素画面才消失。
@@ -276,6 +311,7 @@ namespace Game.Framework.Demo.Modules
             }, CodeRef.Here("loadedConfig.IconRef.Unload()", "释放 SO 内引用"));
             host.AddActionRow("释放配置 SO（Dispose 子 Bag，重测用）", () =>
             {
+                if (_configOperationGate.IsEntered) { soLabel.text = "配置 SO 正在加载 / 取引用，请等操作完成后再释放。"; return; }
                 configBag.Dispose();          // 一次释放 config SO 自身 + 已绑定的内部引用
                 configBag = Bag.CreateChild();
                 loadedConfig = null;
@@ -284,6 +320,7 @@ namespace Game.Framework.Demo.Modules
             }, CodeRef.Here("configBag.Dispose()", "释放配置 SO"));
             host.AddNote("`ScriptableObject` 配置是「被加载的数据资产」，不是 `Model` 层（它常需像资源一样异步加载，无法在启动时注册成 `Model`）。它内部的 `AssetReference` 不会自动绑定（框架刻意不递归 SO），由加载 / 持有它的宿主一行 `Bag.BindAssetReferences`(配置) 把它的全部引用绑到自身生命周期——之后随本章 `Bag` 一起释放。",
                 new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/Support/DemoAssetConfig.cs", "class DemoAssetConfig", "DemoAssetConfig 定义"));
+            host.AddSubNote("多个按钮共用同一个子 `Bag` 时，单按钮防连点还不够：加载 / 绑定 / 取引用 / 释放必须共用一把资源级闸门。否则一个按钮仍可能释放另一个按钮正在使用的 owner；真实界面可用同一流程状态统一置灰整组控件。");
 #if UNITY_EDITOR
             host.AddActionRow("定位 DemoAssetConfig 资产（被加载的配置 SO）", () =>
                 DemoEditorNav.PingAsset("Assets/Game/Framework/Demo/Res/DemoAssetConfig.asset"),
@@ -315,9 +352,9 @@ namespace Game.Framework.Demo.Modules
             host.AddActionRow("IsNeedDownload(Logo)", () =>
             {
                 if (!asset.IsInitialized) { SetCheckBadge(false, "资源系统未就绪（初始化失败或未完成）——查询无意义，先看上方初始化状态。"); return; }
-                bool need = asset.IsNeedDownload(LogoAddress);
-                SetCheckBadge(!need, need ? "需要下载 ↓（远端缺，要从 CDN 拉）" : "无需下载 ✓（已在本地）");
-            }, CodeRef.Here("asset.IsNeedDownload", "是否需下载"));
+                bool needDownload = asset.IsNeedDownload(LogoAddress);
+                SetCheckBadge(!needDownload, needDownload ? "需要下载 ↓（远端缺，要从 CDN 拉）" : "无需下载 ✓（已在本地）");
+            }, CodeRef.Here("bool needDownload = asset.IsNeedDownload(LogoAddress)", "是否需下载"));
             host.AddNote("`CheckLocationValid` 判断 manifest 里有没有这个地址；`IsNeedDownload` 判断该资源要不要从远端拉。⚠ 两者在「包未就绪」（未初始化 / 初始化失败）时也返回 `false`——所以 `false` ≠「地址无效 / 无需下载 / 已在本地」，得先确认初始化 `Ready`（上方状态）再读结果，本 demo 已加这层判断。`EditorSimulate` / `Offline` 下资源都在本地，`IsNeedDownload` 恒为「无需下载」；只有远端模式（`Host`）才会变真，底层见「YooAsset · 底层实现」章。");
 
             // ── 5. 下载与清缓存（三种范围的下载器）──
@@ -339,6 +376,22 @@ namespace Game.Framework.Demo.Modules
             // 白盒：创建下载器与启动下载是两个独立操作，拆开。创建有三种范围——按 tag / 全部 / 按地址，建好后共用下面「开始下载」。
             IAssetDownloader downloader = null;
 
+            // 单个异步按钮只会禁用自己，但这一组按钮共享同一个 downloader 与缓存目录，必须再做资源级互斥。
+            // 真实启动器通常用一个流程状态机或整组控件置灰；Demo 用模块级 gate 同时覆盖按钮之间与 UIDocument 重建前后的并发。
+            async UniTask RunDownloadOperation(CancellationToken ct, Func<CancellationToken, UniTask> operation)
+            {
+                if (!_downloadOperationGate.TryEnter(out var lease))
+                {
+                    progressLabel.text = "另一个下载 / 缓存操作正在进行，请稍候。";
+                    return;
+                }
+
+                using (lease)
+                {
+                    await operation(ct);
+                }
+            }
+
             // 复用：把建好的下载器接上进度条 + 写一句统计反馈。「无需下载」是常态（已缓存 / 已内置 / EditorSimulate 全本地 / 没匹配到），TotalCount=0、瞬间完成。
             void BindDownloader(IAssetDownloader d, string scope)
             {
@@ -355,30 +408,36 @@ namespace Game.Framework.Demo.Modules
 
             // 下载器从 IAssetUtility 创建（不在 Bag 上）：它是用完即弃的工厂产物、不进 bag 托管——
             // Bag 只收「借出 + 跟随生命周期」的东西（Load / Rent / Spawn / 订阅）。
-            host.AddActionRow("创建下载器·按 tag", async () =>
+            host.AddAsyncActionRow("创建下载器·按 tag", chapterCt => RunDownloadOperation(chapterCt, async ct =>
             {
-                await Bag.EnsureInitialized();
+                await Bag.EnsureInitialized(ct);
+                ct.ThrowIfCancellationRequested();
                 BindDownloader(asset.CreateTagDownloader(DemoTag), $"tag「{DemoTag}」");
-            }, CodeRef.Here("asset.CreateTagDownloader(DemoTag)", "按 tag 下载器"));
-            host.AddActionRow("创建下载器·全部（整包）", async () =>
+            }), CodeRef.Here("asset.CreateTagDownloader(DemoTag)", "按 tag 下载器"));
+            host.AddAsyncActionRow("创建下载器·全部（整包）", chapterCt => RunDownloadOperation(chapterCt, async ct =>
             {
-                await Bag.EnsureInitialized();
+                await Bag.EnsureInitialized(ct);
+                ct.ThrowIfCancellationRequested();
                 BindDownloader(asset.CreateAllDownloader(), "全部");
-            }, CodeRef.Here("asset.CreateAllDownloader()", "全量下载器"));
-            host.AddActionRow("创建下载器·按地址（Logo）", async () =>
+            }), CodeRef.Here("asset.CreateAllDownloader()", "全量下载器"));
+            host.AddAsyncActionRow("创建下载器·按地址（Logo）", chapterCt => RunDownloadOperation(chapterCt, async ct =>
             {
-                await Bag.EnsureInitialized();
+                await Bag.EnsureInitialized(ct);
+                ct.ThrowIfCancellationRequested();
                 BindDownloader(asset.CreateLocationDownloader(LogoAddress), $"地址「{LogoAddress}」");
-            }, CodeRef.Here("asset.CreateLocationDownloader(LogoAddress)", "按地址下载器"));
-            host.AddActionRow("开始下载（Download）", async () =>
+            }), CodeRef.Here("asset.CreateLocationDownloader(LogoAddress)", "按地址下载器"));
+            host.AddAsyncActionRow("开始下载（Download）", chapterCt => RunDownloadOperation(chapterCt, async ct =>
             {
-                if (downloader == null) { progressLabel.text = "请先点「创建下载器」。"; return; }
+                var currentDownloader = downloader; // 下载器是创建时快照；整个 await 都只读这一份，避免完成时读到被替换的实例。
+                if (currentDownloader == null) { progressLabel.text = "请先点「创建下载器」。"; return; }
                 progressLabel.text = "下载中…";
                 try
                 {
-                    await downloader.Download();
-                    progressLabel.text = $"下载完成 ✓（{downloader.TotalCount} 个 / {downloader.TotalBytes / 1048576f:0.00} MB）";
+                    await currentDownloader.Download(ct);
+                    ct.ThrowIfCancellationRequested();
+                    progressLabel.text = $"下载完成 ✓（{currentDownloader.TotalCount} 个 / {currentDownloader.TotalBytes / 1048576f:0.00} MB）";
                 }
+                catch (OperationCanceledException) { throw; } // 切章取消是正常控制流，交回 Host 静默收口，不能伪装成下载失败。
                 catch (Exception e)
                 {
                     // Download() 最终失败（自带 FailedTryAgain 重试耗尽 / CDN 不可达）会抛——和 init 失败同属「抛」那套，必须 try/catch。
@@ -386,48 +445,59 @@ namespace Game.Framework.Demo.Modules
                     progressLabel.text = $"下载失败 ✗：{e.Message}　自动重试已耗尽（网络 / CDN 问题）。重试请重新「创建下载器」再下载（已下分片已缓存、会跳过）。";
                     Debug.LogException(e);
                 }
-            }, CodeRef.Here("downloader.Download()", "启动下载（失败会抛，已 try/catch）"));
+            }), CodeRef.Here("currentDownloader.Download(ct)", "启动下载（失败会抛，已 try/catch）"));
 
             // 运行时清缓存：清完内存缓存记录同步更新，IsNeedDownload 立刻变真，同一次 Play 里就能再测真实下载——免去停 Play。
-            host.AddActionRow("清空下载缓存（运行时，免停 Play 即可重测）", async () =>
+            host.AddAsyncActionRow("清空下载缓存（运行时，免停 Play 即可重测）", chapterCt => RunDownloadOperation(chapterCt, async ct =>
             {
-                await Bag.EnsureInitialized();
-                await asset.ClearCache(AssetCacheClearMode.All);
+                await Bag.EnsureInitialized(ct);
+                ct.ThrowIfCancellationRequested();
+                // ClearCache 的调用者取消只会离开等待，底层清理仍继续。这里一旦提交就等物理操作真正结束，
+                // 让模块级 gate 覆盖完整收尾期；结束后再检查章节令牌，避免向已销毁的 UI 发布结果。
+                await asset.ClearCache(AssetCacheClearMode.All, CancellationToken.None);
+                ct.ThrowIfCancellationRequested();
                 downloader = null;  // 老下载器的待下载列表是创建时的快照，缓存清了它不会更新；置空逼重建，否则点「开始下载」会执行旧快照（0 个）瞬间完成。
                 progressBar.value = 0f;
                 progressBar.title = string.Empty;
                 bool need = asset.IsNeedDownload(LogoAddress);
                 progressLabel.text = $"已清空下载缓存 ✓　IsNeedDownload(Logo)={need}（远端模式下应变 true）。下载器已重置——请重新点「创建下载器」再「开始下载」才会重新统计。";
-            }, CodeRef.Here("asset.ClearCache", "运行时清缓存"));
-            host.AddActionRow("清除无用缓存（Unused，清旧版本残留 bundle）", async () =>
+            }), CodeRef.Here("asset.ClearCache(AssetCacheClearMode.All, CancellationToken.None)", "运行时清缓存"));
+            host.AddAsyncActionRow("清除无用缓存（Unused，清旧版本残留 bundle）", chapterCt => RunDownloadOperation(chapterCt, async ct =>
             {
-                await Bag.EnsureInitialized();
-                await asset.ClearCache(AssetCacheClearMode.Unused);
+                await Bag.EnsureInitialized(ct);
+                ct.ThrowIfCancellationRequested();
+                await asset.ClearCache(AssetCacheClearMode.Unused, CancellationToken.None);
+                ct.ThrowIfCancellationRequested();
                 downloader = null;  // 同上：清缓存后下载器快照过期，置空逼重建。
                 progressBar.value = 0f;
                 progressBar.title = string.Empty;
                 progressLabel.text = "已清除无用缓存 ✓——只清「不被当前版本清单引用」的旧版本残留 bundle（热更后回收空间用）；单版本 / 没热更过通常无可清。要全清用上面「清空下载缓存」。下载器已重置。";
-            }, CodeRef.Here("asset.ClearCache(AssetCacheClearMode.Unused)", "清未使用缓存"));
-            host.AddActionRow("按 tag 清缓存（只清本 demo tag 的 bundle）", async () =>
+            }), CodeRef.Here("asset.ClearCache(AssetCacheClearMode.Unused, CancellationToken.None)", "清未使用缓存"));
+            host.AddAsyncActionRow("按 tag 清缓存（只清本 demo tag 的 bundle）", chapterCt => RunDownloadOperation(chapterCt, async ct =>
             {
-                await Bag.EnsureInitialized();
-                await asset.ClearCacheByTags(new[] { DemoTag });
+                await Bag.EnsureInitialized(ct);
+                ct.ThrowIfCancellationRequested();
+                await asset.ClearCacheByTags(new[] { DemoTag }, CancellationToken.None);
+                ct.ThrowIfCancellationRequested();
                 downloader = null;  // 同上：清缓存后下载器快照过期，置空逼重建。
                 progressBar.value = 0f;
                 progressBar.title = string.Empty;
                 progressLabel.text = $"已按 tag「{DemoTag}」清缓存 ✓——只清这批 tag 的 bundle，正适合卸载某关卡 / DLC 的资源（其余缓存不动）。下载器已重置，重测请重新「创建下载器」。";
-            }, CodeRef.Here("asset.ClearCacheByTags(new[] { DemoTag })", "按 tag 清缓存"));
-            host.AddActionRow("按地址清缓存（清 Logo 所在的 bundle）", async () =>
+            }), CodeRef.Here("asset.ClearCacheByTags(new[] { DemoTag }, CancellationToken.None)", "按 tag 清缓存"));
+            host.AddAsyncActionRow("按地址清缓存（清 Logo 所在的 bundle）", chapterCt => RunDownloadOperation(chapterCt, async ct =>
             {
-                await Bag.EnsureInitialized();
-                await asset.ClearCacheByLocations(new[] { LogoAddress });
+                await Bag.EnsureInitialized(ct);
+                ct.ThrowIfCancellationRequested();
+                await asset.ClearCacheByLocations(new[] { LogoAddress }, CancellationToken.None);
+                ct.ThrowIfCancellationRequested();
                 downloader = null;  // 同上：清缓存后下载器快照过期，置空逼重建。
                 progressBar.value = 0f;
                 progressBar.title = string.Empty;
                 progressLabel.text = $"已按地址「{LogoAddress}」清缓存 ✓——点名清这个资源所在的 bundle；注意是 bundle 粒度，同 bundle 的邻居会被连带清。下载器已重置，重测请重新「创建下载器」。";
-            }, CodeRef.Here("asset.ClearCacheByLocations(new[] { LogoAddress })", "按地址清缓存"));
+            }), CodeRef.Here("asset.ClearCacheByLocations(new[] { LogoAddress }, CancellationToken.None)", "按地址清缓存"));
             host.AddNote("下载器有三种范围：`CreateTagDownloader(tags)` 按 tag（某关卡 / DLC 整批）、`CreateAllDownloader()` 全部尚未缓存的 bundle（整包预下）、`CreateLocationDownloader(locations)` 按地址点名（含依赖）——都订阅 `Progress`（R3 状态流）驱动进度条、`Download()` 启动。`ClearCache` 清本地已下载缓存（`All` 全清 / `Unused` 清旧版本），按 tag 清用 `ClearCacheByTags`、按地址清用 `ClearCacheByLocations`，与下载器三种范围一一对应。单文件下载失败由下载器自带按 `AssetSystemConfigModel.FailedTryAgain`（默认 3）重试，业务不必手写重试循环；但**整体最终失败**（重试耗尽 / 持续断网）时 `Download()` 会**抛**——和 init 失败同属「抛」那套，要 `try/catch`（见「开始下载」按钮）。重试靠**重建下载器**再下：已下分片已缓存会被跳过，即断点续传。");
-            host.AddSubNote("下载器是「创建那一刻的待下载快照」，不是「下载时去看缺什么补什么」：清缓存并不会更新已建好的下载器，得重新 `CreateTagDownloader` 才会按最新缓存重新统计。所以「清缓存 → 重建下载器 → 开始下载」是固定顺序。");
+            host.AddSubNote("下载器是「创建那一刻的待下载快照」，不是「下载时去看缺什么补什么」：清缓存并不会更新已建好的下载器，得重新 `CreateTagDownloader` 才会按最新缓存重新统计。所以「清缓存 → 重建下载器 → 开始下载」是固定顺序。`IsNeedDownload` / `Create*Downloader` 又是同步快照：同包维护正在运行或已排队时会立即提示维护后重试，不会卡住 Unity 主线程，也不会越过维护读中间态。");
+            host.AddSubNote("取消还有一条容易漏掉的边界：YooAsset 的下载 / 清理一旦开始就不能安全强停，调用者令牌只让当前等待者离开，进程级 package owner 仍观察到真实终态；无人接收的成功 handle 会释放，后台失败会进日志。因此本 demo 在**提交清理前**响应切章取消；提交后用 `CancellationToken.None` 保持本组业务闸门直到物理清理结束，再检查章节令牌且不更新旧 UI。若产品真要“停止网络流量”，需要另设计显式 Stop/终止契约，不能把等待 OCE 当成底层已停。");
             host.AddSubNote("`ClearCacheByTags` 多 tag 是并集（命中任意一个就清）；`ClearCacheByLocations` 与 tag 清一样都是 bundle 粒度——按地址清会连带同 bundle 的其他资源，想精确隔离要在打包时让该资源独占 bundle。");
             host.AddSubNote("默认 `Load` 未缓存资源时会**当场按需下载**（Host 模式，每包「启用按需下载」默认勾选）。想避免「误 Load 一个资源就自动拖下整批」（典型如大型 DLC）：在 `AssetSystemConfigModel` 的包列表里把该包的「启用按需下载」**取消勾选**，之后 Load 本包未缓存资源**直接失败**（不下载），强制先显式跑下载器（带进度 UI）。按包配置，基础包通常留默认（启用）；仅 Host 模式有意义。");
             host.AddSubNote("下载缓存目录在哪、各清单文件、各 `PlayMode` 的底层差异——见「YooAsset · 底层实现」章。`EditorSimulate` 下资源全本地、不发生真实下载（下载器恒为 0 个）；要看真实下载进度切 `Host`（配本地 CDN 服务，可在构建 profile 里开限速模拟弱网）。本节只演示框架 API 用法。");
@@ -438,9 +508,9 @@ namespace Game.Framework.Demo.Modules
             var crossPreview = NewPreview();
             host.Content.Add(crossPreview);
             var crossBag = Bag.CreateChild(); // 用子 Bag 装本节句柄，方便就近释放（同 §2）
-            host.AddActionRow("显式从包名加载（Bag.Load(package, location)）", async () =>
+            host.AddAsyncActionRow("显式从包名加载（Bag.Load(package, location)）", async ct =>
             {
-                var sprite = await crossBag.Load<Sprite>(SamplesPackage, LogoAddress);
+                var sprite = await crossBag.Load<Sprite>(SamplesPackage, LogoAddress, ct);
                 if (sprite != null)
                 {
                     crossPreview.style.backgroundImage = new StyleBackground(sprite);

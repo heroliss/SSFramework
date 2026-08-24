@@ -1,3 +1,4 @@
+using System;
 using Game.Framework.Command;
 using Game.Framework.Common;
 using Game.Framework.Context;
@@ -8,7 +9,7 @@ using UnityEngine;
 namespace Game.Framework.Demo.Modules
 {
     /// <summary>
-    /// 核心·Container：注册（RegisterValue / RegisterFactory）+ [Inject] + 精确类型键解析。
+    /// 核心·Container：值/工厂/owned 注册 + [Inject] + 精确类型键解析。
     /// 解析顺序 / 父子回退留给「多 Context」章，避免重复。
     /// </summary>
     public sealed class ContainerDemoModule : DemoModuleBase
@@ -18,19 +19,19 @@ namespace Game.Framework.Demo.Modules
         public override string Category => "核心";
         public override int Order => 45;   // 排在「多 Context」后：先看作用域树的使用观感，再进注册/注入机制细节
         public override string Summary =>
-            "依赖注入容器：RegisterValue（给现成实例）/ RegisterFactory（懒构造、缓存为单例）注册，GetXxx 解析；class Command 可 [Inject] 字段。按精确类型键查找。";
+            "依赖注入容器：现成实例或工厂注册、按精确类型键解析；工厂可懒构造并缓存为单例，IDisposable 产物用 OwnedFactory 把所有权交给 Context。";
 
         public override void InstallBindings(ContainerBuilder builder)
-            => builder.RegisterFactory(c => new LazyService(), typeof(ILazyService));
+            => builder.RegisterOwnedFactory(c => new LazyService(), typeof(ILazyService));
 
         public override void Build(DemoModuleHost host)
         {
             // ── 定位 ──
             host.AddSectionTitle("定位：注册进容器、按类型解析、自动注入依赖");
-            host.AddNote("容器管「谁提供 / 谁需要」某个类型：注册（现成实例 `RegisterValue` / 懒构造工厂 `RegisterFactory`）→ 按**精确类型键**解析 → 消费方经 `[Inject]` 字段或 `GetXxx` 拿到。本章看懒构造 + 单例复用，以及「拿依赖的几种方式」。");
+            host.AddNote("容器管「谁提供 / 谁需要」某个类型：注册现成实例或工厂 → 按**精确类型键**解析 → 消费方经 `[Inject]` 字段或 `GetXxx` 拿到。本章还区分两件常被混在一起的事：**怎么构造**（Value / Factory）与**谁负责释放**（Owned）。");
 
             // ── 动手试 ──
-            host.AddSectionTitle("动手试：RegisterFactory 懒构造 + 单例复用");
+            host.AddSectionTitle("动手试：OwnedFactory 懒构造 + 单例复用 + 随 Context 释放");
             var countLabel = host.AddValueDisplay();
             countLabel.text = "点「使用服务」试试（服务是懒构造：注册了，用到才建）";
             host.AddActionRow("使用服务", () =>
@@ -38,7 +39,7 @@ namespace Game.Framework.Demo.Modules
                 var n = this.ExecuteCommand(new UseLazyServiceCommand());
                 countLabel.text = $"服务已构造 {n} 次——首次用才构造，之后复用同一实例（单例）";
             }, CodeRef.Here("class LazyService", "LazyService"));
-            host.AddSubNote("`RegisterFactory` 给的是工厂：首次 Resolve 才调用、结果缓存为单例。点几次都只构造一次，适合「用到才建」的重对象（音频 / 网络 / 配置）。",
+            host.AddSubNote("这里用 `RegisterOwnedFactory`：首次 Resolve 才调用、结果缓存为单例；因为产物实现 `IDisposable`，根 Context 结束时还会自动 Dispose。普通 `RegisterFactory` 只管构造与缓存，**不接管产物所有权**。",
                 CodeRef.Here("InstallBindings", "注册代码"));
 
             // ── 拿依赖 ──
@@ -56,15 +57,16 @@ namespace Game.Framework.Demo.Modules
 
             host.AddSectionTitle("注册与注入");
             host.AddConcept("RegisterValue", "直接给现成实例——前面各章注册 Model 用的就是它。");
-            host.AddConcept("RegisterFactory", "给工厂，首次 Resolve 才构造、缓存为单例（也可 Eager 在 `Build` 时立即构造）。");
+            host.AddConcept("RegisterFactory", "给工厂，首次 Resolve 才构造、缓存为单例（也可 Eager）；容器不负责 Dispose 产物，适合普通对象或所有权明确在外部的对象。");
             host.AddConcept("RegisterOwned", "给一个 `IDisposable` 实例、并把它的生命周期交给容器：随 `Context.Dispose` 逆序、幂等地 `Dispose`（如 `PoolUtility`）。对比 `RegisterValue`——后者给的现成实例容器不负责释放。");
+            host.AddConcept("RegisterOwnedFactory", "依赖要从 Container 现取、又必须随 Context 释放时用：懒/Eager 构造 + Singleton 缓存 + owned Dispose 一次完成。工厂产物仍由工厂显式接线，不自动 `[Inject]`。");
             host.AddConcept("[Inject] / this.GetXxx", "层与 class Command 可用 `[Inject]` 字段拿依赖（执行 / `Awake` 前注入、快照）；层里也可改用 `this.GetXxx<T>()` 实时解析。struct Command 不能 `[Inject]`（反射改的是装箱副本），只能 `ctx.GetXxx`。");
             host.AddNote("Container 按精确类型键解析、不做继承扫描——注册成什么类型，就用那个类型取。"
                 + "解析顺序与父子 `Context` 回退见「多 Context · 作用域树」一章。");
 #if UNITY_EDITOR
             host.AddActionRow("选中 demo 根 Context 节点", () =>
             {
-                var ctx = Object.FindFirstObjectByType<MonoDemoContext>();
+                var ctx = UnityEngine.Object.FindFirstObjectByType<MonoDemoContext>();
                 if (ctx != null) DemoEditorNav.PingSceneObject(ctx.gameObject);
             }, new CodeRef("Assets/Game/Framework/Demo/Scripts/Core/MonoDemoContext.cs", "class MonoDemoContext", "demo 根 Context 定义"));
             host.AddNote("各章纯 C# 的 Model / Service 都注册在这个 `Context` 的容器里——它们是运行时对象，Inspector 看不到。想 Inspector 可视化就走 Mono 路径（见「Model · 状态与 Inspector」）；想直接翻这个容器的注册表（契约 → 实例），开诊断窗口选中它即可（见「框架诊断面板」章）。");
@@ -78,12 +80,13 @@ namespace Game.Framework.Demo.Modules
         int ConstructCount { get; }
     }
 
-    /// <summary>ILazyService 实现：构造一次 _total +1。由 RegisterFactory 懒构造、缓存为单例。</summary>
-    public sealed class LazyService : ILazyService
+    /// <summary>ILazyService 实现：由 OwnedFactory 懒构造、缓存为单例，并随 Context 释放。</summary>
+    public sealed class LazyService : ILazyService, IDisposable
     {
         private static int _total;
         public LazyService() => _total++;   // 首次 Resolve 才会走到这里（懒），之后复用缓存实例
         public int ConstructCount => _total;
+        public void Dispose() { }           // 实际服务在这里释放订阅/句柄；空实现只用于演示所有权契约
     }
 
     /// <summary>使用服务（struct Command）：不能 [Inject]（装箱），用 ctx.GetUtility 实时解析（首次即构造），返回累计构造次数。</summary>

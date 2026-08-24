@@ -105,17 +105,19 @@ namespace Game.Framework.Demo.Core
             Ok,
             /// <summary>全文找不到锚点：会退化跳到第 1 行（锚点已失效，多因目标改名）。</summary>
             NoHit,
-            /// <summary>只在「被双引号包裹」处命中：锚点串只等于某个 <c>CodeRef</c> 实参自身、不匹配真实代码。</summary>
+            /// <summary>只在字符串/字符字面量中命中：锚点没有从真实代码位置开始。</summary>
             OnlyLiteral,
-            /// <summary>命中落在 <c>//</c> 注释行：多半锚点取得太泛，撞上了说明而非声明。</summary>
+            /// <summary>只在注释中命中：多半锚点已失效，或取得太泛只撞上了说明。</summary>
             CommentHit,
+            /// <summary>命中多个真实代码位置：跳转只能落到第一处，锚点不够独特。</summary>
+            Ambiguous,
         }
 
         /// <summary>
         /// 在 <paramref name="content"/> 里定位锚点所在的 1-based 行，并给出命中质量分级。
-        /// <para>关键细节：demo 常把类型和它的 <c>CodeRef</c> 写在同一文件，于是锚点串会先以实参形态
-        /// （<c>"anchor"</c>）出现在调用点、位置还在真正声明之前。朴素 IndexOf 会命中那处字面量、跳到调用行。
-        /// 所以跳过「被双引号紧邻包裹」的命中，定位到第一处真正的代码声明。</para>
+        /// <para>关键细节：demo 常把类型和它的 <c>CodeRef</c> 写在同一文件，于是锚点会先出现在调用实参、
+        /// 教程文案或注释里。朴素 <c>IndexOf</c> 会提前命中这些非代码内容。这里借助
+        /// <see cref="CSharpLexicalMap"/> 跳过字符串、字符和注释，只接受从真实代码位置开始的命中。</para>
         /// </summary>
         /// <returns>命中的 1-based 行号（未命中退化为 1）。</returns>
         internal static int ResolveAnchor(string content, string anchor, out AnchorVerdict verdict)
@@ -123,25 +125,45 @@ namespace Game.Framework.Demo.Core
             if (string.IsNullOrEmpty(anchor)) { verdict = AnchorVerdict.FileTop; return 1; }
             if (string.IsNullOrEmpty(content)) { verdict = AnchorVerdict.NoHit; return 1; }
 
+            var lexicalMap = CSharpLexicalMap.Create(content);
             int searchFrom = 0;
             int firstHit = -1;
+            int firstCodeHit = -1;
+            int codeHitCount = 0;
+            bool sawString = false;
+            bool sawComment = false;
             while (true)
             {
                 int idx = content.IndexOf(anchor, searchFrom, StringComparison.Ordinal);
                 if (idx < 0) break;
                 if (firstHit < 0) firstHit = idx; // 兜底：万一全是字面量，退回首个命中（至少落在同一文件）
 
-                bool quotedBefore = idx > 0 && content[idx - 1] == '"';
-                int end = idx + anchor.Length;
-                bool quotedAfter = end < content.Length && content[end] == '"';
-                if (!(quotedBefore && quotedAfter)) // 非 "anchor" 字面量 → 真正的代码行
+                switch (lexicalMap.GetRegion(idx))
                 {
-                    verdict = IsCommentLine(content, idx) ? AnchorVerdict.CommentHit : AnchorVerdict.Ok;
-                    return LineOf(content, idx);
+                    case CSharpLexicalMap.Region.Code:
+                        if (firstCodeHit < 0) firstCodeHit = idx;
+                        codeHitCount++;
+                        break;
+                    case CSharpLexicalMap.Region.StringOrChar:
+                        sawString = true;
+                        break;
+                    case CSharpLexicalMap.Region.Comment:
+                        sawComment = true;
+                        break;
                 }
-                searchFrom = end;
+                searchFrom = idx + System.Math.Max(anchor.Length, 1);
             }
-            verdict = firstHit < 0 ? AnchorVerdict.NoHit : AnchorVerdict.OnlyLiteral;
+
+            if (codeHitCount > 0)
+            {
+                verdict = codeHitCount == 1 ? AnchorVerdict.Ok : AnchorVerdict.Ambiguous;
+                return LineOf(content, firstCodeHit);
+            }
+            verdict = firstHit < 0
+                ? AnchorVerdict.NoHit
+                : sawComment && !sawString
+                    ? AnchorVerdict.CommentHit
+                    : AnchorVerdict.OnlyLiteral;
             return firstHit < 0 ? 1 : LineOf(content, firstHit);
         }
 
@@ -150,15 +172,6 @@ namespace Game.Framework.Demo.Core
         {
             line = ResolveAnchor(content, anchor, out AnchorVerdict _);
             return line;
-        }
-
-        // idx 所在行去掉前导空白后是否以 // 起头（单行注释）。
-        private static bool IsCommentLine(string content, int idx)
-        {
-            int ls = content.LastIndexOf('\n', idx > 0 ? idx - 1 : 0) + 1;
-            int i = ls;
-            while (i < idx && (content[i] == ' ' || content[i] == '\t')) i++;
-            return i + 1 < content.Length && content[i] == '/' && content[i + 1] == '/';
         }
 
         // 计算字符偏移所在的 1-based 行号。

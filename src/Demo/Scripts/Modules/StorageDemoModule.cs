@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using System.Threading;
+using Cysharp.Threading.Tasks;
 using Game.Framework.Common;
 using Game.Framework.Context;
 using Game.Framework.Demo.Core;
@@ -24,7 +26,7 @@ namespace Game.Framework.Demo.Modules
         public override int Order => 30;
         public override string Summary =>
             "类型化整存整取的持久化：Save/Load/Exists/Delete/ListKeys；断电安全（原子写+备份回退）框架兜住；" +
-            "版本迁移 = 数据里的 Version 字段 + Load 后 switch。介质与格式两个扩展点可插拔。ADR-0021。";
+            "版本迁移 = 数据里的 Version 字段 + Load 后 switch。介质与格式两个扩展点可插拔，设计见 ADR-0021。";
 
         // 当前存档结构版本：结构性改动时 +1，并在 MigrateIfNeeded 里补一个 case。
         private const int CurrentSaveVersion = 2;
@@ -49,6 +51,10 @@ namespace Game.Framework.Demo.Modules
 
         // demo 自建文件后端的根目录（独立于正式默认目录）；损坏演示要直捣文件，Build 里按同一路径定位。
         private static string DemoRootPath => Path.Combine(Application.persistentDataPath, "storage-demo");
+
+        // 白盒损坏步骤绕过 IStorageUtility 的 FIFO 直接碰文件，因此 profile 全组必须共用额外 gate。
+        // gate 跟模块实例走：UIDocument 重建会重新 Build，但旧队列操作可能仍在响应取消，不能在新 Build 中把互斥状态归零。
+        private readonly DemoOperationGate _profileOperationGate = new();
 
         /// <summary>
         /// 纯 C# 服务的标准注册路径：RegisterOwned = 随 Context Dispose 自动释放（这里即退出 Play / 关闭 demo）。
@@ -85,20 +91,46 @@ namespace Game.Framework.Demo.Modules
 
             void RefreshState() => stateLabel.text = "内存中的对象：" + current;
 
+            // 本章绝大多数 IStorageUtility 操作会进内部 FIFO；唯独“故意写坏文件”是教学用的白盒直写。
+            // 因此所有会碰 profile 的步骤共用这个 gate，避免直写与队列中的 Save/Load/Delete 争抢同一文件。
+            async UniTask RunProfileOperation(
+                CancellationToken ct,
+                Label feedback,
+                Func<CancellationToken, UniTask> operation)
+            {
+                if (!_profileOperationGate.TryEnter(out var lease))
+                {
+                    feedback.text = "另一个 profile 存储步骤正在进行，请稍候。";
+                    return;
+                }
+
+                using (lease)
+                {
+                    await operation(ct);
+                }
+            }
+
             host.AddActionRow("改一点状态（Level+1，仅内存）", () =>
             {
+                if (_profileOperationGate.IsEntered)
+                {
+                    opLabel.text = "profile 正在读写，请等本次快照落盘后再修改内存对象。";
+                    return;
+                }
                 current.Level++;
                 RefreshState();
                 opLabel.text = "内存对象已改，但还没 Save——现在退出，改动就没了。";
             });
-            host.AddActionRow("保存（Save）", async () =>
+            host.AddAsyncActionRow("保存（Save）", chapterCt => RunProfileOperation(chapterCt, opLabel, async ct =>
             {
-                await storage.Save(ProfileKey, current);
+                await storage.Save(ProfileKey, current, ct); // 单次保存按钮：失败由调用方观察
+                ct.ThrowIfCancellationRequested();
                 opLabel.text = $"已保存 ✓ key=「{ProfileKey}」。IO 失败会抛异常（磁盘满 / 权限），业务要能感知。";
-            }, CodeRef.Here("storage.Save(ProfileKey, current)", "保存"));
-            host.AddActionRow("读取（Load）", async () =>
+            }), CodeRef.Here("storage.Save(ProfileKey, current, ct); // 单次保存按钮", "保存"));
+            host.AddAsyncActionRow("读取（Load）", chapterCt => RunProfileOperation(chapterCt, opLabel, async ct =>
             {
-                var loaded = await storage.Load<DemoSaveData>(ProfileKey);
+                var loaded = await storage.Load<DemoSaveData>(ProfileKey, ct); // 常规读取
+                ct.ThrowIfCancellationRequested();
                 if (loaded == null)
                 {
                     opLabel.text = "Load 返回 null——没有可用数据（从未保存 / 已删除 / 主备全坏）。新玩家没有存档是常态，业务按「开新档」处理。";
@@ -109,73 +141,95 @@ namespace Game.Framework.Demo.Modules
                     RefreshState();
                     opLabel.text = "已读取 ✓ 内存对象替换为磁盘上的数据。";
                 }
-            }, CodeRef.Here("storage.Load<DemoSaveData>(ProfileKey)", "读取"));
+            }), CodeRef.Here("storage.Load<DemoSaveData>(ProfileKey, ct); // 常规读取", "读取"));
             host.AddActionRow("Exists（是否有已落盘数据）", () =>
             {
+                if (_profileOperationGate.IsEntered)
+                {
+                    opLabel.text = "profile 正在读写；Exists 是不进队列的同步快照，请等操作完成后再查。";
+                    return;
+                }
                 bool exists = storage.Exists(ProfileKey);
                 opLabel.text = exists ? $"Exists(「{ProfileKey}」) = true ✓（主或备份任一存在）" : $"Exists(「{ProfileKey}」) = false（还没保存过，或已删除）";
             }, CodeRef.Here("storage.Exists(ProfileKey)", "存在性查询"));
-            host.AddActionRow("删除（Delete，含备份）", async () =>
+            host.AddAsyncActionRow("删除（Delete，含备份）", chapterCt => RunProfileOperation(chapterCt, opLabel, async ct =>
             {
-                await storage.Delete(ProfileKey);
+                await storage.Delete(ProfileKey, ct);
+                ct.ThrowIfCancellationRequested();
                 opLabel.text = "已删除 ✓（主 + 备份一并删；删不存在的 key 是 no-op）。";
-            }, CodeRef.Here("storage.Delete(ProfileKey)", "删除"));
+            }), CodeRef.Here("storage.Delete(ProfileKey, ct)", "删除"));
             host.AddNote("失败语义与资源系统同一套：**预期内缺失给 null**（没存过 / 主备全坏——后者已打 error，业务当新档），**系统级失败抛异常**（Save 磁盘满 / key 非法 / Dispose 后调用）。全部操作内部走全局 FIFO 串行——同 key 竞态、读写交错天然消失；**别 fire-and-forget Save**（await 它，`Exists` 是不排队的同步快照）。");
+            host.AddSubNote("FIFO 只覆盖经 `IStorageUtility` 进入的操作；本章“故意写坏文件”是教学白盒、刻意绕过接口，所以另用模块级闸门与 profile 的 Save / Load / Delete 互斥。真实业务不要直碰 `.sav`，自然无需这层补丁。");
 
             // ── 槽位 ──
             host.AddSectionTitle("多槽位：key 分段 + ListKeys 前缀列举");
             var slotsLabel = host.AddValueDisplay("槽位就是 key 的分段约定（save/slot1、save/slot2…），没有专门的槽位 API。");
             slotsLabel.style.whiteSpace = WhiteSpace.Normal;
-            host.AddActionRow("保存到槽位 1（save/slot1）", async () =>
+            host.AddAsyncActionRow("保存到槽位 1（save/slot1）", async ct =>
             {
-                await storage.Save(SlotPrefix + "slot1", current);
+                await storage.Save(SlotPrefix + "slot1", current, ct);
+                ct.ThrowIfCancellationRequested();
                 slotsLabel.text = "已保存到 save/slot1 ✓（内容 = 当前内存对象）";
             }, CodeRef.Here("storage.Save(SlotPrefix + \"slot1\"", "存槽位"));
-            host.AddActionRow("保存到槽位 2（save/slot2）", async () =>
+            host.AddAsyncActionRow("保存到槽位 2（save/slot2）", async ct =>
             {
-                await storage.Save(SlotPrefix + "slot2", current);
+                await storage.Save(SlotPrefix + "slot2", current, ct);
+                ct.ThrowIfCancellationRequested();
                 slotsLabel.text = "已保存到 save/slot2 ✓";
             });
-            host.AddActionRow("列出全部槽位（ListKeys(\"save/\")）", async () =>
+            host.AddAsyncActionRow("列出全部槽位（ListKeys(\"save/\")）", async ct =>
             {
-                var keys = await storage.ListKeys(SlotPrefix);
+                var keys = await storage.ListKeys(SlotPrefix, ct);
+                ct.ThrowIfCancellationRequested();
                 slotsLabel.text = keys.Count == 0
                     ? "没有任何槽位——先点上面「保存到槽位」。"
                     : $"共 {keys.Count} 个槽位：{string.Join("、", keys)}（排序稳定，直接喂存档选择 UI）";
-            }, CodeRef.Here("storage.ListKeys(SlotPrefix)", "前缀列举"));
+            }, CodeRef.Here("storage.ListKeys(SlotPrefix, ct)", "前缀列举"));
 
             // ── 防损坏演示 ──
             host.AddSectionTitle("防损坏：故意写坏主文件，看备份回退");
             var corruptLabel = host.AddValueDisplay("步骤：保存两次（产生上一版备份）→ 损坏主文件 → 读取 → 观察回退。");
             corruptLabel.style.whiteSpace = WhiteSpace.Normal;
-            host.AddActionRow("① 连存两次（Level+1 再存，产生 .bak）", async () =>
+            host.AddAsyncActionRow("① 连存两次（Level+1 再存，产生 .bak）", chapterCt => RunProfileOperation(chapterCt, corruptLabel, async ct =>
             {
-                await storage.Save(ProfileKey, current);
+                await storage.Save(ProfileKey, current, ct);
+                ct.ThrowIfCancellationRequested();
                 current.Level++;
                 RefreshState();
-                await storage.Save(ProfileKey, current);
+                await storage.Save(ProfileKey, current, ct);
+                ct.ThrowIfCancellationRequested();
                 corruptLabel.text = $"已连存两次 ✓ 磁盘上现在有主文件（Level={current.Level}）和上一版备份（Level={current.Level - 1}）。";
-            });
+            }));
             host.AddActionRow("② 模拟损坏主文件（直接写坏 profile.sav）", () =>
             {
-                string main = Path.Combine(DemoRootPath, ProfileKey + ".sav");
-                if (!File.Exists(main)) { corruptLabel.text = "主文件不存在——先点 ①。"; return; }
-                File.WriteAllBytes(main, Encoding.UTF8.GetBytes("### corrupted by demo ###"));
-                corruptLabel.text = "主文件已被写坏 ✗（模拟磁盘错误 / 写一半断电）。现在点 ③ 读取。";
+                if (!_profileOperationGate.TryEnter(out var lease))
+                {
+                    corruptLabel.text = "另一个 profile 存储步骤正在进行，请稍候。";
+                    return;
+                }
+
+                using (lease)
+                {
+                    string main = Path.Combine(DemoRootPath, ProfileKey + ".sav");
+                    if (!File.Exists(main)) { corruptLabel.text = "主文件不存在——先点 ①。"; return; }
+                    File.WriteAllBytes(main, Encoding.UTF8.GetBytes("### corrupted by demo ###"));
+                    corruptLabel.text = "主文件已被写坏 ✗（模拟磁盘错误 / 写一半断电）。现在点 ③ 读取。";
+                }
             }, CodeRef.Here("File.WriteAllBytes(main", "演示用的搞破坏代码"));
-            host.AddActionRow("③ 读取（应回退到上一版备份 + Console 有 warning）", async () =>
+            host.AddAsyncActionRow("③ 读取（应回退到上一版备份 + Console 有 warning）", chapterCt => RunProfileOperation(chapterCt, corruptLabel, async ct =>
             {
-                var loaded = await storage.Load<DemoSaveData>(ProfileKey);
+                var loaded = await storage.Load<DemoSaveData>(ProfileKey, ct); // 损坏演示：允许 provider 回退备份
+                ct.ThrowIfCancellationRequested();
                 corruptLabel.text = loaded == null
                     ? "返回 null——主备都不可用（是不是没先点 ①？首写没有备份）。"
                     : $"回退成功 ✓ 读到的是上一版备份：{loaded}。看 Console：主文件反序列化失败 + 回退 warning。下次 Save 会重建主文件。";
-            }, CodeRef.Here("storage.Load<DemoSaveData>(ProfileKey)", "读取（自动回退）"));
+            }), CodeRef.Here("storage.Load<DemoSaveData>(ProfileKey, ct); // 损坏演示", "读取（自动回退）"));
 #if UNITY_EDITOR
             host.AddActionRow("打开存储目录（看 .sav / .bak 文件，内容是明文 JSON）", () =>
             {
                 Directory.CreateDirectory(DemoRootPath);
                 UnityEditor.EditorUtility.RevealInFinder(DemoRootPath);
-            }, new CodeRef("Assets/Game/Framework/Core/Storage/FileStorageProvider.cs", "ReplaceAtomic", "原子写实现"));
+            }, new CodeRef("Assets/Game/Framework/Core/Storage/FileStorageProvider.cs", "private static void ReplaceAtomic(", "原子写实现"));
 #endif
             host.AddNote("每个 key 至多三个文件：`<key>.sav`（主）/ `.sav.bak`（上一版备份）/ `.sav.tmp`（写入途中）。写路径「临时文件 → 原子替换 → 旧版变备份」保证任何时刻磁盘上都有一份完整可读的数据。默认序列化是带缩进的明文 JSON——`.sav` 可直接用文本编辑器打开调试；体积敏感 / 要混淆就换 serializer（见下方扩展点）。");
 
@@ -183,18 +237,21 @@ namespace Game.Framework.Demo.Modules
             host.AddSectionTitle("版本迁移的姿势：Version 字段 + Load 后 switch（框架不做迁移管线）");
             var migrateLabel = host.AddValueDisplay("默认 JSON 对字段增删天然宽容（新增字段旧档取默认值）——绝大多数演进免迁移；下面演示结构性改动的姿势。");
             migrateLabel.style.whiteSpace = WhiteSpace.Normal;
-            host.AddActionRow("① 写入一份 v1 旧档（没有 PlayerName 语义）", async () =>
+            host.AddAsyncActionRow("① 写入一份 v1 旧档（没有 PlayerName 语义）", async ct =>
             {
                 var legacy = new DemoSaveData { Version = 1, Level = 99, PlayerName = "" };
-                await storage.Save(LegacyKey, legacy);
+                await storage.Save(LegacyKey, legacy, ct);
+                ct.ThrowIfCancellationRequested();
                 migrateLabel.text = $"已写入 v1 旧档 ✓：{legacy}";
             });
-            host.AddActionRow("② 读取 → 迁移 → 回写（MigrateIfNeeded）", async () =>
+            host.AddAsyncActionRow("② 读取 → 迁移 → 回写（MigrateIfNeeded）", async ct =>
             {
-                var data = await storage.Load<DemoSaveData>(LegacyKey);
+                var data = await storage.Load<DemoSaveData>(LegacyKey, ct);
+                ct.ThrowIfCancellationRequested();
                 if (data == null) { migrateLabel.text = "没有旧档——先点 ①。"; return; }
                 bool migrated = MigrateIfNeeded(data);
-                if (migrated) await storage.Save(LegacyKey, data); // 迁移完回写，下次启动不再迁
+                if (migrated) await storage.Save(LegacyKey, data, ct); // 迁移完回写，下次启动不再迁
+                ct.ThrowIfCancellationRequested();
                 migrateLabel.text = migrated
                     ? $"已迁移 ✓ v1 → v{CurrentSaveVersion} 并回写：{data}"
                     : $"无需迁移（已是 v{data.Version}）：{data}";

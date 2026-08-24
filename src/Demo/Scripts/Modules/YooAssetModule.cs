@@ -75,7 +75,7 @@ namespace Game.Framework.Demo.Modules
                 new[] { "`Archive` (AFBP)", "同名 bundle 多文件合并归档", "归档文件", "专用 / 进阶" });
             host.AddSubNote("本框架构建器只用 SBP（`FrameworkAssetBuilder`，不提供 Legacy）；上表列全只为了解 YooAsset 全貌。");
             host.AddSubNote("SBP 内置 shader 包（坑）：YooAsset 窗口构建总要打「内置 shader 包」把引擎内置 shader 去重，但当前 SBP 版本那个任务已 obsolete，遇到「包里没有任何引用内置 shader 的资产」（如纯 Sprite 的样例包）会取空 layout 直接崩。所以构建器把它做成按包开关：真实有材质/UI 的包开（正确去重）、零 shader 的包关。",
-                new CodeRef("Assets/Game/Framework/Build/Editor/FrameworkAssetBuilder.cs", "ResolveBuiltinShaderBundleName", "内置 shader 包开关 + 原委"));
+                new CodeRef("Assets/Game/Framework/Build/Editor/FrameworkAssetBuilder.cs", "private static string ResolveBuiltinShaderBundleName(", "内置 shader 包开关 + 原委"));
 
             // ── 底层流程：EditorSimulate ──
             host.AddSectionTitle("底层流程 · EditorSimulate（开发期）");
@@ -92,11 +92,11 @@ namespace Game.Framework.Demo.Modules
             host.AddStep("②", "部署：产物按「每个包一个子目录」拷到 项目根/`AssetBuild/Deploy`（本地联调）或 CI 上传真实 CDN。`GameRemoteService` 按 {CDN}/{包名}/{文件} 取址。",
                 new CodeRef("Assets/Game/Framework/Asset.Yoo/YooAssetProvider.cs", "class GameRemoteService", "远端取址实现"));
             host.AddStep("③", "起服务：菜单「3. 启动本地 CDN 服务」= python -m http.server（端口取自构建 profile 的 `LocalServePort`，须与场景 `AssetSystemConfigModel.CdnUrls` 第一条端口一致）；生产里这步换成 CDN 厂商。",
-                new CodeRef("Assets/Game/Framework/Build/Editor/AssetBuildMenu.cs", "StartServer", "本地起服务（仅联调）"));
+                new CodeRef("Assets/Game/Framework/Build/Editor/AssetBuildMenu.cs", "public static string StartServer(", "本地起服务（仅联调）"));
             host.AddStep("④", "进 Play(`Host`)：先读 `StreamingAssets` 的 `BuiltinCatalog` → 拉远端 `.version` / 对应清单；远端不可用则激活随包内置版本清单 → 缺的非内置 bundle 按需从 CDN 下载并缓存到 项目根/`AssetBuild/Downloaded/<包>`。",
                 new CodeRef("Assets/Game/Framework/Asset.Yoo/YooAssetProvider.cs", "case AssetPlayMode.Host", "Host 初始化实现"));
             host.AddSubNote("`CdnUrls` 是候选列表：本地联调通常只填 `http://127.0.0.1:8080/`，多条时版本号 / 清单请求会随 YooAsset 的失败计数轮转重试；候选必须是等价镜像。包级「启用按需下载」（默认勾选）只影响 Host 下未缓存 bundle 的 `Load`：取消勾选后直接失败，强制先显式跑下载器。",
-                new CodeRef("Assets/Game/Framework/Core/Asset/AssetSystemConfigModel.cs", "CdnUrls", "运行时 CDN 配置"));
+                new CodeRef("Assets/Game/Framework/Core/Asset/AssetSystemConfigModel.cs", "public IReadOnlyList<string> CdnUrls =>", "运行时 CDN 配置"));
 #if UNITY_EDITOR
             host.AddActionRow("定位 Collector 分包配置（构建按它执行）", () =>
                 DemoEditorNav.PingAsset("Assets/Game/Framework/Settings/AssetBundleCollectorSetting.asset"));
@@ -116,7 +116,7 @@ namespace Game.Framework.Demo.Modules
             host.AddSubNote("加密分构建侧（写加密产物）与运行时侧（读时解密），必须【成对、参数一致】。框架内置「偏移加密」开箱即用：构建配置 `FrameworkAssetBuildProfile.FileOffset` 设 N(>0) → 构建在每个 bundle 头插入 N 字节，挡住直接用 AB 提取工具打开；运行时 `AssetSystemConfigModel.FileOffset` 设【相同】 N → 加载时跳过这 N 字节。两值对不上会读坏所有 bundle。",
                 new CodeRef("Assets/Game/Framework/Build/Editor/GameBundleOffsetEncryptor.cs", "class GameBundleOffsetEncryptor", "构建侧偏移加密器"));
             host.AddSubNote("偏移是【弱】加密（只换文件头、不动 bundle 正文，解密近乎零成本）。要真加密（XOR/AES 等打乱正文）需自实现 `IBundleEncryptor` + 运行时对应解密器，两端一起换——完整步骤（含清单加密、流式解密、密钥/热更注意点）见 `docs/asset-encryption.md`。",
-                new CodeRef("Assets/Game/Framework/Asset.Yoo/YooAssetProvider.cs", "ApplyDecryptor", "运行时侧解密器注册（按 FileOffset）"));
+                new CodeRef("Assets/Game/Framework/Asset.Yoo/YooAssetProvider.cs", "private static void ApplyDecryptor(", "运行时侧解密器注册（按 FileOffset）"));
 
             // ── 操作：本地联调 vs 生产 ──
             host.AddSectionTitle("操作：本地联调 vs 生产构建");

@@ -43,14 +43,14 @@ namespace Game.Framework.Demo.Modules
             {
                 child.Dispose(); // 批量释放子 Bag 里的所有订阅；幂等，重复点无副作用
                 childLabel.text = "子作用域订阅看到：（已释放，停止接收）";
-            }, CodeRef.Here("child.Dispose()", "释放用法"));
+            }, CodeRef.Here("child.Dispose(); // 批量释放子 Bag", "释放用法"));
             host.AddActionRow("重建子作用域", () =>
             {
                 child.Dispose(); // 先确保旧的释放（幂等），避免重复订阅叠加
-                child = Bag.CreateChild();
+                child = Bag.CreateChild(); // 重建已释放的局部作用域
                 // R3 ReactiveProperty 订阅即推当前值，子作用域立刻同步到最新信号
                 child.Subscribe(clock, v => childLabel.text = $"子作用域订阅看到：{v}");
-            }, CodeRef.Here("Bag.CreateChild()", "CreateChild"));
+            }, CodeRef.Here("child = Bag.CreateChild(); // 重建已释放", "CreateChild"));
 
             host.AddNote("点几次「信号 +1」两条一起涨 → 「释放子作用域」后再点，只有父级涨、子级冻住 → 「重建子作用域」后子级订阅立刻补回当前值、恢复跟随。",
                 CodeRef.Here("var child = Bag.CreateChild()", "子作用域用法"));
