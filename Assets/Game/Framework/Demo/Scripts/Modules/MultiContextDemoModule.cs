@@ -19,9 +19,8 @@ namespace Game.Framework.Demo.Modules
         public override int Order => 40;   // 紧跟「View」章：复用它的弹窗 prefab 演示「挂哪儿就用哪个作用域」
 
         public override string Summary =>
-            "GameContext 是一棵作用域树（全局 / 场景 / 局部）。demo 根 Context 就是父级，场景里只加一个子 Context 节点，"
-            + "其子树下另挂一个 MonoScoreModel——同类型就近注册形成覆盖，子级没有的类型回退父级。"
-            + "演示用「View」章的同一个弹窗：挂到哪个子树，就读写哪个作用域的数据，零代码切换。";
+            "GameContext 组成作用域树：同类型依赖就近覆盖，缺失时回退父级。" +
+            "把同一个 View 挂到不同 Context 子树即可读写不同状态，无需改 View 代码。";
 
         public override void Build(DemoModuleHost host)
         {

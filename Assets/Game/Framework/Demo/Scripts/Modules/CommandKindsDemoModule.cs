@@ -31,6 +31,11 @@ namespace Game.Framework.Demo.Modules
             host.AddSectionTitle("定位：Command 的三种形态");
             host.AddNote("同一套 Command 接缝有三态：**同步** `ICommand`（计数器已演）、**异步** `IAsyncCommand`（带取消令牌）、**查询** `ICommand<T>`（返回值）。本章聚焦异步与查询，含查询进阶「只读投影」。");
 
+            host.AddSectionTitle("为什么 View 不直接调用 System");
+            host.AddNote("Command 把所有外部意图收口到一个可观察接缝，日志、测试替身、回放、取消和权限检查都能在这里获得高杠杆，而 View 不必知道逻辑实现。",
+                new CodeRef("Assets/Game/Framework/Core/Systems/ICommandSystem.cs", "interface ICommandSystem", "ICommandSystem · 可替换执行接缝"));
+            host.AddSubNote("代价是多一个小类型。简单操作让 `readonly struct Command` 直接改 Model 即可；规则复用或多步协调时再委托给 System，不需要为了一行赋值强造厚 System。");
+
             // ── 异步（带取消）──
             host.AddSectionTitle("异步（带取消）");
             var statusLabel = host.AddValueDisplay();
@@ -42,11 +47,11 @@ namespace Game.Framework.Demo.Modules
             // 切走本章时取消并释放进行中的任务令牌：异步操作的生命周期也跟着 bag 走，
             // 否则切章后任务仍在后台跑完、往已拆除的 UI 标签写文字（无害但脏）。
             Bag.Add(Disposable.Create(() => { cts?.Cancel(); cts?.Dispose(); cts = null; }));
-            host.AddActionRow("开始任务（1.5 秒）", async () =>
+            host.AddAsyncActionRow("开始任务（1.5 秒）", async chapterCt =>
             {
                 cts?.Cancel();
                 cts?.Dispose();
-                var myCts = new CancellationTokenSource();
+                var myCts = CancellationTokenSource.CreateLinkedTokenSource(chapterCt);
                 cts = myCts;
                 statusLabel.text = "状态：进行中…";
                 try
@@ -54,13 +59,13 @@ namespace Game.Framework.Demo.Modules
                     await this.ExecuteCommandAsync(new RunTaskCommand(), myCts.Token);
                     if (cts == myCts) statusLabel.text = "状态：完成 ✓";
                 }
-                catch (OperationCanceledException)
+                catch (OperationCanceledException) when (!chapterCt.IsCancellationRequested)
                 {
                     if (cts == myCts) statusLabel.text = "状态：已取消";
                 }
             }, CodeRef.Here("struct RunTaskCommand", "RunTaskCommand"));
             host.AddActionRow("取消", () => cts?.Cancel(),
-                CodeRef.Here("catch (OperationCanceledException)", "取消→接住"));
+                CodeRef.Here("statusLabel.text = \"状态：已取消\"", "取消→接住"));
             host.AddNote("异步命令实现 `IAsyncCommand`，签名带 `CancellationToken`；View 用 `await this.ExecuteCommandAsync(...)`。"
                 + "无参重载会自动把 View 销毁 + Context 生命周期令牌链接（任一销毁即取消）；这里另传自定义令牌演示主动取消。",
                 CodeRef.Here("myCts.Token", "自定义令牌"));
@@ -72,20 +77,16 @@ namespace Game.Framework.Demo.Modules
             host.AddSectionTitle("命令组合（子命令）");
             var comboLabel = host.AddValueDisplay();
             comboLabel.text = "组合状态：空闲";
-            host.AddActionRow("连跑两次（异步子命令）", async () =>
+            host.AddAsyncActionRow("连跑两次（异步子命令）", async ct =>
             {
                 comboLabel.text = "组合状态：连跑中…";
-                try
-                {
-                    await this.ExecuteCommandAsync(new RunTaskTwiceCommand());
-                    comboLabel.text = "组合状态：完成 ✓（Done +2）";
-                }
-                catch (OperationCanceledException) { comboLabel.text = "组合状态：已取消"; }
+                await this.ExecuteCommandAsync(new RunTaskTwiceCommand(), ct);
+                comboLabel.text = "组合状态：完成 ✓（Done +2）";
             }, CodeRef.Here("struct RunTaskTwiceCommand", "RunTaskTwiceCommand"));
             host.AddNote("命令内经 `ctx` 组合子命令：同步 `ctx.ExecuteCommand(...)`、异步 `await ctx.ExecuteCommandAsync(cmd, cancellationToken)`"
                 + "（把本命令的取消令牌透传给子命令，取消随父命令级联）。`RunTaskTwiceCommand` 把 `RunTaskCommand` 作为异步子命令 await 两次，"
                 + "上方「已完成」会累加 2。子命令的价值是「能被 CommandSystem 装饰器统一拦截」（日志/回放/事务）；不需要拦截时直接调 System 更直接。",
-                CodeRef.Here("await ctx.ExecuteCommandAsync", "异步子命令组合"));
+                CodeRef.Here("struct RunTaskTwiceCommand", "异步子命令组合"));
 
             // ── 查询（返回值）──
             host.AddSectionTitle("查询（返回值）");

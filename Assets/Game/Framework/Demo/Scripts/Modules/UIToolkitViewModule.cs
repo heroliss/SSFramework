@@ -21,7 +21,8 @@ namespace Game.Framework.Demo.Modules
         public override string Category => "核心";
         public override int Order => 36; // 紧跟「View · MonoViewBase」(35)
         public override string Summary =>
-            "UI Toolkit 视图接入：纯 C# 的 UIToolkitViewBase 与 UGUI 的 MonoViewBase 同享 IView 权限、自动注入、Bag、ExecuteCommand。无需 prefab，代码搭 UI；绑定走 R3 订阅 helper（不引入 UITK 原生 DataBinding）。状态与「View · MonoViewBase」共用同一份 MonoScoreModel。";
+            "纯 C# 的 UIToolkitViewBase 与 UGUI 的 MonoViewBase 共用 IView 权限、Command 和 Bag，只是 Context 绑定方式不同。" +
+            "两章共用同一份 Model，证明核心层不依赖 UI 技术。";
 
         private UIToolkitDemoView _view;
 

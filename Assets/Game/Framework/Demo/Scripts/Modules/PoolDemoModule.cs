@@ -21,7 +21,11 @@ namespace Game.Framework.Demo.Modules
         public override string Category => "能力";
         public override int Order => 10;
         public override string Summary =>
-            "复用实例、省掉反复 new / Instantiate 与 GC。默认 Bag.Rent / Bag.Spawn 借了随 bag 自动归还、不必先建池，个别实例可在同一 bag 上提前归还；要读池内部或配钩子 / 预热时才手动 GetPool。C# 段看复用命中同一实例、OnReturn 清状态，GameObject 段把复用做成可见着色。";
+            "对象池复用实例，减少 new、Instantiate 和 GC；默认用 Bag.Rent/Spawn 自动归还。" +
+            "只有需要预热、钩子或内部指标时才手动 GetPool。";
+
+        // Prewarm / Trim 都会分帧改同一个 GameObject 池；模块级 gate 让 UI 重建后的新按钮也必须等旧操作响应取消并收尾。
+        private readonly DemoOperationGate _poolMaintenanceGate = new();
 
         public override void Build(DemoModuleHost host)
         {
@@ -98,7 +102,7 @@ namespace Game.Framework.Demo.Modules
                 pool.Return(held);            // 触发 OnReturn 清状态后入池
                 held = null;
                 Refresh();
-            }, CodeRef.Here("pool.Return(held)", "归还用法"));
+            }, CodeRef.Here("pool.Return(held);            // 触发 OnReturn", "归还用法"));
 
             host.AddNote("这段先 `GetPool<PooledBox>()` 拿到池、再手动 `Rent` / `Return`，是为了显示「池中空闲 `CountInactive`」并逐个观察复用——**这正是少数需要先建池的场景之一**（其余：配自定义工厂 / `OnRent`·`OnReturn` 钩子、`Prewarm` / `Trim` 运维）。日常借用上面的 `Bag.Rent` 就够，不必先建池。");
             host.AddNote("反复「租借→归还→再租借」：构造次数几乎不涨——池命中复用，省掉了 new 和 GC。");
@@ -207,16 +211,26 @@ namespace Game.Framework.Demo.Modules
                         manual.RemoveAt(last);
                         goPool.Despawn(go);   // 单个归还：自己掌管时机，不像 Bag.Spawn 等到 bag.Dispose 才批量归还
                         RefreshGo();
-                    }, CodeRef.Here("goPool.Despawn(go)", "单个 Despawn 用法"));
-                    host.AddActionRow("预热 +5（分帧 Prewarm）", async () =>
+                    }, CodeRef.Here("goPool.Despawn(go);   // 单个归还", "单个 Despawn 用法"));
+                    host.AddAsyncActionRow("预热 +5（分帧 Prewarm）", async ct =>
                     {
-                        await goPool.Prewarm(5, perFrame: 2);   // 每帧建 2 个，把实例化开销摊到多帧（加载界面期最常用）
-                        RefreshGo();
+                        if (!_poolMaintenanceGate.TryEnter(out var lease)) { poolLabel.text = "另一项池维护操作仍在运行 / 收尾，请稍候。"; return; }
+                        using (lease)
+                        {
+                            await goPool.Prewarm(5, perFrame: 2, ct: ct);   // 每帧建 2 个，把实例化开销摊到多帧（加载界面期最常用）
+                            ct.ThrowIfCancellationRequested();
+                            RefreshGo();
+                        }
                     }, CodeRef.Here("goPool.Prewarm(5", "分帧预热用法"));
-                    host.AddActionRow("收缩到 2（分帧 TrimAsync）", async () =>
+                    host.AddAsyncActionRow("收缩到 2（分帧 TrimAsync）", async ct =>
                     {
-                        await goPool.TrimAsync(2, perFrame: 2);  // 每帧销毁 2 个，避免一次性 Destroy 一批造成卡顿
-                        RefreshGo();
+                        if (!_poolMaintenanceGate.TryEnter(out var lease)) { poolLabel.text = "另一项池维护操作仍在运行 / 收尾，请稍候。"; return; }
+                        using (lease)
+                        {
+                            await goPool.TrimAsync(2, perFrame: 2, ct: ct);  // 每帧销毁 2 个，避免一次性 Destroy 一批造成卡顿
+                            ct.ThrowIfCancellationRequested();
+                            RefreshGo();
+                        }
                     }, CodeRef.Here("goPool.TrimAsync(2", "分帧收缩用法"));
 #if UNITY_EDITOR
                     host.AddActionRow("选中对象池演示容器", () => DemoEditorNav.PingSceneObject(assets.SpawnRoot.gameObject),

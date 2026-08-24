@@ -62,6 +62,10 @@ namespace Game.Framework.Demo.Modules
             host.AddConcept("纯 C#", "逻辑型 / 要热更 / 要单测 / 不需要在 Inspector 配的状态。零 Unity 依赖、原理透明。");
             host.AddConcept("Mono", "需要 Inspector 可视化、策划要填初值或拖引用的状态。自动注册、所见即所得。");
             host.AddNote("两者都用同一个 `RP<T>` 持有状态、都经 Command 读写、都进同一个 `Context`——区别只在“怎么进容器”。");
+
+            host.AddSectionTitle("生命周期边界：更新状态，不热换实例");
+            host.AddNote("Context 构建完成后，把注册进去的 Model 当作该作用域内的稳定身份：运行时更新它的字段与 RP，不替换整个实例。");
+            host.AddSubNote("`[Inject]` 字段和已建立的订阅都保存了旧引用，热换会制造同一作用域里的两份真相。确实需要整套状态替换时，创建新的子 Context 或重建当前 Context，让身份与生命周期一起切换。设计取舍见 `docs/adr/0005-no-runtime-hot-swap-of-layers.md`。");
         }
 
 #if UNITY_EDITOR

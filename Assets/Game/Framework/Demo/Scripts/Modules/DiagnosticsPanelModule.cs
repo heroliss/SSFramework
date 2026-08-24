@@ -19,7 +19,7 @@ namespace Game.Framework.Demo.Modules
         public override int Order => 55;
         public override string Summary =>
             "前面各章「看不见的运行时」其实都可见：Context 作用域树 / 容器注册表 / Command 流水 / Bag 存活趋势，" +
-            "聚合在一个调试器窗口里（左树 · 右明细 · 下流水）。demo 已接好 Command 流水，打开即看。ADR-0026。";
+            "聚合在一个调试器窗口里（左树 · 右明细 · 下流水）。Demo 已接好 Command 流水，打开即看；设计见 ADR-0026。";
 
         public override void Build(DemoModuleHost host)
         {

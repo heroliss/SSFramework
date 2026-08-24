@@ -19,7 +19,8 @@ namespace Game.Framework.Demo.Modules
         public override string Category => "能力";
         public override int Order => 75;
         public override string Summary =>
-            "把活的 UGUI/TMP 以 RenderTexture 桥嵌进 UI Toolkit 内容流：隔离相机把 UGUI 渲进纹理、当 Toolkit 元素显示，能被 ScrollView 裁剪 / 滚动（伪嵌入做不到）。开 Interactive 后指针（点击/悬停/拖拽/滚轮）穿透 RT。一键组件 MonoUGuiEmbed。";
+            "RenderTexture Bridge 把活的 UGUI/TMP 嵌进 UI Toolkit 内容流，因此能随 ScrollView 裁剪和滚动。" +
+            "可选输入转发支持点击、悬停、拖拽和滚轮。";
 
         private const string PanelFile = "Assets/Game/Framework/Demo/Scripts/Modules/Support/DemoUGuiEmbedPanel.cs";
         private const string InteractivePanelFile = "Assets/Game/Framework/Demo/Scripts/Modules/Support/DemoUGuiInteractivePanel.cs";
@@ -34,9 +35,9 @@ namespace Game.Framework.Demo.Modules
             host.AddNote("对比：对象池右栏用的是「浮层对齐」——把 UGUI Canvas 盖在面板之上、每帧对齐占位框。那套简单但**浮在最上层**：不能被裁剪 / 滚动，还要防 `worldBound` 退化成 NaN。两套各有用武之地，按「要不要被 Toolkit 裁剪」选。");
 
             host.AddSectionTitle("三个零件");
-            host.AddConcept("RenderTextureElement", "Toolkit 显示元素：显示一张 RenderTexture，按布局尺寸 × DPI 上报所需像素，不拥有纹理。");
+            host.AddConcept("RenderTextureElement", "Toolkit 显示元素：显示一张 RenderTexture，按布局尺寸 × DPI 上报所需像素；超预算时等比降采样，不拥有纹理。");
             host.AddConcept("CameraTextureRenderer", "相机→RenderTexture 生命周期：按需重建等大纹理、接相机。后端无关（也能拍 3D 道具预览）。");
-            host.AddConcept("MonoUGuiEmbed", "一键组件：给个 UGUI 面板 prefab，自动装配隔离相机 + Canvas + RT，`Bind` 到显示元素即可；开 `Interactive` 转发指针。");
+            host.AddConcept("MonoUGuiEmbed", "一键组件：自动装配隔离相机 + CanvasScaler + Canvas + RT；逻辑布局与采样分辨率分离，开 `Interactive` 可转发指针。");
 
             // ── 只读显示 ──
             var display = FindEmbed("UGuiEmbedHost");
@@ -61,6 +62,11 @@ namespace Game.Framework.Demo.Modules
                     CodeRef.Here("display.Bind(dview)", "Bind 用法"));
                 host.AddSubNote("一键组件与其相机 / RT 装配的完整契约看框架实现（隔离层、刷新模式、透明背景合成都在这）。",
                     new CodeRef(BridgeFile, "class MonoUGuiEmbed", "MonoUGuiEmbed · 框架组件"));
+                int normalTextureBudget = dview.MaxTextureSize;
+                host.AddSubNote("`MaxTextureSize` 是**最长边画质预算**，不是 UGUI 的逻辑布局尺寸：纹理宽高统一降采样，托管 `CanvasScaler` 仍以 Toolkit 内容框排版。调低后只会变糊，宽高比、字体和控件构图都应保持。可用下面两个按钮现场对比。",
+                    new CodeRef("Assets/Game/Framework/UI.Toolkit/RenderTextureElement.cs", "public int MaxTextureSize", "低清等比降采样实现"));
+                host.AddActionRow("切到 128px 低清（应变糊但不变形）", () => dview.MaxTextureSize = 128);
+                host.AddActionRow("恢复正常纹理预算", () => dview.MaxTextureSize = normalTextureBudget);
 #if UNITY_EDITOR
                 host.AddActionRow("选中只读嵌入宿主 UGuiEmbedHost（看 MonoUGuiEmbed 配置）",
                     () => DemoEditorNav.PingSceneObject(display.gameObject));

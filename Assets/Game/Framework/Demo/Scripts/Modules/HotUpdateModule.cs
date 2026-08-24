@@ -20,7 +20,7 @@ namespace Game.Framework.Demo.Modules
         public override int Order => 20;
         public override string Summary =>
             "列表驱动热更范围（框架本体也可热更）+ 薄 Boot 程序集引导。编辑器恒走旁路、真机才走下载加载，" +
-            "本章讲原理与构建分工，校验按钮真实可跑。深度见 framework-guide §15 / ADR-0008。";
+            "本章讲原理与构建分工，校验按钮真实可跑；深度见 framework-guide §15 / ADR-0008。";
 
         public override void Build(DemoModuleHost host)
         {

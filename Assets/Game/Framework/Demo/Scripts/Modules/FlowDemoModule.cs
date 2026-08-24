@@ -82,18 +82,18 @@ namespace Game.Framework.Demo.Modules
 
             // ── 转换按钮 ──
             host.AddSectionTitle("流转：GoTo 是唯一动词");
-            host.AddActionRow("进「启动」（模拟初始化 1s）", () => Go(flow, new BootDemoState(report), report),
+            host.AddAsyncActionRow("进「启动」（模拟初始化 1s）", ct => Go(flow, new BootDemoState(report), report, ct),
                 CodeRef.Here("new BootDemoState(report)", "进入启动"));
-            host.AddActionRow("进「登录」", () => Go(flow, new LoginDemoState(report), report),
+            host.AddAsyncActionRow("进「登录」", ct => Go(flow, new LoginDemoState(report), report, ct),
                 CodeRef.Here("new LoginDemoState(report)", "进入登录"));
-            host.AddActionRow("登录成功 → 「大厅」（注册阶段私有服务）", () => Go(flow, new LobbyDemoState(report), report),
+            host.AddAsyncActionRow("登录成功 → 「大厅」（注册阶段私有服务）", ct => Go(flow, new LobbyDemoState(report), report, ct),
                 CodeRef.Here("new LobbyDemoState(report)", "进入大厅"));
 
             var levelSlider = new SliderInt("关卡号（构造参数）", 1, 10) { value = 3, showInputField = true };
             levelSlider.AddToClassList("demo-slider");
             host.Content.Add(levelSlider);
-            host.AddActionRow("进「战斗」（带关卡号，模拟加载 1.5s）",
-                () => Go(flow, new BattleDemoState(levelSlider.value, report), report),
+            host.AddAsyncActionRow("进「战斗」（带关卡号，模拟加载 1.5s）",
+                ct => Go(flow, new BattleDemoState(levelSlider.value, report), report, ct),
                 CodeRef.Here("new BattleDemoState(levelSlider.value", "带参进入战斗"));
 
             host.AddNote("**观察整棵撤**：进大厅时日志出现「宝箱服务已注册」（`LobbyDemoState.InstallBindings` 里 RegisterOwned 的阶段私有服务）；切去任意别处时出现「宝箱服务已随子 Context 撤除」——没有任何手写清理代码，这就是「每状态一个子 Context」买到的东西。",
@@ -111,25 +111,30 @@ namespace Game.Framework.Demo.Modules
         }
 
         // GoTo 的三种结局都写进日志：完成 / 被更新的 GoTo 顶替（取消）/ Enter 失败（异常冒出，调用方决定去处）。
-        private static void Go(IGameFlow flow, FlowState next, Action<string> report)
+        private static async UniTask Go(
+            IGameFlow flow,
+            FlowState next,
+            Action<string> report,
+            CancellationToken chapterCt)
         {
-            GoAsync(flow, next, report).Forget();
-
-            static async UniTaskVoid GoAsync(IGameFlow flow, FlowState next, Action<string> report)
+            try
             {
-                try
-                {
-                    await flow.GoTo(next);
-                    report($"GoTo {next} 完成 ✓");
-                }
-                catch (OperationCanceledException)
-                {
-                    report($"GoTo {next} 被顶替/取消（最新意图胜）");
-                }
-                catch (Exception e)
-                {
-                    report($"GoTo {next} 失败：{e.Message}");
-                }
+                chapterCt.ThrowIfCancellationRequested();
+                await flow.GoTo(next);
+                chapterCt.ThrowIfCancellationRequested();
+                report($"GoTo {next} 完成 ✓");
+            }
+            catch (OperationCanceledException) when (!chapterCt.IsCancellationRequested)
+            {
+                report($"GoTo {next} 被顶替/取消（最新意图胜）");
+            }
+            catch (OperationCanceledException)
+            {
+                throw; // 切章取消交回 Host 静默收口，不能落进下面的通用失败提示。
+            }
+            catch (Exception e)
+            {
+                report($"GoTo {next} 失败：{e.Message}");
             }
         }
 

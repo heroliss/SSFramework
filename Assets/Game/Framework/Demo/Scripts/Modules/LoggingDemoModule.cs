@@ -24,10 +24,8 @@ namespace Game.Framework.Demo.Modules
         public override string Category => "能力";
         public override int Order => 35;   // 排在「本地存储(30)」「音频(40)」之间，归到基础设施类 Utility
         public override string Summary =>
-            "Log 静态门面：Trace/Info/Warning/Error 分级，广播到一组可插拔 ILogSink（Console / 文件 / 遥测）。" +
-            "两道闸门：全局 Log.MinLevel（总闸）+ 每个 sink 的 MinLevel（分闸）。" +
-            "Trace 走插值处理器——没放行时连字符串都不拼；CaptureUnityLogs 把引擎报错 / 第三方 / 裸 Debug.Log 也灌进 sink；" +
-            "落文件零依赖（带会话头 + error 堆栈）。ZLogger 客户端刻意不引。ADR-0034。";
+            "Log 提供统一分级门面，将记录广播到 Console、文件或遥测 sink；全局与 sink 两级过滤，Trace 未启用时不构造消息。" +
+            "它还能接管 Unity/第三方日志并零依赖落盘，设计权衡见 ADR-0034。";
 
         // 本章发出的日志统一打这个 category，便于和框架内部日志区分（也演示 category 的用法）。
         private const string DemoCategory = "Demo";
@@ -210,9 +208,9 @@ namespace Game.Framework.Demo.Modules
             {
                 if (capturing == null) return;
                 Log.RemoveSink(capturing);
-                capturing = null;
+                capturing = null; // 操作按钮主动拆除
                 RefreshSink();
-            }, CodeRef.Here("Log.RemoveSink(capturing)", "RemoveSink"));
+            }, CodeRef.Here("capturing = null; // 操作按钮主动拆除", "RemoveSink"));
             host.AddNote("`ILogSink` 就一个 `Log(in LogEntry)` + 一个 `MinLevel`。`AddSink` 后同一条日志广播到每个 sink；每个 sink 按自己的 `MinLevel` 独立过滤——可让 Console 只留 `Warning+`、细粒度进文件。测试静音 / 捕获断言就靠 `ClearSinks()` + 自装一个收集 sink（见 `LoggingTests`）。",
                 new CodeRef("Assets/Game/Framework/Core/Logging/ILogSink.cs", "public interface ILogSink", "sink 接缝契约"));
             host.AddSubNote("⚠ `ILogSink.Log` 可能被**后台线程**调用（如网络接收循环记日志）：持可变状态（文件句柄 / 缓冲）的 sink 要自行加锁（见 `FileLogSink`）。门面对 sink 列表用 copy-on-write，广播本身无锁。",
@@ -245,9 +243,9 @@ namespace Game.Framework.Demo.Modules
             {
                 if (!capturingUnity) return;
                 Log.CaptureUnityLogs(false);
-                capturingUnity = false;
+                capturingUnity = false; // 操作按钮取消接管
                 RefreshUnity();
-            }, CodeRef.Here("Log.CaptureUnityLogs(false)", "取消接管"));
+            }, CodeRef.Here("capturingUnity = false; // 操作按钮取消接管", "取消接管"));
 
             host.AddNote("`Log.CaptureUnityLogs()` 订阅 `Application.logMessageReceivedThreaded`，把 **Unity 自己的日志流**灌进 sink：不只是你的裸 `Debug.Log`，还包括**引擎级报错**（NullReferenceException、shader 错误）和**第三方包**（YooAsset / UniTask / R3）内部的日志。**一行调用点都不用改**，全量日志自动落盘 / 上报。不开的话，`FileLogSink` 只收显式调用门面的日志——而玩家崩溃时最该捞到的那条，恰恰不在里面。",
                 new CodeRef("Assets/Game/Framework/Core/Logging/UnityLogBridge.cs", "internal static class UnityLogBridge", "Unity 日志流桥"));
@@ -276,9 +274,9 @@ namespace Game.Framework.Demo.Modules
                 if (fileSink == null) return;
                 Log.RemoveSink(fileSink);
                 fileSink.Dispose();
-                fileSink = null;
+                fileSink = null; // 操作按钮关闭句柄后清引用
                 RefreshFile();
-            }, CodeRef.Here("fileSink.Dispose()", "拆文件 sink"));
+            }, CodeRef.Here("fileSink = null; // 操作按钮关闭句柄", "拆文件 sink"));
 #if UNITY_EDITOR
             host.AddActionRow("打开日志目录（看 demo.log）", () =>
             {

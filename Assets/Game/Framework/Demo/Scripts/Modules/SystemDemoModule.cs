@@ -10,7 +10,7 @@ namespace Game.Framework.Demo.Modules
 {
     /// <summary>
     /// 核心·System：演示“逻辑归位”——一步操作 Command 直接改 Model 就够；带规则的逻辑抽到 System，
-    /// Command 退化成只表达意图、调用 System。这才是推荐形态，别把 Command→Model 直连当终态。
+    /// Command 退化成只表达意图、调用 System。是否引入 System 取决于规则是否值得复用和独立演进。
     /// </summary>
     public sealed class SystemDemoModule : DemoModuleBase
     {
@@ -31,7 +31,7 @@ namespace Game.Framework.Demo.Modules
         {
             // ── 定位 ──
             host.AddSectionTitle("定位：带规则的逻辑从 Command 归位到 System");
-            host.AddNote("一步操作（赚金币）Command 直接改 Model 就够；带规则的操作（够钱才扣、扣钱再加道具）把逻辑抽到 `System`——一类相关逻辑聚成的、能独立运转的「系统」，Command 只说「我要买」、调用它。下面两个按钮就是这两种形态的对照。");
+            host.AddNote("当一次操作开始包含校验、多步状态变化或多个入口时，把规则散落在 Command 会产生重复与不一致。`System` 把这组业务不变量收进一个可复用实现，下面用赚金币和购买药水对照两种边界。");
 
             // ── 动手试 ──
             host.AddSectionTitle("动手试：一步操作 vs 带规则操作");
@@ -58,7 +58,14 @@ namespace Game.Framework.Demo.Modules
             host.AddConcept("意图 vs 逻辑", "Command 表达“要做什么”（薄入口），System 实现“怎么做”（厚逻辑）。逻辑从 Command 抽到 System，分工才清晰。");
             host.AddConcept("两头设计、Command 对接", "两层常从不同方向长出来：Command 从视图层倒推——View 要能做哪些操作，就声明哪些 Command（内容可以先留空占位）；"
                 + "System 从逻辑自身的内聚出发——把相关规则聚成能独立自治、不关心谁来调的系统。两头各自定好，最后用 Command 收口对接：向下整理参数调 System、向上取数适配回 View。视图与逻辑因此能并行开发、互不耦合。");
-            host.AddNote("说明：这个 `ShopSystem` 无状态，直接用传入的 `ctx` 取 Model 最省；需要持有状态的 System 可走 Mono（`MonoSystemBase`）或绑定 Context，改用 `this.GetModel`。");
+            host.AddNote("`IShopSystem` 只暴露业务语义 `TryBuyPotion()`；WalletModel 是实现细节，由 Context 构建时注入 `ShopSystem`。调用者无需知道容器、Context 或数据存放方式。",
+                CodeRef.Here("[Inject] private WalletModel", "实现侧注入依赖"));
+            host.AddSubNote("这是一条窄接口、厚实现的接缝：以后把钱包改成服务端校验或加入库存规则，Command 仍只调用同一个业务动作。模块深度来自隐藏变化，而不是暴露更多框架类型。");
+
+            host.AddSectionTitle("什么时候不需要 System");
+            host.AddConcept("保留在 Command", "一次赋值、自增、重置等原子操作，没有跨对象不变量，也不会被其他入口复用。");
+            host.AddConcept("提取到 System", "规则包含校验与多步提交、会被多个 Command/流程调用，或需要替换实现与独立测试。");
+            host.AddTip("先按业务复杂度选择最浅结构，再在规则出现时加深模块；不要把“所有写入都必须经过 System”当成仪式。");
         }
     }
 
@@ -69,24 +76,24 @@ namespace Game.Framework.Demo.Modules
         public readonly RP<int> Potions = new(0);
     }
 
-    /// <summary>商店逻辑层：带规则的操作放这里供 Command 调用。本例无状态，通过传入的 ctx 访问 Model。</summary>
+    /// <summary>商店业务接口：只暴露领域动作，不泄漏 Command 的编排上下文或数据存放方式。</summary>
     public interface IShopSystem : ISystem
     {
-        bool TryBuyPotion(ICommandContext ctx);
+        bool TryBuyPotion();
     }
 
-    /// <summary>商店逻辑实现：购买药水的多步规则。</summary>
+    /// <summary>商店逻辑实现：购买药水的多步规则；钱包依赖在 Context 构建时注入。</summary>
     public sealed class ShopSystem : IShopSystem
     {
         public const int PotionPrice = 50;
+        [Inject] private WalletModel _wallet;
 
         // 购买规则：够钱才扣、扣钱后加一瓶药水。多步逻辑——正是该放 System 的东西，而不是散在各个 Command 里。
-        public bool TryBuyPotion(ICommandContext ctx)
+        public bool TryBuyPotion()
         {
-            var wallet = ctx.GetModel<WalletModel>();
-            if (wallet.Gold.Value < PotionPrice) return false;
-            wallet.Gold.Value -= PotionPrice;
-            wallet.Potions.Value++;
+            if (_wallet.Gold.Value < PotionPrice) return false;
+            _wallet.Gold.Value -= PotionPrice;
+            _wallet.Potions.Value++;
             return true;
         }
     }
@@ -100,7 +107,7 @@ namespace Game.Framework.Demo.Modules
     /// <summary>购买药水：Command 只表达意图，逻辑在 ShopSystem（推荐形态）。</summary>
     public readonly struct BuyPotionCommand : ICommand
     {
-        public void Execute(ICommandContext ctx) => ctx.GetSystem<IShopSystem>().TryBuyPotion(ctx);
+        public void Execute(ICommandContext ctx) => ctx.GetSystem<IShopSystem>().TryBuyPotion();
     }
 
     /// <summary>只读查询：金币流。</summary>

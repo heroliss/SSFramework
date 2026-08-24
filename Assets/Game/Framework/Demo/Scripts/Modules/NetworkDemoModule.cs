@@ -23,8 +23,8 @@ namespace Game.Framework.Demo.Modules
         public override string Category => "能力";
         public override int Order => 95;
         public override string Summary =>
-            "消息建模双轨：请求-响应 = UniTask 返回值（Get/Post，非 2xx 抛 NetworkException）；服务器推送 = 转框架 Event" +
-            "（RegisterPush 映射，Bag.Subscribe 消费）。传输/序列化双接缝可插拔，默认 UnityWebRequest + ClientWebSocket + JSON。ADR-0028。";
+            "请求-响应用 UniTask 返回值建模，服务器推送映射为 Framework Event；非 2xx 抛 NetworkException。" +
+            "传输与序列化是独立接缝，默认适配器为 UnityWebRequest、ClientWebSocket 和 JSON。";
 
         // ── 演示用消息类型（请求/响应是 class；推送事件是 [Serializable] struct + 公共字段）──
 
@@ -42,19 +42,29 @@ namespace Game.Framework.Demo.Modules
 
         /// <summary>
         /// 注册三个网络服务 + 推送映射（都在 InstallBindings 做一次）：
-        /// 服务器构造即启动、拿到实际端口 → 用它构造 HttpUtility（3s 超时便于演示超时）；
+        /// 服务器在 Build 事务内 Eager 启动、拿到实际端口 → 用它构造 HttpUtility（3s 超时便于演示超时）；
         /// WebSocketUtility 的 RegisterPush 在这里配好（连接前后均可注册，放这里避免 Build 重入时重复注册抛异常）。
         /// </summary>
         public override void InstallBindings(ContainerBuilder builder)
         {
-            var server = new DemoGameServer();
-            builder.RegisterOwned(server, typeof(IDemoGameServer));
-            builder.RegisterOwned(new HttpUtility(server.HttpBaseUrl, defaultTimeoutSeconds: 3f), typeof(IHttpUtility));
+            // 有外部副作用的监听器放进 Eager owned factory：构造发生在 Build 提交事务内，后续任一
+            // Eager/Context 初始化失败都由 Container 自动回滚，不会在 InstallBindings 阶段留下后台服务。
+            builder.RegisterOwnedFactory(
+                _ => new DemoGameServer(),
+                Resolution.Eager,
+                typeof(IDemoGameServer));
+            builder.RegisterOwnedFactory(
+                container => new HttpUtility(
+                    ((IDemoGameServer)container.Resolve(typeof(IDemoGameServer))).HttpBaseUrl,
+                    defaultTimeoutSeconds: 3f),
+                Resolution.Eager,
+                typeof(IHttpUtility));
 
             var ws = new WebSocketUtility();
+            // 先交给 Builder 暂管再做配置：若映射配置抛异常，using Builder 也能释放半配置实例。
+            builder.RegisterOwned(ws, typeof(IWebSocketUtility));
             ws.RegisterPush<ServerTickEvent>("tick"); // 服务器周期推送
             ws.RegisterPush<ChatEchoEvent>("chat");   // 服务器回显客户端消息
-            builder.RegisterOwned(ws, typeof(IWebSocketUtility));
         }
 
         public override void Build(DemoModuleHost host)
@@ -106,11 +116,14 @@ namespace Game.Framework.Demo.Modules
 
             string token = null; // 登录拿到的 token，被下面几个闭包共享
 
-            host.AddActionRow("POST /api/login（登录拿 token）", async () =>
+            host.AddAsyncActionRow("POST /api/login（登录拿 token）", async ct =>
             {
                 try
                 {
-                    var resp = await http.Post<LoginReq, LoginResp>("api/login", new LoginReq { User = "hero", Password = "pw" });
+                    var resp = await http.Post<LoginReq, LoginResp>(
+                        "api/login",
+                        new LoginReq { User = "hero", Password = "pw" },
+                        ct);
                     token = resp.Token;
                     httpLabel.text = $"登录成功 ✓ token={resp.Token}，playerId={resp.PlayerId}。现在可点「设置 token 头」。";
                 }
@@ -124,11 +137,11 @@ namespace Game.Framework.Demo.Modules
                 httpLabel.text = "已设置 Authorization 默认头 ✓ 之后每个请求都自动带上（典型 auth 姿势）。";
             }, CodeRef.Here("http.SetHeader(\"Authorization\"", "默认头"));
 
-            host.AddActionRow("GET /api/leaderboard?count=3（需 token，缺则 401）", async () =>
+            host.AddAsyncActionRow("GET /api/leaderboard?count=3（需 token，缺则 401）", async ct =>
             {
                 try
                 {
-                    var board = await http.Get<Leaderboard>("api/leaderboard?count=3");
+                    var board = await http.Get<Leaderboard>("api/leaderboard?count=3", ct);
                     httpLabel.text = "排行榜 ✓：" + string.Join("、", board.entries);
                 }
                 catch (NetworkException e) when (e.Kind == NetworkErrorKind.HttpError && e.StatusCode == 401)
@@ -136,27 +149,27 @@ namespace Game.Framework.Demo.Modules
                     httpLabel.text = "401 未授权：还没设 Authorization 头。这演示了「预期内的业务错误用 catch...when 过滤 StatusCode」，框架不把状态码折叠成 null。";
                 }
                 catch (NetworkException e) { httpLabel.text = $"失败：{e.Kind} {e.StatusCode}"; }
-            }, CodeRef.Here("http.Get<Leaderboard>", "Get + query"));
+            }, CodeRef.Here("var board = await http.Get<Leaderboard>", "Get + query"));
 
-            host.AddActionRow("GET /api/fail?code=500（非 2xx 抛 HttpError）", async () =>
+            host.AddAsyncActionRow("GET /api/fail?code=500（非 2xx 抛 HttpError）", async ct =>
             {
                 try
                 {
-                    await http.Get<Leaderboard>("api/fail?code=500");
+                    await http.Get<Leaderboard>("api/fail?code=500", ct);
                     httpLabel.text = "不该到这（500 应抛）。";
                 }
                 catch (NetworkException e)
                 {
                     httpLabel.text = $"HttpError ✓ Kind={e.Kind}，StatusCode={e.StatusCode}，Body={e.ResponseBody}。";
                 }
-            }, CodeRef.Here("api/fail?code=500", "非 2xx"));
+            }, CodeRef.Here("await http.Get<Leaderboard>(\"api/fail?code=500\", ct)", "非 2xx"));
 
-            host.AddActionRow("GET /api/slow?ms=6000（3s 默认超时触发）", async () =>
+            host.AddAsyncActionRow("GET /api/slow?ms=6000（3s 默认超时触发）", async ct =>
             {
                 httpLabel.text = "请求中……（服务器要 6s，客户端 3s 超时会先触发）";
                 try
                 {
-                    await http.Get<SlowResp>("api/slow?ms=6000");
+                    await http.Get<SlowResp>("api/slow?ms=6000", ct);
                     httpLabel.text = "返回了（没超时？）。";
                 }
                 catch (NetworkException e) when (e.Kind == NetworkErrorKind.Timeout)
@@ -164,14 +177,11 @@ namespace Game.Framework.Demo.Modules
                     httpLabel.text = "Timeout ✓ 内部超时（网络环境问题，可提示玩家重试）——与外部取消严格区分。";
                 }
                 catch (NetworkException e) { httpLabel.text = $"失败：{e.Kind}"; }
-            }, CodeRef.Here("api/slow?ms=6000", "超时"));
+            }, CodeRef.Here("await http.Get<SlowResp>(\"api/slow?ms=6000\", ct)", "超时"));
 
-            CancellationTokenSource slowCts = null;
-            host.AddActionRow("GET /api/slow + 1.5s 后手动取消（→ OCE，不是 Timeout）", async () =>
+            host.AddAsyncActionRow("GET /api/slow + 1.5s 后手动取消（→ OCE，不是 Timeout）", async ct =>
             {
-                slowCts?.Cancel();
-                slowCts = new CancellationTokenSource();
-                var localCts = slowCts;
+                using var localCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 localCts.CancelAfter(1500);
                 httpLabel.text = "请求中……1.5s 后自动取消";
                 try
@@ -179,7 +189,7 @@ namespace Game.Framework.Demo.Modules
                     await http.Get<SlowResp>("api/slow?ms=6000", localCts.Token);
                     httpLabel.text = "返回了（没被取消？）。";
                 }
-                catch (OperationCanceledException)
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
                 {
                     httpLabel.text = "已取消 ✓ 外部 ct 取消 = OperationCanceledException（调用方意图），不包装成 NetworkException——与超时区分开。";
                 }
@@ -208,32 +218,32 @@ namespace Game.Framework.Demo.Modules
             Bag.Subscribe<ChatEchoEvent>(e => wsLabel.text = $"收到服务器回显：\"{e.Value}\"——客户端 Send 的 chat 被服务器原样推回、映射成事件。");
             Bag.Subscribe<WebSocketClosedEvent>(e => wsLabel.text = $"连接关闭：ByUser={e.ByUser}，原因「{e.Reason}」。ByUser=false 时业务可据此触发重连。");
 
-            host.AddActionRow("Connect（连接内嵌 WS 服务器）", async () =>
+            host.AddAsyncActionRow("Connect（连接内嵌 WS 服务器）", async ct =>
             {
                 try
                 {
-                    await ws.Connect(server.WsUrl);
+                    await ws.Connect(server.WsUrl, ct);
                     wsLabel.text = "已连接 ✓ 稍等 2s 就能看到第一条 tick 推送。默认 ClientWebSocket 直连（Proxy=null，绕系统代理）。";
                 }
                 catch (InvalidOperationException) { wsLabel.text = "已在连接中或已连接——先 Disconnect。"; }
                 catch (NetworkException e) { wsLabel.text = $"连接失败：{e.Kind} — {e.Message}（服务器停了？）"; }
-            }, CodeRef.Here("ws.Connect(server.WsUrl)", "建连"));
+            }, CodeRef.Here("ws.Connect(server.WsUrl, ct)", "建连"));
 
             int sendSeq = 0;
-            host.AddActionRow("Send chat（服务器回显 → 事件）", async () =>
+            host.AddAsyncActionRow("Send chat（服务器回显 → 事件）", async ct =>
             {
                 try
                 {
-                    await ws.Send("chat", new ChatOutbound { Value = $"hello #{++sendSeq}" });
+                    await ws.Send("chat", new ChatOutbound { Value = $"hello #{++sendSeq}" }, ct);
                     wsLabel.text = $"已发送 chat「hello #{sendSeq}」，等服务器回显……";
                 }
                 catch (NetworkException e) { wsLabel.text = $"发送失败：{e.Kind}（未连接？先 Connect）。"; }
             }, CodeRef.Here("ws.Send(\"chat\"", "发送"));
 
-            host.AddActionRow("Disconnect（主动断开 → ClosedEvent ByUser:true）", async () =>
+            host.AddAsyncActionRow("Disconnect（主动断开 → ClosedEvent ByUser:true）", async ct =>
             {
-                await ws.Disconnect();
-            }, CodeRef.Here("ws.Disconnect()", "断开"));
+                await ws.Disconnect(ct);
+            }, CodeRef.Here("ws.Disconnect(ct)", "断开"));
 
             host.AddSubNote("推送事件类型是 `[Serializable] struct + 公共字段`（`ServerTickEvent { public int count; }`）——JsonUtility 只认字段，别用 record 位置参数（那是属性、反序列化不出来）。映射用 `RegisterPush<TEvent>(\"type\")`，本章在 InstallBindings 里配好。",
                 CodeRef.Here("ws.RegisterPush<ServerTickEvent>", "推送映射"));
