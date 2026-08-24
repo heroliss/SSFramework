@@ -24,7 +24,7 @@
 | ADR | 0001–0037；0035 为 Container Factory 所有权，0036 为 AI PlayMode 预检，0037 为 UI Loading 所有权 |
 | 测试 | PlayMode 418 + EditMode 91，全绿；交互式 MCP 先预检，命令行入口默认 EditMode + PlayMode |
 | Demo CodeRef | 291 处可打开源码跳转全部精准命中；注释、文案与外部文档路径不计入源码构造点 |
-| AI 常驻规则预算 | 最深 AGENTS 链 25.58 KiB，低于 Codex 默认 32 KiB 项目指令上限 |
+| AI 常驻规则预算 | 最深 AGENTS 链 28.37 KiB，低于 Codex 默认 32 KiB 项目指令上限；新增常驻规则前需继续评估外移空间 |
 
 ## 已完成的高优先级闭环
 
