@@ -23,7 +23,7 @@ Cysharp 的 **ObservableCollections** 正是这个原语（与已用的 UniTask 
 Model 持有集合就用 `ObservableList<T>`（如 `RP<T>` 之于单值）；只读暴露用它实现的 `IReadOnlyObservableList<T>`（如 `ReadOnlyReactiveProperty<T>` 之于单值——只读、仍可观察，零分配直接返回）。查询 Command 返回 `IReadOnlyObservableList<T>`，View 增量绑定。
 
 - **不做 `OL<T>` 别名**：`RP<T>` 存在是因为 `SerializableReactiveProperty<T>` 又长又要 Inspector 序列化；`ObservableList<T>` 名字本就短、且不是 Unity 可序列化类型，加别名是纯噪音。
-- **不包装成框架接口**：像 R3 的 `Observable` 一样直接用库类型。框架的贡献是**绑定层 + 约定 + 文档**，不是把集合再套一层壳。业务代码经 NuGet DLL 的 auto-reference 直接 `using ObservableCollections;`，框架内核零改动。
+- **不包装成框架接口**：像 R3 的 `Observable` 一样直接用库类型。框架的贡献是**绑定层 + 约定 + 文档**，不是把集合再套一层壳。业务代码直接 `using ObservableCollections;`，框架内核零改动；因此第三方类型在 Model 侧是显式依赖，`Bag.BindList` 隐藏的是增量索引与逐行生命周期 Implementation，并没有假装隔离整个库。
 
 ### 2. 后端中立的增量绑定引擎放共享 UI 程序集（`Game.Framework.UI`）
 
@@ -51,8 +51,10 @@ Model 持有集合就用 `ObservableList<T>`（如 `RP<T>` 之于单值）；只
 - 集合状态有了与单值 `RP<T>` 对称的原语（`ObservableList<T>`）与绑定（`Bag.BindList` ↔ `Bag.BindText`），一套心智覆盖「单值」与「集合」两类响应式状态。
 - 内核零改动、不新增内核依赖；ObservableCollections 只在 UI 层与业务层出现，守住范式无关内核不变量。绑定引擎在 `Game.Framework.UI`（热更列表内），两后端共享。
 - 增量维护逻辑单点、纯 C# 可测（`ReactiveListBindingTests` 用引用式假容器覆盖种入 / 增删移换 / 换值 / Reset / 解绑 + 每项子 bag 释放），不依赖场景与帧推进。
-- Test 程序集 `overrideReferences:true`，显式补了 `ObservableCollections.dll` + `ObservableCollections.R3.dll` 两条 precompiledReferences；运行时 UI 程序集 `overrideReferences:false` 经 auto-reference 自动可见。
+- Test 程序集 `overrideReferences:true`，显式补了 `ObservableCollections.dll` + `ObservableCollections.R3.dll` 两条 precompiledReferences；运行时共享 UI asmdef 也显式声明两者，两个后端为公开绑定签名显式声明 `ObservableCollections`，不再借 auto-reference 隐藏依赖。
 - 五件套齐：本 ADR / 引擎（`Game.Framework.UI/ReactiveListBinding.cs`）+ 双后端适配 / 测试（`ReactiveListBindingTests`）/ demo「响应式列表 · 集合绑定」章（`Modules/ReactiveListModule.cs`）/ guide §24 + AGENTS #31。
-- ObservableCollections 从「roadmap 候选」变成「已融入、藏在 `Bag.BindList` 后」——延续 `IAssetProvider` 隔离 YooAsset 的一贯做法。
+- ObservableCollections 从「roadmap 候选」变成已融入依赖：Model 显式使用集合类型，`Bag.BindList` 收口增量维护与逐行生命周期 Implementation；不再用“整个库都被隐藏”描述这条依赖。
+
+**2026-08-24 模块审计补充：**共享引擎当前位于 `Game.Framework.UI`，所以任何窗口框架消费方都会在编译闭包中看到 ObservableCollections，即使没有调用 `BindList`；两个后端 asmdef 也显式声明各自公开签名里的集合类型。该耦合是可见且可测的，不再借 NuGet auto-reference 隐藏。是否进一步拆成可选 Module，须以目标平台 Player BuildReport 证明收益；编辑器 `SSFramework/诊断/模块裁剪审计` 先提供 Core-only / 单后端 / 完整 / 当前热更档位的原始托管闭包与删除测试，避免为理论体积提前制造浅 Module。
 
 **2026-08-24 验证补充：**Demo 为每个真实行 View 增加稳定实例身份，并从 item factory 与 rowBag Dispose 两个 Seam 采集创建 / 释放 / 存活计数；画面可直接观察 Move 复用同一行、Replace 仅重造一槽。EditMode 契约同时断言真实 `VisualElement` 引用、父子层级与 rowBag 释放状态，避免“列表结果正确”掩盖整表重建或逐行生命周期错误。

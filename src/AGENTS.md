@@ -9,6 +9,7 @@
 - `Game.Framework.Boot` 是 AOT 薄壳，永不引用任何 `Game.Framework*` Runtime 程序集。
 - Runtime 与 Editor 分离。Drawer/EditorWindow 放 Editor asmdef；重第三方 Editor 依赖建立内聚的独立 Module，避免污染通用 Editor。
 - Core 与热更新 Runtime Module 保持 `autoReferenced:false`。新增/移动程序集时同步 `docs/framework-module-map.md`、热更清单、Demo/Test asmdef，并执行完整测试。
+- Runtime Module 直接使用的外部程序集必须在 asmdef `references` / `precompiledReferences` 中显式可见；不能因为插件 DLL 的 auto-reference 恰好让编译通过就隐藏依赖。改引用后运行 `SSFramework/诊断/模块裁剪审计`，核对真实元数据闭包与删除测试。
 - 第三方库不直接修改；依赖行为通过 Adapter 封装，并在边界注释记录版本相关假设与失败语义。
 
 ## 公共 API 与注释

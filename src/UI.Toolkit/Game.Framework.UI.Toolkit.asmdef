@@ -6,7 +6,8 @@
         "Game.Framework.UI",
         "UniTask",
         "R3",
-        "R3.Unity"
+        "R3.Unity",
+        "ObservableCollections"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

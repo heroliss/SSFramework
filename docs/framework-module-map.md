@@ -10,6 +10,13 @@
 4. Editor Implementation 与 Runtime 分离；重第三方 Editor 依赖放进独立 Editor Module，不污染通用 `Game.Framework.Editor`。
 5. 运行时内核和可热更新 Module 保持 `autoReferenced:false`；消费方通过 asmdef 显式声明依赖。
 6. 删除测试：移除一个可选 Module 目录后，只应失去该能力及其直接消费方，不应迫使核心 Module 修改源码。
+7. 外部程序集的直接依赖必须在 asmdef 显式可见，即使插件 DLL 的 auto-reference 已让代码偶然编译通过；否则 UPM 声明、删除测试与 AI 导航都看不到真实代价。
+
+## 轻量组合档位与证据口径
+
+菜单 `SSFramework/诊断/模块裁剪审计` 会读取当前目标平台的 Player 编译图，再读取已编译 DLL 的**真实元数据引用**，给出 Core-only、Core + UGUI、Core + Toolkit、全部 Runtime Module 和当前 HybridCLR 热更档位的闭包。它同时机器执行三条删除测试：Core 不带 UI、UGUI 不带 Toolkit/Bridge、Toolkit 不带 UGUI/Bridge。
+
+报告里的大小是链接、AOT、压缩前的原始托管 DLL，只用于发现“一个很小的 Adapter 意外拖入很大的外部依赖”以及比较组合；它不是最终包体承诺。WebGL、小游戏等强体积约束项目仍应对真实目标平台出 Player BuildReport，再决定是否值得增加程序集粒度。
 
 ## 程序集地图
 
@@ -24,11 +31,11 @@
 | `Game.Framework.Fonts.Editor` | `Fonts/Editor/` | 常用字集扫描与生成。 | 可独立删除，不影响运行时字体链。 |
 | `Game.Framework.Network.Proto` | `Network.Proto/` | Google.Protobuf Adapter，把生成的 `IMessage` 接到内核网络 Seam。 | 删除后 JSON 与内核手写 Protobuf 仍可用。 |
 | `Game.Framework.Network.Proto.Editor` | `Network.Proto/Editor/` | protoc Profile、代码生成与总览入口。 | 可与 Proto Runtime 一起删除，Core 不改。 |
-| `Game.Framework.UI` | `UI/` | 渲染中立窗口编排、层级/栈/模态/过渡及后端 Interface。 | 删除后失去窗口框架，但 Core MVCS 仍可用。 |
-| `Game.Framework.UI.UGui` | `UI.UGui/` | UGUI Window/View Adapter。 | 删除后 Toolkit 后端与 UI Core 仍可编译。 |
+| `Game.Framework.UI` | `UI/` | 渲染中立窗口编排、层级/栈/模态/过渡及后端 Interface；当前也承载 ObservableCollections 增量列表引擎，因此该第三方依赖会随 UI Core 进入托管闭包。 | 删除后失去窗口框架与列表绑定引擎，但 Core MVCS 仍可用。 |
+| `Game.Framework.UI.UGui` | `UI.UGui/` | UGUI Window/View Adapter，含 `Transform → GameObject` 的 `Bag.BindList` Adapter。 | 删除后 Toolkit 后端与 UI Core 仍可编译。 |
 | `Game.Framework.UI.UGui.Editor` | `UI.UGui/Editor/` | UGUI 节点绑定生成等 Editor 工具。 | 可独立删除，不影响 UGUI Runtime 手写接线。 |
 | `Game.Framework.UI.UGui.Editor.Tests` | `UI.UGui/Editor/Tests/` | UGUI 绑定 Inspector、Popup 与 Overlay 的 EditMode 布局/偏好契约。 | 随 UGUI Editor Module 删除；不进入玩家构建。 |
-| `Game.Framework.UI.Toolkit` | `UI.Toolkit/` | UI Toolkit Window/View Adapter 与 RenderTexture 显示原语。 | 删除后 UGUI 后端与 UI Core 仍可编译。 |
+| `Game.Framework.UI.Toolkit` | `UI.Toolkit/` | UI Toolkit Window/View Adapter、`VisualElement` 的 `Bag.BindList` Adapter 与 RenderTexture 显示原语。 | 删除后 UGUI 后端与 UI Core 仍可编译。 |
 | `Game.Framework.UI.Bridge` | `UI.Bridge/` | UGUI/相机内容嵌入 Toolkit 的 RenderTexture Adapter。 | 删除后两套独立 UI 后端仍可用。 |
 | `Game.Framework.Boot` | `Boot/` | HybridCLR/YooAsset 热更启动 AOT 薄壳。 | 可在无热更项目删除；不得反向依赖 Framework Runtime。 |
 | `Game.Framework.Editor` | `Editor/` | Core 通用 Drawer、诊断窗口、菜单与配置总览。 | 玩家构建不包含；可替换 Editor 体验而不动 Runtime API。 |
@@ -45,4 +52,5 @@
 - 新增 Interface 前做删除测试：去掉某个 Implementation 后，调用方是否仍能以同一抽象工作？只有真实 Seam 才值得抽象。
 - 新增第三方库时，先放入 Adapter Module；不要为了“以后也许替换”把每个类都拆成一对 Interface/Implementation。
 - 修改 asmdef 引用后，运行完整 Unity 测试，并检查 Boot、Core、两个 UI 后端与可选 Module 的依赖方向。
+- 运行 `SSFramework/诊断/模块裁剪审计`；隐式外部引用应为 0，三条删除测试应通过。报告变大只作为调查信号，不以原始 DLL 字节直接宣称最终包体回归。
 - 本文与实际 `.asmdef` 不一致时，以 `.asmdef` 为准并立即修正文档。

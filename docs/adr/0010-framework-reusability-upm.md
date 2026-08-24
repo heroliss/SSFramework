@@ -20,3 +20,5 @@
 - ✅ 边界由编译强制，而非口头约定。
 - ⏳ 抽包延后；届时补充后续 ADR 记录包形态（内嵌 `Packages/` vs 独立 git 包）与依赖声明。
 - 关联：[0004](0004-assembly-structure-and-rp-location.md)、[0011](0011-directory-organization.md)。
+
+**2026-08-24 准备度补充：**新增 `Framework Module Audit` 编辑器入口，以 Player 编译图 + DLL 真实元数据引用生成 Core-only / 单 UI 后端 / 完整 / 当前热更档位闭包，并检查外部依赖是否在 asmdef 显式可见。它把“可抽包”从目录观感推进到可重复的删除测试；原始 DLL 字节只作组合证据，正式 UPM 分包粒度仍需 WebGL/小游戏等真实目标平台的 Player BuildReport 决定。
