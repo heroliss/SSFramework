@@ -171,6 +171,7 @@ namespace Game.Framework.Editor
             _responsiveRows.Clear();
 
             AddOverview(result);
+            AddHotUpdateDeployment(result.HotUpdateDeployment);
             AddSectionTitle("值得关注");
             var recommendations = CreateCard("module-audit-recommendations");
             foreach (string recommendation in result.Recommendations)
@@ -272,12 +273,12 @@ namespace Game.Framework.Editor
             var card = CreateCard("module-audit-summary");
             card.style.borderLeftWidth = 4;
 
-            bool clear = result.IsHealthy && !result.HasRetentionWarnings;
+            bool clear = !result.RequiresAttention;
             card.style.borderLeftColor = clear ? HealthyColor : WarningColor;
             string titleText = clear
                 ? "✓ 当前模块边界与保留规则健康"
                 : result.IsHealthy
-                    ? "△ 依赖方向健康，但存在额外保留规则"
+                    ? "△ 依赖方向健康，但保留 / 派生证据需关注"
                     : "⚠ 当前模块边界需要关注";
             var title = Wrap(new Label(titleText));
             title.style.fontSize = 17;
@@ -288,7 +289,7 @@ namespace Game.Framework.Editor
             var explanation = Wrap(new Label(clear
                 ? "Framework Module 由消费方显式选择；没有发现隐式引用、反向拖入或无条件 Module link.xml 根。"
                 : result.IsHealthy
-                    ? "asmdef 删除测试通过，但 link.xml 或热更清单仍可能让“业务没调用”不等于“最终包里没有”。"
+                    ? "asmdef 删除测试通过，但 link.xml 或热更派生状态仍可能让“Profile 已配置”不等于“当前产物已同步”。"
                     : "至少有一项依赖可见性、程序集定位或删除检查未通过。下面会给出处理顺序。"));
             explanation.style.marginTop = 3;
             explanation.style.color = MutedTextColor;
@@ -303,6 +304,86 @@ namespace Game.Framework.Editor
             metrics.Add(CreateMetric("无条件保留", result.UnconditionalModulePreservations.Length.ToString(),
                 result.HasRetentionWarnings ? "需要理解为何存在" : "未发现 Module 级根"));
             card.Add(metrics);
+            _content.Add(card);
+        }
+
+        private void AddHotUpdateDeployment(FrameworkModuleAudit.HotUpdateDeploymentEvidence evidence)
+        {
+            if (evidence == null || !evidence.BuildModuleAvailable) return;
+
+            AddSectionTitle("热更产物链 · Profile 到当前中转清单");
+            var card = CreateCard("module-audit-hot-update-evidence");
+            card.style.borderLeftWidth = 4;
+            bool clear = evidence.ProfileAvailable && !evidence.RequiresAttention;
+            card.style.borderLeftColor = clear ? HealthyColor : WarningColor;
+
+            var title = Wrap(new Label(!evidence.ProfileAvailable
+                ? "未找到热更 Profile"
+                : clear
+                    ? "✓ 当前本地派生状态无冲突"
+                    : "△ 本地热更派生状态需要处理"));
+            title.style.fontSize = 15;
+            title.style.unityFontStyleAndWeight = FontStyle.Bold;
+            title.style.color = clear ? HealthyTextColor : WarningTextColor;
+            card.Add(title);
+            card.Add(CreateInfoLabel(evidence.Note));
+
+            if (evidence.ProfileAvailable && evidence.InspectionAvailable)
+            {
+                var metrics = CreateResponsiveRow("module-audit-hot-update-metrics");
+                metrics.Add(CreateMetric("Profile", evidence.ProfileAssemblies.Length.ToString(),
+                    "期望热更程序集"));
+                metrics.Add(CreateMetric("HybridCLRSettings",
+                    evidence.SettingsAvailable && evidence.SettingsMatch ? "一致" : "漂移",
+                    evidence.SettingsAvailable ? "同步输入" : "无法读取"));
+                metrics.Add(CreateMetric("Generate",
+                    !evidence.GenerationRequired ? "不需要" : evidence.GenerationFresh ? "新鲜" : "过期",
+                    "AOT / 桥接生成环境"));
+                string stagingValue = !evidence.StagingRequired && !evidence.StagedManifestExists
+                    ? "可选"
+                    : evidence.StagedManifestAvailable && evidence.StagedManifestMatches
+                        ? "一致"
+                        : "漂移";
+                metrics.Add(CreateMetric("DLL 中转",
+                    stagingValue,
+                    !evidence.StagingRequired && !evidence.StagedManifestExists
+                        ? "纯 AOT 可不建代码包"
+                        : string.IsNullOrWhiteSpace(evidence.StagedVersion)
+                        ? "尚无可读版本"
+                        : "版本 " + evidence.StagedVersion));
+                card.Add(metrics);
+
+                var details = new Foldout
+                {
+                    name = "module-audit-hot-update-details",
+                    text = "查看每一层的证据与恢复入口",
+                    value = evidence.RequiresAttention,
+                    style = { marginTop = 5 },
+                };
+                details.Add(CreateBullet(evidence.SettingsMessage));
+                details.Add(CreateBullet(evidence.GenerationMessage));
+                details.Add(CreateBullet(evidence.StagedMessage));
+                card.Add(details);
+            }
+
+            card.Add(CreateInfoLabel(
+                "边界：中转一致只证明清单结构与当前派生输入相符、所列文件存在；" +
+                "不证明 DLL 内容相对源码新鲜，也不代表 YooAsset bundle 或 CDN 已部署。"));
+
+            var actions = CreateResponsiveRow("module-audit-hot-update-actions");
+            if (!evidence.ProfileAvailable)
+                actions.Add(CreateActionButton("打开 / 创建热更配置", OpenHotUpdateProfile,
+                    "创建默认 Profile；若目标是纯 AOT，请保留空列表作为明确单一真源。"));
+            else if (!string.IsNullOrWhiteSpace(evidence.ProfilePath))
+                actions.Add(CreateActionButton("定位 Profile", () => OpenAsset(evidence.ProfilePath),
+                    "打开热更期望配置；这里只定位，不自动同步。"));
+            if (evidence.StagedManifestExists)
+                actions.Add(CreateActionButton("定位中转清单",
+                    () => OpenAsset("Assets/HotUpdateDlls/hotupdate_manifest.bytes"),
+                    "查看最近一次代码包构建写入的本地清单；即使损坏也保留此排查入口。"));
+            actions.Add(CreateActionButton("复制派生证据", () => CopyHotUpdateEvidence(evidence),
+                "复制 Profile、Settings、Generate 与 DLL 中转状态，便于 issue / AI 排查。"));
+            card.Add(actions);
             _content.Add(card);
         }
 
@@ -478,6 +559,14 @@ namespace Game.Framework.Editor
                         .Select(status => status.Module.Name + "（AOT）→ " +
                                           string.Join("、", status.HotUpdateDependencies) + "（热更）"))
                     : "没有发现 AOT Framework Module 直接引用热更程序集。"));
+            if (result.HotUpdateDeployment?.BuildModuleAvailable == true)
+                card.Add(CreateCheckRow(!result.HasHotUpdateDeploymentWarnings,
+                    "热更配置与本地派生状态可解释",
+                    result.HasHotUpdateDeploymentWarnings
+                        ? "Profile 缺失 / 重复，或至少一层 Settings、Generate、DLL 中转证据已漂移；查看顶部热更产物链。"
+                        : result.HotUpdateDeployment.StagingRequired
+                            ? "唯一 Profile、HybridCLRSettings、Generate stamp 与 DLL 中转清单相互一致。"
+                            : "唯一空 Profile 明确选择纯 AOT；Generate 与 DLL 中转不作强制要求。"));
             card.Add(CreateCheckRow(!result.HasUnresolvedAssemblies,
                 "报告没有缺失的程序集文件",
                 result.HasUnresolvedAssemblies
@@ -728,6 +817,21 @@ namespace Game.Framework.Editor
             EditorGUIUtility.systemCopyBuffer = text;
             if (_status == null) return;
             _status.text = status.Module.Name + " 的移除准备清单已复制。";
+            _status.messageType = HelpBoxMessageType.Info;
+        }
+
+        private void CopyHotUpdateEvidence(FrameworkModuleAudit.HotUpdateDeploymentEvidence evidence)
+        {
+            string text = "Framework 热更派生证据\n" +
+                          evidence.Note + "\n\n" +
+                          "HybridCLRSettings：" + evidence.SettingsMessage + "\n" +
+                          "Generate：" + evidence.GenerationMessage + "\n" +
+                          "DLL 中转：" + evidence.StagedMessage + "\n\n" +
+                          "边界：中转一致只证明清单结构与当前派生输入相符、所列文件存在；" +
+                          "不证明 DLL 内容相对源码新鲜，也不代表 YooAsset bundle 或 CDN 已部署。";
+            EditorGUIUtility.systemCopyBuffer = text;
+            if (_status == null) return;
+            _status.text = "热更派生证据已复制。";
             _status.messageType = HelpBoxMessageType.Info;
         }
 

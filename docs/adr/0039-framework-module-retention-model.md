@@ -28,6 +28,8 @@ Framework 工具和教学不得使用一个“已启用”布尔值合并以下�
 
 `SSFramework/诊断/模块裁剪审计` 继续从实际 Player 编译图、asmdef、DLL 元数据、热更 Profile 与 `Assets/**/link.xml` 派生 Catalog，不新增“已安装 Module”资产，也不让用户重复维护依赖。
 
+Build Editor Module 额外提供只读派生证据：比较唯一 Profile 与 HybridCLRSettings、复用代码包构建门禁校验 Generate stamp，并把当前热更拓扑顺序及 `AOTGenericReferences.PatchedAOTAssemblyList` 与 `Assets/HotUpdateDlls` 中转 manifest、实际文件互相核对。通用 Editor 通过反射读取这个可删除 Module，不建立编译期反向依赖；空 Profile 的纯 AOT 档位不强制生成代码包，缺失 / 重复 Profile 则不冒充明确配置。中转一致只证明结构与文件存在，不证明 DLL 内容相对源码新鲜，也不冒充 YooAsset bundle、Deploy 目录或 CDN 已更新。
+
 每个 Runtime Module 显示：
 
 - Player DLL 的 Framework / 项目真实消费者，以及包含 Demo、Editor、Tests 的全 asmdef 删除阻塞者；
@@ -74,7 +76,7 @@ asmdef 管**编译依赖边界**，UnityLinker 管**成员裁剪**，HybridCLR P
 - ✅ 热更传播被显式说明，避免给出会被 `HotUpdateAssemblyGraph` 拒绝的操作顺序。
 - ✅ UPM 保持粗粒度分发职责，Framework 不重复实现版本与依赖管理。
 - ⚠ 静态元数据看不到字符串反射、场景与资源根；工具必须保留“未知，需真实构建”的诚实状态。
-- ⚠ 当前 Profile 是期望状态；HybridCLRSettings、Generate stamp 与已发布 CodePackage 可能暂时漂移，最终仍由热更构建门禁验证。
+- ⚠ 审计能提前发现 Profile、HybridCLRSettings、Generate stamp、热更拓扑 / AOT 补元数据清单与本地 DLL 中转目录漂移；热更 DLL 是否包含最新源码、已构建 YooAsset bundle、Deploy 目录与 CDN 的真实版本仍由编译 / 发布流水线验证。
 - ⚠ 物理删除 / UPM 分包比 Toggle 更明确，但属于代码结构变更，需要版本控制与回归测试。
 
 ## Alternatives considered

@@ -60,6 +60,7 @@ namespace Game.Framework.Editor
             internal readonly string HotUpdateNote;
             internal readonly LinkerPreservation[] LinkerPreservations;
             internal readonly Dictionary<string, string[]> DeclaredConsumersByDependency;
+            internal readonly HotUpdateDeploymentEvidence HotUpdateDeployment;
 
             internal Snapshot(
                 Dictionary<string, AssemblyInfo> assemblies,
@@ -67,7 +68,8 @@ namespace Game.Framework.Editor
                 string[] hotUpdateRoots,
                 string hotUpdateNote,
                 LinkerPreservation[] linkerPreservations = null,
-                Dictionary<string, string[]> declaredConsumersByDependency = null)
+                Dictionary<string, string[]> declaredConsumersByDependency = null,
+                HotUpdateDeploymentEvidence hotUpdateDeployment = null)
             {
                 Assemblies = assemblies;
                 ReferencePaths = referencePaths;
@@ -76,6 +78,7 @@ namespace Game.Framework.Editor
                 LinkerPreservations = linkerPreservations ?? Array.Empty<LinkerPreservation>();
                 DeclaredConsumersByDependency = declaredConsumersByDependency ??
                                                         new Dictionary<string, string[]>(StringComparer.Ordinal);
+                HotUpdateDeployment = hotUpdateDeployment ?? new HotUpdateDeploymentEvidence();
             }
         }
 
@@ -160,6 +163,49 @@ namespace Game.Framework.Editor
         }
 
         /// <summary>
+        /// 热更 Profile 的只读派生证据。Build Editor Module 仍是具体设置、Generate 与中转清单的 owner；
+        /// 通用审计经反射读取，保持删除 Build Module 后仍可编译。
+        /// </summary>
+        internal sealed class HotUpdateDeploymentEvidence
+        {
+            internal bool BuildModuleAvailable;
+            internal bool ProfileAvailable;
+            internal bool InspectionAvailable;
+            internal int ProfileCount;
+            internal string ProfilePath = string.Empty;
+            internal string[] ProfileAssemblies = Array.Empty<string>();
+            internal string[] SettingsAssemblies = Array.Empty<string>();
+            internal string[] LegacySettingsAssemblies = Array.Empty<string>();
+            internal bool SettingsAvailable;
+            internal bool SettingsMatch;
+            internal string SettingsMessage = string.Empty;
+            internal bool GenerationRequired;
+            internal bool GenerationFresh;
+            internal string GenerationMessage = string.Empty;
+            internal bool StagingRequired;
+            internal bool StagedManifestExists;
+            internal bool StagedManifestAvailable;
+            internal bool StagedManifestMatches;
+            internal string StagedVersion = string.Empty;
+            internal string[] StagedAssemblies = Array.Empty<string>();
+            internal string[] ExpectedAotMetadataDlls = Array.Empty<string>();
+            internal string[] StagedAotMetadataDlls = Array.Empty<string>();
+            internal string[] MissingStagedFiles = Array.Empty<string>();
+            internal string[] UnexpectedStagedFiles = Array.Empty<string>();
+            internal string[] InvalidStagedEntries = Array.Empty<string>();
+            internal string StagedMessage = string.Empty;
+            internal string Note = string.Empty;
+
+            internal bool RequiresAttention => BuildModuleAvailable &&
+                                               (!ProfileAvailable || ProfileCount > 1 || !InspectionAvailable ||
+                                                !SettingsAvailable || !SettingsMatch ||
+                                                (GenerationRequired && !GenerationFresh) ||
+                                                (StagingRequired
+                                                    ? !StagedManifestAvailable || !StagedManifestMatches
+                                                    : StagedManifestExists && !StagedManifestMatches));
+        }
+
+        /// <summary>
         /// 一次审计的结构化结果；所有展示层都从这里取数，避免文本报告与窗口结论各算一套。
         /// </summary>
         internal sealed class AuditResult
@@ -171,6 +217,7 @@ namespace Game.Framework.Editor
             internal AuditProfile FullProfile;
             internal AuditProfile HotUpdateProfile;
             internal string HotUpdateNote;
+            internal HotUpdateDeploymentEvidence HotUpdateDeployment = new();
             internal ModuleStatus[] ModuleStatuses = Array.Empty<ModuleStatus>();
             internal LinkerPreservation[] UnconditionalModulePreservations = Array.Empty<LinkerPreservation>();
             internal LinkerPreservation[] GlobalPreservations = Array.Empty<LinkerPreservation>();
@@ -188,8 +235,9 @@ namespace Game.Framework.Editor
 
             internal bool HasRetentionWarnings => UnconditionalModulePreservations.Length > 0;
             internal bool HasHotUpdateViolations => ModuleStatuses.Any(status => status.HasHotUpdateViolation);
+            internal bool HasHotUpdateDeploymentWarnings => HotUpdateDeployment?.RequiresAttention == true;
 
-            internal bool RequiresAttention => !IsHealthy || HasRetentionWarnings;
+            internal bool RequiresAttention => !IsHealthy || HasRetentionWarnings || HasHotUpdateDeploymentWarnings;
 
             internal bool IsHealthy => DependencyIssues.Length == 0 &&
                                        AllRuntimeModulesOptIn &&
@@ -223,14 +271,15 @@ namespace Game.Framework.Editor
                 };
             }
 
-            var (hotRoots, hotNote) = ReadHotUpdateRoots();
+            HotUpdateDeploymentEvidence hotUpdate = ReadHotUpdateEvidence();
             return new Snapshot(
                 infos,
                 referencePaths,
-                hotRoots,
-                hotNote,
+                hotUpdate.ProfileAssemblies,
+                hotUpdate.Note,
                 ReadLinkerPreservations(infos),
-                ReadDeclaredConsumers());
+                ReadDeclaredConsumers(),
+                hotUpdate);
         }
 
         /// <summary>
@@ -306,6 +355,7 @@ namespace Game.Framework.Editor
                 FullProfile = fullProfile,
                 HotUpdateProfile = hotUpdateProfile,
                 HotUpdateNote = snapshot.HotUpdateNote,
+                HotUpdateDeployment = snapshot.HotUpdateDeployment,
                 ModuleStatuses = moduleStatuses,
                 UnconditionalModulePreservations = moduleStatuses
                     .SelectMany(status => status.TargetingPreservations.Concat(status.OwnedPreservations))
@@ -359,10 +409,10 @@ namespace Game.Framework.Editor
             var sb = new StringBuilder(8192);
             sb.AppendLine("Framework Module 裁剪审计");
             sb.AppendLine("────────────────────────────────────────");
-            sb.AppendLine(result.IsHealthy && !result.HasRetentionWarnings
+            sb.AppendLine(!result.RequiresAttention
                 ? "结论：当前模块边界健康，没有发现会阻碍按需裁剪的问题。"
                 : result.IsHealthy
-                    ? "结论：程序集依赖方向健康，但发现会改变最终裁剪结果的 link.xml 保留规则。"
+                    ? "结论：程序集依赖方向健康，但 linker 保留或热更派生状态仍需要理解 / 处理。"
                     : "结论：发现需要处理或确认的问题，请先看检查结果。 ");
             sb.AppendLine("说明：这里比较的是编译后的原始 DLL，不是最终包体；真正发布大小仍以目标平台 Player BuildReport 为准。 ");
             sb.AppendLine();
@@ -388,6 +438,7 @@ namespace Game.Framework.Editor
             if (result.HotUpdateProfile != null)
                 AppendFootprint(sb, result.HotUpdateProfile, indent: "  ");
             sb.AppendLine();
+            AppendHotUpdateDeployment(sb, result.HotUpdateDeployment);
 
             AppendDeletionTests(sb, result.DeletionChecks);
             return sb.ToString().TrimEnd();
@@ -691,6 +742,34 @@ namespace Game.Framework.Editor
             sb.AppendLine();
         }
 
+        private static void AppendHotUpdateDeployment(
+            StringBuilder sb,
+            HotUpdateDeploymentEvidence evidence)
+        {
+            sb.AppendLine("热更派生证据（只读）");
+            sb.AppendLine("────────────────────────────────────────");
+            if (evidence == null || !evidence.ProfileAvailable)
+            {
+                sb.AppendLine("  " + (evidence?.Note ?? "没有可用的 FrameworkHotUpdateProfile。"));
+                sb.AppendLine();
+                return;
+            }
+            if (!evidence.InspectionAvailable)
+            {
+                sb.AppendLine("  ⚠ " + evidence.Note);
+                sb.AppendLine();
+                return;
+            }
+
+            sb.AppendLine("  " + evidence.Note);
+            sb.AppendLine("  " + evidence.SettingsMessage);
+            sb.AppendLine("  " + evidence.GenerationMessage);
+            sb.AppendLine("  " + evidence.StagedMessage);
+            sb.AppendLine("  注：中转清单一致只证明结构与当前派生输入相符、所列文件存在；" +
+                          "不证明 DLL 内容相对源码新鲜，也不代表 YooAsset bundle 或 CDN 已部署。 ");
+            sb.AppendLine();
+        }
+
         private static void AppendProfile(StringBuilder sb, AuditProfile profile)
         {
             sb.AppendLine(profile.Title);
@@ -816,6 +895,29 @@ namespace Game.Framework.Editor
                 recommendations.Add("发现当前热更 Profile 的非法引用边：" + violations +
                                     "。先恢复合法闭包或让对应 Module 退出 Player 编译图，修正前不要同步或出包。 ");
             }
+            if (result.HasHotUpdateDeploymentWarnings)
+            {
+                var evidence = result.HotUpdateDeployment;
+                if (!evidence.ProfileAvailable)
+                    recommendations.Add(evidence.Note + " 打开“热更配置”以创建或定位单一 Profile。 ");
+                else
+                {
+                    if (evidence.ProfileCount > 1)
+                        recommendations.Add(evidence.Note + " 请合并为唯一 Profile，避免不同入口读取不同期望。 ");
+                    if (!evidence.InspectionAvailable)
+                        recommendations.Add("热更 Profile 存在，但无法读取派生证据：" + evidence.Note);
+                    else
+                    {
+                        if (!evidence.SettingsAvailable || !evidence.SettingsMatch)
+                            recommendations.Add(evidence.SettingsMessage);
+                        if (evidence.GenerationRequired && !evidence.GenerationFresh)
+                            recommendations.Add(evidence.GenerationMessage);
+                        if ((evidence.StagingRequired && !evidence.StagedManifestAvailable) ||
+                            (evidence.StagedManifestExists && !evidence.StagedManifestMatches))
+                            recommendations.Add(evidence.StagedMessage);
+                    }
+                }
+            }
 
             if (result.IsHealthy)
             {
@@ -920,33 +1022,120 @@ namespace Game.Framework.Editor
             }
         }
 
-        private static (string[] roots, string note) ReadHotUpdateRoots()
+        private static HotUpdateDeploymentEvidence ReadHotUpdateEvidence()
         {
+            var evidence = new HotUpdateDeploymentEvidence();
             Type profileType = AppDomain.CurrentDomain.GetAssemblies()
                 .Select(assembly => assembly.GetType("Game.Framework.Build.FrameworkHotUpdateProfile", false))
                 .FirstOrDefault(type => type != null);
             if (profileType == null)
-                return (Array.Empty<string>(), "未安装热更构建 Module；按纯 AOT 理解。");
+            {
+                evidence.Note = "未安装热更构建 Module；按纯 AOT 理解。";
+                return evidence;
+            }
+            evidence.BuildModuleAvailable = true;
 
             string[] guids = AssetDatabase.FindAssets("t:" + profileType.Name);
+            evidence.ProfileCount = guids.Length;
             if (guids.Length == 0)
-                return (Array.Empty<string>(), "未找到 FrameworkHotUpdateProfile；未擅自创建配置资产。");
+            {
+                evidence.Note = "未找到 FrameworkHotUpdateProfile；构建菜单会创建默认热更档位。若目标是纯 AOT，也应创建空 Profile 作为明确的单一真源。";
+                return evidence;
+            }
+            evidence.ProfileAvailable = true;
 
             string path = AssetDatabase.GUIDToAssetPath(guids.OrderBy(guid => AssetDatabase.GUIDToAssetPath(guid),
                 StringComparer.Ordinal).First());
+            evidence.ProfilePath = path;
             var profile = AssetDatabase.LoadAssetAtPath(path, profileType);
             var property = profileType.GetProperty("HotUpdateAssemblyNames", BindingFlags.Instance | BindingFlags.Public);
             if (profile == null || property?.GetValue(profile) is not IEnumerable<string> names)
-                return (Array.Empty<string>(), $"无法读取热更 Profile：{path}");
+            {
+                evidence.Note = $"无法读取热更 Profile：{path}";
+                return evidence;
+            }
 
-            string[] roots = names.Where(name => !string.IsNullOrWhiteSpace(name))
+            evidence.ProfileAssemblies = names.Where(name => !string.IsNullOrWhiteSpace(name))
                 .Distinct(StringComparer.Ordinal)
                 .OrderBy(name => name, StringComparer.Ordinal)
                 .ToArray();
-            string note = roots.Length == 0
-                ? $"{path}：Profile 期望纯 AOT；实际设置与产物需由热更构建工具校验。"
-                : $"{path}：Profile 期望 {roots.Length} 个热更入口；实际设置与产物需经过同步、Generate 和代码包构建。";
-            return (roots, note);
+            string multiple = guids.Length > 1 ? $"；发现 {guids.Length} 个 Profile，仅检查排序第一项" : string.Empty;
+            evidence.Note = evidence.ProfileAssemblies.Length == 0
+                ? $"{path}：Profile 期望纯 AOT{multiple}。"
+                : $"{path}：Profile 期望 {evidence.ProfileAssemblies.Length} 个热更入口{multiple}。";
+
+            Type builderType = AppDomain.CurrentDomain.GetAssemblies()
+                .Select(assembly => assembly.GetType("Game.Framework.Build.FrameworkHotUpdateBuilder", false))
+                .FirstOrDefault(type => type != null);
+            MethodInfo inspect = builderType?.GetMethod(
+                "InspectEvidence",
+                BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+            if (inspect == null)
+            {
+                evidence.Note += " 当前 Build Module 未提供派生证据检查。";
+                return evidence;
+            }
+
+            try
+            {
+                object raw = inspect.Invoke(null, new[] { profile });
+                ApplyHotUpdateInspection(evidence, raw);
+            }
+            catch (TargetInvocationException ex)
+            {
+                evidence.Note += " 派生证据检查失败：" + (ex.InnerException?.Message ?? ex.Message);
+            }
+            catch (Exception ex)
+            {
+                evidence.Note += " 派生证据检查失败：" + ex.Message;
+            }
+            return evidence;
+        }
+
+        internal static void ApplyHotUpdateInspection(HotUpdateDeploymentEvidence target, object raw)
+        {
+            if (target == null) throw new ArgumentNullException(nameof(target));
+            if (raw == null) return;
+
+            target.InspectionAvailable = true;
+            target.ProfileAssemblies = ReadEvidenceMember(raw, "ProfileAssemblies", target.ProfileAssemblies);
+            target.SettingsAssemblies = ReadEvidenceMember(raw, "HybridClrSettingsAssemblies",
+                Array.Empty<string>());
+            target.LegacySettingsAssemblies = ReadEvidenceMember(raw, "HybridClrLegacyAssemblies",
+                Array.Empty<string>());
+            target.SettingsAvailable = ReadEvidenceMember(raw, "SettingsAvailable", false);
+            target.SettingsMatch = ReadEvidenceMember(raw, "SettingsMatch", false);
+            target.SettingsMessage = ReadEvidenceMember(raw, "SettingsMessage", string.Empty);
+            target.GenerationRequired = ReadEvidenceMember(raw, "GenerationRequired", false);
+            target.GenerationFresh = ReadEvidenceMember(raw, "GenerationFresh", false);
+            target.GenerationMessage = ReadEvidenceMember(raw, "GenerationMessage", string.Empty);
+            target.StagedManifestAvailable = ReadEvidenceMember(raw, "StagedManifestAvailable", false);
+            target.StagingRequired = ReadEvidenceMember(raw, "StagingRequired",
+                target.ProfileAssemblies.Length > 0);
+            target.StagedManifestExists = ReadEvidenceMember(raw, "StagedManifestExists",
+                target.StagedManifestAvailable);
+            target.StagedManifestMatches = ReadEvidenceMember(raw, "StagedManifestMatches", false);
+            target.StagedVersion = ReadEvidenceMember(raw, "StagedVersion", string.Empty);
+            target.StagedAssemblies = ReadEvidenceMember(raw, "StagedAssemblies", Array.Empty<string>());
+            target.ExpectedAotMetadataDlls = ReadEvidenceMember(raw, "ExpectedAotMetadataDlls",
+                Array.Empty<string>());
+            target.StagedAotMetadataDlls = ReadEvidenceMember(raw, "StagedAotMetadataDlls",
+                Array.Empty<string>());
+            target.MissingStagedFiles = ReadEvidenceMember(raw, "MissingStagedFiles", Array.Empty<string>());
+            target.UnexpectedStagedFiles = ReadEvidenceMember(raw, "UnexpectedStagedFiles",
+                Array.Empty<string>());
+            target.InvalidStagedEntries = ReadEvidenceMember(raw, "InvalidStagedEntries",
+                Array.Empty<string>());
+            target.StagedMessage = ReadEvidenceMember(raw, "StagedMessage", string.Empty);
+        }
+
+        private static T ReadEvidenceMember<T>(object source, string name, T fallback)
+        {
+            const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            Type type = source.GetType();
+            object value = type.GetField(name, flags)?.GetValue(source) ??
+                           type.GetProperty(name, flags)?.GetValue(source);
+            return value is T typed ? typed : fallback;
         }
 
         private static LinkerPreservation[] ReadLinkerPreservations(
