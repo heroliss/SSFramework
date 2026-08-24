@@ -41,7 +41,8 @@ namespace Game.Framework
         /// <summary>
         /// 显式绑定资源加载器和宿主销毁信号。
         /// ScriptableObject 或纯 C# 对象没有 Mono 生命周期自动绑定时，需要由调用方指定资源归属。
-        /// hostToken 触发时正在进行的加载会被取消（provider 后台任务也会停下）。
+        /// hostToken 触发时引用侧的加载等待会取消并拒绝晚到结果；provider 已经启动的共享物理操作可能继续到终态，
+        /// 其无人接收的 handle 由 provider 释放。
         /// </summary>
         public void Bind(IAssetUtility utility, CancellationToken hostToken)
         {
@@ -110,7 +111,8 @@ namespace Game.Framework
 
         /// <summary>
         /// 获取资源对象，支持取消当前等待。
-        /// 取消 token 只影响本次 await，不会中断已启动的共享加载；hostToken 触发时整个加载（包括 provider 后台任务）会停下。
+        /// 取消 token 只影响本次 await，不会中断同一引用的共享加载；hostToken 则结束这次引用级共享等待，
+        /// 但同样不承诺强停 provider 已经启动的物理操作。
         /// </summary>
         public async UniTask<T> Get(CancellationToken ct)
         {
@@ -164,7 +166,8 @@ namespace Game.Framework
         {
             try
             {
-                // HostToken 触发时底层加载会被取消；外部 await 用各自的 ct 影响等待，不中断共享加载。
+                // HostToken 决定这个引用级 owner 何时停止等待并拒绝结果；provider 的物理 owner 若已启动仍会安全收尾。
+                // 外部 await 用各自的 ct 影响单个等待者，不中断同一 AssetReference 的共享加载。
                 var handle = await utility.LoadByGuid<T>(PackageName, AssetGUID, HostToken);
                 if (_releaseWhenLoaded)
                 {

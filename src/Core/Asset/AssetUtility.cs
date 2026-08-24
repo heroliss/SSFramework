@@ -22,12 +22,18 @@ namespace Game.Framework
     /// </summary>
     public class AssetUtility : MonoUtilityBase, IAssetUtility
     {
+        private sealed class InitAttempt
+        {
+            public readonly UniTaskCompletionSource Done = new();
+            public Exception Error;
+        }
+
         private sealed class PackageState
         {
             public readonly string Name;
             public readonly ReactiveProperty<AssetInitState> State = new(AssetInitState.Idle);
-            public UniTaskCompletionSource InitTcs = new();
-            public Exception InitError;
+            public readonly AssetPackageOperationLane MaintenanceOperations = new();
+            public InitAttempt Attempt = new();
 
             public PackageState(string name) => Name = name;
         }
@@ -70,7 +76,7 @@ namespace Game.Framework
                     var st = kv.Value.State.Value;
                     view[kv.Key] = st switch
                     {
-                        AssetInitState.Failed when kv.Value.InitError != null => $"{st} — {kv.Value.InitError.Message}",
+                        AssetInitState.Failed when kv.Value.Attempt.Error != null => $"{st} — {kv.Value.Attempt.Error.Message}",
                         AssetInitState.Ready => $"{st} — 版本 {GetPackageVersion(kv.Key) ?? "?"}",
                         _ => st.ToString(),
                     };
@@ -113,7 +119,7 @@ namespace Game.Framework
 
             foreach (var state in _packages.Values)
             {
-                state.InitTcs.TrySetCanceled();
+                state.Attempt.Done.TrySetCanceled();
                 state.State.Dispose();
             }
             _packages.Clear();
@@ -145,11 +151,37 @@ namespace Game.Framework
         }
 
         /// <summary>
-        /// 初始化单个 package。失败只记录到该 package 的状态，不向外抛出，避免阻断其他包初始化。
+        /// 用可控实现替换 Awake 创建的默认 provider，供资源状态机的契约测试使用。
+        /// 只能在任何包开始初始化前调用，避免测试缝成为运行时热替换入口。
+        /// </summary>
+        internal void ReplaceProviderForTesting(IAssetProvider provider)
+        {
+            ThrowIfDisposed();
+            if (provider == null) throw new ArgumentNullException(nameof(provider));
+            foreach (var state in _packages.Values)
+            {
+                if (state.State.Value != AssetInitState.Idle)
+                    throw new InvalidOperationException(
+                        "[AssetUtility] Test provider can only be replaced before package initialization starts.");
+            }
+
+            _provider?.Dispose();
+            _provider = provider;
+#if UNITY_EDITOR
+            _provider.SimulateOffline = () => _simulateOffline.CurrentValue;
+#endif
+        }
+
+        /// <summary>
+        /// 初始化单个 package。物理初始化由 utility 生命周期持有；调用者 token 只取消自己的等待，
+        /// 不会把仍在底层运行的初始化误标成 Failed，也不会为同包启动第二份原生 operation。
+        /// 普通失败只记录到该 package 的状态，不向外抛出，避免阻断其他包初始化；等待取消保持
+        /// <see cref="OperationCanceledException"/>。
         /// </summary>
         internal async UniTask InitializePackageAsync(string packageName, AssetPlayMode mode, CancellationToken token)
         {
             ThrowIfDisposed();
+            token.ThrowIfCancellationRequested();
             // 记录当前模式：所有包共享同一 PlayMode（由 AssetInitSystem 用 _settings.ActualPlayMode 串行调用）。
             // 即便业务后续手动用别的 mode 初始化别的包，CurrentPlayMode 反映最近一次的值，足够 UI 展示用。
             CurrentPlayMode = mode;
@@ -157,51 +189,67 @@ namespace Game.Framework
             var state = GetState(packageName);
 
             if (state.State.Value == AssetInitState.Ready) return;
-            if (state.State.Value == AssetInitState.Initializing)
+            var waitingAttempt = state.Attempt;
+            if (state.State.Value != AssetInitState.Initializing)
             {
-                // 别人正在初始化它：等本次完成即可。
-                await state.InitTcs.Task.AttachExternalCancellation(token);
-                return;
+                // 走到这里只剩 Idle / Pending / Failed：启动唯一 owner。Pending 复用 fresh TCS；Failed 重建后才能重试。
+                if (state.State.Value == AssetInitState.Failed)
+                {
+                    state.Attempt = new InitAttempt();
+                }
+
+                var attempt = state.Attempt;
+                // owner 可能同步完成并在 Failed 订阅中立即触发下一代重试；本调用必须始终等待自己启动的这一代。
+                waitingAttempt = attempt;
+                state.State.Value = AssetInitState.Initializing;
+                var provider = _provider;
+                var config = _config;
+                var ownerToken = _disposeCts.Token;
+                RunInitializationOwner(state, attempt, packageName, mode, provider, config, ownerToken)
+                    .Forget(ex => Logging.Log.Error(
+                        $"[AssetUtility] Package '{packageName}' initialization owner stopped unexpectedly.", ex));
             }
 
-            // 走到这里只剩 Idle / Pending / Failed —— 都由本次调用负责初始化。
-            // Pending（已登记排队、尚未开跑）复用 GetState 时建的 fresh InitTcs，无需重置；只有 Failed 要重置 TCS/错误以便重试。
-            if (state.State.Value == AssetInitState.Failed)
-            {
-                state.InitTcs = new UniTaskCompletionSource();
-                state.InitError = null;
-            }
+            // 每个调用者只等待共享结果。取消这个 await 不触碰 owner、不改变 InitState；owner 最终仍会落到 Ready / Failed。
+            using var linked = LinkDispose(token, out var waitToken);
+            await waitingAttempt.Done.Task.AttachExternalCancellation(waitToken);
+        }
 
-            state.State.Value = AssetInitState.Initializing;
+        private async UniTask RunInitializationOwner(
+            PackageState state,
+            InitAttempt attempt,
+            string packageName,
+            AssetPlayMode mode,
+            IAssetProvider provider,
+            AssetProviderConfig config,
+            CancellationToken ownerToken)
+        {
             try
             {
-                if (token.CanBeCanceled)
-                {
-                    using var linked = CancellationTokenSource.CreateLinkedTokenSource(token, _disposeCts.Token);
-                    await _provider.InitializeAsync(packageName, mode, _config, linked.Token);
-                }
-                else
-                {
-                    await _provider.InitializeAsync(packageName, mode, _config, _disposeCts.Token);
-                }
+                // 这里刻意不用任一调用者 token。provider 的物理操作归 utility 生命周期所有；只有 OnDestroy 才取消 owner。
+                await provider.InitializeAsync(packageName, mode, config, ownerToken);
+                if (_disposedByDestroy) return;
                 state.State.Value = AssetInitState.Ready;
-                state.InitTcs.TrySetResult();
+                attempt.Done.TrySetResult();
             }
             catch (OperationCanceledException ex)
             {
-                // 失败 / 取消都让 InitTcs 以「成功完成」收尾、错误另存进 InitError——
-                // 若给 InitTcs 挂异常，而失败后又没人 await 它（EnsureInitialized 在 Failed 分支直接抛 InitError、不 await），
-                // UniTask 会在该 Task 被回收时把它当 unobserved exception 再报一条。等待方醒来后按状态抛 InitError 即可。
-                state.InitError = ex;
+                if (_disposedByDestroy) return; // OnDestroy 已统一取消 TCS 并 Dispose 状态流。
+                // 失败 / 取消都让本 attempt 的 Done 以「成功完成」收尾、错误另存——
+                // 若给 Done 挂异常，而失败后又没人 await 它（EnsureInitialized 在 Failed 分支直接抛 Error、不 await），
+                // UniTask 会在该 Task 被回收时把它当 unobserved exception 再报一条。等待方醒来后读取 attempt.Error 即可。
+                attempt.Error = ex;
                 state.State.Value = AssetInitState.Failed;
-                state.InitTcs.TrySetResult();
+                // 完成 owner 捕获的 attempt，而不是同步 State 订阅回调可能新建的重试 attempt。
+                attempt.Done.TrySetResult();
                 Debug.Log($"[AssetUtility] Package '{packageName}' initialization canceled.");
             }
             catch (Exception ex)
             {
-                state.InitError = ex;
+                if (_disposedByDestroy) return;
+                attempt.Error = ex;
                 state.State.Value = AssetInitState.Failed;
-                state.InitTcs.TrySetResult(); // 同上：失败经 InitError 传递，不给 InitTcs 挂异常
+                attempt.Done.TrySetResult(); // 同上：失败经 attempt.Error 传递，不给 TCS 挂异常
                 Debug.LogError($"[AssetUtility] Package '{packageName}' 初始化失败（模式 {mode}）：{ex.Message}\n" + InitFailureHint(mode));
             }
         }
@@ -224,9 +272,10 @@ namespace Game.Framework
             if (string.IsNullOrWhiteSpace(_defaultPackageName)) return; // 无默认包则无从置 Failed（业务本就该用 packageName 重载）
             var state = GetState(_defaultPackageName);
             var ex = exception ?? new InvalidOperationException("[AssetUtility] Asset initialization failed.");
-            state.InitError = ex;
+            var attempt = state.Attempt;
+            attempt.Error = ex;
             state.State.Value = AssetInitState.Failed;
-            state.InitTcs.TrySetResult(); // 见 InitializePackageAsync：失败经 InitError 传递，不给 InitTcs 挂异常
+            attempt.Done.TrySetResult(); // 见 InitializePackageAsync：失败经 Error 传递，不给 TCS 挂异常
         }
 
         /// <summary>
@@ -250,7 +299,7 @@ namespace Game.Framework
         /// <summary>
         /// 把仍停在 <see cref="AssetInitState.Pending"/>（已登记、但批次初始化没轮到就被中止）的包置 <see cref="AssetInitState.Failed"/>，
         /// 并唤醒其等待者。由 <see cref="AssetInitSystem"/> 在自动初始化批次结束（含被取消）时兜底调用：
-        /// 否则这些包的 InitTcs 永不完成、后续 <c>EnsureInitialized</c> 会无限挂起——与「Pending 等待 / Idle 报错」契约相悖。
+        /// 否则这些包的初始化 attempt 永不完成、后续 <c>EnsureInitialized</c> 会无限挂起——与「Pending 等待 / Idle 报错」契约相悖。
         /// 置 Failed（而非退回 Idle）让既有等待者醒来即拿到清晰异常；之后业务可 <see cref="Initialize"/> 重试。
         /// </summary>
         internal void AbandonPendingPackages()
@@ -259,10 +308,11 @@ namespace Game.Framework
             foreach (var state in _packages.Values)
             {
                 if (state.State.Value != AssetInitState.Pending) continue;
-                state.InitError = new InvalidOperationException(
+                var attempt = state.Attempt;
+                attempt.Error = new InvalidOperationException(
                     $"[AssetUtility] 包 '{state.Name}' 的初始化在开始前被中止；如需加载请重新 Initialize(\"{state.Name}\")。");
                 state.State.Value = AssetInitState.Failed;
-                state.InitTcs.TrySetResult(); // 见 InitializePackageAsync：失败经 InitError 传递，不给 InitTcs 挂异常
+                attempt.Done.TrySetResult(); // 见 InitializePackageAsync：失败经 Error 传递，不给 TCS 挂异常
             }
         }
 
@@ -277,30 +327,31 @@ namespace Game.Framework
             ThrowIfDisposed();
             var name = RequirePackage(packageName);
             var state = GetState(name);
+            var attempt = state.Attempt;
             var current = state.State.Value;
             if (current == AssetInitState.Ready) return;
             if (current == AssetInitState.Failed)
-                throw state.InitError ?? new InvalidOperationException($"[AssetUtility] Package '{name}' initialization failed.");
-            // Idle = 既没开自动初始化、也没人 Initialize 过它：没人会去完成 InitTcs，等下去就是无限挂起——直接报错引导。
+                throw attempt.Error ?? new InvalidOperationException($"[AssetUtility] Package '{name}' initialization failed.");
+            // Idle = 既没开自动初始化、也没人 Initialize 过它：没人会去完成当前 attempt，等下去就是无限挂起——直接报错引导。
             if (current == AssetInitState.Idle)
                 throw new InvalidOperationException(
                     $"[AssetUtility] 包 '{name}' 未初始化：它既没开启自动初始化、也没被 Initialize 触发过。" +
                     $"请在 AssetSystemConfigModel 的包列表里为它开启「自动初始化」，或在加载前先调 Initialize(\"{name}\")。");
 
-            // 剩 Pending（已登记排队）/ Initializing（进行中）：等「初始化结束」。InitTcs 失败时也以成功完成收尾
-            // （不挂异常，见 InitializePackageAsync），所以醒来后按状态判定：Failed 则抛 InitError。
+            // 剩 Pending（已登记排队）/ Initializing（进行中）：等本 attempt 结束。TCS 失败时也以成功完成收尾
+            // （不挂异常，见 InitializePackageAsync），所以醒来后读取该 attempt 捕获的 Error；同步重试不会串台。
             if (!ct.CanBeCanceled)
             {
-                await state.InitTcs.Task.AttachExternalCancellation(_disposeCts.Token);
+                await attempt.Done.Task.AttachExternalCancellation(_disposeCts.Token);
             }
             else
             {
                 using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _disposeCts.Token);
-                await state.InitTcs.Task.AttachExternalCancellation(linked.Token);
+                await attempt.Done.Task.AttachExternalCancellation(linked.Token);
             }
 
-            if (state.State.Value == AssetInitState.Failed)
-                throw state.InitError ?? new InvalidOperationException($"[AssetUtility] Package '{name}' initialization failed.");
+            if (attempt.Error != null)
+                throw attempt.Error;
         }
 
         public async UniTask Initialize(string packageName = null, CancellationToken ct = default)
@@ -310,15 +361,7 @@ namespace Game.Framework
             // 复用 AssetInitSystem 启动时 Configure 写入的 _config、以及上次记录的 CurrentPlayMode（AssetInitSystem 总在 Awake 先跑过一轮 Configure，
             // 此时 CurrentPlayMode 已是真实模式）。InitializePackageAsync 对 Idle / Pending / Failed 包会（重新）初始化、Ready 直接返回，
             // 故这里幂等；初始化失败不抛、结果写回 InitState（仅「未指定包又无默认包」这种调用方错误会经 RequirePackage 抛）。
-            if (ct.CanBeCanceled)
-            {
-                using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _disposeCts.Token);
-                await InitializePackageAsync(name, CurrentPlayMode, linked.Token);
-            }
-            else
-            {
-                await InitializePackageAsync(name, CurrentPlayMode, _disposeCts.Token);
-            }
+            await InitializePackageAsync(name, CurrentPlayMode, ct);
         }
 
         public UniTask<IAssetHandle<T>> Load<T>(string location, CancellationToken ct = default)
@@ -492,8 +535,14 @@ namespace Game.Framework
             packageName = NormalizePackageName(packageName);
             // 清理「未使用」要对照该包当前清单判断哪些 bundle 该删，所以先确保初始化完成。
             await EnsureInitialized(packageName, ct);
+            var state = GetState(packageName);
+            var provider = _provider;
             using var link = LinkDispose(ct, out var lct);
-            await _provider.ClearCacheAsync(packageName, mode, lct);
+            await state.MaintenanceOperations.Run(
+                $"ClearCache({mode})/{packageName}",
+                ownerToken => provider.ClearCacheAsync(packageName, mode, ownerToken),
+                _disposeCts.Token,
+                lct);
         }
 
         public UniTask ClearCacheByTags(IReadOnlyList<string> tags, CancellationToken ct = default)
@@ -504,10 +553,18 @@ namespace Game.Framework
             ThrowIfDisposed();
             if (tags == null || tags.Count == 0)
                 throw new ArgumentException("At least one tag is required.", nameof(tags));
+            // 维护操作可能先排队；先冻结参数，避免调用方随后修改原列表而改变尚未启动的清理范围。
+            var tagSnapshot = CopyItems(tags);
             packageName = NormalizePackageName(packageName);
             await EnsureInitialized(packageName, ct);
+            var state = GetState(packageName);
+            var provider = _provider;
             using var link = LinkDispose(ct, out var lct);
-            await _provider.ClearCacheByTagsAsync(packageName, tags, lct);
+            await state.MaintenanceOperations.Run(
+                $"ClearCacheByTags/{packageName}",
+                ownerToken => provider.ClearCacheByTagsAsync(packageName, tagSnapshot, ownerToken),
+                _disposeCts.Token,
+                lct);
         }
 
         public UniTask ClearCacheByLocations(IReadOnlyList<string> locations, CancellationToken ct = default)
@@ -518,10 +575,17 @@ namespace Game.Framework
             ThrowIfDisposed();
             if (locations == null || locations.Count == 0)
                 throw new ArgumentException("At least one location is required.", nameof(locations));
+            var locationSnapshot = CopyItems(locations);
             packageName = NormalizePackageName(packageName);
             await EnsureInitialized(packageName, ct);
+            var state = GetState(packageName);
+            var provider = _provider;
             using var link = LinkDispose(ct, out var lct);
-            await _provider.ClearCacheByLocationsAsync(packageName, locations, lct);
+            await state.MaintenanceOperations.Run(
+                $"ClearCacheByLocations/{packageName}",
+                ownerToken => provider.ClearCacheByLocationsAsync(packageName, locationSnapshot, ownerToken),
+                _disposeCts.Token,
+                lct);
         }
 
         public UniTask UnloadUnusedAssets(CancellationToken ct = default)
@@ -532,8 +596,21 @@ namespace Game.Framework
             ThrowIfDisposed();
             packageName = NormalizePackageName(packageName);
             await EnsureInitialized(packageName, ct);
+            var state = GetState(packageName);
+            var provider = _provider;
             using var link = LinkDispose(ct, out var lct);
-            await _provider.UnloadUnusedAssetsAsync(packageName, lct);
+            await state.MaintenanceOperations.Run(
+                $"UnloadUnusedAssets/{packageName}",
+                ownerToken => provider.UnloadUnusedAssetsAsync(packageName, ownerToken),
+                _disposeCts.Token,
+                lct);
+        }
+
+        private static string[] CopyItems(IReadOnlyList<string> source)
+        {
+            var snapshot = new string[source.Count];
+            for (int i = 0; i < source.Count; i++) snapshot[i] = source[i];
+            return snapshot;
         }
 
         private IAssetDownloader CreateTagDownloaderInternal(string packageName, IReadOnlyList<string> tags)
@@ -604,9 +681,9 @@ namespace Game.Framework
             return name;
         }
 
-        // 把调用方 ct 与 utility 销毁令牌（_disposeCts）链接：加载 / 缓存操作途中 utility 被销毁
-        // （OnDestroy → _disposeCts.Cancel）时，在飞行的 provider 调用也会被取消，而非只依赖 provider.Dispose() 兜底——
-        // 与初始化路径（InitializePackageAsync / EnsureInitialized）的链接方式一致。无外部 ct 时直接用 _disposeCts.Token，不分配 CTS。
+        // 把调用方 ct 与 utility 销毁令牌（_disposeCts）链接。普通加载会把结果 token 传给 provider；
+        // 包维护操作只把它用作 waiter token，物理操作仍只接收 _disposeCts.Token，避免短命调用者取消后提前释放 lane。
+        // 两条路径都会在 OnDestroy 时取消等待；无外部 ct 时直接用 _disposeCts.Token，不分配 CTS。
         // 返回的 CTS 须由调用方 using 释放（无外部 ct 时返回 null，using null 为安全空操作）。
         private CancellationTokenSource LinkDispose(CancellationToken ct, out CancellationToken linked)
         {

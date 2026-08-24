@@ -19,6 +19,11 @@ namespace Game.Framework
     ///         provider 不重复实现 Component → GameObject 解析（这是框架共性逻辑）。</item>
     ///   <item><b>每个 Load 调用返回独立 handle</b>：handle 是 ref-count token，provider 不能跨调用共享实例。</item>
     ///   <item><b>每个 package 独立 init</b>：单包失败不影响其他包，由调用方按 packageName 串行/并行调度。</item>
+    ///   <item><b>取消等待不等于强停原生操作</b>：<see cref="AssetUtility"/> 已为初始化与维护拆分短命调用者和 utility owner；
+    ///         普通加载 API 收到调用者与 utility 生命周期合并后的 token。实现应在物理操作开始前响应取消；若第三方操作一旦启动就无法安全停止，
+    ///         则由 Adapter 继续持有到真实终态，并回收无人接收的成功结果。等待者仍收到 <see cref="OperationCanceledException"/>，不要包装成普通失败。</item>
+    ///   <item><b>共享原生包要跨 provider 协调</b>：若多个 provider 实例会复用同一个进程级 package，Adapter 必须让按需加载 / 显式下载
+    ///         与清缓存 / 内存维护互斥，不能只依赖单个 <see cref="AssetUtility"/> 的局部 lane。</item>
     /// </list>
     ///
     /// <para>
@@ -29,7 +34,11 @@ namespace Game.Framework
     /// </summary>
     public interface IAssetProvider : IDisposable
     {
-        /// <summary>初始化指定包。重复调用应是 idempotent（已 ready 则立即返回）。</summary>
+        /// <summary>
+        /// 初始化指定包。重复调用应是 idempotent（已 ready 则立即返回）。
+        /// <paramref name="ct"/> 是当前 utility owner 的生命周期令牌，不是某个 UI 调用者的短期令牌；
+        /// 复用进程级原生包的实现仍需把已经开始的不可取消操作持有到真实终态。
+        /// </summary>
         UniTask InitializeAsync(string packageName, AssetPlayMode mode, AssetProviderConfig config, CancellationToken ct);
 
         /// <summary>包是否已就绪可以发起加载。</summary>
@@ -43,7 +52,10 @@ namespace Game.Framework
         UniTask<IAssetHandle<UnityEngine.Object>> LoadAssetAsync(
             string packageName, string locationOrGuid, bool byGuid, Type type, CancellationToken ct);
 
-        /// <summary>加载场景。返回的 handle 负责 Activate/UnSuspend/Unload。</summary>
+        /// <summary>
+        /// 加载场景。返回的 handle 负责 Activate/UnSuspend/Unload；<c>suspendLoad=true</c> 时在内容到达激活门后返回，
+        /// 不得继续等待一个必须由调用方拿到 handle 才能解除的 <c>IsDone</c> 状态。
+        /// </summary>
         UniTask<ISceneHandle> LoadSceneAsync(
             string packageName, string location, LoadSceneMode mode, bool suspendLoad, CancellationToken ct);
 
@@ -60,7 +72,11 @@ namespace Game.Framework
         /// <summary>检查 location 是否能在指定包的 manifest 中解析。未初始化时返回 false。</summary>
         bool CheckLocationValid(string packageName, string location);
 
-        /// <summary>检查指定资源是否需要从远端下载。未初始化时返回 false。</summary>
+        /// <summary>
+        /// 检查指定资源是否需要从远端下载。未初始化时返回 false。
+        /// 这是同步缓存快照：共享 package 有维护 Writer 活跃或排队时应立即抛 <see cref="InvalidOperationException"/>，
+        /// 由调用方在维护完成后重试；实现不得阻塞 Unity 主线程或越过 Writer。
+        /// </summary>
         bool IsNeedDownload(string packageName, string location);
 
         /// <summary>指定包当前生效清单的版本号（初始化时选定的那份）。包未就绪时返回 null。</summary>
@@ -70,6 +86,7 @@ namespace Game.Framework
         /// 创建按 tag 的下载器。
         /// 进度通过 <see cref="IAssetDownloader.Progress"/> 暴露，
         /// provider 实现需保证回调在 Unity 主线程触发（参见 <see cref="IAssetDownloader"/> 文档）。
+        /// 这是同步缓存快照：共享 package 有维护 Writer 活跃或排队时应 fail-fast，不能阻塞主线程或越过 Writer。
         /// </summary>
         IAssetDownloader CreateTagDownloader(
             string packageName, IReadOnlyList<string> tags, int maxConcurrent, int retries);
@@ -85,7 +102,9 @@ namespace Game.Framework
 
         /// <summary>
         /// 清理指定包已下载到本地的 bundle 缓存（删盘 + 同步更新内存缓存记录）。
-        /// 要求包已就绪；清理失败应抛异常由上层处理。
+        /// 要求包已就绪；清理失败应抛异常由上层处理。AssetUtility 会把自身发起的同包清理 / 卸载串行化；
+        /// 复用进程级原生包的 Adapter 还必须覆盖其他 utility/provider 发起的加载、下载与维护。
+        /// 这里收到的 <paramref name="ct"/> 是当前 utility owner token。
         /// </summary>
         UniTask ClearCacheAsync(string packageName, AssetCacheClearMode mode, CancellationToken ct);
 
@@ -98,7 +117,10 @@ namespace Game.Framework
         /// </summary>
         UniTask ClearCacheByLocationsAsync(string packageName, IReadOnlyList<string> locations, CancellationToken ct);
 
-        /// <summary>卸载指定包内引用计数已归零的资源 bundle，释放其内存占用（只卸零引用的，不动仍被持有的）。要求包已就绪；失败应抛异常由上层处理。</summary>
+        /// <summary>
+        /// 卸载指定包内引用计数已归零的资源 bundle，释放其内存占用（只卸零引用的，不动仍被持有的）。
+        /// 要求包已就绪；失败应抛异常由上层处理。AssetUtility 会把它与同包缓存清理放进同一维护 lane。
+        /// </summary>
         UniTask UnloadUnusedAssetsAsync(string packageName, CancellationToken ct);
 
 #if UNITY_EDITOR

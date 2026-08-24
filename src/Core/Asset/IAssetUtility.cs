@@ -95,7 +95,10 @@ namespace Game.Framework
         /// 初始化指定包（packageName 为空时为默认包）：既是「失败后重试」、也是「未自动初始化的包的冷启动入口」。
         /// <para>语义：包当前为 <see cref="AssetInitState.Idle"/> / <see cref="AssetInitState.Pending"/> / <see cref="AssetInitState.Failed"/>
         /// 时（重新）初始化；已 <see cref="AssetInitState.Ready"/> 则直接返回（幂等）；<see cref="AssetInitState.Initializing"/> 则等待本次完成。</para>
-        /// <para>用 <see cref="AssetInitSystem"/> 启动时写入的运行模式与配置执行，<b>本身不抛异常</b>——结果（成功 / 失败）写回 <see cref="InitState"/> 供订阅方读取。</para>
+        /// <para>用 <see cref="AssetInitSystem"/> 启动时写入的运行模式与配置执行；<b>普通初始化失败不抛</b>——结果写回 <see cref="InitState"/> 供订阅方读取。</para>
+        /// <para>调用者 token 只取消当前等待并保持 <see cref="OperationCanceledException"/>；物理初始化由 utility 生命周期继续持有，
+        /// 包保持 <see cref="AssetInitState.Initializing"/>，最终仍会转入 <see cref="AssetInitState.Ready"/> / <see cref="AssetInitState.Failed"/>。
+        /// 因此取消 loading 页面不会把底层仍在运行的初始化误判成失败，也不会允许同包重入。</para>
         /// <para>典型用途：①初始化失败后不重建实例即可重试；②给某包配了「不自动初始化」（DLC 懒加载 / 隐私同意后再联网）时，
         /// 在合适时机对 <see cref="AssetInitState.Idle"/> 包调用本方法做「冷启动初始化」，再用 <see cref="InitState"/> 驱动 loading。</para>
         /// </summary>
@@ -127,14 +130,17 @@ namespace Game.Framework
         UniTask<IAssetHandle<T>> Load<T>(string packageName, string location, CancellationToken ct = default)
             where T : UnityEngine.Object;
 
-        /// <summary>从默认包加载场景。suspendLoad=true 时需要业务显式 <c>UnSuspend</c>。</summary>
+        /// <summary>
+        /// 从默认包加载场景。<c>suspendLoad=true</c> 时 task 在场景内容读完并停在激活门后返回，
+        /// 业务拿到 handle 后显式 <c>UnSuspend</c>；不要把“task 已返回”误解为 Scene 已激活。
+        /// </summary>
         UniTask<ISceneHandle> LoadScene(
             string location,
             LoadSceneMode mode = LoadSceneMode.Single,
             bool suspendLoad = false,
             CancellationToken ct = default);
 
-        /// <summary>从指定包加载场景；packageName 为空时使用默认包。</summary>
+        /// <summary>从指定包加载场景；packageName 为空时使用默认包。挂起语义同默认包重载。</summary>
         UniTask<ISceneHandle> LoadScene(
             string packageName,
             string location,
@@ -182,10 +188,15 @@ namespace Game.Framework
         /// 检查默认包中指定资源是否需要从远端下载。
         /// 注意：包未就绪（未初始化 / 初始化失败）时也返回 false——即 false 不等于「无需下载 / 已在本地」，
         /// 也可能是「还查不了」。需要区分时先用 <see cref="IsInitialized"/> / <see cref="InitState"/> 确认就绪。
+        /// 这是同步快照；底层包正在或已经排队维护时会抛 <see cref="InvalidOperationException"/>，请在维护完成后重试，
+        /// 不会阻塞 Unity 主线程或越过 Writer 读取中间态。
         /// </summary>
         bool IsNeedDownload(string location);
 
-        /// <summary>检查指定包中资源是否需要从远端下载；packageName 为空时使用默认包。</summary>
+        /// <summary>
+        /// 检查指定包中资源是否需要从远端下载；packageName 为空时使用默认包。
+        /// 同为同步快照：底层包维护中会抛 <see cref="InvalidOperationException"/>，维护完成后重试。
+        /// </summary>
         bool IsNeedDownload(string packageName, string location);
 
         /// <summary>
@@ -197,28 +208,31 @@ namespace Game.Framework
         /// </summary>
         string GetPackageVersion(string packageName = null);
 
-        /// <summary>创建默认包的按 tag 统计和下载资源任务。</summary>
+        /// <summary>
+        /// 创建默认包的按 tag 统计和下载资源任务。下载器是创建时缓存状态的同步快照；底层包正在或已经排队维护时，
+        /// 创建会 fail-fast，维护完成后重试创建，不会阻塞 Unity 主线程或从变化中的缓存记录生成中间态快照。
+        /// </summary>
         IAssetDownloader CreateTagDownloader(params string[] tags);
 
-        /// <summary>创建指定包的按 tag 统计和下载资源任务；packageName 为空时使用默认包。</summary>
+        /// <summary>创建指定包的按 tag 统计和下载资源任务；packageName 为空时使用默认包。并发与快照语义同默认包重载。</summary>
         IAssetDownloader CreateTagDownloader(string packageName, IReadOnlyList<string> tags);
 
         /// <summary>
         /// 创建默认包的「全量下载器」：下载该包当前清单下全部尚未缓存的 bundle（无 tag 过滤）。
-        /// 适合「把整个包 / 整个 DLC 全量预下」。要求包已就绪。
+        /// 适合「把整个包 / 整个 DLC 全量预下」。要求包已就绪；并发与快照语义同 tag 下载器。
         /// </summary>
         IAssetDownloader CreateAllDownloader();
 
-        /// <summary>创建指定包的全量下载器；packageName 为空时使用默认包。</summary>
+        /// <summary>创建指定包的全量下载器；packageName 为空时使用默认包。并发与快照语义同 tag 下载器。</summary>
         IAssetDownloader CreateAllDownloader(string packageName);
 
         /// <summary>
         /// 创建默认包的「按 location 下载器」：下载这些资源所需 bundle（含依赖），适合进某功能前点名预下少数已知资源。
-        /// manifest 里解析不到的 location 跳过并打 <c>warning</c>。要求包已就绪。
+        /// manifest 里解析不到的 location 跳过并打 <c>warning</c>。要求包已就绪；并发与快照语义同 tag 下载器。
         /// </summary>
         IAssetDownloader CreateLocationDownloader(params string[] locations);
 
-        /// <summary>创建指定包的按 location 下载器；packageName 为空时使用默认包。</summary>
+        /// <summary>创建指定包的按 location 下载器；packageName 为空时使用默认包。并发与快照语义同 tag 下载器。</summary>
         IAssetDownloader CreateLocationDownloader(string packageName, IReadOnlyList<string> locations);
 
         /// <summary>
@@ -226,6 +240,10 @@ namespace Game.Framework
         /// 相关资源的 <see cref="IsNeedDownload(string)"/> 会重新变真，可在不重启的情况下重新下载。
         /// 与「不提供 UnloadPackage」不冲突（见类型 remarks）：这只删盘上的下载文件，不动已加载到内存的资源。
         /// 常见用途：整体清空缓存 (<see cref="AssetCacheClearMode.All"/>)、热更后回收旧版本残留 (<see cref="AssetCacheClearMode.Unused"/>)。
+        /// <para>同一 utility 内、同一包的三种清缓存与 <see cref="UnloadUnusedAssets(CancellationToken)"/> 共用串行维护 lane。
+        /// 调用者取消只停止自己的等待；已启动的物理操作继续到结束，下一项不会提前与它重叠。仍在排队且调用者已取消的项不会启动。
+        /// 若底层 provider 的 package 在进程内跨 utility 共享，provider 还须在 Adapter 边界协调加载 / 下载 Reader 与维护 Writer；
+        /// 清缓存后此前创建的下载器快照失效，应重新创建。</para>
         /// </summary>
         UniTask ClearCache(AssetCacheClearMode mode = AssetCacheClearMode.Unused, CancellationToken ct = default);
 
@@ -265,6 +283,7 @@ namespace Game.Framework
         /// <para>这是释放 handle 之后的「第二步」：<c>Unload</c> / <c>Dispose</c> 只让 bundle 引用归零、变「可卸载」，bundle 仍留在内存
         /// （所以释放后仍能秒加载）；本方法才真正把零引用 bundle 从内存卸掉。底层库<b>不会</b>自动回收、须显式调——常在场景切换 / 关卡结束时调一次。</para>
         /// <para>只卸引用归零的，仍被持有的资源不受影响。与 <see cref="ClearCache(AssetCacheClearMode, CancellationToken)"/> 是两回事：那个删盘上下载文件，这个释放内存。</para>
+        /// <para>并发与取消语义同清缓存：它与同包三种清缓存共用串行维护 lane；调用者取消不提前释放正在运行的物理操作。</para>
         /// </summary>
         UniTask UnloadUnusedAssets(CancellationToken ct = default);
 

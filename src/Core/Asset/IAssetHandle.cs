@@ -39,10 +39,13 @@ namespace Game.Framework
         /// <summary>句柄是否仍有效。卸载发起后变 false，避免外部继续操作失效场景。</summary>
         bool IsValid { get; }
 
-        /// <summary>激活通过 <c>suspendLoad=true</c> 加载的场景。无效或不允许激活时返回 false。</summary>
+        /// <summary>把已经加载完成的场景设为 Active Scene。它不解除预加载挂起；挂起场景先调用 <see cref="UnSuspend"/>。</summary>
         bool Activate();
 
-        /// <summary>恢复挂起的场景加载流程。供调用方控制何时继续，便于做转场或加载界面。</summary>
+        /// <summary>
+        /// 恢复 <c>suspendLoad=true</c> 的场景激活流程。LoadScene task 在内容到达激活门时返回本 handle，
+        /// 此方法只负责放行，实际激活仍由 Unity 异步完成；可通过 <see cref="Scene"/> 的 <c>isLoaded</c> 观察。
+        /// </summary>
         bool UnSuspend();
 
         /// <summary>异步卸载场景并释放底层句柄。可重复调用，第一次后为 no-op。</summary>

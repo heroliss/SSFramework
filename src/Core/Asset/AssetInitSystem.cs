@@ -88,10 +88,15 @@ namespace Game.Framework
                     await _utility.InitializePackageAsync(packageName, _settings.ActualPlayMode, token);
                 }
             }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                // token 只取消本批次对当前包的等待；已启动的物理初始化仍由 AssetUtility 生命周期持有。
+                // finally 会把尚未轮到的 Pending 包收口，当前包则保持 Initializing，最终自行落到 Ready / Failed。
+            }
             finally
             {
                 // 批次正常跑完时这是空操作（已无 Pending）；被取消/中止而提前结束时，把还没轮到、仍停在 Pending 的包置 Failed，
-                // 避免其 InitTcs 永不完成、后续 EnsureInitialized 永久挂起。（销毁期 AssetUtility 已先 Dispose，则此调用直接短路。）
+                // 避免其初始化 attempt 永不完成、后续 EnsureInitialized 永久挂起。（销毁期 AssetUtility 已先 Dispose，则此调用直接短路。）
                 _utility.AbandonPendingPackages();
             }
         }

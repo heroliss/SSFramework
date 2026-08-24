@@ -26,4 +26,4 @@
 - ⚠️ 依赖 `YOOASSET_LEGACY_API` scripting define——**新增构建目标平台时需补设此 define**，否则该平台编译断裂。
 - ⚠️ 兼容层是**过渡件**，未来 YooAsset 可能移除；且 3.0 的 FileSystem 新特性（Web 文件系统、ArchiveBundle 加解密等）走兼容层用不上。
 - 🔮 后续：拿到 3.0 官方 init 示例后，把 `YooAssetProvider` 重写为原生 3.0 FileSystem API（去掉 `YOOASSET_LEGACY_API` 依赖），并评估是否借机优化框架资源 API（`AssetPlayMode`/`AssetProviderConfig`）。届时补 ADR-0013。
-- 关联：`IAssetProvider` 隔离设计见代码注释；资源系统三段式见 `Assets/Game/AGENTS.md §19`。
+- 关联：`IAssetProvider` 隔离设计见代码注释；资源系统使用不变量见 [`Assets/Game/AGENTS.md`「模块使用不变量」](../../Assets/Game/AGENTS.md#模块使用不变量)。

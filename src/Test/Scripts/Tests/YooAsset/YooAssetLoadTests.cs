@@ -7,6 +7,7 @@ using Cysharp.Threading.Tasks;
 using Game.Framework.Context;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using UnityEngine.TestTools;
 #if UNITY_EDITOR
 using UnityEditor;
@@ -242,6 +243,18 @@ namespace Game.Framework.Test
             return SimulatedDelayMs_WhenConfigured_ShouldDelayTestLoadAsync().ToCoroutine();
         }
 
+        [UnityTest]
+        public IEnumerator DownloaderCreatedBeforeCacheMaintenance_IsRejectedAndFreshDownloaderSucceeds()
+        {
+            return DownloaderCreatedBeforeCacheMaintenance_IsRejectedAndFreshDownloaderSucceedsAsync().ToCoroutine();
+        }
+
+        [UnityTest]
+        public IEnumerator SuspendedSceneLoad_ReturnsAtActivationGate_ThenCanResumeAndUnload()
+        {
+            return SuspendedSceneLoad_ReturnsAtActivationGate_ThenCanResumeAndUnloadAsync().ToCoroutine();
+        }
+
         /// <summary>重复 Dispose 不应抛异常。</summary>
         [Test]
         public void AssetReference_DoubleDispose_ShouldNotThrow()
@@ -381,6 +394,100 @@ namespace Game.Framework.Test
             {
                 _config.SimulatedDelayMs = originalDelayMs;
             }
+        }
+
+        private async UniTask DownloaderCreatedBeforeCacheMaintenance_IsRejectedAndFreshDownloaderSucceedsAsync()
+        {
+            // EditorSimulate 不访问 Host/CDN，下载器通常是空快照；仍必须先检查缓存世代，不能被
+            // TotalCount == 0 的已完成终态掩盖“清缓存后旧快照已失效”。
+            var staleDownloader = _utility.CreateAllDownloader();
+            await staleDownloader.Download();
+            Assert.IsTrue(staleDownloader.IsDone, "测试前提：旧 downloader 已经成功完成一次");
+
+            await _utility.ClearCache(AssetCacheClearMode.All);
+
+            System.Exception staleError = null;
+            try
+            {
+                await staleDownloader.Download();
+            }
+            catch (System.Exception ex)
+            {
+                staleError = ex;
+            }
+
+            Assert.IsInstanceOf<System.InvalidOperationException>(staleError);
+            StringAssert.Contains("Rebuild the downloader", staleError.Message,
+                "Clear 之后必须明确要求重建 downloader，而不是静默执行创建时的旧快照");
+
+            var freshDownloader = _utility.CreateAllDownloader();
+            await freshDownloader.Download();
+            Assert.IsTrue(freshDownloader.IsDone, "维护结束后重建的 downloader 应基于新缓存世代正常完成");
+        }
+
+        private async UniTask SuspendedSceneLoad_ReturnsAtActivationGate_ThenCanResumeAndUnloadAsync()
+        {
+            const string ScenePackage = "FrameworkSamplesPackage";
+            const string SceneAddress = "SuspendedSceneProbe";
+            ISceneHandle handle = null;
+
+            await UnloadSceneIfLoaded(SceneAddress);
+            await _utility.Initialize(ScenePackage);
+            await _utility.EnsureInitialized(ScenePackage);
+
+            try
+            {
+                handle = await _utility.LoadScene(
+                    ScenePackage,
+                    SceneAddress,
+                    LoadSceneMode.Additive,
+                    suspendLoad: true);
+
+                Assert.IsNotNull(handle,
+                    "suspendLoad=true 应在场景到达激活门时返回 handle，而不是等待永远不会自行完成的 IsDone");
+                Assert.IsTrue(handle.IsValid);
+                Assert.IsFalse(SceneManager.GetSceneByName(SceneAddress).isLoaded,
+                    "返回 handle 时场景仍应停在激活门，尚未进入已激活/已加载状态");
+
+                Assert.IsTrue(handle.UnSuspend(), "调用方应能用返回的 handle 放行场景激活");
+                await WaitUntil(
+                    () => handle.Scene.IsValid() && handle.Scene.isLoaded,
+                    $"挂起场景 {SceneAddress} 放行后 handle 进入已加载状态");
+
+                Assert.IsTrue(handle.Scene.IsValid());
+                Assert.IsTrue(handle.Scene.isLoaded);
+            }
+            finally
+            {
+                if (handle != null && handle.IsValid)
+                    await handle.Unload();
+                await UnloadSceneIfLoaded(SceneAddress);
+            }
+
+            Assert.IsFalse(SceneManager.GetSceneByName(SceneAddress).isLoaded,
+                "测试结束必须完整卸载附加场景，不能污染后续 PlayMode 用例");
+        }
+
+        private static async UniTask WaitUntil(System.Func<bool> condition, string milestone)
+        {
+            double deadline = Time.realtimeSinceStartupAsDouble + 15d;
+            while (Time.realtimeSinceStartupAsDouble < deadline)
+            {
+                if (condition()) return;
+                await UniTask.Yield(PlayerLoopTiming.Update);
+            }
+
+            Assert.Fail($"等待“{milestone}”超时（15 秒）。");
+        }
+
+        private static async UniTask UnloadSceneIfLoaded(string sceneName)
+        {
+            Scene scene = SceneManager.GetSceneByName(sceneName);
+            if (!scene.IsValid() || !scene.isLoaded) return;
+
+            AsyncOperation operation = SceneManager.UnloadSceneAsync(scene);
+            if (operation != null)
+                await operation.ToUniTask();
         }
 
         private async UniTask ApplyConfiguredDelay()
