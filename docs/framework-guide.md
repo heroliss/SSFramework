@@ -2489,7 +2489,7 @@ var ctx = new GameContext(builder.Build()) { DebugName = "MiniGame" };
 
 最直觉的做法是把集合塞进 `RP<IReadOnlyList<T>>`，每次增删推一份新列表。问题在于 View 收到的是**整包**：它只能「清空容器 → 重建全部子视图」。加一项也要重画整表——丢滚动位置、丢选中、丢输入焦点，每帧重建还抖 GC。列表一大就卡。
 
-缺的是**增量通知**：集合应该告诉订阅者「第 3 位插了一个」「第 5 位删了」「0 和 2 换位了」，UI 只动那一处。这正是 `RP<T>` 单值订阅覆盖不到的空缺，框架用 **ObservableCollections**（Cysharp 生态，与 UniTask / R3 同源）补上，藏在 `Bag.BindList` 后。
+缺的是**增量通知**：集合应该告诉订阅者「第 3 位插了一个」「第 5 位删了」「0 和 2 换位了」，UI 只动那一处。这正是 `RP<T>` 单值订阅覆盖不到的空缺，框架用 **ObservableCollections**（Cysharp 生态，与 UniTask / R3 同源）补上。Model 仍显式使用它的集合类型；`Bag.BindList` 隐藏的是增量索引与逐行生命周期这些易错 Implementation。
 
 ### Model 侧：用 `ObservableList<T>` 持有集合
 
@@ -2729,6 +2729,12 @@ builder.RegisterOwned(new WebSocketUtility(serializer: proto), typeof(IWebSocket
 3. **可寻址加载 vs 直接引用 分开放**：按地址 `Load<T>("name")` 的资源进收集目录；靠 Inspector 直接引用 / `Instantiate` 的 prefab 不必收集，放普通目录（demo 的 `Prefabs/` 是后者，`Res/` 是前者）。
 4. **配置源放模块内、用 `~` 后缀挡 Unity 导入**：Luban 的 `Defines/Datas/luban.conf` 是构建期输入、不是运行期资源，放 `<模块>/Configs~/`（`~` 让 Unity 不导入），随模块一起删 / 抽包。
 5. **可整单元裁剪**：模块独立 asmdef；发布时不需要就不引用、不打它的资源包。配置 / 资源各成一套 profile（见 §16 多套并存），互不干扰。
+
+### 轻量 / Web 项目怎么选 Framework Module
+
+“不在业务 asmdef 引用列表里”只说明依赖方向正确，不足以证明最终包体已经裁掉。先从入口选组合：只要 MVCS/Context 用 `Game.Framework`；窗口框架再加 `Game.Framework.UI` 与一个后端；UGUI、Toolkit、Bridge、Fonts、Proto 等不需要就不要引用，也不要放进 HybridCLR 热更列表。Demo 有 `UNITY_EDITOR` 约束，不进入玩家包。
+
+编辑器菜单 `SSFramework/诊断/模块裁剪审计` 会显示四种参考档位（Core-only / Core + UGUI / Core + Toolkit / 全部 Runtime Module）以及当前热更档位，列出 DLL **真实元数据引用**、隐式外部依赖和删除测试。报告的原始 DLL 字节用于比较组合，不是最终安装包大小；WebGL/小游戏仍要对目标平台实际构建并看 Player BuildReport。HybridCLR 以程序集为最小粒度：强体积约束时，先决定哪些 Module 根本不热更，再谈是否值得继续拆程序集。
 
 ### 参考结构
 

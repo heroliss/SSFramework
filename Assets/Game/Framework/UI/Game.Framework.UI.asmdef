@@ -4,7 +4,10 @@
     "references": [
         "Game.Framework",
         "UniTask",
-        "Unity.InputSystem"
+        "Unity.InputSystem",
+        "R3",
+        "ObservableCollections",
+        "ObservableCollections.R3"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

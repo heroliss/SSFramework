@@ -1,4 +1,5 @@
 using Game.Framework.Demo.Core;
+using Game.Framework.Logging;
 using UnityEngine;
 
 namespace Game.Framework.Demo.Modules
@@ -10,6 +11,8 @@ namespace Game.Framework.Demo.Modules
     /// </summary>
     public sealed class ProjectSetupModule : DemoModuleBase
     {
+        private const string ModuleAuditMenu = "SSFramework/诊断/模块裁剪审计";
+
         public override string Id => "project-setup";
         public override string Title => "接入你的项目";
         public override string Category => "入门";
@@ -49,8 +52,23 @@ namespace Game.Framework.Demo.Modules
             // ── 程序集接线 ──
             host.AddSectionTitle("程序集接线（asmdef）");
             host.AddNote("框架程序集 `Game.Framework` 是 `autoReferenced:false`（热更边界要求）——业务 asmdef 必须**显式**把它加进 references 才能用；业务代码直接用到 `R3`（如 `RP<T>`）或 `UniTask` 类型时，把它们也加上。要让业务程序集可热更，再把它登记进热更列表即可（部署决策、代码零改动，见「热更 · HybridCLR」章）。");
+            host.AddSubNote("小体积 / Web 项目从 Core-only 开始，只按需加 UI Core 与一个后端；`autoReferenced:false` 保住依赖方向，但最终包体仍受 DLL 真实引用、IL2CPP 裁剪和热更列表影响。模块裁剪审计会把这三层证据分开：原始托管闭包只用于找候选，最终以目标平台 Player BuildReport 为准。");
+            host.AddSubNote("Module 的职责、依赖方向与删除测试集中记录在 `docs/framework-module-map.md`；新增程序集时先证明它有独立变化原因，而不是按文件数量机械拆分。");
+#if UNITY_EDITOR
+            host.AddActionRow("打开模块裁剪审计（Core / UGUI / Toolkit / 热更档位）",
+                () => RunMenu(ModuleAuditMenu),
+                new CodeRef("Assets/Game/Framework/Editor/FrameworkModuleAudit.cs", "internal static class FrameworkModuleAudit", "Framework Module Audit · 真实引用闭包"));
+#endif
 
             host.AddTip("速记：主场景根 = MonoGlobalContext 子类（自动 Main / 跨场景 / 查重）；功能层 = 挂子树或 InstallBindings；View = 挂进子树、只发 Command；客座场景用 MonoGameContextBase。完整代码 guide §3、项目结构 §26。");
         }
+
+#if UNITY_EDITOR
+        private static void RunMenu(string path)
+        {
+            if (!UnityEditor.EditorApplication.ExecuteMenuItem(path))
+                Log.Warning($"[Demo] 菜单不存在：{path}");
+        }
+#endif
     }
 }

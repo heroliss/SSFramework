@@ -6,7 +6,8 @@
         "R3",
         "R3.Unity",
         "Sirenix.OdinInspector.Attributes",
-        "Sirenix.Serialization"
+        "Sirenix.Serialization",
+        "Sirenix.Serialization.Config"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

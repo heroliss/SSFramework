@@ -4,7 +4,8 @@
     "references": [
         "Game.Framework",
         "R3",
-        "Unity.TextMeshPro"
+        "Unity.TextMeshPro",
+        "Sirenix.OdinInspector.Attributes"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

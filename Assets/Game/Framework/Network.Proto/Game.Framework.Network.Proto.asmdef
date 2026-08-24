@@ -2,7 +2,8 @@
     "name": "Game.Framework.Network.Proto",
     "rootNamespace": "Game.Framework",
     "references": [
-        "Game.Framework"
+        "Game.Framework",
+        "Google.Protobuf"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
