@@ -19,10 +19,10 @@
 |---|---|
 | Unity | 6000.3.22f1 |
 | Framework Module | 22 个 asmdef Module；依赖与删除测试见 `framework-module-map.md` |
-| Demo | 32 个自动发现章节；目录元数据启动期 fail-fast |
+| Demo | 32 个自动发现章节；Catalog 集中拥有同一批 Adapter，目录元数据在根 Context 构建期 fail-fast |
 | 教程 | `framework-guide.md` 28 章 |
 | ADR | 0001–0037；0035 为 Container Factory 所有权，0036 为 AI PlayMode 预检，0037 为 UI Loading 所有权 |
-| 测试 | PlayMode 418 + EditMode 91，全绿；交互式 MCP 先预检，命令行入口默认 EditMode + PlayMode |
+| 测试 | PlayMode 418 + EditMode 94，全绿；交互式 MCP 先预检，命令行入口默认 EditMode + PlayMode |
 | Demo CodeRef | 291 处可打开源码跳转全部精准命中；注释、文案与外部文档路径不计入源码构造点 |
 | AI 常驻规则预算 | 最深 AGENTS 链 28.37 KiB，低于 Codex 默认 32 KiB 项目指令上限；新增常驻规则前需继续评估外移空间 |
 
@@ -74,6 +74,12 @@
 - 独立复查继续修出两处黏性边界：已完成 downloader 的后续调用必须重新入 Reader 队列再验世代，不能越过 Clear 复用旧终态；`suspendLoad=true` 在 Unity 0.9 激活门交接 handle，不能等待只有调用方 `UnSuspend` 后才会成立的 `IsDone`。专用空场景 fixture 让该回归不依赖 Outpost 组合根与日志。
 - `ShowToast` / Loading 入口补可选生命周期令牌并由核心、Toolkit、UGUI adapter 原样透传；测试锁定预取消与异步创建中取消不会在切章后延迟开窗。Loading 进一步以 `AcquireLoading → LoadingHandle` 表达并发 owner，最后一个 lease 释放才关闭，旧 Show/Hide 作为单 owner 兼容入口且不会越权关闭 active handle（ADR-0037）。
 
+### P1 · Demo 目录与章节生命周期
+
+- 新增内部 `DemoModuleCatalog` Module：根 `MonoDemoContext` 一次发现、校验并持有全部章节 Adapter，同一实例严格按 InstallBindings → Initialize → Build / Teardown 执行；Shell 只负责展示和选择，不再反射构造第二批实例。
+- Catalog 同时拥有活动 `DemoModuleHost`，把“先取消 Host、再 Teardown 同一 Adapter”变成唯一释放出口；父子 GameObject 销毁顺序不确定时重复收尾保持幂等，Build 失败会回滚且保留原异常。
+- 直接 EditMode 契约覆盖实例身份、多轮 Build/Teardown、乱序、重入、外来 Adapter、Dispose 与失败回滚；Demo 编写规则和领域词汇同步禁止恢复双实例路径。
+
 ### P1 · Outpost 真实玩家路径冒烟
 
 - 新建独立 `Game.Outpost.Smoke.Test` Module，用真实场景、Composition Root、Command、Flow、资源/UI Adapter 跑“标题 → 战斗就绪 → 撤离 → 结算 → 回标题”，不依赖 UI 坐标或私有反射。
@@ -98,7 +104,6 @@
 
 | 优先级 | 候选 | 证据 / 完成标准 |
 |---|---|---|
-| P1 | Demo 目录与生命周期加深 | `MonoDemoContext` 和 Shell 各反射创建一批章节实例，Interface 文档暗示的 Install→Initialize→Build→Teardown 从未发生在同一 Adapter 上。完成标准：实例所有权与调用顺序集中、双实例陷阱删除，构造身份/重入/Teardown 有直接测试。 |
 | P1 | 教学内容改为可观察契约 | 当前门禁只数源码中的 `AddSectionTitle` token，fallback 提前 return 仍可假绿。完成标准：概念/能力/工作流章拥有各自实际内容契约，测试检查构建出的语义内容和降级页，而非正则锁文案。 |
 | P1 | 资源查询三态语义 | `CheckLocationValid` / `IsNeedDownload` 在未 Ready 与真实 false 间混义，Demo 被迫重复守卫且 guide 缺失。完成标准：Idle/Loading/Failed/Ready/多包行为明确并有契约测试，复审 ADR-0013。 |
 | P2 | Demo 可视证据补强 | ReactiveList 尚不能从画面证明 Move 复用/逐行释放且缺 Replace；UI Framework 也未实际对比 Cache/Destroy。以实例身份、创建/释放计数和行为测试把设计承诺变成可见证据。 |

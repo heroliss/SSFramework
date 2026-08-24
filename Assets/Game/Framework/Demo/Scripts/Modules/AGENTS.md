@@ -5,6 +5,12 @@
 
 成熟样板照着抄：`AudioDemoModule` / `StorageDemoModule` / `FlowDemoModule` / `LocalizationDemoModule`。
 
+## 章节实例与生命周期
+
+- `DemoModuleCatalog` 在根 Context 构建前只发现并构造一批章节 Adapter；同一实例依次执行 `InstallBindings → Initialize → Build / Teardown`，不要在 Shell 或章节里再次反射/new 目录实例。
+- `InstallBindings` 只声明容器注册关系，不启动异步工作、不把临时服务藏进字段；Build 需要的运行时依赖从 Context 解析，保持所有权与 View 权限示范清晰。
+- 每次 `Build` 与 `Teardown` 成对发生且可重复；切章、UIDocument 重建和销毁都由目录先取消 Host，再 Teardown。模块字段会跨重建保留，临时订阅/资源必须进 `Bag`。
+
 ## 章节骨架（每个 `Build()` 按此顺序）
 
 1. **`定位：<一句话>`** —— 开篇小节。**标题本身**说清「是什么 + 关键边界」（不是裸 `演示`）。
@@ -37,8 +43,8 @@ Demo 是“学习着做”的教程，设计解释只保留理解当前操作所
 - **可枚举的内容用结构化件**，别用逗号长句堆叠：并列职责 / 释义 → `AddConcept`（术语 + 短句）；有序步骤 → `AddStep`（编号徽标）；多项横向对比 → `AddTable`。
 - **富文本只认三种标记**（`DemoRichText`）：`` `code` ``（API/类型/路径）、`「术语」`（专名/章节名）、`**强调**`（字重+提亮）。
   ⚠ **禁止 `<b>`/`<i>`/`<color>` 等 HTML**——note/step 文案里的 HTML 标签会被 noparse 当字面量、在界面显示成乱码（`<b>` 只在 `///` XML doc 里合法）。
-- **顶部 `Summary` ≤ 160 字且 ≤ 2 句**：说「是什么 + 关键边界」，别把功能点全塞进去（功能点是左侧小节的活）。长度与句数由 `DemoShellController` 启动时 fail-fast 校验。
-- **目录元数据是运行期契约**：`Id` 用唯一 kebab-case；`Title` 唯一且非空；`Category` 只能是「入门 / 核心 / 能力 / 进阶 / 规划中」；同 Category 的 `Order` 不得撞号。`DemoShellController` 启动时会 fail-fast 列出全部问题。
+- **顶部 `Summary` ≤ 160 字且 ≤ 2 句**：说「是什么 + 关键边界」，别把功能点全塞进去（功能点是左侧小节的活）。长度与句数由 `DemoModuleCatalog` 发现目录时 fail-fast 校验。
+- **目录元数据是运行期契约**：`Id` 用唯一 kebab-case；`Title` 唯一且非空；`Category` 只能是「入门 / 核心 / 能力 / 进阶 / 规划中」；同 Category 的 `Order` 不得撞号。`DemoModuleCatalog` 会在根 Context 构建期一次列出全部问题。
 - 小节间可用 `// ── 小节名 ──` 注释分隔，长模块推荐。
 
 ## 源码跳转取向（`CodeRef`）

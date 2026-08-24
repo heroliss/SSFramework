@@ -1,7 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text.RegularExpressions;
 using Game.Framework;
 using Game.Framework.Context;
 using Game.Framework.Internal;
@@ -14,7 +12,7 @@ namespace Game.Framework.Demo.Core
     /// <summary>
     /// Demo 外壳。挂在带 <see cref="UIDocument"/> 的节点上；共享 Context 由<b>父节点</b>的 <see cref="MonoDemoContext"/> 承载：
     /// 1) 用 <c>GetComponentInParent</c> 取父节点上已建好的共享 Context；
-    /// 2) 反射收集本程序集所有 <see cref="IDemoModule"/> 并注入该 Context；
+    /// 2) 取得根 Context 已完成 Install / Initialize 的唯一 <see cref="DemoModuleCatalog"/>；
     /// 3) 构建左侧导航 + 右侧内容区，处理选择与挂载。
     /// </summary>
     /// <remarks>
@@ -34,10 +32,10 @@ namespace Game.Framework.Demo.Core
         [SerializeField] private StyleSheet _theme;
 
         private IGameContext _context;
-        private readonly List<IDemoModule> _modules = new();
+        private DemoModuleCatalog _moduleCatalog;
+        private IReadOnlyList<IDemoModule> _modules = Array.Empty<IDemoModule>();
         private readonly Dictionary<string, Button> _navButtons = new();
         private IDemoModule _current;
-        private DemoModuleHost _currentHost;
 
         private VisualElement _navList;
         private ScrollView _navScroll;
@@ -88,8 +86,8 @@ namespace Game.Framework.Demo.Core
             else if (_modules.Count > 0) Select(_modules[0]);
         }
 
-        // 从父节点的 MonoDemoContext 取已建好的共享 Context（它在更早的 ExecutionOrder 里注册了公共服务 + 各模块绑定，
-        // 并自动收纳挂在它下面的 Mono 层），再把各模块注入这个 Context。
+        // 从父节点的 MonoDemoContext 取已建好的共享 Context 与唯一目录。章节 Adapter 已由 Context 在更早的
+        // ExecutionOrder 中完成 Install + Initialize；Shell 不再反射构造第二批实例。
         private bool BuildContext()
         {
             var contextHost = GetComponentInParent<MonoDemoContext>();
@@ -106,83 +104,9 @@ namespace Game.Framework.Demo.Core
                 return false;
             }
             _context = contextHost;
-
-            foreach (var m in DiscoverModules())
-            {
-                m.Initialize(_context);
-                _modules.Add(m);
-            }
+            _moduleCatalog = contextHost.ModuleCatalog;
+            _modules = _moduleCatalog.Modules;
             return true;
-        }
-
-        // 分类显示顺序（未列出的排到最后）。
-        private static readonly string[] CategoryOrder = { "入门", "核心", "能力", "进阶", "规划中" };
-        private static readonly Regex ModuleIdPattern = new("^[a-z0-9]+(?:-[a-z0-9]+)*$", RegexOptions.Compiled);
-        private const int MaxSummaryLength = 160;
-
-        private static int CategoryIndex(string category)
-        {
-            int i = Array.IndexOf(CategoryOrder, category);
-            return i < 0 ? int.MaxValue : i;
-        }
-
-        // 反射收集本程序集中所有非抽象、带无参构造的 IDemoModule，按 分类→Order→标题 排序（由简入深）。
-        internal static List<IDemoModule> DiscoverModules()
-        {
-            var contract = typeof(IDemoModule);
-            var modules = typeof(DemoShellController).Assembly.GetTypes()
-                .Where(t => !t.IsAbstract && contract.IsAssignableFrom(t) && t.GetConstructor(Type.EmptyTypes) != null)
-                .Select(t => (IDemoModule)Activator.CreateInstance(t))
-                .OrderBy(m => CategoryIndex(m.Category)).ThenBy(m => m.Order).ThenBy(m => m.Title)
-                .ToList();
-
-            ValidateCatalog(modules);
-
-            return modules;
-        }
-
-        /// <summary>
-        /// 反射目录的 fail-fast 边界。重复 Id 会让导航字典静默覆盖按钮，Order 撞号会退化为文化相关的标题排序；
-        /// 这些都属于教学编排错误，应在 Demo 启动时一次列全，而不是等用户点到异常章节才发现。
-        /// </summary>
-        private static void ValidateCatalog(List<IDemoModule> modules)
-        {
-            var problems = new List<string>();
-            if (modules.Count == 0) problems.Add("未发现任何 IDemoModule 实现");
-
-            foreach (var module in modules)
-            {
-                string type = module.GetType().Name;
-                if (string.IsNullOrWhiteSpace(module.Id) || !ModuleIdPattern.IsMatch(module.Id))
-                    problems.Add($"{type}.Id 必须是非空 kebab-case，当前为 '{module.Id}'");
-                if (string.IsNullOrWhiteSpace(module.Title))
-                    problems.Add($"{type}.Title 不能为空");
-                if (string.IsNullOrWhiteSpace(module.Summary))
-                    problems.Add($"{type}.Summary 不能为空");
-                else
-                {
-                    if (module.Summary.Length > MaxSummaryLength)
-                        problems.Add($"{type}.Summary 最多 {MaxSummaryLength} 字，当前 {module.Summary.Length} 字");
-
-                    int sentenceCount = module.Summary.Count(c => c is '。' or '！' or '？');
-                    if (sentenceCount > 2)
-                        problems.Add($"{type}.Summary 最多 2 句，当前有 {sentenceCount} 个句末标点");
-                }
-                if (Array.IndexOf(CategoryOrder, module.Category) < 0)
-                    problems.Add($"{type}.Category '{module.Category}' 不在固定分类表中");
-            }
-
-            foreach (var group in modules.GroupBy(m => m.Id).Where(g => g.Count() > 1))
-                problems.Add($"Id '{group.Key}' 重复：{string.Join(", ", group.Select(m => m.GetType().Name))}");
-            foreach (var group in modules.GroupBy(m => m.Title).Where(g => g.Count() > 1))
-                problems.Add($"Title '「{group.Key}」' 重复：{string.Join(", ", group.Select(m => m.GetType().Name))}");
-            foreach (var group in modules.GroupBy(m => (m.Category, m.Order)).Where(g => g.Count() > 1))
-                problems.Add($"「{group.Key.Category}」组内 Order {group.Key.Order} 重复：" +
-                             string.Join(", ", group.Select(m => m.GetType().Name)));
-
-            if (problems.Count > 0)
-                throw new InvalidOperationException(
-                    "[DemoShell] 章节目录契约无效：\n  · " + string.Join("\n  · ", problems));
         }
 
         private void BuildUI()
@@ -289,10 +213,9 @@ namespace Game.Framework.Demo.Core
             _headerSummary.text = module.Summary;
             UpdateChapterNavigation(module);
             _contentArea.Clear();
-            _currentHost = new DemoModuleHost(_contentArea);
             try
             {
-                module.Build(_currentHost);
+                _moduleCatalog.Activate(module, _contentArea);
             }
             catch
             {
@@ -312,18 +235,22 @@ namespace Game.Framework.Demo.Core
                 _navScroll.schedule.Execute(() => _navScroll.ScrollTo(navBtn));
         }
 
-        // 所有离开当前章节的路径都走同一出口：先取消 Host 异步按钮，再释放模块 Bag。
+        // 所有离开当前章节的路径都走同一出口；目录集中保证先取消 Host 异步按钮，再释放模块 Bag。
         private void ReleaseCurrentModule()
         {
-            _currentHost?.Dispose();
-            _currentHost = null;
-            _current?.Teardown();
-            _current = null;
+            try
+            {
+                _moduleCatalog?.Deactivate();
+            }
+            finally
+            {
+                _current = null;
+            }
         }
 
         private void SelectRelativeChapter(int offset)
         {
-            int currentIndex = _modules.IndexOf(_current);
+            int currentIndex = IndexOfModule(_current);
             int targetIndex = currentIndex + offset;
             if (currentIndex >= 0 && targetIndex >= 0 && targetIndex < _modules.Count)
                 Select(_modules[targetIndex]);
@@ -331,7 +258,7 @@ namespace Game.Framework.Demo.Core
 
         private void UpdateChapterNavigation(IDemoModule module)
         {
-            int absoluteIndex = _modules.IndexOf(module);
+            int absoluteIndex = IndexOfModule(module);
             int groupCount = 0;
             int groupIndex = -1;
             for (int i = 0; i < _modules.Count; i++)
@@ -353,6 +280,13 @@ namespace Game.Framework.Demo.Core
             bool hasNext = absoluteIndex >= 0 && absoluteIndex < _modules.Count - 1;
             _nextChapterButton.SetEnabled(hasNext);
             _nextChapterButton.text = hasNext ? $"{_modules[absoluteIndex + 1].Title} →" : "已到终点 →";
+        }
+
+        private int IndexOfModule(IDemoModule module)
+        {
+            for (int i = 0; i < _modules.Count; i++)
+                if (ReferenceEquals(_modules[i], module)) return i;
+            return -1;
         }
     }
 }

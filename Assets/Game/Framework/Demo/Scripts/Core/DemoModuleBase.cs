@@ -1,3 +1,4 @@
+using System;
 using Game.Framework;
 using Game.Framework.Context;
 using Game.Framework.Internal;
@@ -26,7 +27,8 @@ namespace Game.Framework.Demo.Core
         /// 本模块的生命周期容器：订阅（R3 / Framework Event）、资源加载、对象池租借等都登记到这里，
         /// <see cref="Teardown"/>（切走模块）时统一释放。
         /// </summary>
-        protected DisposableBag Bag => _bag ??= new DisposableBag(_context);
+        protected DisposableBag Bag => _bag ??= new DisposableBag(_context ?? throw new InvalidOperationException(
+            $"{GetType().Name} 尚未 Initialize，不能创建章节 Bag。"));
 
         public abstract string Id { get; }
         public abstract string Title { get; }
@@ -36,13 +38,18 @@ namespace Game.Framework.Demo.Core
         public virtual bool IsComingSoon => false;
 
         /// <summary>
-        /// 默认不贡献绑定；需要自己的 Model/System 的模块覆写它。
-        /// ⚠ 本方法在<b>临时实例</b>上被调（<c>MonoDemoContext</c> 收集绑定用；驱动 UI 的模块由外壳另行实例化）——
-        /// 覆写时不要把对象存进字段留给 <see cref="Build"/> 用（UI 实例上是 null），Build 需要什么一律从 Context 解析。
+        /// 默认不贡献绑定；需要自己的 Model/System/Utility 时覆写。目录会在同一实例上继续 Initialize 与 Build，
+        /// 但本阶段仍只应描述容器注册关系：不要启动运行时工作，也不要绕过 Context 所有权把临时对象留给 Build。
         /// </summary>
         public virtual void InstallBindings(ContainerBuilder builder) { }
 
-        public void Initialize(IGameContext context) => _context = context;
+        public void Initialize(IGameContext context)
+        {
+            if (context == null) throw new ArgumentNullException(nameof(context));
+            if (_context != null)
+                throw new InvalidOperationException($"{GetType().Name} 已经 Initialize，不能注入第二个 Context。");
+            _context = context;
+        }
 
         public abstract void Build(DemoModuleHost host);
 

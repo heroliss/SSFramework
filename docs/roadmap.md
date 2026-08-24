@@ -106,7 +106,7 @@ DOTS 是数据/Job/Burst 范式，与引用式 OOP 不同。框架的定位是**
    - ④ **服务注册代码生成** ✅ 已落地（ADR-0019）：`ServiceInstallerProfile` 配「扫描目录 → 安装器类」，菜单 `SSFramework/服务注册/生成服务安装器代码` 生成显式 `XxxInstaller.Install(builder)`，Context 里一行接线——刻意不做运行时反射扫描：启动零反射、AOT/热更友好、注册关系在 git diff 里可见可审。配套内核语义：构建期值绑定实例在 Context 构造时自动 Inject + AttachTo（纯 C# 与 Mono 路径「注册即注入」对称）。demo 活样板见「服务注册生成 · 安装器」章（`Modules/ServiceInstaller/`）。
 3. **资源运营流程 demo** ✅ 已落地：demo「资源运营 · 端到端」章——运营侧发版（构建+部署 = 覆盖 CDN `.version`）→ 客户端启动检查 → 强更下载（进度 / 重建重试 / 断点续传）→ `ClearCache(Unused)` 回收旧版本；核心是可整段搬走的启动器流程活样板 `RunUpdateFlow`。顺带补了唯一缺口 API：`IAssetUtility.GetPackageVersion`（只读当前清单版本，设置页 / 客服排查用）。
 4. **CI 护栏** ✅ 已落地：`Tools/run-tests.ps1` 命令行 batchmode 默认顺序跑 EditMode + PlayMode、分别保留 NUnit XML/Editor 日志并汇总退出码（需先关闭编辑器；也可用 `-TestPlatform` 定向单跑）。后续可选：接 git pre-push hook / 云端 CI。
-5. **交互式 Editor 的 AI 测试预检** ✅ 已落地（ADR-0036）：MCP 跑 PlayMode 前显式保存已有路径脏场景，未命名场景按整批先验证再写入的顺序 fail-fast，避免原生保存弹窗锁死 Unity 主线程队列；不注册全局自动保存，不改变人工 Play 语义。Outpost 真实玩家路径冒烟同步落地，以原子目录重命名保护真实存档，并修出 Context 隔离、收尾状态与 Test Framework 协程续跑等组合缺陷；当前基线 PlayMode 418/418 + EditMode 91/91。
+5. **交互式 Editor 的 AI 测试预检** ✅ 已落地（ADR-0036）：MCP 跑 PlayMode 前显式保存已有路径脏场景，未命名场景按整批先验证再写入的顺序 fail-fast，避免原生保存弹窗锁死 Unity 主线程队列；不注册全局自动保存，不改变人工 Play 语义。Outpost 真实玩家路径冒烟同步落地，以原子目录重命名保护真实存档，并修出 Context 隔离、收尾状态与 Test Framework 协程续跑等组合缺陷；当前基线 PlayMode 418/418 + EditMode 94/94。
 
 ### 中期：新功能模块（按"所有游戏都要"排序）
 

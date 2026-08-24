@@ -26,4 +26,4 @@
 - 预检与测试运行仍是两个步骤。这样保留 MCP 测试 job 的过滤、轮询和结果能力，也避免项目重新实现一套 Test Runner。
 - `Game.Framework.Editor.Tests` 用真实临时场景覆盖成功保存和未命名场景拒绝，并验证“批次中含未命名场景时，有路径的脏场景也保持未保存”。每个用例创建带 GUID 的独占目录，TearDown 只删除明确持有的目录，不会误删用户预先存在的同名资产。
 - 删除 `Game.Framework.Editor` 后只失去 Editor 自动化体验，不影响 Runtime Framework 或玩家构建，符合 Editor Module 的删除测试。
-- 验收实测：先经菜单预检，再由 MCP 启动全量测试；2026-08-24 当前基线 EditMode 91/91、PlayMode 418/418，且没有再次出现保存弹窗或 0-test 队列卡死。
+- 验收实测：先经菜单预检，再由 MCP 启动全量测试；2026-08-24 当前基线 EditMode 94/94、PlayMode 418/418，且没有再次出现保存弹窗或 0-test 队列卡死。

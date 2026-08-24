@@ -29,7 +29,7 @@ namespace Game.Framework.Demo.Modules
         /// <summary>
         /// 流程状态机的标准注册路径：RegisterOwned = 注册即注入回填宿主 Context（ADR-0019），
         /// 宿主 Context Dispose 时 flow 连同当前状态子 Context 一并撤。
-        /// ⚠ 本方法在临时实例上被调（见 DemoModuleBase 说明），Build 要用的对象不能存字段、只能从 Context 解析。
+        /// 本阶段只声明注册关系；Build 需要的运行时对象仍从 Context 解析，让所有权与 View 权限保持清晰。
         /// </summary>
         public override void InstallBindings(ContainerBuilder builder)
         {
