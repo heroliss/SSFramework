@@ -4,13 +4,13 @@ using Game.Framework.Internal;
 namespace Game.Framework.Demo.Core
 {
     /// <summary>
-    /// 一个演示模块 = 一个框架功能的演示页。外壳（<see cref="DemoShellController"/>）反射收集所有实现，
-    /// 按 <see cref="Category"/> + <see cref="Order"/> 排进左侧导航——新增一个模块即自动出现，无需改外壳。
+    /// 一个演示模块 = 一个框架功能的演示页。<see cref="DemoModuleCatalog"/> 反射收集所有实现，
+    /// 按 <see cref="Category"/> + <see cref="Order"/> 排进左侧导航——新增一个模块即自动出现，无需改目录或外壳。
     /// </summary>
     /// <remarks>
-    /// <b>生命周期：</b><see cref="InstallBindings"/>（建 Context 前，贡献本模块要用的框架层）→
+    /// <b>生命周期：</b>同一个 Adapter 实例依次执行 <see cref="InstallBindings"/>（建 Context 前贡献绑定）→
     /// <see cref="Initialize"/>（注入建好的 Context）→ 被选中时 <see cref="Build"/>（构建 UI）→
-    /// 切走时 <see cref="Teardown"/>（释放订阅/资源）。可反复 Build/Teardown。<br/>
+    /// 切走时 <see cref="Teardown"/>（释放订阅/资源）。Build / Teardown 可反复成对发生，目录负责拒绝乱序与重入。<br/>
     /// 业务模块继承 <see cref="DemoModuleBase"/> 即可，无需直接实现本接口。
     /// </remarks>
     public interface IDemoModule
@@ -33,16 +33,19 @@ namespace Game.Framework.Demo.Core
         /// <summary>是否为"规划中"占位章节（导航里弱化显示，点开只是预告）。已实现的模块为 false。</summary>
         bool IsComingSoon { get; }
 
-        /// <summary>在 Context 构建前贡献本模块需要的框架层绑定（Model/System/Utility）。默认无。</summary>
+        /// <summary>
+        /// 在 Context 构建前贡献本模块需要的框架层绑定（Model/System/Utility）。这里只声明注册关系；
+        /// 不启动异步工作，也不把临时对象留给 Build，运行时依赖仍从已建 Context 解析。
+        /// </summary>
         void InstallBindings(ContainerBuilder builder);
 
-        /// <summary>外壳在 Context 建好后注入它。此后才能 ExecuteCommand / 订阅。</summary>
+        /// <summary>目录在 Context 建好后向同一实例注入它。此后才能 ExecuteCommand / 订阅。</summary>
         void Initialize(IGameContext context);
 
         /// <summary>被选中时构建模块 UI 到 <paramref name="host"/>.Content。</summary>
         void Build(DemoModuleHost host);
 
-        /// <summary>切走模块时释放本次 Build 期间的订阅与资源。</summary>
+        /// <summary>切走模块时释放本次 Build 期间的订阅与资源；调用前活动 Host 已被取消。</summary>
         void Teardown();
     }
 }

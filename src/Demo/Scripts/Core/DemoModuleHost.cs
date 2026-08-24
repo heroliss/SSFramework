@@ -31,7 +31,7 @@ namespace Game.Framework.Demo.Core
         public DemoModuleHost(VisualElement content) => Content = content;
 
         /// <summary>
-        /// 结束本次章节 UI 的生命周期：取消仍在执行的异步动作。外壳在切章、重建 UIDocument 或销毁时调用；
+        /// 结束本次章节 UI 的生命周期：取消仍在执行的异步动作。章节目录在切章、重建 UIDocument 或销毁时调用；
         /// 普通模块无需手动处理。
         /// </summary>
         public void Dispose()

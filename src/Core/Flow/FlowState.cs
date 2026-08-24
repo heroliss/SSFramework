@@ -18,8 +18,8 @@ namespace Game.Framework.Flow
     /// 宿主 Dispose）时子 Context 整棵撤。因此阶段占用的一切——服务注册进 <see cref="InstallBindings"/>、
     /// 订阅与资源进 <see cref="Bag"/>——都随阶段结束自动清理，不依赖子类自觉。<br/>
     /// <b>时序约束</b>：<see cref="InstallBindings"/> 在子 Context 构建<b>前</b>被调，此时
-    /// <see cref="Context"/> / <see cref="Bag"/> 尚不可用（本类实例字段可用——与 demo 模块的临时实例
-    /// 收集不同，这里全程同一实例）；两者从 <see cref="OnEnter"/> 起可用。
+    /// <see cref="Context"/> / <see cref="Bag"/> 尚不可用；本实例字段仍可用，框架随后会在同一实例上调用
+    /// <see cref="OnEnter"/>。Context 与 Bag 从 <see cref="OnEnter"/> 起可用。
     /// </remarks>
     public abstract class FlowState
     {

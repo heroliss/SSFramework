@@ -1,3 +1,4 @@
+using System;
 using Game.Framework.Context;
 using Game.Framework.Pool;
 using Game.Framework.Systems;
@@ -17,17 +18,43 @@ namespace Game.Framework.Demo.Core
     /// </remarks>
     public sealed class MonoDemoContext : MonoGameContextBase
     {
+        private DemoModuleCatalog _moduleCatalog;
+
+        /// <summary>由根 Context 持有的唯一章节目录。只有 Context 完成初始化后，外壳才能取得。</summary>
+        internal DemoModuleCatalog ModuleCatalog => _moduleCatalog ?? throw new InvalidOperationException(
+            "Demo module catalog is unavailable because the root Context has not completed InstallBindings.");
+
         protected override void InstallBindings(ContainerBuilder builder)
         {
+            // 目录先一次性发现并固定 Adapter 身份；后续 Install、Initialize、Build、Teardown 都复用同一批实例。
+            _moduleCatalog = DemoModuleCatalog.Discover();
+
             // 命令分发用 LoggingCommandSystem 装饰默认 CommandSystem（可插拔的活样板）：demo 里点任何按钮，
             // 「SSFramework/诊断/框架诊断面板」的 Command 流水即实时可见；不需要流水时注册 CommandSystem 即可。
             builder.RegisterValue(new LoggingCommandSystem(), typeof(ICommandSystem));
             // 池工具用 RegisterOwned：随本 Context.Dispose 自动清池（停放节点 + 空闲实例），不靠 DontDestroyOnLoad 长留。
             builder.RegisterOwned(new PoolUtility(), typeof(IPoolUtility));
 
-            // 各模块的纯 C# 层绑定（这里用的是临时实例，只为收集绑定；真正驱动 UI 的模块由外壳另行实例化并注入同一 Context）。
-            foreach (var module in DemoShellController.DiscoverModules())
-                module.InstallBindings(builder);
+            _moduleCatalog.InstallBindings(builder);
+        }
+
+        protected override void OnInitialized()
+        {
+            base.OnInitialized();
+            _moduleCatalog.Initialize(this);
+        }
+
+        protected override void OnDestroy()
+        {
+            try
+            {
+                // Unity 不承诺父子节点 OnDestroy 的精确先后；目录作为最终 owner，在 Context 仍可用时兜底结束活动章节。
+                _moduleCatalog?.Dispose();
+            }
+            finally
+            {
+                base.OnDestroy();
+            }
         }
     }
 }

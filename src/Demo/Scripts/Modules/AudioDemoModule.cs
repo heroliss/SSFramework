@@ -35,7 +35,7 @@ namespace Game.Framework.Demo.Modules
         /// <summary>
         /// 纯 C# 服务的标准注册路径：RegisterOwned = 随 Context Dispose 自动全停（这里即退出 Play / 切走本章）。
         /// 挂场景节点、要 Inspector 配初始音量的项目用 MonoAudioUtility（同一套逻辑的 Mono 壳）。
-        /// ⚠ 本方法在临时实例上被调（见 DemoModuleBase 说明），Build 要用的对象不能存字段、只能从 Context 解析。
+        /// 本阶段只声明注册关系；Build 需要的运行时对象仍从 Context 解析，让所有权与 View 权限保持清晰。
         /// </summary>
         public override void InstallBindings(ContainerBuilder builder)
         {

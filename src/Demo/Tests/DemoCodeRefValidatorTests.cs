@@ -1,7 +1,5 @@
-using System.Collections;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Text.RegularExpressions;
 using Game.Framework.Context;
 using Game.Framework.Demo.Core;
@@ -183,17 +181,8 @@ namespace Game.Framework.Demo.Tests
         [Test]
         public void ModuleCatalog_MetadataSatisfiesRuntimeContract()
         {
-            var shellType = typeof(DemoGameServer).Assembly.GetType(
-                "Game.Framework.Demo.Core.DemoShellController",
-                throwOnError: true);
-            var discover = shellType.GetMethod(
-                "DiscoverModules",
-                BindingFlags.NonPublic | BindingFlags.Static);
-
-            Assert.IsNotNull(discover);
-            var modules = discover.Invoke(null, null) as ICollection;
-            Assert.IsNotNull(modules);
-            Assert.AreEqual(32, modules.Count, "章节增删时应同步检查学习路径、module map 与目录元数据。");
+            using var catalog = DemoModuleCatalog.Discover();
+            Assert.AreEqual(32, catalog.Modules.Count, "章节增删时应同步检查学习路径、module map 与目录元数据。");
         }
 
         [Test]

@@ -40,9 +40,9 @@ namespace Game.Framework.Demo.Tests
         }
 
         [UnityTest]
-        public IEnumerator ShellRelease_CancelsHostBeforeModuleTeardown()
+        public IEnumerator CatalogDeactivate_CancelsHostBeforeModuleTeardown()
         {
-            return VerifyShellReleaseOrder().ToCoroutine();
+            return VerifyCatalogReleaseOrder().ToCoroutine();
         }
 
         [Test]
@@ -296,54 +296,39 @@ namespace Game.Framework.Demo.Tests
             }
         }
 
-        private static async UniTask VerifyShellReleaseOrder()
+        private static async UniTask VerifyCatalogReleaseOrder()
         {
-            var shellObject = new GameObject("Demo shell release test");
-            shellObject.SetActive(false); // 不触发 Awake；本测试只验证纯所有权出口，不需要真实 Context/UIDocument。
-            var shell = shellObject.AddComponent<DemoShellController>();
-            var host = new DemoModuleHost(new VisualElement());
             CancellationToken actionToken = default;
             var started = new UniTaskCompletionSource();
             bool teardownCalled = false;
-            var module = new StubModule(() =>
-            {
-                teardownCalled = true;
-                Assert.IsTrue(actionToken.IsCancellationRequested,
-                    "Module.Teardown 执行时，Host 的章节令牌必须已经取消。 ");
-            });
-
-            try
-            {
-                Button button = host.AddAsyncActionRow("long-running", async ct =>
+            Button button = null;
+            var module = new StubModule(
+                host => button = host.AddAsyncActionRow("long-running", async ct =>
                 {
                     actionToken = ct;
                     started.TrySetResult();
                     await UniTask.DelayFrame(1000, cancellationToken: ct);
+                }),
+                () =>
+                {
+                    teardownCalled = true;
+                    Assert.IsTrue(actionToken.IsCancellationRequested,
+                        "Module.Teardown 执行时，Host 的章节令牌必须已经取消。 ");
                 });
-                SimulateClick(button);
-                await started.Task;
 
-                typeof(DemoShellController).GetField("_current", BindingFlags.Instance | BindingFlags.NonPublic)
-                    ?.SetValue(shell, module);
-                typeof(DemoShellController).GetField("_currentHost", BindingFlags.Instance | BindingFlags.NonPublic)
-                    ?.SetValue(shell, host);
-                MethodInfo release = typeof(DemoShellController).GetMethod(
-                    "ReleaseCurrentModule",
-                    BindingFlags.Instance | BindingFlags.NonPublic);
-                Assert.IsNotNull(release);
-                release.Invoke(shell, null);
+            using var catalog = new DemoModuleCatalog(new[] { module });
+            using var builder = new ContainerBuilder();
+            catalog.InstallBindings(builder);
+            using var context = new GameContext(builder.Build(), inheritFromGlobal: false);
+            catalog.Initialize(context);
+            catalog.Activate(module, new VisualElement());
 
-                Assert.IsTrue(teardownCalled);
-                Assert.IsNull(typeof(DemoShellController).GetField("_current", BindingFlags.Instance | BindingFlags.NonPublic)
-                    ?.GetValue(shell));
-                Assert.IsNull(typeof(DemoShellController).GetField("_currentHost", BindingFlags.Instance | BindingFlags.NonPublic)
-                    ?.GetValue(shell));
-                await UniTask.Yield(); // 让被取消的按钮回调完成 finally，避免把续体带到下一用例。
-            }
-            finally
-            {
-                UnityEngine.Object.DestroyImmediate(shellObject);
-            }
+            SimulateClick(button);
+            await started.Task;
+            catalog.Deactivate();
+
+            Assert.IsTrue(teardownCalled);
+            await UniTask.Yield(); // 让被取消的按钮回调完成 finally，避免把续体带到下一用例。
         }
 
         private static void SimulateClick(Button button)
@@ -364,8 +349,13 @@ namespace Game.Framework.Demo.Tests
 
         private sealed class StubModule : IDemoModule
         {
+            private readonly Action<DemoModuleHost> _onBuild;
             private readonly Action _onTeardown;
-            internal StubModule(Action onTeardown) => _onTeardown = onTeardown;
+            internal StubModule(Action<DemoModuleHost> onBuild, Action onTeardown)
+            {
+                _onBuild = onBuild;
+                _onTeardown = onTeardown;
+            }
             public string Id => "stub";
             public string Title => "Stub";
             public string Category => "入门";
@@ -374,7 +364,7 @@ namespace Game.Framework.Demo.Tests
             public bool IsComingSoon => false;
             public void InstallBindings(ContainerBuilder builder) { }
             public void Initialize(IGameContext context) { }
-            public void Build(DemoModuleHost host) { }
+            public void Build(DemoModuleHost host) => _onBuild(host);
             public void Teardown() => _onTeardown();
         }
     }
