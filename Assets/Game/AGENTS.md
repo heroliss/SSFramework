@@ -53,18 +53,18 @@
 
 | Module / Interface | 业务侧必须守住的边界 | 详见 |
 |---|---|---|
-| 资源 `IAssetUtility` | 资源三件套挂同一 Context；动态借用走 Bag，Inspector 引用走 `AssetReference<T>`。SO/纯 C# 内的 AssetReference 不自动递归绑定，由持有者 `BindAssetReferences`。未初始化包直接 Load 会抛；同步预检用 `GetLocationState` 区分包未就绪 / 地址无效 / 本地可用 / 需要下载，再用 `GetInitState` 细分未就绪原因。package 名用生成常量，不写裸字符串。 | guide §13 / ADR-0013 |
-| 对象池 `IPoolUtility` | Context 所有权优先 `RegisterOwned`；首次工厂/钩子配置生效。高频领域热路径自己维护租借列表；Pool 不替实例 Dispose 非托管资源。GameObject 池主线程独占。 | guide §7 |
-| 配置 `IConfigUtility<TTables>` | 配置是全层只读 Utility，不占 Model；加载前 `Tables` 为 null，等 `State` 不轮询。改表走 profile + 生成菜单；生成目录勿手放文件，`topModule` 不含 `System` 段。 | guide §16 / ADR-0009 |
-| UI `IUIUtility` | 同一 Context 只挂一个 Toolkit 或 UGUI 入口。窗口仍是 View；元数据用 `[UIWindow]`，Toolkit 窗口需无参构造，UGUI 窗口不要覆写 Awake。过渡期间框架挡输入；关闭的逻辑状态先于动画收尾。异步任务显示全局 Loading 用 `using var loading = await AcquireLoading(...)`，不要用 Show/Hide 配对表达并发 owner。 | guide §17 / ADR-0016/0020/0037 |
-| 存储 `IStorageUtility` | `[Serializable]` 类整存整取，key 是持久契约；Save 失败抛异常并必须 await，Load 无可用主/备数据返回 null。迁移由数据 `Version` + 业务 switch 完成。 | guide §18 / ADR-0021 |
-| 音频 `IAudioUtility` | BGM 交给单通道编排；一次性 SFX 自动回收，循环音效 handle 必须 Stop 或进 Bag。持续跟随对象的 3D 音源直接用 `AudioSource`。音量持久化归业务。 | guide §19 / ADR-0022 |
-| 流程 `IGameFlow` | 只表达启动/登录/大厅/战斗等宏观阶段；每次进入 new 一个 `FlowState`。阶段私有服务/订阅/资源放状态子 Context/Bag。转换“串行 + 最新意图胜”；OnEnter 内转向后直接 return，不能 await 自己触发的 GoTo。 | guide §20 / ADR-0023 |
-| 本地化 `ILocalizationUtility` | 文本 UI 订 `TextRevision`（同时覆盖换语言与 Source 失效），动态参数与它 `CombineLatest`；字体/按语言资源才只订 `Locale`。Source 用 `Unavailable/Missing/Found` 区分加载中与真缺失；真缺 key 才裸 key + 一次警告。 | guide §21 / ADR-0024 |
-| 字体 `MonoLocaleFonts` | 根 Context 一份组件接管指定主字体 fallback；TMP/Toolkit 分别配置。同一主字体不可被两份组件接管；OS 族名用英文并按平台给候选。 | guide §22 / ADR-0025 |
-| 网络 `IHttpUtility/IWebSocketUtility` | HTTP 请求响应返回 UniTask；WS 推送映射 Framework Event。非 2xx 动词门面抛 `NetworkException`，外部取消保持 `OperationCanceledException`。JsonUtility 消息用字段；重试/重连显式写在业务层。 | guide §25 / ADR-0028 |
-| UI 嵌入 `UI.Bridge` | 需被 Toolkit 内容流裁剪/滚动才用 RenderTexture Bridge；简单顶层覆盖优先 overlay。隔离专用 layer 并从主相机 cullingMask 排除；交互模式不承诺 IME/多点触控。 | guide §27 / ADR-0033 |
-| 日志 `Log` | 新代码统一 `Game.Framework.Logging.Log`，不要裸 `Debug.Log`。日志同时经过全局与 sink 的 `MinLevel`；Trace 用插值处理器且参数不得有副作用。玩家问题追踪在启动时配置 File sink 并 `CaptureUnityLogs()`。 | guide §28 / ADR-0034 |
+| 资源 `IAssetUtility` | 资源三件套同一 Context；动态借用进 Bag，Inspector 用 `AssetReference<T>`，SO/纯 C# 由持有者绑定。Load 前判初始化/位置状态；package 名用生成常量。 | guide §13 / ADR-0013 |
+| 对象池 `IPoolUtility` | Context 所有权用 `RegisterOwned`；首次工厂/钩子配置生效。Pool 不替实例释放非托管资源，GameObject 池只在主线程使用。 | guide §7 |
+| 配置 `IConfigUtility<TTables>` | 配置是全层只读 Utility；等 `State`，不轮询未就绪的 `Tables`。改表走 profile/生成菜单，生成目录不手改，`topModule` 不含 `System`。 | guide §16 / ADR-0009 |
+| UI `IUIUtility` | 每个 Context 只挂一个 Toolkit/UGUI 入口；窗口仍是 View。Toolkit 窗口需无参构造，UGUI 窗口不覆写 Awake；并发 Loading 用 `AcquireLoading` 租约。 | guide §17 / ADR-0016/0020/0037 |
+| 存储 `IStorageUtility` | `[Serializable]` 类整存整取，key 是持久契约；Save 必须 await，Load 无主/备数据返回 null；迁移用数据 `Version`。 | guide §18 / ADR-0021 |
+| 音频 `IAudioUtility` | BGM 单通道编排；一次性 SFX 自动回收，循环 handle 必须 Stop 或进 Bag。跟随对象的 3D 音源直接用 `AudioSource`。 | guide §19 / ADR-0022 |
+| 流程 `IGameFlow` | 只表达宏观阶段，每次进入 new `FlowState`；私有能力放状态子 Context/Bag。转换“串行 + 最新意图胜”，OnEnter 转向后直接 return。 | guide §20 / ADR-0023 |
+| 本地化 `ILocalizationUtility` | 文本订 `TextRevision`，字体/按语言资源只订 `Locale`。Source 用 `Unavailable/Missing/Found` 区分加载中与真缺失；仅真缺 key 警告。 | guide §21 / ADR-0024 |
+| 字体 `MonoLocaleFonts` | 根 Context 一份组件接管主字体 fallback；TMP/Toolkit 分开配置，同一主字体不能重复接管。 | guide §22 / ADR-0025 |
+| 网络 `IHttpUtility/IWebSocketUtility` | HTTP 返回 UniTask，WS 推送转 Framework Event；失败抛 `NetworkException`，外部取消保持 OCE；重试/重连写在业务层。 | guide §25 / ADR-0028 |
+| UI 嵌入 `UI.Bridge` | 需要随 Toolkit 裁剪/滚动才用 RenderTexture；顶层覆盖优先 overlay。隔离 layer 并从主相机排除。 | guide §27 / ADR-0033 |
+| 日志 `Log` | 新代码不用裸 `Debug.Log`；Trace 插值无副作用。玩家追踪在启动时配置 File sink 并 `CaptureUnityLogs()`。 | guide §28 / ADR-0034 |
 
 ## 模块入口与配置可发现性
 

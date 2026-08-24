@@ -1,6 +1,6 @@
 # AI 协作方案
 
-> 面向项目维护者：说明 SSFramework 如何让 Claude Code、Codex 等编码 Agent 共享项目规则，又如何隔离各工具自己的 Skill、Hook、Subagent 与权限配置。能力信息最后核验于 **2026-08-23**。
+> 面向项目维护者：说明 SSFramework 如何让 Claude Code、Codex 等编码 Agent 共享项目规则，又如何隔离各工具自己的 Skill、Hook、Subagent 与权限配置。能力信息最后核验于 **2026-08-25**。
 
 ## 1. 当前布局
 
@@ -58,16 +58,16 @@ Claude 与 Codex 都支持 Skill、Hook、Subagent，但发现路径和配置格
 
 Codex 从项目根沿当前工作目录向下拼接 `AGENTS.md`，越近的文件越晚出现、优先级越高；合计默认上限为 **32 KiB**。超过上限后，靠后的就近规则可能无法加入上下文。官方说明见 [Codex AGENTS.md](https://learn.chatgpt.com/docs/agent-configuration/agents-md)。
 
-2026-08-23 实测的 UTF-8 预算：
+2026-08-25 实测的 UTF-8 预算：
 
 | 最深工作位置 | 合计 |
 |---|---:|
-| 项目根 | 5.69 KiB |
-| `Assets/Game` | 15.43 KiB |
-| `Assets/Game/Framework` | 20.87 KiB |
-| Demo Modules | 24.30 KiB |
+| 项目根 | 6.52 KiB |
+| `Assets/Game` | 15.47 KiB |
+| `Assets/Game/Framework` | 22.17 KiB |
+| Demo Modules | 26.34 KiB |
 
-保留约 7.7 KiB 余量给后续规则和换行差异。维护时不要只看单文件行数；要测量**最深链的 UTF-8 合计**。
+最深链保留约 5.66 KiB 给后续规则和换行差异。维护时不要只看单文件行数；要测量**最深链的 UTF-8 合计**。
 
 Claude Code 从工作目录向上读取 `CLAUDE.md`，并在访问子目录文件时发现嵌套 `CLAUDE.md`；`@path` 可导入同源规则。可用 `/memory` 查看实际加载项。官方说明见 [Claude Code memory](https://docs.anthropic.com/zh-CN/docs/claude-code/memory)。
 
@@ -103,7 +103,7 @@ Unity 交互式 Editor 还有一类更适合“项目内代码门禁”的固定
 
 两边都支持隔离上下文的 Subagent。Claude 项目定义位于 `.claude/agents/`，见 [Claude subagents](https://code.claude.com/docs/en/sub-agents)；Codex 项目定义位于 `.codex/agents/*.toml`，见 [Codex subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents)。
 
-“跨工具复用”指复用角色意图（如只读 Explorer / Reviewer）和关注点，不指同一个配置文件能被两边直接读取。是否启动 Subagent 仍遵循根 `AGENTS.md` 的协作门槛。
+“跨工具复用”指复用角色意图（如只读 Explorer / Reviewer）和关注点，不指同一个配置文件能被两边直接读取。是否启动 Subagent 仍遵循根 `AGENTS.md` 的协作门槛：默认单 Agent；跨目录只读探索、模糊大设计或真正独立的并行子任务可由主 Agent 自主启动，并在启动时告知用户边界与预期产出，不再要求逐次等待批准。
 
 ## 5. 添加或修改协作能力
 
