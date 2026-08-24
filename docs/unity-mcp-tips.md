@@ -26,7 +26,22 @@ Codex 的 MCP 配置指向 `D:/unity-mcp-server/src/index.js`。下面是调用�
 ## 5. 跑测试用 advanced_tool 的 testing 工具
 
 `Game.Framework.Test` 是 PlayMode 程序集。经 `unity_advanced_tool` 的 testing 类工具跑：
-`unity_testing_run_tests`（params：`mode: "PlayMode"` + `assemblyNames` / `testNames` / `groupNames`）→ 返回 jobId → `unity_testing_get_job` 查结果。注意参数名是 `mode` 不是 `testMode`（后者会被忽略、错跑成 EditMode）。
+`unity_testing_run_tests`（params：`mode: "PlayMode"` + `assemblies` / `testNames` / `groupNames`）→ 返回 jobId → `unity_testing_get_job` 查结果。注意参数名是 `mode` 不是 `testMode`，程序集过滤名是 `assemblies` 不是 `assemblyNames`；传错字段可能被忽略，造成错跑或范围失真。
+
+### PlayMode 无弹窗预检（必须先做）
+
+交互式 Editor 有脏场景时，Test Runner 在进入 PlayMode 前会打开原生保存弹窗。该弹窗阻塞 Unity 主线程，连 MCP 工具发现与队列查询都可能一起卡住；**弹窗出现后不能指望 Unity MCP 点击它**，只能人工或经操作系统 UI 自动化处理。
+
+因此 MCP 启动每次 PlayMode 测试前，先调用：
+
+```text
+unity_execute_menu_item
+menuPath: SSFramework/诊断/AI 自动化/PlayMode 测试预检（保存脏场景）
+```
+
+项目侧 `FrameworkAutomationPreflight` 会保存所有“已加载 + 脏 + 已有资产路径”的场景，并打印稳定标记 `[SSFramework.Automation] READY`；若 Editor 正忙、仍在 PlayMode、存在未命名脏场景或保存失败，则打印 `BLOCKED` 并 fail-fast，**不会打开新弹窗，也不会丢弃改动**。只有看到菜单调用成功且 Editor 编译空闲后，才调用 `unity_testing_run_tests`。
+
+这不是全局自动保存 Hook：人工点击 Play / Test Runner 仍保留 Unity 原有确认语义，只有自动化显式选择预检才会落盘。若弹窗已经出现，先人工点 Save，再从预检重新开始；不要重复提交已经排队的测试命令。
 
 ## 6. 改场景必须先退出 Play 模式
 
@@ -53,6 +68,10 @@ Server 2.35.6 对队列 ticket 的瞬时断连会继续轮询，不再盲目重�
 ## 9. Play 验证先开 `Application.runInBackground`
 
 AI 经 MCP 驱动 Play 验证时编辑器几乎必然**失焦**，默认设置下 Play 循环暂停（Update 不 tick）——异步初始化/加载会一直卡住，看起来像"加载死了"。进 Play 后先 `execute_code` 执行 `Application.runInBackground = true;` 再做断言。该值是运行时状态，不写工程设置，停止 Play 自动失效。
+
+真实 PlayMode 测试不能只依赖 Agent 在外面“碰巧设到正确一帧”：Test Runner 可能切换域/Play 状态。需要持续 PlayerLoop 的测试应在自己的 `UnitySetUp` 保存旧值并设为 `true`，在 `UnityTearDown` 的 `finally` 恢复。MCP job 返回的 `blockedReason: editor_unfocused` 只是诊断提示；先同时看 `Time.frameCount`、当前里程碑与 Console，不要仅凭失焦把业务等待判成死锁。
+
+用 Additive 场景隔离用户现场时，也不要清空启动场景的全部根节点：Unity Test Framework 的 `Code-based tests runner` 本身就是根节点，销毁后业务帧仍会走，但测试协程再也不会恢复。只撤项目自己的 Composition Root（如 `MonoGameContextBase`），并在 TearDown 卸载测试加载的场景。
 
 ## 10. 反射断言生成代码/第三方类型时注意成员形态
 

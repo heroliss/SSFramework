@@ -12,7 +12,7 @@
 ## 核心理念（详见 [framework-guide.md](framework-guide.md) §1）
 
 1. **拆开 Controller**：System 管"怎么做"、Command 管"做什么"，一条清晰接缝隔开逻辑与视图开发者。
-2. **单向数据流**：View → Command → System → Model；反向只读订阅。任何状态改动有迹可循。
+2. **单向数据流**：View → Command → Model（简单操作）或 View → Command → System → Model（复杂规则）；反向只读订阅。任何状态改动有迹可循。
 3. **用类型代替字符串/枚举**：事件、Model、Command 都用类型区分，IDE 可追踪、重命名安全。
 4. **生命周期统一为 IDisposable**：订阅、资源句柄、子作用域都进 `DisposableBag`，宿主销毁批量清理。
 5. **编译期权限**：`ICanGetModel`/`ICanSendEvent` 等接口在编译期约束每层能做什么，不靠口头约定。
@@ -100,12 +100,13 @@ DOTS 是数据/Job/Burst 范式，与引用式 OOP 不同。框架的定位是**
    - 异步过渡 hook ✅ 已落地：`OnOpenTransition/OnCloseTransition` + 框架全屏挡输入（计数挡板）；逻辑关闭先于表现；CloseAll/销毁直通。
    - Android Back / Esc ✅ 已落地：`Back()` 升级为 Popup→Window→Page 逐层返回导航（`BackClosable` 拦截、过渡中吞掉、空返回 false）+ `MonoUIBackKeyDriver` 接线组件（新旧输入系统双路径）。
    - 安全区适配 ✅ 已落地：UGUI `UGuiSafeArea`（锚进 Screen.safeArea）/ Toolkit `SafeAreaContainer`（padding 换算，UXML 可摆）——opt-in 内容避让，层根/背景保持全屏出血。
-   - Top 层常用件 ✅ 已落地：`ShowToast / ShowLoading / HideLoading` 为 IUIUtility 一等方法（后端无关），内置窗口类型表由入口注册；Toast 不拦输入自动关，Loading 模态+拦返回键。
+   - Top 层常用件 ✅ 已落地：`ShowToast / AcquireLoading` 为 IUIUtility 一等方法（后端无关），内置窗口类型表由入口注册；Toast 不拦输入自动关，Loading 模态+拦返回键并由引用计数 handle 管并发 owner，两个异步打开入口都可透传调用方生命周期令牌；`ShowLoading / HideLoading` 保留单 owner 兼容语义。
 2. **代码生成收尾** ✅ 已全部落地（UI 节点自动绑定——含目录配置 / 占位符 / 引用为源同步 / 变体遮蔽）：
    - ③ **资源 Package 名常量生成** ✅ 已落地：菜单 `SSFramework/资源构建/生成包名常量代码`（构建 profile 配输出路径/命名空间），从收集器包列表生成 `AssetPackages.Xxx` 常量类，替代裸字符串包名（包名改错编译期暴露）。
    - ④ **服务注册代码生成** ✅ 已落地（ADR-0019）：`ServiceInstallerProfile` 配「扫描目录 → 安装器类」，菜单 `SSFramework/服务注册/生成服务安装器代码` 生成显式 `XxxInstaller.Install(builder)`，Context 里一行接线——刻意不做运行时反射扫描：启动零反射、AOT/热更友好、注册关系在 git diff 里可见可审。配套内核语义：构建期值绑定实例在 Context 构造时自动 Inject + AttachTo（纯 C# 与 Mono 路径「注册即注入」对称）。demo 活样板见「服务注册生成 · 安装器」章（`Modules/ServiceInstaller/`）。
 3. **资源运营流程 demo** ✅ 已落地：demo「资源运营 · 端到端」章——运营侧发版（构建+部署 = 覆盖 CDN `.version`）→ 客户端启动检查 → 强更下载（进度 / 重建重试 / 断点续传）→ `ClearCache(Unused)` 回收旧版本；核心是可整段搬走的启动器流程活样板 `RunUpdateFlow`。顺带补了唯一缺口 API：`IAssetUtility.GetPackageVersion`（只读当前清单版本，设置页 / 客服排查用）。
-4. **CI 护栏** ✅ 已落地：`Tools/run-tests.ps1` 命令行 batchmode 全量跑 PlayMode 测试 + NUnit 结果解析（需先关闭编辑器）。后续可选：接 git pre-push hook / 云端 CI。
+4. **CI 护栏** ✅ 已落地：`Tools/run-tests.ps1` 命令行 batchmode 默认顺序跑 EditMode + PlayMode、分别保留 NUnit XML/Editor 日志并汇总退出码（需先关闭编辑器；也可用 `-TestPlatform` 定向单跑）。后续可选：接 git pre-push hook / 云端 CI。
+5. **交互式 Editor 的 AI 测试预检** ✅ 已落地（ADR-0036）：MCP 跑 PlayMode 前显式保存已有路径脏场景，未命名场景按整批先验证再写入的顺序 fail-fast，避免原生保存弹窗锁死 Unity 主线程队列；不注册全局自动保存，不改变人工 Play 语义。Outpost 真实玩家路径冒烟同步落地，以原子目录重命名保护真实存档，并修出 Context 隔离、收尾状态与 Test Framework 协程续跑等组合缺陷；当前基线 PlayMode 416/416 + EditMode 91/91。
 
 ### 中期：新功能模块（按"所有游戏都要"排序）
 

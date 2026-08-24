@@ -46,9 +46,9 @@
 | | 职责 | 归属 |
 |---|---|---|
 | **System** | 封装"怎么做"——修改数据、协调逻辑、发出通知 | 逻辑开发者 |
-| **Command** | 封装"做什么"——用户意图的原子化表达，连接 View 与 System | 视图开发者 |
+| **Command** | 封装"做什么"——用户意图的原子化表达，连接 View 与 Model/System | 视图开发者 |
 
-两者之间有一条清晰的接缝：视图开发者定义 Command 接口，逻辑开发者实现 System，通过 Command 对接，互不干扰。Command 的典型职责来自两个方向——**向下**整理参数调用 System，**向上**取数适配后返回给 View。
+两者之间有一条清晰的接缝：视图开发者定义 Command，逻辑开发者实现 System，通过窄业务接口对接，互不干扰。Command 的典型职责来自两个方向——**向下**完成简单原子写入或整理参数调用 System，**向上**取数适配后返回给 View。
 
 ---
 
@@ -57,7 +57,8 @@
 有了这个分工，整条流程的方向就自然确定了：
 
 ```
-调用方向：  View ──→ Command ──→ System ──→ Model
+调用方向：  View ──→ Command ───────→ Model（简单原子操作）
+                          └──→ System ──→ Model（复杂 / 可复用规则）
 数据方向：  View ←── 查询 Command 返回订阅源 ←── System / Model
 ```
 
@@ -87,6 +88,8 @@
 ### 🔁 生命周期的统一管理
 
 把这些概念落到代码，会发现它们共享同一个问题：**订阅需要取消，引用需要释放**。框架中一切有生命周期的资源都实现 `IDisposable`，通过同一套模式管理。`MonoViewBase` 内置 `Bag`（`DisposableBag`），所有订阅经它统一登记，`OnDestroy` 时批量清理：
+
+`DisposableBag.Dispose()` 采用 best-effort 清理：取消回调或某个已登记对象的 `Dispose()` 抛异常时会记录错误并继续释放余下项目，不会因为一个坏清理器留下整批订阅、资源句柄或池租借。反过来，这不是吞错许可——错误仍会进入统一日志 sink，应修复抛异常的清理实现。
 
 ```csharp
 protected override void Awake()
@@ -257,7 +260,7 @@ public class ProjectileSystem : MonoSystemBase, IProjectileSystem
 
 > **何时拥抱跨层** — 看一个引擎组件是否同时满足：(1) Inspector 可直接观察当前值；(2) 由引擎或 System 修改；(3) Unity 自带渲染或反映机制。满足就让它直接作为 Model 字段，让引擎做它最擅长的事。
 
-> **边界** — 这不是普通业务字段的"逃逸通道"。金币、等级、回合状态等纯逻辑数据仍走"Model `RP<T>` → System 写 → Command 返回只读源 → View 订阅"的完整链路。跨层只属于那些天生就被引擎本身贯穿的组件。
+> **边界** — 这不是普通业务字段的"逃逸通道"。金币、等级、回合状态等纯逻辑数据仍由 Command 写入（简单原子操作）或委托 System 写入（可复用 / 多步规则），再由 Command 返回只读源给 View 订阅。跨层只属于那些天生就被引擎本身贯穿的组件。
 
 ---
 
@@ -273,9 +276,9 @@ public class ProjectileSystem : MonoSystemBase, IProjectileSystem
 |---|---|---|
 | **View** | 观察数据、响应用户、不直接写状态 | 严格树状（沿 Unity Hierarchy，父 View → 子 View） |
 | **Command** | 封装"做什么"——一次用户意图的原子化表达，View 写入数据的唯一入口 | 本质网状、主体树状 |
-| **System** | 封装"怎么做"——修改 Model、协调规则、发出事件，Model 的唯一合法写入者 | 本质网状、主体树状 |
+| **System** | 封装可复用的"怎么做"——修改 Model、协调规则、发出事件；复杂规则的主要写入者 | 本质网状、主体树状 |
 | **Model + Event** | 数据层。Model 持有当前值，Event 是无当前值的瞬时通知（详见 §1.3） | 本质网状、主体树状 |
-| **Utility** | 无状态工具函数，不依赖任何业务层 | 独立基础层，所有层均可调用 |
+| **Utility** | 业务无关的共享能力：纯函数或有生命周期的基础设施服务；不反向依赖业务层 | 独立基础层，所有层均可调用 |
 
 > **Command 与 System 是拆开的 Controller** —— 视图开发者声明 Command 接口，逻辑开发者实现 System，两边通过 Command 类型对接，互不耦合。Command 的典型职责：**向下**整理参数调用 System，**向上**从 Model 取数适配后返回给 View。
 
@@ -283,13 +286,14 @@ public class ProjectileSystem : MonoSystemBase, IProjectileSystem
 
 ```
 调用方向（写入）：
-  View ──(ExecuteCommand)──→ Command ──(调用)──→ System ──(修改)──→ Model
+  View ──(ExecuteCommand)──→ Command ────────(简单原子写入)──────→ Model
+                                  └──(复杂 / 可复用规则)──→ System ──→ Model
 
 数据方向（读取 / 订阅）：
   View ←──── Command ←──── System / Model / Event
 ```
 
-- **写入必须完整走链** —— View 任何状态变化都要通过 `Command → System → Model`，View 自身不直接写
+- **写入统一经过 Command 接缝** —— 简单原子操作可 `Command → Model`；复杂、可复用或多步规则走 `Command → System → Model`。View 自身永不直接写
 - **读取也通过 Command** —— View 不直接获取 Model/System；需要一次性取值或持续订阅时，用只读 Command 返回值或订阅源
 
 ### MonoBehaviour 与 Rigidbody：贯穿五层的引擎能力
@@ -304,7 +308,7 @@ public class ProjectileSystem : MonoSystemBase, IProjectileSystem
 |---|---|---|
 | **Model** | Utility | — |
 | **System** | Model、System、Utility | 修改 Model、发送/监听事件 |
-| **Utility** | — | — |
+| **Utility** | Utility | — |
 | **View** | Utility | 发送 Command、监听事件 |
 | **Command** | 通过 `Execute(ICommandContext ctx)` 参数访问一切层 | 调用 System、读取 Model、发送事件 |
 
@@ -575,7 +579,7 @@ ctx.AttachTo(audio);  // 回写 _ctx 字段，让扩展方法可以使用
 public class EnemyAISystem : MonoSystemBase, IEnemyAISystem
 {
     [Inject] private EnemyModel _model;
-    private void Update() { /* 每帧推进 AI，直接改 _model（System 是 Model 的合法写入者） */ }
+    private void Update() { /* 每帧推进 AI，直接改 _model（持续规则由 System 负责） */ }
 }
 
 // 纯 C# 路径：用 R3 Observable.EveryUpdate() 订阅进 Bag，宿主 / Context 释放时自动退订
@@ -589,11 +593,11 @@ Bag.Subscribe(Observable.EveryUpdate(), _ => Tick());
 
 ## 7. Utility（工具层）
 
-有一类代码既不是状态数据，也不承载业务逻辑——它们是纯粹的工具函数，比如格式化、加密、序列化。这类代码放进 Utility，所有层（Model、System、View）都可以使用，但 Utility 本身不依赖任何层。
+有一类代码既不持有玩法状态，也不承载业务规则——它们是业务无关的共享能力。Utility 可以是格式化、加密、序列化等纯函数，也可以是资源加载、对象池、存储、网络等有连接、缓存和生命周期的基础设施服务。所有层都可以使用 Utility，但 Utility 不反向依赖 Model/System，也不订阅业务事件。
 
 #### 纯 C# 路径（推荐）
 
-Utility 通常是无状态的纯函数，不需要出现在场景里，直接在 `InstallBindings` 中注册：
+不需要 Inspector 与 MonoBehaviour 生命周期的 Utility 优先写成纯 C#；无状态实例用 `RegisterValue`，需要随 Context 释放的服务用 `RegisterOwned`。最小注册示例：
 
 ```csharp
 public interface IEncryptUtility : IUtility { string Encrypt(string data); }
@@ -1117,7 +1121,18 @@ ctx.GetUtility<JsonUtility>()   // ❌ 具体类型未注册
 
 这与 Mono 路径不同——Mono 路径会同时注册具体类型和接口，而手动路径完全由你控制。如有需要可以手动补上具体类型，但通常调用方依赖接口就够了。
 
-**值绑定自动注入**（ADR-0019）：`RegisterValue` / `RegisterOwned` 的实例在 Context 构造时统一完成 `[Inject]` 注入与 `AttachTo` 附着——与 Mono 路径「注册即注入」对称，纯 C# 服务注册后不用再手动补。`RegisterFactory` 产物**不**自动注入：工厂本身就是显式接线位，依赖经工厂参数 `Container` 的 `Resolve` 传入。
+构造时机与生命周期所有权是两条正交轴（ADR-0035）：
+
+| 注册 API | 构造时机 | Context 负责 Dispose | 自动 Inject + Attach |
+|---|---|---:|---:|
+| `RegisterValue` | 调用方已构造 | 否 | 是 |
+| `RegisterOwned` | 调用方已构造 | 是 | 是 |
+| `RegisterFactory` | Lazy 首次解析 / Eager 构建 | 否 | 否 |
+| `RegisterOwnedFactory` | Lazy 首次解析 / Eager 构建 | 是 | 否 |
+
+**值绑定自动注入**（ADR-0019）：`RegisterValue` / `RegisterOwned` 的实例在 Context 构造时统一完成 `[Inject]` 注入与 `AttachTo` 附着——与 Mono 路径「注册即注入」对称，纯 C# 服务注册后不用再手动补。两类 Factory 的产物都**不**自动注入：工厂本身就是显式接线位，依赖经工厂参数 `Container.Resolve` 传入。普通 `RegisterFactory` 不接管产物所有权；若产物实现 `IDisposable` 且应随 Context 结束，必须改用 `RegisterOwnedFactory`，否则会泄漏订阅或句柄。
+
+**构建也是生命周期事务**：Build 前，`ContainerBuilder` 暂时持有 `RegisterOwned` 资源；Build 成功才把所有权移交给 Container。框架的 Mono Context 与 Flow 已自动覆盖这条边界；业务若手工创建 Builder，固定写 `using var builder = new ContainerBuilder()`——这样注册过程或 Build 前逻辑抛异常时资源会自动逆序回滚。`GameContext` 构造期的 Inject / Attach 失败也会主动释放 Container，因此 Context 要么完整可用，要么失败且已清理，不存在半初始化状态。
 
 ### 服务安装器生成（不手写注册样板）
 
@@ -1174,7 +1189,7 @@ ctx.UnregisterModel(model);
 | **移除** | ⚠️ | `Destroy` 会干净反注册，但 `[Inject]` 快照与已建立的 R3 订阅**不会被重定向**——场上还有消费者引用它时移除＝制造孤儿。没人引用时移除是安全的；正确姿势是把「层 + 它的消费者」放进同一棵子树，撤的时候**整棵子树连根撤**（子 Context 连同其下的 View / 层一并销毁），天然不存在孤儿引用。 |
 | **替换** | ❌ | 「移除再添加、期望既有引用指向新实例」不支持（刻意设计）：`[Inject]` 快照与订阅仍指旧实例、`ctx.GetXxx` 实时解析指新实例——访问路径分裂成「读的和写的不是同一份」的难查 bug。 |
 
-需要「换」时按场景选：**换数据** → 重置 Model 内部状态（引用与订阅全部继续有效，绝大多数需求到这就够）；**换实例** → 开子 Context 覆盖（新作用域挂新实例，新挂进去的消费者自然用新的）；**换整层** → Context 一并 Dispose 重建（场景切换、关卡重置）。这条规则的详细推论与示例见 `Assets/Game/AGENTS.md §21`。
+需要「换」时按场景选：**换数据** → 重置 Model 内部状态（引用与订阅全部继续有效，绝大多数需求到这就够）；**换实例** → 开子 Context 覆盖（新作用域挂新实例，新挂进去的消费者自然用新的）；**换整层** → Context 一并 Dispose 重建（场景切换、关卡重置）。这条规则的详细推论与示例见 [`Assets/Game/AGENTS.md`「Mono 生命周期与 Context」](../Assets/Game/AGENTS.md#mono-生命周期与-context)。
 
 ---
 
@@ -1184,7 +1199,7 @@ ctx.UnregisterModel(model);
 
 ```csharp
 // 构建容器，注册服务——值绑定实例在 Context 构造时自动 Inject + AttachTo（ADR-0019）
-var builder = new ContainerBuilder();
+using var builder = new ContainerBuilder();
 builder.RegisterValue(new CommandSystem(), typeof(ICommandSystem));
 builder.RegisterValue(new InventoryModel(), typeof(InventoryModel));
 builder.RegisterValue(new InventorySystem(), typeof(IInventorySystem));
@@ -1204,6 +1219,8 @@ ctx.ExecuteCommand(new AddGoldCommand(100));
 // 生命周期由持有者负责，Dispose 级联取消所有异步操作
 ctx.Dispose();
 ```
+
+`using` 只负责“尚未 Build 就失败”的 Builder 回滚；Build 成功后 owner 已经是 `GameContext`，离开 Builder 的 using 作用域不会提前释放服务。仍应按上例显式 Dispose Context（或也写成 `using var ctx`）。
 
 纯代码 Context 与场景中的 `MonoGameContextBase` 完全独立，不受 Hierarchy 层级影响。如果场景里的 View 需要使用它，直接持有引用调用即可。订阅生命周期可以手动 `new DisposableBag(ctx)`，享受和 `MonoViewBase.Bag` 一样的统一 API：
 
@@ -1272,6 +1289,25 @@ var prefab = await Bag.Load<GameObject>("ui/panel_inventory");
 var text   = await Bag.LoadText("config/items.json");
 ```
 
+场景预加载用“激活门”而不是把 `LoadScene` task 永久挂住：
+
+```csharp
+var staged = await Bag.LoadScene(
+    "Battle",
+    LoadSceneMode.Additive,
+    suspendLoad: true,
+    ct: ct);                              // 内容已读完，停在 Unity 的激活门
+
+await loading.PlayExit(ct);               // 业务决定何时切画面
+staged.UnSuspend();                        // 只放行激活，不等于已经激活完成
+await UniTask.WaitUntil(
+    () => staged.Scene.IsValid() && staged.Scene.isLoaded,
+    cancellationToken: ct);
+staged.Activate();                         // 多场景时再把它设成 Active Scene
+```
+
+`suspendLoad=false` 仍在场景完全加载后返回。挂起模式若继续等待底层 `IsDone` 会形成循环：底层等业务放行激活，业务又等 task 返回才能拿到 handle；因此框架在进度到 0.9 的可交接 barrier 返回。handle 已持有 bundle 引用，离开作用域时 Bag 仍会负责卸载。
+
 ### API 一览
 
 | 成员 | 说明 |
@@ -1329,6 +1365,8 @@ await this.GetUtility<IAssetUtility>().Initialize();          // 默认包
 await this.GetUtility<IAssetUtility>().Initialize("DlcPack"); // 指定包
 ```
 
+`Initialize` 的普通网络 / 清单失败不直接抛，仍由该包 `InitState` 落到 `Failed`；但调用者 token 取消会保留 `OperationCanceledException`。这里的取消只表示“当前页面不再等”：物理初始化已经启动后仍由 `AssetUtility` 生命周期持有，包继续保持 `Initializing`，最终落到 `Ready` / `Failed`。新的同包调用只加入这份 owner，不会在 YooAsset operation 尚未结束时重入初始化。
+
 > ⚠ 既没开自动初始化、也没 `Initialize` 过的包，`Load` 它会**直接抛**「未初始化」异常（fail-fast，不是无限等待）——要加载的包要么开自动初始化、要么先 `Initialize`。
 
 **运行模式按「编辑器 / 玩家包」分开配**：`AssetSystemConfigModel` 有两个模式字段——「编辑器运行模式」只在编辑器 Play 生效（日常 `EditorSimulate` 免打包；也可临时切 Offline / Host 在编辑器里联调真实模式，不影响出包），「玩家包运行模式」是构建出的玩家端实际用的模式（默认 `Offline` 纯内置首包；资源热更选 `Host`）。同一份场景配置两头通用。模拟模式是编辑器专属能力（依赖 AssetDatabase），进不了玩家包——玩家包模式选它会在启动校验时清晰报错，而不是等 provider 初始化才炸。
@@ -1343,6 +1381,12 @@ await this.GetUtility<IAssetUtility>().Initialize("DlcPack"); // 指定包
 | `UnloadUnusedAssets()` | 卸载内存中引用归零的 bundle | 场景切换 / 关卡结束 |
 | `ClearCache(...)` / `ClearCacheByTags(...)` / `ClearCacheByLocations(...)` | 删除磁盘上的已下载 bundle 缓存 | 强制重下 / 热更后省空间 / 卸 DLC 缓存 |
 
+资源并发采用两层协调。`AssetUtility` 先让自身发起的同包 `ClearCache*` 与 `UnloadUnusedAssets` 进入 FIFO 维护 lane；Yoo Adapter 再按实际 `ResourcePackage` 建立进程级公平 Reader/Writer 协调器，覆盖跨 Utility/Provider 的按需 `Load`、显式 `Download`、初始化与维护。Reader 可并行；Writer 独占，且 Writer 排队后新 Reader 不得插队，所以持续加载不会饿死清理。
+
+取消只停止当前调用者的等待：仍在排队且已经无人等待的 operation 会跳过；一旦原生 operation 开始，就继续到真实终态再放行下一项，避免 Unity 页面切换后留下一个“看不见但仍在改包状态”的 YooAsset operation。`LoadAsset` / `LoadScene` 在调用者离开后若最终成功，Adapter 会释放无人接收的 handle；后台失败进入统一日志。每次 `ClearCache*` 到达终态（失败也可能已部分改盘）都会推进缓存世代，此前创建的下载器会明确拒绝旧快照——固定顺序仍是 **清缓存 → 重建下载器 → 下载**。
+
+`IsNeedDownload` 与三个 `Create*Downloader` 是同步缓存快照，不能在 Unity 主线程排队等待 Writer。若同包维护正在运行或已经排队，它们会立即抛出带操作名的 `InvalidOperationException`，提示维护完成后重试；这比越过 Writer 读一份中间态统计更安全。正常业务把“清缓存”和“重新统计/建下载器”放在同一个 await 流程里即可，不需要轮询。
+
 Host 模式默认允许 `Load` 对未缓存 bundle 当场按需下载。大型 DLC 若不想“误 Load 一个资源就自动下载”，在 `AssetSystemConfigModel.Packages` 列表里取消该包的「启用按需下载」：之后本包未缓存资源的 `Load` 直接失败，业务必须先用下载器显式预下载并展示进度。包级策略（自动初始化 / 启用按需下载）都在这一处按包配置。
 
 > **包名别写裸字符串**：菜单 `SSFramework/资源构建/生成包名常量代码` 从收集器的包列表生成常量类（默认 `Game.Main.AssetPackages`，输出路径 / 命名空间在构建 profile 配），`Initialize` / `Load` 等的 `packageName` 参数用 `AssetPackages.Xxx`——收集器改名 / 删包后重新生成，引用处编译期报错，不用等运行时才发现。
@@ -1353,7 +1397,7 @@ Host 模式默认允许 `Load` 对未缓存 bundle 当场按需下载。大型 D
 
 1. **发版**：构建 + 部署（CI 传 `-version`，本地菜单默认时间戳）——本质是覆盖 CDN 上 `<包>.version` 一行文本。bundle 文件名带哈希、新旧版本共存，改回旧值即回滚。
 2. **启动检查**：客户端下次启动 `Initialize` 自然拉到新版本清单（不抛异常，读 `InitState` 判成败）。
-3. **强更下载**：`CreateAllDownloader()` 统计缺口（`TotalCount == 0` 即已最新）→ 订阅 `Progress` 驱动进度条 → `Download()`；失败**重建下载器**重试（已下分片走缓存跳过 = 断点续传）。
+3. **强更下载**：`CreateAllDownloader()` 统计缺口（`TotalCount == 0` 即已最新）→ 订阅 `Progress` 驱动进度条 → `Download()`；失败或期间发生过清缓存都要**重建下载器**（已下分片走缓存跳过 = 断点续传）。`Download(ct)` 的 token 只取消当前等待者：排队且无人等待可跳过，已经开始的共享物理下载继续到终态。
 4. **回收旧版本**：下载成功后 `ClearCache(Unused)` 清掉不被新清单引用的历史 bundle。
 
 `GetPackageVersion(pkg)` 返回包当前生效的清单版本（未就绪为 null）——设置页展示资源版本、客服排查、更新完成确认用它。「修复客户端」= `ClearCache(All)` + 重跑上述流程（全量重下）。可整段搬走的启动器流程活样板见 demo「资源运营 · 端到端」章（`AssetOpsFlowModule.RunUpdateFlow`）；只强更启动必需包，DLC 类「按需下载」包不进启动流程，进对应玩法时再 `Initialize` + tag 下载器。
@@ -1895,12 +1939,16 @@ protected override async UniTask OnCloseTransition(CancellationToken ct)
 `IUIUtility` 一等方法，业务调用点对后端零感知（内置窗口类型由各入口注册，ADR-0020 §4）：
 
 ```csharp
-await ui.ShowToast("保存成功");            // 底部文字条，2 秒自动关、不拦输入；连续调用刷新文本重置计时
-await ui.ShowLoading("正在连接…");         // 全屏模态挡输入 + 拦返回键；重复调用刷新文本
-ui.HideLoading();                          // 关闭 Loading
+await ui.ShowToast("保存成功", ct: ct);     // 底部文字条，2 秒自动关、不拦输入；连续调用刷新文本重置计时
+using var loading = await ui.AcquireLoading("正在连接…", ct); // 全屏模态挡输入 + 拦返回键
+await Connect(ct);                         // 成功、异常、取消离开作用域时都释放本次占用
 ```
 
-内置件是无美术资源的默认表现（半透明条 / 旋转指示块）；要品牌化视觉时自写 Top 层窗口替代即可，`Show*` 只是「按注册类型开窗」的便捷入口。Toast 刻意不做队列——需要排队提示的项目自包一层。
+`ct` 管窗口的异步打开过程：宿主销毁或切换页面时取消，尚未完成创建的 Toast / Loading 不会稍后“幽灵出现”；`LoadingHandle` 则管业务任务对共享窗口的所有权。多个任务重叠 Acquire 时复用同一窗口，任一任务先结束都只释放自己的 lease，最后一个有效 handle 释放后才关闭。句柄实现 `IDisposable`，优先用 `using var`，需要跟随更长宿主生命周期时也可登记进 `DisposableBag`。
+
+旧的 `ShowLoading/HideLoading` 保留为单 owner 兼容入口；有 active handle 时 `HideLoading` 不会越权关窗。新代码不要用它表达并发任务，迁移与 `CloseAll` 的强制清场语义见 ADR-0037。
+
+内置件是无美术资源的默认表现（半透明条 / 旋转指示块）；要品牌化视觉时自写 Top 层窗口替代即可，`ShowToast` / `AcquireLoading` 只是「按注册类型开窗」的便捷入口。Toast 刻意不做队列——需要排队提示的项目自包一层。
 
 ### 安全区（刘海 / 挖孔屏）
 
@@ -2232,7 +2280,7 @@ loc.SetLocale("en");
 
 locale code 是**开放字符串 + 业务常量**（与音频组、存储 key 同一「常量管理字符串契约」姿势）；语言列表、`SystemLanguage` → code 映射、语言选择持久化（设置数据走 §18 存储，启动回灌）都归业务。
 
-> 表 adapter 的**活实物**在 demo「本地化 · 多语言」章（`LubanTextSource`，连 `TbL10N` 表定义 / `l10n.xlsx` 数据一起）。注意一个注册细节：**源要吃别的服务**（配置表 Utility）时用 `RegisterFactory(c => new LocalizationUtility(new LubanTextSource((IConfigUtility<Tables>)c.Resolve(...)), ...))`——容器在首次解析时解决依赖顺序，无需手工排序；不依赖其他服务的源（字典源）直接 `RegisterOwned`。配置表异步加载：就绪前 `TryGet` 返回 false → 裸 key 上屏，就是可见的「加载中」；**翻译列留空 = 该语言缺失**（翻译没来是常态），同样返回 false 交给框架走 fallback 链。
+> 表 adapter 的**活实物**在 demo「本地化 · 多语言」章（`LubanTextSource`，连 `TbL10N` 表定义 / `l10n.xlsx` 数据一起）。注意一个注册细节：**源要吃别的服务**（配置表 Utility）时用 `RegisterOwnedFactory(c => new LocalizationUtility(new LubanTextSource((IConfigUtility<Tables>)c.Resolve(...)), ...))`——容器在首次解析时解决依赖顺序，同时仍负责释放 `LocalizationUtility`；普通 `RegisterFactory` 只管构造和缓存、不拥有产物。不依赖其他服务的源（字典源）直接 `RegisterOwned`。配置表异步加载：就绪前 `TryGet` 返回 false → 裸 key 上屏，就是可见的「加载中」；**翻译列留空 = 该语言缺失**（翻译没来是常态），同样返回 false 交给框架走 fallback 链。
 
 ### 缺 key：回退链 → 裸 key 上屏
 
@@ -2261,7 +2309,7 @@ locale code 是**开放字符串 + 业务常量**（与音频组、存储 key �
 
 > **要点回顾**
 >
-> - 注册 = `RegisterOwned(new LocalizationUtility(源, 初始语言, fallback))`，源是单方法接缝
+> - 已有源直接 `RegisterOwned`；源需从容器解析其他服务时用 `RegisterOwnedFactory`，不要用不接管生命周期的普通 Factory
 > - UI 全用 `Bag.BindLocalizedText(label, key)`；动态参数 `CombineLatest` 组合；UGUI 用 `Bag.Subscribe` 一行
 > - 缺 key 裸 key 上屏 + 一次性警告；`SetLocale` 同值幂等
 > - 持久化 / 语言列表 / SystemLanguage 映射归业务；per-locale 资源走多 package 组合
@@ -2714,7 +2762,7 @@ embed.Bind(view);
 ### 几点
 
 - **刷新模式**：内容会动（动画 / 频繁变化）用 `EveryFrame`（相机每帧自动渲）；静态内容用 `OnDemand`（省电，内容变了调 `embed.RequestRender()`）。
-- **DPI 清晰**：`RenderTextureElement` 按「面板点 × 面板→屏幕缩放」算设备像素、向上取整、钳到 `MaxTextureSize`（默认 2048），高 DPI 下不发虚、也不会意外申请巨型显存。
+- **DPI 清晰 + 低清不变形**：`RenderTextureElement` 按「面板点 × 面板→屏幕缩放」算设备像素并向上取整；若最长边超过 `MaxTextureSize`（默认 2048），整张纹理使用同一个比例降采样。`MonoUGuiEmbed` 的托管 `CanvasScaler` 仍以 Toolkit 内容框作为逻辑分辨率，把“字体/控件如何排版”与“RT 用多少像素采样”分开。调低预算只降低清晰度，不会把宽画面钳成方形，也不会让固定像素字体和控件在低清 Canvas 中突然变成巨型内容。
 - **内容来源两条路**：Inspector 配 `Content Prefab`（静态面板 prefab，自身不带 Canvas）；或代码经 `embed.EnsureContentRoot()` 拿托管 Canvas 的 RectTransform，往里挂 code-built / 动态 UGUI（`Bind` 时自动补隔离层）。
 - **输入穿透**：勾 `MonoUGuiEmbed` 的 `Interactive` 后，指针事件（**点击 / 悬停 / 拖拽 / 滚轮**）穿透 RT 进嵌入 UGUI——按钮 / 开关 / Slider / ScrollRect 都能用（需场景有 EventSystem）。原理：转发器把元素内坐标翻成 RT 空间屏幕点 → 托管 Canvas 上一个 `enabled=false` 的 `GraphicRaycaster`（不被全局输入模块误触发）手动 `Raycast` → `ExecuteEvents` 分发。**文本输入 / IME、多点触控不做**（要在嵌入 UGUI 里打字直接用原生 UGUI 层）。纯显示（TMP 富文本 / 3D 预览 / 小地图）留 `Interactive` 关。
 
@@ -2745,7 +2793,7 @@ embed.Bind(view);
 
 `Trace` 另有一道**编译期**门控：`[Conditional("UNITY_EDITOR"), Conditional("DEVELOPMENT_BUILD")]`，发布版整个调用（含实参求值）从 IL 中删除。
 
-「开 Verbose」= 把总闸门放行到 `Trace`：`Log.MinLevel = LogLevel.Trace`，或 Editor 菜单 `SSFramework/诊断/日志级别 ▸ Trace`，或「框架诊断面板」顶部日志栏的下拉（都是本会话有效）。
+需要细粒度日志时，把总闸门放行到 `Trace`：`Log.MinLevel = LogLevel.Trace`，或使用 Editor 菜单 `SSFramework/诊断/日志级别 ▸ Trace`，或调整「框架诊断面板」顶部的全局级别下拉（都是本会话有效）。
 
 ### 记录
 
@@ -2791,8 +2839,8 @@ Log.AddSink(new FileLogSink(
 - **每个 sink 自带 `MinLevel`**：让 Console 只留 Warning 以上（`new UnityDebugLogSink { MinLevel = LogLevel.Warning }`），细粒度日志交给文件 sink。
 - **自定义去向**：实现 `ILogSink`（`Log(in LogEntry)` + `MinLevel`）。⚠ 可能被后台线程调用（如网络接收循环记日志），持有可变状态要自行加锁（参考 `FileLogSink`）。
 - **测试静音 / 捕获**：`Log.ClearSinks()` 后装一个收集用的 sink（见 `LoggingTests`）。
-- **查当前状态 / 就地调**：`Log.Sinks`（只读快照，含各自 `MinLevel`）/ `Log.IsCapturingUnityLogs`。sink 是业务在启动期用代码装配的，「日志怎么没落盘」时要能查是**压根没装**还是**被 `MinLevel` 卡掉了**——**「框架诊断面板」**（菜单 `SSFramework/诊断/框架诊断面板`）顶部的**日志**一栏把这些做成可读可改：`Verbose` 勾选框、`接管 Unity 日志流` 勾选框、**每个 sink 的 `MinLevel` 下拉**（无 sink 时红字告警）。
-  > 典型用法：想把这次复现的细粒度日志抓进文件 → 把文件 sink 的 `MinLevel` 调到 `Trace` + 勾上 `Verbose`，复现一遍即可，**不必改代码重进 Play**。面板改动立即生效但**不持久**——下次运行仍由业务启动代码决定。
+- **查当前状态 / 就地调**：`Log.Sinks`（只读快照，含各自 `MinLevel`）/ `Log.IsCapturingUnityLogs`。sink 是业务在启动期用代码装配的，「日志怎么没落盘」时要能查是**压根没装**还是**被 `MinLevel` 卡掉了**——**「框架诊断面板」**（菜单 `SSFramework/诊断/框架诊断面板`）顶部的**日志**一栏把这些做成可读可改：**全局 `Log.MinLevel` 下拉**、`接管 Unity 日志流` 勾选框、**每个 sink 的 `MinLevel` 下拉**（无 sink 时红字告警）。
+  > 典型用法：想把这次复现的细粒度日志抓进文件 → 把全局 `Log.MinLevel` 与文件 sink 的 `MinLevel` 都调到 `Trace`，复现一遍即可，**不必改代码重进 Play**。面板改动立即生效但**不持久**——下次运行仍由业务启动代码决定。
 - **双击定位靠 `[HideInCallstack]`**：Console 双击日志会跳到**你的调用点**，而不是框架的转发方法——所有「包一层 `Debug.Log`」的门面最常见的死因就是丢了这个。
   > ⚠ Unity 的规则是「从 `Debug.Log` 那帧往外走，**跳过所有标了该特性的帧，停在第一个没标的帧**」，所以**调用链上每一层都得标**（`Log.Info` → `Log.Dispatch` → `UnityDebugLogSink.Log`），**漏一层就前功尽弃**（实测：只标最外层门面时，双击落在 `UnityDebugLogSink.cs`）。给链条加层（新 sink 包装 / 装饰器）时记得标上——`LoggingTests.EntireForwardingChain_IsHiddenFromCallstack` 会守住这条。
 
@@ -2816,6 +2864,6 @@ Log.CaptureUnityLogs();   // 订阅 Application.logMessageReceivedThreaded
 
 **刻意不做的还有消息模板**（Serilog / MEL 的 `Log.Information("处理了 {Count} 条", count)` 那套）：占位符自动变结构化字段是服务端的共识，但客户端几乎不产结构化日志（正是不上 ZLogger 的同一条理由），为它自研一套模板解析 + 缓存不划算。要结构化就用 `Log.Write(level, msg, fields)` 显式传字段。
 
-> **活样板**：demo「能力 · 日志 · 分级 + 可插拔 sink」章（`LoggingDemoModule`）把上面每一点做成可点的按钮——装 demo 捕获 sink 看多播、调 `MinLevel` 看每个 sink 独立过滤、**用一个计数器亲眼验证「Verbose 关时插值表达式一次都没求值」**、点「发一条裸 `Debug.LogError`」看它经桥接进入 sink、装 `FileLogSink` 看落盘。
+> **活样板**：demo「能力 · 日志 · 分级 + 可插拔 sink」章（`LoggingDemoModule`）把上面每一点做成可点的按钮——装 demo 捕获 sink 看多播、调全局/单 sink 的 `MinLevel` 看两道闸门独立过滤、**用一个计数器亲眼验证全局级别不放行 `Trace` 时插值表达式一次都没求值**、点「发一条裸 `Debug.LogError`」看它经桥接进入 sink、装 `FileLogSink` 看落盘。
 
 详见 ADR-0034、AGENTS #34。

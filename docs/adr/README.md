@@ -39,4 +39,7 @@
 | [0031](0031-outpost-real-projectiles-wreck-interaction.md) | Outpost M7：真弹道碰撞 + 残骸减速泥地（让后端优势在真实游玩中可见） | Accepted |
 | [0032](0032-outpost-wreck-entities-sim-push.md) | Outpost M8：残骸实体化 + 推挤入模拟（让后端差距随战局拉大） | Accepted |
 | [0033](0033-ugui-into-uitoolkit-rendertexture-bridge.md) | UI 嵌入桥：RenderTexture 把 UGUI / 相机内容真嵌进 UI Toolkit 内容流（+ v2 输入穿透） | Accepted |
-| [0034](0034-framework-logging-seam.md) | 框架日志接缝：内核 `ILogSink` 多播 + 默认 Console/File sink + ZLogger 可选模块 | Proposed |
+| [0034](0034-framework-logging-seam.md) | 框架日志接缝：内核 `ILogSink` 多播 + Console/File sink + Unity 日志桥 | Accepted |
+| [0035](0035-container-factory-ownership.md) | Container 工厂所有权：构造时机与生命周期正交，显式 `RegisterOwnedFactory` | Accepted |
+| [0036](0036-ai-playmode-preflight.md) | AI PlayMode 预检：显式保存有路径脏场景，不以全局 Hook 劫持人工 Play | Accepted |
+| [0037](0037-ui-loading-ownership.md) | 全局 Loading 所有权：引用计数 lease + 陈旧句柄安全 | Accepted |
