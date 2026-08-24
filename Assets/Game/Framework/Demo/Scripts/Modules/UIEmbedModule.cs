@@ -30,7 +30,7 @@ namespace Game.Framework.Demo.Modules
         public override void Build(DemoModuleHost host)
         {
             // ── 定位 ──
-            host.AddSectionTitle("定位：UGUI / 相机内容当「真内容」嵌进 Toolkit");
+            host.AddPositioning("UGUI / 相机内容当「真内容」嵌进 Toolkit");
             host.AddNote("UGUI 与 UI Toolkit 是两套渲染系统，谁也不能当对方的子节点。要把 UGUI/TMP（或 3D 预览、小地图）放进 Toolkit 布局，正法是 `RenderTexture` 桥：隔离相机把 UGUI 渲进纹理、纹理当 Toolkit 元素显示——于是它是 Toolkit 的**真内容**，能被 ScrollView 裁剪 / 滚动、被后续元素遮挡。");
             host.AddNote("对比：对象池右栏用的是「浮层对齐」——把 UGUI Canvas 盖在面板之上、每帧对齐占位框。那套简单但**浮在最上层**：不能被裁剪 / 滚动，还要防 `worldBound` 退化成 NaN。两套各有用武之地，按「要不要被 Toolkit 裁剪」选。");
 

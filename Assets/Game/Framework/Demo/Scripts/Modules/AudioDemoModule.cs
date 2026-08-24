@@ -62,7 +62,7 @@ namespace Game.Framework.Demo.Modules
             }));
 
             // ── 定位 ──
-            host.AddSectionTitle("定位：全局播放编排，不替代挂在对象上的 AudioSource");
+            host.AddPositioning("全局播放编排，不替代挂在对象上的 AudioSource");
             host.AddNote("音频服务管三件事：**BGM 单通道**（切换自动交叉淡变）、**一次性 / 循环音效**（池化 AudioSource，播完自动回收，不用每处手挂组件）、**分组音量**（设置页滑条实时作用于所有在播声音）。需要跟随对象移动的持续 3D 音源（引擎声、脚步循环）**直接挂 `AudioSource` 组件**——引擎组件可跨层，Inspector 可调、随对象销毁，框架不抢引擎的活。",
                 new CodeRef("Assets/Game/Framework/Core/Audio/IAudioUtility.cs", "public interface IAudioUtility", "音频入口契约"));
             host.AddSubNote("clip 从哪来：经资源系统 `Bag.Load<AudioClip>(location)` 取到再传入——加载与播放的生命周期分开管，音频服务刻意不做按 location 加载的重载。本章的 clip 是程序生成的正弦波（demo 不带音频资产）。");

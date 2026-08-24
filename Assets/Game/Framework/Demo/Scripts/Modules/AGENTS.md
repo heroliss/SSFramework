@@ -11,9 +11,15 @@
 - `InstallBindings` 只声明容器注册关系，不启动异步工作、不把临时服务藏进字段；Build 需要的运行时依赖从 Context 解析，保持所有权与 View 权限示范清晰。
 - 每次 `Build` 与 `Teardown` 成对发生且可重复；切章、UIDocument 重建和销毁都由目录先取消 Host，再 Teardown。模块字段会跨重建保留，临时订阅/资源必须进 `Bag`。
 
+## 教学形态与机器契约
+
+- 默认是 `DemoTeachingKind.Capability`：至少一个可操作入口；纯心智模型章覆写为 `Concept`，用至少两处步骤/概念/表格 + 真实源码引用证明结论；接入或运营链路覆写为 `Workflow`，用至少两步 + 一个实际入口。
+- 正常章必须先且只调用一次 `AddPositioning`，真实 Build 至少形成三个小节和两处解释内容。`DemoModuleCatalog` 校验 Host 记录的实际语义，不再用正则数源码方法名。
+- 场景资产、Adapter 或 Utility 缺失而提前结束时，必须把 `AddUnavailable(reason, recovery, continuation, setupCode)` 作为第一个教学调用：说清原因、可执行恢复方式、不阻断学习的下一站和接线源码。不要用一条 `AddNote` 后静默 `return`。
+
 ## 章节骨架（每个 `Build()` 按此顺序）
 
-1. **`定位：<一句话>`** —— 开篇小节。**标题本身**说清「是什么 + 关键边界」（不是裸 `演示`）。
+1. **`host.AddPositioning("<一句话>")`** —— 开篇定位。文案说清「是什么 + 关键边界」（不是裸 `演示`）；“定位：”前缀由 Host 统一渲染。
    下面一条 `AddNote`（≤2 句）讲「解决什么问题」，行末挂一处框架接口的源码跳转。
 2. **N 个功能点小节** —— 每个 `AddSectionTitle` **点名一个具体能力**（不是裸 `说明`）。小节内：
    - 能力点按钮通常保持“一个按钮 = 一个框架操作”，行末跳转指向 **demo 自身的调用点**（`CodeRef.Here(...)`）。端到端工作流章可组合前文已讲过的原语，但标题/文案必须明确它是编排流程，并链接到组合入口。

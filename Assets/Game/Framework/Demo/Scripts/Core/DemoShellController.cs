@@ -44,6 +44,12 @@ namespace Game.Framework.Demo.Core
         private Button _nextChapterButton;
         private Label _chapterNavigationHint;
 
+        /// <summary>真实场景冒烟测试使用的稳定章节 Interface；不暴露可变集合。</summary>
+        internal IReadOnlyList<IDemoModule> Modules => _modules;
+
+        /// <summary>当前已成功构建的章节；教学契约或 Build 失败时会回到 null。</summary>
+        internal IDemoModule CurrentModule => _current;
+
         private void Awake()
         {
             if (_document == null) _document = GetComponent<UIDocument>();
@@ -55,7 +61,7 @@ namespace Game.Framework.Demo.Core
         {
             // rootVisualElement 在 UIDocument 启用后才可用；Start 早于首帧、晚于所有 OnEnable，时机正好。
             BuildUI();
-            if (_modules.Count > 0) Select(_modules[0]);
+            if (_modules.Count > 0) SelectChapter(_modules[0]);
         }
 
         private void OnDestroy()
@@ -78,8 +84,8 @@ namespace Game.Framework.Demo.Core
             var current = _current;
             ReleaseCurrentModule(); // 同时置空，避免 Select 因“同一模块”短路而不重建内容
             BuildUI();
-            if (current != null) Select(current);
-            else if (_modules.Count > 0) Select(_modules[0]);
+            if (current != null) SelectChapter(current);
+            else if (_modules.Count > 0) SelectChapter(_modules[0]);
         }
 
         // 从父节点的 MonoDemoContext 取已建好的共享 Context 与唯一目录。章节 Adapter 已由 Context 在更早的
@@ -187,7 +193,7 @@ namespace Game.Framework.Demo.Core
                 }
 
                 var module = m; // 闭包捕获
-                var btn = new Button(() => Select(module)) { text = m.Title };
+                var btn = new Button(() => SelectChapter(module)) { text = m.Title };
                 btn.AddToClassList("demo-nav-item");
                 if (m.IsComingSoon) btn.AddToClassList("demo-nav-item--soon");
                 _navList.Add(btn);
@@ -195,7 +201,11 @@ namespace Game.Framework.Demo.Core
             }
         }
 
-        private void Select(IDemoModule module)
+        /// <summary>
+        /// 通过外壳切换章节的唯一入口：同步标题、导航、内容与目录生命周期。
+        /// 真实场景测试调用它，避免绕过 Shell 直接操作目录后留下状态分叉。
+        /// </summary>
+        internal void SelectChapter(IDemoModule module)
         {
             if (_current == module) return;
             ReleaseCurrentModule();
@@ -248,7 +258,7 @@ namespace Game.Framework.Demo.Core
             int currentIndex = IndexOfModule(_current);
             int targetIndex = currentIndex + offset;
             if (currentIndex >= 0 && targetIndex >= 0 && targetIndex < _modules.Count)
-                Select(_modules[targetIndex]);
+                SelectChapter(_modules[targetIndex]);
         }
 
         private void UpdateChapterNavigation(IDemoModule module)

@@ -19,6 +19,7 @@ namespace Game.Framework.Demo.Modules
         public override string Title => "DOTS/ECS · 与框架融合";
         public override string Category => "进阶";
         public override int Order => 40; // 最深一章：建立在「热更(20)」「资源底层(10)」的接缝/AOT 认知之上
+        public override DemoTeachingKind TeachingKind => DemoTeachingKind.Concept;
         public override string Summary =>
             "框架不直接依赖 DOTS，而是让纯 C# 接口隔离 ECS 适配器；System 负责 Tick，ECS 程序集留在 AOT。" +
             "它与 IAssetProvider 隔离 YooAsset 使用的是同一种接缝设计。";
@@ -40,7 +41,7 @@ namespace Game.Framework.Demo.Modules
         public override void Build(DemoModuleHost host)
         {
             // ── 定位 ──
-            host.AddSectionTitle("定位：框架不「集成」DOTS，而是不挡它的路");
+            host.AddPositioning("框架不「集成」DOTS，而是不挡它的路");
             host.AddNote("框架内核没有 DOTS 模块、不引用 Entities、不引用 Burst——这是刻意的：DOTS 是可选的性能后端，" +
                          "不该让每个用框架的项目都背上 Entities 包。框架要做的只有一件事：给出一个够窄的接缝，让一个 DOTS 后端能" +
                          "「整体塞进去、消费方零改动」。你已经在「资源加载」章见过这招——YooAsset 就藏在 `IAssetProvider` 后，" +

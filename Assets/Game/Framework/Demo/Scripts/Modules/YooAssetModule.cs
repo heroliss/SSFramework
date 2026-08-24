@@ -15,6 +15,7 @@ namespace Game.Framework.Demo.Modules
         public override string Title => "YooAsset · 底层实现";
         public override string Category => "进阶";
         public override int Order => 10;
+        public override DemoTeachingKind TeachingKind => DemoTeachingKind.Workflow;
         public override string Summary =>
             "「资源加载」章的底层：当前默认后端 YooAsset 的 PlayMode / 目录 / 清单文件 / 构建管线对比，以及 EditorSimulate 与 Host 的底层流程。可替换、非框架契约。";
 
@@ -23,7 +24,7 @@ namespace Game.Framework.Demo.Modules
             var settingsModel = UnityEngine.Object.FindFirstObjectByType<AssetSystemConfigModel>();
 
             // ── 定位 ──
-            host.AddSectionTitle("定位：YooAsset 是「当前默认后端」，不是框架契约");
+            host.AddPositioning("YooAsset 是「当前默认后端」，不是框架契约");
             host.AddNote("框架把所有 YooAsset 接触面收口在 `IAssetProvider`，业务与「资源加载」章只认接口。YooAsset 只是 `AssetProviderFactory` 里 new 出来的默认实现——换 Addressables / 自研只改那一行，本章这些底层随之替换。所以本章是「了解当前后端怎么运转」，不是框架必须知识。",
                 new CodeRef("Assets/Game/Framework/Core/Asset/AssetProviderFactory.cs", "CreateDefault", "provider 工厂（换库就改这）"));
 

@@ -30,7 +30,7 @@ namespace Game.Framework.Demo.Modules
         public override void Build(DemoModuleHost host)
         {
             // ── 定位 ──
-            host.AddSectionTitle("定位：带规则的逻辑从 Command 归位到 System");
+            host.AddPositioning("带规则的逻辑从 Command 归位到 System");
             host.AddNote("当一次操作开始包含校验、多步状态变化或多个入口时，把规则散落在 Command 会产生重复与不一致。`System` 把这组业务不变量收进一个可复用实现，下面用赚金币和购买药水对照两种边界。");
 
             // ── 动手试 ──

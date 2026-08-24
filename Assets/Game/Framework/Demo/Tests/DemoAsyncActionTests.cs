@@ -388,13 +388,20 @@ namespace Game.Framework.Demo.Tests
             public int Order => _order;
             public string Summary => "Stub";
             public bool IsComingSoon => false;
+            public DemoTeachingKind TeachingKind => DemoTeachingKind.Capability;
             public void InstallBindings(ContainerBuilder builder) { }
             public void Initialize(IGameContext context) { }
             internal int BuildCount { get; private set; }
             public void Build(DemoModuleHost host)
             {
                 BuildCount++;
+                host.AddPositioning("异步动作测试章节");
                 _onBuild(host);
+                host.AddSectionTitle("可运行内容");
+                host.AddActionRow("同步占位动作", () => { });
+                host.AddNote("异步动作由测试回调按需构建。");
+                host.AddSectionTitle("边界");
+                host.AddNote("切章时必须取消尚未完成的动作。");
             }
             public void Teardown() => _onTeardown();
         }

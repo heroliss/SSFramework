@@ -14,6 +14,7 @@ namespace Game.Framework.Demo.Modules
         public override string Title => "接入你的项目";
         public override string Category => "入门";
         public override int Order => 20;
+        public override DemoTeachingKind TeachingKind => DemoTeachingKind.Workflow;
         public override string Summary =>
             "把骨架搬回家：主场景根挂一个 MonoGlobalContext 子类当全局根（自动设 Main / 跨场景 / 查重），" +
             "功能层 Mono 挂子树或纯 C# 注册，View 挂进子树只发 Command。demo 场景自身就是接入样板。";
@@ -21,7 +22,7 @@ namespace Game.Framework.Demo.Modules
         public override void Build(DemoModuleHost host)
         {
             // ── 定位 ──
-            host.AddSectionTitle("定位：从「看 demo」到「在自己项目里开工」");
+            host.AddPositioning("从「看 demo」到「在自己项目里开工」");
             host.AddNote("上一章亲手跑通了单向数据流，这一章回答「回到自己项目，第一步做什么」。骨架只有三步：**建全局根 → 摆功能层 → 挂 View**——全是场景里摆节点 + 少量注册代码，没有配置文件、没有启动魔法。");
 
             // ── 三步 ──

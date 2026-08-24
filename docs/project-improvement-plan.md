@@ -18,13 +18,13 @@
 | 维度 | 当前事实 |
 |---|---|
 | Unity | 6000.3.22f1 |
-| Framework Module | 22 个 asmdef Module；依赖与删除测试见 `framework-module-map.md` |
-| Demo | 32 个自动发现章节；Catalog 集中拥有同一批 Adapter，目录元数据在根 Context 构建期 fail-fast |
+| Framework Module | 23 个 asmdef Module；依赖与删除测试见 `framework-module-map.md` |
+| Demo | 32 个自动发现章节；Catalog 集中拥有 Adapter 生命周期，并按 Capability / Concept / Workflow 校验真实 Build 教学语义 |
 | 教程 | `framework-guide.md` 28 章 |
 | ADR | 0001–0037；0035 为 Container Factory 所有权，0036 为 AI PlayMode 预检，0037 为 UI Loading 所有权 |
-| 测试 | PlayMode 418 + EditMode 96，全绿；交互式 MCP 先预检，命令行入口默认 EditMode + PlayMode |
-| Demo CodeRef | 291 处可打开源码跳转全部精准命中；注释、文案与外部文档路径不计入源码构造点 |
-| AI 常驻规则预算 | 最深 AGENTS 链 28.37 KiB，低于 Codex 默认 32 KiB 项目指令上限；新增常驻规则前需继续评估外移空间 |
+| 测试 | PlayMode 420 + EditMode 101，全绿；交互式 MCP 先预检，命令行入口默认 EditMode + PlayMode |
+| Demo CodeRef | 296 处可打开源码跳转全部精准命中；注释、文案与外部文档路径不计入源码构造点 |
+| AI 常驻规则预算 | 最深 AGENTS 链 29.88 KiB，低于 Codex 默认 32 KiB 项目指令上限；新增常驻规则前需继续评估外移空间 |
 
 ## 已完成的高优先级闭环
 
@@ -58,7 +58,9 @@
 
 - 为 32 章建立“定位 → 可操作行为或可验证样板 → 设计取舍 → 适用边界/下一步”的渐进教学契约；概念章不为凑按钮伪造交互，顶部 Summary 由运行期强制 ≤160 字、≤2 句，避免导航说明挤成正文。
 - Demo 外壳新增“本组 / 全部”进度与章节底部上一步/下一步导航；入门/核心提示顺读，能力/进阶明确可按需跳转，实际按钮切章与滚动复位已验证。
-- 新增 EditMode 门禁，锁定目录元数据、每章“定位”与至少三个教学小节；CodeRef 防腐覆盖 291 处可打开源码构造，并排除注释、文案及非源码文档假匹配。
+- `DemoModuleHost` 在真实 Build 中记录教学语义，Catalog 按能力/概念/工作流分别检查定位、解释结构、交互或步骤；源码注释、死代码和早退不再能靠 token 数量假绿。
+- 场景依赖缺失统一用结构化降级页说明“为什么不可用 → 如何恢复 → 接下来怎么学”，并强制提供接线源码；UGUI、UI 框架、多 Context 与字体的顶层早退已迁移。
+- 新建独立 Demo PlayMode Module，在真实 DemoScene 中穿过 Context、Catalog 与 Shell 逐章 Build 32 个 Adapter，并用真实 UGUI/UI 框架章节覆盖降级路径；CodeRef 防腐覆盖 296 处精准源码构造。
 - 重写入门地图，并为 Counter / Model / Command / System / Event 补上选择标准、代价、生命周期与反例；8 个过长章节摘要完成收束，实际 Game View 已检查首屏、对照表和 System 深度说明。
 - Demo 实战发现 `IShopSystem` 泄漏 `ICommandContext`：改成窄业务接口 `TryBuyPotion()`，WalletModel 由 Implementation 注入，并用购买不变量测试锁定。
 - 修正框架层术语漂移：简单原子 Command 可直接写 Model，System 承载可复用/多步规则；Utility 可持有基础设施状态但不持有业务状态。源码 XML doc、README、guide、roadmap 与 ADR-0001 已同步。
@@ -104,7 +106,6 @@
 
 | 优先级 | 候选 | 证据 / 完成标准 |
 |---|---|---|
-| P1 | 教学内容改为可观察契约 | 当前门禁只数源码中的 `AddSectionTitle` token，fallback 提前 return 仍可假绿。完成标准：概念/能力/工作流章拥有各自实际内容契约，测试检查构建出的语义内容和降级页，而非正则锁文案。 |
 | P1 | 资源查询三态语义 | `CheckLocationValid` / `IsNeedDownload` 在未 Ready 与真实 false 间混义，Demo 被迫重复守卫且 guide 缺失。完成标准：Idle/Loading/Failed/Ready/多包行为明确并有契约测试，复审 ADR-0013。 |
 | P2 | Demo 可视证据补强 | ReactiveList 尚不能从画面证明 Move 复用/逐行释放且缺 Replace；UI Framework 也未实际对比 Cache/Destroy。以实例身份、创建/释放计数和行为测试把设计承诺变成可见证据。 |
 | P1 | 日志调用面继续收敛 | ADR-0034 已 Accepted；首批 runtime Module 已迁移，Asset / Audio / UI / Boot / Fonts 等仍有历史裸 `Debug.*`。按 Module 渐进迁移到 `Log`，保留 Logging 实现与必要 Unity Adapter；测试守住消息、context、异常和双击定位语义。 |

@@ -34,7 +34,7 @@ namespace Game.Framework.Demo.Modules
         public override void Build(DemoModuleHost host)
         {
             // ── 定位 ──
-            host.AddSectionTitle("定位：会增删的集合用 ObservableList + BindList 增量绑定");
+            host.AddPositioning("会增删的集合用 ObservableList + BindList 增量绑定");
             host.AddNote(
                 "单个值用 `RP<T>` + `BindText`。可是「一串会增删的东西」（背包格子、聊天记录、在线列表）是**集合**——"
                 + "若塞进 `RP<List>` 整包推送，View 每次都得清空重建整张列表，丢滚动/选中、还抖 GC。"

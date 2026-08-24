@@ -36,6 +36,7 @@ namespace Game.Framework.Demo.Core
         public virtual int Order => 0;
         public virtual string Summary => string.Empty;
         public virtual bool IsComingSoon => false;
+        public virtual DemoTeachingKind TeachingKind => DemoTeachingKind.Capability;
 
         /// <summary>
         /// 默认不贡献绑定；需要自己的 Model/System/Utility 时覆写。目录会在同一实例上继续 Initialize 与 Build，

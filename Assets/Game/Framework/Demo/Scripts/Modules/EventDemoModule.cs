@@ -26,7 +26,7 @@ namespace Game.Framework.Demo.Modules
         public override void Build(DemoModuleHost host)
         {
             // ── 定位 ──
-            host.AddSectionTitle("定位：状态有当前值、事件只在发生时通知");
+            host.AddPositioning("状态有当前值、事件只在发生时通知");
             host.AddNote("两种数据流并存：**状态**（Model / RP）有当前值、随时可读、订阅即得最新；**事件**（Event Bus）没有当前值，只在发生时广播给 N 个监听者。下面并排跑一遍，切走再回来对比两者的本质区别。");
 
             // ── 状态：Model / RP（有当前值、持久） ──

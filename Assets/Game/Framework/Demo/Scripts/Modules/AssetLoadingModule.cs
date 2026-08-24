@@ -46,7 +46,7 @@ namespace Game.Framework.Demo.Modules
             var settingsModel = UnityEngine.Object.FindFirstObjectByType<AssetSystemConfigModel>();
 
             // ── 定位 ──
-            host.AddSectionTitle("定位：框架无关的资源 API，借了随宿主自动放");
+            host.AddPositioning("框架无关的资源 API，借了随宿主自动放");
             host.AddNote("只讲与底层库无关的框架资源 API：`Bag.Load<T>(location)` 按地址加载、句柄进 `Bag` 随宿主自动释放；`AssetReference` Inspector 拖引用、Awake 自动绑定；查询 / 下载 / 清缓存一条龙。底层 YooAsset 机制在「YooAsset · 底层实现」章。");
 
             // ── 1. 初始化与状态 ──

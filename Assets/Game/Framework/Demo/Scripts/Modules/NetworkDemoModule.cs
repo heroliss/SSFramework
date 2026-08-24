@@ -74,7 +74,7 @@ namespace Game.Framework.Demo.Modules
             var ws = this.GetUtility<IWebSocketUtility>();
 
             // ── 定位 ──
-            host.AddSectionTitle("定位：消息建模双轨");
+            host.AddPositioning("消息建模双轨");
             host.AddNote("网络消息分两类，用两种最贴合因果的形态建模：**请求-响应**（发起方等结果）= `await http.Post<Req,Resp>(...)` **UniTask 返回值**，不硬塞进事件；**服务器推送/广播**（谁都可能收到）= 转框架 **Event**，`Bag.Subscribe<T>` 消费，与订 Model 事件同一套心智。",
                 new CodeRef("Assets/Game/Framework/Core/Network/IHttpUtility.cs", "public interface IHttpUtility", "HTTP 门面契约"));
             host.AddSubNote("传输与序列化是两个接缝：默认 HTTP=UnityWebRequest（全平台含 WebGL）、WS=ClientWebSocket、格式=JSON；换 BestHTTP / Protobuf / MemoryPack 只换 provider / serializer，业务零改动。本章服务器是内嵌离线的（HTTP 用 HttpListener、WS 用 TcpListener + 手写 RFC6455——Mono 的 HttpListener 做不了 WS 服务端），点按钮即可跑通、无需外部后端。",

@@ -138,6 +138,7 @@ namespace Game.Framework.Demo.Core
             try
             {
                 module.Build(_activeHost);
+                DemoTeachingContract.Validate(module, _activeHost.TeachingTrace);
             }
             catch
             {

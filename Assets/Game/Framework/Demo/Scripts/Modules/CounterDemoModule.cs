@@ -27,7 +27,7 @@ namespace Game.Framework.Demo.Modules
         public override void Build(DemoModuleHost host)
         {
             // ── 定位 ──
-            host.AddSectionTitle("定位：View →(Command)→ Model 单向数据流的最小闭环");
+            host.AddPositioning("View →(Command)→ Model 单向数据流的最小闭环");
             host.AddNote("最简计数器走通一圈：View 点按钮发 `Command` 表达意图 → Command 改 `Model` → View 只读订阅 Model 的状态流自动刷新。**View 从不直接碰 Model，写操作全走 Command 接缝**——这是框架强制的规矩，后面每一章都建在它之上。");
 
             // ── 动手试 ──

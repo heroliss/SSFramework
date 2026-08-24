@@ -25,6 +25,7 @@ namespace Game.Framework.Demo.Modules
         public override string Title => "配置表 · Luban";
         public override string Category => "进阶";
         public override int Order => 30;
+        public override DemoTeachingKind TeachingKind => DemoTeachingKind.Workflow;
         public override string Summary =>
             "Luban 在构建期把 XML 定义与 JSON/Excel 数据生成强类型 C#、二进制数据和表清单。" +
             "运行时配置 Utility 按清单加载 Tables，数据可随资源包更新。";
@@ -32,7 +33,7 @@ namespace Game.Framework.Demo.Modules
         public override void Build(DemoModuleHost host)
         {
             // ── 定位 ──
-            host.AddSectionTitle("定位：策划填的数值表，构建期编译成强类型只读数据");
+            host.AddPositioning("策划填的数值表，构建期编译成强类型只读数据");
             host.AddNote("「配置表」就是物品 / 怪物 / 全局参数这类策划填的数值表。本框架用 Luban：**构建期**把表编译成强类型 C# 类 + 二进制数据，" +
                          "**运行期**只读字节、做内存查询——Excel / JSON 解析、数据校验全发生在构建期，运行期对它们零感知。" +
                          "两种数据源都有活样例：`item.json`（文本，git diff 可读、AI 可维护）与 `monster.xlsx`（策划顺手），" +

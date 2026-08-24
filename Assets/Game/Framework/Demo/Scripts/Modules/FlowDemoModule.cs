@@ -41,7 +41,7 @@ namespace Game.Framework.Demo.Modules
             var flow = this.GetUtility<IGameFlow>();
 
             // ── 定位 ──
-            host.AddSectionTitle("定位：游戏宏观阶段的显式结构 + 作用域整棵撤");
+            host.AddPositioning("游戏宏观阶段的显式结构 + 作用域整棵撤");
             host.AddNote("没有显式流程时，「现在游戏在哪个阶段、这个阶段占用的东西什么时候撤」散落在各场景脚本里——切阶段漏清理是最常见的泄漏来源。`IGameFlow` 把阶段显式化为 `FlowState` 子类：进入时框架为它构建**子 Context**（父级 = 宿主 Context，解析未命中自动回退父链），退出时**整棵 Dispose**——阶段私有服务（InstallBindings 注册）、订阅与资源（进状态 Bag）全部自动清理，不依赖自觉。",
                 new CodeRef("Assets/Game/Framework/Core/Flow/IGameFlow.cs", "public interface IGameFlow", "流程入口契约"));
             host.AddSubNote("状态是**一次性实例**：`GoTo(new BattleDemoState(level, …))`——传参走构造函数，每次进入全新对象（无残留脏状态）；重进同类状态就 new 一个新实例，复用已消费的实例抛参数异常。");

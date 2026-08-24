@@ -71,7 +71,7 @@ namespace Game.Framework.Demo.Modules
             var storage = this.GetUtility<IStorageUtility>();
 
             // ── 定位 ──
-            host.AddSectionTitle("定位：类型化整存整取，防损坏由框架兜住");
+            host.AddPositioning("类型化整存整取，防损坏由框架兜住");
             host.AddNote("每类持久数据定义一个 `[Serializable]` 类（设置 = `SettingsData`、存档 = `PlayerSaveData`），整对象 `Save` / `Load`——延续框架「用类型代替字符串」的理念，**刻意不提供** `GetInt/SetString` 散装 KV（碎片标记 Unity 的 `PlayerPrefs` 本身够用）。写路径 = 临时文件 → 原子替换 → 上一版自动备份，读路径 = 主文件损坏自动回退备份：**写一半崩溃 / 断电不丢档**，业务不再手写这类样板。",
                 new CodeRef("Assets/Game/Framework/Core/Storage/IStorageUtility.cs", "public interface IStorageUtility", "存储入口契约"));
             host.AddSubNote("「key 是持久契约」：落成文件名，显式传、用常量管理、只增不改（改 key = 丢旧档，与资源 location 同一心智）。字符集限字母/数字/-/_，`/` 分段做槽位分组；非法 key 抛异常（本章 key 都是本文件顶部的 const）。");

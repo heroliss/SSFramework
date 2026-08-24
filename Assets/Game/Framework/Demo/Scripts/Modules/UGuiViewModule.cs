@@ -21,12 +21,19 @@ namespace Game.Framework.Demo.Modules
             var assets = Object.FindFirstObjectByType<DemoUGuiAssets>();
             if (assets == null || assets.ViewPrefab == null)
             {
-                host.AddNote("没找到 DemoUGuiAssets 或它的 ViewPrefab——请确认 demo 根节点下挂了 DemoUGuiAssets 且指定了 UGUI View prefab。");
+                host.AddUnavailable(
+                    "当前场景没有可用的 `DemoUGuiAssets.ViewPrefab`，因此无法实例化本章要操作的真实 UGUI View。",
+                    "在 Demo 根 Context 子树下挂 `DemoUGuiAssets`，并给 `ViewPrefab` 指定带 `UGuiDemoView` 的 prefab。",
+                    "接线恢复后重新进入本章即可操作；恢复前可先看“UI Toolkit View”理解同一 View 契约在另一种载体上的写法。",
+                    new CodeRef(
+                        "Assets/Game/Framework/Demo/Scripts/Modules/Support/DemoUGuiAssets.cs",
+                        "class DemoUGuiAssets",
+                        "场景资源接线组件"));
                 return;
             }
 
             // ── 定位 ──
-            host.AddSectionTitle("定位：View 是 MVCS 的一层，不是单独门类");
+            host.AddPositioning("View 是 MVCS 的一层，不是单独门类");
             host.AddNote("View 是 UI 接缝，核心层对它用什么 UI 技术一无所知。这里弹出一个真实的 `MonoViewBase`（UGUI）：`Instantiate` 到 Context 下即自动注入 + 绑 `Bag`，只读订阅查询 Command、只写经 `ExecuteCommand`，关闭时 Bag 自动退订。");
 
             // ── 动手试 ──

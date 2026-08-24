@@ -72,7 +72,7 @@ namespace Game.Framework.Demo.Modules
             var captured = new List<string>(); // 捕获面板的行缓冲（只留最近若干行）
 
             // ── 定位 ──
-            host.AddSectionTitle("定位：统一门面 + 广播到可插拔 sink");
+            host.AddPositioning("统一门面 + 广播到可插拔 sink");
             host.AddNote("框架和业务**共用同一个入口** `Log`：分级记录（`Trace` / `Info` / `Warning` / `Error`），再**广播**给一组可插拔 `ILogSink`（Console / 文件 / 遥测…）。价值是「日志有一层可替换的接缝」——按级别 / 来源过滤、落文件捞日志、测试期捕获断言、重定向遥测，全在这一层着力，而不是把 `Debug.Log` 散落一地、事后无从拦截。",
                 new CodeRef("Assets/Game/Framework/Core/Logging/Log.cs", "public static class Log", "日志门面"));
             host.AddSubNote("为什么是**静态**门面而非 DI 服务：日志要在**任何地方**可用，包括身处 DI 之下、没有 `Context` 的内核基础设施（`Container` / 构造期）——它们不能反向依赖容器去取 logger。所以门面静态、出厂即用（默认装一个转 `Debug.Log` 的 `UnityDebugLogSink`，Console 观感 / 双击定位 / 堆栈全不变）。");

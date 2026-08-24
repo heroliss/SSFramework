@@ -29,9 +29,9 @@ namespace Game.Framework.Demo.Tests
             var report = DemoCodeRefValidator.ValidateProject(projectRoot);
 
             Assert.IsEmpty(report.Problems, string.Join("\n", report.Problems));
-            Assert.AreEqual(291, report.Total,
+            Assert.AreEqual(296, report.Total,
                 "数量锁既防止已有链接静默退出门禁，也提醒新增构造语法必须同步扩展扫描器。当前基线不含注释/文案示例。 ");
-            Assert.AreEqual(291, report.Precise);
+            Assert.AreEqual(296, report.Precise);
             Assert.AreEqual(0, report.FileTop, "教程链接应尽量指向可解释的具体代码，而不是只打开文件头。 ");
         }
 
@@ -183,33 +183,9 @@ namespace Game.Framework.Demo.Tests
         {
             using var catalog = DemoModuleCatalog.Discover();
             Assert.AreEqual(32, catalog.Modules.Count, "章节增删时应同步检查学习路径、module map 与目录元数据。");
-        }
-
-        [Test]
-        public void EveryModuleSource_HasPositioningAndEnoughTeachingStructure()
-        {
-            string modulesDirectory = Path.Combine(
-                Application.dataPath,
-                "Game/Framework/Demo/Scripts/Modules");
-            var moduleFiles = Directory.GetFiles(modulesDirectory, "*Module.cs", SearchOption.TopDirectoryOnly)
-                .Where(path => File.ReadAllText(path).Contains(": DemoModuleBase"))
-                .OrderBy(path => path)
-                .ToArray();
-
-            Assert.AreEqual(32, moduleFiles.Length, "源码章节数应与运行期目录一致。");
-            foreach (string path in moduleFiles)
-            {
-                string source = File.ReadAllText(path);
-                string fileName = Path.GetFileName(path);
-                StringAssert.Contains(
-                    "AddSectionTitle(\"定位：",
-                    source,
-                    $"{fileName} 缺少开篇『定位：』小节");
-                Assert.GreaterOrEqual(
-                    Regex.Matches(source, @"AddSectionTitle\s*\(").Count,
-                    3,
-                    $"{fileName} 至少需要定位、可运行内容与边界/小结三个教学小节");
-            }
+            Assert.AreEqual(2, catalog.Modules.Count(module => module.TeachingKind == DemoTeachingKind.Concept));
+            Assert.AreEqual(6, catalog.Modules.Count(module => module.TeachingKind == DemoTeachingKind.Workflow));
+            Assert.AreEqual(24, catalog.Modules.Count(module => module.TeachingKind == DemoTeachingKind.Capability));
         }
 
         [Test]

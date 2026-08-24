@@ -27,7 +27,7 @@ namespace Game.Framework.Demo.Modules
         public override void Build(DemoModuleHost host)
         {
             // ── 定位 ──
-            host.AddSectionTitle("定位：注册进容器、按类型解析、自动注入依赖");
+            host.AddPositioning("注册进容器、按类型解析、自动注入依赖");
             host.AddNote("容器管「谁提供 / 谁需要」某个类型：注册现成实例或工厂 → 按**精确类型键**解析 → 消费方经 `[Inject]` 字段或 `GetXxx` 拿到。本章还区分两件常被混在一起的事：**怎么构造**（Value / Factory）与**谁负责释放**（Owned）。");
 
             // ── 动手试 ──
