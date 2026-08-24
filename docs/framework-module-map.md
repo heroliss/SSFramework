@@ -14,7 +14,7 @@
 
 ## 轻量组合档位与证据口径
 
-菜单 `SSFramework/诊断/模块裁剪审计` 会读取当前目标平台的 Player 编译图，再读取已编译 DLL 的**真实元数据引用**，给出 Core-only、Core + UGUI、Core + Toolkit、全部 Runtime Module 和当前 HybridCLR 热更档位的闭包。它同时机器执行三条删除测试：Core 不带 UI、UGUI 不带 Toolkit/Bridge、Toolkit 不带 UGUI/Bridge。
+菜单 `SSFramework/诊断/模块裁剪审计` 会读取当前目标平台的 Player 编译图，再读取已编译 DLL 的**真实元数据引用**，给出 Core-only、Core + UGUI、Core + Toolkit、全部 Runtime Module 和当前 HybridCLR 热更档位的闭包。窗口默认先显示健康结论、关键数字、值得关注的候选与常用组合；完整闭包和原始报告按需展开。它同时机器执行三条删除测试：Core 不带 UI、UGUI 不带 Toolkit/Bridge、Toolkit 不带 UGUI/Bridge。
 
 报告里的大小是链接、AOT、压缩前的原始托管 DLL，只用于发现“一个很小的 Adapter 意外拖入很大的外部依赖”以及比较组合；它不是最终包体承诺。WebGL、小游戏等强体积约束项目仍应对真实目标平台出 Player BuildReport，再决定是否值得增加程序集粒度。
 
