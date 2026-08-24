@@ -4,6 +4,8 @@
     "references": [
         "Game.Framework.Demo",
         "Game.Framework",
+        "Game.Framework.UI",
+        "Game.Framework.UI.Toolkit",
         "UniTask",
         "UnityEngine.TestRunner"
     ],

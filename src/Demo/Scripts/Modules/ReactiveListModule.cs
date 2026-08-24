@@ -5,6 +5,7 @@ using Game.Framework.Demo.Core;
 using Game.Framework.Model;
 using Game.Framework.UI.Toolkit;
 using ObservableCollections;
+using R3;
 using UnityEngine.UIElements;
 
 namespace Game.Framework.Demo.Modules
@@ -41,15 +42,30 @@ namespace Game.Framework.Demo.Modules
                 + "改用 `ObservableList<T>` 持有集合，`Bag.BindList` 订阅它的增删移换、只增量维护对应子视图。",
                 CodeRef.Here("Bag.BindList(listContainer", "BindList 调用点"));
 
+            // View 只经只读查询 Command 拿到集合（读写分离照旧：写走下面的命令、读走这里）。
+            var items = this.ExecuteCommand(new GetTodoItemsCommand());
+
             // ── 操作区：一个按钮 = 一次 ObservableList 操作（白盒，看清每步因果）──
             host.AddSectionTitle("操作源集合（每个按钮 = 一次 ObservableList 操作）");
+            var evidenceLabel = host.AddValueDisplay();
+            evidenceLabel.name = "reactive-list-evidence";
+            var evidence = new ReactiveListEvidence(evidenceLabel);
             host.AddActionRow("尾部添加一项", () => this.ExecuteCommand(new AddTodoCommand()),
                 CodeRef.Here("struct AddTodoCommand", "Add"));
             host.AddActionRow("插入到顶部", () => this.ExecuteCommand(new InsertTopTodoCommand()),
                 CodeRef.Here("struct InsertTopTodoCommand", "Insert(0)"));
             host.AddActionRow("移除第一项", () => this.ExecuteCommand(new RemoveFirstTodoCommand()),
                 CodeRef.Here("struct RemoveFirstTodoCommand", "RemoveAt(0)"));
-            host.AddActionRow("首项移到末尾", () => this.ExecuteCommand(new MoveFirstToEndCommand()),
+            host.AddActionRow("替换第一项（应换新实例）", () => this.ExecuteCommand(new ReplaceFirstTodoCommand()),
+                CodeRef.Here("struct ReplaceFirstTodoCommand", "Replace（索引器赋值）"));
+            host.AddActionRow("首项移到末尾（实例号应保持）", () =>
+            {
+                int createdBefore = evidence.Created;
+                int disposedBefore = evidence.Disposed;
+                bool canMove = items.Count > 1;
+                this.ExecuteCommand(new MoveFirstToEndCommand());
+                evidence.ReportMove(canMove, createdBefore, disposedBefore);
+            },
                 CodeRef.Here("struct MoveFirstToEndCommand", "Move"));
             host.AddActionRow("清空", () => this.ExecuteCommand(new ClearTodoCommand()),
                 CodeRef.Here("struct ClearTodoCommand", "Clear"));
@@ -57,25 +73,33 @@ namespace Game.Framework.Demo.Modules
             // ── 列表区：BindList 把源集合增量绑到一个容器 ──
             host.AddSectionTitle("绑定的列表视图（跟随源集合增量刷新）");
             var listContainer = new VisualElement();
+            listContainer.name = "reactive-list-container";
             listContainer.AddToClassList("demo-list");
             host.Content.Add(listContainer);
 
-            // View 只经只读查询 Command 拿到集合（读写分离照旧：写走上面的命令、读走这里）。
-            var items = this.ExecuteCommand(new GetTodoItemsCommand());
-            Bag.BindList(listContainer, items, BuildRow);
+            Bag.BindList(listContainer, items, (text, rowBag) => BuildRow(text, rowBag, evidence));
 
             host.AddNote(
-                "上方任一操作后，只有**变化的那一行**被增删或移动，其余行原地不动——这正是 `ObservableList` 的增量通知，"
-                + "而非「重算整表再 diff」。行数适中的 UI 列表（背包/设置项/聊天）用它正合适；上万项要虚拟化滚动复用则用 Toolkit 原生 `ListView`。");
-            host.AddTip("每行末尾的 ✕ 用「行专属子 bag」接点击（BindList 第二参给的就是它）：这一行被移除时，行内订阅随子 bag 自动退订，不用手动清理。"
+                "每行左侧的 `实例 #N` 是这一个子 View 的稳定身份：点 Move 时它只换位置，创建/释放计数都不变；点 Replace 时该槽旧实例释放、一个新实例接替。"
+                + "这让“增量”不再只是看起来顺序正确，而能直接排除整表重建。行数适中的 UI 列表（背包/设置项/聊天）用它正合适；上万项要虚拟化滚动复用则用 Toolkit 原生 `ListView`。");
+            host.AddTip("顶部证据条里的「释放」由每行专属子 bag 的真实 Dispose 回调累计，不是按钮手算。每行末尾的 ✕ 也挂这个 rowBag：行被移除时，行内订阅随之自动退订。"
                 + "同一套写法在 UGUI 侧是 Bag.BindList(Transform, ...)——只换容器类型，绑定心智一致。");
         }
 
-        // 造一行子视图：文本 + 末尾 ✕。✕ 的点击订阅挂到本行专属子 bag（rowBag），行离开列表时自动退订。
-        private VisualElement BuildRow(string text, DisposableBag rowBag)
+        // 造一行子视图：稳定实例号 + 文本 + 末尾 ✕。实例证据和点击订阅都挂本行专属 rowBag，
+        // 行离开列表时由绑定引擎真实 Dispose；Move 只换兄弟位，不会触发此释放回调。
+        private VisualElement BuildRow(string text, DisposableBag rowBag, ReactiveListEvidence evidence)
         {
+            var rowEvidence = evidence.CreateRow();
             var row = new VisualElement();
+            row.name = $"reactive-list-row-{rowEvidence.InstanceId}";
+            row.userData = rowEvidence;
             row.AddToClassList("demo-list-row");
+
+            var identity = new Label($"实例 #{rowEvidence.InstanceId}");
+            identity.AddToClassList("demo-badge");
+            identity.AddToClassList("demo-badge--yes");
+            row.Add(identity);
 
             var label = new Label(text);
             label.AddToClassList("demo-list-item");
@@ -86,8 +110,74 @@ namespace Game.Framework.Demo.Modules
             remove.tooltip = "移除该项";
             rowBag.SubscribeClick(remove, () => this.ExecuteCommand(new RemoveTodoCommand(text)));
             row.Add(remove);
+            rowBag.Add(Disposable.Create(() => evidence.DisposeRow(rowEvidence)));
 
             return row;
+        }
+    }
+
+    /// <summary>
+    /// Demo 的列表增量可视证据：同时给画面和测试提供行实例身份、创建/释放/存活计数。
+    /// 它不参与绑定正确性，只观察 itemFactory 与 rowBag Dispose 这两个真实 Seam。
+    /// </summary>
+    internal sealed class ReactiveListEvidence
+    {
+        private readonly Label _display;
+        private int _nextInstanceId;
+        private string _lastEvent = "等待集合操作";
+
+        public int Created { get; private set; }
+        public int Disposed { get; private set; }
+        public int Active => Created - Disposed;
+
+        public ReactiveListEvidence(Label display)
+        {
+            _display = display;
+            Refresh();
+        }
+
+        public ReactiveListRowEvidence CreateRow()
+        {
+            var row = new ReactiveListRowEvidence(++_nextInstanceId);
+            Created++;
+            _lastEvent = $"创建实例 #{row.InstanceId}";
+            Refresh();
+            return row;
+        }
+
+        public void DisposeRow(ReactiveListRowEvidence row)
+        {
+            if (row == null || row.IsDisposed) return;
+            row.IsDisposed = true;
+            Disposed++;
+            _lastEvent = $"释放实例 #{row.InstanceId}（rowBag 已 Dispose）";
+            Refresh();
+        }
+
+        public void ReportMove(bool moved, int createdBefore, int disposedBefore)
+        {
+            _lastEvent = moved
+                ? $"Move 完成：创建 +{Created - createdBefore} / 释放 +{Disposed - disposedBefore}，原实例只换位置"
+                : "Move 未执行：至少需要两行";
+            Refresh();
+        }
+
+        private void Refresh()
+        {
+            if (_display == null) return;
+            _display.text = $"行实例　创建 {Created}　释放 {Disposed}　存活 {Active}　｜　{_lastEvent}";
+        }
+    }
+
+    /// <summary>附着在真实行 VisualElement 的可观察身份；rowBag 释放时 <see cref="IsDisposed"/> 变为 true。</summary>
+    internal sealed class ReactiveListRowEvidence
+    {
+        public int InstanceId { get; }
+        public bool IsDisposed { get; internal set; }
+
+        public ReactiveListRowEvidence(int instanceId)
+        {
+            InstanceId = instanceId;
         }
     }
 
@@ -131,6 +221,17 @@ namespace Game.Framework.Demo.Modules
         {
             var items = ctx.GetModel<TodoBoardModel>().Items;
             if (items.Count > 0) items.RemoveAt(0);
+        }
+    }
+
+    /// <summary>用索引器替换首项（空集合无操作）：绑定收到 Replace 后释放旧行 Bag，并在同槽创建新行。</summary>
+    public readonly struct ReplaceFirstTodoCommand : ICommand
+    {
+        public void Execute(ICommandContext ctx)
+        {
+            var m = ctx.GetModel<TodoBoardModel>();
+            if (m.Items.Count > 0)
+                m.Items[0] = $"任务 #{++m.Seq}（替换）";
         }
     }
 

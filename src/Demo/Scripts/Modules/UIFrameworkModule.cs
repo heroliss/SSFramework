@@ -64,6 +64,14 @@ namespace Game.Framework.Demo.Modules
             host.AddNote("**预期**：屏幕中央弹出一张浮动卡片，「+1」改分数、「关闭」关掉它；它不挡 demo 控制区，可继续点这里的其它按钮。"
                 + "窗口复用「Model」章的 `MonoScoreModel`——和 UGUI / UIToolkit View 章是**同一份分数**。窗口只是 View 的一种载体，核心层无感。");
 
+            host.AddSectionTitle("缓存策略 · Destroy 与 Cache 的实例身份对照");
+            host.AddAsyncActionRow("打开 Destroy 对照窗", ct => Open<DemoDestroyPolicyWindow>(ct),
+                new CodeRef(WindowsFile, "class DemoDestroyPolicyWindow", "Destroy 策略窗口"));
+            host.AddAsyncActionRow("打开 Cache 对照窗", ct => Open<DemoCachedPolicyWindow>(ct),
+                new CodeRef(WindowsFile, "class DemoCachedPolicyWindow", "Cache 策略窗口"));
+            host.AddNote("分别按「打开 → 窗内关闭 → 再打开」：Destroy 会换一个 `实例 #N`，且生命周期计数从 `OnCreate 1 / OnOpen 1` 重新开始；Cache 保持同一实例号，`OnCreate` 仍是 1、`OnOpen` 递增，重开时还能看到上次 `OnClose`。这是真实窗口实例的现场证据，不是计时快慢造成的错觉。");
+            host.AddSubNote("选择标准：频繁开关、构造或资源加载昂贵、且能明确重置临时状态的窗口适合 Cache；低频窗口或持有大资源、关闭后应彻底释放的窗口用 Destroy。Cache 用空间和更复杂的重开状态换速度，不是无条件更优。");
+
             host.AddSectionTitle("Popup 层 · 模态弹窗（UI Toolkit · 蓝标，遮罩拦截下层）");
             host.AddAsyncActionRow("弹确认框（模态 +1）", OpenConfirmDialog,
                 new CodeRef(WindowsFile, "class DemoConfirmDialog", "DemoConfirmDialog"));
@@ -127,7 +135,7 @@ namespace Game.Framework.Demo.Modules
 
             host.AddSectionTitle("小结");
             host.AddConcept("层级", "Background / Page / Window / Popup / Top / System 固定有序，后者盖前者，窗口经 `[UIWindow(Layer=…)]` 落层。");
-            host.AddConcept("缓存", "`[UIWindow(Cache=Cache)]` 关闭只隐藏、再开秒显；默认 `Destroy` 关即销毁、释放资源句柄。");
+            host.AddConcept("缓存", "`[UIWindow(Cache=Cache)]` 关闭只隐藏并复用同一实例；默认 `Destroy` 关即销毁、释放资源句柄。上方实例号与 hook 计数可现场核对。");
             host.AddConcept("生命周期", "`OnCreate → OnOpen(args) → OnCover/OnReveal → OnClose`，由框架按栈调度（非 Unity 生命周期）。");
             host.AddConcept("接入", "窗口就是 View：享自动注入、`Bag`、`ExecuteCommand` / `GetUtility`；只读订阅查询 Command、只写经 Command。");
         }

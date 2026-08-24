@@ -7,6 +7,7 @@ using Game.Framework.Context;
 using Game.Framework.Demo.Core;
 using Game.Framework.Demo.Modules;
 using Game.Framework.Internal;
+using Game.Framework.UI.Toolkit;
 using NUnit.Framework;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -118,6 +119,51 @@ namespace Game.Framework.Demo.PlayMode.Tests
             {
                 if (assets != null) assets.gameObject.SetActive(wasActive);
             }
+        }
+
+        [UnityTest]
+        public IEnumerator RealToolkitBackend_DestroyRecreatesWhileCacheReusesTheSameWindow()
+        {
+            yield return UniTask.ToCoroutine(async () =>
+            {
+                var ui = FindDemoObject<MonoToolkitUI>();
+                Assert.IsNotNull(ui, "真实 DemoScene 必须有 Toolkit UI Adapter，本测试才覆盖真实窗口实例。");
+                ui.CloseAll();
+                try
+                {
+                    var destroyFirst = await ui.Open<DemoDestroyPolicyWindow>();
+                    Assert.IsNotNull(destroyFirst);
+                    Assert.AreEqual(1, destroyFirst.EvidenceCreateCalls);
+                    Assert.AreEqual(1, destroyFirst.EvidenceOpenCalls);
+                    ui.Close(destroyFirst);
+
+                    var destroySecond = await ui.Open<DemoDestroyPolicyWindow>();
+                    Assert.AreNotSame(destroyFirst, destroySecond, "Destroy 策略重开必须构造新窗口实例");
+                    Assert.AreNotEqual(destroyFirst.EvidenceInstanceId, destroySecond.EvidenceInstanceId);
+                    Assert.AreEqual(1, destroySecond.EvidenceCreateCalls);
+                    Assert.AreEqual(1, destroySecond.EvidenceOpenCalls);
+                    ui.Close(destroySecond);
+
+                    var cachedFirst = await ui.Open<DemoCachedPolicyWindow>();
+                    Assert.IsNotNull(cachedFirst);
+                    Assert.AreEqual(1, cachedFirst.EvidenceCreateCalls);
+                    Assert.AreEqual(1, cachedFirst.EvidenceOpenCalls);
+                    ui.Close(cachedFirst);
+                    Assert.AreEqual(1, cachedFirst.EvidenceCloseCalls);
+
+                    var cachedSecond = await ui.Open<DemoCachedPolicyWindow>();
+                    Assert.AreSame(cachedFirst, cachedSecond, "Cache 策略重开必须复用同一窗口实例");
+                    Assert.AreEqual(cachedFirst.EvidenceInstanceId, cachedSecond.EvidenceInstanceId);
+                    Assert.AreEqual(1, cachedSecond.EvidenceCreateCalls, "缓存重开不能再次 OnCreate");
+                    Assert.AreEqual(2, cachedSecond.EvidenceOpenCalls, "缓存重开仍须再次 OnOpen 刷新参数与状态");
+                    Assert.AreEqual(1, cachedSecond.EvidenceCloseCalls);
+                }
+                finally
+                {
+                    // 即便中途断言失败，也不能把真实窗口残留给同批后续场景用例。
+                    ui.CloseAll();
+                }
+            });
         }
 
         private static void AssertStandaloneFallbackBuilds(IDemoModule module)

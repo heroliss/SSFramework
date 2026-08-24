@@ -1920,6 +1920,15 @@ public sealed class ConfirmDialog : UGuiWindowBase { … }
 - `Modal`：本窗口之下铺遮罩拦截下层输入。
 - `BackClosable`：返回键（`Back()`）能否关它（默认 true）。设 false 时 Back 命中它不动作但仍算消费——强引导等不可跳过的窗口用它拦住返回键。
 
+缓存不是无条件的“性能优化”，而是用常驻内存和重开状态复杂度换创建速度：
+
+| 策略 | 适合 | 代价 / 最佳实践 |
+|---|---|---|
+| `Destroy`（默认） | 低频窗口；持有大贴图、临时资源；关闭后理应彻底清场 | 重开会重新创建与加载，但状态最简单、资源释放最及时 |
+| `Cache` | 频繁开关；构建或加载昂贵；实例可安全复用 | `OnCreate` 只一次、`OnOpen(args)` 每次都调；临时选择、输入框、滚动位等必须在 `OnOpen` 明确刷新或重置 |
+
+不要凭“感觉更快”选择。Demo「UI 框架 · 窗口/层级」章提供两个真实 UI Toolkit 窗口：按“打开 → 关闭 → 重开”，Destroy 的实例号会变化且 hook 计数从头开始；Cache 保持同一实例号，`OnCreate` 仍为 1、`OnOpen` 递增。对应 PlayMode 契约直接穿过真实 Toolkit Adapter，避免只用 fake backend 证明核心编排。
+
 ### 层级（`UILayer`，固定有序，后者盖前者）
 
 | 层 | 用途 | 栈语义 |
@@ -2551,6 +2560,8 @@ Bag.BindList(contentTransform, this.ExecuteCommand(new GetItemsCommand()), (item
 ### 增量语义（框架已兜住，了解即可）
 
 `ObservableList<T>` 把每次结构变化摊成**逐项**事件：`Add`/`AddRange`/`Insert` → 逐项 Add；`RemoveAt`/`RemoveRange` → 逐项 Remove；`Move` → 一条 Move（视图复用同一行实例、只换位置）；索引器赋值 → Replace（框架重造该行）；`Clear` → Reset（清空重种）。`BindList` 按这些事件维护一份与源逐项对应的子视图表——你只管改 `ObservableList`，UI 自己跟上。
+
+“画面顺序对了”不足以证明增量绑定没有暗中重建整表。Demo「响应式列表 · 集合绑定」章给每个真实行 View 一个稳定 `实例 #N`，并从 item factory 与 rowBag Dispose 两个 Seam 统计创建 / 释放 / 存活数：Move 后实例号只换位置、计数不变；Replace 只释放旧槽并创建一行。对应 EditMode 测试还断言同一个 `VisualElement` 引用被移动、旧 rowBag 在 Replace 时真实释放，因此教学证据与 Implementation 共用同一事实来源。
 
 ### 什么时候别用它
 

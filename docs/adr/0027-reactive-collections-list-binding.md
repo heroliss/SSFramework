@@ -54,3 +54,5 @@ Model 持有集合就用 `ObservableList<T>`（如 `RP<T>` 之于单值）；只
 - Test 程序集 `overrideReferences:true`，显式补了 `ObservableCollections.dll` + `ObservableCollections.R3.dll` 两条 precompiledReferences；运行时 UI 程序集 `overrideReferences:false` 经 auto-reference 自动可见。
 - 五件套齐：本 ADR / 引擎（`Game.Framework.UI/ReactiveListBinding.cs`）+ 双后端适配 / 测试（`ReactiveListBindingTests`）/ demo「响应式列表 · 集合绑定」章（`Modules/ReactiveListModule.cs`）/ guide §24 + AGENTS #31。
 - ObservableCollections 从「roadmap 候选」变成「已融入、藏在 `Bag.BindList` 后」——延续 `IAssetProvider` 隔离 YooAsset 的一贯做法。
+
+**2026-08-24 验证补充：**Demo 为每个真实行 View 增加稳定实例身份，并从 item factory 与 rowBag Dispose 两个 Seam 采集创建 / 释放 / 存活计数；画面可直接观察 Move 复用同一行、Replace 仅重造一槽。EditMode 契约同时断言真实 `VisualElement` 引用、父子层级与 rowBag 释放状态，避免“列表结果正确”掩盖整表重建或逐行生命周期错误。
