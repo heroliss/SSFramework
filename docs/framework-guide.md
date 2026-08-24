@@ -2732,13 +2732,43 @@ builder.RegisterOwned(new WebSocketUtility(serializer: proto), typeof(IWebSocket
 
 ### 轻量 / Web 项目怎么选 Framework Module
 
-“不在业务 asmdef 引用列表里”只说明依赖方向正确，不足以证明最终包体已经裁掉。先从入口选组合：只要 MVCS/Context 用 `Game.Framework`；窗口框架再加 `Game.Framework.UI` 与一个后端；UGUI、Toolkit、Bridge、Fonts、Proto 等不需要就不要引用，也不要放进 HybridCLR 热更列表。Demo 有 `UNITY_EDITOR` 约束，不进入玩家包。
+先从最小入口开始：只要 MVCS / Context 时，业务 asmdef 只引用 `Game.Framework`；需要窗口调度再加 `Game.Framework.UI` 与 **UGUI 或 Toolkit 其中一个后端**；只有确实需要混合渲染时才加 Bridge，需要自动字体链、YooAsset Adapter 或 Google.Protobuf 时再加对应 Module。Demo 带 `UNITY_EDITOR` 约束，不进入真实玩家编译图。
 
-编辑器菜单 `SSFramework/诊断/模块裁剪审计` 会显示四种参考档位（Core-only / Core + UGUI / Core + Toolkit / 全部 Runtime Module）以及当前热更档位，列出 DLL **真实元数据引用**、隐式外部依赖和删除测试。它适合快速找候选，不把原始 DLL 字节冒充最终安装包大小。
+但“不在业务 asmdef 的 references”只回答了依赖方向，不能直接回答包体。理解下面五层，遇到“我明明没用，为什么还在包里”就不会猜：
 
-需要 Player BuildReport 时打开 `SSFramework/诊断/真实构建体积证据`。探针在 `Library` 下创建隔离空工程，每档只复制审计闭包中的 Runtime Module，主工程业务场景、未选目录、HybridCLR 生成物和它们的 `link.xml` 都不会混入；当前平台 / 脚本后端 / stripping 原样使用，主工程设置不变。所选程序集会完整保留，因此数字是**体积上界**：适合在同一环境比较“加一个 UI 后端最多带来多少”，不等于具体游戏只用部分类型后的精确增量，也不能把 Windows 数字外推成 WebGL。窗口默认比较“可发布输出”，会排除 Unity 标记为 BackUp / DoNotShip 的 IL2CPP 中间产物与调试符号；原始 BuildReport 总量仍保留用于诊断。测 WebGL/小游戏前先正常切到对应 BuildTarget，再运行同一组组合。
+| 层 | 它决定什么 | 常见误解 |
+|---|---|---|
+| 源码 / Package 已安装 | 目录、导入器、asmdef 与包依赖是否存在 | “装着但没调用，等于没成本”——编辑器导入与构建 Hook 仍可能存在 |
+| asmdef 参与 Player 编译 | 当前平台是否产出该程序集 | `autoReferenced:false` 只禁止隐式引用，**不会禁止编译** |
+| DLL 真实引用 | 哪个 Framework / 项目程序集真的消费它 | 静态元数据看不到字符串反射、场景和资源根 |
+| linker / 热更根 | `link.xml`、反射保护或 HybridCLR Profile 是否保留 / 部署它 | UnityLinker 做成员裁剪；HybridCLR 代码包则按程序集放完整 DLL |
+| 最终 Player | IL2CPP、引擎模块、压缩与资源合并后的发布结果 | 只能看目标平台 BuildReport / 发布产物，不能从原始 DLL 猜 |
 
-HybridCLR 以程序集为最小粒度：强体积约束时，先决定哪些 Module 根本不热更，再用隔离探针判断是否值得继续拆程序集。探针不包含业务 CodePackage 与资源包；正式产品仍要看完整发布构建。
+#### 先查原因，再决定是否值得拆
+
+打开 `SSFramework/诊断/模块裁剪审计`。首屏优先显示有 linker 根或热更违规的 Module；每张卡把 Player DLL 真实消费者与全 asmdef 删除阻塞者（含 Demo / Editor / Tests）分开，再列热更 Profile 期望状态、传播约束和 `link.xml`。常用组合之外，还能展开“任意 Module 入口”查看真实闭包；全局第三方和 `Assets/HybridCLRGenerate/link.xml` 单独折叠显示，后者是 Generate 产物，不应手改。这里的原始 DLL 字节用于找候选，不是最终安装包大小。
+
+一个容易踩坑的例子：当前可选 Runtime Module 都引用 Core。若 Core 在热更 Profile 中，那么仍参与 Player 编译的 Fonts / Bridge 等 Module 不能被**单独**取消热更，否则它们会变成引用热更 Core 的 AOT 程序集，构建校验会拒绝。这不是配置工具“太严格”，而是 AOT 必须先于热更代码存在的加载边界。
+
+#### 手动移除 Module 的推荐顺序
+
+1. 在审计窗口复制该 Module 的移除清单，先处理项目消费者和上层 Framework 消费者。
+2. 若它受热更依赖传播约束，把“删除 / 卸载 Module，使它退出 Player 编译图”与“从 FrameworkHotUpdateProfile 移除”作为同一次代码变更；不要先取消后执行同步。
+3. 物理删除时让 Module 自有 `link.xml` 一起消失。若只是想把规则改成 `ignoreIfUnreferenced`，先证明所有反射入口仍可达，再做目标平台 IL2CPP 回归。
+4. 在最终编译图上执行“同步热更设置”与 Generate，重新构建 CodePackage。
+5. 运行编译、模块裁剪审计、Unity 测试和目标平台真实构建；Console 没报错不等于包体已经按预期变化。
+
+Core 是稳定上游，不作为普通可删除 Module。对强体积约束项目，最清晰的交付形态仍是物理不安装 / 不包含无用 Module；全局 scripting define 或一个“Enabled”勾选框会把源码、编译、linker 和热更五种状态混在一起，因此框架不提供这种伪开关。
+
+#### 用真实构建回答“值不值得”
+
+打开 `SSFramework/诊断/真实构建体积证据`。探针在 `Library` 下创建隔离空工程，每档只复制审计闭包中的 Runtime Module；主工程业务场景、未选目录、HybridCLR 生成物和未选 Module 的 `link.xml` 都不会混入。除 Core / 两套 UI / full 外，“任意 Module 入口”默认折叠且不勾选，可按需验证 Yoo、Proto、Fonts、Bridge 等组合。
+
+探针沿用当前平台、脚本后端与 stripping，且完整保留所选程序集，因此数字是**可比较的体积上界**：适合在同一环境比较“增加这个 Module 最多带来多少”，不等于具体游戏只使用部分类型后的精确增量，也不能把 Windows 数字外推到 WebGL。默认比较的“可发布输出”排除 Unity 的 BackUp / DoNotShip 中间产物与调试符号；正式产品仍要看包含业务 CodePackage、资源、字体字集和 shader variants 的完整发布构建。
+
+#### 与 Unity Package Manager 是什么关系
+
+它们不冲突，也不是同一层：asmdef 管编译依赖，UnityLinker 管成员裁剪，HybridCLR Profile 管热更部署集合，UPM 管 package 的安装、版本和传递依赖。当前 Module 位于项目 `Assets` 下，审计工具只读分析和给清单，不自动改 `Packages/manifest.json`、删目录或实现一套小型 Package Manager。等某个删除边界经过多个项目验证稳定，再把它按 ADR-0010 抽成独立 UPM package；届时由 Package Manager 安装 / 卸载，审计工具仍负责告诉你项目消费者、linker 和热更是否真正清干净。设计依据见 ADR-0039。
 
 ### 参考结构
 

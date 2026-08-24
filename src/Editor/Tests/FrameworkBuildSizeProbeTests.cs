@@ -29,8 +29,12 @@ namespace Game.Framework.Editor.Tests
         {
             var plans = FrameworkBuildSizeProbe.CreatePlans();
 
-            Assert.That(plans.Select(plan => plan.Key),
+            Assert.That(plans.Take(4).Select(plan => plan.Key),
                 Is.EqualTo(new[] { "core", "ugui", "toolkit", "full" }));
+            Assert.That(plans.Skip(4), Is.Not.Empty);
+            Assert.That(plans.Skip(4).All(plan => plan.IsAdvanced), Is.True);
+            Assert.That(plans.Where(plan => plan.IsAdvanced).SelectMany(plan => plan.RootAssemblies),
+                Does.Contain(FrameworkModuleAudit.BridgeAssemblyName));
             Assert.That(plans.Single(plan => plan.Key == "core").Assemblies,
                 Is.EqualTo(new[] { FrameworkModuleAudit.CoreAssemblyName }));
             Assert.That(plans.Single(plan => plan.Key == "ugui").Assemblies,
@@ -152,12 +156,19 @@ namespace Game.Framework.Editor.Tests
                 var actions = window.rootVisualElement.Q<VisualElement>("build-size-probe-actions");
                 var core = window.rootVisualElement.Q<Toggle>("build-size-probe-toggle-core");
                 var full = window.rootVisualElement.Q<Toggle>("build-size-probe-toggle-full");
+                var advanced = window.rootVisualElement.Q<Foldout>("build-size-probe-advanced-profiles");
+                var bridge = window.rootVisualElement.Q<Toggle>(
+                    "build-size-probe-toggle-module-game-framework-ui-bridge");
                 Assert.That(content, Is.Not.Null);
                 Assert.That(content.horizontalScrollerVisibility, Is.EqualTo(ScrollerVisibility.Hidden));
                 Assert.That(actions, Is.Not.Null);
                 Assert.That(actions.childCount, Is.EqualTo(4));
                 Assert.That(core?.value, Is.True);
                 Assert.That(full?.value, Is.False);
+                Assert.That(advanced, Is.Not.Null);
+                Assert.That(advanced.value, Is.False);
+                Assert.That(bridge, Is.Not.Null);
+                Assert.That(bridge.value, Is.False, "任意 Module 慢构建必须由用户按需选择，不能默认全跑。 ");
                 Assert.That(window.rootVisualElement.Q<TextField>(), Is.Null);
 
                 window.ApplyResponsiveLayoutForTests(360f);

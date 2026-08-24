@@ -11,12 +11,27 @@
 5. 运行时内核和可热更新 Module 保持 `autoReferenced:false`；消费方通过 asmdef 显式声明依赖。
 6. 删除测试：移除一个可选 Module 目录后，只应失去该能力及其直接消费方，不应迫使核心 Module 修改源码。
 7. 外部程序集的直接依赖必须在 asmdef 显式可见，即使插件 DLL 的 auto-reference 已让代码偶然编译通过；否则 UPM 声明、删除测试与 AI 导航都看不到真实代价。
+8. “源码存在、参与编译、真实消费、linker 根、热更部署、最终 Player”是不同状态；工具与文档不得合并成一个含糊的“已启用”。
 
 ## 轻量组合档位与证据口径
 
-菜单 `SSFramework/诊断/模块裁剪审计` 会读取当前目标平台的 Player 编译图，再读取已编译 DLL 的**真实元数据引用**，给出 Core-only、Core + UGUI、Core + Toolkit、全部 Runtime Module 和当前 HybridCLR 热更档位的闭包。窗口默认先显示健康结论、关键数字、值得关注的候选与常用组合；完整闭包和原始报告按需展开。它同时机器执行三条删除测试：Core 不带 UI、UGUI 不带 Toolkit/Bridge、Toolkit 不带 UGUI/Bridge。
+菜单 `SSFramework/诊断/模块裁剪审计` 会读取当前目标平台的 Player 编译图、asmdef、已编译 DLL 的**真实元数据引用**、FrameworkHotUpdateProfile 和全部 `Assets/**/link.xml`。窗口先解释每个 Runtime Module 的项目 / Framework 消费者、热更依赖传播和 linker 根，再给出 Core-only、Core + UGUI、Core + Toolkit、全部 Runtime Module、Profile 期望热更档位，以及任意 Module 作为入口的 what-if 闭包。完整闭包、全局 / HybridCLR 生成的 linker 规则和原始报告按需展开。它同时机器执行三条删除测试：Core 不带 UI、UGUI 不带 Toolkit/Bridge、Toolkit 不带 UGUI/Bridge。
 
 报告里的大小是链接、AOT、压缩前的原始托管 DLL，只用于发现“一个很小的 Adapter 意外拖入很大的外部依赖”以及比较组合；它不是最终包体承诺。需要真实平台证据时打开 `SSFramework/诊断/真实构建体积证据`：探针在 `Library` 下创建隔离空工程，只复制所选 Runtime Module 和当前版本依赖，再用当前目标平台 / 脚本后端读取 Player BuildReport。所选程序集完整保留，因此结果是可重复的体积上界；详情见 ADR-0038。
+
+### 五层状态与当前例外
+
+| 层 | 回答的问题 | 当前证据 |
+|---|---|---|
+| 源码 / Package | 文件、导入器和 asmdef 是否安装？ | `Assets`、UPM manifest / lock |
+| Player 编译 | 当前平台是否编译该程序集？ | `CompilationPipeline.GetAssemblies(Player)`；`autoReferenced:false` 不会让源码停止编译 |
+| 真实消费 / 删除阻塞 | 谁在 Player DLL 元数据里实际引用；谁在任意 asmdef 中声明引用？ | 前者解释玩家保留候选，后者覆盖 Demo / Editor / Tests 的物理删除编译阻塞；字符串反射仍需人工说明 |
+| 保留 / 部署根 | 什么会让它留下？ | 场景、资源、反射、`link.xml`；HybridCLR Profile 同步后按程序集部署完整 DLL |
+| 最终 Player | 链接、IL2CPP、引擎模块和压缩后是多少？ | 目标平台 BuildReport / 发布产物 |
+
+当前 `Asset.Yoo`、`Network.Proto`、`UI.Toolkit` Module 目录各有无条件 `link.xml`：分别保留 Yoo Adapter、Google.Protobuf、UIElementsModule。它们不一定是错误，但意味着“业务没有静态调用”不能推出“最终自动消失”。`Asset.Yoo` 还有字符串反射选择边界，不能在建立显式注册根前盲目改成条件保留。`Assets/HybridCLRGenerate/link.xml` 是生成物，第三方目录的规则有自己的升级边界；审计只读展示，不提供一键改写。
+
+当前所有 Runtime Module 都参与 Player 编译并引用 Core。若 Core 热更，仍留在编译图的可选 Module 不能被单独改成 AOT，否则形成 AOT → 热更违规。强裁剪应把“迁移消费者、删除 / 卸载 Module 使其退出编译图、清理 Profile、同步并重新 Generate”作为一项结构事务；不要先只从 Profile 取消再同步。完整决策见 ADR-0039。
 
 ## 程序集地图
 
@@ -52,6 +67,6 @@
 - 新增 Interface 前做删除测试：去掉某个 Implementation 后，调用方是否仍能以同一抽象工作？只有真实 Seam 才值得抽象。
 - 新增第三方库时，先放入 Adapter Module；不要为了“以后也许替换”把每个类都拆成一对 Interface/Implementation。
 - 修改 asmdef 引用后，运行完整 Unity 测试，并检查 Boot、Core、两个 UI 后端与可选 Module 的依赖方向。
-- 运行 `SSFramework/诊断/模块裁剪审计`；隐式外部引用应为 0，三条删除测试应通过。报告变大只作为调查信号，不以原始 DLL 字节直接宣称最终包体回归。
+- 运行 `SSFramework/诊断/模块裁剪审计`；隐式外部引用应为 0，三条删除测试应通过，并逐项解释新 Module 的项目消费者、热更传播与 linker 根。报告变大只作为调查信号，不以原始 DLL 字节直接宣称最终包体回归。
 - 对包体敏感的结构决策再运行 `SSFramework/诊断/真实构建体积证据`；先切到目标平台，比较同环境下相对 Core 的体积上界，不跨平台外推。
 - 本文与实际 `.asmdef` 不一致时，以 `.asmdef` 为准并立即修正文档。

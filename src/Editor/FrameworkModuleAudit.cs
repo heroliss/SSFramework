@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
+using System.Xml.Linq;
 using UnityEditor;
 using UnityEditor.Compilation;
 using UnityEngine;
@@ -57,17 +58,24 @@ namespace Game.Framework.Editor
             internal readonly Dictionary<string, string> ReferencePaths;
             internal readonly string[] HotUpdateRoots;
             internal readonly string HotUpdateNote;
+            internal readonly LinkerPreservation[] LinkerPreservations;
+            internal readonly Dictionary<string, string[]> DeclaredConsumersByDependency;
 
             internal Snapshot(
                 Dictionary<string, AssemblyInfo> assemblies,
                 Dictionary<string, string> referencePaths,
                 string[] hotUpdateRoots,
-                string hotUpdateNote)
+                string hotUpdateNote,
+                LinkerPreservation[] linkerPreservations = null,
+                Dictionary<string, string[]> declaredConsumersByDependency = null)
             {
                 Assemblies = assemblies;
                 ReferencePaths = referencePaths;
                 HotUpdateRoots = hotUpdateRoots;
                 HotUpdateNote = hotUpdateNote;
+                LinkerPreservations = linkerPreservations ?? Array.Empty<LinkerPreservation>();
+                DeclaredConsumersByDependency = declaredConsumersByDependency ??
+                                                        new Dictionary<string, string[]>(StringComparer.Ordinal);
             }
         }
 
@@ -108,6 +116,50 @@ namespace Game.Framework.Editor
         }
 
         /// <summary>
+        /// 一条位于 Assets 下的 UnityLinker 根标记。它可能保留 Module 自身，也可能由某个可选 Module
+        /// 保留外部程序集；后者同样会影响“没有引用该 Module 时是否真的能变小”。
+        /// </summary>
+        internal sealed class LinkerPreservation
+        {
+            internal string OwnerModuleName;
+            internal string Path;
+            internal string AssemblyName;
+            internal string Scope;
+            internal bool IgnoreIfUnreferenced;
+            internal bool RequiredOnlyIfReferenced;
+
+            internal bool IsUnconditional => !IgnoreIfUnreferenced && !RequiredOnlyIfReferenced;
+            internal bool IsGenerated => Path.StartsWith("Assets/HybridCLRGenerate/", StringComparison.OrdinalIgnoreCase);
+            internal bool IsFrameworkModuleOwned => !string.IsNullOrEmpty(OwnerModuleName);
+        }
+
+        /// <summary>
+        /// 一个 Runtime Module 的当前保留原因与移除准备信息。这里只陈述可证明的输入，
+        /// 不把“出现在编译图”冒充“必然进入最终 Player”。
+        /// </summary>
+        internal sealed class ModuleStatus
+        {
+            internal AssemblyInfo Module;
+            internal string[] DirectConsumers = Array.Empty<string>();
+            internal string[] FrameworkConsumers = Array.Empty<string>();
+            internal string[] ProjectConsumers = Array.Empty<string>();
+            internal string[] RemovalBlockers = Array.Empty<string>();
+            internal string[] FrameworkDependencies = Array.Empty<string>();
+            internal string[] HotUpdateDependencies = Array.Empty<string>();
+            internal bool IsHotUpdateRoot;
+            internal LinkerPreservation[] TargetingPreservations = Array.Empty<LinkerPreservation>();
+            internal LinkerPreservation[] OwnedPreservations = Array.Empty<LinkerPreservation>();
+            internal string[] RetentionReasons = Array.Empty<string>();
+            internal string[] RemovalSteps = Array.Empty<string>();
+
+            internal bool HasUnconditionalPreservation =>
+                TargetingPreservations.Any(rule => rule.IsUnconditional) ||
+                OwnedPreservations.Any(rule => rule.IsUnconditional);
+
+            internal bool HasHotUpdateViolation => !IsHotUpdateRoot && HotUpdateDependencies.Length > 0;
+        }
+
+        /// <summary>
         /// 一次审计的结构化结果；所有展示层都从这里取数，避免文本报告与窗口结论各算一套。
         /// </summary>
         internal sealed class AuditResult
@@ -115,23 +167,34 @@ namespace Game.Framework.Editor
             internal AssemblyInfo[] RuntimeModules = Array.Empty<AssemblyInfo>();
             internal DependencyIssue[] DependencyIssues = Array.Empty<DependencyIssue>();
             internal AuditProfile[] CommonProfiles = Array.Empty<AuditProfile>();
+            internal AuditProfile[] ModuleProfiles = Array.Empty<AuditProfile>();
             internal AuditProfile FullProfile;
             internal AuditProfile HotUpdateProfile;
             internal string HotUpdateNote;
+            internal ModuleStatus[] ModuleStatuses = Array.Empty<ModuleStatus>();
+            internal LinkerPreservation[] UnconditionalModulePreservations = Array.Empty<LinkerPreservation>();
+            internal LinkerPreservation[] GlobalPreservations = Array.Empty<LinkerPreservation>();
             internal DeletionCheck[] DeletionChecks = Array.Empty<DeletionCheck>();
             internal string[] Recommendations = Array.Empty<string>();
             internal bool AllRuntimeModulesOptIn;
 
             internal IEnumerable<AuditProfile> AllProfiles => CommonProfiles
+                .Concat(ModuleProfiles)
                 .Concat(FullProfile != null ? new[] { FullProfile } : Array.Empty<AuditProfile>())
                 .Concat(HotUpdateProfile != null ? new[] { HotUpdateProfile } : Array.Empty<AuditProfile>());
 
             internal bool HasUnresolvedAssemblies =>
                 AllProfiles.Any(profile => profile.Footprint.UnresolvedAssemblies.Count > 0);
 
+            internal bool HasRetentionWarnings => UnconditionalModulePreservations.Length > 0;
+            internal bool HasHotUpdateViolations => ModuleStatuses.Any(status => status.HasHotUpdateViolation);
+
+            internal bool RequiresAttention => !IsHealthy || HasRetentionWarnings;
+
             internal bool IsHealthy => DependencyIssues.Length == 0 &&
                                        AllRuntimeModulesOptIn &&
                                        !HasUnresolvedAssemblies &&
+                                       !HasHotUpdateViolations &&
                                        DeletionChecks.All(check => check.Passed);
         }
 
@@ -161,7 +224,13 @@ namespace Game.Framework.Editor
             }
 
             var (hotRoots, hotNote) = ReadHotUpdateRoots();
-            return new Snapshot(infos, referencePaths, hotRoots, hotNote);
+            return new Snapshot(
+                infos,
+                referencePaths,
+                hotRoots,
+                hotNote,
+                ReadLinkerPreservations(infos),
+                ReadDeclaredConsumers());
         }
 
         /// <summary>
@@ -208,25 +277,49 @@ namespace Game.Framework.Editor
                 Profile("toolkit", "核心 + UI Toolkit", "适合使用 UI Toolkit 窗口框架与增量列表绑定。",
                     new[] { ToolkitAssemblyName }),
             };
+            var moduleProfiles = runtimeModules
+                .Where(module => !module.Name.Equals(CoreAssemblyName, StringComparison.Ordinal))
+                .Select(module => Profile(
+                    "module-" + ToProfileKey(module.Name),
+                    FriendlyModuleName(module.Name) + " 入口",
+                    $"以 {module.Name} 为唯一 Framework 入口，自动带上它的真实依赖闭包。",
+                    new[] { module.Name }))
+                .ToArray();
             var fullProfile = Profile(
                 "full", "全部运行时模块", "用于查看能力上限，不代表推荐所有项目全部引入。",
                 runtimeModules.Select(module => module.Name));
             AuditProfile hotUpdateProfile = snapshot.HotUpdateRoots.Length > 0
-                ? Profile("hot-update", "当前热更配置", "HybridCLR 以程序集为最小热更粒度。",
+                ? Profile("hot-update", "热更 Profile 期望档位", "HybridCLR 以程序集为最小热更粒度；实际设置与产物仍需经过同步、Generate 和代码包构建。",
                     snapshot.HotUpdateRoots)
                 : null;
 
             var coreClosure = ComputeReachableAssemblies(snapshot.Assemblies, new[] { CoreAssemblyName });
             var uguiClosure = ComputeReachableAssemblies(snapshot.Assemblies, new[] { UGuiAssemblyName });
             var toolkitClosure = ComputeReachableAssemblies(snapshot.Assemblies, new[] { ToolkitAssemblyName });
+            ModuleStatus[] moduleStatuses = BuildModuleStatuses(snapshot, runtimeModules);
             var result = new AuditResult
             {
                 RuntimeModules = runtimeModules,
                 DependencyIssues = dependencyIssues,
                 CommonProfiles = commonProfiles,
+                ModuleProfiles = moduleProfiles,
                 FullProfile = fullProfile,
                 HotUpdateProfile = hotUpdateProfile,
                 HotUpdateNote = snapshot.HotUpdateNote,
+                ModuleStatuses = moduleStatuses,
+                UnconditionalModulePreservations = moduleStatuses
+                    .SelectMany(status => status.TargetingPreservations.Concat(status.OwnedPreservations))
+                    .Where(rule => rule.IsUnconditional)
+                    .GroupBy(rule => rule.Path + "\0" + rule.AssemblyName, StringComparer.OrdinalIgnoreCase)
+                    .Select(group => group.First())
+                    .OrderBy(rule => rule.OwnerModuleName, StringComparer.Ordinal)
+                    .ThenBy(rule => rule.AssemblyName, StringComparer.Ordinal)
+                    .ToArray(),
+                GlobalPreservations = snapshot.LinkerPreservations
+                    .Where(rule => !rule.IsFrameworkModuleOwned)
+                    .OrderBy(rule => rule.Path, StringComparer.Ordinal)
+                    .ThenBy(rule => rule.AssemblyName, StringComparer.Ordinal)
+                    .ToArray(),
                 AllRuntimeModulesOptIn = runtimeModules.All(module => !module.AutoReferenced),
                 DeletionChecks = new[]
                 {
@@ -266,9 +359,11 @@ namespace Game.Framework.Editor
             var sb = new StringBuilder(8192);
             sb.AppendLine("Framework Module 裁剪审计");
             sb.AppendLine("────────────────────────────────────────");
-            sb.AppendLine(result.IsHealthy
+            sb.AppendLine(result.IsHealthy && !result.HasRetentionWarnings
                 ? "结论：当前模块边界健康，没有发现会阻碍按需裁剪的问题。"
-                : "结论：发现需要处理或确认的问题，请先看检查结果。 ");
+                : result.IsHealthy
+                    ? "结论：程序集依赖方向健康，但发现会改变最终裁剪结果的 link.xml 保留规则。"
+                    : "结论：发现需要处理或确认的问题，请先看检查结果。 ");
             sb.AppendLine("说明：这里比较的是编译后的原始 DLL，不是最终包体；真正发布大小仍以目标平台 Player BuildReport 为准。 ");
             sb.AppendLine();
 
@@ -281,11 +376,13 @@ namespace Game.Framework.Editor
             sb.AppendLine();
 
             AppendDependencyVisibility(sb, result.DependencyIssues);
+            AppendModuleStatuses(sb, result.ModuleStatuses);
+            AppendGlobalPreservations(sb, result.GlobalPreservations);
             foreach (var profile in result.CommonProfiles)
                 AppendProfile(sb, profile);
             AppendProfile(sb, result.FullProfile);
 
-            sb.AppendLine("当前热更档位");
+            sb.AppendLine("热更 Profile 期望档位");
             sb.AppendLine("────────────────────────────────────────");
             sb.AppendLine("  " + result.HotUpdateNote);
             if (result.HotUpdateProfile != null)
@@ -349,6 +446,191 @@ namespace Game.Framework.Editor
                 reference => IsRelevantExternalReference(snapshot, reference));
         }
 
+        internal static ModuleStatus[] BuildModuleStatuses(
+            Snapshot snapshot,
+            IEnumerable<AssemblyInfo> runtimeModules)
+        {
+            if (snapshot == null) throw new ArgumentNullException(nameof(snapshot));
+            if (runtimeModules == null) throw new ArgumentNullException(nameof(runtimeModules));
+
+            var hotRoots = new HashSet<string>(snapshot.HotUpdateRoots, StringComparer.Ordinal);
+            return runtimeModules
+                .OrderBy(module => module.Name, StringComparer.Ordinal)
+                .Select(module =>
+                {
+                    string[] consumers = snapshot.Assemblies.Values
+                        .Where(candidate => !candidate.Name.Equals(module.Name, StringComparison.Ordinal))
+                        .Where(candidate => candidate.ActualReferences.Contains(module.Name, StringComparer.Ordinal))
+                        .Select(candidate => candidate.Name)
+                        .Distinct(StringComparer.Ordinal)
+                        .OrderBy(name => name, StringComparer.Ordinal)
+                        .ToArray();
+                    string[] frameworkDependencies = module.ActualReferences
+                        .Where(IsFrameworkAssembly)
+                        .Distinct(StringComparer.Ordinal)
+                        .OrderBy(name => name, StringComparer.Ordinal)
+                        .ToArray();
+                    string[] frameworkConsumers = consumers
+                        .Where(IsFrameworkAssembly)
+                        .ToArray();
+                    string[] projectConsumers = consumers
+                        .Where(name => !IsFrameworkAssembly(name))
+                        .ToArray();
+                    // 与 HotUpdateAssemblyGraph 使用相同的 asmdef/编译图语义：即使代码暂未调用，
+                    // 声明边仍会让 AOT 程序集依赖热更程序集，必须被校验拦下。
+                    string[] hotDependencies = module.DeclaredReferences
+                        .Where(hotRoots.Contains)
+                        .Distinct(StringComparer.Ordinal)
+                        .OrderBy(name => name, StringComparer.Ordinal)
+                        .ToArray();
+                    string[] removalBlockers = snapshot.DeclaredConsumersByDependency.TryGetValue(
+                        module.Name, out string[] declaredConsumers)
+                        ? declaredConsumers
+                        : Array.Empty<string>();
+                    LinkerPreservation[] targeting = snapshot.LinkerPreservations
+                        .Where(rule => rule.AssemblyName.Equals(module.Name, StringComparison.Ordinal))
+                        .OrderBy(rule => rule.Path, StringComparer.Ordinal)
+                        .ToArray();
+                    LinkerPreservation[] owned = snapshot.LinkerPreservations
+                        .Where(rule => rule.OwnerModuleName.Equals(module.Name, StringComparison.Ordinal))
+                        .OrderBy(rule => rule.AssemblyName, StringComparer.Ordinal)
+                        .ThenBy(rule => rule.Path, StringComparer.Ordinal)
+                        .ToArray();
+                    bool hot = hotRoots.Contains(module.Name);
+                    return new ModuleStatus
+                    {
+                        Module = module,
+                        DirectConsumers = consumers,
+                        FrameworkConsumers = frameworkConsumers,
+                        ProjectConsumers = projectConsumers,
+                        RemovalBlockers = removalBlockers,
+                        FrameworkDependencies = frameworkDependencies,
+                        HotUpdateDependencies = hotDependencies,
+                        IsHotUpdateRoot = hot,
+                        TargetingPreservations = targeting,
+                        OwnedPreservations = owned,
+                        RetentionReasons = BuildRetentionReasons(
+                            module, frameworkConsumers, projectConsumers, hot, hotDependencies, targeting, owned),
+                        RemovalSteps = BuildRemovalSteps(
+                            module, removalBlockers, hot, hotDependencies, targeting, owned),
+                    };
+                })
+                .ToArray();
+        }
+
+        internal static LinkerPreservation[] ParseLinkerPreservations(
+            string xml,
+            string path,
+            string ownerModuleName)
+        {
+            if (xml == null) throw new ArgumentNullException(nameof(xml));
+            if (path == null) throw new ArgumentNullException(nameof(path));
+
+            var document = XDocument.Parse(xml, LoadOptions.None);
+            XElement linker = document.Root;
+            if (linker == null || linker.Name.LocalName != "linker")
+                throw new InvalidDataException($"link.xml 缺少 linker 根元素：{path}");
+
+            return linker.Elements()
+                .Where(element => element.Name.LocalName == "assembly")
+                .Select(element =>
+                {
+                    string fullname = (string)element.Attribute("fullname") ?? string.Empty;
+                    string assemblyName = fullname.Split(',')[0].Trim();
+                    string preserve = (string)element.Attribute("preserve");
+                    bool ignore = IsTrue((string)element.Attribute("ignoreIfUnreferenced"));
+                    int childRules = element.Elements().Count();
+                    bool requiredOnlyIfReferenced = string.IsNullOrEmpty(preserve) && childRules > 0 &&
+                                                    element.Elements().All(child =>
+                                                        string.Equals((string)child.Attribute("required"), "0",
+                                                            StringComparison.Ordinal));
+                    string scope = !string.IsNullOrEmpty(preserve)
+                        ? "preserve=" + preserve
+                        : childRules > 0
+                            ? $"{childRules} 条类型/成员规则"
+                            : "默认保留整个程序集";
+                    return new LinkerPreservation
+                    {
+                        OwnerModuleName = ownerModuleName ?? string.Empty,
+                        Path = path,
+                        AssemblyName = assemblyName,
+                        Scope = scope,
+                        IgnoreIfUnreferenced = ignore,
+                        RequiredOnlyIfReferenced = requiredOnlyIfReferenced,
+                    };
+                })
+                .Where(rule => !string.IsNullOrEmpty(rule.AssemblyName))
+                .ToArray();
+        }
+
+        private static string[] BuildRetentionReasons(
+            AssemblyInfo module,
+            IReadOnlyCollection<string> frameworkConsumers,
+            IReadOnlyCollection<string> projectConsumers,
+            bool hot,
+            IReadOnlyCollection<string> hotDependencies,
+            IReadOnlyCollection<LinkerPreservation> targeting,
+            IReadOnlyCollection<LinkerPreservation> owned)
+        {
+            var reasons = new List<string>();
+            if (hot)
+                reasons.Add("已列入 FrameworkHotUpdateProfile 的期望清单：完成同步与代码包构建后，完整 DLL 会进入 CodePackage；成员级 UnityLinker 不会替你移出这份部署清单。");
+            if (hot && hotDependencies.Count > 0)
+                reasons.Add("热更集合存在结构性传播：本 Module 直接引用已热更程序集 " +
+                            string.Join("、", hotDependencies) +
+                            "；只要本 Module 仍在 Player 编译图，就不能单独把它留在 AOT，否则会形成 AOT → 热更引用。");
+            else if (!hot && hotDependencies.Count > 0)
+                reasons.Add("当前存在非法的 AOT → 热更引用：本 Module 未列入热更 Profile，却直接引用 " +
+                            string.Join("、", hotDependencies) +
+                            "。先把本 Module 恢复为热更，或让它退出 Player 编译图 / 把依赖退回 AOT，再执行同步和构建。");
+            if (projectConsumers.Count > 0)
+                reasons.Add("项目程序集直接使用本 Module：" + string.Join("、", projectConsumers) +
+                            "。这些是最需要先迁移或删除的真实消费方。");
+            if (frameworkConsumers.Count > 0)
+                reasons.Add("其他 Framework Module 直接依赖它：" + string.Join("、", frameworkConsumers) +
+                            "。只有这些上层 Module 被项目选中时，这条引用链才成为最终 Player 的候选根。");
+            foreach (var rule in targeting.Where(rule => rule.IsUnconditional))
+                reasons.Add($"{rule.Path} 无条件保留本程序集（{rule.Scope}），它本身就是 UnityLinker 根标记。");
+            foreach (var rule in targeting.Where(rule => !rule.IsUnconditional))
+                reasons.Add($"{rule.Path} 含针对本程序集的条件规则（{rule.Scope}）；它只在程序集 / 类型已被引用时扩大保留，不单独建立根。");
+            foreach (var rule in owned.Where(rule => rule.IsUnconditional &&
+                                                      !rule.AssemblyName.Equals(module.Name, StringComparison.Ordinal)))
+                reasons.Add($"本 Module 的 {rule.Path} 还会无条件保留 {rule.AssemblyName}（{rule.Scope}）；即使业务没有调用本 Module，也可能留下这项外部成本。");
+            foreach (var rule in owned.Where(rule => !rule.IsUnconditional &&
+                                                      !rule.AssemblyName.Equals(module.Name, StringComparison.Ordinal)))
+                reasons.Add($"本 Module 的 {rule.Path} 对 {rule.AssemblyName} 使用条件保留（{rule.Scope}）；它不会独立建立根，但引用存在时会扩大保留范围。");
+            if (reasons.Count == 0)
+                reasons.Add("目前只证明源码会编译且程序集存在；没有发现热更清单、直接消费者或无条件 link.xml 根。是否进入最终 Player 仍由场景/资源根与 UnityLinker 决定。");
+            return reasons.ToArray();
+        }
+
+        private static string[] BuildRemovalSteps(
+            AssemblyInfo module,
+            IReadOnlyCollection<string> removalBlockers,
+            bool hot,
+            IReadOnlyCollection<string> hotDependencies,
+            IReadOnlyCollection<LinkerPreservation> targeting,
+            IReadOnlyCollection<LinkerPreservation> owned)
+        {
+            if (module.Name.Equals(CoreAssemblyName, StringComparison.Ordinal))
+                return new[] { "Core 是其余 Runtime Module 的稳定上游，不作为可删除项；轻量项目应从 Core 开始，只增加真正需要的 Module。" };
+
+            var steps = new List<string>();
+            if (removalBlockers.Count > 0)
+                steps.Add("先处理所有 asmdef 声明的删除阻塞者（包含 Runtime、Demo、Editor 与 Tests）：" +
+                          string.Join("、", removalBlockers) + "。即使没有实际调用，残留的 references 也会让物理删除后编译失败。");
+            if (hot && hotDependencies.Count > 0)
+                steps.Add("把“退出 Player 编译图（删除/卸载该 Module）”与“从 FrameworkHotUpdateProfile 移除”作为同一次结构变更；不要先单独同步取消热更。另一条路是先让它引用的热更依赖全部退回 AOT，但这通常会级联扩大改动。");
+            else if (!hot && hotDependencies.Count > 0)
+                steps.Add("当前 Profile 已处于非法中间状态：先把本 Module 恢复为热更，或在同一次结构变更中让它退出 Player 编译图；修正前不要执行同步、Generate 或出包。");
+            else if (hot)
+                steps.Add("若保留源码但取消热更，先确认没有 AOT → 热更引用，再从 FrameworkHotUpdateProfile 移除；若直接删除/卸载，则同时清理 Profile 条目。");
+            if (targeting.Any(rule => rule.IsUnconditional) || owned.Any(rule => rule.IsUnconditional))
+                steps.Add("复核该 Module 的 link.xml：物理移除 Module 时让规则一起消失；若只改为条件保留，必须做目标平台 IL2CPP/反射回归。");
+            steps.Add("结构变更完成后再执行“同步热更设置”与 HybridCLR Generate，然后运行编译、模块裁剪审计和目标平台真实构建；不要凭 Console 是否安静判断成功。");
+            return steps.ToArray();
+        }
+
         private static void AppendDependencyVisibility(
             StringBuilder sb,
             IReadOnlyCollection<DependencyIssue> issues)
@@ -365,6 +647,47 @@ namespace Game.Framework.Editor
             else
                 sb.AppendLine($"  共 {issues.Sum(issue => issue.References.Length)} 条隐式引用；" +
                               "这不等于运行时错误，但会削弱删除测试、UPM 依赖声明与 AI 可导航性。");
+            sb.AppendLine();
+        }
+
+        private static void AppendModuleStatuses(StringBuilder sb, IEnumerable<ModuleStatus> statuses)
+        {
+            sb.AppendLine("Module 当前保留原因");
+            sb.AppendLine("────────────────────────────────────────");
+            foreach (var status in statuses)
+            {
+                sb.AppendLine("  " + status.Module.Name);
+                foreach (string reason in status.RetentionReasons)
+                    sb.AppendLine("    • " + reason);
+                sb.AppendLine("    移除准备：" + string.Join(" ", status.RemovalSteps));
+            }
+            sb.AppendLine();
+        }
+
+        private static void AppendGlobalPreservations(
+            StringBuilder sb,
+            IReadOnlyCollection<LinkerPreservation> preservations)
+        {
+            sb.AppendLine("全局与生成的 link.xml 证据");
+            sb.AppendLine("────────────────────────────────────────");
+            if (preservations.Count == 0)
+            {
+                sb.AppendLine("  （未发现 Framework Module 目录之外的规则）");
+            }
+            else
+            {
+                foreach (var group in preservations.GroupBy(rule => rule.Path, StringComparer.OrdinalIgnoreCase))
+                {
+                    string origin = group.First().IsGenerated ? "生成物" : "项目/第三方";
+                    sb.AppendLine($"  • {group.Key}（{origin}，{group.Count()} 条）");
+                    foreach (var rule in group)
+                    {
+                        string condition = rule.IsUnconditional ? "无条件根" : "仅被引用时生效";
+                        sb.AppendLine($"      {rule.AssemblyName} · {rule.Scope} · {condition}");
+                    }
+                }
+            }
+            sb.AppendLine("  这些规则不自动归罪于某个 Framework Module；生成物应修改来源配置后重新 Generate，第三方规则应在升级边界内处理。");
             sb.AppendLine();
         }
 
@@ -476,10 +799,27 @@ namespace Game.Framework.Editor
                 recommendations.Add("有程序集文件无法定位，本次闭包和字节数不完整；先修编译或热更清单，再比较体积。");
             if (result.DeletionChecks.Any(check => !check.Passed))
                 recommendations.Add("至少一条删除检查失败，说明可选模块发生了反向耦合；先修依赖方向，再讨论包体优化。");
+            if (result.HasRetentionWarnings)
+            {
+                string targets = string.Join("、", result.UnconditionalModulePreservations
+                    .Select(rule => $"{rule.OwnerModuleName} → {rule.AssemblyName}")
+                    .Distinct(StringComparer.Ordinal));
+                recommendations.Add("发现可选 Module 目录下的无条件 link.xml 保留：" + targets +
+                                    "。这不一定是错误，但会让“没调用就自动消失”失效；应结合反射/热更需求逐条验证。 ");
+            }
+            if (result.HasHotUpdateViolations)
+            {
+                string violations = string.Join("；", result.ModuleStatuses
+                    .Where(status => status.HasHotUpdateViolation)
+                    .Select(status => status.Module.Name + "（AOT）→ " +
+                                      string.Join("、", status.HotUpdateDependencies) + "（热更）"));
+                recommendations.Add("发现当前热更 Profile 的非法引用边：" + violations +
+                                    "。先恢复合法闭包或让对应 Module 退出 Player 编译图，修正前不要同步或出包。 ");
+            }
 
             if (result.IsHealthy)
             {
-                recommendations.Add("当前边界允许从“只用核心”开始，再按需增加一个 UI 后端；不要为了备用能力把全部模块都放进业务 asmdef 或热更清单。");
+                recommendations.Add("当前 asmdef 边界允许业务从“只用核心”开始，再按需增加 Module。注意热更不是独立开关：Core 热更时，仍参与 Player 编译且引用 Core 的 Module 也必须热更；强裁剪要把 Module 退出编译图与 Profile 清理作为同一次结构变更。 ");
 
                 var coreExternal = result.CommonProfiles[0].Footprint.ExternalAssemblies;
                 var uiOnlyLargest = result.CommonProfiles
@@ -604,9 +944,118 @@ namespace Game.Framework.Editor
                 .OrderBy(name => name, StringComparer.Ordinal)
                 .ToArray();
             string note = roots.Length == 0
-                ? $"{path}：纯 AOT 档位。"
-                : $"{path}：{roots.Length} 个热更入口；HybridCLR 以程序集为最小粒度。";
+                ? $"{path}：Profile 期望纯 AOT；实际设置与产物需由热更构建工具校验。"
+                : $"{path}：Profile 期望 {roots.Length} 个热更入口；实际设置与产物需经过同步、Generate 和代码包构建。";
             return (roots, note);
+        }
+
+        private static LinkerPreservation[] ReadLinkerPreservations(
+            IReadOnlyDictionary<string, AssemblyInfo> assemblies)
+        {
+            var moduleDirectories = assemblies.Values
+                .Where(info => info.IsFrameworkRuntime && !string.IsNullOrWhiteSpace(info.AsmdefPath))
+                .Select(info => new
+                {
+                    info.Name,
+                    Directory = NormalizeFullPath(Path.GetDirectoryName(info.AsmdefPath)),
+                })
+                .Where(item => !string.IsNullOrEmpty(item.Directory))
+                .OrderByDescending(item => item.Directory.Length)
+                .ToArray();
+
+            var result = new List<LinkerPreservation>();
+            foreach (string fullPath in Directory.EnumerateFiles(Application.dataPath, "link.xml",
+                         SearchOption.AllDirectories))
+            {
+                string normalized = NormalizeFullPath(fullPath);
+                string owner = moduleDirectories
+                    .Where(item => IsPathInside(normalized, item.Directory))
+                    .Select(item => item.Name)
+                    .FirstOrDefault() ?? string.Empty;
+                string projectPath = ToProjectPath(fullPath);
+                try
+                {
+                    result.AddRange(ParseLinkerPreservations(File.ReadAllText(fullPath), projectPath, owner));
+                }
+                catch (Exception ex)
+                {
+                    throw new InvalidDataException($"无法解析 UnityLinker 配置：{projectPath}", ex);
+                }
+            }
+            return result
+                .OrderBy(rule => rule.Path, StringComparer.Ordinal)
+                .ThenBy(rule => rule.AssemblyName, StringComparer.Ordinal)
+                .ToArray();
+        }
+
+        /// <summary>
+        /// 读取全部项目与 Package asmdef 的显式引用，供物理删除计划使用。它与 Player DLL 的真实消费
+        /// 是两种证据：Demo / Editor / Tests 不会保留玩家代码，却仍会在被引用 Module 删除后阻塞编译。
+        /// </summary>
+        private static Dictionary<string, string[]> ReadDeclaredConsumers()
+        {
+            var consumers = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+            foreach (string path in AssetDatabase.GetAllAssetPaths()
+                         .Where(path => path.EndsWith(".asmdef", StringComparison.OrdinalIgnoreCase)))
+            {
+                AsmdefJson dto = ReadAsmdef(path);
+                if (dto == null || string.IsNullOrWhiteSpace(dto.name)) continue;
+                foreach (string dependency in GetDeclaredReferences(dto))
+                {
+                    if (string.IsNullOrWhiteSpace(dependency) ||
+                        dependency.Equals(dto.name, StringComparison.Ordinal))
+                        continue;
+                    if (!consumers.TryGetValue(dependency, out var names))
+                    {
+                        names = new HashSet<string>(StringComparer.Ordinal);
+                        consumers.Add(dependency, names);
+                    }
+                    names.Add(dto.name);
+                }
+            }
+
+            return consumers.ToDictionary(
+                pair => pair.Key,
+                pair => pair.Value.OrderBy(name => name, StringComparer.Ordinal).ToArray(),
+                StringComparer.Ordinal);
+        }
+
+        private static bool IsTrue(string value) =>
+            value != null && (value.Equals("1", StringComparison.Ordinal) ||
+                              value.Equals("true", StringComparison.OrdinalIgnoreCase));
+
+        private static string ToProfileKey(string assemblyName)
+        {
+            var sb = new StringBuilder(assemblyName.Length);
+            foreach (char character in assemblyName)
+                sb.Append(char.IsLetterOrDigit(character) ? char.ToLowerInvariant(character) : '-');
+            return sb.ToString().Trim('-');
+        }
+
+        private static string FriendlyModuleName(string assemblyName)
+        {
+            string prefix = CoreAssemblyName + ".";
+            return assemblyName.StartsWith(prefix, StringComparison.Ordinal)
+                ? assemblyName.Substring(prefix.Length)
+                : assemblyName;
+        }
+
+        private static string NormalizeFullPath(string path) =>
+            string.IsNullOrWhiteSpace(path)
+                ? string.Empty
+                : Path.GetFullPath(path).Replace('\\', '/').TrimEnd('/');
+
+        private static bool IsPathInside(string path, string directory) =>
+            path.Equals(directory, StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith(directory + "/", StringComparison.OrdinalIgnoreCase);
+
+        private static string ToProjectPath(string fullPath)
+        {
+            string root = NormalizeFullPath(Directory.GetParent(Application.dataPath)?.FullName);
+            string normalized = NormalizeFullPath(fullPath);
+            return IsPathInside(normalized, root)
+                ? normalized.Substring(root.Length + 1)
+                : normalized;
         }
 
         private static AsmdefJson ReadAsmdef(string path)
