@@ -60,7 +60,7 @@
 | 存储 `IStorageUtility` | `[Serializable]` 类整存整取，key 是持久契约；Save 失败抛异常并必须 await，Load 无可用主/备数据返回 null。迁移由数据 `Version` + 业务 switch 完成。 | guide §18 / ADR-0021 |
 | 音频 `IAudioUtility` | BGM 交给单通道编排；一次性 SFX 自动回收，循环音效 handle 必须 Stop 或进 Bag。持续跟随对象的 3D 音源直接用 `AudioSource`。音量持久化归业务。 | guide §19 / ADR-0022 |
 | 流程 `IGameFlow` | 只表达启动/登录/大厅/战斗等宏观阶段；每次进入 new 一个 `FlowState`。阶段私有服务/订阅/资源放状态子 Context/Bag。转换“串行 + 最新意图胜”；OnEnter 内转向后直接 return，不能 await 自己触发的 GoTo。 | guide §20 / ADR-0023 |
-| 本地化 `ILocalizationUtility` | UI 绑定 key 并订 Locale；动态参数用 `CombineLatest`。缺 key 保留裸 key + 一次警告，不用空串掩盖。语言列表、选择持久化、复数规则归业务/上层 Adapter。 | guide §21 / ADR-0024 |
+| 本地化 `ILocalizationUtility` | 文本 UI 订 `TextRevision`（同时覆盖换语言与 Source 失效），动态参数与它 `CombineLatest`；字体/按语言资源才只订 `Locale`。Source 用 `Unavailable/Missing/Found` 区分加载中与真缺失；真缺 key 才裸 key + 一次警告。 | guide §21 / ADR-0024 |
 | 字体 `MonoLocaleFonts` | 根 Context 一份组件接管指定主字体 fallback；TMP/Toolkit 分别配置。同一主字体不可被两份组件接管；OS 族名用英文并按平台给候选。 | guide §22 / ADR-0025 |
 | 网络 `IHttpUtility/IWebSocketUtility` | HTTP 请求响应返回 UniTask；WS 推送映射 Framework Event。非 2xx 动词门面抛 `NetworkException`，外部取消保持 `OperationCanceledException`。JsonUtility 消息用字段；重试/重连显式写在业务层。 | guide §25 / ADR-0028 |
 | UI 嵌入 `UI.Bridge` | 需被 Toolkit 内容流裁剪/滚动才用 RenderTexture Bridge；简单顶层覆盖优先 overlay。隔离专用 layer 并从主相机 cullingMask 排除；交互模式不承诺 IME/多点触控。 | guide §27 / ADR-0033 |

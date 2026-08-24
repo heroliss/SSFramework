@@ -14,8 +14,8 @@ using UnityEngine.UIElements;
 namespace Game.Framework.Demo.Modules
 {
     /// <summary>
-    /// 能力·本地化：响应式当前语言（SetLocale 推送、已显示 UI 自动刷新）+ key 查询回退链
-    /// （fallbackLocale → 裸 key 上屏）+ 文本源接缝。本章文本源是<b>Luban 表 adapter</b>（最常见用法的实物），
+    /// 能力·本地化：语言与文本源修订共同驱动 UI 自动刷新 + 带可用性语义的 key 查询回退链
+    /// （fallbackLocale → 裸 key上屏）+ 文本源接缝。本章文本源是<b>Luban 表 Adapter</b>（最常见用法的实物），
     /// 并带图片 / 音频 per-locale 的实操样板（location 后缀约定 + 响应式重载）。ADR-0024。
     /// </summary>
     public sealed class LocalizationDemoModule : DemoModuleBase
@@ -25,8 +25,8 @@ namespace Game.Framework.Demo.Modules
         public override string Category => "能力";
         public override int Order => 60;
         public override string Summary =>
-            "响应式多语言：Locale 是 RP、SetLocale 推送即全量刷新（BindLocalizedText 自动重取文本）；" +
-            "文本源 = Luban 表 adapter（~10 行实物）；图片 / 音频按 locale 后缀命名 + 响应式重载。ADR-0024。";
+            "TextRevision 同时覆盖切语言与延迟文本源就绪，BindLocalizedText 会自动重取且不制造假缺失警告。" +
+            "Luban 表 Adapter、fallback、图片和音频按 locale 组合均有可运行样板。";
 
         // locale code 是开放字符串 + 业务常量（与音频组 / 存储 key 同一「常量管理字符串契约」姿势）。
         private const string Zh = "zh-CN";
@@ -50,8 +50,8 @@ namespace Game.Framework.Demo.Modules
 
         /// <summary>
         /// 最常见用法的实物：~10 行包 Luban 表（TbL10N 一行一 key、一列一语言）。
-        /// 配置表异步加载，就绪前 TryGet false → 裸 key 上屏（可见的「加载中」）；
-        /// 翻译列留空 = 该语言缺失 → 同样 false，交给框架统一走 fallback 链。
+        /// 配置表异步加载，就绪前 Lookup 返回 Unavailable；State 变化发失效信号，让既有绑定在同一语言下重取。
+        /// Ready 后翻译列留空才是 Missing，交给框架统一走 fallback 链与缺失报告。
         /// </summary>
         private sealed class LubanTextSource : ILocalizedTextSource
         {
@@ -59,13 +59,54 @@ namespace Game.Framework.Demo.Modules
 
             public LubanTextSource(IConfigUtility<Tables> config) => _config = config;
 
-            public bool TryGet(string locale, string key, out string text)
+            public Observable<Unit> Invalidated => _config.State.Select(_ => Unit.Default);
+
+            public LocalizedTextLookupStatus Lookup(string locale, string key, out string text)
             {
                 text = null;
-                var row = _config.Tables?.TbL10N.GetOrDefault(key);
-                if (row == null) return false;
+                if (_config.State.CurrentValue != ConfigInitState.Ready || _config.Tables == null)
+                    return LocalizedTextLookupStatus.Unavailable;
+
+                var row = _config.Tables.TbL10N.GetOrDefault(key);
+                if (row == null) return LocalizedTextLookupStatus.Missing;
                 text = locale switch { Zh => row.ZhCn, En => row.En, _ => null };
-                return !string.IsNullOrEmpty(text);
+                return string.IsNullOrEmpty(text)
+                    ? LocalizedTextLookupStatus.Missing
+                    : LocalizedTextLookupStatus.Found;
+            }
+        }
+
+        /// <summary>专供本章现场演示 Unavailable → Found；生产 Adapter 通常把配置/远端表状态映射为同一契约。</summary>
+        private sealed class DelayedTextSource : ILocalizedTextSource
+        {
+            private readonly Subject<Unit> _invalidated = new();
+            private bool _available;
+            private string _text;
+
+            public Observable<Unit> Invalidated => _invalidated;
+
+            public LocalizedTextLookupStatus Lookup(string locale, string key, out string text)
+            {
+                text = null;
+                if (!_available) return LocalizedTextLookupStatus.Unavailable;
+                if (locale != Zh || key != "demo/delayed-source" || _text == null)
+                    return LocalizedTextLookupStatus.Missing;
+                text = _text;
+                return LocalizedTextLookupStatus.Found;
+            }
+
+            public void SetUnavailable()
+            {
+                _available = false;
+                _text = null;
+                _invalidated.OnNext(Unit.Default);
+            }
+
+            public void SetReady(string text)
+            {
+                _available = true;
+                _text = text;
+                _invalidated.OnNext(Unit.Default);
             }
         }
 
@@ -74,10 +115,10 @@ namespace Game.Framework.Demo.Modules
             var loc = this.GetUtility<ILocalizationUtility>();
 
             // ── 定位 ──
-            host.AddSectionTitle("定位：三件小事——语言状态、key 查询、换语言 UI 跟着变");
-            host.AddNote("框架只管**「当前语言」全局状态（响应式 RP）+ key → 文本查询 + 换语言推送驱动重绑**；文本数据来自 `ILocalizedTextSource` 单方法接缝（`TryGet(locale, key, out text)`）。语言列表、`SystemLanguage` 映射、语言选择持久化（设置数据走 `IStorageUtility`，启动回灌）都归业务。",
+            host.AddSectionTitle("定位：语言状态、文本查询、内容失效各管一件事");
+            host.AddNote("框架把 `Locale`（语言身份）、`Lookup`（Found / Missing / Unavailable）与 `TextRevision`（文本应重取）分开；语言列表、`SystemLanguage` 映射和选择持久化仍归业务。",
                 new CodeRef("Assets/Game/Framework/Core/Localization/ILocalizationUtility.cs", "public interface ILocalizationUtility", "本地化入口契约"));
-            host.AddSubNote("locale code 是开放字符串 + 业务常量（本章 `Zh = \"zh-CN\"` / `En = \"en\"`）。其他多语言方案也能当源接入：I2 Localization 的指定语言查询 ~10 行 adapter；Unity 官方包因绑死 Addressables 与本框架 YooAsset 管线冲突，不建议混用——原则只有一条：**别让两个系统都认为自己管着当前语言**。");
+            host.AddSubNote("locale code 是开放字符串 + 业务常量（本章 `Zh = \"zh-CN\"` / `En = \"en\"`）。其他多语言方案也能当源接入；原则只有一条：**别让两个系统都认为自己管着当前语言**。文本 UI 订 `TextRevision`，字体和按语言换图/音频仍只订 `Locale`，避免源就绪时无谓重载资源。");
 
             // ── 文本源：Luban 表 adapter ──
             host.AddSectionTitle("文本源：Luban 表 adapter（最常见用法的实物）");
@@ -88,7 +129,22 @@ namespace Game.Framework.Demo.Modules
             host.AddActionRow("打开 l10n.xlsx 所在目录（构建期源，~ 目录不导入）", () =>
                 UnityEditor.EditorUtility.RevealInFinder($"{L10NDataDir}/l10n.xlsx"),
                 CodeRef.Here("builder.RegisterOwnedFactory(", "本章的注册代码（工厂解依赖顺序 + 生命周期）"));
-            host.AddSubNote("改表后菜单「SSFramework/配置表构建/生成全部」重新生成即可生效。配置就绪前查询返回裸 key（可见的「加载中」）；小体量 / 测试用内置 `DictionaryLocalizedTextSource`，不用配表。");
+            host.AddSubNote("改表后菜单「SSFramework/配置表构建/生成全部」重新生成即可生效。配置未就绪是 `Unavailable`：可暂用裸 key 占位，但不报缺文案；State 到 Ready 会自动重取。小体量 / 测试用内置 `DictionaryLocalizedTextSource`。");
+
+            // ── 延迟源可观察实验 ──
+            host.AddSectionTitle("延迟源：不切语言也会自动刷新");
+            var delayedSource = new DelayedTextSource();
+            var delayedLoc = new LocalizationUtility(delayedSource, Zh);
+            Bag.Add(delayedLoc);
+            var delayedLabel = host.AddValueDisplay();
+            Bag.Subscribe(delayedLoc.TextRevision,
+                _ => delayedLabel.text = delayedLoc.Get("demo/delayed-source"));
+            host.AddActionRow("让延迟源 Ready（标签应原地变成正文）",
+                () => delayedSource.SetReady("延迟文本已到达；没有切语言。"),
+                CodeRef.Here("delayedSource.SetReady", "Unavailable → Found"));
+            host.AddActionRow("恢复 Unavailable（只占位，不报缺 key）", delayedSource.SetUnavailable);
+            host.AddNote("初始标签显示裸 key 只是临时占位；点 Ready 后 Source 发 `Invalidated`，Utility 只推进 `TextRevision`，既有绑定原地重取。`Locale` 没有变化，所以字体链、图片和音频不会被误触发。",
+                CodeRef.Here("Bag.Subscribe(delayedLoc.TextRevision", "文本失效绑定"));
 
             // ── 当前语言与切换 ──
             host.AddSectionTitle("切换语言：SetLocale 推送，绑定自动刷新");
@@ -111,14 +167,14 @@ namespace Game.Framework.Demo.Modules
             host.AddNote("`Bag.BindLocalizedText(label, key)`：立即取当前语言文本、换语言自动重取，订阅随 Bag 退订（与 `BindText` 同心智、经 bag 的 Context 解析服务与 `Bag.Load` 同源）。带参重载适合**绑定时就固定**的参数（上面的玩家名）。",
                 CodeRef.Here("Bag.BindLocalizedText(startLabel, \"menu/start\")", "本地化绑定"));
 
-            // 动态参数 × 语言 双源组合：R3 CombineLatest 一行，不需要框架专门 API。
+            // 动态参数 × 文本修订双源组合：同时覆盖换语言与源失效，不需要框架专门 API。
             var clicks = new RP<int>(0);
             Bag.Add(clicks);
             var clicksLabel = host.AddValueDisplay();
-            Bag.Bind(clicks.CombineLatest(loc.Locale, (c, _) => loc.Get("demo/clicks", c)),
+            Bag.Bind(clicks.CombineLatest(loc.TextRevision, (c, _) => loc.Get("demo/clicks", c)),
                 s => clicksLabel.text = s);
-            host.AddActionRow("点我 +1（动态参数 × 语言 双源组合）", () => clicks.Value++,
-                CodeRef.Here("clicks.CombineLatest(loc.Locale", "双源组合"));
+            host.AddActionRow("点我 +1（动态参数 × 文本修订双源）", () => clicks.Value++,
+                CodeRef.Here("clicks.CombineLatest(loc.TextRevision", "双源组合"));
 
             // ── 缺 key 语义 ──
             host.AddSectionTitle("缺 key：回退链 → 裸 key 上屏");
@@ -131,7 +187,8 @@ namespace Game.Framework.Demo.Modules
             // ── 图片多语言 ──
             host.AddSectionTitle("图片多语言：location 后缀约定 + 响应式重载");
             var bannerCaption = host.AddValueDisplay();
-            Bag.Bind(loc.Locale.Select(l => loc.Get("l10n/banner-caption", l)), s => bannerCaption.text = s);
+            Bag.Bind(loc.TextRevision.Select(_ => loc.Get("l10n/banner-caption", loc.Locale.CurrentValue)),
+                s => bannerCaption.text = s);
 
             var banner = new Image { scaleMode = ScaleMode.ScaleToFit };
             banner.style.height = 64;
@@ -153,7 +210,8 @@ namespace Game.Framework.Demo.Modules
             // ── 音频多语言 ──
             host.AddSectionTitle("音频多语言：同一后缀约定，播放时按当前语言取");
             var voiceCaption = host.AddValueDisplay();
-            Bag.Bind(loc.Locale.Select(l => loc.Get("l10n/voice-caption", l)), s => voiceCaption.text = s);
+            Bag.Bind(loc.TextRevision.Select(_ => loc.Get("l10n/voice-caption", loc.Locale.CurrentValue)),
+                s => voiceCaption.text = s);
             host.AddAsyncActionRow("播放当前语言提示音（中文上行双音 / 英文下行双音）", ct => PlayVoice(loc, ct),
                 CodeRef.Here("Bag.Load<AudioClip>($\"l10n-voice_", "按语言取音频"));
             host.AddSubNote("语音 / 配音类资源播放是**瞬时动作**，不需要「换语言重载」——播放时按 `Locale.CurrentValue` 拼 location 取当前语言的 clip 即可（`Bag.Load<AudioClip>` + `IAudioUtility.PlaySfx` 组合，见「音频」章）。");
@@ -165,7 +223,7 @@ namespace Game.Framework.Demo.Modules
             host.AddConcept("场景静态文本收集", "本框架 UI 全代码驱动（窗口 = View 类），文本入口天然收敛在 BindLocalizedText，没有「散落场景里的 Text 组件」问题。");
             host.AddConcept("字体切换", "不在本接口——由「字体 · 多语言字体链」章的 `MonoLocaleFonts` 承接（订阅 `Locale` 自动切换 fallback 链，ADR-0025），本模块只出信号。");
 
-            host.AddTip("速记：文本源 = ~10 行表 adapter（吃别的服务且服务需随 Context 释放就 RegisterOwnedFactory）；UI 全用 Bag.BindLocalizedText(label, key)；图片 = 后缀约定 + 子 Bag 重载；音频 = 播放时按 CurrentValue 取；设置页 = SetLocale + 存档回灌。深度见 framework-guide 本地化章 / ADR-0024 / ADR-0035。");
+            host.AddTip("速记：Source 用 Lookup 区分 Unavailable / Missing 并在答案变化时发 Invalidated；文本 UI 订 TextRevision，字体/图片/音频订 Locale；设置页仍是 SetLocale + 存档回灌。深度见 framework-guide 本地化章 / ADR-0024 / ADR-0035。");
         }
 
         private static async UniTaskVoid LoadBanner(DisposableBag bag, Image banner, string locale)

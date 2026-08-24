@@ -2252,17 +2252,29 @@ await flow.GoTo(new BootState());               // 引导序列可 await：完�
 
 ## 21. 本地化（多语言）
 
-框架只管三件小事：**「当前语言」全局状态（响应式）+ key → 文本查询 + 换语言时已显示 UI 跟着变**。文本数据来自 `ILocalizedTextSource` 单方法接缝（业务包自己的配置表）；per-locale 资源、语言持久化、字体切换都是既有原语的组合。ADR-0024。
+框架只管三件小事：**「当前语言」全局状态 + key → 文本查询 + 语言或文本源变化时让已显示 UI 重取**。文本数据来自 `ILocalizedTextSource` 接缝（业务包自己的配置表）；per-locale 资源、语言持久化、字体切换都是既有原语的组合。ADR-0024。
 
 ### 快速开始
 
 ```csharp
-// 文本源：业务包自己的 Luban 表（~10 行 adapter）；测试 / 小游戏用内置字典源
+// 文本源：业务包自己的 Luban 表 Adapter；测试 / 小游戏可用内置字典源
 public sealed class TableTextSource : ILocalizedTextSource
 {
-    private readonly Tables _tables; // 配置表里一行一 key、一列一语言
-    public bool TryGet(string locale, string key, out string text)
-        => _tables.TbL10N.TryGetText(locale, key, out text); // 查表即可，回退与警告框架统一处理
+    private readonly IConfigUtility<Tables> _config;
+    public TableTextSource(IConfigUtility<Tables> config) => _config = config;
+
+    // 配置状态变化后，既有文本绑定即使没切语言也会重取。
+    public Observable<Unit> Invalidated => _config.State.Select(_ => Unit.Default);
+
+    public LocalizedTextLookupStatus Lookup(string locale, string key, out string text)
+    {
+        text = null;
+        if (_config.State.CurrentValue != ConfigInitState.Ready || _config.Tables == null)
+            return LocalizedTextLookupStatus.Unavailable;
+        return _config.Tables.TbL10N.TryGetText(locale, key, out text)
+            ? LocalizedTextLookupStatus.Found
+            : LocalizedTextLookupStatus.Missing;
+    }
 }
 
 // 注册（源经构造注入，同存储 provider 姿势）；初始语言 = 读存档或 SystemLanguage 映射
@@ -2274,13 +2286,19 @@ builder.RegisterOwned(
 Bag.BindLocalizedText(titleLabel, "menu/start");
 Bag.BindLocalizedText(welcomeLabel, "lobby/welcome", playerName);   // 静态格式化参数
 
-// 设置页切换：SetLocale 推送 Locale（RP），所有绑定全量刷新；同值 no-op
+// 设置页切换：Locale 与 TextRevision 各推一次；同值 no-op
 loc.SetLocale("en");
 ```
 
 locale code 是**开放字符串 + 业务常量**（与音频组、存储 key 同一「常量管理字符串契约」姿势）；语言列表、`SystemLanguage` → code 映射、语言选择持久化（设置数据走 §18 存储，启动回灌）都归业务。
 
-> 表 adapter 的**活实物**在 demo「本地化 · 多语言」章（`LubanTextSource`，连 `TbL10N` 表定义 / `l10n.xlsx` 数据一起）。注意一个注册细节：**源要吃别的服务**（配置表 Utility）时用 `RegisterOwnedFactory(c => new LocalizationUtility(new LubanTextSource((IConfigUtility<Tables>)c.Resolve(...)), ...))`——容器在首次解析时解决依赖顺序，同时仍负责释放 `LocalizationUtility`；普通 `RegisterFactory` 只管构造和缓存、不拥有产物。不依赖其他服务的源（字典源）直接 `RegisterOwned`。配置表异步加载：就绪前 `TryGet` 返回 false → 裸 key 上屏，就是可见的「加载中」；**翻译列留空 = 该语言缺失**（翻译没来是常态），同样返回 false 交给框架走 fallback 链。
+> 表 Adapter 的**活实物**在 demo「本地化 · 多语言」章（`LubanTextSource`，连 `TbL10N` 表定义 / `l10n.xlsx` 数据一起）。注意一个注册细节：**源要吃别的服务**（配置表 Utility）时用 `RegisterOwnedFactory(c => new LocalizationUtility(new LubanTextSource((IConfigUtility<Tables>)c.Resolve(...)), ...))`——容器在首次解析时解决依赖顺序，同时仍负责释放 `LocalizationUtility`；普通 `RegisterFactory` 只管构造和缓存、不拥有产物。不依赖其他服务的源（字典源）直接 `RegisterOwned`。
+
+### 延迟文本源：不可用不等于缺失
+
+异步配置加载时，`ILocalizedTextSource` 必须区分三种结果：`Unavailable` 表示“当前还不能回答”，`Missing` 表示“当前快照已确认没有”，`Found` 表示命中且 `text` 非 `null`。加载中返回 `Unavailable` 时，`Get` 可先用裸 key 占位，但**不会走 fallback，也不会产生假缺失警告**；配置状态变化后 Source 发 `Invalidated`，Utility 推送 `TextRevision`，既有绑定在 locale 不变时也会重取。表已 Ready 而翻译列留空，才返回 `Missing` 并进入回退链。
+
+`Locale` 和 `TextRevision` 刻意分开：前者只表达语言身份，字体链和按语言资源订它；后者汇总语言变化与文本源失效，所有文本 UI 订它。不要用 `SetLocale(CurrentValue)` 伪造刷新——同值本就幂等，而且会把内容时序错误表达成语言变化。
 
 ### 缺 key：回退链 → 裸 key 上屏
 
@@ -2288,16 +2306,16 @@ locale code 是**开放字符串 + 业务常量**（与音频组、存储 key �
 
 ### 动态参数 / UGUI / per-locale 资源：一行组合
 
-- **动态参数**（文案里嵌响应式数值）：不用专门 API——`Bag.Bind(model.Gold.CombineLatest(loc.Locale, (g, _) => loc.Get("shop/gold", g)), s => label.text = s)`，数据与语言两个方向都即时刷新。
-- **UGUI / TMP**：`Bag.Subscribe(loc.Locale, _ => tmpText.text = loc.Get(key))` 一行——UGui asmdef 刻意不引 R3，不为一个便捷方法加依赖。
+- **动态参数**（文案里嵌响应式数值）：不用专门 API——`Bag.Bind(model.Gold.CombineLatest(loc.TextRevision, (g, _) => loc.Get("shop/gold", g)), s => label.text = s)`，数据与文本修订两个方向都即时刷新。
+- **UGUI / TMP**：`Bag.Subscribe(loc.TextRevision, _ => tmpText.text = loc.Get(key))` 一行——UGui asmdef 刻意不引 R3，不为一个便捷方法加依赖。
 - **per-locale 资源**：按 locale 分包（YooAsset 多 package，业务映射包名）或 location 后缀约定；换语言换图 = `Bag.Subscribe(loc.Locale, ...)` 里 Dispose 旧子 Bag → 按新 locale 重新 `Load`（子 Bag 重建释放旧句柄，§13 既定写法）；语音 / 配音是瞬时动作，播放时按 `Locale.CurrentValue` 拼 location 取即可。框架刻意零 API——命名 / 分包约定各项目不同，helper 反而强加约定。**图片与音频的活实物都在 demo 本地化章**（`l10n-banner_<locale>` / `l10n-voice_<locale>`）。
 
 ### 与其他多语言方案的关系
 
-本框架把本地化拆成**状态**（`Locale` RP）、**查询**（`Get`）、**数据**（源接缝）三块——第三方方案接入 = 当**数据层**从接缝塞进来，守住一条原则：**别让两个系统都认为自己管着当前语言**（UI 绑定订阅的是本框架的 RP，`SetLocale` 时单向同步对方即可）。
+本框架把本地化拆成**语言身份**（`Locale`）、**文本失效**（`TextRevision`）、**查询**（`Get`）、**数据**（Source 接缝）四块——第三方方案接入 = 当数据层从接缝塞进来，并把它自己的表刷新映射为 `Invalidated`。守住一条原则：**别让两个系统都认为自己管着当前语言**；`SetLocale` 时只做一个方向的同步。
 
-- **I2 Localization**：`LocalizationManager.GetTranslation(term, overrideLanguage)` 是同步指定语言查询，adapter ~10 行，干净。
-- **Unity 官方 com.unity.localization**：String Table 绑死 **Addressables**（加载异步）——与本框架的 YooAsset 管线（ADR-0012/0013）冲突，等于同时跑两套资源管线，不建议混用。真要用：要么整个跳过 `ILocalizationUtility` 直接用它全家桶，要么预加载 String Table 后包成同步 `TryGet`（~50 行）并桥接 `SelectedLocale`。它多给的东西（表格编辑器、Smart Strings 复数规则、伪本地化）是否值这个管线代价，按项目自判。
+- **I2 Localization**：`LocalizationManager.GetTranslation(term, overrideLanguage)` 是同步指定语言查询，Adapter 很薄；若运行期会重载表，把其刷新事件映射为 `Invalidated`。
+- **Unity 官方 com.unity.localization**：String Table 绑死 **Addressables**（加载异步）——与本框架的 YooAsset 管线（ADR-0012/0013）冲突，等于同时跑两套资源管线，不建议混用。真要用：要么整个跳过 `ILocalizationUtility` 直接用它全家桶，要么把表状态与查询包装成 `Unavailable / Missing / Found + Invalidated` 并桥接 `SelectedLocale`。它多给的东西（表格编辑器、Smart Strings 复数规则、伪本地化）是否值这个管线代价，按项目自判。
 
 ### 刻意不做
 
@@ -2310,8 +2328,9 @@ locale code 是**开放字符串 + 业务常量**（与音频组、存储 key �
 > **要点回顾**
 >
 > - 已有源直接 `RegisterOwned`；源需从容器解析其他服务时用 `RegisterOwnedFactory`，不要用不接管生命周期的普通 Factory
-> - UI 全用 `Bag.BindLocalizedText(label, key)`；动态参数 `CombineLatest` 组合；UGUI 用 `Bag.Subscribe` 一行
-> - 缺 key 裸 key 上屏 + 一次性警告；`SetLocale` 同值幂等
+> - Source 区分 `Unavailable / Missing / Found`，答案可能变化时发 `Invalidated`；不要把加载中伪装成 missing
+> - 文本 UI 全用 `Bag.BindLocalizedText` / `TextRevision`；字体和 per-locale 资源仍只订 `Locale`
+> - 真缺 key 才走 fallback → 裸 key + 一次性警告；`SetLocale` 同值幂等
 > - 持久化 / 语言列表 / SystemLanguage 映射归业务；per-locale 资源走多 package 组合
 
 ---

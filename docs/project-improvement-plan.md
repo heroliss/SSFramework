@@ -22,8 +22,8 @@
 | Demo | 32 个自动发现章节；目录元数据启动期 fail-fast |
 | 教程 | `framework-guide.md` 28 章 |
 | ADR | 0001–0037；0035 为 Container Factory 所有权，0036 为 AI PlayMode 预检，0037 为 UI Loading 所有权 |
-| 测试 | PlayMode 416 + EditMode 91，全绿；交互式 MCP 先预检，命令行入口默认 EditMode + PlayMode |
-| Demo CodeRef | 289 处可打开源码跳转全部精准命中；注释、文案与外部文档路径不计入源码构造点 |
+| 测试 | PlayMode 418 + EditMode 91，全绿；交互式 MCP 先预检，命令行入口默认 EditMode + PlayMode |
+| Demo CodeRef | 291 处可打开源码跳转全部精准命中；注释、文案与外部文档路径不计入源码构造点 |
 | AI 常驻规则预算 | 最深 AGENTS 链 25.58 KiB，低于 Codex 默认 32 KiB 项目指令上限 |
 
 ## 已完成的高优先级闭环
@@ -58,7 +58,7 @@
 
 - 为 32 章建立“定位 → 可操作行为或可验证样板 → 设计取舍 → 适用边界/下一步”的渐进教学契约；概念章不为凑按钮伪造交互，顶部 Summary 由运行期强制 ≤160 字、≤2 句，避免导航说明挤成正文。
 - Demo 外壳新增“本组 / 全部”进度与章节底部上一步/下一步导航；入门/核心提示顺读，能力/进阶明确可按需跳转，实际按钮切章与滚动复位已验证。
-- 新增 EditMode 门禁，锁定目录元数据、每章“定位”与至少三个教学小节；CodeRef 防腐覆盖 289 处可打开源码构造，并排除注释、文案及非源码文档假匹配。
+- 新增 EditMode 门禁，锁定目录元数据、每章“定位”与至少三个教学小节；CodeRef 防腐覆盖 291 处可打开源码构造，并排除注释、文案及非源码文档假匹配。
 - 重写入门地图，并为 Counter / Model / Command / System / Event 补上选择标准、代价、生命周期与反例；8 个过长章节摘要完成收束，实际 Game View 已检查首屏、对照表和 System 深度说明。
 - Demo 实战发现 `IShopSystem` 泄漏 `ICommandContext`：改成窄业务接口 `TryBuyPotion()`，WalletModel 由 Implementation 注入，并用购买不变量测试锁定。
 - 修正框架层术语漂移：简单原子 Command 可直接写 Model，System 承载可复用/多步规则；Utility 可持有基础设施状态但不持有业务状态。源码 XML doc、README、guide、roadmap 与 ADR-0001 已同步。
@@ -87,11 +87,17 @@
 - 迁移按 Module 做定向回归并保留原 Console 文案与 Unity Object context；Logging 自身实现、第三方 Adapter 和编辑器工具不做机械替换。
 - DisposableBag 补齐释放异常隔离：取消回调或单个 `IDisposable` 失败不会截断余下清理，并有契约测试锁定。
 
+### P1 · 本地化延迟 Source 失效语义
+
+- `ILocalizedTextSource` 从 bool 查询升级为 `Unavailable / Missing / Found + Invalidated`，配置加载中不再被误判为永久缺 key；Adapter 违反 Found 非空契约时 fail-fast。
+- `Locale` 只表达语言身份，`TextRevision` 汇总换语言与 Source 失效；文本 UI、动态参数和排行榜行都订后者，字体与按语言资源仍只订前者。
+- Outpost 删除 Boot 对本地化配置 Ready 的硬等待；Demo 增加“不切语言也会刷新”的现场实验，框架测试使用实际 Toolkit `Label` 锁定绑定行为。
+- ADR-0024 v2、guide §21、AGENTS、roadmap 与 Outpost 技术说明已同步。
+
 ## 下一批候选（按杠杆排序）
 
 | 优先级 | 候选 | 证据 / 完成标准 |
 |---|---|---|
-| P1 | 本地化延迟源失效信号 | 配置从 Loading→Ready 而 Locale 不变时，既有 UI 绑定不会重取文本；“暂不可查”与“永久缺 key”也共用 `false`。完成标准：延迟 source 在不切语言时自动刷新，missing/unavailable 语义可区分，ADR-0024、guide 与 Demo 同步。 |
 | P1 | Demo 目录与生命周期加深 | `MonoDemoContext` 和 Shell 各反射创建一批章节实例，Interface 文档暗示的 Install→Initialize→Build→Teardown 从未发生在同一 Adapter 上。完成标准：实例所有权与调用顺序集中、双实例陷阱删除，构造身份/重入/Teardown 有直接测试。 |
 | P1 | 教学内容改为可观察契约 | 当前门禁只数源码中的 `AddSectionTitle` token，fallback 提前 return 仍可假绿。完成标准：概念/能力/工作流章拥有各自实际内容契约，测试检查构建出的语义内容和降级页，而非正则锁文案。 |
 | P1 | 资源查询三态语义 | `CheckLocationValid` / `IsNeedDownload` 在未 Ready 与真实 false 间混义，Demo 被迫重复守卫且 guide 缺失。完成标准：Idle/Loading/Failed/Ready/多包行为明确并有契约测试，复审 ADR-0013。 |

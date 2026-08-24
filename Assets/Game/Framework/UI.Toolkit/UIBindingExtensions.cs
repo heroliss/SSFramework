@@ -48,13 +48,13 @@ namespace Game.Framework.UI.Toolkit
             => bag.Subscribe(() => element.RegisterCallback(handler), () => element.UnregisterCallback(handler));
 
         /// <summary>
-        /// 把文本绑定到本地化 key：立即取当前语言文本，换语言（<c>ILocalizationUtility.Locale</c> 推送）自动刷新。
+        /// 把文本绑定到本地化 key：立即查询；换语言或延迟文本源就绪（<c>ILocalizationUtility.TextRevision</c> 推送）自动刷新。
         /// 经 bag 的 Context 解析 <c>ILocalizationUtility</c>（与 <c>Bag.Load</c> 同心智），bag 需以 ctx 构造。
         /// </summary>
         public static IDisposable BindLocalizedText(this DisposableBag bag, TextElement element, string key)
         {
             var loc = ResolveLocalization(bag);
-            return bag.Subscribe(loc.Locale, _ => element.text = loc.Get(key));
+            return bag.Subscribe(loc.TextRevision, _ => element.text = loc.Get(key));
         }
 
         /// <summary>
@@ -64,7 +64,7 @@ namespace Game.Framework.UI.Toolkit
         public static IDisposable BindLocalizedText(this DisposableBag bag, TextElement element, string key, params object[] args)
         {
             var loc = ResolveLocalization(bag);
-            return bag.Subscribe(loc.Locale, _ => element.text = loc.Get(key, args));
+            return bag.Subscribe(loc.TextRevision, _ => element.text = loc.Get(key, args));
         }
 
         /// <summary>
