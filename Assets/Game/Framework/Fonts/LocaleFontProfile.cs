@@ -33,7 +33,12 @@ namespace Game.Framework.Fonts
         /// <summary>Unity 序列化需要的无参构造。</summary>
         public LocaleFontProfile() { }
 
-        /// <summary>纯 C# / 测试路径的构造：null 参数按空数组处理。</summary>
+        /// <summary>纯 C# / 测试路径的构造；实例只保存传入资产引用，不取得字体资产所有权。</summary>
+        /// <param name="locale">与 <see cref="Game.Framework.Localization.ILocalizationUtility"/> 使用同一命名契约的 locale code。</param>
+        /// <param name="tmpFonts">TMP 补充字体；null 按空数组处理。</param>
+        /// <param name="toolkitFonts">TextCore 补充字体；null 按空数组处理。</param>
+        /// <param name="osFontNames">按顺序尝试的英文 OS 字体族名；null 按空数组处理。</param>
+        /// <exception cref="ArgumentException"><paramref name="locale"/> 为 null 或空字符串。</exception>
         public LocaleFontProfile(string locale, TMP_FontAsset[] tmpFonts = null, TextCoreFontAsset[] toolkitFonts = null, string[] osFontNames = null)
         {
             if (string.IsNullOrEmpty(locale))
@@ -44,9 +49,16 @@ namespace Game.Framework.Fonts
             _osFontNames = osFontNames ?? Array.Empty<string>();
         }
 
+        /// <summary>本档案匹配的 locale code。</summary>
         public string Locale => _locale;
+
+        /// <summary>TMP（UGUI）侧按顺序追加的补充字体；只读查看，不转移资产所有权。</summary>
         public IReadOnlyList<TMP_FontAsset> TmpFonts => _tmpFonts;
+
+        /// <summary>TextCore（UI Toolkit）侧按顺序追加的补充字体；只读查看，不转移资产所有权。</summary>
         public IReadOnlyList<TextCoreFontAsset> ToolkitFonts => _toolkitFonts;
+
+        /// <summary>按顺序尝试的英文 OS 字体族名；首个可用项成为动态兜底字体。</summary>
         public IReadOnlyList<string> OsFontNames => _osFontNames;
     }
 }
