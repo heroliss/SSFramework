@@ -1,8 +1,5 @@
 using System;
 using System.Collections.Generic;
-using Game.Framework;
-using Game.Framework.Context;
-using Game.Framework.Internal;
 using Game.Framework.Logging;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -31,7 +28,6 @@ namespace Game.Framework.Demo.Core
         [Tooltip("整体样式表 DemoTheme.uss。")]
         [SerializeField] private StyleSheet _theme;
 
-        private IGameContext _context;
         private DemoModuleCatalog _moduleCatalog;
         private IReadOnlyList<IDemoModule> _modules = Array.Empty<IDemoModule>();
         private readonly Dictionary<string, Button> _navButtons = new();
@@ -103,7 +99,6 @@ namespace Game.Framework.Demo.Core
                     this);
                 return false;
             }
-            _context = contextHost;
             _moduleCatalog = contextHost.ModuleCatalog;
             _modules = _moduleCatalog.Modules;
             return true;

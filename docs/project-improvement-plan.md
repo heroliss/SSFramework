@@ -22,7 +22,7 @@
 | Demo | 32 个自动发现章节；Catalog 集中拥有同一批 Adapter，目录元数据在根 Context 构建期 fail-fast |
 | 教程 | `framework-guide.md` 28 章 |
 | ADR | 0001–0037；0035 为 Container Factory 所有权，0036 为 AI PlayMode 预检，0037 为 UI Loading 所有权 |
-| 测试 | PlayMode 418 + EditMode 94，全绿；交互式 MCP 先预检，命令行入口默认 EditMode + PlayMode |
+| 测试 | PlayMode 418 + EditMode 96，全绿；交互式 MCP 先预检，命令行入口默认 EditMode + PlayMode |
 | Demo CodeRef | 291 处可打开源码跳转全部精准命中；注释、文案与外部文档路径不计入源码构造点 |
 | AI 常驻规则预算 | 最深 AGENTS 链 28.37 KiB，低于 Codex 默认 32 KiB 项目指令上限；新增常驻规则前需继续评估外移空间 |
 
@@ -77,7 +77,7 @@
 ### P1 · Demo 目录与章节生命周期
 
 - 新增内部 `DemoModuleCatalog` Module：根 `MonoDemoContext` 一次发现、校验并持有全部章节 Adapter，同一实例严格按 InstallBindings → Initialize → Build / Teardown 执行；Shell 只负责展示和选择，不再反射构造第二批实例。
-- Catalog 同时拥有活动 `DemoModuleHost`，把“先取消 Host、再 Teardown 同一 Adapter”变成唯一释放出口；父子 GameObject 销毁顺序不确定时重复收尾保持幂等，Build 失败会回滚且保留原异常。
+- Catalog 同时拥有活动 `DemoModuleHost`，把“先取消 Host、再 Teardown 同一 Adapter”变成唯一释放出口；父子 GameObject 销毁顺序不确定时重复收尾保持幂等，取消回调/Teardown 清理期间拒绝重入激活，Build 失败会回滚且保留原异常。
 - 直接 EditMode 契约覆盖实例身份、多轮 Build/Teardown、乱序、重入、外来 Adapter、Dispose 与失败回滚；Demo 编写规则和领域词汇同步禁止恢复双实例路径。
 
 ### P1 · Outpost 真实玩家路径冒烟
