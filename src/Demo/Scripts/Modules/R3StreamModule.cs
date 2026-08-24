@@ -79,7 +79,7 @@ namespace Game.Framework.Demo.Modules
             host.AddActionRow("血量 +10", () => hp.Value += 10,
                 CodeRef.Here("hp.CombineLatest(shield", "CombineLatest 组合"));
             host.AddActionRow("护盾 +5", () => shield.Value += 5);
-            host.AddNote("任一源变化都重算——「派生值」不用手写同步代码。「本地化」章的动态参数 × 语言双源刷新就是同款姿势。");
+            host.AddNote("任一源变化都重算——「派生值」不用手写同步代码。「本地化」章的动态参数 × 文本修订双源刷新就是同款姿势。");
 
             // ── Merge：异源合流（点题） ──
             host.AddSectionTitle("Merge：异源汇入同一管道");

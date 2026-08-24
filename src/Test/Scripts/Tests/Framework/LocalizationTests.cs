@@ -3,17 +3,19 @@ using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using Game.Framework.Context;
 using Game.Framework.Localization;
+using Game.Framework.UI.Toolkit;
 using NUnit.Framework;
 using R3;
 using UnityEngine;
 using UnityEngine.TestTools;
+using UnityEngine.UIElements;
 
 namespace Game.Framework.Test
 {
     /// <summary>
-    /// 验证本地化服务（ADR-0024）：当前语言查询、SetLocale 响应式推送（同值幂等）、
-    /// 缺 key 回退链（fallbackLocale → 裸 key + 去重警告）、格式化宽容语义、字典源、
-    /// RegisterOwned 注册与随 Context 释放。纯 C#，全部用例无场景无帧推进。
+    /// 验证本地化服务（ADR-0024）：语言与文本修订分信号、延迟源失效重取、
+    /// 缺 key 回退链（fallbackLocale → 裸 key + 去重警告）、Toolkit 实际绑定、格式化宽容语义、
+    /// 字典源及随 Context 释放。纯 C#，全部用例无场景无帧推进。
     /// </summary>
     public class LocalizationTests
     {
@@ -53,6 +55,50 @@ namespace Game.Framework.Test
 
             _loc.SetLocale("en"); // 同值：不推送（绑定不做无谓重刷）
             Assert.AreEqual(2, pushes.Count);
+        }
+
+        [Test]
+        public void UnavailableSource_RefreshesOnInvalidationWithoutLocalePushOrFalseWarning()
+        {
+            var source = new DelayedTextSource();
+            using var loc = new LocalizationUtility(source, "zh-CN", fallbackLocale: "en");
+            var localePushes = new List<string>();
+            var rendered = new List<string>();
+            using var localeSub = loc.Locale.Subscribe(localePushes.Add);
+            using var textSub = loc.TextRevision.Subscribe(_ => rendered.Add(loc.Get("demo/delayed")));
+
+            Assert.AreEqual("demo/delayed", rendered[^1], "Unavailable 暂用裸 key 占位");
+            LogAssert.NoUnexpectedReceived();
+
+            source.SetReady("延迟文本已到达");
+
+            Assert.AreEqual("延迟文本已到达", rendered[^1]);
+            Assert.AreEqual(1, localePushes.Count,
+                "源就绪只能推进 TextRevision，不能伪装成语言切换并连带重载字体/资源");
+            LogAssert.NoUnexpectedReceived();
+
+            int rendersBeforeDispose = rendered.Count;
+            loc.Dispose();
+            source.SetUnavailable();
+            Assert.AreEqual(rendersBeforeDispose, rendered.Count, "Utility 释放后必须退订 Source 失效信号");
+        }
+
+        [Test]
+        public void BindLocalizedText_RefreshesActualToolkitLabelWhenSourceBecomesReady()
+        {
+            var source = new DelayedTextSource();
+            using var builder = new ContainerBuilder();
+            builder.RegisterOwned(new LocalizationUtility(source, "zh-CN"), typeof(ILocalizationUtility));
+            using var context = new GameContext(builder.Build(), inheritFromGlobal: false);
+            using var bag = new DisposableBag(context);
+            var label = new Label();
+
+            bag.BindLocalizedText(label, "demo/delayed");
+            Assert.AreEqual("demo/delayed", label.text);
+
+            source.SetReady("Toolkit 已自动刷新");
+            Assert.AreEqual("Toolkit 已自动刷新", label.text);
+            LogAssert.NoUnexpectedReceived();
         }
 
         // ── 缺 key 回退链 ────────────────────────────────────────────────────
@@ -95,7 +141,10 @@ namespace Game.Framework.Test
             Assert.Throws<ArgumentException>(() => _loc.Get(""));
             Assert.Throws<ArgumentException>(() => _source.Add("", "k", "v"));
             Assert.Throws<ArgumentException>(() => _source.Add("zh-CN", null, "v"));
+            Assert.Throws<ArgumentNullException>(() => _source.Add("zh-CN", "k", null));
             Assert.Throws<ArgumentNullException>(() => _source.AddLocale("zh-CN", null));
+            Assert.Throws<ArgumentException>(() => _source.AddLocale("zh-CN",
+                new[] { new KeyValuePair<string, string>("k", null) }));
         }
 
         // ── 字典源 ───────────────────────────────────────────────────────────
@@ -107,10 +156,10 @@ namespace Game.Framework.Test
                 .Add("en", "a", "old")
                 .AddLocale("en", new Dictionary<string, string> { ["a"] = "new", ["b"] = "B" });
 
-            Assert.IsTrue(src.TryGet("en", "a", out var a));
+            Assert.AreEqual(LocalizedTextLookupStatus.Found, src.Lookup("en", "a", out var a));
             Assert.AreEqual("new", a); // 同 key 覆盖
-            Assert.IsTrue(src.TryGet("en", "b", out _));
-            Assert.IsFalse(src.TryGet("fr", "a", out _)); // 未知 locale：false 不抛
+            Assert.AreEqual(LocalizedTextLookupStatus.Found, src.Lookup("en", "b", out _));
+            Assert.AreEqual(LocalizedTextLookupStatus.Missing, src.Lookup("fr", "a", out _));
         }
 
         // ── 生命周期 ─────────────────────────────────────────────────────────
@@ -129,6 +178,39 @@ namespace Game.Framework.Test
 
             Assert.AreEqual("开始游戏", resolved.Get("menu/start")); // 查询读普通字段，Dispose 后仍安全
             Assert.Throws<ObjectDisposedException>(() => resolved.SetLocale("en")); // 换语言是明确操作，过期引用应暴露
+        }
+
+        private sealed class DelayedTextSource : ILocalizedTextSource
+        {
+            private readonly Subject<Unit> _invalidated = new();
+            private bool _available;
+            private string _text;
+
+            public Observable<Unit> Invalidated => _invalidated;
+
+            public LocalizedTextLookupStatus Lookup(string locale, string key, out string text)
+            {
+                text = null;
+                if (!_available) return LocalizedTextLookupStatus.Unavailable;
+                if (locale != "zh-CN" || key != "demo/delayed" || _text == null)
+                    return LocalizedTextLookupStatus.Missing;
+                text = _text;
+                return LocalizedTextLookupStatus.Found;
+            }
+
+            public void SetReady(string text)
+            {
+                _available = true;
+                _text = text;
+                _invalidated.OnNext(Unit.Default);
+            }
+
+            public void SetUnavailable()
+            {
+                _available = false;
+                _text = null;
+                _invalidated.OnNext(Unit.Default);
+            }
         }
     }
 }
