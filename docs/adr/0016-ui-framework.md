@@ -64,3 +64,5 @@ Game.Framework.UI        (核心，渲染中立)  IUIUtility / UIUtility 编排 
 - ⚠ UI Toolkit 窗口 Context 由框架**显式注入**（非 GameObject 父链）；独立使用 `UIToolkitViewBase` 时由持有 Context 的引导方调 `BindTo`。
 
 用法手册见 `docs/framework-guide.md` §17；活样例见 demo「View · UIToolkit」+「UI 框架 · 窗口/层级」章。
+
+**2026-08-24 验证补充：**Demo 新增 Destroy / Cache 两个现场对照窗，以稳定实例号和 `OnCreate / OnOpen / OnClose` 计数展示真实生命周期；PlayMode 契约穿过 DemoScene 的 `MonoToolkitUI` Adapter，锁定 Destroy 重开换实例、Cache 重开复用同一实例。这样核心 fake backend 测试与真实 Adapter 证据形成两层验证，也明确 Cache 是“常驻内存与状态管理复杂度换创建速度”，不是默认更优。

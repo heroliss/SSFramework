@@ -22,8 +22,8 @@
 | Demo | 32 个自动发现章节；Catalog 集中拥有 Adapter 生命周期，并按 Capability / Concept / Workflow 校验真实 Build 教学语义 |
 | 教程 | `framework-guide.md` 28 章 |
 | ADR | 0001–0037；0035 为 Container Factory 所有权，0036 为 AI PlayMode 预检，0037 为 UI Loading 所有权 |
-| 测试 | PlayMode 421 + EditMode 101，全绿；交互式 MCP 先预检，命令行入口默认 EditMode + PlayMode |
-| Demo CodeRef | 295 处可打开源码跳转全部精准命中；注释、文案与外部文档路径不计入源码构造点 |
+| 测试 | PlayMode 422 + EditMode 102，全绿；交互式 MCP 先预检，命令行入口默认 EditMode + PlayMode |
+| Demo CodeRef | 298 处可打开源码跳转全部精准命中；注释、文案与外部文档路径不计入源码构造点 |
 | AI 常驻规则预算 | 最深 AGENTS 链 29.88 KiB，低于 Codex 默认 32 KiB 项目指令上限；新增常驻规则前需继续评估外移空间 |
 
 ## 已完成的高优先级闭环
@@ -60,7 +60,7 @@
 - Demo 外壳新增“本组 / 全部”进度与章节底部上一步/下一步导航；入门/核心提示顺读，能力/进阶明确可按需跳转，实际按钮切章与滚动复位已验证。
 - `DemoModuleHost` 在真实 Build 中记录教学语义，Catalog 按能力/概念/工作流分别检查定位、解释结构、交互或步骤；源码注释、死代码和早退不再能靠 token 数量假绿。
 - 场景依赖缺失统一用结构化降级页说明“为什么不可用 → 如何恢复 → 接下来怎么学”，并强制提供接线源码；UGUI、UI 框架、多 Context 与字体的顶层早退已迁移。
-- 新建独立 Demo PlayMode Module，在真实 DemoScene 中穿过 Context、Catalog 与 Shell 逐章 Build 32 个 Adapter，并用真实 UGUI/UI 框架章节覆盖降级路径；当前 CodeRef 防腐覆盖 295 处精准源码构造。
+- 新建独立 Demo PlayMode Module，在真实 DemoScene 中穿过 Context、Catalog 与 Shell 逐章 Build 32 个 Adapter，并用真实 UGUI/UI 框架章节覆盖降级路径；当前 CodeRef 防腐覆盖 298 处精准源码构造。
 - 重写入门地图，并为 Counter / Model / Command / System / Event 补上选择标准、代价、生命周期与反例；8 个过长章节摘要完成收束，实际 Game View 已检查首屏、对照表和 System 深度说明。
 - Demo 实战发现 `IShopSystem` 泄漏 `ICommandContext`：改成窄业务接口 `TryBuyPotion()`，WalletModel 由 Implementation 注入，并用购买不变量测试锁定。
 - 修正框架层术语漂移：简单原子 Command 可直接写 Model，System 承载可复用/多步规则；Utility 可持有基础设施状态但不持有业务状态。源码 XML doc、README、guide、roadmap 与 ADR-0001 已同步。
@@ -69,7 +69,7 @@
 ### P1 · Demo 异步动作生命周期
 
 - `DemoModuleHost` 新增 `AddAsyncActionRow(Func<CancellationToken, UniTask>)`：任务进行中禁用当前按钮、防双击重入，未接异常统一进入框架日志，切章、UIDocument 重建与 Shell 销毁会先取消 Host 再 Teardown Module。
-- 9 个章节共 56 个异步按钮全部迁移，不再把 `async` lambda 塞进 `Action` 退化为 `async void`；静态门禁按 C# 词法区分代码、字符串和注释，并检查 `AddActionRow` 调用体不能藏 `.Forget()` / `UniTaskVoid`。
+- 9 个章节共 58 个异步按钮全部走专用入口，不把 `async` lambda 塞进 `Action` 退化为 `async void`；静态门禁按 C# 词法区分代码、字符串和注释，并检查 `AddActionRow` 调用体不能藏 `.Forget()` / `UniTaskVoid`。
 - 下载器/缓存、资源更新/修复、profile 白盒损坏步骤、对象池 Prewarm/Trim 等共享资源增加组级互斥；资源初始化吞取消的边界在 Demo 调用点恢复为章节取消，用户主动取消仍可就近反馈。
 - 框架资源异步所有权下沉到 `AssetUtility`：初始化按包 single-owner，调用者取消只离开共享等待；三种 `ClearCache*` 与 `UnloadUnusedAssets` 按包 FIFO 串行，取消不再提前释放仍有 YooAsset operation 在跑的维护 lane。可控 fake provider + Edit/PlayMode 契约测试锁定重入、异常与参数快照语义。
 - 实战继续暴露“Utility 局部 lane 看不见 YooAssets 进程级共享包”的缺口：Yoo Adapter 新增按 `ResourcePackage` 身份共享的公平 Reader/Writer 协调器，把跨 Provider 的 Load/Download 与初始化/维护纳入同一物理终态；清缓存以缓存世代淘汰旧 downloader，取消后的弃置 handle 与后台异常都有明确收口，并由独立 Adapter EditMode 测试程序集锁定。
@@ -110,11 +110,17 @@
 - 可控 Provider 契约覆盖空地址、Idle / Pending / Initializing / Failed / Ready、地址有效性、本地 / 远端与多包隔离；Demo 改成一个四态按钮并解释设计取舍。
 - ADR-0013、guide、资源流程图、领域词汇与业务侧 AGENTS 已同步，记录为何原“三态”候选最终必须是四态。
 
+### P2 · Demo 可视证据补强
+
+- ReactiveList 章为真实行 View 显示稳定实例号，并从 item factory 与 rowBag Dispose 两个 Seam 采集创建 / 释放 / 存活计数；新增 Replace 操作，Move 复用、Replace 重造一槽与逐行释放都能在画面直接核对。
+- EditMode 契约不只比对最终文本，而是断言真实 `VisualElement` 引用、父子层级和 rowBag 释放状态，让增量绑定 Implementation 的身份与生命周期语义有可执行证据。
+- UI Framework 章新增 Destroy / Cache 真实窗口对照：稳定实例号与 hook 计数展示重开身份；PlayMode 穿过 DemoScene 的 `MonoToolkitUI` Adapter，锁定 Destroy 重建、Cache 复用。
+- guide §17/§24 与 ADR-0016/0027 同步选择标准、代价和验证方法；修正列表 XML doc 对不存在 `BindListView` Interface 的陈旧引用，继续守住“虚拟化留给原生 ListView”的边界。
+
 ## 下一批候选（按杠杆排序）
 
 | 优先级 | 候选 | 证据 / 完成标准 |
 |---|---|---|
-| P2 | Demo 可视证据补强 | ReactiveList 尚不能从画面证明 Move 复用/逐行释放且缺 Replace；UI Framework 也未实际对比 Cache/Destroy。以实例身份、创建/释放计数和行为测试把设计承诺变成可见证据。 |
 | P1 | 日志调用面继续收敛 | ADR-0034 已 Accepted；首批 runtime Module 已迁移，Asset / Audio / UI / Boot / Fonts 等仍有历史裸 `Debug.*`。按 Module 渐进迁移到 `Log`，保留 Logging 实现与必要 Unity Adapter；测试守住消息、context、异常和双击定位语义。 |
 | P1 | 公共 API 注释审计 | 优先生命周期、取消、异常、所有权与 Adapter 接缝；删除复述代码或记录历史的注释。以“调用者能否仅靠悬浮提示正确释放/取消”为完成标准。 |
 | P1 | CI 真正接线 | 当前脚本已可作为门禁；选择 GitHub Actions / 自建 Runner 后再落配置，避免仓库里放一份无人运行的“装饰性 CI”。 |

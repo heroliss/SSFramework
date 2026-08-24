@@ -20,7 +20,7 @@ namespace Game.Framework.UI
     /// <b>心智与 <c>Bag.BindText</c> 一致</b>：绑定登记进宿主 <see cref="DisposableBag"/>，视图 Dispose 时统一解绑、
     /// 销毁全部子视图。每个列表项独享一个子 <see cref="DisposableBag"/>（随该项进出列表创建 / 销毁），
     /// 项内的响应式订阅（如「这一行的血条随 RP 刷新」）挂它，项被移除时自动退订。<br/>
-    /// <b>不做</b>：虚拟化 / 滚动复用（那是 Toolkit <c>ListView</c> 的活，见 <c>Bag.BindListView</c>）、
+    /// <b>不做</b>：虚拟化 / 滚动复用（那是 Toolkit 原生 <c>ListView</c> 的活，见 guide §24；框架刻意不包装 <c>BindListView</c>）、
     /// 过滤 / 排序视图（用 <see cref="ObservableList{T}"/> 之上的 <c>CreateView</c> 或业务侧组织数据）——
     /// 目标是「项数适中的 UI 列表」（背包 / 聊天 / 设置项），弹幕级高频用领域 List + 手动池。
     /// </remarks>

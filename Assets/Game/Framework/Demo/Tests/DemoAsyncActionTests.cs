@@ -81,7 +81,7 @@ namespace Game.Framework.Demo.Tests
                 asyncActionRows += Regex.Matches(codeOnly, @"\bAddAsyncActionRow\s*\(").Count;
             }
 
-            Assert.AreEqual(56, asyncActionRows,
+            Assert.AreEqual(58, asyncActionRows,
                 "异步按钮增删时同步审查：必须全部走 AddAsyncActionRow，不能藏回 AddActionRow + Forget/void 包装。 ");
 
             AssertAsyncOverloadGuard(typeof(UniTask));

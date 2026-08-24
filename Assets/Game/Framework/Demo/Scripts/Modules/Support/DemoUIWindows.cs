@@ -136,6 +136,78 @@ namespace Game.Framework.Demo.Modules
         }
     }
 
+    /// <summary>
+    /// 缓存策略现场对照窗口的共享 Implementation：显示稳定实例号与框架生命周期 hook 次数。
+    /// 派生类只声明不同的 <see cref="UICachePolicy"/>，让读者能直接比较重开后是同一实例还是新实例。
+    /// </summary>
+    public abstract class DemoLifecyclePolicyWindowBase : UIToolkitWindowBase
+    {
+        private static int _nextInstanceId;
+
+        private readonly int _instanceId = ++_nextInstanceId;
+        private Label _evidence;
+        private int _createCalls;
+        private int _openCalls;
+        private int _closeCalls;
+
+        /// <summary>窗口卡片展示的缓存策略名称。</summary>
+        protected abstract string PolicyName { get; }
+
+        /// <summary>窗口卡片强调色。</summary>
+        protected abstract Color AccentColor { get; }
+
+        internal int EvidenceInstanceId => _instanceId;
+        internal int EvidenceCreateCalls => _createCalls;
+        internal int EvidenceOpenCalls => _openCalls;
+        internal int EvidenceCloseCalls => _closeCalls;
+
+        protected override void OnCreated()
+        {
+            _createCalls++;
+            var card = DemoWindowKit.Card(Root, $"{PolicyName} 策略 · 实例身份", AccentColor);
+            _evidence = DemoWindowKit.Lbl(card, string.Empty);
+            DemoWindowKit.Lbl(card, PolicyName == "Cache"
+                ? "关闭只隐藏；再次打开应复用此实例，OnOpen 继续累计。"
+                : "关闭即销毁；再次打开应得到新实例，计数从头开始。");
+            DemoWindowKit.Btn(card, "关闭，再从 Demo 重开", () => this.GetUtility<IUIUtility>().Close(this));
+            RefreshEvidence();
+        }
+
+        protected override void OnOpen(object args)
+        {
+            _openCalls++;
+            RefreshEvidence();
+        }
+
+        protected override void OnClose()
+        {
+            _closeCalls++;
+            RefreshEvidence();
+        }
+
+        private void RefreshEvidence()
+        {
+            if (_evidence != null)
+                _evidence.text = $"实例 #{_instanceId}　OnCreate {_createCalls}　OnOpen {_openCalls}　OnClose {_closeCalls}";
+        }
+    }
+
+    /// <summary>默认 Destroy 策略对照窗：关闭后物理销毁，重开必须构造新实例。</summary>
+    [UIWindow(Layer = UILayer.Window, Cache = UICachePolicy.Destroy)]
+    public sealed class DemoDestroyPolicyWindow : DemoLifecyclePolicyWindowBase
+    {
+        protected override string PolicyName => "Destroy";
+        protected override Color AccentColor => new(1f, 0.55f, 0.45f);
+    }
+
+    /// <summary>Cache 策略对照窗：关闭后只隐藏，重开复用同一实例并再次进入 OnOpen。</summary>
+    [UIWindow(Layer = UILayer.Window, Cache = UICachePolicy.Cache)]
+    public sealed class DemoCachedPolicyWindow : DemoLifecyclePolicyWindowBase
+    {
+        protected override string PolicyName => "Cache";
+        protected override Color AccentColor => new(0.45f, 0.9f, 0.65f);
+    }
+
     /// <summary>打开确认弹窗的参数：消息 + 确认回调。</summary>
     public sealed class DemoDialogArgs
     {
