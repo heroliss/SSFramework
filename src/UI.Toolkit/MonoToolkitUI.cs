@@ -64,8 +64,9 @@ namespace Game.Framework.UI.Toolkit
         public void CloseAll() => Core.CloseAll();
         public T Get<T>() where T : class, IUIWindow => Core.Get<T>();
         public bool IsOpen<T>() where T : class, IUIWindow => Core.IsOpen<T>();
-        public UniTask ShowToast(string text, float duration = 2f) => Core.ShowToast(text, duration);
-        public UniTask ShowLoading(string text = null) => Core.ShowLoading(text);
+        public UniTask ShowToast(string text, float duration = 2f, CancellationToken ct = default) => Core.ShowToast(text, duration, ct);
+        public UniTask<LoadingHandle> AcquireLoading(string text = null, CancellationToken ct = default) => Core.AcquireLoading(text, ct);
+        public UniTask ShowLoading(string text = null, CancellationToken ct = default) => Core.ShowLoading(text, ct);
         public void HideLoading() => Core.HideLoading();
 
         protected override void OnDestroy()

@@ -15,7 +15,7 @@ namespace Game.Framework.UI.UGui.Editor
         private List<UIBindingListView.Row> _rows;
         private UIBindingListView.Layout _layout;
         private float _titleWidth;
-        private float _measuredHeight = -1f; // OnGUI 实测内容总高；>0 后接管窗口高度（见 OnGUI 末尾）
+        private float _measuredBodyHeight = -1f; // OnGUI 实测滚动内容总高；>0 后接管首帧估算
         private Vector2 _scroll;
         private Vector2 _dragMouseStart; // 拖拽起点的鼠标屏幕坐标
         private Vector2 _dragWinStart;   // 拖拽起点的窗口左上角
@@ -42,21 +42,29 @@ namespace Game.Framework.UI.UGui.Editor
             _titleWidth = EditorStyles.boldLabel.CalcSize(new GUIContent(Title)).x + 16f;
         }
 
-        // 列表区高度：内容高 + 一点余量，再封顶。表头/◎ 按钮的样式 margin 让实际渲染比逐行累加略高，
-        // 不留这点余量时小列表（甚至只有一项）也会冒出多余滚动条；封顶后超量才真正滚动。GetWindowSize 与 OnGUI 必须取同一值。
-        private float ListHeight() => Mathf.Min(UIBindingListView.ContentHeight(_rows) + 8f, MaxListHeight);
+        private float EstimatedBodyHeight()
+            => Mathf.Min(UIBindingListView.ContentHeight(_rows) + 8f, MaxListHeight) + ExtraHeight;
+
+        private float HeaderHeight => EditorGUIUtility.singleLineHeight + 8f;
+
+        private float BodyViewportHeight()
+        {
+            float desired = _measuredBodyHeight > 0f ? _measuredBodyHeight : EstimatedBodyHeight();
+            return UIBindingPopupLayout.CalculateBodyViewportHeight(
+                desired,
+                UIBindingPopupLayout.ResolveMaxWindowHeight(editorWindow),
+                HeaderHeight);
+        }
 
         /// <summary>
-        /// 弹窗尺寸（宽按内容夹在 <see cref="MinWidth"/>..700）。高度首帧用估算（列表 + <see cref="ExtraHeight"/> 提示），
-        /// OnGUI 实测真实内容高后由 <see cref="_measuredHeight"/> 接管——所以给 <see cref="DrawExtra"/> 增删内容不必再维护估算值。
+        /// 弹窗尺寸（宽按内容夹在 <see cref="MinWidth"/>..700）。高度首帧用估算，OnGUI 实测后接管；
+        /// 超过当前显示器工作区时只压缩滚动视口，列表和附加操作仍全部可达。
         /// </summary>
         public override Vector2 GetWindowSize()
         {
             Ensure();
             float w = Mathf.Clamp(Mathf.Max(_layout.Width, _titleWidth), MinWidth, 700f);
-            float h = _measuredHeight > 0f
-                ? _measuredHeight
-                : EditorGUIUtility.singleLineHeight + 8f + ListHeight() + ExtraHeight;
+            float h = HeaderHeight + BodyViewportHeight();
             return new(w, h);
         }
 
@@ -67,22 +75,27 @@ namespace Game.Framework.UI.UGui.Editor
             UIBindingListView.DragHandle(editorWindow, rect.width, ref _dragMouseStart, ref _dragWinStart);
             EditorGUILayout.LabelField(Title, EditorStyles.boldLabel);
 
-            // 列表区按内容封顶后滚动；DrawExtra（如生成面板）则永不裁切——窗口随它实际高度增长。
-            _scroll = EditorGUILayout.BeginScrollView(_scroll, GUILayout.Height(ListHeight()));
-            UIBindingListView.Draw(_rows, _layout, Locate);
-            EditorGUILayout.EndScrollView();
-
+            // 表格与附加面板共用一个纵向滚动区。这样低工作区下不只“列表能滚”，底部生成设置和按钮也能到达。
+            _scroll = EditorGUILayout.BeginScrollView(_scroll, GUILayout.Height(BodyViewportHeight()));
+            if (rect.width + 1f < _layout.Width)
+                UIBindingListView.DrawCompact(_rows, Locate);
+            else
+                UIBindingListView.Draw(_rows, _layout, Locate);
             DrawExtra();
 
-            // 完全自适应：Repaint 时布局已完成，取最后一个控件底边即真实内容总高；与当前窗口高不符就让宿主贴合。
-            // 这样无论 DrawExtra 加多少内容都不会垂直溢出，也省去手维护 ExtraHeight 估算（>1px 阈值防亚像素抖动）。
+            float measuredBodyHeight = -1f;
+            if (Event.current.type == EventType.Repaint)
+                measuredBodyHeight = GUILayoutUtility.GetLastRect().yMax + 4f;
+            EditorGUILayout.EndScrollView();
+
+            // 真实内容高度只影响视口是否需要滚动，并始终受工作区上限约束；>1px 阈值避免布局亚像素抖动。
             if (Event.current.type == EventType.Repaint && editorWindow != null)
             {
-                float contentBottom = GUILayoutUtility.GetLastRect().yMax + 4f;
-                if (contentBottom > 1f && Mathf.Abs(contentBottom - _measuredHeight) > 1f)
+                if (measuredBodyHeight > 1f && Mathf.Abs(measuredBodyHeight - _measuredBodyHeight) > 1f)
                 {
-                    _measuredHeight = contentBottom;
-                    editorWindow.minSize = editorWindow.maxSize = new Vector2(rect.width, contentBottom);
+                    _measuredBodyHeight = measuredBodyHeight;
+                    // PopupWindowContent 的宿主会再次调用 GetWindowSize 并贴合内容；不要在这里锁 min/max，
+                    // 否则弹窗被工作区临时夹窄后，拖到更宽显示器也无法恢复期望宽度。
                     editorWindow.Repaint();
                 }
             }

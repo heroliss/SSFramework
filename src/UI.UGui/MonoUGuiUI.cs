@@ -15,7 +15,8 @@ namespace Game.Framework.UI.UGui
     /// </summary>
     /// <remarks>
     /// <b>同一 Context 只能挂一个 UI 入口</b>（UGui 或 Toolkit 二选一）——两个都挂会因重复注册 <see cref="IUIUtility"/> 报错。<br/>
-    /// 核心<b>懒建</b>（首次开窗时）：此时 Awake 早已跑完、Context 就绪（避免 AGENTS §3「Awake 里调框架服务」）。
+    /// 核心<b>懒建</b>（首次开窗时）：此时 Awake 早已跑完、Context 就绪（遵循 <c>Assets/Game/AGENTS.md</c>
+    /// 「Mono 生命周期与 Context」中不在同帧 Awake 假设父 Context 已就绪的约束）。
     /// 作为框架适配层，经 <c>((IHasGameContext)this).Context</c> 合法取自身 Context（用于资源加载 + 注入窗口）。
     /// </remarks>
     public sealed class MonoUGuiUI : MonoUtilityBase, IUIUtility
@@ -71,8 +72,9 @@ namespace Game.Framework.UI.UGui
         public void CloseAll() => Core.CloseAll();
         public T Get<T>() where T : class, IUIWindow => Core.Get<T>();
         public bool IsOpen<T>() where T : class, IUIWindow => Core.IsOpen<T>();
-        public UniTask ShowToast(string text, float duration = 2f) => Core.ShowToast(text, duration);
-        public UniTask ShowLoading(string text = null) => Core.ShowLoading(text);
+        public UniTask ShowToast(string text, float duration = 2f, CancellationToken ct = default) => Core.ShowToast(text, duration, ct);
+        public UniTask<LoadingHandle> AcquireLoading(string text = null, CancellationToken ct = default) => Core.AcquireLoading(text, ct);
+        public UniTask ShowLoading(string text = null, CancellationToken ct = default) => Core.ShowLoading(text, ct);
         public void HideLoading() => Core.HideLoading();
 
         protected override void OnDestroy()

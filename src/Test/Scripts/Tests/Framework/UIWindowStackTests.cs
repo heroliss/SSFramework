@@ -1,11 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using Game.Framework.Context;
 using Game.Framework.Internal;
 using Game.Framework.UI;
+using Game.Framework.UI.Toolkit;
+using Game.Framework.UI.UGui;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
@@ -220,7 +223,7 @@ namespace Game.Framework.Test
             Assert.IsFalse(_ui.IsOpen<PageA>());
         }
 
-        // ── Toast / Loading 内置件（核心按注册类型表转发，ADR-0020 §4）──────
+        // ── Toast / Loading 内置件（类型表见 ADR-0020；Loading 所有权见 ADR-0037）──
 
         [Test]
         public void ShowToast_OpensRegisteredType_WithArgs()
@@ -255,11 +258,285 @@ namespace Game.Framework.Test
         }
 
         [Test]
+        public void ShowLoading_PreCancelledRefresh_PreservesExistingLegacyOwner()
+        {
+            var ui = new UIUtility(_ctx, _backend, new UIBuiltinWindows
+            { Toast = typeof(ToastFake), Loading = typeof(LoadingFake) });
+            ui.ShowLoading("既有任务").GetAwaiter().GetResult();
+            using var cts = new CancellationTokenSource();
+            cts.Cancel();
+
+            Assert.Throws<OperationCanceledException>(() =>
+                ui.ShowLoading("取消的刷新", cts.Token).GetAwaiter().GetResult());
+            Assert.IsTrue(ui.IsOpen<LoadingFake>(), "刷新失败不能释放此前已经建立的 legacy owner");
+            Assert.AreEqual("既有任务", (ui.Get<LoadingFake>().LastArgs as UILoadingArgs)?.Text);
+
+            ui.HideLoading();
+            Assert.IsFalse(ui.IsOpen<LoadingFake>());
+            ui.Dispose();
+        }
+
+        [Test]
+        public void ShowLoading_CancelledConcurrentRefresh_PreservesPendingLegacyOwner()
+        {
+            var backend = new GatedBackend();
+            var ui = new UIUtility(_ctx, backend, new UIBuiltinWindows
+            { Toast = typeof(ToastFake), Loading = typeof(LoadingFake) });
+            using var refreshCts = new CancellationTokenSource();
+
+            var first = ui.ShowLoading("仍有效");
+            var cancelledRefresh = ui.ShowLoading("将取消", refreshCts.Token);
+            refreshCts.Cancel();
+            Assert.Throws<OperationCanceledException>(() => cancelledRefresh.GetAwaiter().GetResult());
+            Assert.AreEqual(UniTaskStatus.Pending, first.Status,
+                "一个刷新取消后，另一个 pending Show 仍应保有 legacy owner 请求");
+
+            backend.Release();
+            first.GetAwaiter().GetResult();
+            Assert.IsTrue(ui.IsOpen<LoadingFake>());
+            Assert.AreEqual("仍有效", (ui.Get<LoadingFake>().LastArgs as UILoadingArgs)?.Text);
+
+            ui.HideLoading();
+            Assert.IsFalse(ui.IsOpen<LoadingFake>());
+            ui.Dispose();
+        }
+
+        [Test]
+        public void AcquireLoading_OverlappingHandles_CloseOnlyAfterLastOwner()
+        {
+            var ui = new UIUtility(_ctx, _backend, new UIBuiltinWindows
+            { Toast = typeof(ToastFake), Loading = typeof(LoadingFake) });
+
+            var first = ui.AcquireLoading("任务 A").GetAwaiter().GetResult();
+            var second = ui.AcquireLoading("任务 B").GetAwaiter().GetResult();
+
+            Assert.IsTrue(first.IsActive);
+            Assert.IsTrue(second.IsActive);
+            Assert.AreEqual(1, _backend.Count("create:LoadingFake"), "并发 owner 应复用同一个 Loading 窗口");
+            Assert.AreEqual("任务 B", (ui.Get<LoadingFake>().LastArgs as UILoadingArgs)?.Text,
+                "共享窗口沿用最后一次占用刷新出的提示文本");
+
+            first.Dispose();
+            Assert.IsFalse(first.IsActive);
+            Assert.IsTrue(second.IsActive);
+            Assert.IsTrue(ui.IsOpen<LoadingFake>(), "较早任务结束不能关闭仍被另一任务占用的 Loading");
+
+            Assert.DoesNotThrow(() => first.Dispose(), "重复释放必须安全 no-op");
+            Assert.DoesNotThrow(() => default(LoadingHandle).Dispose(), "default handle 必须安全 no-op");
+            second.Dispose();
+            Assert.IsFalse(ui.IsOpen<LoadingFake>(), "最后一个 owner 释放后才关闭 Loading");
+            ui.Dispose();
+        }
+
+        [Test]
+        public void LegacyLoadingOwner_AndHandles_DoNotCloseEachOther()
+        {
+            var ui = new UIUtility(_ctx, _backend, new UIBuiltinWindows
+            { Toast = typeof(ToastFake), Loading = typeof(LoadingFake) });
+
+            ui.ShowLoading("旧调用").GetAwaiter().GetResult();
+            var handle = ui.AcquireLoading("lease").GetAwaiter().GetResult();
+            ui.HideLoading();
+            Assert.IsTrue(ui.IsOpen<LoadingFake>(), "Hide 只释放兼容 owner，不能越权关闭 active lease");
+            handle.Dispose();
+            Assert.IsFalse(ui.IsOpen<LoadingFake>());
+
+            handle = ui.AcquireLoading("lease 2").GetAwaiter().GetResult();
+            ui.ShowLoading("旧调用 2").GetAwaiter().GetResult();
+            handle.Dispose();
+            Assert.IsTrue(ui.IsOpen<LoadingFake>(), "lease 释放也不能越权关闭仍有效的兼容 owner");
+            ui.HideLoading();
+            Assert.IsFalse(ui.IsOpen<LoadingFake>());
+            ui.Dispose();
+        }
+
+        [Test]
+        public void AcquireLoading_StaleHandleAfterCloseAll_CannotCloseNewLoading()
+        {
+            var ui = new UIUtility(_ctx, _backend, new UIBuiltinWindows
+            { Toast = typeof(ToastFake), Loading = typeof(LoadingFake) });
+
+            var stale = ui.AcquireLoading("旧任务").GetAwaiter().GetResult();
+            ui.CloseAll(UILayer.Top);
+            Assert.IsFalse(stale.IsActive);
+            Assert.IsFalse(ui.IsOpen<LoadingFake>());
+
+            var current = ui.AcquireLoading("新任务").GetAwaiter().GetResult();
+            stale.Dispose();
+            Assert.IsTrue(current.IsActive);
+            Assert.IsTrue(ui.IsOpen<LoadingFake>(), "清场前的陈旧句柄不能误关清场后新建的 Loading");
+
+            current.Dispose();
+            Assert.IsFalse(ui.IsOpen<LoadingFake>());
+            ui.Dispose();
+        }
+
+        [Test]
+        public void AcquireLoading_CloseAllDuringCreation_ReturnsStaleSafeDefaultAndNoGhost()
+        {
+            var backend = new NonCooperativeGatedBackend();
+            var ui = new UIUtility(_ctx, backend, new UIBuiltinWindows
+            { Toast = typeof(ToastFake), Loading = typeof(LoadingFake) });
+
+            var pending = ui.AcquireLoading("创建中");
+            Assert.AreEqual(UniTaskStatus.Pending, pending.Status);
+            ui.CloseAll(UILayer.Top);
+            backend.Release();
+
+            var stale = pending.GetAwaiter().GetResult();
+            Assert.IsFalse(stale.IsActive, "清场期间完成的 Acquire 不得把陈旧 owner 交给调用方");
+            Assert.IsFalse(ui.IsOpen<LoadingFake>(), "创建途中 CloseAll 后不应留下迟到出现的 Loading");
+            Assert.DoesNotThrow(() => stale.Dispose());
+            ui.Dispose();
+        }
+
+        [Test]
+        public void AcquireLoading_FirstCreatorCancelled_DoesNotReleaseWaitingOwner()
+        {
+            var backend = new GatedBackend();
+            var ui = new UIUtility(_ctx, backend, new UIBuiltinWindows
+            { Toast = typeof(ToastFake), Loading = typeof(LoadingFake) });
+            using var firstCts = new CancellationTokenSource();
+
+            var first = ui.AcquireLoading("先发起", firstCts.Token);
+            var waiting = ui.AcquireLoading("仍需要 Loading");
+            Assert.AreEqual(UniTaskStatus.Pending, first.Status);
+            Assert.AreEqual(UniTaskStatus.Pending, waiting.Status);
+
+            firstCts.Cancel();
+            Assert.Throws<OperationCanceledException>(() => first.GetAwaiter().GetResult());
+            Assert.AreEqual(UniTaskStatus.Pending, waiting.Status,
+                "首个创建者取消后，另一个 owner 应接手创建而不是被一起释放");
+
+            backend.Release();
+            var waitingHandle = waiting.GetAwaiter().GetResult();
+            Assert.IsTrue(waitingHandle.IsActive);
+            Assert.IsTrue(ui.IsOpen<LoadingFake>());
+            Assert.AreEqual("仍需要 Loading", (ui.Get<LoadingFake>().LastArgs as UILoadingArgs)?.Text);
+
+            waitingHandle.Dispose();
+            Assert.IsFalse(ui.IsOpen<LoadingFake>());
+            ui.Dispose();
+        }
+
+        [Test]
         public void ShowToast_WithoutBuiltins_LogsError_NoThrow()
         {
             LogAssert.Expect(LogType.Error, new Regex("Toast"));
             // SetUp 建的 _ui 未注册内置件表：应报错提示、不抛异常。
             Assert.DoesNotThrow(() => _ui.ShowToast("x").GetAwaiter().GetResult());
+        }
+
+        [Test]
+        public void ShowToast_PreCancelledToken_DoesNotOpenBuiltin()
+        {
+            var ui = new UIUtility(_ctx, _backend, new UIBuiltinWindows
+            { Toast = typeof(ToastFake), Loading = typeof(LoadingFake) });
+            using var cts = new CancellationTokenSource();
+            cts.Cancel();
+
+            Assert.Throws<OperationCanceledException>(() =>
+                ui.ShowToast("late", ct: cts.Token).GetAwaiter().GetResult());
+            Assert.IsFalse(ui.IsOpen<ToastFake>());
+            Assert.AreEqual(0, _backend.Count("create:ToastFake"));
+            ui.Dispose();
+        }
+
+        [Test]
+        public void ShowLoading_CancelledDuringCreation_DoesNotAppearLater()
+        {
+            var backend = new GatedBackend();
+            var ui = new UIUtility(_ctx, backend, new UIBuiltinWindows
+            { Toast = typeof(ToastFake), Loading = typeof(LoadingFake) });
+            using var cts = new CancellationTokenSource();
+
+            var opening = ui.ShowLoading("late", cts.Token);
+            Assert.AreEqual(UniTaskStatus.Pending, opening.Status);
+            cts.Cancel();
+
+            Assert.Throws<OperationCanceledException>(() => opening.GetAwaiter().GetResult());
+            Assert.IsFalse(ui.IsOpen<LoadingFake>());
+            backend.Release();
+            ui.Dispose();
+        }
+
+        [Test]
+        public void ShowLoading_NonCooperativeBackendReturningAfterCancellation_DestroysLateWindow()
+        {
+            var backend = new NonCooperativeGatedBackend();
+            var ui = new UIUtility(_ctx, backend, new UIBuiltinWindows
+            { Toast = typeof(ToastFake), Loading = typeof(LoadingFake) });
+            using var cts = new CancellationTokenSource();
+
+            var opening = ui.ShowLoading("late", cts.Token);
+            Assert.AreEqual(UniTaskStatus.Pending, opening.Status);
+            cts.Cancel();
+            backend.Release();
+
+            Assert.Throws<OperationCanceledException>(() => opening.GetAwaiter().GetResult());
+            Assert.IsFalse(ui.IsOpen<LoadingFake>());
+            Assert.AreEqual(1, backend.Count("destroy:LoadingFake"),
+                "不遵守 token 的后端迟到返回时，核心仍必须物理销毁窗口。 ");
+            ui.Dispose();
+        }
+
+        [Test]
+        public void MonoAdapters_ForwardBuiltinCancellationTokensAndLoadingHandles()
+        {
+            var uguiCore = new UIUtility(_ctx, new FakeBackend(), new UIBuiltinWindows
+            { Toast = typeof(ToastFake), Loading = typeof(LoadingFake) });
+            var toolkitCore = new UIUtility(_ctx, new FakeBackend(), new UIBuiltinWindows
+            { Toast = typeof(ToastFake), Loading = typeof(LoadingFake) });
+            var uguiObject = new GameObject("UGui adapter cancellation test");
+            var toolkitObject = new GameObject("Toolkit adapter cancellation test");
+            uguiObject.SetActive(false);
+            toolkitObject.SetActive(false);
+            var ugui = uguiObject.AddComponent<MonoUGuiUI>();
+            var toolkit = toolkitObject.AddComponent<MonoToolkitUI>();
+            FieldInfo uguiCoreField = typeof(MonoUGuiUI).GetField("_core", BindingFlags.Instance | BindingFlags.NonPublic);
+            FieldInfo toolkitCoreField = typeof(MonoToolkitUI).GetField("_core", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.IsNotNull(uguiCoreField);
+            Assert.IsNotNull(toolkitCoreField);
+            uguiCoreField.SetValue(ugui, uguiCore);
+            toolkitCoreField.SetValue(toolkit, toolkitCore);
+            using var cts = new CancellationTokenSource();
+            cts.Cancel();
+
+            try
+            {
+                Assert.Throws<OperationCanceledException>(() =>
+                    ugui.ShowToast("late", ct: cts.Token).GetAwaiter().GetResult());
+                Assert.Throws<OperationCanceledException>(() =>
+                    ugui.ShowLoading("late", cts.Token).GetAwaiter().GetResult());
+                Assert.Throws<OperationCanceledException>(() =>
+                    toolkit.ShowToast("late", ct: cts.Token).GetAwaiter().GetResult());
+                Assert.Throws<OperationCanceledException>(() =>
+                    toolkit.ShowLoading("late", cts.Token).GetAwaiter().GetResult());
+
+                Assert.Throws<OperationCanceledException>(() =>
+                    ugui.AcquireLoading("late", cts.Token).GetAwaiter().GetResult());
+                Assert.Throws<OperationCanceledException>(() =>
+                    toolkit.AcquireLoading("late", cts.Token).GetAwaiter().GetResult());
+
+                var uguiHandle = ugui.AcquireLoading("UGUI owner").GetAwaiter().GetResult();
+                var toolkitHandle = toolkit.AcquireLoading("Toolkit owner").GetAwaiter().GetResult();
+                Assert.IsTrue(uguiHandle.IsActive);
+                Assert.IsTrue(toolkitHandle.IsActive);
+                uguiHandle.Dispose();
+                toolkitHandle.Dispose();
+                Assert.IsFalse(uguiCore.IsOpen<LoadingFake>());
+                Assert.IsFalse(toolkitCore.IsOpen<LoadingFake>());
+            }
+            finally
+            {
+                // 先摘掉注入的测试核心，避免组件 OnDestroy 再 Dispose；核心与 GameObject 各自只释放一次。
+                uguiCoreField.SetValue(ugui, null);
+                toolkitCoreField.SetValue(toolkit, null);
+                uguiCore.Dispose();
+                toolkitCore.Dispose();
+                UnityEngine.Object.DestroyImmediate(uguiObject);
+                UnityEngine.Object.DestroyImmediate(toolkitObject);
+            }
         }
 
         // ── fakes ────────────────────────────────────────────────────────────
@@ -286,7 +563,7 @@ namespace Game.Framework.Test
             public override void OnOpen(object args) => throw new InvalidOperationException("boom");
         }
 
-        // 记录 OnOpen 参数：验证内置件转发（ShowToast/ShowLoading 的 args 形态）。
+        // 记录 OnOpen 参数：验证内置件转发（ShowToast/AcquireLoading/ShowLoading 的 args 形态）。
         private class ArgsRecordingWindow : FakeWindow
         {
             public object LastArgs;
@@ -327,8 +604,21 @@ namespace Game.Framework.Test
 
             public override async UniTask<IUIWindow> CreateWindow(UIWindowMeta meta, IGameContext context, CancellationToken ct)
             {
-                await _gate.Task;
+                await _gate.Task.AttachExternalCancellation(ct);
                 return await base.CreateWindow(meta, context, ct);
+            }
+        }
+
+        // 故意不观察 token，模拟第三方/遗留 adapter 已经创建完才返回；核心的迟到保护不能依赖后端自觉。
+        private class NonCooperativeGatedBackend : FakeBackend
+        {
+            private readonly UniTaskCompletionSource _gate = new();
+            public void Release() => _gate.TrySetResult();
+
+            public override async UniTask<IUIWindow> CreateWindow(UIWindowMeta meta, IGameContext context, CancellationToken ct)
+            {
+                await _gate.Task;
+                return await base.CreateWindow(meta, context, CancellationToken.None);
             }
         }
     }

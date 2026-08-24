@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Reflection;
 using Game.Framework;
 using UnityEditor;
+using UnityEditorInternal;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
@@ -18,8 +19,30 @@ namespace Game.Framework.Editor
     {
         private const string GUIDPropName = "_assetGUID";
         private const string PackagePropName = "_packageName";
+        private const float InlineObjectMinWidth = 72f;
+        private const float InlinePackageMinWidth = 72f;
         private const float PackageMaxWidth = 120f;
         private const float PackageGap = 4f;
+
+        internal enum LayoutMode
+        {
+            Inline,
+            Compact,
+        }
+
+        internal readonly struct InlineWidths
+        {
+            public readonly float Object;
+            public readonly float Gap;
+            public readonly float Package;
+
+            public InlineWidths(float objectWidth, float gap, float packageWidth)
+            {
+                Object = objectWidth;
+                Gap = gap;
+                Package = packageWidth;
+            }
+        }
 
         // 按 (宿主类型, propertyPath) 缓存字段类型，避免每帧都走反射
         private static readonly Dictionary<(Type, string), Type> _fieldTypeCache = new();
@@ -50,11 +73,34 @@ namespace Game.Framework.Editor
                 }
             }
 
-            position.height = EditorGUIUtility.singleLineHeight;
-            var contentRect = EditorGUI.PrefixLabel(position, label);
-            var packageWidth = CalculatePackageWidth(contentRect.width);
-            var objectRect = new Rect(contentRect.x, contentRect.y, contentRect.width - packageWidth - PackageGap, contentRect.height);
-            var packageRect = new Rect(objectRect.xMax + PackageGap, contentRect.y, packageWidth, contentRect.height);
+            float lineHeight = EditorGUIUtility.singleLineHeight;
+            float spacing = EditorGUIUtility.standardVerticalSpacing;
+            bool hasVisibleLabel = HasVisibleLabel(label);
+            var mode = ResolveCurrentLayoutMode(hasVisibleLabel);
+
+            Rect objectRect;
+            Rect packageRect;
+            if (mode == LayoutMode.Compact)
+            {
+                float y = position.y;
+                if (hasVisibleLabel)
+                {
+                    EditorGUI.LabelField(new Rect(position.x, y, position.width, lineHeight), label);
+                    y += lineHeight + spacing;
+                }
+
+                var fieldRect = EditorGUI.IndentedRect(new Rect(position.x, y, position.width, lineHeight));
+                objectRect = fieldRect;
+                packageRect = new Rect(fieldRect.x, y + lineHeight + spacing, fieldRect.width, lineHeight);
+            }
+            else
+            {
+                var lineRect = new Rect(position.x, position.y, position.width, lineHeight);
+                var contentRect = EditorGUI.PrefixLabel(lineRect, label);
+                var widths = CalculateInlineWidths(contentRect.width);
+                objectRect = new Rect(contentRect.x, contentRect.y, widths.Object, contentRect.height);
+                packageRect = new Rect(objectRect.xMax + widths.Gap, contentRect.y, widths.Package, contentRect.height);
+            }
 
             Object newAsset = EditorGUI.ObjectField(objectRect, GUIContent.none, currentAsset, assetType, false);
             DrawPackageDropdown(packageRect, packageProp);
@@ -74,10 +120,55 @@ namespace Game.Framework.Editor
         }
 
         public override float GetPropertyHeight(SerializedProperty property, GUIContent label)
-            => EditorGUIUtility.singleLineHeight;
+        {
+            bool hasVisibleLabel = HasVisibleLabel(label);
+            var mode = ResolveCurrentLayoutMode(hasVisibleLabel);
+            return CalculateHeight(mode, hasVisibleLabel,
+                EditorGUIUtility.singleLineHeight, EditorGUIUtility.standardVerticalSpacing);
+        }
 
-        private static float CalculatePackageWidth(float availableWidth)
-            => Math.Min(PackageMaxWidth, Math.Max(72f, availableWidth * 0.28f));
+        internal static LayoutMode ResolveLayoutMode(bool wideMode, bool hasVisibleLabel, float estimatedControlWidth)
+        {
+            if (hasVisibleLabel && !wideMode) return LayoutMode.Compact;
+            return estimatedControlWidth < InlineObjectMinWidth + PackageGap + InlinePackageMinWidth
+                ? LayoutMode.Compact
+                : LayoutMode.Inline;
+        }
+
+        internal static InlineWidths CalculateInlineWidths(float availableWidth)
+        {
+            float available = Math.Max(0f, availableWidth);
+            float gap = Math.Min(PackageGap, available);
+            float controls = available - gap;
+            if (controls <= 0f) return new InlineWidths(0f, gap, 0f);
+
+            // 正常宽度优先保证 ObjectField 可辨认；异常窄的自定义 Inspector 即使没有触发 Compact，
+            // 也安全平分剩余空间，绝不产生负 Rect 或让包按钮覆盖 ObjectField。
+            float package = controls < InlineObjectMinWidth + InlinePackageMinWidth
+                ? controls * 0.5f
+                : Math.Min(PackageMaxWidth, Math.Max(InlinePackageMinWidth, available * 0.28f));
+            package = Math.Min(package, controls);
+            return new InlineWidths(controls - package, gap, package);
+        }
+
+        internal static float CalculateHeight(LayoutMode mode, bool hasVisibleLabel, float lineHeight, float spacing)
+        {
+            if (mode == LayoutMode.Inline) return lineHeight;
+            int lineCount = hasVisibleLabel ? 3 : 2;
+            return lineCount * lineHeight + (lineCount - 1) * spacing;
+        }
+
+        private static LayoutMode ResolveCurrentLayoutMode(bool hasVisibleLabel)
+        {
+            float estimatedControlWidth = EditorGUIUtility.currentViewWidth - 22f;
+            if (hasVisibleLabel && EditorGUIUtility.wideMode)
+                estimatedControlWidth -= EditorGUIUtility.labelWidth;
+            estimatedControlWidth -= EditorGUI.indentLevel * 15f;
+            return ResolveLayoutMode(EditorGUIUtility.wideMode, hasVisibleLabel, estimatedControlWidth);
+        }
+
+        private static bool HasVisibleLabel(GUIContent label)
+            => label != null && label != GUIContent.none && !string.IsNullOrEmpty(label.text);
 
         private static void DrawPackageDropdown(Rect rect, SerializedProperty packageProp)
         {
@@ -110,8 +201,27 @@ namespace Game.Framework.Editor
                 menu.AddItem(new GUIContent(captured), current == captured, () => SetPackageName(packageProp, captured));
             }
             menu.AddSeparator("");
-            menu.AddItem(new GUIContent("自定义..."), false, () => PackageNamePopup.Open(packageProp));
+            Vector2 popupAnchor = GUIUtility.GUIToScreenPoint(new Vector2(rect.x, rect.yMax));
+            menu.AddItem(new GUIContent("自定义..."), false, () => PackageNamePopup.Open(packageProp, popupAnchor));
             menu.DropDown(rect);
+        }
+
+        internal static Rect CalculateUtilityPopupRect(Vector2 anchor, Rect desktop, Vector2 size)
+        {
+            const float gap = 4f;
+            float x = desktop.width >= size.x
+                ? Mathf.Clamp(anchor.x, desktop.xMin, desktop.xMax - size.x)
+                : desktop.xMin;
+
+            float below = anchor.y + gap;
+            float above = anchor.y - size.y - gap;
+            float y = below + size.y <= desktop.yMax ? below : above;
+            if (desktop.height >= size.y)
+                y = Mathf.Clamp(y, desktop.yMin, desktop.yMax - size.y);
+            else
+                y = desktop.yMin;
+
+            return new Rect(x, y, size.x, size.y);
         }
 
         // 解析当前场景里 AssetSystemConfigModel 配的默认包名，用于把「留空」显示成「默认: 具体包名」。
@@ -153,20 +263,32 @@ namespace Game.Framework.Editor
             private string _propertyPath;
             private string _value;
 
-            public static void Open(SerializedProperty packageProp)
+            public static void Open(SerializedProperty packageProp, Vector2 anchor)
             {
+                var defaultSize = new Vector2(340f, 96f);
                 var window = CreateInstance<PackageNamePopup>();
                 window._serializedObject = packageProp.serializedObject;
                 window._propertyPath = packageProp.propertyPath;
                 window._value = packageProp.stringValue;
                 window.titleContent = new GUIContent("Package");
-                window.minSize = new Vector2(260f, 58f);
-                window.maxSize = new Vector2(260f, 58f);
+                window.minSize = new Vector2(240f, 84f);
+                window.maxSize = new Vector2(720f, 140f);
+                Rect desktop = InternalEditorUtility.GetBoundsOfDesktopAtPoint(anchor);
+                Rect popupRect = CalculateUtilityPopupRect(anchor, desktop, defaultSize);
+                window.position = popupRect;
                 window.ShowUtility();
+                window.position = popupRect;
             }
 
             private void OnGUI()
             {
+                if (_serializedObject == null || _serializedObject.targetObject == null)
+                {
+                    EditorGUILayout.HelpBox("原属性已失效，请关闭后重新打开。", MessageType.Info);
+                    if (GUILayout.Button("关闭")) Close();
+                    return;
+                }
+
                 EditorGUILayout.LabelField("Package Name");
                 EditorGUI.BeginChangeCheck();
                 _value = EditorGUILayout.TextField(_value);
@@ -186,7 +308,7 @@ namespace Game.Framework.Editor
 
             private void Apply()
             {
-                if (_serializedObject == null || string.IsNullOrEmpty(_propertyPath)) return;
+                if (_serializedObject == null || _serializedObject.targetObject == null || string.IsNullOrEmpty(_propertyPath)) return;
                 _serializedObject.Update();
                 var prop = _serializedObject.FindProperty(_propertyPath);
                 if (prop == null) return;

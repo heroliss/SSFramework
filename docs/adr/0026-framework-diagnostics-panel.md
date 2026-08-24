@@ -72,3 +72,5 @@ roadmap 中期第六项：把散在各组件 Inspector「运行时诊断」折�
 - 采集层全部 `UNITY_EDITOR` 条件编译或 opt-in，玩家包零成本；Editor 下每订阅多一个计数 wrapper 分配，可接受。
 - `IObjectPool<T>` / `IGameObjectPool` 接口加成员是破坏性变更——两接口实现均在框架内（ADR-0007 自研池），无业务实现者，此阶段可加。
 - `LoggingCommandSystem` 从文档示例变成实物后，`ICommandSystem` 的 XML doc 示例改指实物，文档与代码不再有「教你写一个其实已经有」的漂移。
+
+**2026-08-23 失败宿主补诊断：**初始化事务失败的 `MonoGameContextBase` 不会发布 `GameContext`，因此无法进入 `LiveContexts` 作用域树。Core 现提供 Editor-only 只读快照（状态、已解析父级、Context、异常），窗口复用场景扫描在树上方单列失败宿主并支持定位/复制完整异常；不制造假的 Context，也不增加静态强引用登记。状态分类必须尊重 Unity 生命周期：Edit Mode 下普通 MonoBehaviour 尚未执行 `Awake`，`Uninitialized` 是正常场景资产状态，不显示为异常；Play Mode 中激活宿主仍为 `Uninitialized/Initializing` 才提示时序问题，`Failed` 始终显示真实根因。该边界由 Editor 契约测试锁定。

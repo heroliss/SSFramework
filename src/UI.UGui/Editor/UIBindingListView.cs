@@ -105,6 +105,69 @@ namespace Game.Framework.UI.UGui.Editor
                 DrawRowBlock(rows[i], i, fieldCol, pathCol, compCol, onLocate, duplicateFields: dups);
         }
 
+        /// <summary>
+        /// 窄面板用的卡片布局：首行保留定位、完整路径和行级操作，组件信息改为纵向的“字段名 → 组件”。
+        /// 不隐藏字段或操作，也不引入横向滚动；长路径和长类型名直接换行，适合窄 Inspector 或被工作区压缩的 Popup。
+        /// </summary>
+        public static void DrawCompact(IReadOnlyList<Row> rows, Action<string> onLocate)
+        {
+            if (rows.Count == 0)
+            {
+                EditorGUILayout.LabelField("（无）");
+                return;
+            }
+
+            var dups = DuplicateFields(rows);
+            for (int i = 0; i < rows.Count; i++)
+                DrawCompactRowBlock(rows[i], onLocate, duplicateFields: dups);
+        }
+
+        /// <summary>
+        /// 画一个紧凑节点卡片。<paramref name="trailing"/> 与表格布局保持同一回调语义，
+        /// Inspector 可继续把“字段名 / 解绑”放在路径首行，确保最窄状态下操作也始终可达。
+        /// </summary>
+        public static void DrawCompactRowBlock(Row row, Action<string> onLocate,
+            Action trailing = null, ISet<string> duplicateFields = null)
+        {
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            EditorGUILayout.BeginHorizontal();
+            if (GUILayout.Button(new GUIContent("◎", "定位该节点（选中并高亮）"),
+                    EditorStyles.miniButton, GUILayout.Width(LocateW)))
+                onLocate?.Invoke(row.FullPath);
+
+            string path = string.IsNullOrEmpty(row.PathLabel) ? "(根)" : row.PathLabel;
+            GUILayout.Label(new GUIContent(path, string.IsNullOrEmpty(row.FullPath) ? "(根)" : row.FullPath),
+                CompactPath, GUILayout.MinWidth(0f), GUILayout.ExpandWidth(true));
+            trailing?.Invoke();
+            EditorGUILayout.EndHorizontal();
+
+            if (row.Members.Count == 0)
+            {
+                GUILayout.Label("未选择绑定组件", EditorStyles.miniLabel);
+            }
+            else
+            {
+                foreach (var member in row.Members)
+                {
+                    bool duplicate = duplicateFields != null && duplicateFields.Contains(member.Field);
+                    EditorGUILayout.BeginHorizontal();
+                    var previous = GUI.color;
+                    if (duplicate) GUI.color = new Color(0.95f, 0.74f, 0.33f);
+                    string field = (duplicate ? "⚠ " : string.Empty) + member.Field;
+                    GUILayout.Label(new GUIContent(field,
+                            duplicate ? $"字段名「{member.Field}」与其它节点重复——生成时会跳过其一" : member.Field),
+                        CompactCell, GUILayout.MinWidth(0f), GUILayout.ExpandWidth(true));
+                    GUI.color = previous;
+                    GUILayout.Label("→", EditorStyles.miniLabel, GUILayout.Width(14f));
+                    GUILayout.Label(new GUIContent(member.Comp, member.Comp),
+                        CompactCell, GUILayout.MinWidth(0f), GUILayout.ExpandWidth(true));
+                    EditorGUILayout.EndHorizontal();
+                }
+            }
+
+            EditorGUILayout.EndVertical();
+        }
+
         /// <summary>这批行里会撞名的字段名（≥2 行同名）——画 ⚠ 重名提示用。空集 = 无重名。</summary>
         public static HashSet<string> DuplicateFields(IReadOnlyList<Row> rows)
         {
@@ -168,6 +231,18 @@ namespace Game.Framework.UI.UGui.Editor
         // 单元格文本样式：竖向居中（单行与 ◎ 按钮对齐；多行块按内容自适应高度、无强制留白，居中即填满）、不换行（过长截断、tooltip 给全文）。
         private static GUIStyle _cell;
         private static GUIStyle Cell => _cell ??= new GUIStyle(EditorStyles.label) { wordWrap = false };
+
+        private static GUIStyle _compactPath;
+        private static GUIStyle CompactPath => _compactPath ??= new GUIStyle(EditorStyles.miniBoldLabel)
+        {
+            wordWrap = true,
+        };
+
+        private static GUIStyle _compactCell;
+        private static GUIStyle CompactCell => _compactCell ??= new GUIStyle(EditorStyles.miniLabel)
+        {
+            wordWrap = true,
+        };
 
         /// <summary>
         /// 弹窗标题条拖拽把手：在标题条按下拖动即移动整窗。两类绑定弹窗共用。

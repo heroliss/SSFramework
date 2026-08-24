@@ -37,6 +37,28 @@ namespace Game.Framework.Editor
         private const string AutoRefreshKey = "SSFramework.Diag.AutoRefresh";
         private const string OnlyErrorsKey = "SSFramework.Diag.OnlyErrors";
 
+        /// <summary>
+        /// 编辑器窗口不保证被停靠在宽区域：窄浮窗仍应保留完整操作路径，而不是依赖水平滚动去找关键状态。
+        /// 三档只控制信息密度与分栏方向，诊断数据本身始终不丢失。
+        /// </summary>
+        internal enum LayoutMode
+        {
+            Compact,
+            Medium,
+            Wide,
+        }
+
+        internal enum CommandColumnId
+        {
+            Time,
+            Frame,
+            Mode,
+            Command,
+            Context,
+            Duration,
+            Status,
+        }
+
         // ── 主题色（深浅 skin 通用的中饱和度底 + 白字）────────────────────────
         private static readonly Color ColMain = new(0.23f, 0.51f, 0.29f);     // [Main]
         private static readonly Color ColFallback = new(0.35f, 0.42f, 0.55f); // →Main 回退
@@ -55,9 +77,23 @@ namespace Game.Framework.Editor
         // ── UI 引用 ─────────────────────────────────────────────────────────
         private TreeView _tree;
         private HelpBox _treeHint;
+        private ScrollView _monoIssueScroll;
+        private VisualElement _monoIssuePanel;
+        private VisualElement _treePane;
         private ScrollView _detail;
         private Label _detailAliveLabel;
+        private VisualElement _toolbarActions, _toolbarSearchRow;
+        private ToolbarSearchField _treeSearchField;
+        private VisualElement _counterStrip;
+        private readonly List<Label> _counterSeparators = new();
+        private VisualElement _loggingStrip, _loggingGlobalRow, _loggingSinkRow;
+        private Label _loggingSeparator;
+        private TwoPaneSplitView _mainSplit, _contextSplit;
+        private VisualElement _commandPane;
+        private Toolbar _commandToolbarPrimary, _commandToolbarSearchRow;
+        private ToolbarSearchField _commandSearchField;
         private MultiColumnListView _commandTable;
+        private Column _timeColumn, _frameColumn, _modeColumn, _commandColumn, _contextColumn, _durationColumn, _statusColumn;
         private HelpBox _commandHint;
         private TextField _commandDetail;
         private Label _ctxCountLabel, _bagCountLabel, _cmdCountLabel;
@@ -77,6 +113,7 @@ namespace Game.Framework.Editor
         private int _nextId = 1;
         private readonly HashSet<int> _knownIds = new();               // 已见过的 id：新节点默认展开、老节点尊重用户折叠
         private string _treeSignature = "";
+        private string _monoIssueSignature = "";
         private GameContext _selected;
         private string _detailSignature;
         private readonly Dictionary<GameContext, MonoGameContextBase> _monoByCtx = new();
@@ -85,6 +122,7 @@ namespace Game.Framework.Editor
         private long _lastTotalRecorded = -1;
         private bool _cmdFilterDirty = true;
         private bool _secRegOpen = true, _secEvtOpen = true, _secPoolOpen = true;
+        private LayoutMode? _layoutMode;
 
         /// <summary>树节点数据：TreeView item 里只挂 Context 引用，其余现算（每次重绑都拿最新值）。</summary>
         private sealed class CtxItem
@@ -93,7 +131,12 @@ namespace Game.Framework.Editor
         }
 
         private void OnEnable() => EditorApplication.playModeStateChanged += OnPlayModeChanged;
-        private void OnDisable() => EditorApplication.playModeStateChanged -= OnPlayModeChanged;
+
+        private void OnDisable()
+        {
+            EditorApplication.playModeStateChanged -= OnPlayModeChanged;
+            _ticker?.Pause();
+        }
 
         // 新 Play 会话开始：id 映射 / 选中 / 签名全部作废（键是 Context 强引用，不清会让死 Context 无法 GC）。
         private void OnPlayModeChanged(PlayModeStateChange change)
@@ -102,6 +145,7 @@ namespace Game.Framework.Editor
             _idByCtx.Clear();
             _knownIds.Clear();
             _treeSignature = "";
+            _monoIssueSignature = "";
             _detailSignature = null;
             _selected = null;
             _lastTotalRecorded = -1;
@@ -114,21 +158,42 @@ namespace Game.Framework.Editor
             // 而这些字段可能带着上一轮的值活过来——不清就会「签名没变 → 跳过重建 → 容器永远空着」。
             _sinkSignature = null;
             _treeSignature = "";
+            _monoIssueSignature = "";
             _detailSignature = null;
+            _layoutMode = null;
+            _counterSeparators.Clear();
 
             var root = rootVisualElement;
+            _ticker?.Pause();
+            root.UnregisterCallback<GeometryChangedEvent>(OnRootGeometryChanged);
+            root.Clear();
+            minSize = new Vector2(280, 420);
             root.Add(BuildToolbar());
             root.Add(BuildCountersStrip());
             root.Add(BuildLoggingStrip());
 
             // 上下分割：上 = Context 树 + 明细（左右分割），下 = 命令流水。
-            var vSplit = new TwoPaneSplitView(1, 220, TwoPaneSplitViewOrientation.Vertical) { style = { flexGrow = 1 } };
-            var hSplit = new TwoPaneSplitView(0, 340, TwoPaneSplitViewOrientation.Horizontal);
-            hSplit.Add(BuildTreePane());
-            hSplit.Add(BuildDetailPane());
-            vSplit.Add(hSplit);
-            vSplit.Add(BuildCommandPane());
-            root.Add(vSplit);
+            _mainSplit = new TwoPaneSplitView(1, 220, TwoPaneSplitViewOrientation.Vertical)
+            {
+                name = "diagnostics-main-split",
+                style = { flexGrow = 1, minHeight = 180 },
+            };
+            _contextSplit = new TwoPaneSplitView(0, 340, TwoPaneSplitViewOrientation.Horizontal)
+            {
+                name = "diagnostics-context-split",
+                style = { flexGrow = 1, minHeight = 120 },
+            };
+            _treePane = BuildTreePane();
+            _detail = (ScrollView)BuildDetailPane();
+            _commandPane = BuildCommandPane();
+            _contextSplit.Add(_treePane);
+            _contextSplit.Add(_detail);
+            _mainSplit.Add(_contextSplit);
+            _mainSplit.Add(_commandPane);
+            root.Add(_mainSplit);
+
+            root.RegisterCallback<GeometryChangedEvent>(OnRootGeometryChanged);
+            ApplyResponsiveLayout(position.width, position.height, force: true);
 
             _ticker = root.schedule.Execute(Tick).Every(RefreshMs);
             if (!SessionState.GetBool(AutoRefreshKey, true)) _ticker.Pause();
@@ -137,9 +202,15 @@ namespace Game.Framework.Editor
 
         // ── 顶栏 ────────────────────────────────────────────────────────────
 
-        private Toolbar BuildToolbar()
+        private VisualElement BuildToolbar()
         {
-            var tb = new Toolbar();
+            var wrapper = new VisualElement { name = "diagnostics-toolbar" };
+            _toolbarActions = new Toolbar { name = "diagnostics-toolbar-actions" };
+            _toolbarSearchRow = new Toolbar
+            {
+                name = "diagnostics-toolbar-search-row",
+                style = { display = DisplayStyle.None },
+            };
 
             var auto = new ToolbarToggle
             {
@@ -153,34 +224,39 @@ namespace Game.Framework.Editor
                 if (e.newValue) { _ticker.Resume(); Tick(); }
                 else _ticker.Pause();
             });
-            tb.Add(auto);
-            tb.Add(new ToolbarButton(Tick) { text = "刷新", tooltip = "手动刷新一次（自动刷新关闭时用）。" });
+            _toolbarActions.Add(auto);
+            _toolbarActions.Add(new ToolbarButton(Tick) { text = "刷新", tooltip = "手动刷新一次（自动刷新关闭时用）。" });
 
-            var search = new ToolbarSearchField
+            _treeSearchField = new ToolbarSearchField
             {
+                name = "diagnostics-tree-search",
                 tooltip = "过滤 Context 树：匹配 Context 名 / 注册契约名 / 事件类型名（保留命中节点的祖先）。",
                 style = { flexGrow = 1, flexShrink = 1, marginLeft = 6, marginRight = 6 },
             };
-            search.RegisterValueChangedCallback(e =>
+            _treeSearchField.RegisterValueChangedCallback(e =>
             {
                 _treeFilter = e.newValue?.Trim() ?? "";
                 _treeSignature = ""; // 强制重建树
                 Tick();
             });
-            tb.Add(search);
+            _toolbarActions.Add(_treeSearchField);
 
-            tb.Add(new ToolbarButton(() => _tree?.ExpandAll()) { text = "展开" });
-            tb.Add(new ToolbarButton(() => _tree?.CollapseAll()) { text = "折叠" });
-            return tb;
+            _toolbarActions.Add(new ToolbarButton(() => _tree?.ExpandAll()) { text = "展开" });
+            _toolbarActions.Add(new ToolbarButton(() => _tree?.CollapseAll()) { text = "折叠" });
+            wrapper.Add(_toolbarActions);
+            wrapper.Add(_toolbarSearchRow);
+            return wrapper;
         }
 
         private VisualElement BuildCountersStrip()
         {
-            var strip = new VisualElement
+            _counterStrip = new VisualElement
             {
+                name = "diagnostics-counters",
                 style =
                 {
                     flexDirection = FlexDirection.Row, alignItems = Align.Center,
+                    flexWrap = Wrap.Wrap,
                     paddingLeft = 8, paddingRight = 8, paddingTop = 3, paddingBottom = 3,
                     borderBottomWidth = 1, borderBottomColor = new Color(0, 0, 0, 0.3f),
                 },
@@ -192,16 +268,25 @@ namespace Game.Framework.Editor
             _bagSpark = new Sparkline(ColRuntime) { tooltip = "DisposableBag 存活数趋势（最近约 30 秒）——持续上升 = 泄漏嫌疑" };
             _cmdCountLabel = MutedLabel("命令累计 —");
 
-            strip.Add(_ctxCountLabel);
-            strip.Add(_ctxSpark);
-            strip.Add(Dot());
-            strip.Add(_bagCountLabel);
-            strip.Add(_bagSpark);
-            strip.Add(Dot());
-            strip.Add(_cmdCountLabel);
-            return strip;
+            _ctxCountLabel.style.flexShrink = 0;
+            _bagCountLabel.style.flexShrink = 0;
+            _cmdCountLabel.style.flexShrink = 0;
 
-            static Label Dot() => new("·") { style = { color = ColMuted, marginLeft = 8, marginRight = 8 } };
+            _counterStrip.Add(_ctxCountLabel);
+            _counterStrip.Add(_ctxSpark);
+            _counterStrip.Add(Dot());
+            _counterStrip.Add(_bagCountLabel);
+            _counterStrip.Add(_bagSpark);
+            _counterStrip.Add(Dot());
+            _counterStrip.Add(_cmdCountLabel);
+            return _counterStrip;
+
+            Label Dot()
+            {
+                var dot = new Label("·") { style = { color = ColMuted, marginLeft = 8, marginRight = 8 } };
+                _counterSeparators.Add(dot);
+                return dot;
+            }
         }
 
         // ── 日志状态条（全局） ───────────────────────────────────────────────
@@ -222,8 +307,9 @@ namespace Game.Framework.Editor
         /// </remarks>
         private VisualElement BuildLoggingStrip()
         {
-            var strip = new VisualElement
+            _loggingStrip = new VisualElement
             {
+                name = "diagnostics-logging",
                 style =
                 {
                     flexDirection = FlexDirection.Row, alignItems = Align.Center,
@@ -232,14 +318,39 @@ namespace Game.Framework.Editor
                 },
             };
 
-            strip.Add(new Label("日志")
+            _loggingGlobalRow = new VisualElement
+            {
+                name = "diagnostics-logging-global",
+                style =
+                {
+                    flexDirection = FlexDirection.Row,
+                    alignItems = Align.Center,
+                    flexWrap = Wrap.Wrap,
+                    flexShrink = 0,
+                },
+            };
+
+            _loggingSinkRow = new VisualElement
+            {
+                name = "diagnostics-logging-sinks",
+                style =
+                {
+                    flexDirection = FlexDirection.Row,
+                    alignItems = Align.Center,
+                    flexWrap = Wrap.Wrap,
+                    flexGrow = 1,
+                    flexShrink = 1,
+                },
+            };
+
+            _loggingGlobalRow.Add(new Label("日志")
             {
                 style = { unityFontStyleAndWeight = FontStyle.Bold, fontSize = 11, marginRight = 10, color = ColMuted },
             });
 
             // 全局 MinLevel（总闸门）。与菜单 SSFramework/诊断/日志级别 共用同一个 setter，避免两处各写各的导致漂移。
             // 摆在各 sink 的分闸门左边，「总闸门 → 分闸门」的串联关系一眼可见——日志要同时过这两道。
-            strip.Add(new Label("全局 ≥")
+            _loggingGlobalRow.Add(new Label("全局 ≥")
             {
                 tooltip = "Log.MinLevel：日志的【总闸门】。低于它的日志一律不投递、连 LogEntry 都不构造。\n" +
                           "右边每个 sink 还各有一道【分闸门】(MinLevel)——一条日志要【同时】过这两道才到得了那个 sink。\n\n" +
@@ -253,7 +364,7 @@ namespace Game.Framework.Editor
                 style = { minWidth = 76, marginRight = 12, marginTop = 0, marginBottom = 0 },
             };
             _minLevelField.RegisterValueChangedCallback(e => FrameworkLogMenu.SetMinLevel((LogLevel)e.newValue));
-            strip.Add(_minLevelField);
+            _loggingGlobalRow.Add(_minLevelField);
 
             // 接管 Unity 日志流：CaptureUnityLogs 幂等、可随时开关，故直接做成勾选框。
             _captureToggle = new Toggle
@@ -267,11 +378,12 @@ namespace Game.Framework.Editor
                 style = { marginRight = 12, fontSize = 11 },
             };
             _captureToggle.RegisterValueChangedCallback(e => Log.CaptureUnityLogs(e.newValue));
-            strip.Add(_captureToggle);
+            _loggingGlobalRow.Add(_captureToggle);
 
-            strip.Add(new Label("·") { style = { color = ColMuted, marginRight = 8 } });
+            _loggingSeparator = new Label("·") { style = { color = ColMuted, marginRight = 8 } };
+            _loggingSinkRow.Add(_loggingSeparator);
 
-            strip.Add(new Label("Sink")
+            _loggingSinkRow.Add(new Label("Sink")
             {
                 tooltip = "当前装配的日志去向（Log.Sinks）。右侧下拉 = 该 sink 的 MinLevel，低于它的日志不投递给它。\n" +
                           "改了立即生效（不持久）——想临时把细粒度日志抓进文件，把文件 sink 调到 Trace 再把总闸门放行到 Trace 即可，\n" +
@@ -281,11 +393,22 @@ namespace Game.Framework.Editor
 
             _sinkContainer = new VisualElement
             {
-                style = { flexDirection = FlexDirection.Row, alignItems = Align.Center, flexShrink = 1, overflow = Overflow.Hidden },
+                name = "diagnostics-sink-container",
+                style =
+                {
+                    flexDirection = FlexDirection.Row,
+                    alignItems = Align.Center,
+                    flexWrap = Wrap.Wrap,
+                    flexGrow = 1,
+                    flexShrink = 1,
+                    overflow = Overflow.Visible,
+                },
             };
-            strip.Add(_sinkContainer);
+            _loggingSinkRow.Add(_sinkContainer);
 
-            return strip;
+            _loggingStrip.Add(_loggingGlobalRow);
+            _loggingStrip.Add(_loggingSinkRow);
+            return _loggingStrip;
         }
 
         private void RefreshLogging()
@@ -331,7 +454,14 @@ namespace Game.Framework.Editor
             {
                 var box = new VisualElement
                 {
-                    style = { flexDirection = FlexDirection.Row, alignItems = Align.Center, marginRight = 10, flexShrink = 0 },
+                    name = "diagnostics-sink",
+                    style =
+                    {
+                        flexDirection = FlexDirection.Row,
+                        alignItems = Align.Center,
+                        marginRight = 10,
+                        flexShrink = 0,
+                    },
                 };
                 box.Add(new Label(sink.GetType().Name) { style = { fontSize = 11, color = ColMuted, marginRight = 2 } });
 
@@ -372,7 +502,11 @@ namespace Game.Framework.Editor
 
         private VisualElement BuildTreePane()
         {
-            var pane = new VisualElement { style = { flexGrow = 1, minWidth = 200 } };
+            var pane = new VisualElement
+            {
+                name = "diagnostics-tree-pane",
+                style = { flexGrow = 1, minWidth = 0, minHeight = 100 },
+            };
 
             _treeHint = new HelpBox(
                 "进入 Play 模式后，这里展示存活 Context 作用域树。\n" +
@@ -380,12 +514,39 @@ namespace Game.Framework.Editor
                 HelpBoxMessageType.Info);
             pane.Add(_treeHint);
 
+            // Failed Mono Context 没有可放进 LiveContexts 的 GameContext。单独展示宿主真实状态，
+            // 保持下方作用域树“每个节点都一定有 Container”的深层不变量。
+            _monoIssueScroll = new ScrollView(ScrollViewMode.Vertical)
+            {
+                name = "diagnostics-mono-issues-scroll",
+                horizontalScrollerVisibility = ScrollerVisibility.Hidden,
+                verticalScrollerVisibility = ScrollerVisibility.Auto,
+                style =
+                {
+                    display = DisplayStyle.None,
+                    maxHeight = 240,
+                    flexShrink = 1,
+                    marginBottom = 4,
+                },
+            };
+            _monoIssuePanel = new VisualElement
+            {
+                name = "diagnostics-mono-issues",
+                style =
+                {
+                    paddingLeft = 4,
+                    paddingRight = 4,
+                },
+            };
+            _monoIssueScroll.Add(_monoIssuePanel);
+            pane.Add(_monoIssueScroll);
+
             _tree = new TreeView
             {
                 fixedItemHeight = 20,
                 selectionType = SelectionType.Single,
                 showAlternatingRowBackgrounds = AlternatingRowBackground.ContentOnly,
-                style = { flexGrow = 1 },
+                style = { flexGrow = 1, minHeight = 60 },
             };
             _tree.makeItem = MakeTreeRow;
             _tree.bindItem = (ve, i) => BindTreeRow(ve, _tree.GetItemDataForIndex<CtxItem>(i));
@@ -434,15 +595,20 @@ namespace Game.Framework.Editor
 
             int regs = ctx.Container.LocalRegistrationDetails.Count();
             int subs = ctx.EventSubscriptionCounts?.Sum(kv => kv.Value) ?? 0;
-            row.Q<Label>("meta").text =
-                $"注册 {regs} · 订阅 {subs} · {FormatDuration(Time.realtimeSinceStartupAsDouble - ctx.CreatedRealtime)}";
+            var meta = row.Q<Label>("meta");
+            meta.text = $"注册 {regs} · 订阅 {subs} · {FormatDuration(Time.realtimeSinceStartupAsDouble - ctx.CreatedRealtime)}";
+            meta.style.display = _layoutMode == LayoutMode.Compact ? DisplayStyle.None : DisplayStyle.Flex;
         }
 
         // ── 明细（右） ──────────────────────────────────────────────────────
 
         private VisualElement BuildDetailPane()
         {
-            _detail = new ScrollView { style = { flexGrow = 1, paddingLeft = 8, paddingRight = 8, paddingTop = 4 } };
+            _detail = new ScrollView
+            {
+                name = "diagnostics-detail-pane",
+                style = { flexGrow = 1, minWidth = 0, minHeight = 100, paddingLeft = 8, paddingRight = 8, paddingTop = 4 },
+            };
             return _detail;
         }
 
@@ -472,7 +638,16 @@ namespace Game.Framework.Editor
             _detail.Clear();
 
             // 头部：名称 + 徽标 + 存活时长 + 定位按钮。
-            var header = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center, marginBottom = 2 } };
+            var header = new VisualElement
+            {
+                style =
+                {
+                    flexDirection = FlexDirection.Row,
+                    alignItems = Align.Center,
+                    flexWrap = Wrap.Wrap,
+                    marginBottom = 2,
+                },
+            };
             header.Add(new Label(DisplayName(ctx)) { style = { unityFontStyleAndWeight = FontStyle.Bold, fontSize = 13, flexShrink = 1 } });
             if (ReferenceEquals(ctx, GameContext.Main)) header.Add(Badge("Main", ColMain, null));
             bool isMono = _monoByCtx.TryGetValue(ctx, out var mono) && mono != null;
@@ -480,7 +655,16 @@ namespace Game.Framework.Editor
             if (ctx.InheritsFromGlobal && !ReferenceEquals(ctx, GameContext.Main)) header.Add(Badge("→Main", ColFallback, null));
             _detail.Add(header);
 
-            var subHeader = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center, marginBottom = 6 } };
+            var subHeader = new VisualElement
+            {
+                style =
+                {
+                    flexDirection = FlexDirection.Row,
+                    alignItems = Align.Center,
+                    flexWrap = Wrap.Wrap,
+                    marginBottom = 6,
+                },
+            };
             _detailAliveLabel = MutedLabel($"存活 {FormatDuration(Time.realtimeSinceStartupAsDouble - ctx.CreatedRealtime)}");
             subHeader.Add(_detailAliveLabel);
             if (isMono)
@@ -500,7 +684,15 @@ namespace Game.Framework.Editor
             if (regs.Count == 0) regFold.Add(MutedLabel("（无）"));
             foreach (var d in regs)
             {
-                var line = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center } };
+                var line = new VisualElement
+                {
+                    style =
+                    {
+                        flexDirection = FlexDirection.Row,
+                        alignItems = Align.Center,
+                        flexWrap = Wrap.Wrap,
+                    },
+                };
                 string target = d.IsPendingFactory ? "（未首次解析）" : d.Instance?.GetType().Name ?? "null";
                 line.Add(new Label($"{d.Contract.Name} → {target}")
                 {
@@ -585,21 +777,31 @@ namespace Game.Framework.Editor
 
         private VisualElement BuildCommandPane()
         {
-            var pane = new VisualElement { style = { flexGrow = 1, minHeight = 100 } };
+            var pane = new VisualElement
+            {
+                name = "diagnostics-command-pane",
+                style = { flexGrow = 1, minWidth = 0, minHeight = 90 },
+            };
 
-            var tb = new Toolbar();
-            tb.Add(new Label("Command 流水")
+            _commandToolbarPrimary = new Toolbar { name = "diagnostics-command-toolbar" };
+            _commandToolbarSearchRow = new Toolbar
+            {
+                name = "diagnostics-command-search-row",
+                style = { display = DisplayStyle.None },
+            };
+            _commandToolbarPrimary.Add(new Label("Command 流水")
             {
                 style = { alignSelf = Align.Center, unityFontStyleAndWeight = FontStyle.Bold, fontSize = 11, marginLeft = 4, marginRight = 8 },
             });
 
-            var search = new ToolbarSearchField
+            _commandSearchField = new ToolbarSearchField
             {
+                name = "diagnostics-command-search",
                 tooltip = "过滤命令流水：匹配命令类型名 / Context 名。",
                 style = { flexGrow = 1, flexShrink = 1 },
             };
-            search.RegisterValueChangedCallback(e => { _cmdFilter = e.newValue?.Trim() ?? ""; _cmdFilterDirty = true; Tick(); });
-            tb.Add(search);
+            _commandSearchField.RegisterValueChangedCallback(e => { _cmdFilter = e.newValue?.Trim() ?? ""; _cmdFilterDirty = true; Tick(); });
+            _commandToolbarPrimary.Add(_commandSearchField);
 
             _onlyErrors = SessionState.GetBool(OnlyErrorsKey, false);
             var errToggle = new ToolbarToggle { text = "仅错误", value = _onlyErrors, tooltip = "只看失败 / 取消的命令。" };
@@ -610,16 +812,17 @@ namespace Game.Framework.Editor
                 _cmdFilterDirty = true;
                 Tick();
             });
-            tb.Add(errToggle);
+            _commandToolbarPrimary.Add(errToggle);
 
-            tb.Add(new ToolbarButton(CopyCommandsTsv) { text = "复制", tooltip = "把当前过滤结果以 TSV 复制到剪贴板（可直接粘进表格软件）。" });
-            tb.Add(new ToolbarButton(() =>
+            _commandToolbarPrimary.Add(new ToolbarButton(CopyCommandsTsv) { text = "复制", tooltip = "把当前过滤结果以 TSV 复制到剪贴板（可直接粘进表格软件）。" });
+            _commandToolbarPrimary.Add(new ToolbarButton(() =>
             {
                 LoggingCommandSystem.ClearLog();
                 _cmdFilterDirty = true;
                 Tick();
             }) { text = "清空" });
-            pane.Add(tb);
+            pane.Add(_commandToolbarPrimary);
+            pane.Add(_commandToolbarSearchRow);
 
             _commandHint = new HelpBox(
                 "未记录到命令。接入（opt-in、不改变执行语义）：根 Context 的 InstallBindings 里注册\n" +
@@ -630,31 +833,39 @@ namespace Game.Framework.Editor
 
             _commandTable = new MultiColumnListView
             {
+                name = "diagnostics-command-table",
                 fixedItemHeight = 20,
                 selectionType = SelectionType.Single,
                 showAlternatingRowBackgrounds = AlternatingRowBackground.All,
                 style = { flexGrow = 1 },
             };
-            _commandTable.columns.Add(MakeColumn("时间", 70, false, (l, e) => l.text = FormatClock(e.StartTime)));
-            _commandTable.columns.Add(MakeColumn("帧", 56, false, (l, e) => l.text = e.Frame.ToString()));
-            _commandTable.columns.Add(MakeColumn("模式", 48, false, (l, e) =>
+            _timeColumn = MakeColumn("时间", 70, false, (l, e) => l.text = FormatClock(e.StartTime));
+            _frameColumn = MakeColumn("帧", 56, false, (l, e) => l.text = e.Frame.ToString());
+            _modeColumn = MakeColumn("模式", 48, false, (l, e) =>
             {
                 l.text = e.IsAsync ? "异步" : "同步";
                 l.style.color = e.IsAsync ? ColAsync : ColMuted;
-            }));
-            _commandTable.columns.Add(MakeColumn("命令", 200, true, (l, e) => l.text = e.CommandType));
-            _commandTable.columns.Add(MakeColumn("Context", 130, false, (l, e) => l.text = e.ContextName));
-            _commandTable.columns.Add(MakeColumn("耗时", 78, false, (l, e) =>
+            });
+            _commandColumn = MakeColumn("命令", 200, true, (l, e) => l.text = e.CommandType);
+            _contextColumn = MakeColumn("Context", 130, false, (l, e) => l.text = e.ContextName);
+            _durationColumn = MakeColumn("耗时", 78, false, (l, e) =>
             {
                 l.text = $"{e.DurationMs:F2}ms";
                 l.style.unityTextAlign = TextAnchor.MiddleRight;
                 l.style.color = e.DurationMs >= 100f ? ColBadDur : e.DurationMs >= 16.7f ? ColWarnDur : ColMuted;
-            }));
-            _commandTable.columns.Add(MakeColumn("状态", 140, true, (l, e) =>
+            });
+            _statusColumn = MakeColumn("状态", 140, true, (l, e) =>
             {
                 l.text = e.Error == null ? "✓" : $"✗ {e.Error}";
                 l.style.color = e.Error == null ? ColOk : ColError;
-            }));
+            });
+            _commandTable.columns.Add(_timeColumn);
+            _commandTable.columns.Add(_frameColumn);
+            _commandTable.columns.Add(_modeColumn);
+            _commandTable.columns.Add(_commandColumn);
+            _commandTable.columns.Add(_contextColumn);
+            _commandTable.columns.Add(_durationColumn);
+            _commandTable.columns.Add(_statusColumn);
             _commandTable.itemsSource = _cmdRows;
             // 选中一行 → 底部给出完整可复制文本（长错误信息在单元格里放不下）。
             _commandTable.selectionChanged += items =>
@@ -706,6 +917,159 @@ namespace Game.Framework.Editor
             ShowNotification(new GUIContent($"已复制 {_cmdRows.Count} 行"));
         }
 
+        // ── 响应式布局 ──────────────────────────────────────────────────────
+
+        /// <summary>
+        /// 根据可用宽度决定信息密度。阈值刻意留出一段 Medium 区间，避免窗口停靠时在横竖分栏之间频繁跳动。
+        /// </summary>
+        internal static LayoutMode ResolveLayoutMode(float width)
+            => width >= 960f ? LayoutMode.Wide : width >= 640f ? LayoutMode.Medium : LayoutMode.Compact;
+
+        /// <summary>
+        /// 窄屏优先保留“发生了什么、花了多久、是否成功”；时间、帧、同步模式与 Context 仍可通过选中行后的完整明细查看。
+        /// </summary>
+        internal static bool IsCommandColumnVisible(LayoutMode mode, CommandColumnId column)
+        {
+            if (mode == LayoutMode.Wide) return true;
+            if (mode == LayoutMode.Medium)
+                return column is not CommandColumnId.Frame and not CommandColumnId.Mode;
+            return column is CommandColumnId.Command or CommandColumnId.Duration or CommandColumnId.Status;
+        }
+
+        /// <summary>窗口变矮时同步压缩命令区，但保留足以显示工具栏和至少两行记录的高度。</summary>
+        internal static float ResolveCommandPaneDimension(LayoutMode mode, float height)
+        {
+            float available = Mathf.Max(180f, height - (mode == LayoutMode.Compact ? 110f : 80f));
+            float max = mode == LayoutMode.Compact ? 180f : 220f;
+            return Mathf.Clamp(available * 0.30f, 90f, max);
+        }
+
+        /// <summary>Context 树的首选尺寸；Compact 下它代表高度，其余模式下代表宽度。</summary>
+        internal static float ResolveTreePaneDimension(LayoutMode mode, float width, float height)
+            => mode switch
+            {
+                LayoutMode.Compact => Mathf.Clamp(height * 0.24f, 100f, 220f),
+                LayoutMode.Medium => Mathf.Clamp(width * 0.38f, 220f, 340f),
+                _ => Mathf.Clamp(width * 0.32f, 300f, 380f),
+            };
+
+        private void OnRootGeometryChanged(GeometryChangedEvent evt)
+        {
+            if (evt.target != rootVisualElement || evt.newRect.width <= 0f || evt.newRect.height <= 0f) return;
+            ApplyResponsiveLayout(evt.newRect.width, evt.newRect.height);
+        }
+
+        private void ApplyResponsiveLayout(float width, float height, bool force = false)
+        {
+            if (width <= 0f || height <= 0f) return;
+
+            var mode = ResolveLayoutMode(width);
+            bool modeChanged = force || _layoutMode != mode;
+            _layoutMode = mode;
+
+            if (modeChanged)
+            {
+                bool wide = mode == LayoutMode.Wide;
+                bool compact = mode == LayoutMode.Compact;
+
+                MoveElement(_treeSearchField, wide ? _toolbarActions : _toolbarSearchRow, wide ? 2 : 0);
+                _toolbarSearchRow.style.display = wide ? DisplayStyle.None : DisplayStyle.Flex;
+                _treeSearchField.style.marginLeft = wide ? 6 : 2;
+                _treeSearchField.style.marginRight = wide ? 6 : 2;
+
+                MoveElement(_commandSearchField, wide ? _commandToolbarPrimary : _commandToolbarSearchRow, wide ? 1 : 0);
+                _commandToolbarSearchRow.style.display = wide ? DisplayStyle.None : DisplayStyle.Flex;
+
+                _ctxSpark.style.display = compact ? DisplayStyle.None : DisplayStyle.Flex;
+                _bagSpark.style.display = compact ? DisplayStyle.None : DisplayStyle.Flex;
+                foreach (var separator in _counterSeparators)
+                    separator.style.display = compact ? DisplayStyle.None : DisplayStyle.Flex;
+                _counterStrip.style.paddingLeft = compact ? 4 : 8;
+                _counterStrip.style.paddingRight = compact ? 4 : 8;
+                _bagCountLabel.style.marginLeft = compact ? 8 : 0;
+                _cmdCountLabel.style.marginLeft = compact ? 8 : 0;
+
+                _loggingStrip.style.flexDirection = wide ? FlexDirection.Row : FlexDirection.Column;
+                _loggingStrip.style.alignItems = wide ? Align.Center : Align.Stretch;
+                _loggingSinkRow.style.marginTop = wide ? 0 : 2;
+                _loggingSeparator.style.display = wide ? DisplayStyle.Flex : DisplayStyle.None;
+                _minLevelField.style.minWidth = compact ? 64 : 76;
+                _minLevelField.style.marginRight = compact ? 4 : 12;
+                _captureToggle.style.marginRight = compact ? 4 : 12;
+
+                _contextSplit.orientation = compact
+                    ? TwoPaneSplitViewOrientation.Vertical
+                    : TwoPaneSplitViewOrientation.Horizontal;
+                _treePane.style.minHeight = compact ? 90 : 100;
+                _detail.style.minHeight = compact ? 90 : 100;
+                _monoIssueScroll.style.maxHeight = compact ? 150 : mode == LayoutMode.Medium ? 200 : 240;
+
+                SetCommandColumnVisibility(mode);
+                _tree?.RefreshItems(); // 让已复用的行立刻隐藏 / 恢复低优先级 meta 信息。
+            }
+
+            // 窗口尺寸变化时重算首选分栏与可见列宽；用户仅拖动 splitter 时根节点几何不变，不会被这里抢回。
+            _contextSplit.fixedPaneInitialDimension = ResolveTreePaneDimension(mode, width, height);
+            _mainSplit.fixedPaneInitialDimension = ResolveCommandPaneDimension(mode, height);
+            ResizeCommandColumns(mode, width);
+        }
+
+        private void SetCommandColumnVisibility(LayoutMode mode)
+        {
+            _timeColumn.visible = IsCommandColumnVisible(mode, CommandColumnId.Time);
+            _frameColumn.visible = IsCommandColumnVisible(mode, CommandColumnId.Frame);
+            _modeColumn.visible = IsCommandColumnVisible(mode, CommandColumnId.Mode);
+            _commandColumn.visible = IsCommandColumnVisible(mode, CommandColumnId.Command);
+            _contextColumn.visible = IsCommandColumnVisible(mode, CommandColumnId.Context);
+            _durationColumn.visible = IsCommandColumnVisible(mode, CommandColumnId.Duration);
+            _statusColumn.visible = IsCommandColumnVisible(mode, CommandColumnId.Status);
+        }
+
+        private void ResizeCommandColumns(LayoutMode mode, float width)
+        {
+            if (mode == LayoutMode.Compact)
+            {
+                float available = Mathf.Max(260f, width - 8f);
+                _durationColumn.width = 70f;
+                _durationColumn.minWidth = 64f;
+                _statusColumn.width = 76f;
+                _statusColumn.minWidth = 70f;
+                _commandColumn.width = Mathf.Max(90f, available - 146f);
+                _commandColumn.minWidth = 80f;
+                return;
+            }
+
+            if (mode == LayoutMode.Medium)
+            {
+                _commandColumn.minWidth = 40f;
+                _durationColumn.minWidth = 40f;
+                _statusColumn.minWidth = 40f;
+                _timeColumn.width = 70f;
+                _contextColumn.width = 120f;
+                _durationColumn.width = 76f;
+                _statusColumn.width = 110f;
+                _commandColumn.width = Mathf.Max(150f, width - 390f);
+                return;
+            }
+
+            _commandColumn.minWidth = 40f;
+            _durationColumn.minWidth = 40f;
+            _statusColumn.minWidth = 40f;
+            _timeColumn.width = 70f;
+            _frameColumn.width = 56f;
+            _modeColumn.width = 48f;
+            _commandColumn.width = 200f;
+            _contextColumn.width = 130f;
+            _durationColumn.width = 78f;
+            _statusColumn.width = 140f;
+        }
+
+        private static void MoveElement(VisualElement element, VisualElement target, int index)
+        {
+            element.RemoveFromHierarchy();
+            target.Insert(Mathf.Clamp(index, 0, target.childCount), element);
+        }
+
         // ── 定时刷新 ────────────────────────────────────────────────────────
 
         private void Tick()
@@ -716,20 +1080,27 @@ namespace Game.Framework.Editor
 
             // 场景 Mono Context 反查表（定位按钮 / Mono 徽标用）。
             _monoByCtx.Clear();
-            foreach (var m in FindObjectsByType<MonoGameContextBase>(FindObjectsInactive.Include, FindObjectsSortMode.None))
-                if (!m.IsDisposed && m.RawContext != null)
-                    _monoByCtx[m.RawContext] = m;
+            var monoContexts = FindObjectsByType<MonoGameContextBase>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            foreach (var m in monoContexts)
+            {
+                var snapshot = m.DiagnosticSnapshot;
+                if (snapshot.State == MonoContextDiagnosticState.Ready && snapshot.Context != null)
+                    _monoByCtx[snapshot.Context] = m;
+            }
 
-            RefreshCounters(contexts.Count);
+            int monoIssueCount = RefreshMonoIssues(monoContexts);
+            RefreshCounters(contexts.Count, monoIssueCount);
             RefreshLogging();
             RefreshTree(contexts);
             RefreshDetail();
             RefreshCommands();
         }
 
-        private void RefreshCounters(int contextCount)
+        private void RefreshCounters(int contextCount, int monoIssueCount)
         {
-            _ctxCountLabel.text = $"存活 Context {contextCount}";
+            _ctxCountLabel.text = monoIssueCount == 0
+                ? $"存活 Context {contextCount}"
+                : $"存活 Context {contextCount} · Mono 异常 {monoIssueCount}";
             _bagCountLabel.text = $"Bag 存活 {FrameworkDiagnostics.BagsAlive}（累计 {FrameworkDiagnostics.BagsCreated}）";
             _cmdCountLabel.text = $"命令累计 {LoggingCommandSystem.TotalRecorded}";
             if (EditorApplication.isPlaying)
@@ -737,6 +1108,98 @@ namespace Game.Framework.Editor
                 _ctxSpark.Push(contextCount);
                 _bagSpark.Push(FrameworkDiagnostics.BagsAlive);
             }
+        }
+
+        /// <summary>
+        /// 展示“有宿主、无 GameContext”的初始化异常。这里复用 Tick 已做的场景扫描，不建立第二份静态强引用
+        /// 登记表；删除窗口后 Core 的运行时语义完全不受影响。
+        /// </summary>
+        private int RefreshMonoIssues(IReadOnlyList<MonoGameContextBase> monoContexts)
+        {
+            var issues = monoContexts
+                .Select(m => (Host: m, Snapshot: m.DiagnosticSnapshot))
+                .Where(x => ShouldReportMonoIssue(x.Host, EditorApplication.isPlaying))
+                .OrderBy(x => HierarchyPath(x.Host), StringComparer.Ordinal)
+                .ToList();
+
+            var signatureBuilder = new StringBuilder(64);
+            foreach (var issue in issues)
+                signatureBuilder.Append(issue.Host.GetInstanceID()).Append(':')
+                    .Append((int)issue.Snapshot.State).Append(':')
+                    .Append(issue.Snapshot.Failure?.ToString().GetHashCode() ?? 0).Append(';');
+            string signature = signatureBuilder.ToString();
+
+            _monoIssueScroll.style.display = issues.Count == 0 ? DisplayStyle.None : DisplayStyle.Flex;
+            if (signature == _monoIssueSignature) return issues.Count;
+            _monoIssueSignature = signature;
+            _monoIssuePanel.Clear();
+
+            if (issues.Count == 0) return 0;
+
+            _monoIssuePanel.Add(new Label($"Mono Context 初始化异常（{issues.Count}）")
+            {
+                style =
+                {
+                    unityFontStyleAndWeight = FontStyle.Bold,
+                    color = ColError,
+                    marginBottom = 2,
+                },
+            });
+
+            foreach (var issue in issues)
+            {
+                var host = issue.Host;
+                var snapshot = issue.Snapshot;
+                var rootCause = DeepestCause(snapshot.Failure);
+                string parent = snapshot.ResolvedParent == null
+                    ? "（无）"
+                    : snapshot.ResolvedParent is MonoGameContextBase monoParent && monoParent != null
+                        ? HierarchyPath(monoParent)
+                        : snapshot.ResolvedParent is GameContext gameParent
+                            ? DisplayName(gameParent)
+                            : snapshot.ResolvedParent.GetType().Name;
+                string cause = rootCause == null
+                    ? "尚未完成初始化；若持续存在，请检查对象激活与 Awake 时序。"
+                    : $"{rootCause.GetType().Name}: {rootCause.Message}";
+
+                _monoIssuePanel.Add(new HelpBox(
+                    $"{HierarchyPath(host)}  [{snapshot.State}]\n父级：{parent}\n根因：{cause}",
+                    snapshot.State == MonoContextDiagnosticState.Failed
+                        ? HelpBoxMessageType.Error
+                        : HelpBoxMessageType.Warning));
+
+                var actions = new VisualElement
+                {
+                    style = { flexDirection = FlexDirection.Row, flexWrap = Wrap.Wrap, marginBottom = 2 },
+                };
+                actions.Add(new Button(() => PingSceneObject(host)) { text = "定位场景对象" });
+                if (snapshot.Failure != null)
+                {
+                    string fullException = snapshot.Failure.ToString();
+                    actions.Add(new Button(() => EditorGUIUtility.systemCopyBuffer = fullException)
+                    {
+                        text = "复制完整异常",
+                    });
+                }
+                _monoIssuePanel.Add(actions);
+            }
+
+            return issues.Count;
+        }
+
+        /// <summary>
+        /// 判断 Mono Context 快照是否代表需要维护者处理的异常。普通 MonoBehaviour 在 Edit Mode 不执行
+        /// <c>Awake</c>，所以 Uninitialized 是场景资产的正常静态状态；只有进入 Play 后仍未初始化才可疑。
+        /// Failed 保留跨模式可见，便于停止 Play 后继续复制异常和定位宿主。
+        /// </summary>
+        internal static bool ShouldReportMonoIssue(MonoGameContextBase host, bool editorIsPlaying)
+        {
+            if (host == null) return false;
+
+            var state = host.DiagnosticSnapshot.State;
+            if (state == MonoContextDiagnosticState.Failed) return true;
+            if (!editorIsPlaying || !host.gameObject.activeInHierarchy) return false;
+            return state is MonoContextDiagnosticState.Uninitialized or MonoContextDiagnosticState.Initializing;
         }
 
         private void RefreshTree(IReadOnlyList<GameContext> contexts)
@@ -898,6 +1361,31 @@ namespace Game.Framework.Editor
                 EditorGUIUtility.PingObject(mono.gameObject);
                 Selection.activeGameObject = mono.gameObject;
             }
+        }
+
+        private static void PingSceneObject(MonoGameContextBase mono)
+        {
+            if (mono == null) return;
+            EditorGUIUtility.PingObject(mono.gameObject);
+            Selection.activeGameObject = mono.gameObject;
+        }
+
+        private static string HierarchyPath(MonoGameContextBase mono)
+        {
+            if (mono == null) return "（对象已销毁）";
+            var names = new List<string>();
+            for (var t = mono.transform; t != null; t = t.parent)
+                names.Add(t.name);
+            names.Reverse();
+            return string.Join("/", names);
+        }
+
+        private static Exception DeepestCause(Exception exception)
+        {
+            if (exception == null) return null;
+            while (exception.InnerException != null)
+                exception = exception.InnerException;
+            return exception;
         }
 
         private static string DisplayName(GameContext ctx)

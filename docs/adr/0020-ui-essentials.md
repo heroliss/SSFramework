@@ -1,6 +1,6 @@
 # ADR-0020：UI 刚需补齐 —— 异步过渡 + Back 键 + 安全区 + Top 层常用件
 
-**Status:** Accepted（四项全部实现，2026-07-03）
+**Status:** Accepted（四项全部实现，2026-07-03；Loading 的并发所有权由 ADR-0037 深化）
 
 ## Context
 
@@ -56,12 +56,12 @@ UniTask OnCloseTransition(CancellationToken ct);  // 出场动画：OnClose 之�
 
 ### 4. Toast / Loading：Top 层内置件，走「类型表注册」保持后端无关
 
-`ShowToast(text, duration)` / `ShowLoading(text)` / `HideLoading()` 做成 **`IUIUtility` 一等方法**（不是 adapter 命名空间的扩展方法）——业务调用点完全后端无关，与 `Open<T>` 同一条铁律。实现机制：核心 `UIUtility` 构造时接收 `UIBuiltinWindows` **类型表**（Toast / Loading 的窗口 Type，由各 Mono 入口提供自家实现），`Show*` 按表走非泛型 `OpenCore(Type, args)` 开窗；未注册类型表（如测试裸核心）报错提示不抛异常。
+`ShowToast(text, duration, ct)` / Loading 入口做成 **`IUIUtility` 一等方法**（不是 adapter 命名空间的扩展方法）——业务调用点完全后端无关，与 `Open<T>` 同一条铁律。实现机制：核心 `UIUtility` 构造时接收 `UIBuiltinWindows` **类型表**（Toast / Loading 的窗口 Type，由各 Mono 入口提供自家实现），内置件按表走非泛型 `OpenCore(Type, args, ct)` 开窗，Toolkit / UGUI 入口原样透传可选生命周期令牌，取消后未完成创建的内置件不得延迟出现；未注册类型表（如测试裸核心）报错提示不抛异常。Loading 最初的 `ShowLoading/HideLoading` 单 owner 开关仍保留兼容，推荐的并发安全入口与迁移见 ADR-0037。
 
 内置窗口本体（每 adapter 一对，纯代码搭建、`Cache` 复用、落 `UILayer.Top`）：
 
 - **Toast**（`UGuiToastWindow` / `ToolkitToastWindow`）：底部居中半透明文字条，整棵树不吃输入；超时自关（令牌链接 Context，销毁级联取消）；连续 Toast 复用同一实例——刷新文本、重置计时，**不做队列**（no-over-engineering，要队列的项目自包一层）。
-- **Loading**（`UGuiLoadingWindow` / `ToolkitLoadingWindow`）：`Modal = true` 遮罩挡输入 + `BackClosable = false` 拦返回键；中央文本 + 旋转指示块（无美术资源的默认表现，正式项目通常用带资产的自定义 Loading 替代）；重复 `ShowLoading` 刷新文本。
+- **Loading**（`UGuiLoadingWindow` / `ToolkitLoadingWindow`）：`Modal = true` 遮罩挡输入 + `BackClosable = false` 拦返回键；中央文本 + 旋转指示块（无美术资源的默认表现，正式项目通常用带资产的自定义 Loading 替代）；重复占用复用同一窗口并刷新文本，窗口所有权由 ADR-0037 的 lease 管理。
 
 ## Consequences
 

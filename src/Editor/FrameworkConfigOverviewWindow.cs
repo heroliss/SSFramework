@@ -116,13 +116,24 @@ namespace Game.Framework.Editor
 
         private Vector2 _scroll;
 
+        private void OnEnable() => minSize = new Vector2(280, 320);
+
         private void OnGUI()
         {
+            bool compact = position.width < 380f;
             EditorGUILayout.Space(4);
-            using (new EditorGUILayout.HorizontalScope())
+            if (compact)
             {
                 EditorGUILayout.LabelField("框架配置 · 全模块总览", EditorStyles.boldLabel);
-                if (GUILayout.Button("刷新", GUILayout.Width(60))) Repaint();
+                if (GUILayout.Button("刷新")) Repaint();
+            }
+            else
+            {
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    EditorGUILayout.LabelField("框架配置 · 全模块总览", EditorStyles.boldLabel);
+                    if (GUILayout.Button("刷新", GUILayout.Width(60))) Repaint();
+                }
             }
             EditorGUILayout.HelpBox(
                 "框架各模块配置 profile 的一页清单：点路径定位选中资产；单例类找到多份会警告。\n" +
@@ -131,11 +142,11 @@ namespace Game.Framework.Editor
 
             _scroll = EditorGUILayout.BeginScrollView(_scroll);
             foreach (var section in Sections)
-                DrawSection(section);
+                DrawSection(section, compact);
             EditorGUILayout.EndScrollView();
         }
 
-        private static void DrawSection(Section section)
+        private static void DrawSection(Section section, bool compact)
         {
             // 模块（含其 editor 程序集）被整块删除时类型不存在——整节隐藏，不显示误导性的「0 份」。
             if (Type.GetType(section.QualifiedType) == null) return;
@@ -143,14 +154,20 @@ namespace Game.Framework.Editor
             var paths = FindPaths(section.TypeName);
             using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
             {
-                using (new EditorGUILayout.HorizontalScope())
+                if (compact)
                 {
                     EditorGUILayout.LabelField($"{section.Title} — {paths.Count} 份", EditorStyles.boldLabel);
-                    if (GUILayout.Button(section.JumpLabel, GUILayout.Width(90)) &&
-                        !EditorApplication.ExecuteMenuItem(section.JumpMenu))
-                        Debug.LogWarning($"[配置总览] 菜单不存在（改名了？请同步节表）：{section.JumpMenu}");
+                    DrawJumpButton(section, expand: true);
                 }
-                EditorGUILayout.LabelField(section.Note, EditorStyles.miniLabel);
+                else
+                {
+                    using (new EditorGUILayout.HorizontalScope())
+                    {
+                        EditorGUILayout.LabelField($"{section.Title} — {paths.Count} 份", EditorStyles.boldLabel);
+                        DrawJumpButton(section, expand: false);
+                    }
+                }
+                GUILayout.Label(section.Note, EditorStyles.wordWrappedMiniLabel);
 
                 if (section.Singleton && paths.Count > 1)
                     EditorGUILayout.HelpBox("找到多份，仅第一份生效——请删到只剩一份。", MessageType.Warning);
@@ -171,6 +188,15 @@ namespace Game.Framework.Editor
             EditorGUILayout.Space(4);
         }
 
+        private static void DrawJumpButton(Section section, bool expand)
+        {
+            bool clicked = expand
+                ? GUI.Button(EditorGUILayout.GetControlRect(false, EditorGUIUtility.singleLineHeight), section.JumpLabel)
+                : GUILayout.Button(section.JumpLabel, GUILayout.Width(90));
+            if (clicked && !EditorApplication.ExecuteMenuItem(section.JumpMenu))
+                Debug.LogWarning($"[配置总览] 菜单不存在（改名了？请同步节表）：{section.JumpMenu}");
+        }
+
         private static List<string> FindPaths(string typeName) =>
             AssetDatabase.FindAssets("t:" + typeName)
                 .Select(AssetDatabase.GUIDToAssetPath)
@@ -179,7 +205,8 @@ namespace Game.Framework.Editor
 
         private static void DrawAssetRow(string path)
         {
-            if (GUILayout.Button(new GUIContent(path, "点击定位并选中"), EditorStyles.objectField))
+            var rect = EditorGUILayout.GetControlRect(false, EditorGUIUtility.singleLineHeight);
+            if (GUI.Button(rect, new GUIContent(path, path + "\n点击定位并选中"), EditorStyles.objectField))
             {
                 var asset = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(path);
                 EditorGUIUtility.PingObject(asset);

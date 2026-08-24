@@ -16,13 +16,24 @@ namespace Game.Framework.UI.UGui.Editor
 
         private Vector2 _scroll;
 
+        private void OnEnable() => minSize = new Vector2(280, 320);
+
         private void OnGUI()
         {
+            bool compact = position.width < 520f;
             EditorGUILayout.Space(4);
-            using (new EditorGUILayout.HorizontalScope())
+            if (position.width < 380f)
             {
                 EditorGUILayout.LabelField("UI 节点绑定 · 生成配置总览", EditorStyles.boldLabel);
-                if (GUILayout.Button("刷新", GUILayout.Width(60))) Repaint();
+                if (GUILayout.Button("刷新")) Repaint();
+            }
+            else
+            {
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    EditorGUILayout.LabelField("UI 节点绑定 · 生成配置总览", EditorStyles.boldLabel);
+                    if (GUILayout.Button("刷新", GUILayout.Width(60))) Repaint();
+                }
             }
             EditorGUILayout.HelpBox(
                 "覆盖链（就近优先）：prefab 覆盖 → 目录配置（由近到远）→ 全工程 Profile。每项独立覆盖，留空即继承上层。",
@@ -33,7 +44,8 @@ namespace Game.Framework.UI.UGui.Editor
             var profile = UICodeGenProfile.Resolve();
             EditorGUILayout.LabelField("全工程默认 (UICodeGenProfile)", EditorStyles.boldLabel);
             DrawRow(profile, AssetDatabase.GetAssetPath(profile),
-                profile.NamespaceRoot, profile.OutputCodeDir, profile.GeneratedCodeDir, profile.FileNameTemplate, isProfile: true);
+                profile.NamespaceRoot, profile.OutputCodeDir, profile.GeneratedCodeDir, profile.FileNameTemplate,
+                isProfile: true, compact: compact);
 
             EditorGUILayout.Space(8);
             var dirConfigs = AssetDatabase.FindAssets("t:" + nameof(UICodeGenDirConfig))
@@ -47,17 +59,27 @@ namespace Game.Framework.UI.UGui.Editor
             if (dirConfigs.Count == 0)
                 EditorGUILayout.LabelField("（无——所有 prefab 都走全工程默认）", EditorStyles.miniLabel);
             foreach (var (path, cfg) in dirConfigs)
-                DrawRow(cfg, path, cfg.NamespaceOrNull, cfg.OutputDirOrNull, cfg.GeneratedDirOrNull, cfg.FileNameOrNull, isProfile: false);
+                DrawRow(cfg, path, cfg.NamespaceOrNull, cfg.OutputDirOrNull, cfg.GeneratedDirOrNull, cfg.FileNameOrNull,
+                    isProfile: false, compact: compact);
 
             EditorGUILayout.EndScrollView();
         }
 
         // 一条配置：资产名（点击定位选中）+ 管辖目录（仅目录配置）+ 四项值（目录配置空项显示「继承」，Profile 全显示）。
-        private static void DrawRow(Object asset, string path, string ns, string outDir, string genDir, string fileName, bool isProfile)
+        private static void DrawRow(
+            Object asset,
+            string path,
+            string ns,
+            string outDir,
+            string genDir,
+            string fileName,
+            bool isProfile,
+            bool compact)
         {
             using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
             {
-                if (GUILayout.Button(new GUIContent(System.IO.Path.GetFileName(path), path + "\n点击定位并选中"), EditorStyles.objectField))
+                var assetRect = EditorGUILayout.GetControlRect(false, EditorGUIUtility.singleLineHeight);
+                if (GUI.Button(assetRect, new GUIContent(System.IO.Path.GetFileName(path), path + "\n点击定位并选中"), EditorStyles.objectField))
                 {
                     EditorGUIUtility.PingObject(asset);
                     Selection.activeObject = asset;
@@ -65,26 +87,31 @@ namespace Game.Framework.UI.UGui.Editor
                 if (!isProfile)
                 {
                     string dir = (System.IO.Path.GetDirectoryName(path) ?? string.Empty).Replace('\\', '/');
-                    EditorGUILayout.LabelField("管辖目录", dir + "/**", EditorStyles.miniLabel);
+                    Field("管辖目录", dir + "/**", isProfile: true, compact: compact);
                 }
-                Field("命名空间", ns, isProfile);
-                Field("逻辑目录", outDir, isProfile);
-                Field("生成目录", genDir, isProfile);
-                Field("文件名/类名", fileName, isProfile);
+                Field("命名空间", ns, isProfile, compact);
+                Field("逻辑目录", outDir, isProfile, compact);
+                Field("生成目录", genDir, isProfile, compact);
+                Field("文件名/类名", fileName, isProfile, compact);
             }
         }
 
-        private static void Field(string label, string value, bool isProfile)
+        private static void Field(string label, string value, bool isProfile, bool compact)
         {
             if (string.IsNullOrEmpty(value))
             {
                 if (isProfile) return; // Profile 这四项不该为空
-                EditorGUILayout.LabelField(label, "（继承）", EditorStyles.miniLabel);
+                value = "（继承）";
             }
-            else
+
+            if (!compact)
             {
                 EditorGUILayout.LabelField(label, value);
+                return;
             }
+
+            EditorGUILayout.LabelField(label, EditorStyles.miniBoldLabel);
+            GUILayout.Label(value, EditorStyles.wordWrappedMiniLabel);
         }
     }
 }
