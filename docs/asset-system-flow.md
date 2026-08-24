@@ -1,7 +1,7 @@
 # 资源系统全流程（初始化 / 加载 / 下载缓存）
 
 > 速查图谱：资源系统在「进游戏 → 加载资源 → 下载/清缓存」各阶段到底发生了什么、哪步联网、哪步会抛/返 null。
-> 配套：使用约定见 [`Assets/Game/AGENTS.md` §19](../Assets/Game/AGENTS.md)，底层库踩坑见 [`docs/yooasset-pitfalls.md`](yooasset-pitfalls.md)，原生 API 改造背景见 [ADR 0013](adr/0013-yooasset-native-rewrite.md)，资源加密 / 构建过程开关见 [`docs/asset-encryption.md`](asset-encryption.md)。
+> 配套：使用约定见 [`Assets/Game/AGENTS.md`「模块使用不变量」的资源条目](../Assets/Game/AGENTS.md#模块使用不变量)，底层库踩坑见 [`docs/yooasset-pitfalls.md`](yooasset-pitfalls.md)，原生 API 改造背景见 [ADR 0013](adr/0013-yooasset-native-rewrite.md)，资源加密 / 构建过程开关见 [`docs/asset-encryption.md`](asset-encryption.md)。
 > 三层职责拆分（Model/System/Utility）与代码位置见 [`docs/framework-guide.md`](framework-guide.md)。
 
 ---
@@ -137,6 +137,9 @@ flowchart TD
 - 三种范围：按 tag（关卡/DLC 整批）、全部（整包预下）、按地址（点名含依赖）。
 - 清缓存是 **bundle 粒度**：按 tag 是并集（命中任一即清）；按地址会连带同 bundle 邻居。想精确隔离要打包时让资源独占 bundle。
 - 固定顺序：**清缓存 → 重建下载器 → 开始下载**（下载器是快照，不会自己更新）。
+- 并发有两层护栏：`AssetUtility` 串行自身的同包维护；Yoo Adapter 再按实际 `ResourcePackage` 做进程级公平 Reader/Writer 协调，跨 Utility/Provider 覆盖按需 Load、显式 Download 与维护。调用者取消只离开等待；排队且已无人等待的项跳过，原生 operation 一旦开始就运行到真实终态。
+- 每次 `ClearCache*` 到达终态都会推进缓存世代（失败也按可能部分改盘处理）；旧 downloader 会明确报“重建”，不会拿创建时快照静默续跑。
+- `IsNeedDownload` / `Create*Downloader` 是同步快照：Writer 活跃或已排队时立即拒绝并提示维护后重试，不阻塞 Unity 主线程，也不越过 Writer 读取中间态。
 - Host 默认允许 `Load` 对未缓存 bundle 当场按需下载；大型 DLC 可在 `AssetSystemConfigModel.Packages` 列表里取消该包的「启用按需下载」，让未缓存 `Load` 直接失败，强制先走显式下载器和进度 UI。
 
 ---
@@ -160,7 +163,7 @@ flowchart LR
     DL --> Game["进游戏"]
 ```
 
-- 业务用 `IAssetUtility.Initialize(包名)` 触发（默认包传空）——对 `Idle` 包即「冷启动初始化」、对 `Failed` 包即「重试」；不抛，结果写回 `InitState` 驱动 loading。
+- 业务用 `IAssetUtility.Initialize(包名)` 触发（默认包传空）——对 `Idle` 包即「冷启动初始化」、对 `Failed` 包即「重试」；普通失败不抛，结果写回 `InitState` 驱动 loading。调用者取消只以 `OperationCanceledException` 离开自己的等待，不等同于中止共享的原生操作：utility 通常持有初始化 owner；一旦 YooAsset 原生操作已启动，包级协调器会保证它继续到终态。状态保持 `Initializing`，同包后续调用加入同一 owner，不重复启动底层 operation。
 - 启动批次会先把「该自动初始化」的包统一标 `Pending` 再依次初始化：批次窗口内对还没轮到的包 `Load` 会**等待**（`Pending`/`Initializing`），不会误报「未初始化」。
 - 把全部要联网的包都设「不自动初始化」= 启动前零网络连接（最强的合规门）。
 

@@ -17,7 +17,10 @@ namespace Game.Framework.Internal
     /// </summary>
     public interface IAssetReferenceBindable : IDisposable
     {
-        /// <summary>注入加载器和宿主销毁信号。utility 用来发起底层加载；hostToken 用来在宿主销毁时取消正在进行的加载。</summary>
+        /// <summary>
+        /// 注入加载器和宿主销毁信号。utility 用来发起底层加载；hostToken 用来在宿主销毁时结束引用侧等待、
+        /// 拒绝晚到结果，不承诺强停 provider 已经启动的共享物理操作。
+        /// </summary>
         void Bind(IAssetUtility utility, CancellationToken hostToken);
     }
 

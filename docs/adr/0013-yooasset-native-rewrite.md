@@ -44,3 +44,22 @@
 
 - **运行模式拆成「编辑器 / 玩家包」两字段**：原 `AssetSystemConfigModel` 单一 `_playMode` 全局通吃，但 `EditorSimulate` 分支在 provider 里是 `#if UNITY_EDITOR` 编译的——场景配模拟模式进玩家包直接 `NotSupportedException`，且这个错误配置在编辑器 Play 完全无症状。新增 `_playerPlayMode`（默认 Offline），`ActualPlayMode` 按端选字段；`GetConfigError` 校验玩家包模式不得选 EditorSimulate（fail-fast 于启动校验而非 provider 初始化）。同一份场景配置由此两头通用：编辑器日常模拟、玩家包 Offline/Host。
 - **`AssetUtility.Configure` 提升 public**：热更引导下 Boot 场景只能挂 AOT 组件，场景三件套没法先于首场景存在——首场景加载前的资源初始化必须有代码化路径。入口（GameEntry）用 `MonoGameContextBase + AssetUtility` 双 AddComponent 搭最小引导栈：`Configure → Initialize → LoadScene → Destroy` 交棒；provider 对已初始化的包按名复用（Dispose 不销毁包）正是为这类「多 utility 实例并存」预留的语义，本轮首次被真实消费。
+
+## 2026-08 修订（取消等待与物理 operation 所有权）
+
+YooAsset 3.0 的 `AsyncOperationBase` 没有通用外部取消；框架的 `WaitOp(..., ct)` 取消的是 UniTask 轮询等待，不会停止已经启动的底层 operation。若把短命 UI token 直接当物理初始化 / 清缓存 token，调用者取消后上层会过早释放“同包可重试”入口，而原 operation 仍在跑：初始化重试会命中 `Resource package is already initialized`，两个缓存维护 operation 也可能同时修改同包文件记录。
+
+因此资源异步所有权拆成两个作用域：
+
+- 初始化由 utility 生命周期建立唯一 per-package owner；各调用者只等待共享 TCS。调用者取消不改变 `InitState`，owner 最终统一落到 `Ready` / `Failed`。
+- 同包三种 `ClearCache*` 与 `UnloadUnusedAssets` 共用 FIFO 维护 lane。条目开始后只受 utility owner token 控制；调用者取消只脱离等待，lane 要等物理调用真正返回才放行下一项。排队期间已取消的条目不启动。
+- `YooAssetProvider` 之上还需要按实际 `ResourcePackage` 共享的进程级协调器：多个 Utility/Provider 会复用 YooAssets 全局注册表里的同一个包，只在 Utility 内串行看不到跨实例操作，也看不到按需 Load / 显式 Download。Adapter 用公平 Reader/Writer 队列让加载与下载并行、让初始化 / 清缓存 / 内存维护独占，并阻止新 Reader 越过已排队 Writer。
+- `IAssetProvider` 仍是原有 Seam，不新增公共协调 Interface；跨实例协调是 YooAsset 这个全局后端的 Implementation 细节，其他真正实例隔离的后端无需照搬。
+
+两层取消都遵循同一边界：最后一个 waiter 在获 lease 前离开，可以撤销排队而不产生副作用；lease 授予后 token 只让该 waiter detach，原生 operation 继续到真实终态。无人接收的 Asset / Scene 成功 handle 会被释放，后台失败会进入统一日志。清缓存终态还会推进 package 缓存世代（失败也可能留下部分变化），创建于旧世代的 downloader 在启动前 fail-fast，要求重建；同一 downloader 的多个调用共享一个物理 owner，底层 operation 只启动一次。
+
+同步 downloader 工厂和 `IsNeedDownload` 不能 await Writer，也不能越过 Writer：协调器提供短同步 Reader admission，原子执行“读缓存世代 + 建快照”；Writer 活跃或已排队时 fail-fast，调用方在维护完成后重试。已完成 downloader 的每次后续 `Download()` 也会重新经过 Reader admission 再校验世代，不能用黏住的旧终态绕过刚完成的 Clear。
+
+挂起场景另有一个第三方状态机边界：`allowSceneActivation=false` 时 Unity 会停在 0.9，`IsDone` 只有业务拿到 handle 并 `UnSuspend` 后才可能成立。Adapter 把“内容到达激活门”定义为这类 Reader 的可交接终态并返回 handle，避免 owner 与调用方互等。
+
+协调器用 `ConditionalWeakTable<ResourcePackage, ...>` 建立身份映射：同一原生包跨 Provider 命中同一状态机，但协调器不会反向强持有已经从 YooAssets 注册表移除的包。纯协调器 EditMode 契约覆盖 Reader 并行 / Writer 公平与独占、排队取消、运行后 detach、失败终态、共享 owner、同步快照 admission、弃置结果和后台日志；EditorSimulate 集成测试覆盖已完成 downloader 经 Clear 后拒绝、重建成功，以及挂起场景到激活门后的恢复与完整卸载。

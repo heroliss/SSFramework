@@ -11,7 +11,10 @@ namespace Game.Framework
     /// </summary>
     public interface IAssetDownloader
     {
-        /// <summary>本次下载需要处理的资源文件数量。为 0 表示没有缺失内容，可直接进入业务流程。</summary>
+        /// <summary>
+        /// 创建 downloader 时统计的资源文件数量快照。为 0 表示该创建时点没有缺失内容；
+        /// 若之后发生清缓存，仍以 <see cref="Download"/> 的缓存世代校验为准并重建 downloader。
+        /// </summary>
         int TotalCount { get; }
 
         /// <summary>本次下载的总字节数，用于展示容量提示或 Wi-Fi 确认。</summary>
@@ -33,7 +36,9 @@ namespace Game.Framework
         /// <para><b>失败语义</b>：单文件失败会按下载配置（<c>FailedTryAgain</c>）自动重试若干次；最终仍失败（重试耗尽 / 远端不可达）时
         /// <b>抛异常</b>，调用方需 <c>try/catch</c>。downloader 是一次性的——失败后再调本方法会立即重抛、不会重试，
         /// 重试须<b>重建 downloader 再下</b>（已成功的分片已进缓存会被跳过，即断点续传）。
-        /// 取消 token 触发时取消底层下载并抛 <see cref="System.OperationCanceledException"/>。</para>
+        /// <b>取消语义</b>：token 取消当前调用者的等待并抛 <see cref="System.OperationCanceledException"/>，不承诺强停共享的底层下载。
+        /// 若下载还在同包维护操作后排队且已无人等待，实现可直接跳过；一旦物理下载开始，它会继续到真实终态，其他等待者不受影响。
+        /// 任一次清缓存到达终态后，基于旧缓存快照创建的 downloader 会失效，必须重建再下。</para>
         /// </summary>
         UniTask Download(CancellationToken ct = default);
     }

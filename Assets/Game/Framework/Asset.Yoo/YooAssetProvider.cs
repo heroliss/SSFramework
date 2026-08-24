@@ -41,6 +41,7 @@ namespace Game.Framework
             if (string.IsNullOrEmpty(packageName))
                 throw new ArgumentException("Package name is required.", nameof(packageName));
             config ??= new AssetProviderConfig();
+            ct.ThrowIfCancellationRequested();
 
             if (!YooAssets.IsInitialized)
                 YooAssets.Initialize();
@@ -48,6 +49,30 @@ namespace Game.Framework
             if (!YooAssets.TryGetPackage(packageName, out var package))
                 package = YooAssets.CreatePackage(packageName);
 
+            if (package.InitializeStatus == EOperationStatus.Succeeded && package.PackageValid)
+            {
+                _packages[packageName] = package;
+                return;
+            }
+
+            var coordinator = YooPackageOperationCoordinator.Get(package);
+            await coordinator.RunWriter(
+                $"Initialize/{packageName}",
+                () => InitializePackageCoreAsync(packageName, package, mode, config),
+                ct,
+                advanceCacheEpoch: false);
+
+            ThrowIfDisposed();
+            _packages[packageName] = package;
+        }
+
+        private async UniTask InitializePackageCoreAsync(
+            string packageName,
+            ResourcePackage package,
+            AssetPlayMode mode,
+            AssetProviderConfig config)
+        {
+            // 另一 provider 可能已经完成同包初始化。必须在取得进程级 Writer 后重查，不能依赖排队前快照。
             if (package.InitializeStatus != EOperationStatus.Succeeded)
             {
                 // 纯 CDN 的 Host 包可以合法地没有任何 StreamingAssets 文件。只有确实存在内置版本文件时才让
@@ -55,23 +80,20 @@ namespace Game.Framework
                 bool copyBuiltinManifest = false;
                 if (mode == AssetPlayMode.Host)
                 {
-                    var builtin = await TryReadBuiltinVersionAsync(packageName, ct);
+                    var builtin = await TryReadBuiltinVersionAsync(packageName, CancellationToken.None);
                     copyBuiltinManifest = builtin.ok;
                 }
 
                 var initOp = package.InitializePackageAsync(
                     CreateInitOptions(packageName, mode, config, copyBuiltinManifest));
-                await WaitOp(initOp, ct);
-                ct.ThrowIfCancellationRequested();
+                await WaitOp(initOp, CancellationToken.None);
 
                 if (initOp.Status != EOperationStatus.Succeeded)
                     throw new InvalidOperationException($"[YooAssetProvider] Package '{packageName}' initialize failed: {initOp.Error}");
             }
 
             if (!package.PackageValid)
-                await UpdateManifestAsync(packageName, package, config.CdnUrls, ct);
-
-            _packages[packageName] = package;
+                await UpdateManifestAsync(packageName, package, config.CdnUrls, CancellationToken.None);
         }
 
         public bool IsPackageReady(string packageName)
@@ -91,6 +113,21 @@ namespace Game.Framework
                 return null;
             }
 
+            var coordinator = YooPackageOperationCoordinator.Get(package);
+            return await coordinator.RunReader(
+                $"LoadAsset/{packageName}/{locationOrGuid}",
+                () => LoadAssetCoreAsync(package, packageName, locationOrGuid, byGuid, type),
+                ct,
+                static handle => handle?.Dispose());
+        }
+
+        private static async UniTask<IAssetHandle<UnityEngine.Object>> LoadAssetCoreAsync(
+            ResourcePackage package,
+            string packageName,
+            string locationOrGuid,
+            bool byGuid,
+            Type type)
+        {
             type ??= typeof(UnityEngine.Object);
             var loadType = typeof(Component).IsAssignableFrom(type) ? typeof(GameObject) : type;
             var assetInfo = byGuid
@@ -106,7 +143,7 @@ namespace Game.Framework
             var handle = package.LoadAssetAsync(assetInfo);
             try
             {
-                await WaitHandle(handle, ct);
+                await WaitHandle(handle, CancellationToken.None);
             }
             catch
             {
@@ -145,12 +182,37 @@ namespace Game.Framework
                 return null;
             }
 
+            var coordinator = YooPackageOperationCoordinator.Get(package);
+            return await coordinator.RunReader(
+                $"LoadScene/{packageName}/{location}",
+                () => LoadSceneCoreAsync(package, packageName, location, mode, suspendLoad),
+                ct,
+                static handle => handle?.Dispose());
+        }
+
+        private static async UniTask<ISceneHandle> LoadSceneCoreAsync(
+            ResourcePackage package,
+            string packageName,
+            string location,
+            LoadSceneMode mode,
+            bool suspendLoad)
+        {
             // YooAsset 该参数是 allowSceneActivation（是否加载完立即激活），与框架的 suspendLoad（挂起=先别激活）语义相反，须取反。
-            // 直传会把「不挂起」当成「不激活」→ 场景卡在 90% 永不激活（Hierarchy 显示 is loading），await 永不返回。
+            // 挂起模式不能继续等 IsDone：Unity 会停在 0.9，而业务必须先拿到本 handle 才能 UnSuspend；
+            // 继续等待会形成循环依赖，并永久占住 package Reader lease。
             var handle = package.LoadSceneAsync(location, mode, LocalPhysicsMode.None, allowSceneActivation: !suspendLoad);
             try
             {
-                await WaitHandle(handle, ct);
+                if (suspendLoad)
+                {
+                    // 0.9 是场景内容已读完、只差 allowSceneActivation 的明确交接点。此时 bundle 引用
+                    // 已由 SceneHandle 持有，可以结束物理 Reader；业务可在任意时机调用 UnSuspend。
+                    await UniTask.WaitUntil(() => handle.IsDone || handle.Progress >= 0.9f);
+                }
+                else
+                {
+                    await WaitHandle(handle, CancellationToken.None);
+                }
             }
             catch
             {
@@ -158,7 +220,7 @@ namespace Game.Framework
                 throw;
             }
 
-            if (handle.Status != EOperationStatus.Succeeded)
+            if (handle.IsDone && handle.Status != EOperationStatus.Succeeded)
             {
                 Debug.LogError($"[YooAssetProvider] Load scene failed in package '{packageName}': {location}, {handle.Error}");
                 _ = handle.UnloadSceneAsync();
@@ -170,14 +232,30 @@ namespace Game.Framework
 
         public async UniTask<string> LoadTextAsync(string packageName, string location, CancellationToken ct)
         {
-            if (IsRawFilePackage(packageName))
+            ThrowIfDisposed();
+            var package = GetReadyPackage(packageName);
+            bool isRawFilePackage = IsRawFilePackage(packageName, package);
+            var coordinator = YooPackageOperationCoordinator.Get(package);
+            return await coordinator.RunReader(
+                $"LoadText/{packageName}/{location}",
+                () => LoadTextCoreAsync(package, packageName, location, isRawFilePackage),
+                ct);
+        }
+
+        private static async UniTask<string> LoadTextCoreAsync(
+            ResourcePackage package,
+            string packageName,
+            string location,
+            bool isRawFilePackage)
+        {
+            if (isRawFilePackage)
             {
-                var (handle, raw) = await LoadRawFileObjectAsync(packageName, location, ct);
+                var (handle, raw) = await LoadRawFileObjectAsync(package, packageName, location);
                 if (handle == null) return null;
                 try { return raw.GetText(); }
                 finally { handle.Release(); }
             }
-            var (taHandle, ta) = await LoadTextAssetAsync(packageName, location, ct);
+            var (taHandle, ta) = await LoadTextAssetAsync(package, packageName, location);
             if (taHandle == null) return null;
             try { return ta.text; }
             finally { taHandle.Release(); }
@@ -185,14 +263,30 @@ namespace Game.Framework
 
         public async UniTask<byte[]> LoadBytesAsync(string packageName, string location, CancellationToken ct)
         {
-            if (IsRawFilePackage(packageName))
+            ThrowIfDisposed();
+            var package = GetReadyPackage(packageName);
+            bool isRawFilePackage = IsRawFilePackage(packageName, package);
+            var coordinator = YooPackageOperationCoordinator.Get(package);
+            return await coordinator.RunReader(
+                $"LoadBytes/{packageName}/{location}",
+                () => LoadBytesCoreAsync(package, packageName, location, isRawFilePackage),
+                ct);
+        }
+
+        private static async UniTask<byte[]> LoadBytesCoreAsync(
+            ResourcePackage package,
+            string packageName,
+            string location,
+            bool isRawFilePackage)
+        {
+            if (isRawFilePackage)
             {
-                var (handle, raw) = await LoadRawFileObjectAsync(packageName, location, ct);
+                var (handle, raw) = await LoadRawFileObjectAsync(package, packageName, location);
                 if (handle == null) return null;
                 try { return raw.GetBytes(); }
                 finally { handle.Release(); }
             }
-            var (taHandle, ta) = await LoadTextAssetAsync(packageName, location, ct);
+            var (taHandle, ta) = await LoadTextAssetAsync(package, packageName, location);
             if (taHandle == null) return null;
             try { return ta.bytes; }
             finally { taHandle.Release(); }
@@ -207,8 +301,12 @@ namespace Game.Framework
         public bool IsNeedDownload(string packageName, string location)
         {
             if (!IsPackageReady(packageName) || string.IsNullOrEmpty(location)) return false;
-            // 3.0 用下载尺寸代替旧的 bool 查询：>0 即表示该资源仍需从远端拉取。
-            return _packages[packageName].GetDownloadSize(location) > 0;
+            var package = _packages[packageName];
+            var coordinator = YooPackageOperationCoordinator.Get(package);
+            return coordinator.RunSynchronousReader(
+                $"IsNeedDownload/{packageName}/{location}",
+                // 3.0 用下载尺寸代替旧的 bool 查询：>0 即表示该资源仍需从远端拉取。
+                () => package.GetDownloadSize(location) > 0);
         }
 
         public string GetPackageVersion(string packageName)
@@ -228,8 +326,15 @@ namespace Game.Framework
             var tagArray = new string[tags.Count];
             for (int i = 0; i < tags.Count; i++)
                 tagArray[i] = tags[i];
-            var op = package.CreateResourceDownloader(new ResourceDownloaderOptions(tagArray, maxConcurrent, retries));
-            return new AssetDownloader(op);
+            var coordinator = YooPackageOperationCoordinator.Get(package);
+            return coordinator.RunSynchronousReader(
+                $"CreateTagDownloader/{packageName}",
+                () =>
+                {
+                    long cacheEpoch = coordinator.CacheEpoch;
+                    var op = package.CreateResourceDownloader(new ResourceDownloaderOptions(tagArray, maxConcurrent, retries));
+                    return (IAssetDownloader)new AssetDownloader(packageName, op, coordinator, cacheEpoch);
+                });
         }
 
         public IAssetDownloader CreateAllDownloader(string packageName, int maxConcurrent, int retries)
@@ -237,8 +342,15 @@ namespace Game.Framework
             ThrowIfDisposed();
             var package = GetReadyPackage(packageName);
             // 无 tag 的 ResourceDownloaderOptions = 下载该包当前清单下全部尚未缓存的 bundle（YooAsset: Tags=null → download all required）。
-            var op = package.CreateResourceDownloader(new ResourceDownloaderOptions(maxConcurrent, retries));
-            return new AssetDownloader(op);
+            var coordinator = YooPackageOperationCoordinator.Get(package);
+            return coordinator.RunSynchronousReader(
+                $"CreateAllDownloader/{packageName}",
+                () =>
+                {
+                    long cacheEpoch = coordinator.CacheEpoch;
+                    var op = package.CreateResourceDownloader(new ResourceDownloaderOptions(maxConcurrent, retries));
+                    return (IAssetDownloader)new AssetDownloader(packageName, op, coordinator, cacheEpoch);
+                });
         }
 
         public IAssetDownloader CreateLocationDownloader(string packageName, IReadOnlyList<string> locations, int maxConcurrent, int retries)
@@ -248,82 +360,122 @@ namespace Game.Framework
             if (locations == null || locations.Count == 0)
                 throw new ArgumentException("At least one location is required.", nameof(locations));
 
-            // 把每个 location 解析成 AssetInfo；解析不到的（拼错地址 / 传错包）跳过并 warning，不无声吞（同 ClearCacheByLocations）。
-            var infos = new List<AssetInfo>(locations.Count);
-            for (int i = 0; i < locations.Count; i++)
-            {
-                var info = package.GetAssetInfo(locations[i]);
-                if (info == null || !info.IsValid)
-                    Debug.LogWarning($"[YooAssetProvider] Create location downloader: '{locations[i]}' not found in package '{packageName}' manifest — skipped. {info?.Error}");
-                else
-                    infos.Add(info);
-            }
-            // downloadDependencies=true：下载这些资源所在 bundle 及其依赖 bundle（业务通常要「连带依赖一起下好」）。
-            var op = package.CreateResourceDownloader(new BundleDownloaderOptions(infos.ToArray(), downloadDependencies: true, maxConcurrent, retries));
-            return new AssetDownloader(op);
+            var locationSnapshot = new List<string>(locations);
+            var coordinator = YooPackageOperationCoordinator.Get(package);
+            return coordinator.RunSynchronousReader(
+                $"CreateLocationDownloader/{packageName}",
+                () =>
+                {
+                    // 把每个 location 解析成 AssetInfo；解析不到的（拼错地址 / 传错包）跳过并 warning，不无声吞（同 ClearCacheByLocations）。
+                    var infos = new List<AssetInfo>(locationSnapshot.Count);
+                    for (int i = 0; i < locationSnapshot.Count; i++)
+                    {
+                        var info = package.GetAssetInfo(locationSnapshot[i]);
+                        if (info == null || !info.IsValid)
+                            Debug.LogWarning($"[YooAssetProvider] Create location downloader: '{locationSnapshot[i]}' not found in package '{packageName}' manifest — skipped. {info?.Error}");
+                        else
+                            infos.Add(info);
+                    }
+
+                    // downloadDependencies=true：下载这些资源所在 bundle 及其依赖 bundle（业务通常要「连带依赖一起下好」）。
+                    long cacheEpoch = coordinator.CacheEpoch;
+                    var op = package.CreateResourceDownloader(new BundleDownloaderOptions(
+                        infos.ToArray(), downloadDependencies: true, maxConcurrent, retries));
+                    return (IAssetDownloader)new AssetDownloader(packageName, op, coordinator, cacheEpoch);
+                });
         }
 
         public async UniTask ClearCacheAsync(string packageName, AssetCacheClearMode mode, CancellationToken ct)
         {
             ThrowIfDisposed();
             var package = GetReadyPackage(packageName);
-            // 框架的两档清理映射到 YooAsset 3.0 的清理方式：All=清全部缓存 bundle，Unused=清未被当前清单引用的 bundle。
-            string method = mode == AssetCacheClearMode.All
-                ? ClearCacheMethods.ClearAllBundleFiles
-                : ClearCacheMethods.ClearUnusedBundleFiles;
-            var op = package.ClearCacheAsync(new ClearCacheOptions(method));
-            await WaitOp(op, ct);
-            ct.ThrowIfCancellationRequested();
+            var coordinator = YooPackageOperationCoordinator.Get(package);
+            await coordinator.RunWriter(
+                $"ClearCache/{packageName}/{mode}",
+                async () =>
+                {
+                    // 框架的两档清理映射到 YooAsset 3.0 的清理方式：All=清全部缓存 bundle，Unused=清未被当前清单引用的 bundle。
+                    string method = mode == AssetCacheClearMode.All
+                        ? ClearCacheMethods.ClearAllBundleFiles
+                        : ClearCacheMethods.ClearUnusedBundleFiles;
+                    var op = package.ClearCacheAsync(new ClearCacheOptions(method));
+                    await WaitOp(op, CancellationToken.None);
 
-            if (op.Status != EOperationStatus.Succeeded)
-                throw new InvalidOperationException($"[YooAssetProvider] Clear cache failed for '{packageName}': {op.Error}");
+                    if (op.Status != EOperationStatus.Succeeded)
+                        throw new InvalidOperationException($"[YooAssetProvider] Clear cache failed for '{packageName}': {op.Error}");
+                },
+                ct,
+                advanceCacheEpoch: true);
         }
 
         public async UniTask ClearCacheByTagsAsync(string packageName, IReadOnlyList<string> tags, CancellationToken ct)
         {
             ThrowIfDisposed();
             var package = GetReadyPackage(packageName);
-            // 按 tag 清：只清这些 tag 标记的已下载 bundle（YooAsset ClearBundleFilesByTags，clearParam 收 string/数组/List，这里传 List）。
-            var op = package.ClearCacheAsync(new ClearCacheOptions(ClearCacheMethods.ClearBundleFilesByTags, new List<string>(tags)));
-            await WaitOp(op, ct);
-            ct.ThrowIfCancellationRequested();
+            var tagSnapshot = new List<string>(tags);
+            var coordinator = YooPackageOperationCoordinator.Get(package);
+            await coordinator.RunWriter(
+                $"ClearCacheByTags/{packageName}",
+                async () =>
+                {
+                    // 按 tag 清：只清这些 tag 标记的已下载 bundle（YooAsset ClearBundleFilesByTags，clearParam 收 string/数组/List，这里传 List）。
+                    var op = package.ClearCacheAsync(new ClearCacheOptions(ClearCacheMethods.ClearBundleFilesByTags, tagSnapshot));
+                    await WaitOp(op, CancellationToken.None);
 
-            if (op.Status != EOperationStatus.Succeeded)
-                throw new InvalidOperationException($"[YooAssetProvider] Clear cache by tags failed for '{packageName}': {op.Error}");
+                    if (op.Status != EOperationStatus.Succeeded)
+                        throw new InvalidOperationException($"[YooAssetProvider] Clear cache by tags failed for '{packageName}': {op.Error}");
+                },
+                ct,
+                advanceCacheEpoch: true);
         }
 
         public async UniTask ClearCacheByLocationsAsync(string packageName, IReadOnlyList<string> locations, CancellationToken ct)
         {
             ThrowIfDisposed();
             var package = GetReadyPackage(packageName);
-            // 按地址清：YooAsset 把每个 location 解析到所属 bundle 后整份删（ClearBundleFilesByLocations，clearParam 收 string/数组/List，这里传 List）。
-            // YooAsset 对 manifest 里解析不到的地址会「静默跳过」——但传进来一个解析不到的地址几乎一定是调用方拼错地址 / 传错包，
-            // 无声跳过会让这种 bug 被掩盖，所以这里先逐个校验、对无效地址打 warning。
-            // 注意只警告「manifest 里根本没有」的地址；地址有效但本就没缓存（没下载过）是正常 no-op，不警告。
-            for (int i = 0; i < locations.Count; i++)
-            {
-                if (!package.IsLocationValid(locations[i]))
-                    Debug.LogWarning($"[YooAssetProvider] Clear cache by locations: '{locations[i]}' not found in package '{packageName}' manifest — skipped.");
-            }
-            var op = package.ClearCacheAsync(new ClearCacheOptions(ClearCacheMethods.ClearBundleFilesByLocations, new List<string>(locations)));
-            await WaitOp(op, ct);
-            ct.ThrowIfCancellationRequested();
+            var locationSnapshot = new List<string>(locations);
+            var coordinator = YooPackageOperationCoordinator.Get(package);
+            await coordinator.RunWriter(
+                $"ClearCacheByLocations/{packageName}",
+                async () =>
+                {
+                    // 按地址清：YooAsset 把每个 location 解析到所属 bundle 后整份删（ClearBundleFilesByLocations，clearParam 收 string/数组/List，这里传 List）。
+                    // YooAsset 对 manifest 里解析不到的地址会「静默跳过」——但传进来一个解析不到的地址几乎一定是调用方拼错地址 / 传错包，
+                    // 无声跳过会让这种 bug 被掩盖，所以这里先逐个校验、对无效地址打 warning。
+                    // 注意只警告「manifest 里根本没有」的地址；地址有效但本就没缓存（没下载过）是正常 no-op，不警告。
+                    for (int i = 0; i < locationSnapshot.Count; i++)
+                    {
+                        if (!package.IsLocationValid(locationSnapshot[i]))
+                            Debug.LogWarning($"[YooAssetProvider] Clear cache by locations: '{locationSnapshot[i]}' not found in package '{packageName}' manifest — skipped.");
+                    }
+                    var op = package.ClearCacheAsync(new ClearCacheOptions(ClearCacheMethods.ClearBundleFilesByLocations, locationSnapshot));
+                    await WaitOp(op, CancellationToken.None);
 
-            if (op.Status != EOperationStatus.Succeeded)
-                throw new InvalidOperationException($"[YooAssetProvider] Clear cache by locations failed for '{packageName}': {op.Error}");
+                    if (op.Status != EOperationStatus.Succeeded)
+                        throw new InvalidOperationException($"[YooAssetProvider] Clear cache by locations failed for '{packageName}': {op.Error}");
+                },
+                ct,
+                advanceCacheEpoch: true);
         }
 
         public async UniTask UnloadUnusedAssetsAsync(string packageName, CancellationToken ct)
         {
             ThrowIfDisposed();
             var package = GetReadyPackage(packageName);
-            // YooAsset 不会自动回收引用归零的 bundle，必须显式调；内部默认循环若干次以处理依赖链。
-            var op = package.UnloadUnusedAssetsAsync();
-            await WaitOp(op, ct);
-            ct.ThrowIfCancellationRequested();
+            var coordinator = YooPackageOperationCoordinator.Get(package);
+            await coordinator.RunWriter(
+                $"UnloadUnusedAssets/{packageName}",
+                async () =>
+                {
+                    // YooAsset 不会自动回收引用归零的 bundle，必须显式调；内部默认循环若干次以处理依赖链。
+                    var op = package.UnloadUnusedAssetsAsync();
+                    await WaitOp(op, CancellationToken.None);
 
-            if (op.Status != EOperationStatus.Succeeded)
-                throw new InvalidOperationException($"[YooAssetProvider] Unload unused assets failed for '{packageName}': {op.Error}");
+                    if (op.Status != EOperationStatus.Succeeded)
+                        throw new InvalidOperationException($"[YooAssetProvider] Unload unused assets failed for '{packageName}': {op.Error}");
+                },
+                ct,
+                advanceCacheEpoch: false);
         }
 
         public void Dispose()
@@ -344,21 +496,21 @@ namespace Game.Framework
         // RawFile 包是代码包（不经本通道加载）；若未来支持业务 RawFile 包，需在此补 Simulate 判定。
         private readonly Dictionary<string, bool> _rawFilePackages = new();
 
-        private bool IsRawFilePackage(string packageName)
+        private bool IsRawFilePackage(string packageName, ResourcePackage package)
         {
             if (_rawFilePackages.TryGetValue(packageName, out bool cached)) return cached;
-            bool isRaw = GetReadyPackage(packageName).GetPackageDetails().BuildPipeline == "RawFileBuildPipeline";
+            bool isRaw = package.GetPackageDetails().BuildPipeline == "RawFileBuildPipeline";
             _rawFilePackages[packageName] = isRaw;
             return isRaw;
         }
 
         // 普通 AB 包的文本/字节直读：.bytes/.txt/.json 等文本类资产在 Unity 里导入为 TextAsset，
         // 加载后内容拷出、句柄立即由调用方释放——业务拿到的是与资源生命周期无关的纯数据。
-        private async UniTask<(AssetHandle handle, TextAsset asset)> LoadTextAssetAsync(
-            string packageName, string location, CancellationToken ct)
+        private static async UniTask<(AssetHandle handle, TextAsset asset)> LoadTextAssetAsync(
+            ResourcePackage package,
+            string packageName,
+            string location)
         {
-            ThrowIfDisposed();
-            var package = GetReadyPackage(packageName);
             if (string.IsNullOrEmpty(location))
             {
                 Debug.LogWarning("[YooAssetProvider] Text/bytes location is empty.");
@@ -366,7 +518,7 @@ namespace Game.Framework
             }
 
             var handle = package.LoadAssetAsync<TextAsset>(location);
-            try { await WaitHandle(handle, ct); }
+            try { await WaitHandle(handle, CancellationToken.None); }
             catch { handle.Release(); throw; }
 
             if (handle.Status != EOperationStatus.Succeeded)
@@ -386,11 +538,11 @@ namespace Game.Framework
             return (handle, ta);
         }
 
-        private async UniTask<(AssetHandle handle, RawFileObject raw)> LoadRawFileObjectAsync(
-            string packageName, string location, CancellationToken ct)
+        private static async UniTask<(AssetHandle handle, RawFileObject raw)> LoadRawFileObjectAsync(
+            ResourcePackage package,
+            string packageName,
+            string location)
         {
-            ThrowIfDisposed();
-            var package = GetReadyPackage(packageName);
             if (string.IsNullOrEmpty(location))
             {
                 Debug.LogWarning("[YooAssetProvider] RawFile location is empty.");
@@ -398,7 +550,7 @@ namespace Game.Framework
             }
 
             var handle = package.LoadAssetAsync<RawFileObject>(location);
-            try { await WaitHandle(handle, ct); }
+            try { await WaitHandle(handle, CancellationToken.None); }
             catch { handle.Release(); throw; }
 
             if (handle.Status != EOperationStatus.Succeeded)
@@ -801,13 +953,24 @@ namespace Game.Framework
     /// </summary>
     internal sealed class AssetDownloader : IAssetDownloader
     {
+        private readonly object _ownerGate = new();
+        private readonly string _packageName;
         private readonly ResourceDownloaderOperation _operation;
+        private readonly YooPackageOperationCoordinator _coordinator;
+        private readonly long _createdCacheEpoch;
         private readonly ReactiveProperty<DownloadProgressReport> _progress;
-        private bool _started;
+        private YooPackageOperationCoordinator.OperationOwner<bool> _owner;
 
-        public AssetDownloader(ResourceDownloaderOperation operation)
+        public AssetDownloader(
+            string packageName,
+            ResourceDownloaderOperation operation,
+            YooPackageOperationCoordinator coordinator,
+            long createdCacheEpoch)
         {
+            _packageName = packageName;
             _operation = operation ?? throw new ArgumentNullException(nameof(operation));
+            _coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
+            _createdCacheEpoch = createdCacheEpoch;
             _progress = new ReactiveProperty<DownloadProgressReport>(
                 new DownloadProgressReport(0f, operation.TotalDownloadCount, 0, operation.TotalDownloadBytes, 0));
 
@@ -818,30 +981,55 @@ namespace Game.Framework
 
         public int TotalCount => _operation.TotalDownloadCount;
         public long TotalBytes => _operation.TotalDownloadBytes;
-        public bool IsDone => _operation.Status == EOperationStatus.Succeeded || TotalCount == 0;
+        public bool IsDone =>
+            _coordinator.CacheEpoch == _createdCacheEpoch &&
+            (_operation.Status == EOperationStatus.Succeeded || TotalCount == 0);
         public ReadOnlyReactiveProperty<DownloadProgressReport> Progress => _progress;
 
         public async UniTask Download(CancellationToken ct = default)
         {
             ct.ThrowIfCancellationRequested();
+
+            YooPackageOperationCoordinator.OperationOwner<bool> owner;
+            lock (_ownerGate)
+            {
+                _owner ??= _coordinator.CreateReaderOwner(
+                    $"Download/{_packageName}",
+                    RunDownloadOwner,
+                    validateAfterLease: ValidateCacheEpoch,
+                    reacquireLeaseAfterTerminal: true);
+                owner = _owner;
+            }
+
+            // 同一个 downloader 的所有调用只加入这一个 owner。token 仅让当前等待者离开，不能取消
+            // YooAsset 的共享物理下载，否则一个短命 UI 会把其他等待者和进程级 package 一起打断。
+            _ = await owner.Wait(ct);
+        }
+
+        private async UniTask<bool> RunDownloadOwner()
+        {
             if (TotalCount == 0)
             {
                 _progress.Value = new DownloadProgressReport(1f, 0, 0, 0, 0);
-                return;
+                return true;
             }
 
-            using var registration = ct.Register(_operation.CancelDownload);
-            if (!_started)
-            {
-                _started = true;
-                _operation.StartDownload();
-            }
-
-            await UniTask.WaitUntil(() => _operation.IsDone, cancellationToken: ct);
-            if (ct.IsCancellationRequested)
-                throw new OperationCanceledException(ct);
+            _operation.StartDownload();
+            await UniTask.WaitUntil(() => _operation.IsDone);
             if (_operation.Status != EOperationStatus.Succeeded)
                 throw new InvalidOperationException($"[AssetDownloader] Download failed: {_operation.Error}");
+            return true;
+        }
+
+        private void ValidateCacheEpoch()
+        {
+            long currentEpoch = _coordinator.CacheEpoch;
+            if (currentEpoch == _createdCacheEpoch) return;
+
+            throw new InvalidOperationException(
+                $"[AssetDownloader] Package '{_packageName}' cache changed after this downloader was created " +
+                $"(created epoch {_createdCacheEpoch}, current epoch {currentEpoch}). " +
+                "Rebuild the downloader and call Download again（缓存维护后请重新创建 downloader 再下载）。");
         }
 
         private void OnProgressChanged(DownloadProgressChangedEventArgs _)
