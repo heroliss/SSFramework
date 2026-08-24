@@ -35,9 +35,17 @@ namespace Game.Framework.Demo.Core
             Disposed,
         }
 
+        private enum ActivationPhase
+        {
+            Inactive,
+            Active,
+            Deactivating,
+        }
+
         private readonly List<IDemoModule> _modules;
         private readonly IReadOnlyList<IDemoModule> _readOnlyModules;
         private LifecyclePhase _phase;
+        private ActivationPhase _activationPhase;
         private IDemoModule _activeModule;
         private DemoModuleHost _activeHost;
 
@@ -119,12 +127,14 @@ namespace Game.Framework.Demo.Core
             RequirePhase(LifecyclePhase.Initialized, nameof(Activate));
             if (!Owns(module))
                 throw new ArgumentException("只能激活当前 DemoModuleCatalog 拥有的章节实例。", nameof(module));
-            if (_activeModule != null)
+            if (_activationPhase != ActivationPhase.Inactive)
                 throw new InvalidOperationException(
-                    $"章节 '{_activeModule.Id}' 仍处于活动状态；请先 Deactivate，再激活 '{module.Id}'。");
+                    $"章节 '{_activeModule?.Id ?? "<unknown>"}' 当前处于 {_activationPhase}；" +
+                    $"必须等待 Deactivate 完整结束后，才能激活 '{module.Id}'。");
 
             _activeModule = module;
             _activeHost = new DemoModuleHost(content);
+            _activationPhase = ActivationPhase.Active;
             try
             {
                 module.Build(_activeHost);
@@ -149,30 +159,42 @@ namespace Game.Framework.Demo.Core
         /// <summary>结束当前章节。幂等；有活动章节时始终先 Dispose Host，再调用同一 Adapter 的 Teardown。</summary>
         internal void Deactivate()
         {
+            if (_activationPhase == ActivationPhase.Inactive) return;
+            // Cancel 会同步执行令牌回调，Teardown 也是任意 Adapter 代码。清理链重入 Deactivate 时复用外层收尾，
+            // 但 Activate 必须持续被 Deactivating 拒绝，避免产生 Catalog 已释放、却遗留新活动章节的矛盾状态。
+            if (_activationPhase == ActivationPhase.Deactivating) return;
+
             var module = _activeModule;
             var host = _activeHost;
-            _activeModule = null;
-            _activeHost = null;
-            if (module == null) return;
+            _activationPhase = ActivationPhase.Deactivating;
 
             Exception hostException = null;
             Exception moduleException = null;
             try
             {
-                host?.Dispose();
-            }
-            catch (Exception e)
-            {
-                hostException = e;
-            }
+                try
+                {
+                    host?.Dispose();
+                }
+                catch (Exception e)
+                {
+                    hostException = e;
+                }
 
-            try
-            {
-                module.Teardown();
+                try
+                {
+                    module?.Teardown();
+                }
+                catch (Exception e)
+                {
+                    moduleException = e;
+                }
             }
-            catch (Exception e)
+            finally
             {
-                moduleException = e;
+                _activeModule = null;
+                _activeHost = null;
+                _activationPhase = ActivationPhase.Inactive;
             }
 
             if (hostException != null && moduleException != null)

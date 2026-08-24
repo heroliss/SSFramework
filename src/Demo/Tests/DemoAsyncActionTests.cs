@@ -301,11 +301,27 @@ namespace Game.Framework.Demo.Tests
             CancellationToken actionToken = default;
             var started = new UniTaskCompletionSource();
             bool teardownCalled = false;
+            Exception cancellationReentryException = null;
             Button button = null;
+            DemoModuleCatalog catalog = null;
+            var nextModule = new StubModule("next", 1, _ => { }, () => { });
             var module = new StubModule(
+                "active",
+                0,
                 host => button = host.AddAsyncActionRow("long-running", async ct =>
                 {
                     actionToken = ct;
+                    using var registration = ct.Register(() =>
+                    {
+                        try
+                        {
+                            catalog.Activate(nextModule, new VisualElement());
+                        }
+                        catch (Exception e)
+                        {
+                            cancellationReentryException = e;
+                        }
+                    });
                     started.TrySetResult();
                     await UniTask.DelayFrame(1000, cancellationToken: ct);
                 }),
@@ -316,19 +332,25 @@ namespace Game.Framework.Demo.Tests
                         "Module.Teardown 执行时，Host 的章节令牌必须已经取消。 ");
                 });
 
-            using var catalog = new DemoModuleCatalog(new[] { module });
-            using var builder = new ContainerBuilder();
-            catalog.InstallBindings(builder);
-            using var context = new GameContext(builder.Build(), inheritFromGlobal: false);
-            catalog.Initialize(context);
-            catalog.Activate(module, new VisualElement());
+            catalog = new DemoModuleCatalog(new[] { module, nextModule });
+            using (catalog)
+            {
+                using var builder = new ContainerBuilder();
+                catalog.InstallBindings(builder);
+                using var context = new GameContext(builder.Build(), inheritFromGlobal: false);
+                catalog.Initialize(context);
+                catalog.Activate(module, new VisualElement());
 
-            SimulateClick(button);
-            await started.Task;
-            catalog.Deactivate();
+                SimulateClick(button);
+                await started.Task;
+                catalog.Deactivate();
 
-            Assert.IsTrue(teardownCalled);
-            await UniTask.Yield(); // 让被取消的按钮回调完成 finally，避免把续体带到下一用例。
+                Assert.IsTrue(teardownCalled);
+                Assert.IsInstanceOf<InvalidOperationException>(cancellationReentryException);
+                Assert.AreEqual(0, nextModule.BuildCount,
+                    "Host 取消回调不能在当前章节 Teardown 完成前激活下一章。 ");
+                await UniTask.Yield(); // 让被取消的按钮回调完成 finally，避免把续体带到下一用例。
+            }
         }
 
         private static void SimulateClick(Button button)
@@ -349,22 +371,31 @@ namespace Game.Framework.Demo.Tests
 
         private sealed class StubModule : IDemoModule
         {
+            private readonly string _id;
+            private readonly int _order;
             private readonly Action<DemoModuleHost> _onBuild;
             private readonly Action _onTeardown;
-            internal StubModule(Action<DemoModuleHost> onBuild, Action onTeardown)
+            internal StubModule(string id, int order, Action<DemoModuleHost> onBuild, Action onTeardown)
             {
+                _id = id;
+                _order = order;
                 _onBuild = onBuild;
                 _onTeardown = onTeardown;
             }
-            public string Id => "stub";
-            public string Title => "Stub";
+            public string Id => _id;
+            public string Title => _id;
             public string Category => "入门";
-            public int Order => 0;
+            public int Order => _order;
             public string Summary => "Stub";
             public bool IsComingSoon => false;
             public void InstallBindings(ContainerBuilder builder) { }
             public void Initialize(IGameContext context) { }
-            public void Build(DemoModuleHost host) => _onBuild(host);
+            internal int BuildCount { get; private set; }
+            public void Build(DemoModuleHost host)
+            {
+                BuildCount++;
+                _onBuild(host);
+            }
             public void Teardown() => _onTeardown();
         }
     }

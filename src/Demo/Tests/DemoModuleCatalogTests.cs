@@ -86,6 +86,76 @@ namespace Game.Framework.Demo.Tests
             Assert.AreEqual(1, healthy.BuildCount, "失败章节不能把 active 状态黏住并阻断下一章。");
         }
 
+        [Test]
+        public void Deactivate_RejectsTeardownReentryThenAllowsActivationAfterCleanup()
+        {
+            var first = new RecordingModule("first", 0);
+            var second = new RecordingModule("second", 1);
+            using var catalog = CreateInitializedCatalog(new[] { first, second }, out var context);
+            using (context)
+            {
+                Exception reentryException = null;
+                first.TeardownAction = () => reentryException = CaptureException(
+                    () => catalog.Activate(second, new VisualElement()));
+
+                catalog.Activate(first, new VisualElement());
+                catalog.Deactivate();
+
+                Assert.IsInstanceOf<InvalidOperationException>(reentryException);
+                Assert.AreEqual(0, second.BuildCount, "Teardown 回调不能在外层清理完成前偷跑下一章。");
+                catalog.Activate(second, new VisualElement());
+                catalog.Deactivate();
+                Assert.AreEqual(1, second.BuildCount, "外层清理完成后应恢复为可激活状态。");
+            }
+        }
+
+        [Test]
+        public void DisposeWhileActive_RejectsTeardownReentryAndLeavesCatalogDisposed()
+        {
+            var first = new RecordingModule("first", 0);
+            var second = new RecordingModule("second", 1);
+            using var catalog = CreateInitializedCatalog(new[] { first, second }, out var context);
+            using (context)
+            {
+                Exception reentryException = null;
+                first.TeardownAction = () => reentryException = CaptureException(
+                    () => catalog.Activate(second, new VisualElement()));
+
+                catalog.Activate(first, new VisualElement());
+                catalog.Dispose();
+
+                Assert.IsInstanceOf<InvalidOperationException>(reentryException);
+                Assert.AreEqual(1, first.TeardownCount);
+                Assert.AreEqual(0, second.BuildCount, "Dispose 期间不得遗留一个新激活但无人拥有的章节。");
+                Assert.Throws<InvalidOperationException>(() => catalog.Activate(second, new VisualElement()));
+            }
+        }
+
+        private static DemoModuleCatalog CreateInitializedCatalog(
+            IEnumerable<IDemoModule> modules,
+            out GameContext context)
+        {
+            var catalog = new DemoModuleCatalog(modules);
+            using var builder = new ContainerBuilder();
+            catalog.InstallBindings(builder);
+            context = new GameContext(builder.Build(), inheritFromGlobal: false);
+            catalog.Initialize(context);
+            return catalog;
+        }
+
+        private static Exception CaptureException(Action action)
+        {
+            try
+            {
+                action();
+                return null;
+            }
+            catch (Exception e)
+            {
+                return e;
+            }
+        }
+
         private sealed class RecordingModule : IDemoModule
         {
             private readonly List<string> _calls;
@@ -107,6 +177,7 @@ namespace Game.Framework.Demo.Tests
             internal Exception BuildException { get; set; }
             internal int BuildCount { get; private set; }
             internal int TeardownCount { get; private set; }
+            internal Action TeardownAction { get; set; }
 
             public void InstallBindings(ContainerBuilder builder) => _calls?.Add("install");
 
@@ -127,6 +198,7 @@ namespace Game.Framework.Demo.Tests
             {
                 TeardownCount++;
                 _calls?.Add("teardown");
+                TeardownAction?.Invoke();
             }
         }
     }
