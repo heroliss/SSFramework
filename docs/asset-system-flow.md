@@ -124,22 +124,25 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    Q["IsNeedDownload(location)?"] -->|否：已缓存 / 已内置| Skip["无需下载"]
-    Q -->|是| C["创建下载器<br/>CreateTagDownloader / CreateAllDownloader / CreateLocationDownloader"]
+    Q["GetLocationState(location)"] -->|PackageNotReady| Wait["读 GetInitState<br/>等待 / 初始化 / 处理失败"]
+    Q -->|Invalid| Fix["修正空地址 / 包名 / manifest"]
+    Q -->|AvailableLocally| Skip["无需下载"]
+    Q -->|RequiresDownload| C["创建下载器<br/>CreateTagDownloader / CreateAllDownloader / CreateLocationDownloader"]
     C --> S[["创建即快照：锁定此刻待下清单<br/>清缓存不会更新它"]]
     S --> P["订阅 Progress 驱动进度条"]
     P --> D["Download() 启动（自带 FailedTryAgain 重试 + 断点续传）"]
     D --> Cache["bundle 下载并缓存到本地沙盒"]
-    Cache --> Done["完成 → IsNeedDownload 变假"]
-    Clr["ClearCache(All/Unused)<br/>ClearCacheByTags<br/>ClearCacheByLocations"] --> Inv["缓存清掉 → IsNeedDownload 变真<br/>⚠ 旧下载器快照过期，必须重建再下"]
+    Cache --> Done["完成 → AvailableLocally"]
+    Clr["ClearCache(All/Unused)<br/>ClearCacheByTags<br/>ClearCacheByLocations"] --> Inv["远端内容重新变 RequiresDownload<br/>⚠ 旧下载器快照过期，必须重建再下"]
 ```
 
+- 地址查询是四态而非两个 bool：PackageNotReady 与 Invalid 不混，AvailableLocally 与 RequiresDownload 不混；要细分未就绪原因再读 `GetInitState(package)`。
 - 三种范围：按 tag（关卡/DLC 整批）、全部（整包预下）、按地址（点名含依赖）。
 - 清缓存是 **bundle 粒度**：按 tag 是并集（命中任一即清）；按地址会连带同 bundle 邻居。想精确隔离要打包时让资源独占 bundle。
 - 固定顺序：**清缓存 → 重建下载器 → 开始下载**（下载器是快照，不会自己更新）。
 - 并发有两层护栏：`AssetUtility` 串行自身的同包维护；Yoo Adapter 再按实际 `ResourcePackage` 做进程级公平 Reader/Writer 协调，跨 Utility/Provider 覆盖按需 Load、显式 Download 与维护。调用者取消只离开等待；排队且已无人等待的项跳过，原生 operation 一旦开始就运行到真实终态。
 - 每次 `ClearCache*` 到达终态都会推进缓存世代（失败也按可能部分改盘处理）；旧 downloader 会明确报“重建”，不会拿创建时快照静默续跑。
-- `IsNeedDownload` / `Create*Downloader` 是同步快照：Writer 活跃或已排队时立即拒绝并提示维护后重试，不阻塞 Unity 主线程，也不越过 Writer 读取中间态。
+- `GetLocationState` / `Create*Downloader` 是同步快照：Writer 活跃或已排队时立即拒绝并提示维护后重试，不阻塞 Unity 主线程，也不越过 Writer 读取中间态。
 - Host 默认允许 `Load` 对未缓存 bundle 当场按需下载；大型 DLC 可在 `AssetSystemConfigModel.Packages` 列表里取消该包的「启用按需下载」，让未缓存 `Load` 直接失败，强制先走显式下载器和进度 UI。
 
 ---

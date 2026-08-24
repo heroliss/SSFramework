@@ -1369,6 +1369,29 @@ await this.GetUtility<IAssetUtility>().Initialize("DlcPack"); // 指定包
 
 > ⚠ 既没开自动初始化、也没 `Initialize` 过的包，`Load` 它会**直接抛**「未初始化」异常（fail-fast，不是无限等待）——要加载的包要么开自动初始化、要么先 `Initialize`。
 
+资源地址预检不要再组合两个含义不完整的 bool；一次读取四态快照：
+
+```csharp
+var asset = this.GetUtility<IAssetUtility>();
+switch (asset.GetLocationState("ui/logo"))
+{
+    case AssetLocationState.PackageNotReady:
+        // 用 asset.GetInitState(package) 继续区分 Idle / Pending / Initializing / Failed
+        break;
+    case AssetLocationState.Invalid:
+        // 空地址，或 Ready 包的 manifest 中没有该地址
+        break;
+    case AssetLocationState.AvailableLocally:
+        // 地址有效，已内置或已缓存
+        break;
+    case AssetLocationState.RequiresDownload:
+        // 地址有效，需要远端下载
+        break;
+}
+```
+
+`AssetLocationState` 与 `AssetInitState` 刻意正交：前者只回答“当前内容位置能否用于业务决策”，后者回答“包为何尚未工作”。空白 location 无需清单就能确定为 `Invalid`；其他 location 在包非 Ready 时统一为 `PackageNotReady`，且不会下沉到 Adapter。旧 `CheckLocationValid` / `IsNeedDownload` 仅以 `[Obsolete]` 扩展方法保留源码迁移期兼容，仍会把 `PackageNotReady` 压成 false，新代码不要继续使用。
+
 **运行模式按「编辑器 / 玩家包」分开配**：`AssetSystemConfigModel` 有两个模式字段——「编辑器运行模式」只在编辑器 Play 生效（日常 `EditorSimulate` 免打包；也可临时切 Offline / Host 在编辑器里联调真实模式，不影响出包），「玩家包运行模式」是构建出的玩家端实际用的模式（默认 `Offline` 纯内置首包；资源热更选 `Host`）。同一份场景配置两头通用。模拟模式是编辑器专属能力（依赖 AssetDatabase），进不了玩家包——玩家包模式选它会在启动校验时清晰报错，而不是等 provider 初始化才炸。
 
 `Host` 在全新安装且 CDN 暂时不可用时会先尝试远端，失败后显式激活随包内置版本清单；因此“全部内置”的启动必需包仍可离线进入游戏，已有本地清单的老客户端也会继续用当前版本。初始化前会先探测内置版本文件，纯 CDN（`BuiltinCopy=None`）的包不会开启 manifest 复制，也就不会因“没有内置文件”在访问远端前失败。这个回退只覆盖真正随包携带的内容：按 tag / 零内置的 bundle 仍需 CDN。资源构建器会在成功后核对 `StreamingAssets` 的清单和 bundle，`ClearAndCopyAll` 少拷任何文件都会让构建失败，避免产出“清单可用、资源却意外联网”的半成品。
@@ -1385,7 +1408,7 @@ await this.GetUtility<IAssetUtility>().Initialize("DlcPack"); // 指定包
 
 取消只停止当前调用者的等待：仍在排队且已经无人等待的 operation 会跳过；一旦原生 operation 开始，就继续到真实终态再放行下一项，避免 Unity 页面切换后留下一个“看不见但仍在改包状态”的 YooAsset operation。`LoadAsset` / `LoadScene` 在调用者离开后若最终成功，Adapter 会释放无人接收的 handle；后台失败进入统一日志。每次 `ClearCache*` 到达终态（失败也可能已部分改盘）都会推进缓存世代，此前创建的下载器会明确拒绝旧快照——固定顺序仍是 **清缓存 → 重建下载器 → 下载**。
 
-`IsNeedDownload` 与三个 `Create*Downloader` 是同步缓存快照，不能在 Unity 主线程排队等待 Writer。若同包维护正在运行或已经排队，它们会立即抛出带操作名的 `InvalidOperationException`，提示维护完成后重试；这比越过 Writer 读一份中间态统计更安全。正常业务把“清缓存”和“重新统计/建下载器”放在同一个 await 流程里即可，不需要轮询。
+`GetLocationState` 与三个 `Create*Downloader` 是同步缓存快照，不能在 Unity 主线程排队等待 Writer。若同包维护正在运行或已经排队，它们会立即抛出带操作名的 `InvalidOperationException`，提示维护完成后重试；这比越过 Writer 读一份中间态统计更安全。正常业务把“清缓存”和“重新统计/建下载器”放在同一个 await 流程里即可，不需要轮询。
 
 Host 模式默认允许 `Load` 对未缓存 bundle 当场按需下载。大型 DLC 若不想“误 Load 一个资源就自动下载”，在 `AssetSystemConfigModel.Packages` 列表里取消该包的「启用按需下载」：之后本包未缓存资源的 `Load` 直接失败，业务必须先用下载器显式预下载并展示进度。包级策略（自动初始化 / 启用按需下载）都在这一处按包配置。
 

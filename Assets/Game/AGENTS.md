@@ -53,7 +53,7 @@
 
 | Module / Interface | 业务侧必须守住的边界 | 详见 |
 |---|---|---|
-| 资源 `IAssetUtility` | 资源三件套挂同一 Context；动态借用走 Bag，Inspector 引用走 `AssetReference<T>`。SO/纯 C# 内的 AssetReference 不自动递归绑定，由持有者 `BindAssetReferences`。未初始化包直接抛错；package 名用生成常量，不写裸字符串。 | guide §13 / ADR-0013 |
+| 资源 `IAssetUtility` | 资源三件套挂同一 Context；动态借用走 Bag，Inspector 引用走 `AssetReference<T>`。SO/纯 C# 内的 AssetReference 不自动递归绑定，由持有者 `BindAssetReferences`。未初始化包直接 Load 会抛；同步预检用 `GetLocationState` 区分包未就绪 / 地址无效 / 本地可用 / 需要下载，再用 `GetInitState` 细分未就绪原因。package 名用生成常量，不写裸字符串。 | guide §13 / ADR-0013 |
 | 对象池 `IPoolUtility` | Context 所有权优先 `RegisterOwned`；首次工厂/钩子配置生效。高频领域热路径自己维护租借列表；Pool 不替实例 Dispose 非托管资源。GameObject 池主线程独占。 | guide §7 |
 | 配置 `IConfigUtility<TTables>` | 配置是全层只读 Utility，不占 Model；加载前 `Tables` 为 null，等 `State` 不轮询。改表走 profile + 生成菜单；生成目录勿手放文件，`topModule` 不含 `System` 段。 | guide §16 / ADR-0009 |
 | UI `IUIUtility` | 同一 Context 只挂一个 Toolkit 或 UGUI 入口。窗口仍是 View；元数据用 `[UIWindow]`，Toolkit 窗口需无参构造，UGUI 窗口不要覆写 Awake。过渡期间框架挡输入；关闭的逻辑状态先于动画收尾。异步任务显示全局 Loading 用 `using var loading = await AcquireLoading(...)`，不要用 Show/Hide 配对表达并发 owner。 | guide §17 / ADR-0016/0020/0037 |

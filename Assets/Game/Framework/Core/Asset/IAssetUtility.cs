@@ -28,9 +28,33 @@ namespace Game.Framework
     }
 
     /// <summary>
+    /// 资源地址在指定包当前清单与本地缓存下的同步快照。
+    /// 它把旧式布尔查询中混在一起的“包还不能查、地址不存在、资源已在本地、资源需远端下载”拆成互斥状态，
+    /// 让调用方不必先守卫初始化状态、再拼接两次查询结果。
+    /// </summary>
+    public enum AssetLocationState
+    {
+        /// <summary>
+        /// 包尚未 <see cref="AssetInitState.Ready"/>，当前无法解释该地址。
+        /// 用 <see cref="IAssetUtility.GetInitState(string)"/> 可进一步区分 Idle / Pending / Initializing / Failed。
+        /// </summary>
+        PackageNotReady,
+
+        /// <summary>地址为空，或已就绪包的 manifest 中不存在该地址。</summary>
+        Invalid,
+
+        /// <summary>地址有效，所需内容已内置或已缓存，本次无需远端下载。</summary>
+        AvailableLocally,
+
+        /// <summary>地址有效，但所需内容尚未在本地，需要从远端下载。</summary>
+        RequiresDownload,
+    }
+
+    /// <summary>
     /// 缓存清理方式。清理的是「已下载到本地沙盒的 bundle 缓存」（Host / Web 远端模式才有实际内容），
     /// 跟「卸载内存里已加载的资源」是两回事——它只删盘上的下载文件并同步更新内存缓存记录，
-    /// 清理后对应资源的 <c>IsNeedDownload</c> 会重新变真，可在不重启的情况下重新下载。
+    /// 清理后对应资源的 <see cref="AssetLocationState"/> 会重新变为 <see cref="AssetLocationState.RequiresDownload"/>，
+    /// 可在不重启的情况下重新下载。
     /// </summary>
     public enum AssetCacheClearMode
     {
@@ -175,29 +199,19 @@ namespace Game.Framework
             where T : UnityEngine.Object;
 
         /// <summary>
-        /// 检查默认包中 location 是否能在 manifest 中解析。
-        /// 注意：包未就绪（未初始化 / 初始化失败）或参数为空时也返回 false——即 false 不止「地址无效」，
-        /// 也可能是「还查不了」。需要区分时先用 <see cref="IsInitialized"/> / <see cref="InitState"/> 确认就绪。
+        /// 查询默认包中 location 的四态快照：包未就绪、地址无效、本地可用或需要下载。
+        /// <para>空白地址始终为 <see cref="AssetLocationState.Invalid"/>；非空地址在包未 Ready 时为
+        /// <see cref="AssetLocationState.PackageNotReady"/>。如需知道未就绪的具体原因，再读 <see cref="InitState"/>。</para>
+        /// <para>这是同步快照；底层包正在或已经排队维护时会抛 <see cref="InvalidOperationException"/>，请在维护完成后重试，
+        /// 不会阻塞 Unity 主线程或越过 Writer 读取中间态。</para>
         /// </summary>
-        bool CheckLocationValid(string location);
-
-        /// <summary>检查指定包中 location 是否能在 manifest 中解析；packageName 为空时使用默认包。</summary>
-        bool CheckLocationValid(string packageName, string location);
-
-        /// <summary>
-        /// 检查默认包中指定资源是否需要从远端下载。
-        /// 注意：包未就绪（未初始化 / 初始化失败）时也返回 false——即 false 不等于「无需下载 / 已在本地」，
-        /// 也可能是「还查不了」。需要区分时先用 <see cref="IsInitialized"/> / <see cref="InitState"/> 确认就绪。
-        /// 这是同步快照；底层包正在或已经排队维护时会抛 <see cref="InvalidOperationException"/>，请在维护完成后重试，
-        /// 不会阻塞 Unity 主线程或越过 Writer 读取中间态。
-        /// </summary>
-        bool IsNeedDownload(string location);
+        AssetLocationState GetLocationState(string location);
 
         /// <summary>
-        /// 检查指定包中资源是否需要从远端下载；packageName 为空时使用默认包。
-        /// 同为同步快照：底层包维护中会抛 <see cref="InvalidOperationException"/>，维护完成后重试。
+        /// 查询指定包中 location 的四态快照；packageName 为空时使用默认包。
+        /// 状态含义、空地址与维护并发语义同 <see cref="GetLocationState(string)"/>。
         /// </summary>
-        bool IsNeedDownload(string packageName, string location);
+        AssetLocationState GetLocationState(string packageName, string location);
 
         /// <summary>
         /// 指定包当前生效的资源版本号（初始化时拉到 / 选定的清单版本）；packageName 为空时查默认包。
@@ -237,7 +251,8 @@ namespace Game.Framework
 
         /// <summary>
         /// 清理默认包「已下载到本地的 bundle 缓存」（远端模式才有实际内容）。清理后内存缓存记录同步更新，
-        /// 相关资源的 <see cref="IsNeedDownload(string)"/> 会重新变真，可在不重启的情况下重新下载。
+        /// 相关资源的 <see cref="GetLocationState(string)"/> 会重新变为 <see cref="AssetLocationState.RequiresDownload"/>，
+        /// 可在不重启的情况下重新下载。
         /// 与「不提供 UnloadPackage」不冲突（见类型 remarks）：这只删盘上的下载文件，不动已加载到内存的资源。
         /// 常见用途：整体清空缓存 (<see cref="AssetCacheClearMode.All"/>)、热更后回收旧版本残留 (<see cref="AssetCacheClearMode.Unused"/>)。
         /// <para>同一 utility 内、同一包的三种清缓存与 <see cref="UnloadUnusedAssets(CancellationToken)"/> 共用串行维护 lane。
@@ -253,7 +268,8 @@ namespace Game.Framework
         /// <summary>
         /// 按 tag 清理默认包中这些 tag 标记的「已下载 bundle 缓存」：用于卸载某关卡 / DLC / 子内容的整批资源缓存
         /// （省空间，或强制其下次重新下载）。语义同 <see cref="ClearCache(AssetCacheClearMode, CancellationToken)"/>——
-        /// 只删盘上下载文件、不动内存里已加载的资源；清理后这些资源的 <see cref="IsNeedDownload(string)"/> 重新变真。
+        /// 只删盘上下载文件、不动内存里已加载的资源；清理后这些资源的 <see cref="GetLocationState(string)"/>
+        /// 重新变为 <see cref="AssetLocationState.RequiresDownload"/>。
         /// tag 与 <see cref="CreateTagDownloader(string[])"/> 用的是同一套（资源收集时打在 bundle 上的标签）。
         /// <para><b>多 tag 是并集（OR）</b>：命中其中<b>任意一个</b> tag 的 bundle 都会被清，<b>不是</b>「同时带所有 tag 才清」。
         /// 传空数组会抛 <see cref="ArgumentException"/>（避免空集被误当成全清）。</para>
@@ -289,5 +305,38 @@ namespace Game.Framework
 
         /// <summary>卸载指定包内引用归零的 bundle 释放内存；packageName 为空时使用默认包。语义同 <see cref="UnloadUnusedAssets(CancellationToken)"/>。</summary>
         UniTask UnloadUnusedAssets(string packageName, CancellationToken ct = default);
+    }
+
+    /// <summary>
+    /// 旧资源布尔查询的源码迁移层。新代码应直接读取 <see cref="AssetLocationState"/>，避免再次把“包未就绪”压成 false。
+    /// 扩展方法不占用 <see cref="IAssetUtility"/> 的长期 Interface 表面积，可在调用方迁移完成后独立删除。
+    /// </summary>
+    public static class AssetUtilityCompatibilityExtensions
+    {
+        /// <summary>兼容旧调用：仅本地可用或需要下载时返回 true；包未就绪与地址无效均返回 false。</summary>
+        [Obsolete("Use GetLocationState(location) so PackageNotReady is not confused with Invalid.")]
+        public static bool CheckLocationValid(this IAssetUtility utility, string location)
+        {
+            var state = utility.GetLocationState(location);
+            return state == AssetLocationState.AvailableLocally || state == AssetLocationState.RequiresDownload;
+        }
+
+        /// <summary>兼容旧调用：仅本地可用或需要下载时返回 true；包未就绪与地址无效均返回 false。</summary>
+        [Obsolete("Use GetLocationState(packageName, location) so PackageNotReady is not confused with Invalid.")]
+        public static bool CheckLocationValid(this IAssetUtility utility, string packageName, string location)
+        {
+            var state = utility.GetLocationState(packageName, location);
+            return state == AssetLocationState.AvailableLocally || state == AssetLocationState.RequiresDownload;
+        }
+
+        /// <summary>兼容旧调用：仅 <see cref="AssetLocationState.RequiresDownload"/> 返回 true。</summary>
+        [Obsolete("Use GetLocationState(location) so PackageNotReady is not confused with AvailableLocally.")]
+        public static bool IsNeedDownload(this IAssetUtility utility, string location)
+            => utility.GetLocationState(location) == AssetLocationState.RequiresDownload;
+
+        /// <summary>兼容旧调用：仅 <see cref="AssetLocationState.RequiresDownload"/> 返回 true。</summary>
+        [Obsolete("Use GetLocationState(packageName, location) so PackageNotReady is not confused with AvailableLocally.")]
+        public static bool IsNeedDownload(this IAssetUtility utility, string packageName, string location)
+            => utility.GetLocationState(packageName, location) == AssetLocationState.RequiresDownload;
     }
 }

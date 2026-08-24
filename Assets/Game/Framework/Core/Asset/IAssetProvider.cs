@@ -69,11 +69,14 @@ namespace Game.Framework
         /// <summary>直读二进制内容。语义同 <see cref="LoadTextAsync"/>。</summary>
         UniTask<byte[]> LoadBytesAsync(string packageName, string location, CancellationToken ct);
 
-        /// <summary>检查 location 是否能在指定包的 manifest 中解析。未初始化时返回 false。</summary>
+        /// <summary>
+        /// 检查 location 是否能在指定包的 manifest 中解析。Core 只在自己持有的包状态 Ready 后调用；
+        /// Adapter 仍应把底层未就绪防御性映射为 false，不向上泄漏第三方异常。
+        /// </summary>
         bool CheckLocationValid(string packageName, string location);
 
         /// <summary>
-        /// 检查指定资源是否需要从远端下载。未初始化时返回 false。
+        /// 检查指定资源是否需要从远端下载。Core 只在包 Ready 且地址有效后调用；底层未就绪时防御性返回 false。
         /// 这是同步缓存快照：共享 package 有维护 Writer 活跃或排队时应立即抛 <see cref="InvalidOperationException"/>，
         /// 由调用方在维护完成后重试；实现不得阻塞 Unity 主线程或越过 Writer。
         /// </summary>

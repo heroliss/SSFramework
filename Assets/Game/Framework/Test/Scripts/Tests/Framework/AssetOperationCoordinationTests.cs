@@ -68,6 +68,10 @@ namespace Game.Framework.Test
         public IEnumerator Destroy_CancelsRunningMaintenanceAndSkipsQueuedOperation()
             => Destroy_CancelsRunningMaintenanceAndSkipsQueuedOperationAsync().ToCoroutine();
 
+        [UnityTest]
+        public IEnumerator LocationState_DistinguishesNotReadyInvalidLocalAndRemote_PerPackage()
+            => LocationState_DistinguishesNotReadyInvalidLocalAndRemote_PerPackageAsync().ToCoroutine();
+
         private async UniTask SetUpAsync()
         {
             _root = new GameObject(nameof(AssetOperationCoordinationTests));
@@ -307,6 +311,54 @@ namespace Game.Framework.Test
             Assert.IsTrue(_provider.Disposed);
         }
 
+        private async UniTask LocationState_DistinguishesNotReadyInvalidLocalAndRemote_PerPackageAsync()
+        {
+            const string otherPackage = "OtherPackage";
+
+            Assert.AreEqual(AssetLocationState.Invalid, _utility.GetLocationState(" \t"),
+                "调用方已经给出空白地址时，无须初始化清单也能确定它无效");
+            Assert.AreEqual(AssetLocationState.PackageNotReady, _utility.GetLocationState("logo"));
+            Assert.AreEqual(0, _provider.CheckLocationCalls,
+                "Core 状态未 Ready 时不应把不可查询的请求下沉到 Adapter");
+
+            _utility.MarkPackagesPending(new[] { Package });
+            Assert.AreEqual(AssetLocationState.PackageNotReady, _utility.GetLocationState("logo"));
+            _utility.AbandonPendingPackages();
+            Assert.AreEqual(AssetInitState.Failed, _utility.GetInitState(Package).CurrentValue);
+            Assert.AreEqual(AssetLocationState.PackageNotReady, _utility.GetLocationState("logo"));
+
+            await MakeReady();
+            _provider.LocationValid = false;
+            _provider.NeedDownload = true; // 无效地址不应继续读取下载缓存。
+            Assert.AreEqual(AssetLocationState.Invalid, _utility.GetLocationState("logo"));
+            Assert.AreEqual(1, _provider.CheckLocationCalls);
+            Assert.AreEqual(0, _provider.NeedDownloadCalls);
+
+            _provider.LocationValid = true;
+            _provider.NeedDownload = false;
+            Assert.AreEqual(AssetLocationState.AvailableLocally, _utility.GetLocationState("logo"));
+
+            _provider.NeedDownload = true;
+            Assert.AreEqual(AssetLocationState.RequiresDownload, _utility.GetLocationState("logo"));
+            Assert.AreEqual(Package, _provider.LastQueriedPackage);
+
+            int checksBeforeOtherPackage = _provider.CheckLocationCalls;
+            Assert.AreEqual(
+                AssetLocationState.PackageNotReady,
+                _utility.GetLocationState(otherPackage, "logo"),
+                "默认包 Ready 不能让尚未初始化的另一个包看起来可查询");
+            Assert.AreEqual(checksBeforeOtherPackage, _provider.CheckLocationCalls);
+
+            var otherInitialization = _provider.PlanInitialization();
+            var initializing = _utility.Initialize(otherPackage);
+            await otherInitialization.Started.Task;
+            Assert.AreEqual(AssetLocationState.PackageNotReady, _utility.GetLocationState(otherPackage, "logo"));
+            otherInitialization.Release.TrySetResult();
+            await initializing;
+            Assert.AreEqual(AssetLocationState.RequiresDownload, _utility.GetLocationState(otherPackage, "logo"));
+            Assert.AreEqual(otherPackage, _provider.LastQueriedPackage);
+        }
+
         private async UniTask MakeReady()
         {
             var gate = _provider.PlanInitialization();
@@ -369,6 +421,11 @@ namespace Game.Framework.Test
             public IReadOnlyList<string> ReceivedTags { get; private set; }
             public IReadOnlyList<string> ReceivedLocations { get; private set; }
             public bool Disposed { get; private set; }
+            public bool LocationValid { get; set; }
+            public bool NeedDownload { get; set; }
+            public int CheckLocationCalls { get; private set; }
+            public int NeedDownloadCalls { get; private set; }
+            public string LastQueriedPackage { get; private set; }
 
 #if UNITY_EDITOR
             public Func<bool> SimulateOffline { get; set; }
@@ -480,8 +537,19 @@ namespace Game.Framework.Test
             public UniTask<byte[]> LoadBytesAsync(string packageName, string location, CancellationToken ct)
                 => UniTask.FromResult<byte[]>(null);
 
-            public bool CheckLocationValid(string packageName, string location) => false;
-            public bool IsNeedDownload(string packageName, string location) => false;
+            public bool CheckLocationValid(string packageName, string location)
+            {
+                CheckLocationCalls++;
+                LastQueriedPackage = packageName;
+                return LocationValid;
+            }
+
+            public bool IsNeedDownload(string packageName, string location)
+            {
+                NeedDownloadCalls++;
+                LastQueriedPackage = packageName;
+                return NeedDownload;
+            }
             public string GetPackageVersion(string packageName) => _readyPackages.Contains(packageName) ? "test" : null;
             public IAssetDownloader CreateTagDownloader(string packageName, IReadOnlyList<string> tags, int maxConcurrent, int retries) => null;
             public IAssetDownloader CreateAllDownloader(string packageName, int maxConcurrent, int retries) => null;
