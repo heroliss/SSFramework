@@ -69,6 +69,6 @@ public interface ILocalizedTextSource
 ## Consequences
 
 - 内核 `Core/Localization/` 纯 C#（依赖 R3 的 RP），字典源下测试全程无场景、batchmode 零风险。
-- 业务接入路径：定义 locale 常量 → 写 Luban 表 adapter（或用字典源）→ `RegisterOwned` → UI 全用 `BindLocalizedText` → 设置页 `SetLocale` + 存档回灌。
-- demo 章做中英双语活样板：文本源用 **Luban 表 adapter 实物**（`TbL10N` + `l10n.xlsx`，源吃配置服务所以走 `RegisterFactory` 解依赖顺序）+ 语言切换 / 绑定 / 格式化 / 缺 key（英文列留空走 fallback、表里没有走裸 key）+ **图片与音频 per-locale 实操**（`l10n-banner_<locale>` 子 Bag 重载、`l10n-voice_<locale>` 播放时取）。
+- 业务接入路径：定义 locale 常量 → 写 Luban 表 adapter（或用字典源）→ 已有源用 `RegisterOwned`，源依赖其他容器服务则用 `RegisterOwnedFactory`（ADR-0035）→ UI 全用 `BindLocalizedText` → 设置页 `SetLocale` + 存档回灌。
+- demo 章做中英双语活样板：文本源用 **Luban 表 adapter 实物**（`TbL10N` + `l10n.xlsx`，源吃配置服务所以走 `RegisterOwnedFactory` 解依赖顺序并保留所有权）+ 语言切换 / 绑定 / 格式化 / 缺 key（英文列留空走 fallback、表里没有走裸 key）+ **图片与音频 per-locale 实操**（`l10n-banner_<locale>` 子 Bag 重载、`l10n-voice_<locale>` 播放时取）。
 - 风险：`params object[]` 每次 Get 分配——UI 文案频率无感；热路径（每帧刷的计分文本）业务本就该缓存格式串。

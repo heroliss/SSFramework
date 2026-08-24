@@ -1,5 +1,6 @@
 using System;
 using System.Net;
+using System.Net.Sockets;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -17,12 +18,15 @@ namespace Game.Framework.Test
     internal sealed class NetworkTestServer : IDisposable
     {
         private readonly HttpListener _listener;
+        private bool _disposed;
 
         public int Port { get; }
         public string BaseUrl => $"http://127.0.0.1:{Port}";
 
         public NetworkTestServer()
         {
+            HttpListener selected = null;
+            Exception lastError = null;
             for (int port = 18200; port < 18260; port++)
             {
                 var candidate = new HttpListener();
@@ -30,23 +34,38 @@ namespace Game.Framework.Test
                 try
                 {
                     candidate.Start();
-                    _listener = candidate;
+                    selected = candidate;
                     Port = port;
                     break;
                 }
-                catch (HttpListenerException)
+                catch (HttpListenerException e)
                 {
-                    ((IDisposable)candidate).Dispose(); // 端口被占，换下一个
+                    lastError = e;
+                    candidate.Close();
+                }
+                catch (SocketException e) when (e.SocketErrorCode == SocketError.AddressAlreadyInUse)
+                {
+                    lastError = e;
+                    candidate.Close(); // Unity Mono 会直接透出 SocketException，而不是包装成 HttpListenerException
+                }
+                catch
+                {
+                    candidate.Close();
+                    throw;
                 }
             }
-            if (_listener == null) throw new InvalidOperationException("18200-18259 无可用端口，无法启动测试服务器。");
+            if (selected == null)
+                throw new InvalidOperationException("18200-18259 无可用端口，无法启动测试服务器。", lastError);
+            _listener = selected;
             _ = AcceptLoop();
         }
 
         public void Dispose()
         {
-            if (_listener.IsListening) _listener.Stop();
-            _listener.Close();
+            if (_disposed) return;
+            _disposed = true;
+            try { if (_listener.IsListening) _listener.Stop(); } catch { }
+            try { _listener.Close(); } catch { }
         }
 
         private async Task AcceptLoop()

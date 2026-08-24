@@ -20,6 +20,13 @@ namespace Game.Framework.Internal
         {
             var contextProvider = FindContext(self, explicitContext, typeof(TLayer).Name);
             if (contextProvider == null) return null;
+            if (contextProvider.IsDisposed)
+            {
+                // 最近的 Context 已失败或正处于销毁阶段时必须在此止步。回退 Main 会把本应属于该作用域的
+                // Mono 层悄悄注册到全局，继续 Attach 则只会把一个根初始化错误扩散成一串 NRE。
+                Log.Trace($"[{typeof(TLayer).Name}] '{self.name}': nearest Context is unavailable; attachment skipped.");
+                return null;
+            }
 
             ContextInternals.GetContainer(contextProvider).RegisterFor<TLayer>(self, $"{self.GetType().Name}({self.name})");
             contextProvider.Inject(self);
@@ -36,6 +43,11 @@ namespace Game.Framework.Internal
         {
             var contextProvider = FindContext(self, explicitContext, "View");
             if (contextProvider == null) return null;
+            if (contextProvider.IsDisposed)
+            {
+                Log.Trace($"[View] '{self.name}': nearest Context is unavailable; injection skipped.");
+                return null;
+            }
 
             contextProvider.Inject(self);
             return contextProvider;
@@ -56,10 +68,12 @@ namespace Game.Framework.Internal
 
             if (contextProvider == null)
             {
-                Debug.LogError(
-                    $"[{roleLabel}] No IGameContext found for '{self.name}'. " +
+                Log.Error(
+                    $"No IGameContext found for '{self.name}'. " +
                     "Set _targetContext in Inspector, ensure a parent MonoGameContextBase exists, " +
-                    "or initialize a MonoGlobalContext before this Awake.");
+                    "or initialize a MonoGlobalContext before this Awake.",
+                    category: roleLabel,
+                    context: self);
             }
             return contextProvider;
         }

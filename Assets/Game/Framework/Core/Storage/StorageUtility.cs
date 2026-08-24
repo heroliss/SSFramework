@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using Cysharp.Threading.Tasks;
+using Game.Framework.Logging;
 using UnityEngine;
 
 namespace Game.Framework.Storage
@@ -63,13 +64,13 @@ namespace Game.Framework.Storage
                 data = TryDeserialize<T>(bak, key, "备份");
                 if (data != null)
                 {
-                    Debug.LogWarning($"[StorageUtility] '{key}' 主文件不可用，已回退上一版备份（下次 Save 会重建主文件）。");
+                    Log.Warning($"'{key}' 主文件不可用，已回退上一版备份（下次 Save 会重建主文件）。", "StorageUtility");
                     return data;
                 }
 
                 // 主备都没有可用数据。曾经有过内容（读到了字节却解析不出）= 损坏，必须留痕；全都不存在 = 新玩家常态，静默。
                 if (main != null || bak != null)
-                    Debug.LogError($"[StorageUtility] '{key}' 主文件与备份均无法反序列化——按无存档处理（返回 null）。");
+                    Log.Error($"'{key}' 主文件与备份均无法反序列化——按无存档处理（返回 null）。", category: "StorageUtility");
                 return null;
             });
         }
@@ -145,7 +146,7 @@ namespace Game.Framework.Storage
             }
             catch (Exception e)
             {
-                Debug.LogWarning($"[StorageUtility] '{key}' {label}反序列化失败（{e.GetType().Name}: {e.Message}）。");
+                Log.Warning($"'{key}' {label}反序列化失败（{e.GetType().Name}: {e.Message}）。", "StorageUtility");
                 return null;
             }
         }

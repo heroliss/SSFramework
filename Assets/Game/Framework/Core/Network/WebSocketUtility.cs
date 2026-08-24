@@ -6,8 +6,8 @@ using Cysharp.Threading.Tasks;
 using Game.Framework.Context;
 using Game.Framework.Event;
 using Game.Framework.Internal;
+using Game.Framework.Logging;
 using R3;
-using UnityEngine;
 
 namespace Game.Framework.Network
 {
@@ -90,13 +90,13 @@ namespace Game.Framework.Network
                     }
                     catch (Exception e)
                     {
-                        Debug.LogWarning($"[WebSocketUtility] 推送 '{type}' 载荷无法反序列化为 {typeof(TEvent).Name}，已丢弃（{e.GetType().Name}: {e.Message}）。");
+                        Log.Warning($"推送 '{type}' 载荷无法反序列化为 {typeof(TEvent).Name}，已丢弃（{e.GetType().Name}: {e.Message}）。", "WebSocketUtility");
                         return;
                     }
                 }
                 else if (evt == null) // 引用类型事件的空 payload：无默认实例可发
                 {
-                    Debug.LogWarning($"[WebSocketUtility] 推送 '{type}' 无载荷、而 {typeof(TEvent).Name} 是引用类型（无法取默认实例），已丢弃。");
+                    Log.Warning($"推送 '{type}' 无载荷、而 {typeof(TEvent).Name} 是引用类型（无法取默认实例），已丢弃。", "WebSocketUtility");
                     return;
                 }
                 _context?.SendEvent(evt);
@@ -170,7 +170,7 @@ namespace Game.Framework.Network
             catch (Exception e)
             {
                 // 关闭握手失败无关紧要（对端可能已走）——记一条不抛，Disconnect 的语义是「尽力优雅关」
-                Debug.LogWarning($"[WebSocketUtility] 关闭握手未完成（{e.GetType().Name}: {e.Message}），连接已按断开处理。");
+                Log.Warning($"关闭握手未完成（{e.GetType().Name}: {e.Message}），连接已按断开处理。", "WebSocketUtility");
             }
 
             // Close 帧已发出（或已尽力），不等对端 ack：取消并回收循环 CTS。
@@ -302,12 +302,12 @@ namespace Game.Framework.Network
             }
             catch (Exception e)
             {
-                Debug.LogWarning($"[WebSocketUtility] 收到无法解析的 envelope，已丢弃（{e.GetType().Name}: {e.Message}）。");
+                Log.Warning($"收到无法解析的 envelope，已丢弃（{e.GetType().Name}: {e.Message}）。", "WebSocketUtility");
                 return;
             }
             if (string.IsNullOrEmpty(type))
             {
-                Debug.LogWarning("[WebSocketUtility] 收到缺 type 的消息，已丢弃。");
+                Log.Warning("收到缺 type 的消息，已丢弃。", "WebSocketUtility");
                 return;
             }
             if (!_pushHandlers.TryGetValue(type, out var handler))
@@ -345,7 +345,7 @@ namespace Game.Framework.Network
         {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             if (_warnedUnknownTypes.Add(type)) // 同 type 只警告一次，避免高频推送刷屏
-                Debug.LogWarning($"[WebSocketUtility] 收到未注册的推送 type '{type}'，已丢弃——用 RegisterPush<TEvent>(\"{type}\") 注册后才会转成事件。");
+                Log.Warning($"收到未注册的推送 type '{type}'，已丢弃——用 RegisterPush<TEvent>(\"{type}\") 注册后才会转成事件。", "WebSocketUtility");
 #endif
         }
     }

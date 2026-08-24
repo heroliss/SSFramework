@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using Game.Framework.Internal;
-using UnityEngine;
 
 namespace Game.Framework.Context
 {
@@ -9,15 +8,15 @@ namespace Game.Framework.Context
     /// 精简容器构建器。支持值注册、工厂注册、父级容器、Eager 解析。
     /// 解析语义为"后注册覆盖先注册"，因此同一契约多次注册时仅保留最后一次写入。
     /// </summary>
-    public sealed class ContainerBuilder
+    public sealed class ContainerBuilder : IDisposable
     {
-        // 与 Container._bindings 同结构：value 为实例 OR Func<Container, object> 工厂
-        private readonly Dictionary<Type, object> _bindings = new();
-        private readonly List<Type> _eagerSeeds = new();
-        // RegisterOwned 登记的"Context 拥有"实例：Build 时交给 Container，GameContext.Dispose 时统一 Dispose。
-        private readonly List<IDisposable> _owned = new();
+        private readonly Dictionary<Type, ContainerBinding> _bindings = new();
+        private readonly List<ContainerBinding> _eagerBindings = new();
+        // Build 前 Builder 暂时拥有资源；Build 成功后同一 registry 交给 Container，不复制所有权。
+        private readonly OwnedDisposables _owned = new();
         private Container _parent;
         private bool _built;
+        private bool _disposed;
 
         /// <summary>设置父级容器，解析时未命中将回退到父级。</summary>
         public ContainerBuilder SetParent(Container parent)
@@ -35,21 +34,12 @@ namespace Game.Framework.Context
         {
             ThrowIfBuilt();
             if (value == null) throw new ArgumentNullException(nameof(value));
-            if (contracts == null || contracts.Length == 0)
-                throw new ArgumentException("At least one contract type required", nameof(contracts));
+            ValidateContracts(contracts);
+            ValidateValueInstance(value, contracts);
 
+            var binding = ContainerBinding.ForValue(value);
             for (int i = 0; i < contracts.Length; i++)
-            {
-                var contract = contracts[i];
-#if UNITY_EDITOR
-                if (!contract.IsInstanceOfType(value))
-                {
-                    Debug.LogError(
-                        $"[ContainerBuilder] '{value.GetType().Name}' is not assignable to contract '{contract.Name}'");
-                }
-#endif
-                _bindings[contract] = value;
-            }
+                _bindings[contracts[i]] = binding;
             return this;
         }
 
@@ -60,8 +50,8 @@ namespace Game.Framework.Context
         /// （容器不替外部传入的共享实例兜底释放）。
         /// </summary>
         /// <remarks>
-        /// 同一实例要注册到多个契约时<b>一次调用传多个 contract</b>（只登记一次拥有关系）；不要对同一实例多次调用本方法，
-        /// 否则它会在 Dispose 时被 Dispose 多次。owned 实例应保证 <c>Dispose</c> 幂等（与 .NET 约定一致）。
+        /// 同一实例可一次传多个 contract，也可分次补充 contract；所有权按引用去重，Context 最多 Dispose 一次。
+        /// owned 实例仍应遵守 .NET 的幂等 Dispose 约定，便于调用方安全组合。
         /// </remarks>
         public ContainerBuilder RegisterOwned(IDisposable value, params Type[] contracts)
         {
@@ -89,28 +79,48 @@ namespace Game.Framework.Context
             Func<Container, object> factory,
             Resolution resolution,
             params Type[] contracts)
+            => RegisterFactoryCore(factory, resolution, ownsResult: false, contracts);
+
+        /// <summary>
+        /// 注册由 Context 拥有的懒/急切工厂。与 <see cref="RegisterFactory(Func{Container, object}, Resolution, Type[])"/>
+        /// 相同地按需构造并缓存 Singleton，但要求产物实现 <see cref="IDisposable"/>，并在 Context Dispose 时逆序释放。
+        /// </summary>
+        /// <remarks>
+        /// 用于“需要先从 Container 解析依赖、同时生命周期应跟随 Context”的服务。普通 <see cref="RegisterFactory(Func{Container, object}, Type[])"/>
+        /// 不拥有产物；不能用它创建无人持有的 <see cref="IDisposable"/>。工厂产物仍不自动 Inject/Attach，依赖由工厂显式接线。
+        /// </remarks>
+        public ContainerBuilder RegisterOwnedFactory(
+            Func<Container, object> factory,
+            Resolution resolution,
+            params Type[] contracts)
+            => RegisterFactoryCore(factory, resolution, ownsResult: true, contracts);
+
+        /// <summary><see cref="RegisterOwnedFactory(Func{Container, object}, Resolution, Type[])"/> 的 Lazy 简化重载。</summary>
+        public ContainerBuilder RegisterOwnedFactory(Func<Container, object> factory, params Type[] contracts)
+            => RegisterOwnedFactory(factory, Resolution.Lazy, contracts);
+
+        private ContainerBuilder RegisterFactoryCore(
+            Func<Container, object> factory,
+            Resolution resolution,
+            bool ownsResult,
+            Type[] contracts)
         {
             ThrowIfBuilt();
             if (factory == null) throw new ArgumentNullException(nameof(factory));
-            if (contracts == null || contracts.Length == 0)
-                throw new ArgumentException("At least one contract type required", nameof(contracts));
+            ValidateContracts(contracts);
+            if (resolution != Resolution.Lazy && resolution != Resolution.Eager)
+                throw new ArgumentOutOfRangeException(nameof(resolution), resolution, "Unknown factory resolution mode.");
 
-            // 多契约共享同一实例：用闭包包装，确保工厂只调用一次，所有契约返回同一对象。
-            // 单契约时不包装，避免多余闭包开销。
-            if (contracts.Length > 1)
-            {
-                var original = factory;
-                object shared = null;
-                factory = c => shared ??= original(c);
-            }
+            // params 数组来自调用方，注册后可能被复用/修改；拷贝后再捕获，保证工厂契约稳定。
+            var registeredContracts = (Type[])contracts.Clone();
+            var binding = ContainerBinding.ForFactory(factory, registeredContracts, ownsResult);
 
-            for (int i = 0; i < contracts.Length; i++)
+            for (int i = 0; i < registeredContracts.Length; i++)
             {
-                _bindings[contracts[i]] = factory;
-                // Eager 模式只需 seed 第一个契约：工厂调用后 shared 已填充，后续契约直接返回缓存值。
-                if (resolution == Resolution.Eager && i == 0)
-                    _eagerSeeds.Add(contracts[i]);
+                _bindings[registeredContracts[i]] = binding;
             }
+            if (resolution == Resolution.Eager)
+                _eagerBindings.Add(binding);
             return this;
         }
 
@@ -120,6 +130,7 @@ namespace Game.Framework.Context
 
         /// <summary>
         /// 构建容器。绑定表复制为新字典，Builder 不再可用（再次调用 RegisterXxx 会抛异常）。
+        /// Build 前由 Builder 暂管的 owned 资源在此转交给 Container；若构建失败则立即回滚。
         /// 若有 Eager 工厂，会在此一并构造，启动期就暴露配置错误。
         /// </summary>
         public Container Build()
@@ -127,36 +138,90 @@ namespace Game.Framework.Context
             ThrowIfBuilt();
             _built = true;
 
-            var copy = new Dictionary<Type, object>(_bindings);
+            var copy = new Dictionary<Type, ContainerBinding>(_bindings);
 
             // 收集构建完成时仍生效的值绑定实例（同一实例多契约只收一次）：GameContext 构造时对它们统一
             // Inject + AttachTo，使纯 C# 路径与 Mono 路径「注册即注入」语义对称（ADR-0019）。
             // 在 Eager 工厂解析前收集——工厂产物（含 Eager）刻意不进此列表，工厂经 Func<Container, object> 显式接线。
             // 被后续注册覆盖掉的值实例不在 copy.Values 里，自然不会被注入。
             var boundValues = new List<object>();
-            foreach (var stored in copy.Values)
-                if (stored is not Func<Container, object> && !ContainsReference(boundValues, stored))
-                    boundValues.Add(stored);
+            foreach (var binding in copy.Values)
+                if (!binding.IsFactory && !ContainsReference(boundValues, binding.Instance))
+                    boundValues.Add(binding.Instance);
 
-            var container = new Container(copy, _parent, _owned, boundValues);
+            Container container = null;
+            try
+            {
+                container = new Container(copy, _parent, _owned, boundValues);
 
-            // Eager 工厂在 Build 末尾立即 Resolve：失败的依赖在启动期就抛出来
-            for (int i = 0; i < _eagerSeeds.Count; i++)
-                container.Resolve(_eagerSeeds[i]);
+                // 只启动构建完成后仍被至少一个 contract 引用的 Eager 工厂。Binding 自己缓存结果，
+                // 因而多 contract 或某个 contract 被覆盖时也不会重复构造。
+                for (int i = 0; i < _eagerBindings.Count; i++)
+                    if (ContainsBinding(copy, _eagerBindings[i]))
+                        _eagerBindings[i].Resolve(container);
+            }
+            catch
+            {
+                // Build 失败时不会产生 GameContext 接手所有权：Container 已创建则由它统一回滚；
+                // 极早期失败则 Builder 仍是临时 owner。两条路径共享 registry，释放始终恰好一次。
+                if (container != null) container.Dispose();
+                else _owned.Dispose("ContainerBuilder");
+                throw;
+            }
 
             return container;
         }
 
         // 引用相等去重（不走 Equals——值实例可能重写 Equals，注入按对象身份去重才正确）。注册量级小，线性扫足够。
-        private static bool ContainsReference(List<object> list, object item)
+        private static bool ContainsReference<T>(List<T> list, T item)
         {
             for (int i = 0; i < list.Count; i++)
                 if (ReferenceEquals(list[i], item)) return true;
             return false;
         }
 
+        private static bool ContainsBinding(Dictionary<Type, ContainerBinding> bindings, ContainerBinding binding)
+        {
+            foreach (var value in bindings.Values)
+                if (ReferenceEquals(value, binding)) return true;
+            return false;
+        }
+
+        private static void ValidateContracts(Type[] contracts)
+        {
+            if (contracts == null || contracts.Length == 0)
+                throw new ArgumentException("At least one contract type required", nameof(contracts));
+            for (int i = 0; i < contracts.Length; i++)
+                if (contracts[i] == null)
+                    throw new ArgumentException($"Contract type at index {i} is null", nameof(contracts));
+        }
+
+        private static void ValidateValueInstance(object instance, Type[] contracts)
+        {
+            for (int i = 0; i < contracts.Length; i++)
+                if (!contracts[i].IsInstanceOfType(instance))
+                    throw new ArgumentException(
+                        $"[ContainerBuilder] Value '{instance.GetType().Name}' is not assignable to contract '{contracts[i].Name}'.",
+                        nameof(contracts));
+        }
+
+        /// <summary>
+        /// 放弃尚未 Build 的构建事务并释放已登记 owned 资源。Build 已消费 Builder 后调用为 no-op，
+        /// 因为所有权已经转交给 Container。生产代码应优先用 <c>using var builder</c> 覆盖异常路径。
+        /// </summary>
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            if (!_built)
+                _owned.Dispose("ContainerBuilder");
+        }
+
         private void ThrowIfBuilt()
         {
+            if (_disposed)
+                throw new ObjectDisposedException(nameof(ContainerBuilder),
+                    "[ContainerBuilder] Builder has been disposed and cannot accept registrations or Build().");
             if (_built)
                 throw new InvalidOperationException(
                     "[ContainerBuilder] Builder has already been consumed by Build(). Create a new builder for additional registrations.");

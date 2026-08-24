@@ -6,6 +6,7 @@ using Game.Framework.Command;
 using Game.Framework.Diagnostics;
 using Game.Framework.Event;
 using Game.Framework.Internal;
+using Game.Framework.Logging;
 using Game.Framework.Model;
 using Game.Framework.Systems;
 using Game.Framework.Utility;
@@ -70,18 +71,29 @@ namespace Game.Framework.Context
             _container = container ?? throw new ArgumentNullException(nameof(container));
             _inheritFromGlobal = inheritFromGlobal;
 
-            var boundValues = container.BoundValues;
-            if (boundValues != null)
-                for (int i = 0; i < boundValues.Count; i++)
-                {
-                    Inject(boundValues[i]);
-                    AttachTo(boundValues[i]);
-                }
+            try
+            {
+                var boundValues = container.BoundValues;
+                if (boundValues != null)
+                    for (int i = 0; i < boundValues.Count; i++)
+                    {
+                        Inject(boundValues[i]);
+                        AttachTo(boundValues[i]);
+                    }
 
 #if UNITY_EDITOR
-            CreatedRealtime = Time.realtimeSinceStartupAsDouble;
+                CreatedRealtime = Time.realtimeSinceStartupAsDouble;
 #endif
-            FrameworkDiagnostics.OnContextCreated(this); // Editor 外编译消除
+                FrameworkDiagnostics.OnContextCreated(this); // Editor 外编译消除
+            }
+            catch
+            {
+                // 构造函数没有成功返回，调用方拿不到 GameContext 来 Dispose；从接收 Container 起这里就是
+                // 所有权事务的最后一道边界，注入 / Attach / 诊断初始化失败都必须主动回滚。
+                _disposed = true;
+                _container.Dispose();
+                throw;
+            }
         }
 
         /// <summary>
@@ -132,17 +144,29 @@ namespace Game.Framework.Context
         /// </summary>
         internal Container Container => _container;
 
-        public void Inject(object obj) => InjectionPlan.For(obj.GetType()).Apply(obj, this);
+        /// <inheritdoc />
+        public void Inject(object obj)
+        {
+            ThrowIfDisposed();
+            if (obj == null) throw new ArgumentNullException(nameof(obj));
+            InjectionPlan.For(obj.GetType()).Apply(obj, this);
+        }
 
         /// <summary>
         /// 创建跟随当前 Context 的临时 bag。
         /// Bag 持有 ctx 引用以支持资源加载和 Framework Event 订阅；不会被注册到容器，调用方负责 Dispose。
         /// </summary>
-        public DisposableBag CreateBag() => new DisposableBag(this);
+        public DisposableBag CreateBag()
+        {
+            ThrowIfDisposed();
+            return new DisposableBag(this);
+        }
 
         /// <summary>尝试解析类型。查找顺序：本容器（含父级链）→ GameContext.Main（可选）。</summary>
         public bool TryResolve(Type type, out object instance)
         {
+            ThrowIfDisposed();
+            if (type == null) throw new ArgumentNullException(nameof(type));
             if (_container.TryResolve(type, out instance)) return true;
             if (_inheritFromGlobal && Main != null && Main != this)
                 return Main.TryResolve(type, out instance);
@@ -166,22 +190,46 @@ namespace Game.Framework.Context
         // ---- 动态注册（公开 API） ----
 
         public void RegisterModel<T>(T instance) where T : class, IModel
-            => _container.RegisterFor<IModel>(instance, $"dynamic:{instance.GetType().Name}");
+        {
+            ThrowIfDisposed();
+            if (instance == null) throw new ArgumentNullException(nameof(instance));
+            _container.RegisterFor<IModel>(instance, $"dynamic:{instance.GetType().Name}");
+        }
 
         public void RegisterSystem<T>(T instance) where T : class, ISystem
-            => _container.RegisterFor<ISystem>(instance, $"dynamic:{instance.GetType().Name}");
+        {
+            ThrowIfDisposed();
+            if (instance == null) throw new ArgumentNullException(nameof(instance));
+            _container.RegisterFor<ISystem>(instance, $"dynamic:{instance.GetType().Name}");
+        }
 
         public void RegisterUtility<T>(T instance) where T : class, IUtility
-            => _container.RegisterFor<IUtility>(instance, $"dynamic:{instance.GetType().Name}");
+        {
+            ThrowIfDisposed();
+            if (instance == null) throw new ArgumentNullException(nameof(instance));
+            _container.RegisterFor<IUtility>(instance, $"dynamic:{instance.GetType().Name}");
+        }
 
         public void UnregisterModel<T>(T instance) where T : class, IModel
-            => _container.UnregisterFor<IModel>(instance);
+        {
+            ThrowIfDisposed();
+            if (instance == null) throw new ArgumentNullException(nameof(instance));
+            _container.UnregisterFor<IModel>(instance);
+        }
 
         public void UnregisterSystem<T>(T instance) where T : class, ISystem
-            => _container.UnregisterFor<ISystem>(instance);
+        {
+            ThrowIfDisposed();
+            if (instance == null) throw new ArgumentNullException(nameof(instance));
+            _container.UnregisterFor<ISystem>(instance);
+        }
 
         public void UnregisterUtility<T>(T instance) where T : class, IUtility
-            => _container.UnregisterFor<IUtility>(instance);
+        {
+            ThrowIfDisposed();
+            if (instance == null) throw new ArgumentNullException(nameof(instance));
+            _container.UnregisterFor<IUtility>(instance);
+        }
 
         // ---- Command 执行 ----
 
@@ -246,7 +294,7 @@ namespace Game.Framework.Context
             if (_disposed)
             {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
-                Debug.LogWarning($"[GameContext] SendEvent<{typeof(T).Name}> called on disposed context. Ignoring.");
+                Log.Warning($"SendEvent<{typeof(T).Name}> called on disposed Context; ignored.", "GameContext");
 #endif
                 return;
             }
@@ -256,6 +304,8 @@ namespace Game.Framework.Context
 
         public IDisposable RegisterEvent<T>(Action<T> handler) where T : IEvent
         {
+            ThrowIfDisposed();
+            if (handler == null) throw new ArgumentNullException(nameof(handler));
 #if UNITY_EDITOR
             // 诊断计数包装（仅 Editor）：R3 Subject 不暴露 observer 数，框架在唯一订阅通道上自己数。
             // Bag.Subscribe<TEvent> 也走本方法，覆盖全部 Framework Event 订阅。
@@ -300,6 +350,8 @@ namespace Game.Framework.Context
 
         public void AttachTo(object target)
         {
+            ThrowIfDisposed();
+            if (target == null) throw new ArgumentNullException(nameof(target));
             if (target is IHasGameContext hasCtx && hasCtx.Context == null)
                 SetContextField(target);
         }
@@ -311,9 +363,28 @@ namespace Game.Framework.Context
             if (_disposed) return;
             _disposed = true;
             FrameworkDiagnostics.OnContextDisposed(this); // Editor 外编译消除
-            _cts?.Cancel();
-            _cts?.Dispose();
+
+            var cts = _cts;
             _cts = null;
+            if (cts != null)
+            {
+                try
+                {
+                    // CancellationTokenSource 会聚合并重新抛出用户回调异常；不能让一个坏回调阻断整棵 Context 清理。
+                    cts.Cancel();
+                }
+                catch (Exception e)
+                {
+                    Log.Error(
+                        "A cancellation callback threw during Context disposal; events and owned services will still be released.",
+                        e,
+                        "GameContext");
+                }
+                finally
+                {
+                    cts.Dispose();
+                }
+            }
             _commandSystem = null;
             foreach (var subject in _typedEvents.Values)
                 ((IDisposable)subject).Dispose();
@@ -321,7 +392,7 @@ namespace Game.Framework.Context
 #if UNITY_EDITOR
             _eventSubscriptionCounts = null; // 订阅计数随事件总线一起作废（迟到的退订不再减）
 #endif
-            _container.Dispose(); // 释放本 Context 拥有的实例（RegisterOwned 登记的，如 PoolUtility）
+            _container.Dispose(); // 释放 RegisterOwned / RegisterOwnedFactory 接管的实例（如 PoolUtility）
         }
 
         // ---- 内部 ----
@@ -338,7 +409,8 @@ namespace Game.Framework.Context
         private void ThrowIfDisposed()
         {
             if (_disposed)
-                throw new ObjectDisposedException(nameof(GameContext), "[GameContext] Cannot execute commands on a disposed context.");
+                throw new ObjectDisposedException(nameof(GameContext),
+                    "[GameContext] Cannot resolve, inject, subscribe, or mutate a disposed Context.");
         }
 
         private Subject<T> GetOrCreateSubject<T>() where T : IEvent
@@ -378,9 +450,10 @@ namespace Game.Framework.Context
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
                 if (field == null)
                 {
-                    Debug.LogWarning(
-                        $"[GameContext] AttachTo: no 'GameContext' field found on '{type.Name}'. " +
-                        "Ensure the class declares a private GameContext field (IHasGameContext.Context reads it).");
+                    Log.Warning(
+                        $"AttachTo found no 'GameContext' field on '{type.Name}'. " +
+                        "Ensure the class declares a private GameContext field read by IHasGameContext.Context.",
+                        "GameContext");
                 }
 #endif
             }

@@ -39,6 +39,12 @@ namespace Game.Framework.Test
             }
         }
 
+        private sealed class DisposeProbe : IDisposable
+        {
+            public bool IsDisposed;
+            public void Dispose() => IsDisposed = true;
+        }
+
         private GameContext _ctx;
 
         [SetUp]
@@ -77,6 +83,28 @@ namespace Game.Framework.Test
             using var sub = _ctx.RegisterEvent<TestEvent>(_ => counter++);
             _ctx.SendEvent(new TestEvent("post-throw", 1));
             Assert.AreEqual(1, counter, "Command 抛异常后 Context 仍应正常工作");
+        }
+
+        [Test]
+        public void ContextDispose_CancellationCallbackThrows_StillReleasesOwnedServices()
+        {
+            _ctx.Dispose();
+            var owned = new DisposeProbe();
+            var builder = new ContainerBuilder();
+            builder.RegisterOwned(owned, typeof(DisposeProbe));
+            _ctx = new GameContext(builder.Build(), inheritFromGlobal: false);
+            _ctx.CancellationToken.Register(
+                () => throw new InvalidOperationException("cancel-boom"));
+
+            LogAssert.Expect(LogType.Error,
+                new Regex(@"\[GameContext\] A cancellation callback threw during Context disposal"));
+            LogAssert.Expect(LogType.Exception,
+                new Regex(@"InvalidOperationException: cancel-boom"));
+
+            Assert.DoesNotThrow(() => _ctx.Dispose(),
+                "取消回调异常应被隔离，Dispose 对宿主保持幂等、非抛出语义");
+            Assert.IsTrue(owned.IsDisposed,
+                "取消回调失败不能阻断 Container owned 实例的级联释放");
         }
 
         // ── 异步 Command 异常上抛 ────────────────────────────────────────

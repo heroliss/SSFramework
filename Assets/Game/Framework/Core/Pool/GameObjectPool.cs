@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using Cysharp.Threading.Tasks;
+using Game.Framework.Logging;
 using UnityEngine;
 
 namespace Game.Framework.Pool
@@ -107,8 +108,9 @@ namespace Game.Framework.Pool
             {
                 // 无标记 = 非池化对象，无法安全入池：Release 也忽略（避免污染池），Editor/Dev 额外报错。
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
-                Debug.LogError(
-                    $"[GameObjectPool({_prefab.name})] Despawning a non-pooled GameObject '{instance.name}'. Ignored.");
+                Log.Error(
+                    $"Despawning a non-pooled GameObject '{instance.name}'. Ignored.",
+                    category: $"GameObjectPool({_prefab.name})");
 #endif
                 return;
             }
@@ -117,16 +119,18 @@ namespace Game.Framework.Pool
             if (!ReferenceEquals(marker.OwningPool, this))
             {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
-                Debug.LogError(
-                    $"[GameObjectPool({_prefab.name})] Despawning '{instance.name}' that belongs to a different pool. Ignored.");
+                Log.Error(
+                    $"Despawning '{instance.name}' that belongs to a different pool. Ignored.",
+                    category: $"GameObjectPool({_prefab.name})");
 #endif
                 return;
             }
             if (!marker.IsSpawned)
             {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
-                Debug.LogError(
-                    $"[GameObjectPool({_prefab.name})] Double-despawn of '{instance.name}'. Ignored.");
+                Log.Error(
+                    $"Double-despawn of '{instance.name}'. Ignored.",
+                    category: $"GameObjectPool({_prefab.name})");
 #endif
                 return;
             }

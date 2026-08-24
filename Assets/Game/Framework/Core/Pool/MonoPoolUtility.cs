@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using Sirenix.OdinInspector;
+using Game.Framework.Logging;
 using Game.Framework.Utility;
 using UnityEngine;
 
@@ -73,12 +74,13 @@ namespace Game.Framework.Pool
             }
         }
 
-        // 启动期分帧预热：fire-and-forget，但按 AGENTS §8 用 try-catch 兜异常 + 随 OnDestroy 取消，不裸丢错误。
+        // 启动期分帧预热：fire-and-forget，但按 Assets/Game/AGENTS.md「状态、Command 与异步」
+        // 用 try-catch 兜异常 + 随 OnDestroy 取消，不裸丢错误。
         private static async UniTaskVoid PrewarmAsync(IGameObjectPool pool, int count, int perFrame, CancellationToken ct)
         {
             try { await pool.Prewarm(count, perFrame, ct); }
             catch (OperationCanceledException) { /* 宿主销毁，正常取消 */ }
-            catch (Exception e) { Debug.LogException(e); }
+            catch (Exception e) { Log.Error("GameObject pool prewarm failed.", e, "MonoPoolUtility"); }
         }
 
         // ── IPoolUtility 转发到底层 PoolUtility ──────────────────────────────

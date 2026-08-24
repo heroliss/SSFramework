@@ -1,17 +1,22 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Text.RegularExpressions;
+using Game.Framework.Common;
 using Game.Framework.Context;
 using Game.Framework.Internal;
 using Game.Framework.Model;
 using Game.Framework.Systems;
 using Game.Framework.Utility;
 using NUnit.Framework;
+using UnityEngine.TestTools;
+using LogType = UnityEngine.LogType;
 
 namespace Game.Framework.Test
 {
     /// <summary>
     /// 测试 Container 注册契约：构建期 vs 运行期、同层 vs 跨层、覆盖 vs 抛异常。
-    /// 这些行为是 AGENTS §12 的合同，必须有测试固化以防回归。
+    /// 这些行为是 <c>Assets/Game/AGENTS.md</c>「Container 与所有权」的合同，必须有测试固化以防回归。
     /// </summary>
     public class ContainerContractTests
     {
@@ -169,6 +174,24 @@ namespace Game.Framework.Test
             public void Dispose() => DisposeCount++;
         }
 
+        private interface ITrackedDisposable { }
+
+        private sealed class MultiContractDisposable : IDisposable, ITrackedDisposable
+        {
+            public int DisposeCount;
+            public void Dispose() => DisposeCount++;
+        }
+
+        private sealed class ThrowingInjectedDisposable : IDisposable
+        {
+            public int DisposeCount;
+
+            [Inject]
+            private void Initialize() => throw new InvalidOperationException("inject-boom");
+
+            public void Dispose() => DisposeCount++;
+        }
+
         [Test]
         public void RegisterOwned_DisposedOnContextDispose()
         {
@@ -221,6 +244,86 @@ namespace Game.Framework.Test
             public void Dispose() => _log.Add(_id);
         }
 
+        private sealed class ThrowingOrderedDisposable : IDisposable
+        {
+            private readonly List<string> _log;
+            public ThrowingOrderedDisposable(List<string> log) => _log = log;
+
+            public void Dispose()
+            {
+                _log.Add("bad");
+                throw new InvalidOperationException("owned-dispose-boom");
+            }
+        }
+
+        [Test]
+        public void BuilderDispose_BeforeBuild_ReleasesOwnedInReverseOrder_AndIsIdempotent()
+        {
+            var log = new List<string>();
+            var builder = new ContainerBuilder();
+            builder.RegisterOwned(new OrderedDisposable(log, "A"), typeof(OrderedDisposable));
+            builder.RegisterOwned(new OrderedDisposable(log, "B"), typeof(OrderedDisposable));
+
+            builder.Dispose();
+            builder.Dispose();
+
+            CollectionAssert.AreEqual(new[] { "B", "A" }, log,
+                "Build 前 Builder 是临时 owner；放弃事务时也必须 LIFO 且幂等释放");
+            Assert.Throws<ObjectDisposedException>(() => builder.Build());
+            Assert.Throws<ObjectDisposedException>(
+                () => builder.RegisterValue(new ModelA(), typeof(ModelA)));
+        }
+
+        [Test]
+        public void BuilderRollback_WhenOwnedDisposeThrows_StillReleasesRemainingResources()
+        {
+            var log = new List<string>();
+            var builder = new ContainerBuilder();
+            builder.RegisterOwned(new OrderedDisposable(log, "A"), typeof(OrderedDisposable));
+            builder.RegisterOwned(new ThrowingOrderedDisposable(log), typeof(ThrowingOrderedDisposable));
+            builder.RegisterOwned(new OrderedDisposable(log, "C"), typeof(OrderedDisposable));
+
+            LogAssert.Expect(LogType.Error,
+                new Regex(@"\[ContainerBuilder\] An owned service threw during disposal"));
+            LogAssert.Expect(LogType.Exception,
+                new Regex(@"InvalidOperationException: owned-dispose-boom"));
+            Assert.DoesNotThrow(builder.Dispose);
+
+            CollectionAssert.AreEqual(new[] { "C", "bad", "A" }, log,
+                "一个坏 Dispose 不得阻断事务中其余 owned 资源的逆序清理");
+        }
+
+        [Test]
+        public void Build_TransfersOwnership_BuilderDisposeDoesNotReleaseEarly()
+        {
+            var owned = new TrackedDisposable();
+            var builder = new ContainerBuilder();
+            builder.RegisterOwned(owned, typeof(TrackedDisposable));
+            var container = builder.Build();
+
+            builder.Dispose();
+            Assert.AreEqual(0, owned.DisposeCount, "Build 成功后 owner 已转为 Container");
+
+            using var context = new GameContext(container, inheritFromGlobal: false);
+            context.Dispose();
+            Assert.AreEqual(1, owned.DisposeCount);
+        }
+
+        [Test]
+        public void GameContextConstructor_WhenInjectionThrows_RollsBackContainerOwnership()
+        {
+            var owned = new ThrowingInjectedDisposable();
+            using var builder = new ContainerBuilder();
+            builder.RegisterOwned(owned, typeof(ThrowingInjectedDisposable));
+
+            var error = Assert.Catch<Exception>(
+                () => _ = new GameContext(builder.Build(), inheritFromGlobal: false));
+
+            StringAssert.Contains("inject-boom", error.ToString());
+            Assert.AreEqual(1, owned.DisposeCount,
+                "GameContext 构造未返回时，必须自行回滚已经接手的 Container owned 资源");
+        }
+
         [Test]
         public void RegisterOwned_DisposedInReverseRegistrationOrder()
         {
@@ -258,6 +361,162 @@ namespace Game.Framework.Test
             parentCtx.Dispose();
             Assert.AreEqual(new[] { "child", "parent" }, log.ToArray(),
                 "父 Context Dispose 释放自己的 owned，不受子级影响");
+        }
+
+        [Test]
+        public void RegisterValue_IncompatibleContract_FailsAtRegistration()
+        {
+            var builder = new ContainerBuilder();
+
+            var error = Assert.Throws<ArgumentException>(
+                () => builder.RegisterValue(new ModelA(), typeof(SystemA)));
+
+            StringAssert.Contains("not assignable", error.Message,
+                "错误应在注册边界暴露，而不是拖到后续 Resolve/强转位置");
+        }
+
+        [Test]
+        public void RegisterFactory_IncompatibleResult_FailsOnFirstResolve()
+        {
+            var builder = new ContainerBuilder();
+            builder.RegisterFactory(_ => new ModelA(), typeof(SystemA));
+            var container = builder.Build();
+
+            var error = Assert.Throws<InvalidOperationException>(() => container.Resolve(typeof(SystemA)));
+
+            StringAssert.Contains("not assignable", error.Message);
+        }
+
+        [Test]
+        public void RegisterValue_DelegateWithFactorySignature_RemainsAValue()
+        {
+            Func<Container, object> callback = _ => new ModelA();
+            var builder = new ContainerBuilder();
+            builder.RegisterValue(callback, typeof(Func<Container, object>));
+            using var ctx = new GameContext(builder.Build(), inheritFromGlobal: false);
+
+            Assert.AreSame(callback, ctx.Resolve(typeof(Func<Container, object>)),
+                "值/工厂必须由绑定类型显式区分，不能因为值恰好是 Func<Container, object> 就误执行");
+        }
+
+        [Test]
+        public void RegisterFactory_CircularResolution_FailsAtCycleBoundary()
+        {
+            var builder = new ContainerBuilder();
+            builder.RegisterFactory(
+                c => c.Resolve(typeof(ModelA)),
+                typeof(ModelA));
+            var container = builder.Build();
+
+            var error = Assert.Throws<InvalidOperationException>(() => container.Resolve(typeof(ModelA)));
+
+            StringAssert.Contains("Circular factory resolution", error.Message,
+                "循环依赖应在工厂边界给出可诊断错误，而不是递归到栈溢出");
+        }
+
+        [Test]
+        public void RegisterOwned_SameInstanceAcrossCalls_DisposedExactlyOnce()
+        {
+            var owned = new MultiContractDisposable();
+            var builder = new ContainerBuilder();
+            builder.RegisterOwned(owned, typeof(MultiContractDisposable));
+            builder.RegisterOwned(owned, typeof(ITrackedDisposable));
+            using var ctx = new GameContext(builder.Build(), inheritFromGlobal: false);
+
+            ctx.Dispose();
+
+            Assert.AreEqual(1, owned.DisposeCount,
+                "所有权按对象身份去重；补注册另一个 contract 不应重复登记 Dispose");
+        }
+
+        [Test]
+        public void RegisterOwnedFactory_LazySingleton_DisposedWithContext()
+        {
+            var owned = new MultiContractDisposable();
+            int createCount = 0;
+            var builder = new ContainerBuilder();
+            builder.RegisterOwnedFactory(_ =>
+                {
+                    createCount++;
+                    return owned;
+                },
+                typeof(MultiContractDisposable), typeof(ITrackedDisposable));
+            using var ctx = new GameContext(builder.Build(), inheritFromGlobal: false);
+
+            Assert.AreEqual(0, createCount, "Lazy owned factory 不应在 Build 时构造");
+            Assert.AreSame(owned, ctx.Resolve(typeof(ITrackedDisposable)));
+            Assert.AreSame(owned, ctx.Resolve(typeof(MultiContractDisposable)));
+            Assert.AreEqual(1, createCount, "多 contract 仍共享一个 Singleton");
+
+            ctx.Dispose();
+            Assert.AreEqual(1, owned.DisposeCount, "工厂产物应随 Context 释放且只释放一次");
+        }
+
+        [Test]
+        public void RegisterOwnedFactory_MultiContract_DiagnosticsShareResolvedState()
+        {
+            var builder = new ContainerBuilder();
+            builder.RegisterOwnedFactory(
+                _ => new MultiContractDisposable(),
+                typeof(MultiContractDisposable), typeof(ITrackedDisposable));
+            using var ctx = new GameContext(builder.Build(), inheritFromGlobal: false);
+            var container = ContextInternals.GetContainer(ctx);
+
+            Assert.IsTrue(container.LocalRegistrationDetails.All(d => d.IsPendingFactory));
+            var resolved = ctx.Resolve(typeof(ITrackedDisposable));
+            var details = container.LocalRegistrationDetails.ToArray();
+
+            Assert.IsTrue(details.All(d => !d.IsPendingFactory),
+                "多 contract 共用一个 Binding；任一 contract 首次解析后，诊断不应把其余 contract 误报为待构造");
+            Assert.IsTrue(details.All(d => ReferenceEquals(resolved, d.Instance)));
+        }
+
+        [Test]
+        public void RegisterOwnedFactory_NonDisposableResult_FailsOnResolve()
+        {
+            var builder = new ContainerBuilder();
+            builder.RegisterOwnedFactory(_ => new ModelA(), typeof(ModelA));
+            using var ctx = new GameContext(builder.Build(), inheritFromGlobal: false);
+
+            var error = Assert.Throws<InvalidOperationException>(() => ctx.Resolve(typeof(ModelA)));
+
+            StringAssert.Contains("non-IDisposable", error.Message);
+        }
+
+        [Test]
+        public void Build_WhenLaterEagerFactoryFails_ReleasesCreatedOwnedFactoryResult()
+        {
+            var owned = new MultiContractDisposable();
+            using var builder = new ContainerBuilder();
+            builder.RegisterOwnedFactory(_ => owned, Resolution.Eager, typeof(MultiContractDisposable));
+            builder.RegisterFactory(
+                _ => throw new InvalidOperationException("boom"),
+                Resolution.Eager,
+                typeof(ModelA));
+
+            Assert.Throws<InvalidOperationException>(() => builder.Build());
+            builder.Dispose();
+            Assert.AreEqual(1, owned.DisposeCount,
+                "Build 失败时 Container 回滚 owned；外层 Builder.Dispose 不得二次释放");
+        }
+
+        [Test]
+        public void Resolve_AfterContextDispose_ThrowsWithoutConstructingLazyFactory()
+        {
+            int createCount = 0;
+            var builder = new ContainerBuilder();
+            builder.RegisterOwnedFactory(_ =>
+                {
+                    createCount++;
+                    return new MultiContractDisposable();
+                },
+                typeof(MultiContractDisposable));
+            var ctx = new GameContext(builder.Build(), inheritFromGlobal: false);
+            ctx.Dispose();
+
+            Assert.Throws<ObjectDisposedException>(() => ctx.Resolve(typeof(MultiContractDisposable)));
+            Assert.AreEqual(0, createCount,
+                "已 Dispose Context 不得通过未解析的 Lazy factory 复活新服务");
         }
     }
 }

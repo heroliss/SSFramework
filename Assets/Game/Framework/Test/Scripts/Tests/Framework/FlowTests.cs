@@ -188,6 +188,30 @@ namespace Game.Framework.Test
         // ── 失败语义 ─────────────────────────────────────────────────────────
 
         [Test]
+        public void InstallBindingsThrows_TaskFaults_PreBuildOwnedDisposed_FlowRemainsUsable()
+        {
+            var probe = new Probe();
+            var broken = State("Broken", install: builder =>
+            {
+                builder.RegisterOwned(probe, typeof(Probe));
+                throw new InvalidOperationException("install-boom");
+            });
+
+            var task = _flow.GoTo(broken);
+
+            Assert.AreEqual(UniTaskStatus.Faulted, task.Status);
+            var error = Assert.Throws<InvalidOperationException>(() => task.GetAwaiter().GetResult());
+            StringAssert.Contains("install-boom", error.Message);
+            Assert.IsTrue(probe.Disposed, "Build 前失败应由 using Builder 回滚状态私有 owned 服务");
+            Assert.IsNull(_flow.Current);
+            Assert.IsFalse(_flow.IsTransitioning);
+
+            var healthy = State("Healthy");
+            Assert.DoesNotThrow(() => _flow.GoTo(healthy).GetAwaiter().GetResult());
+            Assert.AreSame(healthy, _flow.Current, "一次 Install 失败不能毒化流程转换循环");
+        }
+
+        [Test]
         public void EnterThrows_CurrentNull_TaskFaults_ScopeDisposed()
         {
             var probe = new Probe();

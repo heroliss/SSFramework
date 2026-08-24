@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using UnityEngine;
 
 namespace Game.Framework.Internal
 {
@@ -17,16 +16,17 @@ namespace Game.Framework.Internal
     /// </remarks>
     public sealed class Container
     {
-        // 构建时绑定：value 为实例直接返回；value 为 Func<Container, object> 时是工厂，首次 Resolve 调用并缓存
-        private readonly Dictionary<Type, object> _bindings;
+        // 构建时绑定显式建模为 ContainerBinding；值/工厂不再共用 object + runtime type tag。
+        private readonly Dictionary<Type, ContainerBinding> _bindings;
 
         // 运行时动态注册覆盖层（MonoXxxBase OnEnable / GameContext.Register* 写入这里）
         private readonly Dictionary<Type, object> _overrides = new();
 
         private readonly Container _parent;
 
-        // RegisterOwned 登记的"本容器拥有"实例：仅这些在 Dispose 时释放（普通 RegisterValue/工厂实例不碰）。
-        private readonly IReadOnlyList<IDisposable> _owned;
+        // RegisterOwned / RegisterOwnedFactory 登记的"本容器拥有"实例。与 Builder 共享同一所有权 registry：
+        // Build 提交前 Builder 负责回滚，提交后 Container 负责 Context 生命周期；懒工厂仍可安全追加。
+        private readonly OwnedDisposables _owned;
 
         // 构建完成时仍生效的值绑定实例（去重）。GameContext 构造时逐个 Inject + AttachTo（ADR-0019），
         // 之后不再使用；工厂产物不在其中。
@@ -34,14 +34,14 @@ namespace Game.Framework.Internal
         private bool _disposed;
 
         internal Container(
-            Dictionary<Type, object> bindings,
+            Dictionary<Type, ContainerBinding> bindings,
             Container parent = null,
-            IReadOnlyList<IDisposable> owned = null,
+            OwnedDisposables owned = null,
             IReadOnlyList<object> boundValues = null)
         {
             _bindings = bindings;
             _parent = parent;
-            _owned = owned;
+            _owned = owned ?? new OwnedDisposables();
             _boundValues = boundValues;
         }
 
@@ -57,6 +57,8 @@ namespace Game.Framework.Internal
         /// </summary>
         public bool HasBinding(Type type, bool recursive = true)
         {
+            ThrowIfDisposed();
+            if (type == null) throw new ArgumentNullException(nameof(type));
             if (_overrides.ContainsKey(type) || _bindings.ContainsKey(type)) return true;
             return recursive && _parent != null && _parent.HasBinding(type, recursive: true);
         }
@@ -76,22 +78,17 @@ namespace Game.Framework.Internal
         /// </summary>
         public bool TryResolve(Type type, out object instance)
         {
+            ThrowIfDisposed();
+            if (type == null) throw new ArgumentNullException(nameof(type));
             if (_overrides.TryGetValue(type, out instance)) return true;
             if (_bindings.TryGetValue(type, out var stored))
             {
-                if (stored is Func<Container, object> factory)
-                {
-                    // 工厂分支是唯一的"写入 _bindings"路径。容器是主线程独占，这里只在 Editor/Development 加断言兜底；
-                    // Release Build 下 Conditional 编译消除，零开销。
+                if (stored.IsFactory)
                     MainThreadGuard.AssertMainThread(nameof(Container));
-                    instance = factory(this);
-                    if (instance == null)
-                        throw new InvalidOperationException(
-                            $"[Container] Factory for '{type.Name}' returned null");
-                    _bindings[type] = instance; // 缓存：后续 Resolve 直接返回实例
-                    return true;
-                }
-                instance = stored;
+                instance = stored.Resolve(this);
+                if (!type.IsInstanceOfType(instance))
+                    throw new InvalidOperationException(
+                        $"[Container] Binding for '{type.Name}' returned incompatible '{instance.GetType().Name}'.");
                 return true;
             }
             if (_parent != null) return _parent.TryResolve(type, out instance);
@@ -101,17 +98,35 @@ namespace Game.Framework.Internal
 
         /// <summary>仅查本地覆盖层（不查 _bindings、不查父级）。供 host 做"运行时覆盖父级"检测使用。</summary>
         internal bool TryGetOverride(Type type, out object instance)
-            => _overrides.TryGetValue(type, out instance);
+        {
+            ThrowIfDisposed();
+            return _overrides.TryGetValue(type, out instance);
+        }
 
         /// <summary>写入或替换覆盖层条目。重复注册策略由 ContainerLayerExtensions.RegisterOverride 统一处理。</summary>
         internal void ReplaceOverride(Type contractType, object instance)
-            => _overrides[contractType] = instance;
+        {
+            ThrowIfDisposed();
+            _overrides[contractType] = instance;
+        }
 
         /// <summary>运行时注销覆盖层条目。仅当当前值与传入实例匹配时才移除。</summary>
         internal void RemoveOverride(Type contractType, object instance)
         {
+            ThrowIfDisposed();
             if (_overrides.TryGetValue(contractType, out var existing) && existing == instance)
                 _overrides.Remove(contractType);
+        }
+
+        /// <summary>
+        /// 接管一个工厂产物的生命周期。按对象引用去重，确保同一实例经多个契约解析时最多释放一次。
+        /// 仅供 <c>ContainerBuilder.RegisterOwnedFactory</c> 在首次构造成功后调用。
+        /// </summary>
+        internal void Own(IDisposable instance)
+        {
+            ThrowIfDisposed();
+            if (instance == null) throw new ArgumentNullException(nameof(instance));
+            _owned.Add(instance);
         }
 
         /// <summary>
@@ -143,27 +158,30 @@ namespace Game.Framework.Internal
                 foreach (var kv in _bindings)
                 {
                     if (_overrides.ContainsKey(kv.Key)) continue;
-                    bool pending = kv.Value is Func<Container, object>;
-                    yield return (kv.Key, pending ? null : kv.Value, false, pending);
+                    bool pending = kv.Value.IsFactory && !kv.Value.IsResolved;
+                    yield return (kv.Key, pending ? null : kv.Value.Instance, false, pending);
                 }
             }
         }
 
         /// <summary>
-        /// Dispose 本容器<b>拥有</b>的实例（经 <c>ContainerBuilder.RegisterOwned</c> 登记的）。逆序释放，
-        /// 单个实例抛异常不影响其余；幂等。普通 RegisterValue / 工厂实例<b>不</b>在此释放——容器不拥有外部传入实例。
+        /// Dispose 本容器<b>拥有</b>的实例（经 <c>ContainerBuilder.RegisterOwned</c> 或
+        /// <c>ContainerBuilder.RegisterOwnedFactory</c> 登记的）。逆序释放，单个实例抛异常不影响其余；幂等。
+        /// 普通 RegisterValue / RegisterFactory 产物<b>不</b>在此释放——容器不拥有外部传入实例。
         /// 由 <c>GameContext.Dispose</c> 调用，不对外公开。
         /// </summary>
         internal void Dispose()
         {
             if (_disposed) return;
             _disposed = true;
-            if (_owned == null) return;
-            for (int i = _owned.Count - 1; i >= 0; i--)
-            {
-                try { _owned[i].Dispose(); }
-                catch (Exception e) { Debug.LogException(e); }
-            }
+            _owned.Dispose("Container");
+        }
+
+        private void ThrowIfDisposed()
+        {
+            if (_disposed)
+                throw new ObjectDisposedException(nameof(Container),
+                    "[Container] Cannot resolve or mutate registrations after its Context has been disposed.");
         }
     }
 }

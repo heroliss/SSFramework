@@ -46,23 +46,11 @@ namespace Game.Framework.Test
         private sealed class TestView : MonoViewBase { }
 
         private GameObject _root;
-        private MonoGameContextBase _ctx;
 
         [UnitySetUp]
         public IEnumerator SetUp()
         {
             _root = new GameObject("CancellationTestRoot");
-
-            var ctxGo = new GameObject("Context");
-            ctxGo.transform.SetParent(_root.transform);
-            _ctx = ctxGo.AddComponent<MonoGameContextBase>();
-            // CommandSystem 是异步命令必需依赖，通过 RegisterUtility 走纯 C# 注册
-            // —— 实际上 CommandSystem 注册到 ICommandSystem，走 RegisterValue 太晚（builder 已 Build），
-            // 这里走 Container 路径不行。用一个挂 Awake 钩子的简单方式：直接 RegisterValue 到 GameContext 的运行期。
-            // 更简单：用纯 C# Context，但又需要 MonoViewBase 自动绑定父级——所以仍走 Mono 路径。
-            // 解法：定义一个简易 MonoGameContextBase 子类，InstallBindings 时注册 ICommandSystem。
-            // 这里直接拿 _ctx 不行——它已经 Awake 了。
-            // 临时方案：用一个全新的派生 Context；见 SetUpWithCommandSystem。
             yield return null;
         }
 
@@ -71,7 +59,6 @@ namespace Game.Framework.Test
         {
             if (_root != null) UnityEngine.Object.Destroy(_root);
             _root = null;
-            _ctx = null;
             yield return null;
         }
 
@@ -86,8 +73,6 @@ namespace Game.Framework.Test
 
         private CmdEnabledContext CreateCommandReadyContext()
         {
-            // 销毁 SetUp 创建的占位 _ctx，换成 CmdEnabledContext。
-            UnityEngine.Object.Destroy(_ctx.gameObject);
             var ctxGo = new GameObject("CmdCtx");
             ctxGo.transform.SetParent(_root.transform);
             return ctxGo.AddComponent<CmdEnabledContext>();
