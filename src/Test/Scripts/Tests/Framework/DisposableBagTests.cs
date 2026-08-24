@@ -16,7 +16,7 @@ using UnityEngine.TestTools;
 namespace Game.Framework.Test
 {
     /// <summary>
-    /// 测试 DisposableBag：invokeImmediately、OnEvent&lt;T&gt;() 桥接、ReactiveProperty 订阅、Dispose 行为、嵌套 child bag。
+    /// 测试 DisposableBag：invokeImmediately、OnEvent&lt;T&gt;() 桥接、ReactiveProperty 订阅、Dispose 行为、异常隔离、嵌套 child bag。
     /// 不覆盖资源加载方法（依赖 YooAsset 初始化，参见 YooAssetLoadTests）。
     /// </summary>
     public class DisposableBagTests
@@ -310,6 +310,52 @@ namespace Game.Framework.Test
 
             _bag.Dispose();
             Assert.IsTrue(trackedDisposed, "Add 登记的 IDisposable 应在 bag.Dispose 时释放");
+        }
+
+        [Test]
+        public void Dispose_WhenTrackedDisposableThrows_ContinuesWithRemainingCleanup()
+        {
+            var order = new List<string>();
+            _bag.Add(Disposable.Create(() =>
+            {
+                order.Add("throwing");
+                throw new InvalidOperationException("tracked dispose failed");
+            }));
+            _bag.Add(Disposable.Create(() => order.Add("remaining")));
+
+            LogAssert.ignoreFailingMessages = true;
+            try
+            {
+                Assert.DoesNotThrow(() => _bag.Dispose());
+            }
+            finally
+            {
+                LogAssert.ignoreFailingMessages = false;
+            }
+
+            CollectionAssert.AreEqual(new[] { "throwing", "remaining" }, order,
+                "单个 IDisposable 失败不能让 CompositeDisposable 在半路停止");
+        }
+
+        [Test]
+        public void Dispose_WhenCancellationCallbackThrows_StillReleasesTrackedItems()
+        {
+            var trackedDisposed = false;
+            _bag.DisposeToken.Register(() => throw new InvalidOperationException("cancel callback failed"));
+            _bag.Add(Disposable.Create(() => trackedDisposed = true));
+
+            LogAssert.ignoreFailingMessages = true;
+            try
+            {
+                Assert.DoesNotThrow(() => _bag.Dispose());
+            }
+            finally
+            {
+                LogAssert.ignoreFailingMessages = false;
+            }
+
+            Assert.IsTrue(trackedDisposed,
+                "CancellationToken 回调异常不能阻断 DisposableBag 的其余资源释放");
         }
 
         // ─── 辅助 ─────────────────────────────────────────────────────────

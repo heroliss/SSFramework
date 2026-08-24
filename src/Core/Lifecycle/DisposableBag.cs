@@ -7,12 +7,12 @@ using Cysharp.Threading.Tasks;
 using Game.Framework.Diagnostics;
 using Game.Framework.Event;
 using Game.Framework.Internal;
+using Game.Framework.Logging;
 using Game.Framework.Pool;
 using R3;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.SceneManagement;
-using Debug = UnityEngine.Debug;
 
 namespace Game.Framework
 {
@@ -37,7 +37,9 @@ namespace Game.Framework
     /// <see cref="System.MonoSystemBase"/> / <see cref="Utility.MonoUtilityBase"/> 中通过 <c>Bag</c> 属性访问；
     /// 纯 C# 场景或 Command 内手动 <c>using var bag = ctx.CreateBag()</c>。
     ///
-    /// 取消语义：bag.Dispose 时 <see cref="DisposeToken"/> 取消，正在进行的加载会收到 OCE 并清理底层 handle。
+    /// 取消语义：bag.Dispose 时 <see cref="DisposeToken"/> 取消，当前等待者会收到 OCE 并失去结果交付资格；
+    /// 这不承诺中止已经启动、且可能被其他调用者共享的底层操作。底层若继续完成，未交付的 handle 会由资源适配器释放；
+    /// handle 恰在取消边界到达时，bag 也会在登记前再次检查自身状态并立即释放，避免晚到结果泄漏。
     /// </summary>
     public sealed class DisposableBag : IDisposable
     {
@@ -144,8 +146,10 @@ namespace Game.Framework
         // 拖到交互阶段才暴露。Release 下保持容忍（编译消除），不因漏配崩掉玩家。
         [Conditional("UNITY_EDITOR"), Conditional("DEVELOPMENT_BUILD")]
         private static void ErrorNullUnityEvent()
-            => Debug.LogError("[DisposableBag] Subscribe 收到 null UnityEvent——多半是 Inspector 漏配。" +
-                              "确属可选引用请在调用侧判空后再订阅；Release 构建下忽略本次订阅。");
+            => Log.Error(
+                "Subscribe 收到 null UnityEvent——多半是 Inspector 漏配。" +
+                "确属可选引用请在调用侧判空后再订阅；Release 构建下忽略本次订阅。",
+                category: "DisposableBag");
 
         // ── C# event / delegate（同时传入订阅与反订阅）──────────────────────
 
@@ -164,7 +168,8 @@ namespace Game.Framework
         /// <summary>
         /// 按 location 加载资源。
         /// 返回 <c>T</c>，handle 自动登记到 bag；bag.Dispose 时统一释放。业务无需感知句柄。
-        /// 取消传播：ct 和 <see cref="DisposeToken"/> 任一触发都会取消底层加载。
+        /// 取消传播：ct 和 <see cref="DisposeToken"/> 任一触发都会取消本次等待与结果交付；
+        /// 已启动的底层操作可能继续到终态，晚到且无人接收的 handle 会被安全释放。
         /// <para><b>失败语义：</b>地址无效 / 类型不符 / 空地址 → 返回 <c>null</c>（不抛，打 warning/error）→ null 检查兜底；
         /// 包<b>初始化失败</b>（CDN 不可达 / 断网）或<b>尚未初始化</b>（既没开自动初始化、也没 Initialize 过）→ <b>抛</b>异常（内部会先 EnsureInitialized）。
         /// 「资源级问题给 null、系统级问题给异常」：包 Ready 后只返 null，要零异常就先 <see cref="EnsureInitialized(CancellationToken)"/> / 判 InitState=Ready 再加载。</para>
@@ -206,7 +211,11 @@ namespace Game.Framework
             return handle;
         }
 
-        /// <summary>加载场景。返回 <see cref="ISceneHandle"/>，业务用它做 Activate / Unload；bag.Dispose 时若仍未卸载会自动 fire-and-forget 卸载。</summary>
+        /// <summary>
+        /// 加载场景。返回 <see cref="ISceneHandle"/>，业务用它做 Activate / Unload；bag.Dispose 时若仍未卸载会自动 fire-and-forget 卸载。
+        /// <paramref name="suspendLoad"/> 为 true 时，任务会在激活屏障（通常约 90%）返回 handle，业务随后调用
+        /// <see cref="ISceneHandle.UnSuspend"/> 放行激活；需要确认完成时观察 <see cref="Scene.isLoaded"/>，不要再次等待原加载任务。
+        /// </summary>
         public async UniTask<ISceneHandle> LoadScene(
             string location,
             LoadSceneMode mode = LoadSceneMode.Single,
@@ -217,12 +226,15 @@ namespace Game.Framework
             ThrowIfDisposed();
             var handle = await ResolveUtility().LoadScene(location, mode, suspendLoad, LinkToken(ct));
             if (handle == null) return null;
-            if (_disposed) { handle.Dispose(); return null; }
-            _composite.Add(handle);
+            if (_disposed) { DisposeSafely(handle, "late scene handle"); return null; }
+            AddOwned(handle, "scene handle");
             return handle;
         }
 
-        /// <summary>从指定 package 加载场景；packageName 为空时使用默认包。</summary>
+        /// <summary>
+        /// 从指定 package 加载场景；packageName 为空时使用默认包。
+        /// suspendLoad 的激活屏障、UnSuspend 与完成观察语义同默认包重载。
+        /// </summary>
         public async UniTask<ISceneHandle> LoadScene(
             string packageName,
             string location,
@@ -234,8 +246,8 @@ namespace Game.Framework
             ThrowIfDisposed();
             var handle = await ResolveUtility().LoadScene(packageName, location, mode, suspendLoad, LinkToken(ct));
             if (handle == null) return null;
-            if (_disposed) { handle.Dispose(); return null; }
-            _composite.Add(handle);
+            if (_disposed) { DisposeSafely(handle, "late scene handle"); return null; }
+            AddOwned(handle, "scene handle");
             return handle;
         }
 
@@ -379,8 +391,8 @@ namespace Game.Framework
         public IDisposable Add(IDisposable disposable)
         {
             if (disposable == null) return null;
-            if (_disposed) { disposable.Dispose(); return disposable; }
-            _composite.Add(disposable);
+            if (_disposed) { DisposeSafely(disposable, "late registration"); return disposable; }
+            AddOwned(disposable, "registered disposable");
             return disposable;
         }
 
@@ -393,7 +405,7 @@ namespace Game.Framework
         {
             ThrowIfDisposed();
             var child = new DisposableBag(_ctx);
-            _composite.Add(child);
+            AddOwned(child, "child bag");
             return child;
         }
 
@@ -404,10 +416,22 @@ namespace Game.Framework
             if (_disposed) return;
             _disposed = true;
             FrameworkDiagnostics.OnBagDisposed(); // Editor 外编译消除
-            _disposeCts.Cancel();
-            _disposeCts.Dispose();
+            try
+            {
+                _disposeCts.Cancel();
+            }
+            catch (Exception e)
+            {
+                // CancellationTokenSource.Cancel 会聚合并抛出回调异常；取消监听者的故障不能截断后续句柄与订阅释放。
+                Log.Error(
+                    "DisposeToken cancellation callback threw; remaining cleanup will continue.",
+                    e,
+                    category: "DisposableBag");
+            }
+            DisposeSafely(_disposeCts, "dispose token source");
             // 缓存的 linked CTS 已被根 _disposeCts.Cancel 触发取消，这里仅释放底层资源。
-            _cachedLinkedCts?.Dispose();
+            DisposeSafely(_cachedLinkedCts, "linked token source");
+            // 每个登记项都由 AddOwned 包成异常隔离 wrapper；一个坏 Dispose 不会让 R3 CompositeDisposable 停在半路。
             _composite.Dispose();
             // 租借反查表随之作废（实例已全部归还）；置空让实例/句柄可被 GC——bag 引用可能仍被宿主持有。
             _leased = null;
@@ -417,8 +441,8 @@ namespace Game.Framework
 
         private IDisposable Track(IDisposable d)
         {
-            if (_disposed) { d?.Dispose(); return d; }
-            _composite.Add(d);
+            if (_disposed) { DisposeSafely(d, "late subscription"); return d; }
+            AddOwned(d, "subscription");
             return d;
         }
 
@@ -426,9 +450,9 @@ namespace Game.Framework
         // 供 Return / Despawn 单个提前归还时摘除登记。
         private void TrackLeased(object instance, IDisposable handle)
         {
-            if (_disposed) { handle.Dispose(); return; }
-            _composite.Add(handle);
-            (_leased ??= new Dictionary<object, IDisposable>(ReferenceComparer.Instance))[instance] = handle;
+            if (_disposed) { DisposeSafely(handle, "late pool lease"); return; }
+            var ownedHandle = AddOwned(handle, "pool lease");
+            (_leased ??= new Dictionary<object, IDisposable>(ReferenceComparer.Instance))[instance] = ownedHandle;
         }
 
         // Return / Despawn 共用实现：按实例反查归还登记项 → 同时摘出 _leased 与 composite → 触发归还。
@@ -443,16 +467,16 @@ namespace Game.Framework
             if (_leased == null || !_leased.TryGetValue(instance, out var handle))
             {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
-                Debug.LogError(
-                    $"[DisposableBag] {op} target was not leased by this bag (or already returned). Ignored — " +
-                    "early return must be called on the same bag that rented/spawned the instance.");
+                Log.Error(
+                    $"{op} target was not leased by this bag (or already returned). Ignored — " +
+                    "early return must be called on the same bag that rented/spawned the instance.",
+                    category: "DisposableBag");
 #endif
                 return;
             }
             _leased.Remove(instance);
-            // R3 CompositeDisposable.Remove 找到即移除（并按 Rx 约定 dispose）；下一行兜底 dispose 一次，
-            // 让语义不依赖 Remove 的 dispose 行为——Disposable.Create 幂等，双 dispose 安全，
-            // 最终 pool.Return / pool.Despawn 恰好执行一次。
+            // R3 CompositeDisposable.Remove 按 Rx 约定会 dispose；wrapper 自身幂等且隔离异常，
+            // 下一行是让语义不依赖第三方 Remove 细节的兜底，最终归还动作仍恰好执行一次。
             _composite.Remove(handle);
             handle.Dispose();
         }
@@ -468,8 +492,8 @@ namespace Game.Framework
         private T TrackAsset<T>(IAssetHandle<T> handle) where T : UnityEngine.Object
         {
             if (handle == null) return null;
-            if (_disposed) { handle.Dispose(); return null; }
-            _composite.Add(handle);
+            if (_disposed) { DisposeSafely(handle, "late asset handle"); return null; }
+            AddOwned(handle, "asset handle");
             return handle.Asset;
         }
 
@@ -487,10 +511,35 @@ namespace Game.Framework
             // 但把旧 CTS 交给 _composite，随 bag.Dispose 一并释放：否则它会作为回调挂在长寿命源
             // （如 view destroy / ctx 令牌）上、直到该源取消才被 GC，构成「多 external 交替」场景下的隐性泄漏。
             // CTS.Dispose 幂等，且只有被替换下来的旧 CTS 进 composite（当前 _cachedLinkedCts 在 bag.Dispose 单独释放），不会重复。
-            if (_cachedLinkedCts != null) _composite.Add(_cachedLinkedCts);
+            if (_cachedLinkedCts != null) AddOwned(_cachedLinkedCts, "superseded linked token source");
             _cachedLinkedExternal = external;
             _cachedLinkedCts = CancellationTokenSource.CreateLinkedTokenSource(external, _disposeCts.Token);
             return _cachedLinkedCts.Token;
+        }
+
+        // CompositeDisposable 遇到成员 Dispose 抛异常会立刻停止；统一包一层，确保 Bag 的“批量清理”是真正 best-effort。
+        // 返回 wrapper 是为了池租借提前归还时能从 CompositeDisposable 精确摘除该登记项。
+        private IDisposable AddOwned(IDisposable disposable, string role)
+        {
+            var wrapper = Disposable.Create(() => DisposeSafely(disposable, role));
+            _composite.Add(wrapper);
+            return wrapper;
+        }
+
+        private static void DisposeSafely(IDisposable disposable, string role)
+        {
+            if (disposable == null) return;
+            try
+            {
+                disposable.Dispose();
+            }
+            catch (Exception e)
+            {
+                Log.Error(
+                    $"{role} ({disposable.GetType().Name}) threw during Dispose; remaining cleanup will continue.",
+                    e,
+                    category: "DisposableBag");
+            }
         }
 
         private IAssetUtility ResolveUtility() => _utility ??= _ctx.GetUtility<IAssetUtility>();

@@ -58,7 +58,7 @@ protected override void InstallBindings(ContainerBuilder builder)
 ### 3. 契约推导与注册形态：对齐 Mono 路径口径，直接 `new`
 
 - **契约 = 具体类型 + 所有派生自对应层标记的接口（不含标记本身）**——与 `ContainerLayerExtensions.RegisterFor` 完全同口径，消除两条路径的注册面漂移。
-- **`IDisposable` → `RegisterOwned`，否则 `RegisterValue`**；一律直接 `new`（服务启动即就绪，与 Mono 路径 Awake 注册的时序心智一致）。要懒构造 / 带参构造的服务 → opt-out 后手写 `RegisterFactory`（工厂经 `c.Resolve` 显式接线，本就是既有姿势）。
+- **`IDisposable` → `RegisterOwned`，否则 `RegisterValue`**；一律直接 `new`（服务启动即就绪，与 Mono 路径 Awake 注册的时序心智一致）。要懒构造 / 带参构造的服务 → opt-out 后手写工厂（工厂经 `c.Resolve` 显式接线）；产物应随 Context 释放时用 `RegisterOwnedFactory`，否则才用普通 `RegisterFactory`（所有权语义见 ADR-0035）。
 
 ### 4. 生成期查重复契约：同安装器内接口契约冲突 = 生成失败
 
@@ -74,7 +74,7 @@ protected override void InstallBindings(ContainerBuilder builder)
 
 - 生成的安装器对带 `[Inject]` / `IHasGameContext` 的服务**开箱可用**，无需生成器发明第二阶段注入协议；
 - 手写 `InstallBindings` 同等受益，guide 里「注册后手动 Inject/AttachTo」的样板只剩**运行时动态注册**（`ctx.RegisterXxx`）一处还需要；
-- **工厂产物刻意不自动注入**：工厂签名 `Func<Container, object>` 本就是显式接线位（`c.Resolve` 拿依赖），且懒构造时机不可预期，自动注入反而把时序弄模糊。值绑定=自动，工厂=自管，边界清晰。
+- **工厂产物刻意不自动注入**：`RegisterFactory` / `RegisterOwnedFactory` 的签名 `Func<Container, object>` 本就是显式接线位（`c.Resolve` 拿依赖），且懒构造时机不可预期，自动注入反而把时序弄模糊。值绑定=自动，工厂=自管；是否 owned 是另一条正交轴（ADR-0035）。
 
 注入时机在 Context 构造点：全部绑定已入容器，父链已可解析（`MonoGameContextBase.Initialize` 先递归初始化父级）；同容器互相 `[Inject]` 的两个值实例互见（实例先于注入全部存在，无环序问题）。
 

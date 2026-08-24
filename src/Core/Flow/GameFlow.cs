@@ -107,11 +107,26 @@ namespace Game.Framework.Flow
 
                     // 2) 构建新状态的子 Context：宿主容器为父级 + 状态私有绑定。
                     //    RegisterOwned 的绑定在 GameContext 构造时注入+回填（ADR-0019），状态内子 flow 等由此成活。
-                    var builder = new ContainerBuilder();
-                    builder.SetParent(_context.Container);
-                    next.InstallBindings(builder);
-                    var scope = new GameContext(builder.Build(), inheritFromGlobal: true) { DebugName = $"Flow:{next.GetType().Name}" };
-                    next.AttachScope(scope);
+                    GameContext scope = null;
+                    try
+                    {
+                        using var builder = new ContainerBuilder();
+                        builder.SetParent(_context.Container);
+                        next.InstallBindings(builder);
+                        scope = new GameContext(builder.Build(), inheritFromGlobal: true)
+                        {
+                            DebugName = $"Flow:{next.GetType().Name}",
+                        };
+                        next.AttachScope(scope);
+                    }
+                    catch (Exception e)
+                    {
+                        // Install / Build / Context 构造都是进入事务的一部分。失败状态从未成为 Current，
+                        // Builder 或 Context 负责回滚 owned 资源，本次 GoTo 以原异常完成而不是永久 Pending。
+                        scope?.Dispose();
+                        tcs.TrySetException(e);
+                        continue;
+                    }
 
                     // 3) 进入。取消（被顶替 / 宿主释放）或失败 = 半进入：整棵撤、不调 OnExit（清理靠 Bag）。
                     _entering = next;

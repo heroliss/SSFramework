@@ -20,7 +20,8 @@ namespace Game.Framework.Internal
     /// 具体类形如 <c>MonoModelBase : MonoLayerBase&lt;IModel&gt;, IModel</c>——基类无法 <c>: TLayer</c>，故层标记由具体类实现。<br/>
     /// <b>执行顺序：</b>本类<b>不</b>标 <c>[DefaultExecutionOrder]</c>；顺序按层在各具体类上声明（Utility -400 / Model -300 / System -200）。<br/>
     /// <b>边界：</b>子类覆写 <see cref="Awake"/> / <see cref="OnDestroy"/> 时必须调 <c>base.Xxx()</c>；
-    /// OnDestroy 反注册前检查父 Context 是否已 Dispose，跳过避免 NRE（详见 <c>AGENTS §20</c>）。
+    /// OnDestroy 反注册前检查父 Context 是否已 Dispose，跳过避免 NRE（详见 <c>Assets/Game/AGENTS.md</c>
+    /// 「Mono 生命周期与 Context」）。
     /// </remarks>
     /// <typeparam name="TLayer">层标记接口：<c>IModel</c> / <c>ISystem</c> / <c>IUtility</c>。</typeparam>
     public abstract class MonoLayerBase<TLayer> : SerializedMonoBehaviour, IHasGameContext where TLayer : class

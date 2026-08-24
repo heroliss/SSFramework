@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Game.Framework.Logging;
 
 namespace Game.Framework.Pool
 {
@@ -37,9 +38,10 @@ namespace Game.Framework.Pool
             // 但这里不会 Instantiate / SetActive（new GameObject() 造的是空物体、归还也不停用；new 出的 Component 是无效对象），
             // 几乎必然是误用。一次性检查（仅建池时），指路 GameObject 池。
             if (typeof(UnityEngine.Object).IsAssignableFrom(typeof(T)))
-                UnityEngine.Debug.LogError(
-                    $"[ObjectPool<{typeof(T).Name}>] {typeof(T).Name} is a UnityEngine.Object — this C# object pool " +
-                    "won't Instantiate/activate it. Use the GameObject pool instead (Bag.Spawn / IPoolUtility.Spawn).");
+                Log.Error(
+                    $"{typeof(T).Name} is a UnityEngine.Object — this C# object pool " +
+                    "won't Instantiate/activate it. Use the GameObject pool instead (Bag.Spawn / IPoolUtility.Spawn).",
+                    category: $"ObjectPool<{typeof(T).Name}>");
 #endif
             _factory = factory ?? throw new ArgumentNullException(nameof(factory));
             _onRent = onRent;
@@ -73,9 +75,10 @@ namespace Game.Framework.Pool
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             if (!_active.Remove(instance))
             {
-                UnityEngine.Debug.LogError(
-                    $"[ObjectPool<{typeof(T).Name}>] Returning an instance that wasn't rented from this pool " +
-                    "(double-return or foreign instance). Ignored.");
+                Log.Error(
+                    "Returning an instance that wasn't rented from this pool " +
+                    "(double-return or foreign instance). Ignored.",
+                    category: $"ObjectPool<{typeof(T).Name}>");
                 return;
             }
 #endif

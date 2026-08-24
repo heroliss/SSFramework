@@ -1,6 +1,6 @@
 using System.Diagnostics;
 using System.Threading;
-using Debug = UnityEngine.Debug;
+using Game.Framework.Logging;
 
 namespace Game.Framework.Internal
 {
@@ -22,9 +22,10 @@ namespace Game.Framework.Internal
         public static void AssertMainThread(string who)
         {
             if (Thread.CurrentThread.ManagedThreadId != s_mainThreadId)
-                Debug.LogError(
-                    $"[{who}] not thread-safe; must be accessed from the Unity main thread " +
-                    "(await UniTask.SwitchToMainThread() first).");
+                Log.Error(
+                    "Not thread-safe; must be accessed from the Unity main thread " +
+                    "(await UniTask.SwitchToMainThread() first).",
+                    category: who);
         }
     }
 }

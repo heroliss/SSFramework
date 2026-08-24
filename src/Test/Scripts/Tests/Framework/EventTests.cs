@@ -92,7 +92,7 @@ namespace Game.Framework.Test
         }
 
         [Test]
-        public void RegisterEvent_AfterDispose_ShouldNotReceive()
+        public void DisposedSubscription_DoesNotReceiveFurtherEvents()
         {
             var count = 0;
 
@@ -108,6 +108,16 @@ namespace Game.Framework.Test
 
             testSystem.SendEvent(new TestEvent());
             Assert.AreEqual(1, count); // 不应再增长
+        }
+
+        [Test]
+        public void RegisterEvent_AfterContextDispose_Throws()
+        {
+            _gameContext.Dispose();
+
+            Assert.Throws<ObjectDisposedException>(
+                () => _gameContext.RegisterEvent<TestEvent>(_ => { }),
+                "已销毁的事件总线不得创建一个永远不会被 Context 回收的新 Subject/订阅");
         }
 
         [Test]

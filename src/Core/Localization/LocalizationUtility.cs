@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
+using Game.Framework.Logging;
 using R3;
-using UnityEngine;
 
 namespace Game.Framework.Localization
 {
@@ -10,7 +10,8 @@ namespace Game.Framework.Localization
     /// 「当前 locale → fallbackLocale → 裸 key」查询链。纯 C#、除 R3 外零依赖。
     /// </summary>
     /// <remarks>
-    /// <b>注册：</b><c>builder.RegisterOwned(new LocalizationUtility(source, "zh-CN", fallbackLocale: "en"), typeof(ILocalizationUtility))</c>。<br/>
+    /// <b>注册：</b>已有 source 时用 <c>builder.RegisterOwned(new LocalizationUtility(source, "zh-CN", fallbackLocale: "en"), typeof(ILocalizationUtility))</c>；
+    /// source 需从容器解析其他服务时用 <c>RegisterOwnedFactory</c>，既延迟接线又保留 Context 所有权。<br/>
     /// <b>缺 key 警告去重</b>：同一 (locale, key) 只警告一次——绑定标签每次推送都会重查，不去重会刷屏。<br/>
     /// <b>Dispose</b>：完结 <see cref="Locale"/> 订阅（随宿主 Context 释放）；之后 <see cref="Get(string)"/> 仍可安全调用
     /// （读普通字段），<see cref="SetLocale"/> 抛 <see cref="ObjectDisposedException"/>（R3 行为，换语言是明确的用户操作，过期引用应暴露）。
@@ -63,10 +64,11 @@ namespace Game.Framework.Localization
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             if (_warnedMissing.Add($"{_current}\n{key}"))
-                Debug.LogWarning(
-                    $"[Localization] 缺文案：locale '{_current}' 无 key '{key}'"
+                Log.Warning(
+                    $"缺文案：locale '{_current}' 无 key '{key}'"
                     + (_fallbackLocale != null ? $"（fallback '{_fallbackLocale}' 也未命中）" : string.Empty)
-                    + "——已用裸 key 上屏。");
+                    + "——已用裸 key 上屏。",
+                    "Localization");
 #endif
             return key; // 裸 key 上屏 = 最好的缺失报告
         }
@@ -81,7 +83,7 @@ namespace Game.Framework.Localization
             catch (FormatException)
             {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
-                Debug.LogWarning($"[Localization] key '{key}' 的模板格式非法（\"{template}\"）——已返回未格式化模板。");
+                Log.Warning($"key '{key}' 的模板格式非法（\"{template}\"）——已返回未格式化模板。", "Localization");
 #endif
                 return template; // 文案错不炸游戏
             }

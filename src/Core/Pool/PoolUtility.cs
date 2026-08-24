@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Game.Framework.Logging;
 using UnityEngine;
 
 namespace Game.Framework.Pool
@@ -52,9 +53,10 @@ namespace Game.Framework.Pool
             {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
                 if (explicitConfig)
-                    Debug.LogWarning(
-                        $"[PoolUtility] GetPool<{typeof(T).Name}> 带配置调用，但该类型的池已存在——本次工厂/钩子/容量参数被忽略（首次配置生效）。" +
-                        "如需自定义配置，请保证在首次使用（含 Bag.Rent / Rent<T>）之前完成。");
+                    Log.Warning(
+                        $"GetPool<{typeof(T).Name}> 带配置调用，但该类型的池已存在——本次工厂/钩子/容量参数被忽略（首次配置生效）。" +
+                        "如需自定义配置，请保证在首次使用（含 Bag.Rent / Rent<T>）之前完成。",
+                        "PoolUtility");
 #endif
                 return (IObjectPool<T>)existing;
             }
@@ -100,8 +102,9 @@ namespace Game.Framework.Pool
             {
                 // 非池化对象：无法路由归还。Editor/Dev 报错，Release 静默忽略。
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
-                Debug.LogError(
-                    $"[PoolUtility] Despawn called on a GameObject '{instance.name}' that wasn't spawned from any pool. Ignored.");
+                Log.Error(
+                    $"Despawn called on a GameObject '{instance.name}' that wasn't spawned from any pool. Ignored.",
+                    category: "PoolUtility");
 #endif
                 return;
             }
@@ -189,7 +192,7 @@ namespace Game.Framework.Pool
         {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             if (_disposed)
-                Debug.LogError($"[PoolUtility] '{op}' called after Dispose——池已释放，检查是否持有了过期的 IPoolUtility 引用。");
+                Log.Error($"'{op}' called after Dispose——池已释放，检查是否持有了过期的 IPoolUtility 引用。", category: "PoolUtility");
 #endif
         }
     }

@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Reflection;
 using Game.Framework.Common;
 using Game.Framework.Context;
-using UnityEngine;
+using Game.Framework.Logging;
 
 #if UNITY_EDITOR
 using UnityEditor;
@@ -130,8 +130,9 @@ namespace Game.Framework.Internal
                 var deny = InjectDenyReason(fType, hostType);
                 if (deny != null)
                 {
-                    Debug.LogError(
-                        $"[Inject] cannot inject '{fType.Name}' into field '{ownerName}.{f.Name}': {deny}.");
+                    Log.Error(
+                        $"cannot inject '{fType.Name}' into field '{ownerName}.{f.Name}': {deny}.",
+                        category: "Inject");
                     continue;
                 }
 
@@ -139,8 +140,9 @@ namespace Game.Framework.Internal
                 list.Add((target, context) =>
                 {
                     if (context.TryResolve(fType, out var value)) f.SetValue(target, value);
-                    else Debug.LogWarning(
-                        $"[Inject] Cannot resolve '{fType.Name}' for field '{ownerName}.{f.Name}'");
+                    else Log.Warning(
+                        $"Cannot resolve '{fType.Name}' for field '{ownerName}.{f.Name}'",
+                        category: "Inject");
                 });
             }
         }
@@ -158,8 +160,9 @@ namespace Game.Framework.Internal
                 var deny = InjectDenyReason(pType, hostType);
                 if (deny != null)
                 {
-                    Debug.LogError(
-                        $"[Inject] cannot inject '{pType.Name}' into property '{ownerName}.{p.Name}': {deny}.");
+                    Log.Error(
+                        $"cannot inject '{pType.Name}' into property '{ownerName}.{p.Name}': {deny}.",
+                        category: "Inject");
                     continue;
                 }
 
@@ -167,8 +170,9 @@ namespace Game.Framework.Internal
                 list.Add((target, context) =>
                 {
                     if (context.TryResolve(pType, out var value)) p.SetValue(target, value);
-                    else Debug.LogWarning(
-                        $"[Inject] Cannot resolve '{pType.Name}' for property '{ownerName}.{p.Name}'");
+                    else Log.Warning(
+                        $"Cannot resolve '{pType.Name}' for property '{ownerName}.{p.Name}'",
+                        category: "Inject");
                 });
             }
         }
@@ -190,8 +194,9 @@ namespace Game.Framework.Internal
                     var deny = InjectDenyReason(paramTypes[i], hostType);
                     if (deny != null)
                     {
-                        Debug.LogError(
-                            $"[Inject] cannot inject '{paramTypes[i].Name}' into parameter of method '{ownerName}.{m.Name}': {deny}.");
+                        Log.Error(
+                            $"cannot inject '{paramTypes[i].Name}' into parameter of method '{ownerName}.{m.Name}': {deny}.",
+                            category: "Inject");
                         denied = true;
                         break;
                     }
@@ -206,8 +211,9 @@ namespace Game.Framework.Internal
                     {
                         if (!context.TryResolve(paramTypes[i], out args[i]))
                         {
-                            Debug.LogWarning(
-                                $"[Inject] Cannot resolve '{paramTypes[i].Name}' for method '{ownerName}.{m.Name}'");
+                            Log.Warning(
+                                $"Cannot resolve '{paramTypes[i].Name}' for method '{ownerName}.{m.Name}'",
+                                category: "Inject");
                             return;
                         }
                     }

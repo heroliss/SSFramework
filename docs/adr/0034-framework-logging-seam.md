@@ -1,4 +1,4 @@
-# ADR-0034：框架日志接缝 —— 内核 ILogSink 多播 + 默认 Console/File sink + ZLogger 可选模块
+# ADR-0034：框架日志接缝 —— 内核 ILogSink 多播 + Console/File sink + Unity 日志桥
 
 **Status:** Accepted（阶段 A 接缝 + 阶段 C 门面通用化，2026-07-14）——ZLogger 客户端模块（原规划的阶段 B）经实测放弃（依赖过重，见 §Decision 3「实测复盘」），服务端直接用；接缝已为将来接入留位。阶段 C 把门面从「框架内部诊断」升为「框架与业务共用的通用日志」，并补上零分配 / 全量捕获两块，见 §Decision 6。
 

@@ -67,7 +67,7 @@ namespace Game.Framework.Diagnostics
             // 自检专用 Context：自给自足，不依赖全局（玩家包里此刻可能还没有 GameContext.Main）。
             var model = new CheckModel();
             var system = new CheckSystem();
-            var builder = new ContainerBuilder();
+            using var builder = new ContainerBuilder();
             builder.RegisterValue(model, new[] { typeof(IModel), typeof(CheckModel) });
             builder.RegisterValue(system, new[] { typeof(ISystem), typeof(CheckSystem) });
             builder.RegisterValue(new CommandSystem(), new[] { typeof(ICommandSystem) });

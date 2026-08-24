@@ -1,3 +1,4 @@
+using Game.Framework.Logging;
 using UnityEngine;
 
 namespace Game.Framework.Context
@@ -30,9 +31,11 @@ namespace Game.Framework.Context
             // 随后随节点一起销毁——瞬态且自会清理，但重复实例节点下不要放"注册后立刻产生外部副作用"的层。
             if (GameContext.Main != null && GameContext.Main != RawContext)
             {
-                Debug.LogError(
-                    $"[MonoGlobalContext] Another global context is already active. " +
-                    $"Only one MonoGlobalContext should exist per project. Destroying '{name}'.");
+                Log.Error(
+                    $"Another global context is already active. " +
+                    $"Only one MonoGlobalContext should exist per project. Destroying '{name}'.",
+                    category: "MonoGlobalContext",
+                    context: this);
                 Destroy(gameObject);
                 return;
             }

@@ -1,5 +1,6 @@
 using System;
 using System.Text;
+using Game.Framework.Logging;
 using UnityEngine;
 
 namespace Game.Framework.Storage
@@ -40,8 +41,9 @@ namespace Game.Framework.Storage
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             var t = typeof(T);
             if (!t.IsDefined(typeof(SerializableAttribute), inherit: false) && !typeof(UnityEngine.Object).IsAssignableFrom(t))
-                Debug.LogError(
-                    $"[JsonUtilityStorageSerializer] 类型 {t.Name} 未标 [Serializable]——JsonUtility 会静默序列化出空对象（数据丢失）。给存档类型加上 [Serializable]。");
+                Log.Error(
+                    $"类型 {t.Name} 未标 [Serializable]——JsonUtility 会静默序列化出空对象（数据丢失）。给存档类型加上 [Serializable]。",
+                    category: "JsonUtilityStorageSerializer");
 #endif
         }
     }
