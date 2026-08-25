@@ -23,7 +23,7 @@ namespace Game.Framework.Build
     /// 列表顺序无所谓——加载顺序由 asmdef 引用图拓扑排序自动生成；列表合法性（AOT 不得引用热更）
     /// 在同步与构建时经 <see cref="HotUpdateAssemblyGraph"/> 自动校验，违规拦下并指出元凶。
     ///
-    /// 这是**项目配置实例**，入库放在项目配置位 <c>Assets/Game/Settings/</c>（不在 <c>Framework/</c> 内，ADR-0010/0011）；
+    /// 这是**项目配置实例**，默认新建到 <c>Assets/Settings/SSFramework/</c>（不在 <c>Framework/</c> 内，ADR-0010/0011）；
     /// <see cref="Resolve"/> 按类型扫描定位，找不到时按默认档位（内核 + Asset.Yoo 热更，见 ADR-0008 §2）自动创建，找到多个时取第一个并警告。
     /// 字段只读暴露：修改只经 Inspector，保证「资产 = 唯一真源」不被代码旁路改写。
     /// </summary>
@@ -104,31 +104,30 @@ namespace Game.Framework.Build
 
         /// <summary>
         /// 解析全工程唯一的热更 profile：先找已有资产（找到多个 → 取第一个并警告），
-        /// 没有就按默认档位（内核 + Asset.Yoo 热更）自动建一个（落在 <c>Assets/Game/Framework/Build/</c>）。
+        /// 没有就按默认档位（内核 + Asset.Yoo 热更）自动建一个（落在通用项目配置目录）。
         /// </summary>
         public static FrameworkHotUpdateProfile Resolve()
         {
-            var guids = AssetDatabase.FindAssets("t:" + nameof(FrameworkHotUpdateProfile));
-            if (guids.Length > 0)
+            var paths = AssetDatabase.FindAssets("t:" + nameof(FrameworkHotUpdateProfile))
+                .Select(AssetDatabase.GUIDToAssetPath)
+                .OrderBy(path => path, StringComparer.Ordinal)
+                .ToArray();
+            if (paths.Length > 0)
             {
-                if (guids.Length > 1)
+                if (paths.Length > 1)
                 {
-                    var paths = guids.Select(AssetDatabase.GUIDToAssetPath);
                     Debug.LogWarning("[热更构建] 找到多个热更 profile，仅第一个生效，请删到只剩一个：\n  " +
                                      string.Join("\n  ", paths));
                 }
-                return AssetDatabase.LoadAssetAtPath<FrameworkHotUpdateProfile>(
-                    AssetDatabase.GUIDToAssetPath(guids[0]));
+                return AssetDatabase.LoadAssetAtPath<FrameworkHotUpdateProfile>(paths[0]);
             }
 
             var profile = CreateInstance<FrameworkHotUpdateProfile>();
             // 默认档位（ADR-0008 §2）：内核 + YooAsset 适配模块热更；业务程序集出现后由项目自行加进列表。
-            TryAddDefault(profile, "Assets/Game/Framework/Core/Game.Framework.asmdef");
-            TryAddDefault(profile, "Assets/Game/Framework/Asset.Yoo/Game.Framework.Asset.Yoo.asmdef");
+            TryAddDefault(profile, "Game.Framework");
+            TryAddDefault(profile, "Game.Framework.Asset.Yoo");
 
-            const string dir = "Assets/Game/Settings"; // 项目配置位，不在 Framework/ 内（ADR-0011）
-            if (!AssetDatabase.IsValidFolder(dir))
-                AssetDatabase.CreateFolder("Assets/Game", "Settings");
+            string dir = Game.Framework.Editor.FrameworkProjectSettingsLocation.EnsureDirectory();
             string path = dir + "/FrameworkHotUpdateProfile.asset";
             AssetDatabase.CreateAsset(profile, path);
             AssetDatabase.SaveAssets();
@@ -136,11 +135,24 @@ namespace Game.Framework.Build
             return profile;
         }
 
-        private static void TryAddDefault(FrameworkHotUpdateProfile profile, string asmdefPath)
+        private static void TryAddDefault(FrameworkHotUpdateProfile profile, string assemblyName)
         {
-            var asmdef = AssetDatabase.LoadAssetAtPath<AssemblyDefinitionAsset>(asmdefPath);
-            if (asmdef != null) profile._hotUpdateAssemblies.Add(asmdef);
-            else Debug.LogWarning($"[热更构建] 默认热更程序集未找到（已跳过）：{asmdefPath}");
+            var matches = AssetDatabase.FindAssets("t:AssemblyDefinitionAsset")
+                .Select(AssetDatabase.GUIDToAssetPath)
+                .Select(path => (path, asset: AssetDatabase.LoadAssetAtPath<AssemblyDefinitionAsset>(path)))
+                .Where(item => item.asset != null &&
+                               string.Equals(GetAssemblyName(item.asset), assemblyName, StringComparison.Ordinal))
+                .OrderBy(item => item.path, StringComparer.Ordinal)
+                .ToArray();
+            if (matches.Length == 0)
+            {
+                Debug.LogWarning($"[热更构建] 默认热更程序集未安装（已跳过）：{assemblyName}");
+                return;
+            }
+            if (matches.Length > 1)
+                Debug.LogWarning($"[热更构建] 程序集名 {assemblyName} 对应多个 asmdef，默认采用按路径排序第一项：" +
+                                 matches[0].path);
+            profile._hotUpdateAssemblies.Add(matches[0].asset);
         }
     }
 }

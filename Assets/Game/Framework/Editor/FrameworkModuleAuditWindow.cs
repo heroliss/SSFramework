@@ -53,7 +53,7 @@ namespace Game.Framework.Editor
             };
             _actions.Add(CreateActionButton("重新检测", Refresh, "重新读取当前 Player 编译图和 DLL 引用。"));
             _actions.Add(CreateActionButton("复制完整报告", CopyReport, "复制可粘贴到 issue 或评审中的纯文本报告。"));
-            _actions.Add(CreateActionButton("打开模块地图", () => OpenAsset("docs/framework-module-map.md"),
+            _actions.Add(CreateActionButton("打开模块地图", () => OpenFile("docs/framework-module-map.md"),
                 "查看各程序集的职责、依赖方向与删除标准。"));
             _actions.Add(CreateActionButton("真实构建对比", FrameworkBuildSizeProbeWindow.Open,
                 "在隔离空工程里真正删除未选 Module，并读取当前平台 Player BuildReport。"));
@@ -375,12 +375,12 @@ namespace Game.Framework.Editor
                 actions.Add(CreateActionButton("打开 / 创建热更配置", OpenHotUpdateProfile,
                     "创建默认 Profile；若目标是纯 AOT，请保留空列表作为明确单一真源。"));
             else if (!string.IsNullOrWhiteSpace(evidence.ProfilePath))
-                actions.Add(CreateActionButton("定位 Profile", () => OpenAsset(evidence.ProfilePath),
-                    "打开热更期望配置；这里只定位，不自动同步。"));
+                actions.Add(CreateActionButton("定位 Profile", () => LocatePath(evidence.ProfilePath),
+                    "在 Unity Project 中选中热更期望配置；这里只定位，不自动同步。"));
             if (evidence.StagedManifestExists)
                 actions.Add(CreateActionButton("定位中转清单",
-                    () => OpenAsset("Assets/HotUpdateDlls/hotupdate_manifest.bytes"),
-                    "查看最近一次代码包构建写入的本地清单；即使损坏也保留此排查入口。"));
+                    () => LocatePath("Assets/HotUpdateDlls/hotupdate_manifest.bytes"),
+                    "在 Unity Project 中选中最近一次代码包构建写入的本地清单；即使损坏也保留此排查入口。"));
             actions.Add(CreateActionButton("复制派生证据", () => CopyHotUpdateEvidence(evidence),
                 "复制 Profile、Settings、Generate 与 DLL 中转状态，便于 issue / AI 排查。"));
             card.Add(actions);
@@ -399,7 +399,7 @@ namespace Game.Framework.Editor
             metrics.Add(CreateMetric("Player 实际消费", status.DirectConsumers.Length.ToString(),
                 status.DirectConsumers.Length == 0 ? "未发现元数据引用" : "参与运行时保留判断"));
             metrics.Add(CreateMetric("删除阻塞", status.RemovalBlockers.Length.ToString(),
-                status.RemovalBlockers.Length == 0 ? "没有 asmdef 声明引用" : "含 Demo / Editor / Tests"));
+                status.RemovalBlockers.Length == 0 ? "没有 asmdef 声明引用" : "来自完整 asmdef 图"));
             metrics.Add(CreateMetric("Profile 热更", status.IsHotUpdateRoot ? "已列入" : "未列入",
                 status.HasHotUpdateViolation
                     ? "⚠ 当前 AOT → 热更非法"
@@ -432,13 +432,13 @@ namespace Game.Framework.Editor
             card.Add(details);
 
             var actions = CreateResponsiveRow("module-audit-status-actions-" + status.Module.Name);
-            actions.Add(CreateActionButton("定位 asmdef", () => OpenAsset(status.Module.AsmdefPath),
-                "打开这个 Module 的程序集定义；引用列表是编译期真相。"));
+            actions.Add(CreateActionButton("定位 asmdef", () => LocatePath(status.Module.AsmdefPath),
+                "在 Unity Project 中选中这个 Module 的程序集定义；引用列表是编译期真相。"));
             if (status.OwnedPreservations.Length > 0)
             {
                 string linkPath = status.OwnedPreservations[0].Path;
-                actions.Add(CreateActionButton("定位 link.xml", () => OpenAsset(linkPath),
-                    "查看本 Module 声明的 UnityLinker 保留规则。"));
+                actions.Add(CreateActionButton("定位 link.xml", () => LocatePath(linkPath),
+                    "在 Unity Project 中选中本 Module 的 UnityLinker 保留规则；需要编辑时再双击打开。"));
             }
             if (status.IsHotUpdateRoot)
                 actions.Add(CreateActionButton("定位热更配置", OpenHotUpdateProfile,
@@ -474,8 +474,8 @@ namespace Game.Framework.Editor
                     string condition = rule.IsUnconditional ? "无条件根" : "仅被引用时生效";
                     card.Add(CreateBullet(rule.AssemblyName + " · " + rule.Scope + " · " + condition));
                 }
-                card.Add(CreateActionButton("定位 link.xml", () => OpenAsset(group.Key),
-                    "打开这份规则；生成文件只用于查看，不应直接修改。"));
+                card.Add(CreateActionButton("定位 link.xml", () => LocatePath(group.Key),
+                    "在 Unity Project 中选中这份规则；生成文件只用于查看，不应直接修改。"));
                 foldout.Add(card);
             }
             return foldout;
@@ -841,30 +841,58 @@ namespace Game.Framework.Editor
                 Debug.LogWarning("[ModuleAudit] 未安装热更构建 Module，无法定位 FrameworkHotUpdateProfile。");
         }
 
-        private static void OpenAsset(string path)
+        private static void OpenFile(string path)
         {
             if (string.IsNullOrWhiteSpace(path)) return;
             string normalized = path.Replace('\\', '/');
-            if (!normalized.StartsWith("Assets/", StringComparison.OrdinalIgnoreCase) &&
-                !normalized.StartsWith("Packages/", StringComparison.OrdinalIgnoreCase))
+            if (IsUnityAssetPath(normalized))
             {
-                string fullPath = Path.GetFullPath(path);
-                if (File.Exists(fullPath))
-                    EditorUtility.OpenWithDefaultApp(fullPath);
-                else
-                    Debug.LogWarning("[ModuleAudit] 找不到文档或资产：" + fullPath);
+                var asset = AssetDatabase.LoadMainAssetAtPath(normalized);
+                if (asset != null) AssetDatabase.OpenAsset(asset);
+                else Debug.LogWarning("[ModuleAudit] AssetDatabase 无法打开：" + normalized);
                 return;
             }
 
-            var asset = AssetDatabase.LoadMainAssetAtPath(path);
-            if (asset == null)
+            string fullPath = Path.GetFullPath(path);
+            if (File.Exists(fullPath)) EditorUtility.OpenWithDefaultApp(fullPath);
+            else Debug.LogWarning("[ModuleAudit] 找不到文档或资产：" + fullPath);
+        }
+
+        private static void LocatePath(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return;
+            string normalized = path.Replace('\\', '/');
+            if (IsUnityAssetPath(normalized))
             {
-                Debug.LogWarning("[ModuleAudit] AssetDatabase 无法定位：" + path);
+                if (!TryLocateProjectAsset(normalized))
+                    Debug.LogWarning("[ModuleAudit] AssetDatabase 无法定位：" + normalized);
                 return;
             }
-            AssetDatabase.OpenAsset(asset);
-            EditorGUIUtility.PingObject(asset);
+
+            string fullPath = Path.GetFullPath(path);
+            if (File.Exists(fullPath) || Directory.Exists(fullPath)) EditorUtility.RevealInFinder(fullPath);
+            else Debug.LogWarning("[ModuleAudit] 找不到可定位的文件或目录：" + fullPath);
         }
+
+        /// <summary>
+        /// 在 Unity Project 中选中并闪烁项目资产，不触发外部编辑器。asmdef、link.xml、Profile 与 bytes
+        /// 都由 AssetDatabase 管理；只有 Assets/Packages 之外的普通文件才回退到系统文件浏览器。
+        /// </summary>
+        internal static bool TryLocateProjectAsset(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return false;
+            string normalized = path.Replace('\\', '/');
+            if (!IsUnityAssetPath(normalized)) return false;
+            var asset = AssetDatabase.LoadMainAssetAtPath(normalized);
+            if (asset == null) return false;
+            Selection.activeObject = asset;
+            EditorGUIUtility.PingObject(asset);
+            return true;
+        }
+
+        private static bool IsUnityAssetPath(string path) =>
+            path.StartsWith("Assets/", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("Packages/", StringComparison.OrdinalIgnoreCase);
 
         private void OnRootGeometryChanged(GeometryChangedEvent evt) => ApplyResponsiveLayout(evt.newRect.width);
 

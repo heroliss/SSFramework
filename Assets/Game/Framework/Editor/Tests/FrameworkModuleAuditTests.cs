@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using NUnit.Framework;
+using UnityEditor;
 using UnityEngine;
 using UnityEngine.UIElements;
 
@@ -109,8 +111,8 @@ namespace Game.Framework.Editor.Tests
             };
             var consumer = new FrameworkModuleAudit.AssemblyInfo
             {
-                Name = "Game.Main",
-                AsmdefPath = "Assets/Game/Main/Game.Main.asmdef",
+                Name = "Project.Runtime",
+                AsmdefPath = "Assets/Project/Project.Runtime.asmdef",
                 ActualReferences = new[] { optional.Name },
             };
             var assemblies = new Dictionary<string, FrameworkModuleAudit.AssemblyInfo>
@@ -138,26 +140,26 @@ namespace Game.Framework.Editor.Tests
                 new[] { rule },
                 new Dictionary<string, string[]>
                 {
-                    [optional.Name] = new[] { "Game.Framework.Demo", "Game.Main" },
+                    [optional.Name] = new[] { "Sample.Editor.Consumer", "Project.Runtime" },
                 });
 
             var status = FrameworkModuleAudit.BuildModuleStatuses(snapshot, new[] { optional }).Single();
 
-            Assert.That(status.DirectConsumers, Is.EqualTo(new[] { "Game.Main" }));
+            Assert.That(status.DirectConsumers, Is.EqualTo(new[] { "Project.Runtime" }));
             Assert.That(status.FrameworkConsumers, Is.Empty);
-            Assert.That(status.ProjectConsumers, Is.EqualTo(new[] { "Game.Main" }));
-            Assert.That(status.RemovalBlockers, Is.EqualTo(new[] { "Game.Framework.Demo", "Game.Main" }));
+            Assert.That(status.ProjectConsumers, Is.EqualTo(new[] { "Project.Runtime" }));
+            Assert.That(status.RemovalBlockers, Is.EquivalentTo(new[] { "Project.Runtime", "Sample.Editor.Consumer" }));
             Assert.That(status.HotUpdateDependencies,
                 Is.EqualTo(new[] { FrameworkModuleAudit.CoreAssemblyName }));
             Assert.That(status.IsHotUpdateRoot, Is.True);
             Assert.That(status.HasUnconditionalPreservation, Is.True);
             Assert.That(status.RetentionReasons, Has.Some.Contains("CodePackage"));
-            Assert.That(status.RetentionReasons, Has.Some.Contains("Game.Main"));
+            Assert.That(status.RetentionReasons, Has.Some.Contains("Project.Runtime"));
             Assert.That(status.RetentionReasons, Has.Some.Contains("ThirdParty"));
             Assert.That(status.RetentionReasons, Has.Some.Contains("AOT → 热更"));
             Assert.That(status.RemovalSteps, Has.Some.Contains("FrameworkHotUpdateProfile"));
             Assert.That(status.RemovalSteps, Has.Some.Contains("不要先单独同步取消热更"));
-            Assert.That(status.RemovalSteps, Has.Some.Contains("Game.Framework.Demo"));
+            Assert.That(status.RemovalSteps, Has.Some.Contains("Sample.Editor.Consumer"));
         }
 
         [Test]
@@ -280,7 +282,7 @@ namespace Game.Framework.Editor.Tests
         }
 
         [Test]
-        public void CurrentProject_ExternalDependenciesAreExplicit_AndDeletionTestsHold()
+        public void InstalledModules_ExternalDependenciesAreExplicit_AndDeletionTestsHold()
         {
             var snapshot = FrameworkModuleAudit.Capture();
             foreach (var module in snapshot.Assemblies.Values)
@@ -292,43 +294,38 @@ namespace Game.Framework.Editor.Tests
 
             var core = FrameworkModuleAudit.ComputeReachableAssemblies(
                 snapshot.Assemblies, new[] { FrameworkModuleAudit.CoreAssemblyName });
-            var ugui = FrameworkModuleAudit.ComputeReachableAssemblies(
-                snapshot.Assemblies, new[] { FrameworkModuleAudit.UGuiAssemblyName });
-            var toolkit = FrameworkModuleAudit.ComputeReachableAssemblies(
-                snapshot.Assemblies, new[] { FrameworkModuleAudit.ToolkitAssemblyName });
-
             Assert.That(core, Does.Not.Contain(FrameworkModuleAudit.SharedUiAssemblyName));
-            Assert.That(ugui, Does.Contain(FrameworkModuleAudit.SharedUiAssemblyName));
-            Assert.That(ugui, Does.Not.Contain(FrameworkModuleAudit.ToolkitAssemblyName));
-            Assert.That(ugui, Does.Not.Contain(FrameworkModuleAudit.BridgeAssemblyName));
-            Assert.That(toolkit, Does.Contain(FrameworkModuleAudit.SharedUiAssemblyName));
-            Assert.That(toolkit, Does.Not.Contain(FrameworkModuleAudit.UGuiAssemblyName));
-            Assert.That(toolkit, Does.Not.Contain(FrameworkModuleAudit.BridgeAssemblyName));
+            if (snapshot.Assemblies.ContainsKey(FrameworkModuleAudit.UGuiAssemblyName))
+            {
+                var ugui = FrameworkModuleAudit.ComputeReachableAssemblies(
+                    snapshot.Assemblies, new[] { FrameworkModuleAudit.UGuiAssemblyName });
+                Assert.That(ugui, Does.Contain(FrameworkModuleAudit.SharedUiAssemblyName));
+                Assert.That(ugui, Does.Not.Contain(FrameworkModuleAudit.ToolkitAssemblyName));
+                Assert.That(ugui, Does.Not.Contain(FrameworkModuleAudit.BridgeAssemblyName));
+            }
+            if (snapshot.Assemblies.ContainsKey(FrameworkModuleAudit.ToolkitAssemblyName))
+            {
+                var toolkit = FrameworkModuleAudit.ComputeReachableAssemblies(
+                    snapshot.Assemblies, new[] { FrameworkModuleAudit.ToolkitAssemblyName });
+                Assert.That(toolkit, Does.Contain(FrameworkModuleAudit.SharedUiAssemblyName));
+                Assert.That(toolkit, Does.Not.Contain(FrameworkModuleAudit.UGuiAssemblyName));
+                Assert.That(toolkit, Does.Not.Contain(FrameworkModuleAudit.BridgeAssemblyName));
+            }
 
             var result = FrameworkModuleAudit.Analyze(snapshot);
             Assert.That(result.IsHealthy, Is.True);
-            Assert.That(result.CommonProfiles.Select(profile => profile.Key),
-                Is.EqualTo(new[] { "core", "ugui", "toolkit" }));
-            Assert.That(result.ModuleProfiles.SelectMany(profile => profile.Roots),
-                Does.Contain(FrameworkModuleAudit.BridgeAssemblyName));
-            Assert.That(result.ModuleStatuses.Select(status => status.Module.Name),
-                Does.Contain("Game.Framework.Asset.Yoo"));
-            var bridgeStatus = result.ModuleStatuses.Single(status =>
+            var bridgeStatus = result.ModuleStatuses.FirstOrDefault(status =>
                 status.Module.Name == FrameworkModuleAudit.BridgeAssemblyName);
-            Assert.That(bridgeStatus.RemovalBlockers, Has.Some.Contains("Game.Framework.Demo"),
-                "物理删除计划必须覆盖不会进入 Player 的 Demo / Editor / Tests asmdef 引用。 ");
-            Assert.That(result.HasRetentionWarnings, Is.True,
-                "当前可选 Module 的无条件 link.xml 必须显式显示，不能让“边界健康”掩盖最终保留原因。");
-            Assert.That(result.HotUpdateDeployment.BuildModuleAvailable, Is.True);
-            Assert.That(result.HotUpdateDeployment.ProfileAvailable, Is.True);
-            Assert.That(result.HotUpdateDeployment.InspectionAvailable, Is.True,
-                "通用 Editor 审计应经只读反射接缝读取可删除的 Build Editor Module，不能建立编译期反向依赖。 ");
-            Assert.That(result.GlobalPreservations, Is.Not.Empty,
-                "HybridCLR 生成物与第三方 link.xml 也要可追踪，但不能误归罪于 Framework Module。");
-            Assert.That(result.GlobalPreservations, Has.Some.Matches<FrameworkModuleAudit.LinkerPreservation>(
-                rule => rule.IsGenerated));
+            if (bridgeStatus != null)
+                foreach (string blocker in bridgeStatus.RemovalBlockers)
+                    Assert.That(bridgeStatus.RemovalSteps, Has.Some.Contains(blocker),
+                        "物理删除计划必须列出当前完整 asmdef 图实际发现的每个声明引用。");
+            if (result.HotUpdateDeployment.BuildModuleAvailable)
+                Assert.That(result.HotUpdateDeployment.InspectionAvailable, Is.True,
+                    "安装 Build Editor Module 时，通用审计应经只读反射接缝读取证据，不能建立编译期反向依赖。");
             Assert.That(result.Recommendations, Has.Some.Contains("Player BuildReport"));
-            Assert.That(result.Recommendations, Has.Some.Contains("link.xml"));
+            if (result.HasRetentionWarnings)
+                Assert.That(result.Recommendations, Has.Some.Contains("link.xml"));
 
             string report = FrameworkModuleAudit.CreateReport(result);
             Assert.That(report, Does.Not.Contain("⚠ 无法定位程序集文件"),
@@ -340,7 +337,8 @@ namespace Game.Framework.Editor.Tests
             Assert.That(report, Does.Contain("Module 当前保留原因"));
             Assert.That(report, Does.Contain("全局与生成的 link.xml 证据"));
             Assert.That(report, Does.Contain("热更派生证据（只读）"));
-            Assert.That(report, Does.Contain("CodePackage"));
+            if (result.HotUpdateDeployment.BuildModuleAvailable)
+                Assert.That(report, Does.Contain("CodePackage"));
         }
 
         [Test]
@@ -408,6 +406,47 @@ namespace Game.Framework.Editor.Tests
             finally
             {
                 UnityEngine.Object.DestroyImmediate(window);
+            }
+        }
+
+        [Test]
+        public void LocateProjectAsset_SelectsCommonEditorAssetsWithoutOpeningAnExternalFileHandler()
+        {
+            string coreAsmdefPath = AssetDatabase.FindAssets("t:AssemblyDefinitionAsset")
+                .Select(AssetDatabase.GUIDToAssetPath)
+                .First(path => string.Equals(
+                    Path.GetFileNameWithoutExtension(path),
+                    FrameworkModuleAudit.CoreAssemblyName,
+                    StringComparison.Ordinal));
+            string auditWindowScriptPath = AssetDatabase.FindAssets(
+                    nameof(FrameworkModuleAuditWindow) + " t:MonoScript")
+                .Select(AssetDatabase.GUIDToAssetPath)
+                .First(path => AssetDatabase.LoadAssetAtPath<MonoScript>(path)?.GetClass() ==
+                               typeof(FrameworkModuleAuditWindow));
+            string[] projectPaths =
+            {
+                coreAsmdefPath,
+                auditWindowScriptPath,
+            };
+
+            var previousSelection = Selection.activeObject;
+            try
+            {
+                foreach (string path in projectPaths)
+                {
+                    var expected = AssetDatabase.LoadMainAssetAtPath(path);
+                    Assert.That(expected, Is.Not.Null, path + " 必须能被 Unity AssetDatabase 定位。");
+                    Selection.activeObject = null;
+                    Assert.That(FrameworkModuleAuditWindow.TryLocateProjectAsset(path), Is.True);
+                    Assert.That(Selection.activeObject, Is.SameAs(expected),
+                        "“定位”必须把 Unity Project 的选择切到目标，而不是直接唤起外部编辑器：" + path);
+                }
+                Assert.That(FrameworkModuleAuditWindow.TryLocateProjectAsset("docs/framework-module-map.md"),
+                    Is.False, "Assets/Packages 之外的文档不是 Unity Asset，应交给打开文件或文件浏览器语义。");
+            }
+            finally
+            {
+                Selection.activeObject = previousSelection;
             }
         }
 

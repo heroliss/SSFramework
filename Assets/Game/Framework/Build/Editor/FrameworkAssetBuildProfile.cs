@@ -15,7 +15,7 @@ namespace Game.Framework.Build
     /// 统一构建菜单（<c>SSFramework/资源构建/*</c>）、CI 入口（<see cref="FrameworkAssetBuilder.BuildAll"/>）、
     /// 以及将来的构建窗口都读这一个 profile。
     ///
-    /// 这是**项目配置实例**，不是框架代码——资产入库放在项目配置位 <c>Assets/Game/Settings/</c>（不在 <c>Framework/</c> 内，
+    /// 这是**项目配置实例**，不是框架代码——资产入库放在项目配置位（默认新建到 <c>Assets/Settings/SSFramework/</c>，不在 <c>Framework/</c> 内，
     /// 框架抽 UPM 包时项目配置不该进包，ADR-0010/0011）；<see cref="Resolve"/> 按类型扫描定位（不认路径），
     /// 找不到时在该位自动建一个默认 profile，找到多个时取第一个并警告（全工程应只保留一个）。
     /// 这是**编辑器构建配置**，不是运行时数据（运行时资源行为看 <c>AssetSystemConfigModel</c>），故只存在于 Editor 程序集。
@@ -55,10 +55,10 @@ namespace Game.Framework.Build
         [Tooltip("「生成包名常量代码」的输出文件路径（Assets/ 开头、.cs 结尾）。类名 = 文件名去掉 .g.cs。\n" +
                  "生成的 const string 常量供业务代码替代裸包名字符串——收集器改名/删包后重新生成，引用处编译期报错。\n" +
                  "留空 = 不使用此功能。")]
-        [SerializeField] private string _packageConstantsPath = "Assets/Game/Main/Generated/AssetPackages.g.cs";
+        [SerializeField] private string _packageConstantsPath = "";
 
-        [Tooltip("包名常量类所在的命名空间（业务层命名空间）。")]
-        [SerializeField] private string _packageConstantsNamespace = "Game.Main";
+        [Tooltip("包名常量类所在的命名空间（业务层命名空间）。启用代码生成时需与输出程序集一并明确填写。")]
+        [SerializeField] private string _packageConstantsNamespace = "";
 
         [Header("本地联调（不入库，仅本机测 Host）")]
         [Tooltip("本地 CDN 服务端口（python http 服务，伺服 AssetBuild/Deploy）。⚠ 必须与场景 AssetSystemConfigModel.CdnUrls 第一条（主）的端口一致，Host 才能下到东西。")]
@@ -191,23 +191,23 @@ namespace Game.Framework.Build
 
         /// <summary>
         /// 解析全工程唯一的构建 profile：先找已有资产（找到多个 → 取第一个并警告），
-        /// 没有就按收集器的包列表自动建一个默认 profile（落在 <c>Assets/Game/Framework/Build/</c>）。
+        /// 没有就按收集器的包列表自动建一个默认 profile（落在通用项目配置目录）。
         /// 用 <c>AssetDatabase.CreateAsset</c> 程序化创建，不手改 YAML。
         /// </summary>
         public static FrameworkAssetBuildProfile Resolve()
         {
-            var guids = AssetDatabase.FindAssets("t:" + nameof(FrameworkAssetBuildProfile));
-            if (guids.Length > 0)
+            var paths = AssetDatabase.FindAssets("t:" + nameof(FrameworkAssetBuildProfile))
+                .Select(AssetDatabase.GUIDToAssetPath)
+                .OrderBy(path => path, StringComparer.Ordinal)
+                .ToArray();
+            if (paths.Length > 0)
             {
-                // CreateAssetMenu 暴露在外，误建第二个 profile 时取哪个是 GUID 顺序的偶然——明确警告，避免「改了配置不生效」难排查。
-                if (guids.Length > 1)
+                if (paths.Length > 1)
                 {
-                    var paths = guids.Select(AssetDatabase.GUIDToAssetPath);
                     Debug.LogWarning("[AssetBuilder] 找到多个构建 profile，仅第一个生效，请删到只剩一个：\n  " +
                                      string.Join("\n  ", paths));
                 }
-                return AssetDatabase.LoadAssetAtPath<FrameworkAssetBuildProfile>(
-                    AssetDatabase.GUIDToAssetPath(guids[0]));
+                return AssetDatabase.LoadAssetAtPath<FrameworkAssetBuildProfile>(paths[0]);
             }
 
             var profile = CreateInstance<FrameworkAssetBuildProfile>();
@@ -217,9 +217,7 @@ namespace Game.Framework.Build
                 profile._packages.Add(new PackageBuildEntry(pkg.PackageName.Trim()));
             }
 
-            const string dir = "Assets/Game/Settings"; // 项目配置位，不在 Framework/ 内（ADR-0011）
-            if (!AssetDatabase.IsValidFolder(dir))
-                AssetDatabase.CreateFolder("Assets/Game", "Settings");
+            string dir = Game.Framework.Editor.FrameworkProjectSettingsLocation.EnsureDirectory();
             string path = dir + "/FrameworkAssetBuildProfile.asset";
             AssetDatabase.CreateAsset(profile, path);
             AssetDatabase.SaveAssets();

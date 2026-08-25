@@ -12,10 +12,10 @@ namespace Game.Framework.Editor
     /// <b>加一个快捷入口 = 往这里加一行，不用改任何代码</b>。以后想加自己项目的场景直接编辑本资产即可。
     /// </summary>
     /// <remarks>
-    /// 全工程单例（首次使用自动创建到 <c>Assets/Game/Settings/</c>，项目配置不进框架包——ADR-0011）；
+    /// 全工程单例（用户首次打开配置或切换启动场景开关时，自动创建到通用项目配置目录；项目配置不进框架包——ADR-0011）；
     /// 误建多份时 <see cref="Resolve"/> 取第一份并警告（同 <c>FontCharsetProfile</c> 等的单例语义）。<br/>
-    /// 首次创建会按「开箱默认」<see cref="SeedDefaults"/> 种入工程里已知的几个场景（DemoScene / Outpost）——
-    /// 缺失的自动跳过，用户可自由增删 / 清空。场景存 <see cref="SceneAsset"/> 引用（内部是 GUID），改名 / 移动不断链。
+    /// 首次创建会把 Build Settings 中已启用的有效场景作为初始快捷入口，用户可自由增删 / 清空。
+    /// 场景存 <see cref="SceneAsset"/> 引用（内部是 GUID），改名 / 移动不断链。
     /// </remarks>
     public sealed class SceneShortcutProfile : ScriptableObject
     {
@@ -29,7 +29,7 @@ namespace Game.Framework.Editor
             [Tooltip("菜单显示名（留空 = 用场景文件名）。")]
             public string DisplayName;
 
-            [Tooltip("分组子菜单名（留空 = 直接挂在「场景」下）。\n填 Outpost → 菜单落到 SSFramework/场景/Outpost/xxx，条目多了不乱。")]
+            [Tooltip("分组子菜单名（留空 = 直接挂在「场景」下）。\n填 Gameplay → 菜单落到 SSFramework/场景/Gameplay/xxx，条目多了不乱。")]
             public string Group;
 
             [Tooltip("勾选 = 附加打开（Additive，多场景编辑、不卸载当前场景，如 Boot + 玩法场景同开）；\n不勾 = 替换打开（Single，先按提示保存当前场景）。")]
@@ -66,16 +66,19 @@ namespace Game.Framework.Editor
         /// <summary>定位全工程唯一配置；不存在返回 <c>null</c>（不创建，供 validate 等只读场景用）。</summary>
         public static SceneShortcutProfile Find()
         {
-            var guids = AssetDatabase.FindAssets("t:" + nameof(SceneShortcutProfile));
-            if (guids.Length == 0) return null;
+            var paths = AssetDatabase.FindAssets("t:" + nameof(SceneShortcutProfile))
+                .Select(AssetDatabase.GUIDToAssetPath)
+                .OrderBy(path => path, StringComparer.Ordinal)
+                .ToArray();
+            if (paths.Length == 0) return null;
             // CreateAssetMenu 未开放（单例，不该手建多份）；万一 FindAssets 命中多份仍明确警告，避免「改了不生效」难排查。
-            if (guids.Length > 1)
+            if (paths.Length > 1)
                 Debug.LogWarning("[场景快捷入口] 找到多个配置，仅第一个生效，请删到只剩一个：\n  " +
-                                 string.Join("\n  ", guids.Select(AssetDatabase.GUIDToAssetPath)));
-            return AssetDatabase.LoadAssetAtPath<SceneShortcutProfile>(AssetDatabase.GUIDToAssetPath(guids[0]));
+                                 string.Join("\n  ", paths));
+            return AssetDatabase.LoadAssetAtPath<SceneShortcutProfile>(paths[0]);
         }
 
-        /// <summary>定位配置；不存在则按默认值自动创建并种入工程已知场景（同其它单例 profile 的语义）。</summary>
+        /// <summary>定位配置；不存在则自动创建，并从 Build Settings 导入初始场景（同其它单例 profile 的语义）。</summary>
         public static SceneShortcutProfile Resolve()
         {
             var existing = Find();
@@ -84,33 +87,36 @@ namespace Game.Framework.Editor
             var profile = CreateInstance<SceneShortcutProfile>();
             profile.SeedDefaults();
 
-            const string dir = "Assets/Game/Settings"; // 项目配置位，不在 Framework/ 内（ADR-0011）
-            if (!AssetDatabase.IsValidFolder(dir))
-                AssetDatabase.CreateFolder("Assets/Game", "Settings");
+            string dir = FrameworkProjectSettingsLocation.EnsureDirectory();
             string path = dir + "/SceneShortcutProfile.asset";
             AssetDatabase.CreateAsset(profile, path);
             AssetDatabase.SaveAssets();
-            Debug.Log($"[场景快捷入口] 未找到配置，已自动创建并种入工程已知场景：{path}");
+            Debug.Log($"[场景快捷入口] 未找到配置，已自动创建：{path}。" +
+                      $"从 Build Settings 导入了 {profile.Entries.Count} 个已启用场景；可在 Inspector 自由增删。");
             return profile;
         }
 
-        // 开箱默认：把工程里已知的几个场景种进菜单，缺失的自动跳过。
-        // 这些是「项目已知路径」——与 FrameworkConfigOverviewWindow 里登记具体模块同属编辑器层的项目知识；
-        // 框架抽成独立包时清空本方法体即可（用户自己的项目照旧在 Inspector 里加自己的场景）。
-        private void SeedDefaults()
+        // Build Settings 是 Unity 自己维护的项目场景清单，能提供通用且可解释的初始值；
+        // 不猜测项目目录、场景命名或业务分组。第一项仅作为 Boot 候选，开关仍默认关闭。
+        private void SeedDefaults() => SeedFromBuildSettings(EditorBuildSettings.scenes);
+
+        internal void SeedFromBuildSettings(IEnumerable<EditorBuildSettingsScene> scenes)
         {
-            void Add(string assetPath, string group)
+            _entries.Clear();
+            _bootScene = null;
+            _playFromBootScene = false;
+            var addedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var setting in scenes ?? Enumerable.Empty<EditorBuildSettingsScene>())
             {
-                var scene = AssetDatabase.LoadAssetAtPath<SceneAsset>(assetPath);
-                if (scene != null) _entries.Add(new SceneEntry { Scene = scene, Group = group });
+                if (setting == null || !setting.enabled || string.IsNullOrWhiteSpace(setting.path) ||
+                    !addedPaths.Add(setting.path))
+                    continue;
+
+                var scene = AssetDatabase.LoadAssetAtPath<SceneAsset>(setting.path);
+                if (scene == null) continue;
+                _entries.Add(new SceneEntry { Scene = scene });
+                _bootScene ??= scene;
             }
-
-            Add("Assets/Game/Framework/Demo/Scenes/DemoScene.unity", null);
-            Add("Assets/Game/Outpost/Scenes/OutpostGame.unity", "Outpost");
-            Add("Assets/Game/Outpost/Scenes/OutpostBattle.unity", "Outpost");
-
-            // Boot 场景先备好、但开关默认关：不擅自改 Play 行为，用户想要一键开即可。
-            _bootScene = AssetDatabase.LoadAssetAtPath<SceneAsset>("Assets/Game/Scenes/BootScene.unity");
         }
     }
 }

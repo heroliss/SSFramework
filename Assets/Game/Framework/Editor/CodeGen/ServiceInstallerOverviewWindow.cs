@@ -9,7 +9,7 @@ namespace Game.Framework.Editor
     /// <summary>
     /// 「服务安装器配置总览」窗口：把工程内所有 <see cref="ServiceInstallerProfile"/> 集中成卡片——每份列出
     /// 各条目的「扫描目录 → 输出安装器 / 命名空间」，并提供「生成这份 / 点名定位资产 / 定位生成的 .g.cs」。
-    /// 多份并存（demo + 正式项目）时一眼看清各份落点、按份操作；顶部「生成全部」等同菜单「生成服务安装器代码」。
+    /// 多份按子项目、环境或功能域并存时，可一眼看清各份落点并按份操作；顶部「生成全部」等同菜单「生成服务安装器代码」。
     /// </summary>
     public sealed class ServiceInstallerOverviewWindow : EditorWindow
     {
@@ -39,7 +39,7 @@ namespace Game.Framework.Editor
             EditorGUILayout.HelpBox(
                 "每份 profile 若干条目：扫描目录下的纯 C# 服务类 → 生成一个静态安装器 (.g.cs)；" +
                 "装进哪个 Context 由业务在该 Context 的 InstallBindings 里手写一行调用决定。\n" +
-                "demo 与正式项目可各一份并存、生成互不干扰；demo 那份的输出落在 Demo/ 隔离岛，正式打包时随 demo 一并排除。",
+                "多份 profile 可按子项目、环境或功能域隔离扫描目录与输出，彼此生成互不干扰。",
                 MessageType.Info);
 
             var profiles = ServiceInstallerProfile.ResolveAll();

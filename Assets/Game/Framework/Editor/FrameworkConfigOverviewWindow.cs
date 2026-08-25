@@ -45,7 +45,7 @@ namespace Game.Framework.Editor
                 TypeName = "ServiceInstallerProfile",
                 QualifiedType = "Game.Framework.Editor.ServiceInstallerProfile, Game.Framework.Editor",
                 Singleton = false,
-                Note = "多份并存（demo / 正式项目各一份）；无自动创建，经 Assets/Create/SSFramework/服务安装器配置 建。",
+                Note = "可按子项目、环境或功能域并存多份；无自动创建，经 Assets/Create/SSFramework/服务安装器配置 建。",
                 JumpMenu = "SSFramework/服务注册/配置总览", JumpLabel = "打开总览",
             },
             new()
@@ -54,7 +54,7 @@ namespace Game.Framework.Editor
                 TypeName = "UICodeGenProfile",
                 QualifiedType = "Game.Framework.UI.UGui.Editor.UICodeGenProfile, Game.Framework.UI.UGui.Editor",
                 Singleton = true,
-                Note = "全工程单例（首次使用自动创建）；目录级差异用 UICodeGenDirConfig 就近覆盖，不建第二份 Profile。",
+                Note = "全工程单例；业务命名空间与输出目录不可推导，首次创建后需填写。目录差异用 UICodeGenDirConfig 就近覆盖。",
                 JumpMenu = "SSFramework/UI 绑定/配置总览", JumpLabel = "打开总览",
                 SubTypeName = "UICodeGenDirConfig", SubLabel = "目录级覆盖",
             },
@@ -64,7 +64,7 @@ namespace Game.Framework.Editor
                 TypeName = "LubanConfigProfile",
                 QualifiedType = "Game.Framework.Build.LubanConfigProfile, Game.Framework.Config.Editor",
                 Singleton = false,
-                Note = "多套并存（demo / 正式游戏各一套，各自 luban.conf 源与输出）；首次生成时自动创建。",
+                Note = "可按数据域或构建目标并存多套（各自维护 luban.conf 源与输出）；路径不可推导，需显式新建。",
                 JumpMenu = "SSFramework/配置表构建/配置总览 (定位 · 打开目录 · 生成)", JumpLabel = "打开总览",
             },
             new()
@@ -109,7 +109,7 @@ namespace Game.Framework.Editor
                 TypeName = "SceneShortcutProfile",
                 QualifiedType = "Game.Framework.Editor.SceneShortcutProfile, Game.Framework.Editor",
                 Singleton = true,
-                Note = "全工程单例（首次使用自动创建，按默认种入工程已知场景）；驱动 SSFramework/场景 菜单，加场景 = 加一行。",
+                Note = "全工程单例（首次打开配置时创建，并导入 Build Settings 已启用场景）；域重载只读，不会隐式写资产。",
                 JumpMenu = "SSFramework/场景/⚙ 编辑场景快捷入口", JumpLabel = "打开配置",
             },
         };

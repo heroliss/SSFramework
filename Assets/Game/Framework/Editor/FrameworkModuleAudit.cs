@@ -668,7 +668,7 @@ namespace Game.Framework.Editor
 
             var steps = new List<string>();
             if (removalBlockers.Count > 0)
-                steps.Add("先处理所有 asmdef 声明的删除阻塞者（包含 Runtime、Demo、Editor 与 Tests）：" +
+                steps.Add("先处理完整 asmdef 图中的所有删除阻塞者（无论它们是否进入 Player）：" +
                           string.Join("、", removalBlockers) + "。即使没有实际调用，残留的 references 也会让物理删除后编译失败。");
             if (hot && hotDependencies.Count > 0)
                 steps.Add("把“退出 Player 编译图（删除/卸载该 Module）”与“从 FrameworkHotUpdateProfile 移除”作为同一次结构变更；不要先单独同步取消热更。另一条路是先让它引用的热更依赖全部退回 AOT，但这通常会级联扩大改动。");
@@ -1179,7 +1179,7 @@ namespace Game.Framework.Editor
 
         /// <summary>
         /// 读取全部项目与 Package asmdef 的显式引用，供物理删除计划使用。它与 Player DLL 的真实消费
-        /// 是两种证据：Demo / Editor / Tests 不会保留玩家代码，却仍会在被引用 Module 删除后阻塞编译。
+        /// 是两种证据：不进入 Player 的程序集不会保留玩家代码，却仍会在被引用 Module 删除后阻塞编译。
         /// </summary>
         private static Dictionary<string, string[]> ReadDeclaredConsumers()
         {

@@ -25,7 +25,7 @@
 |---|---|---|
 | 源码 / Package | 文件、导入器和 asmdef 是否安装？ | `Assets`、UPM manifest / lock |
 | Player 编译 | 当前平台是否编译该程序集？ | `CompilationPipeline.GetAssemblies(Player)`；`autoReferenced:false` 不会让源码停止编译 |
-| 真实消费 / 删除阻塞 | 谁在 Player DLL 元数据里实际引用；谁在任意 asmdef 中声明引用？ | 前者解释玩家保留候选，后者覆盖 Demo / Editor / Tests 的物理删除编译阻塞；字符串反射仍需人工说明 |
+| 真实消费 / 删除阻塞 | 谁在 Player DLL 元数据里实际引用；谁在任意 asmdef 中声明引用？ | 前者解释玩家保留候选，后者覆盖完整 asmdef 图中的物理删除编译阻塞；字符串反射仍需人工说明 |
 | 保留 / 部署根 | 什么会让它留下？ | 场景、资源、反射、`link.xml`；HybridCLR Profile 同步后按程序集部署完整 DLL |
 | 最终 Player | 链接、IL2CPP、引擎模块和压缩后是多少？ | 目标平台 BuildReport / 发布产物 |
 

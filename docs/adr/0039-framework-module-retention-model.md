@@ -32,7 +32,7 @@ Build Editor Module 额外提供只读派生证据：比较唯一 Profile 与 Hy
 
 每个 Runtime Module 显示：
 
-- Player DLL 的 Framework / 项目真实消费者，以及包含 Demo、Editor、Tests 的全 asmdef 删除阻塞者；
+- Player DLL 的 Framework / 项目真实消费者，以及完整 asmdef 图中的删除阻塞者（无论是否进入 Player）；
 - 自身的 Framework 直接依赖；完整闭包在任意 Module what-if 中展开；
 - 是否位于热更 Profile，以及哪些热更依赖造成结构性传播；
 - 指向它、或由它拥有的 `link.xml` 规则；

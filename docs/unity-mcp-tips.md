@@ -98,5 +98,16 @@ Core / UGUI / Toolkit 的真实体积比较不要在主工程临时改 `link.xml
 
 完整证据口径见 ADR-0038；具体游戏的业务资源、HybridCLR CodePackage 和 shader / 字体仍看正式产品构建。
 
+## 13. Unity 界面观察与操作的选择顺序
+
+Unity 自动化优先使用语义接口，不把 Editor 当成只能按坐标点击的黑盒：
+
+1. 优先调用 `unity_*` 的场景、组件、资产、选择、菜单、测试和 Console 工具；这些操作不依赖窗口焦点，也比模拟鼠标可验证。
+2. 工具没有现成入口但 Unity API 能表达时，用 `unity_execute_code` 读取或操作一次明确状态；UI Toolkit 页面可查询元素、切页、滚动或临时调整布局后再截图。
+3. 视觉证据按对象选择 `unity_graphics_game_capture` / `unity_screenshot_game`、Scene View 截图或 `unity_screenshot_editor_window`。指定 EditorWindow 的截图可在窗口被遮挡时工作，但不等于能点击窗口内任意坐标。
+4. 只有 Windows 原生模态框、文件选择器、临时右键/下拉弹层、真实焦点/拖拽行为，或 MCP 已被模态框阻塞时，才使用操作系统 UI 自动化；若只是普通 Unity 状态，不因 Editor 在后台就切换到桌面控制。
+
+边界：Unity MCP 不是通用鼠标/键盘代理，不能承诺捕获或操作任意屏幕矩形、Tooltip、上下文菜单和系统子窗口。尤其原生保存框已经出现时，Unity 主线程与 MCP 队列可能一起被阻塞；先人工或经系统 UI 自动化关闭，再回到 §5 的预检流程，不要重复提交 Unity 命令。Game/Scene/指定 EditorWindow 都能由 MCP 捕获时，截图与定位操作应留在 Unity 工具链内。
+
 ---
 经验沉淀文档：踩到新坑、确认调用方式后追加一节即可。
