@@ -203,6 +203,51 @@ namespace Game.Framework.Test
             Assert.IsNull(snapshot.Failure);
             Assert.AreSame(context.RawContext, snapshot.Context);
         });
+
+        [UnityTest]
+        public IEnumerator ParentInitializationFailure_PreservesDeepestExceptionIdentityAcrossThreeLevels()
+            => UniTask.ToCoroutine(async () =>
+            {
+                FailingMonoContext.Install = _ => throw new InvalidOperationException("cascade-boom");
+
+                var rootGo = new GameObject("FailedRoot");
+                rootGo.transform.SetParent(_root.transform);
+                LogAssert.Expect(LogType.Exception, new Regex(@"cascade-boom"));
+                var root = rootGo.AddComponent<FailingMonoContext>();
+
+                var childGo = new GameObject("FailedChild");
+                childGo.transform.SetParent(rootGo.transform);
+                LogAssert.Expect(LogType.Exception, new Regex(@"cascade-boom"));
+                var child = childGo.AddComponent<MonoGameContextBase>();
+
+                var grandchildGo = new GameObject("FailedGrandchild");
+                grandchildGo.transform.SetParent(childGo.transform);
+                LogAssert.Expect(LogType.Exception, new Regex(@"cascade-boom"));
+                var grandchild = grandchildGo.AddComponent<MonoGameContextBase>();
+                await UniTask.Yield();
+
+                var rootSnapshot = root.DiagnosticSnapshot;
+                var childSnapshot = child.DiagnosticSnapshot;
+                var grandchildSnapshot = grandchild.DiagnosticSnapshot;
+                Assert.AreEqual(MonoContextDiagnosticState.Failed, rootSnapshot.State);
+                Assert.AreEqual(MonoContextDiagnosticState.Failed, childSnapshot.State);
+                Assert.AreEqual(MonoContextDiagnosticState.Failed, grandchildSnapshot.State);
+                Assert.AreSame(root, childSnapshot.ResolvedParent);
+                Assert.AreSame(child, grandchildSnapshot.ResolvedParent);
+
+                Exception rootCause = DeepestCause(rootSnapshot.Failure);
+                Assert.AreSame(rootCause, DeepestCause(childSnapshot.Failure),
+                    "诊断聚合依赖异常对象身份；子层包装必须保留同一个最深根因。 ");
+                Assert.AreSame(rootCause, DeepestCause(grandchildSnapshot.Failure));
+                Assert.AreEqual("cascade-boom", rootCause.Message);
+            });
+
+        private static Exception DeepestCause(Exception exception)
+        {
+            while (exception?.InnerException != null)
+                exception = exception.InnerException;
+            return exception;
+        }
 #endif
 
         [UnityTest]

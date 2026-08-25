@@ -1,9 +1,12 @@
+using System;
 using System.Linq;
 using Game.Framework.Context;
+using Game.Framework.Internal;
 using NUnit.Framework;
 using UnityEditor.UIElements;
 using UnityEngine;
 using UnityEngine.UIElements;
+using Object = UnityEngine.Object;
 
 namespace Game.Framework.Editor.Tests
 {
@@ -48,6 +51,38 @@ namespace Game.Framework.Editor.Tests
                 FrameworkDiagnosticsWindow.LayoutMode.Compact, 280f, 420f), Is.InRange(100f, 220f));
             Assert.That(FrameworkDiagnosticsWindow.ResolveTreePaneDimension(
                 FrameworkDiagnosticsWindow.LayoutMode.Medium, 640f, 700f), Is.InRange(220f, 340f));
+        }
+
+        [TestCase(0, 420f)]
+        [TestCase(0, 730f)]
+        [TestCase(1, 700f)]
+        [TestCase(2, 1000f)]
+        public void MonoIssuePaneHeight_NeverExceedsResponsiveMaximum(
+            int modeValue,
+            float windowHeight)
+        {
+            var mode = (FrameworkDiagnosticsWindow.LayoutMode)modeValue;
+            float preferred = FrameworkDiagnosticsWindow.ResolveMonoIssuePaneHeight(mode, windowHeight);
+
+            Assert.That(preferred, Is.GreaterThanOrEqualTo(120f));
+            Assert.That(preferred, Is.LessThanOrEqualTo(
+                FrameworkDiagnosticsWindow.ResolveMonoIssueMaxHeight(mode)));
+        }
+
+        [TestCase(0, 0, 0, "")]
+        [TestCase(2, 0, 3, " · Mono 根因 2（影响 3）")]
+        [TestCase(0, 1, 2, " · Mono 时序提醒 1（影响 2）")]
+        [TestCase(1, 2, 4, " · Mono 根因 1 · 时序提醒 2（影响 4）")]
+        public void MonoIssueSummary_DistinguishesFailuresFromTimingConcerns(
+            int rootCauses,
+            int timingGroups,
+            int affected,
+            string expected)
+        {
+            Assert.That(FrameworkDiagnosticsWindow.BuildMonoIssueSummary(
+                rootCauses,
+                timingGroups,
+                affected), Is.EqualTo(expected));
         }
 
         [TestCase(420f, TwoPaneSplitViewOrientation.Vertical, 3, "diagnostics-toolbar-search-row")]
@@ -104,6 +139,241 @@ namespace Game.Framework.Editor.Tests
             {
                 Object.DestroyImmediate(host);
             }
+        }
+
+        [Test]
+        public void MonoIssues_ParentFailureGroupsThreeAffectedContextsUnderOneRootCause()
+        {
+            var rootObject = new GameObject("RootContext");
+            var childObject = new GameObject("ChildContext");
+            var grandchildObject = new GameObject("GrandchildContext");
+            childObject.transform.SetParent(rootObject.transform);
+            grandchildObject.transform.SetParent(childObject.transform);
+
+            try
+            {
+                var root = rootObject.AddComponent<TestMonoContext>();
+                var child = childObject.AddComponent<TestMonoContext>();
+                var grandchild = grandchildObject.AddComponent<TestMonoContext>();
+                var rootCause = new InvalidOperationException("install-boom");
+                var childFailure = new InvalidOperationException("child failed because parent failed", rootCause);
+                var grandchildFailure = new InvalidOperationException("grandchild failed because parent failed", childFailure);
+
+                var candidates = new[]
+                {
+                    Candidate(root, resolvedParent: null, failure: rootCause),
+                    Candidate(child, root, childFailure),
+                    Candidate(grandchild, child, grandchildFailure),
+                };
+
+                var groups = MonoContextIssueAnalysis.GroupCandidates(candidates);
+
+                Assert.That(groups, Has.Count.EqualTo(1));
+                Assert.That(groups[0].Origin.Host, Is.SameAs(root));
+                Assert.That(groups[0].RootCause, Is.SameAs(rootCause));
+                Assert.That(groups[0].Affected, Has.Count.EqualTo(3));
+                Assert.That(groups[0].Affected.Select(item => item.Host),
+                    Is.EquivalentTo(new[] { root, child, grandchild }));
+
+                string report = MonoContextIssueAnalysis.BuildCopyReport(groups[0], editorIsPlaying: false);
+                Assert.That(report, Does.Contain("历史证据"));
+                Assert.That(report, Does.Contain("影响：3 个 Context"));
+                Assert.That(report, Does.Contain("install-boom"));
+                Assert.That(report, Does.Contain("RootContext/ChildContext/GrandchildContext"));
+            }
+            finally
+            {
+                Object.DestroyImmediate(rootObject);
+            }
+        }
+
+        [Test]
+        public void MonoIssues_SharedExceptionFromUnrelatedContextsRemainsIndependentRoots()
+        {
+            var firstObject = new GameObject("FirstContext");
+            var secondObject = new GameObject("SecondContext");
+            try
+            {
+                var first = firstObject.AddComponent<TestMonoContext>();
+                var second = secondObject.AddComponent<TestMonoContext>();
+                var sharedFailure = new InvalidOperationException("same-instance");
+                var candidates = new[]
+                {
+                    Candidate(first, resolvedParent: null, failure: sharedFailure),
+                    Candidate(second, resolvedParent: null, failure: sharedFailure),
+                };
+
+                var groups = MonoContextIssueAnalysis.GroupCandidates(candidates);
+
+                Assert.That(groups, Has.Count.EqualTo(2),
+                    "即使异常对象被重用，没有实际父子链的两个 Context 也不能合并。 ");
+            }
+            finally
+            {
+                Object.DestroyImmediate(firstObject);
+                Object.DestroyImmediate(secondObject);
+            }
+        }
+
+        [Test]
+        public void MonoIssues_ParentAndChildWithSameMessageButDifferentExceptionsRemainIndependentRoots()
+        {
+            var parentObject = new GameObject("ParentContext");
+            var childObject = new GameObject("ChildContext");
+            childObject.transform.SetParent(parentObject.transform);
+            try
+            {
+                var parent = parentObject.AddComponent<TestMonoContext>();
+                var child = childObject.AddComponent<TestMonoContext>();
+                var candidates = new[]
+                {
+                    Candidate(parent, resolvedParent: null, failure: new InvalidOperationException("same-message")),
+                    Candidate(child, parent, new InvalidOperationException("same-message")),
+                };
+
+                var groups = MonoContextIssueAnalysis.GroupCandidates(candidates);
+
+                Assert.That(groups, Has.Count.EqualTo(2),
+                    "父子关系本身不足以证明级联；必须保留同一个最深异常对象身份。 ");
+            }
+            finally
+            {
+                Object.DestroyImmediate(parentObject);
+            }
+        }
+
+        [Test]
+        public void MonoIssues_NoExceptionParentChainFormsTimingConcernInsteadOfFailureRoot()
+        {
+            var parentObject = new GameObject("WaitingParent");
+            var childObject = new GameObject("WaitingChild");
+            childObject.transform.SetParent(parentObject.transform);
+            try
+            {
+                var parent = parentObject.AddComponent<TestMonoContext>();
+                var child = childObject.AddComponent<TestMonoContext>();
+                var candidates = new[]
+                {
+                    Candidate(parent, resolvedParent: null, failure: null,
+                        state: MonoContextDiagnosticState.Initializing),
+                    Candidate(child, parent, failure: null,
+                        state: MonoContextDiagnosticState.Uninitialized),
+                };
+
+                var groups = MonoContextIssueAnalysis.GroupCandidates(candidates);
+
+                Assert.That(groups, Has.Count.EqualTo(1));
+                Assert.That(groups[0].IsTimingConcern, Is.True);
+                Assert.That(groups[0].RootCause, Is.Null);
+                Assert.That(MonoContextIssueAnalysis.BuildCopyReport(groups[0], editorIsPlaying: true),
+                    Does.Contain("同一条父子未就绪链"));
+            }
+            finally
+            {
+                Object.DestroyImmediate(parentObject);
+            }
+        }
+
+        [Test]
+        public void MonoIssueSignature_ChangesWhenPathOrParentTopologyChanges()
+        {
+            var parentObject = new GameObject("SignatureParent");
+            var childObject = new GameObject("SignatureChild");
+            childObject.transform.SetParent(parentObject.transform);
+            try
+            {
+                var parent = parentObject.AddComponent<TestMonoContext>();
+                var child = childObject.AddComponent<TestMonoContext>();
+                var failure = new InvalidOperationException("signature-boom");
+                var linked = MonoContextIssueAnalysis.GroupCandidates(new[]
+                {
+                    Candidate(parent, resolvedParent: null, failure: failure, path: "Root/Parent"),
+                    Candidate(child, parent, failure, path: "Root/Parent/Child"),
+                });
+                var moved = MonoContextIssueAnalysis.GroupCandidates(new[]
+                {
+                    Candidate(parent, resolvedParent: null, failure: failure, path: "Renamed/Parent"),
+                    Candidate(child, resolvedParent: null, failure: failure, path: "Renamed/Child"),
+                });
+
+                string linkedSignature = MonoContextIssueAnalysis.BuildSignature(linked, editorIsPlaying: true);
+                string movedSignature = MonoContextIssueAnalysis.BuildSignature(moved, editorIsPlaying: true);
+
+                Assert.That(movedSignature, Is.Not.EqualTo(linkedSignature),
+                    "重命名或改挂父级后必须重建卡片和定位闭包。 ");
+            }
+            finally
+            {
+                Object.DestroyImmediate(parentObject);
+            }
+        }
+
+        [Test]
+        public void DescribeParent_RecognizesDestroyedUnityContext()
+        {
+            var parentObject = new GameObject("DestroyedParent");
+            var parent = parentObject.AddComponent<TestMonoContext>();
+            IGameContext interfaceReference = parent;
+
+            Object.DestroyImmediate(parentObject);
+
+            Assert.That(MonoContextIssueAnalysis.DescribeParent(interfaceReference),
+                Is.EqualTo("（对象已销毁）"));
+        }
+
+        [Test]
+        public void MonoIssues_ParentCycleFormsOneDeterministicGroupAndReportsCycle()
+        {
+            var firstObject = new GameObject("CycleB");
+            var secondObject = new GameObject("CycleA");
+            try
+            {
+                var first = firstObject.AddComponent<TestMonoContext>();
+                var second = secondObject.AddComponent<TestMonoContext>();
+                var sharedFailure = new InvalidOperationException("circular-context");
+                var candidates = new[]
+                {
+                    Candidate(first, resolvedParent: second, failure: sharedFailure, path: "CycleB"),
+                    Candidate(second, resolvedParent: first, failure: sharedFailure, path: "CycleA"),
+                };
+
+                var groups = MonoContextIssueAnalysis.GroupCandidates(candidates);
+
+                Assert.That(groups, Has.Count.EqualTo(1));
+                Assert.That(groups[0].HasParentCycle, Is.True);
+                Assert.That(groups[0].Origin.Path, Is.EqualTo("CycleA"),
+                    "循环没有天然根节点，应选择稳定排序的定位起点。 ");
+                Assert.That(groups[0].Affected, Has.Count.EqualTo(2));
+                Assert.That(MonoContextIssueAnalysis.BuildCopyReport(groups[0], editorIsPlaying: true),
+                    Does.Contain("父级链存在循环"));
+            }
+            finally
+            {
+                Object.DestroyImmediate(firstObject);
+                Object.DestroyImmediate(secondObject);
+            }
+        }
+
+        [TestCase(true, "当前 Play")]
+        [TestCase(false, "历史证据")]
+        public void MonoIssueEvidenceLabel_DistinguishesCurrentAndPreviousPlay(bool playing, string expected)
+        {
+            Assert.That(MonoContextIssueAnalysis.EvidenceLabel(playing), Does.StartWith(expected));
+        }
+
+        private static MonoContextIssueAnalysis.Candidate Candidate(
+            TestMonoContext host,
+            IGameContext resolvedParent,
+            Exception failure,
+            string path = null,
+            MonoContextDiagnosticState state = MonoContextDiagnosticState.Failed)
+        {
+            var snapshot = new MonoContextDiagnosticSnapshot(
+                state,
+                resolvedParent,
+                context: null,
+                failure: failure);
+            return new MonoContextIssueAnalysis.Candidate(host, snapshot, path);
         }
 
         private sealed class TestMonoContext : MonoGameContextBase

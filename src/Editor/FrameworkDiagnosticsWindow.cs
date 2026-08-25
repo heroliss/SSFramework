@@ -953,6 +953,20 @@ namespace Game.Framework.Editor
                 _ => Mathf.Clamp(width * 0.32f, 300f, 380f),
             };
 
+        /// <summary>Mono 问题区在不同信息密度下的上限；与动态首选高度共用，避免出现 minHeight 大于 maxHeight。</summary>
+        internal static float ResolveMonoIssueMaxHeight(LayoutMode mode) => mode switch
+        {
+            LayoutMode.Compact => 180f,
+            LayoutMode.Medium => 210f,
+            _ => 260f,
+        };
+
+        internal static float ResolveMonoIssuePaneHeight(LayoutMode mode, float windowHeight)
+        {
+            float maxHeight = ResolveMonoIssueMaxHeight(mode);
+            return Mathf.Clamp(windowHeight * 0.24f, 120f, Mathf.Min(220f, maxHeight));
+        }
+
         private void OnRootGeometryChanged(GeometryChangedEvent evt)
         {
             if (evt.target != rootVisualElement || evt.newRect.width <= 0f || evt.newRect.height <= 0f) return;
@@ -1002,7 +1016,7 @@ namespace Game.Framework.Editor
                     : TwoPaneSplitViewOrientation.Horizontal;
                 _treePane.style.minHeight = compact ? 90 : 100;
                 _detail.style.minHeight = compact ? 90 : 100;
-                _monoIssueScroll.style.maxHeight = compact ? 150 : mode == LayoutMode.Medium ? 200 : 240;
+                _monoIssueScroll.style.maxHeight = ResolveMonoIssueMaxHeight(mode);
 
                 SetCommandColumnVisibility(mode);
                 _tree?.RefreshItems(); // 让已复用的行立刻隐藏 / 恢复低优先级 meta 信息。
@@ -1088,19 +1102,29 @@ namespace Game.Framework.Editor
                     _monoByCtx[snapshot.Context] = m;
             }
 
-            int monoIssueCount = RefreshMonoIssues(monoContexts);
-            RefreshCounters(contexts.Count, monoIssueCount);
+            var monoIssues = RefreshMonoIssues(monoContexts);
+            RefreshCounters(
+                contexts.Count,
+                monoIssues.RootCauses,
+                monoIssues.TimingGroups,
+                monoIssues.Affected);
             RefreshLogging();
             RefreshTree(contexts);
             RefreshDetail();
             RefreshCommands();
         }
 
-        private void RefreshCounters(int contextCount, int monoIssueCount)
+        private void RefreshCounters(
+            int contextCount,
+            int monoRootCauseCount,
+            int monoTimingGroupCount,
+            int monoAffectedCount)
         {
-            _ctxCountLabel.text = monoIssueCount == 0
-                ? $"存活 Context {contextCount}"
-                : $"存活 Context {contextCount} · Mono 异常 {monoIssueCount}";
+            string monoSummary = BuildMonoIssueSummary(
+                monoRootCauseCount,
+                monoTimingGroupCount,
+                monoAffectedCount);
+            _ctxCountLabel.text = $"存活 Context {contextCount}{monoSummary}";
             _bagCountLabel.text = $"Bag 存活 {FrameworkDiagnostics.BagsAlive}（累计 {FrameworkDiagnostics.BagsCreated}）";
             _cmdCountLabel.text = $"命令累计 {LoggingCommandSystem.TotalRecorded}";
             if (EditorApplication.isPlaying)
@@ -1110,61 +1134,84 @@ namespace Game.Framework.Editor
             }
         }
 
+        internal static string BuildMonoIssueSummary(
+            int rootCauseCount,
+            int timingGroupCount,
+            int affectedCount)
+        {
+            if (rootCauseCount == 0 && timingGroupCount == 0) return string.Empty;
+            if (rootCauseCount == 0)
+                return $" · Mono 时序提醒 {timingGroupCount}（影响 {affectedCount}）";
+            if (timingGroupCount == 0)
+                return $" · Mono 根因 {rootCauseCount}（影响 {affectedCount}）";
+            return $" · Mono 根因 {rootCauseCount} · 时序提醒 {timingGroupCount}（影响 {affectedCount}）";
+        }
+
         /// <summary>
         /// 展示“有宿主、无 GameContext”的初始化异常。这里复用 Tick 已做的场景扫描，不建立第二份静态强引用
         /// 登记表；删除窗口后 Core 的运行时语义完全不受影响。
         /// </summary>
-        private int RefreshMonoIssues(IReadOnlyList<MonoGameContextBase> monoContexts)
+        private (int RootCauses, int TimingGroups, int Affected) RefreshMonoIssues(
+            IReadOnlyList<MonoGameContextBase> monoContexts)
         {
-            var issues = monoContexts
-                .Select(m => (Host: m, Snapshot: m.DiagnosticSnapshot))
-                .Where(x => ShouldReportMonoIssue(x.Host, EditorApplication.isPlaying))
-                .OrderBy(x => HierarchyPath(x.Host), StringComparer.Ordinal)
-                .ToList();
+            bool editorIsPlaying = EditorApplication.isPlaying;
+            IReadOnlyList<MonoContextIssueAnalysis.Group> groups =
+                MonoContextIssueAnalysis.Analyze(monoContexts, editorIsPlaying);
+            int rootCauseCount = groups.Count(group => !group.IsTimingConcern);
+            int timingGroupCount = groups.Count - rootCauseCount;
+            int affectedCount = groups.Sum(group => group.Affected.Count);
+            string signature = MonoContextIssueAnalysis.BuildSignature(groups, editorIsPlaying);
 
-            var signatureBuilder = new StringBuilder(64);
-            foreach (var issue in issues)
-                signatureBuilder.Append(issue.Host.GetInstanceID()).Append(':')
-                    .Append((int)issue.Snapshot.State).Append(':')
-                    .Append(issue.Snapshot.Failure?.ToString().GetHashCode() ?? 0).Append(';');
-            string signature = signatureBuilder.ToString();
-
-            _monoIssueScroll.style.display = issues.Count == 0 ? DisplayStyle.None : DisplayStyle.Flex;
-            if (signature == _monoIssueSignature) return issues.Count;
+            _monoIssueScroll.style.display = groups.Count == 0 ? DisplayStyle.None : DisplayStyle.Flex;
+            LayoutMode mode = _layoutMode ?? ResolveLayoutMode(position.width);
+            _monoIssueScroll.style.minHeight = groups.Count == 0
+                ? 0
+                : ResolveMonoIssuePaneHeight(mode, position.height);
+            if (signature == _monoIssueSignature)
+                return (rootCauseCount, timingGroupCount, affectedCount);
             _monoIssueSignature = signature;
             _monoIssuePanel.Clear();
 
-            if (issues.Count == 0) return 0;
+            if (groups.Count == 0) return (0, 0, 0);
 
-            _monoIssuePanel.Add(new Label($"Mono Context 初始化异常（{issues.Count}）")
+            bool hasFailure = rootCauseCount > 0;
+            var headerParts = new List<string>(2);
+            if (rootCauseCount > 0) headerParts.Add($"{rootCauseCount} 个根因");
+            if (timingGroupCount > 0) headerParts.Add($"{timingGroupCount} 个时序提醒");
+            _monoIssuePanel.Add(new Label(
+                $"Mono 初始化：{string.Join(" · ", headerParts)} · 影响 {affectedCount} 个 Context")
             {
                 style =
                 {
                     unityFontStyleAndWeight = FontStyle.Bold,
-                    color = ColError,
+                    color = editorIsPlaying && hasFailure ? ColError : ColWarnDur,
                     marginBottom = 2,
+                    whiteSpace = WhiteSpace.Normal,
                 },
             });
 
-            foreach (var issue in issues)
+            _monoIssuePanel.Add(new HelpBox(
+                editorIsPlaying
+                    ? hasFailure
+                        ? "当前 Play 证据：先处理每组“最先失败”。一个父级失败会让依赖它的子 Context 一起失败，影响数量不等于独立 bug 数量。"
+                        : "当前 Play 时序提醒：激活对象仍未完成初始化；若持续超过一帧，再检查最上游对象的激活状态与 Awake 时序。"
+                    : "历史证据：当前没有在运行。这些状态来自上次 Play，保留是为了停止后仍能定位和复制；场景重载后会重建，若关闭 Scene Reload 请手动重载场景。",
+                editorIsPlaying && hasFailure ? HelpBoxMessageType.Error : HelpBoxMessageType.Warning));
+
+            foreach (MonoContextIssueAnalysis.Group group in groups)
             {
-                var host = issue.Host;
-                var snapshot = issue.Snapshot;
-                var rootCause = DeepestCause(snapshot.Failure);
-                string parent = snapshot.ResolvedParent == null
-                    ? "（无）"
-                    : snapshot.ResolvedParent is MonoGameContextBase monoParent && monoParent != null
-                        ? HierarchyPath(monoParent)
-                        : snapshot.ResolvedParent is GameContext gameParent
-                            ? DisplayName(gameParent)
-                            : snapshot.ResolvedParent.GetType().Name;
-                string cause = rootCause == null
-                    ? "尚未完成初始化；若持续存在，请检查对象激活与 Awake 时序。"
-                    : $"{rootCause.GetType().Name}: {rootCause.Message}";
+                MonoContextIssueAnalysis.Candidate origin = group.Origin;
+                string cause = MonoContextIssueAnalysis.CauseSummary(group.RootCause);
+                string originLabel = group.HasParentCycle
+                    ? "优先定位（父级链循环）"
+                    : group.IsTimingConcern ? "最上游未就绪" : "最先失败";
 
                 _monoIssuePanel.Add(new HelpBox(
-                    $"{HierarchyPath(host)}  [{snapshot.State}]\n父级：{parent}\n根因：{cause}",
-                    snapshot.State == MonoContextDiagnosticState.Failed
+                    $"{MonoContextIssueAnalysis.EvidenceLabel(editorIsPlaying)}\n" +
+                    $"{(group.IsTimingConcern ? "时序提醒" : "首要根因")}：{cause}\n" +
+                    $"{originLabel}：{origin.Path}  [{origin.Snapshot.State}]\n" +
+                    $"受影响：{group.Affected.Count} 个 Context",
+                    editorIsPlaying && group.RootCause != null
                         ? HelpBoxMessageType.Error
                         : HelpBoxMessageType.Warning));
 
@@ -1172,19 +1219,38 @@ namespace Game.Framework.Editor
                 {
                     style = { flexDirection = FlexDirection.Row, flexWrap = Wrap.Wrap, marginBottom = 2 },
                 };
-                actions.Add(new Button(() => PingSceneObject(host)) { text = "定位场景对象" });
-                if (snapshot.Failure != null)
+                actions.Add(new Button(() => PingSceneObject(origin.Host))
                 {
-                    string fullException = snapshot.Failure.ToString();
-                    actions.Add(new Button(() => EditorGUIUtility.systemCopyBuffer = fullException)
+                    text = group.HasParentCycle
+                        ? "定位循环链起点"
+                        : group.IsTimingConcern ? "定位最上游对象" : "定位最先失败对象",
+                });
+                string report = MonoContextIssueAnalysis.BuildCopyReport(group, editorIsPlaying);
+                actions.Add(new Button(() => EditorGUIUtility.systemCopyBuffer = report)
+                {
+                    text = "复制整组诊断",
+                });
+                _monoIssuePanel.Add(actions);
+
+                var affected = new Foldout
+                {
+                    text = $"受影响 Context（{group.Affected.Count}）",
+                    value = group.Affected.Count <= 3,
+                    style = { marginBottom = 4 },
+                };
+                foreach (MonoContextIssueAnalysis.Candidate candidate in group.Affected)
+                {
+                    affected.Add(new Label(
+                        $"• {candidate.Path}  [{candidate.Snapshot.State}]\n" +
+                        $"  父级：{MonoContextIssueAnalysis.DescribeParent(candidate.Snapshot.ResolvedParent)}")
                     {
-                        text = "复制完整异常",
+                        style = { whiteSpace = WhiteSpace.Normal, color = ColMuted, marginBottom = 2 },
                     });
                 }
-                _monoIssuePanel.Add(actions);
+                _monoIssuePanel.Add(affected);
             }
 
-            return issues.Count;
+            return (rootCauseCount, timingGroupCount, affectedCount);
         }
 
         /// <summary>
@@ -1193,14 +1259,7 @@ namespace Game.Framework.Editor
         /// Failed 保留跨模式可见，便于停止 Play 后继续复制异常和定位宿主。
         /// </summary>
         internal static bool ShouldReportMonoIssue(MonoGameContextBase host, bool editorIsPlaying)
-        {
-            if (host == null) return false;
-
-            var state = host.DiagnosticSnapshot.State;
-            if (state == MonoContextDiagnosticState.Failed) return true;
-            if (!editorIsPlaying || !host.gameObject.activeInHierarchy) return false;
-            return state is MonoContextDiagnosticState.Uninitialized or MonoContextDiagnosticState.Initializing;
-        }
+            => MonoContextIssueAnalysis.ShouldReport(host, editorIsPlaying);
 
         private void RefreshTree(IReadOnlyList<GameContext> contexts)
         {
@@ -1368,24 +1427,6 @@ namespace Game.Framework.Editor
             if (mono == null) return;
             EditorGUIUtility.PingObject(mono.gameObject);
             Selection.activeGameObject = mono.gameObject;
-        }
-
-        private static string HierarchyPath(MonoGameContextBase mono)
-        {
-            if (mono == null) return "（对象已销毁）";
-            var names = new List<string>();
-            for (var t = mono.transform; t != null; t = t.parent)
-                names.Add(t.name);
-            names.Reverse();
-            return string.Join("/", names);
-        }
-
-        private static Exception DeepestCause(Exception exception)
-        {
-            if (exception == null) return null;
-            while (exception.InnerException != null)
-                exception = exception.InnerException;
-            return exception;
         }
 
         private static string DisplayName(GameContext ctx)
