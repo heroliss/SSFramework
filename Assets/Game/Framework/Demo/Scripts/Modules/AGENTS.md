@@ -29,6 +29,13 @@
 - Concept 不为凑操作硬塞按钮，改用可点击源码链、对比表和明确验证路径。
 - 主干语义用一两句 `AddNote`；原因、坑和边界放 `AddSubNote`/`AddTip`。
 
+### 故意失败与副作用实验
+
+- 以观察 Warning/Error/Exception、数据破坏或共享副作用为目标的实验，在同一小节先调用 `AddExperimentNotice(impact, expectedEvidence, recovery)`，随后只用 `AddExperimentActionRow` / `AddExperimentAsyncActionRow`；Host 自动添加“教学实验 ·”前缀并验证提示卡顺序。普通 Save 等章节核心成功路径不伪装成负向实验。
+- `impact` 说清修改对象、作用域和是否跨 Play 保留；`expectedEvidence` 同时写就近 UI 结果与稳定的 Console 条数/级别；`recovery` 给出同区域内可执行、幂等的恢复动作或明确重进 Play。
+- 预期异常由章节本地捕获并显示，不交给 `DemoAsyncActionBinding` 兜底。Host 的 `DemoAction failed` 只代表章节遗漏处理的真实缺陷，不能被当成教学效果。
+- 不为统一样式引入“自动吞异常”的通用执行器：返回 null、日志证据、持久破坏和业务异常语义不同，Host 只统一信息结构，各 Module 保留真实控制流。
+
 每章整体回答：解决什么且位于哪层；最小行为如何产生可见结果；为什么这样设计及代价；何时用/不用、下一步去哪。不要求机械地一问一节。
 
 ## 文案与结构

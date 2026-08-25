@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Text.RegularExpressions;
 using Cysharp.Threading.Tasks;
 using Game.Framework.Context;
+using Game.Framework.Logging;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -137,6 +138,42 @@ namespace Game.Framework.Test
             LogAssert.Expect(LogType.Error, new Regex("Asset not found.*__NonExistentAsset__"));
             var handle = await _utility.Load<GameObject>("__NonExistentAsset__");
             Assert.IsNull(handle, "不存在的路径应返回 null");
+        }
+
+        /// <summary>
+        /// 未显式绑定的旧引用仍可从 Main 迁移回退，但必须留下所有权警告，并跟随 Main 取消信号；
+        /// 回退不会把引用登记进任何 Bag，调用方仍需自行 Dispose。
+        /// </summary>
+        [Test]
+        public void AssetReference_UnboundMainFallback_IsVisibleAndUsesMainLifetime()
+        {
+            if (!IsReferenceValid(_config.PrefabReference, "PrefabReference")) return;
+
+            var previousMain = GameContext.Main;
+            var previousMinLevel = Log.MinLevel;
+            try
+            {
+                Log.MinLevel = LogLevel.Warning;
+                _config.PrefabReference.Unload();
+                _config.PrefabReference.Bind(null, default);
+                GameContext.Main = _context.RawContext;
+
+                LogAssert.Expect(LogType.Warning,
+                    new Regex(@"\[AssetReference\] Using GameContext\.Main fallback.*must be disposed manually"));
+                var resolved = _config.PrefabReference.ResolveUtility();
+
+                Assert.AreSame(_utility, resolved);
+                Assert.IsTrue(_config.PrefabReference.IsBound,
+                    "首次回退后应缓存 utility，避免每次 Get 重复解析和重复警告。");
+                Assert.AreEqual(_context.CancellationToken, _config.PrefabReference.HostToken,
+                    "旧用法至少应跟随 Main 生命周期取消等待，但这不等于被 Bag 托管。");
+            }
+            finally
+            {
+                _config.PrefabReference.Bind(_utility, default);
+                GameContext.Main = previousMain;
+                Log.MinLevel = previousMinLevel;
+            }
         }
 
         // ── AssetReference 缓存测试 ───────────────────────────────────

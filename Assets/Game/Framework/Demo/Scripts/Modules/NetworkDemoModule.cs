@@ -86,9 +86,13 @@ namespace Game.Framework.Demo.Modules
             serverLabel.style.whiteSpace = WhiteSpace.Normal;
             void RefreshServer() => serverLabel.text = server.IsRunning
                 ? $"运行中 ✓  HTTP={server.HttpBaseUrl}  WS={server.WsUrl}"
-                : "已停止 ✗（下面任何请求 / 连接都会得到 ConnectionError）";
+                : "已停止 ✗（本次 Play 不可重启；下面请求 / 连接会失败，重新进入 Play 恢复）";
             RefreshServer();
-            host.AddActionRow("停止服务器（演示连接失败）", () =>
+            host.AddExperimentNotice(
+                "停止 Demo 内嵌 HTTP/WS 服务器，并断开已有连接；只影响本地 Demo，但本次 Play 内不可重启。",
+                "后续请求会得到 ConnectionError（拦截式代理也可能返回 HttpError 502），WS 订阅者会收到非主动关闭事件。",
+                "重新进入 Play 恢复服务器；停止前请先完成成功路径实验。");
+            host.AddExperimentActionRow("停止服务器（本次 Play 不可恢复）", () =>
             {
                 server.Stop();
                 RefreshServer();

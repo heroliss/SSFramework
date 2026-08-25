@@ -99,6 +99,8 @@ Unity 交互式 Editor 还有一类更适合“项目内代码门禁”的固定
 
 同一原则也用于框架 Editor 工具反馈：普通成功、失败、缺配置和 PlayMode 拦截通过 `FrameworkEditorFeedback` 输出稳定的 `[SSFramework.Tool][状态]` Console 记录与短暂通知，不用模态结果弹窗。完整详情留在 Console，失败使用 Error、提醒使用 Warning，Agent 可据此可靠判定结果；只有清缓存、停止 Play 后切场景、保存脏场景这类真实选择保留确认。源码门禁会扫描当前实际存在的框架模块，并只允许经过审查的确认框白名单，因此物理裁剪可选模块不会破坏测试。
 
+Demo 中的故意失败采用另一条可读契约：动作前用 Experiment Notice 明确“影响范围 / 预期证据 / 恢复方式”，随后由 Experiment Action 生成带“教学实验 ·”前缀的机器可读按钮；换到下一小节后不能借用旧提示卡。结果就近解释稳定的 Console 条数与级别。预期异常由章节本地精确捕获；若出现 Host 的 `DemoAction failed`，应视为 Demo 实现遗漏，而不是实验成功。这样人工操作、截图复查和 AI 日志解析能共享同一判定标准。
+
 分钟级 Module 体积矩阵采用同一原则：项目内 `SSFramework/诊断/真实构建体积证据` 把隔离工程、最小依赖、Unity 子进程、BuildReport 解析和 Domain Reload 恢复集中在 `Game.Framework.Editor`，Claude / Codex 不各写一套临时脚本。Agent 只选择组合并观察 `Library/SSFramework/BuildSizeProbe/<run>/report.json`；主 Unity 重载后按落盘 PID 自动重新附着，避免工具调用超时后盲目重跑。证据口径和刻意不做见 ADR-0038，操作要点见 `docs/unity-mcp-tips.md` §12。
 
 ### Subagents

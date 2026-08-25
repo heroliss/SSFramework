@@ -115,6 +115,28 @@
     max-width: 960px;
 }
 
+/* 窄屏不再硬挤“238px 左栏 + 正文”：导航移到上方成为有限高度的可滚动目录，正文拿回整行宽度。 */
+.demo-root--narrow .demo-body {
+    flex-direction: column;
+}
+
+.demo-root--narrow .demo-nav {
+    width: auto;
+    height: 168px;
+    flex-shrink: 0;
+    border-right-width: 0;
+    border-bottom-width: 1px;
+    border-bottom-color: rgb(44, 47, 55);
+}
+
+.demo-root--narrow .demo-content {
+    padding: 18px 14px;
+}
+
+.demo-root--narrow .demo-app-title {
+    padding-left: 14px;
+}
+
 /* 章节底部的线性学习导航：入门/核心提示顺读，能力/进阶保留自由挑选。 */
 .demo-chapter-navigation {
     max-width: 960px;
@@ -172,6 +194,8 @@
     padding-bottom: 5px;
     border-bottom-width: 1px;
     border-bottom-color: rgb(44, 47, 55);
+    white-space: normal;
+    flex-shrink: 1;
 }
 
 .demo-note {
@@ -280,6 +304,87 @@
     white-space: normal;
 }
 
+/* 教学实验：任何故意失败或有副作用的动作，都先给出影响、证据与恢复闭环。 */
+.demo-experiment {
+    margin-top: 9px;
+    margin-bottom: 10px;
+    padding: 10px 13px;
+    background-color: rgba(116, 78, 26, 0.20);
+    border-width: 1px;
+    border-color: rgba(220, 170, 70, 0.42);
+    border-left-width: 3px;
+    border-left-color: rgb(220, 170, 70);
+    border-radius: 6px;
+}
+
+.demo-experiment-title-row {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-bottom: 5px;
+}
+
+.demo-experiment-title {
+    flex-grow: 1;
+    flex-shrink: 1;
+    white-space: normal;
+    color: rgb(245, 205, 130);
+    -unity-font-style: bold;
+    font-size: 13px;
+}
+
+.demo-experiment-row {
+    flex-direction: row;
+    align-items: flex-start;
+    margin-top: 3px;
+}
+
+.demo-experiment-term {
+    width: 76px;
+    min-width: 76px;
+    flex-shrink: 0;
+    white-space: normal;
+    color: rgb(230, 185, 105);
+    -unity-font-style: bold;
+    font-size: 12px;
+}
+
+.demo-experiment-desc {
+    flex-grow: 1;
+    flex-shrink: 1;
+    white-space: normal;
+    color: rgb(208, 202, 190);
+    font-size: 12px;
+}
+
+/* 极窄正文里术语与解释上下排，避免固定术语列把说明压成逐字换行。 */
+.demo-root--narrow .demo-experiment-row {
+    flex-direction: column;
+}
+
+.demo-root--narrow .demo-experiment-term {
+    width: auto;
+    min-width: 0;
+    margin-bottom: 1px;
+}
+
+.demo-root--narrow .demo-chapter-navigation {
+    flex-direction: column;
+    align-items: stretch;
+}
+
+.demo-root--narrow .demo-chapter-navigation-button {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+}
+
+.demo-root--narrow .demo-chapter-navigation-hint {
+    width: auto;
+    margin-top: 6px;
+    margin-bottom: 6px;
+}
+
 .demo-value {
     font-size: 18px;
     -unity-font-style: bold;
@@ -370,12 +475,52 @@
     transition-duration: 0.08s;
 }
 
+.demo-root--narrow .demo-btn {
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+    min-height: 33px;
+    padding: 7px 12px;
+    white-space: normal;
+}
+
+.demo-root--narrow .demo-action-row {
+    align-items: stretch;
+}
+
+.demo-root--narrow .demo-pool-demo-row {
+    flex-direction: column;
+}
+
+.demo-root--narrow .demo-pool-controls {
+    width: auto;
+    margin-right: 0;
+}
+
+.demo-root--narrow .demo-pool-anchor {
+    width: 100%;
+}
+
 .demo-btn:hover {
     background-color: rgb(37, 99, 235);
 }
 
 .demo-btn:active {
     background-color: rgb(29, 78, 216);
+}
+
+.demo-btn--experiment {
+    background-color: rgb(156, 104, 38);
+    border-width: 1px;
+    border-color: rgb(220, 170, 70);
+}
+
+.demo-btn--experiment:hover {
+    background-color: rgb(178, 120, 44);
+}
+
+.demo-btn--experiment:active {
+    background-color: rgb(128, 82, 31);
 }
 
 /* 源码跳转：低调的次级按钮，紧挨动作按钮 */

@@ -5,6 +5,7 @@ using System.Threading;
 using Cysharp.Threading.Tasks;
 using Game.Framework.Context;
 using Game.Framework.Internal;
+using Game.Framework.Logging;
 using UnityEngine;
 
 namespace Game.Framework
@@ -12,7 +13,8 @@ namespace Game.Framework
     /// <summary>
     /// Inspector 可拖拽的资源引用基类。
     /// GUID 只作为序列化定位信息保存，实际加载委托给 <see cref="IAssetUtility"/>。
-    /// 自己持有一份 <see cref="IAssetHandle{T}"/>，跟随宿主生命周期由 bag 统一 Dispose。
+    /// 自己持有一份 <see cref="IAssetHandle{T}"/>。经 Mono 自动绑定或 <c>Bag.BindAssetReferences</c> 绑定时由宿主 bag
+    /// 统一 Dispose；仅靠旧版 <c>GameContext.Main</c> 回退时没有宿主所有权，调用方必须手动 Dispose。
     /// </summary>
     [Serializable]
     public abstract class AssetReferenceBase : IAssetReferenceBindable
@@ -58,12 +60,18 @@ namespace Game.Framework
 
         private IAssetUtility ResolveFallbackUtility()
         {
-            // 兜底只服务于脱离 MonoXxxBase 的旧用法；正常路径应在 Awake 自动绑定加载器。
+            // 兜底只服务于脱离 MonoXxxBase 的旧用法。它只能补上“从哪里加载”，不能替调用方建立生命周期所有权；
+            // 因此成功回退也必须留下可见证据，避免一个看似能用的引用悄悄游离在宿主 Bag 之外。
             if (GameContext.Main != null &&
                 GameContext.Main.TryResolve(typeof(IAssetUtility), out var utility) &&
                 utility is IAssetUtility assetUtility)
             {
                 BoundUtility = assetUtility;
+                HostToken = GameContext.Main.CancellationToken;
+                Log.Warning(
+                    "Using GameContext.Main fallback because this reference was not explicitly bound. " +
+                    "The reference owns its handle and must be disposed manually. Prefer Mono automatic binding or Bag.BindAssetReferences().",
+                    "AssetReference");
                 return assetUtility;
             }
 

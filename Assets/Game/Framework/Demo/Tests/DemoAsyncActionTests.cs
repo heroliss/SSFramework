@@ -66,31 +66,28 @@ namespace Game.Framework.Demo.Tests
                     forbiddenAsyncVoid.IsMatch(codeOnly),
                     $"{Path.GetFileName(path)} 含 async void；Demo 异步入口必须返回 UniTask 并交给 Host 观察。");
 
-                foreach (Match match in Regex.Matches(codeOnly, @"\bAddActionRow\s*\("))
+                foreach (Match match in Regex.Matches(codeOnly, @"\b(?:AddActionRow|AddExperimentActionRow)\s*\("))
                 {
                     int openParen = codeOnly.IndexOf('(', match.Index);
                     int closeParen = FindMatchingParenthesis(codeOnly, openParen);
                     Assert.Greater(closeParen, openParen,
-                        $"{Path.GetFileName(path)} 的 AddActionRow 调用括号未闭合，无法完成异步门禁检查。");
+                        $"{Path.GetFileName(path)} 的同步动作调用括号未闭合，无法完成异步门禁检查。");
                     string invocation = codeOnly.Substring(openParen, closeParen - openParen + 1);
                     Assert.IsFalse(
                         Regex.IsMatch(invocation, @"\basync\b|\.Forget\s*\(|\bUniTaskVoid\b"),
-                        $"{Path.GetFileName(path)} 把异步工作藏进 AddActionRow；请改用 AddAsyncActionRow 并透传章节令牌。");
+                        $"{Path.GetFileName(path)} 把异步工作藏进同步动作入口；请改用对应 Add*AsyncActionRow 并透传章节令牌。");
                 }
 
-                asyncActionRows += Regex.Matches(codeOnly, @"\bAddAsyncActionRow\s*\(").Count;
+                asyncActionRows += Regex.Matches(
+                    codeOnly,
+                    @"\b(?:AddAsyncActionRow|AddExperimentAsyncActionRow)\s*\(").Count;
             }
 
-            Assert.AreEqual(58, asyncActionRows,
-                "异步按钮增删时同步审查：必须全部走 AddAsyncActionRow，不能藏回 AddActionRow + Forget/void 包装。 ");
+            Assert.AreEqual(61, asyncActionRows,
+                "异步按钮增删时同步审查：必须全部走普通或教学实验的异步入口，不能藏回同步 Action + Forget/void 包装。 ");
 
-            AssertAsyncOverloadGuard(typeof(UniTask));
-            AssertAsyncOverloadGuard(typeof(UniTaskVoid));
-            AssertAsyncOverloadGuard(typeof(System.Threading.Tasks.Task));
-            AssertAsyncOverloadGuard(typeof(System.Threading.Tasks.ValueTask));
-            AssertGenericAsyncOverloadGuard(typeof(UniTask<>));
-            AssertGenericAsyncOverloadGuard(typeof(System.Threading.Tasks.Task<>));
-            AssertGenericAsyncOverloadGuard(typeof(System.Threading.Tasks.ValueTask<>));
+            AssertActionOverloadGuards(nameof(DemoModuleHost.AddActionRow));
+            AssertActionOverloadGuards(nameof(DemoModuleHost.AddExperimentActionRow));
 
             string shellSource = File.ReadAllText(Path.Combine(
                 Application.dataPath,
@@ -144,12 +141,23 @@ namespace Game.Framework.Demo.Tests
             Assert.IsFalse(gate.IsStatic);
         }
 
-        private static void AssertAsyncOverloadGuard(Type asyncReturnType)
+        private static void AssertActionOverloadGuards(string methodName)
+        {
+            AssertAsyncOverloadGuard(methodName, typeof(UniTask));
+            AssertAsyncOverloadGuard(methodName, typeof(UniTaskVoid));
+            AssertAsyncOverloadGuard(methodName, typeof(System.Threading.Tasks.Task));
+            AssertAsyncOverloadGuard(methodName, typeof(System.Threading.Tasks.ValueTask));
+            AssertGenericAsyncOverloadGuard(methodName, typeof(UniTask<>));
+            AssertGenericAsyncOverloadGuard(methodName, typeof(System.Threading.Tasks.Task<>));
+            AssertGenericAsyncOverloadGuard(methodName, typeof(System.Threading.Tasks.ValueTask<>));
+        }
+
+        private static void AssertAsyncOverloadGuard(string methodName, Type asyncReturnType)
         {
             MethodInfo guarded = null;
             foreach (MethodInfo method in typeof(DemoModuleHost).GetMethods(BindingFlags.Instance | BindingFlags.Public))
             {
-                if (method.Name != nameof(DemoModuleHost.AddActionRow)) continue;
+                if (method.Name != methodName) continue;
                 ParameterInfo[] parameters = method.GetParameters();
                 if (parameters.Length < 2 || !parameters[1].ParameterType.IsGenericType) continue;
                 if (parameters[1].ParameterType.GetGenericTypeDefinition() != typeof(Func<>)) continue;
@@ -160,18 +168,18 @@ namespace Game.Framework.Demo.Tests
                 }
             }
 
-            Assert.IsNotNull(guarded, $"AddActionRow 缺少 {asyncReturnType.Name} 误用的编译期护栏重载。 ");
+            Assert.IsNotNull(guarded, $"{methodName} 缺少 {asyncReturnType.Name} 误用的编译期护栏重载。 ");
             var obsolete = guarded.GetCustomAttribute<ObsoleteAttribute>();
             Assert.IsNotNull(obsolete);
             Assert.IsTrue(obsolete.IsError, $"{asyncReturnType.Name} 护栏必须是编译错误，不能只是可忽略的 warning。 ");
         }
 
-        private static void AssertGenericAsyncOverloadGuard(Type asyncReturnTypeDefinition)
+        private static void AssertGenericAsyncOverloadGuard(string methodName, Type asyncReturnTypeDefinition)
         {
             MethodInfo guarded = null;
             foreach (MethodInfo method in typeof(DemoModuleHost).GetMethods(BindingFlags.Instance | BindingFlags.Public))
             {
-                if (method.Name != nameof(DemoModuleHost.AddActionRow) || !method.IsGenericMethodDefinition) continue;
+                if (method.Name != methodName || !method.IsGenericMethodDefinition) continue;
                 ParameterInfo[] parameters = method.GetParameters();
                 if (parameters.Length < 2 || !parameters[1].ParameterType.IsGenericType) continue;
                 if (parameters[1].ParameterType.GetGenericTypeDefinition() != typeof(Func<>)) continue;
@@ -185,7 +193,7 @@ namespace Game.Framework.Demo.Tests
             }
 
             Assert.IsNotNull(guarded,
-                $"AddActionRow 缺少 {asyncReturnTypeDefinition.Name} 误用的编译期护栏重载。 ");
+                $"{methodName} 缺少 {asyncReturnTypeDefinition.Name} 误用的编译期护栏重载。 ");
             var obsolete = guarded.GetCustomAttribute<ObsoleteAttribute>();
             Assert.IsNotNull(obsolete);
             Assert.IsTrue(obsolete.IsError,

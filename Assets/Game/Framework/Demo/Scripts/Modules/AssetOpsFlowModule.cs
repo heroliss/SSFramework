@@ -39,6 +39,12 @@ namespace Game.Framework.Demo.Modules
         {
             var asset = this.GetUtility<IAssetUtility>();
             var settingsModel = UnityEngine.Object.FindFirstObjectByType<AssetSystemConfigModel>();
+#if UNITY_EDITOR
+            // 模拟断网属于共享 AssetUtility 的进程级调试状态。本章只借用它做实验，离章必须归还进入前的值，
+            // 否则用户在这里开过断网后，后续资源章节会表现成无缘无故的网络故障。
+            var previousSimulateOffline = asset.SimulateOffline.CurrentValue;
+            Bag.Add(Disposable.Create(() => asset.SetSimulateOffline(previousSimulateOffline)));
+#endif
 
             // 异步按钮收到 DemoModuleHost 的章节生命周期令牌：切走本章 / UIDocument 重建时取消进行中的流程。
             // 真实项目里同一令牌通常来自启动器 View 或 Context——样板方法只管逐层透传。
@@ -152,7 +158,11 @@ namespace Game.Framework.Demo.Modules
             // ── 修复客户端：清空缓存全量重下 ──
             host.AddSectionTitle("修复客户端：清空缓存 → 重跑流程（= 设置页「修复资源」按钮）");
             var repairLabel = host.AddValueDisplay();
-            host.AddAsyncActionRow("清空全部包的下载缓存（ClearCache All）", async ct =>
+            host.AddExperimentNotice(
+                "删除所有已 Ready 包的本地下载 bundle 缓存；这是跨 Play 持久化副作用，Host/Web 下会让对应内容重新变成待下载。",
+                "结果区显示实际清理的包数；EditorSimulate/Offline 没有下载缓存，因此可能是安全的 no-op。",
+                "随后重跑上方启动更新流程即可重新下载；正常更新只清 Unused，只有修复损坏或显式重置才用 All。");
+            host.AddExperimentAsyncActionRow("清空全部包的下载缓存（ClearCache All）", async ct =>
             {
                 if (!_operationGate.TryEnter(out var lease)) { repairLabel.text = "另一项资源操作进行中，稍候。"; return; }
                 using (lease)
@@ -178,13 +188,17 @@ namespace Game.Framework.Demo.Modules
 #if UNITY_EDITOR
             // ── 失败路径（仅 Editor）：断网下跑流程 ──
             host.AddSectionTitle("失败路径：断网下跑流程（仅 Editor 模拟）");
+            host.AddExperimentNotice(
+                "修改共享 AssetUtility 的 Editor 模拟断网开关，会影响本次 Play 的所有资源请求；已 Ready 的包不会回退。",
+                "按钮文字与共享状态同步；只有之后新发起的 Host/Web 请求会被拦截，可用上方流程观察检查或下载失败。",
+                "再次点击可手动还原；切离本章时也会自动恢复进入本章前的值。");
             Button offlineBtn = null;
-            offlineBtn = host.AddActionRow("", () =>
+            offlineBtn = host.AddExperimentActionRow("模拟断网", () =>
                 asset.SetSimulateOffline(!asset.SimulateOffline.CurrentValue),
-                CodeRef.Here("asset.SetSimulateOffline", "切换模拟断网"));
+                CodeRef.Here("asset.SetSimulateOffline(!asset.SimulateOffline", "切换模拟断网"));
             Bag.Subscribe(asset.SimulateOffline, on =>
-                offlineBtn.text = $"模拟断网：{(on ? "开" : "关")}（点击切换，仅 Host/Web 生效）");
-            host.AddSubNote("组合复现两条失败路径（Host 模式）：**检查失败**——进 Play 前就开断网（AssetUtility Inspector 勾选），流程第①步 `Initialize` 失败、整体报「检查网络后重试」；**下载失败**——先「清空全部包缓存」再开断网、跑流程：检查一步过（清单已在本地），下载一步三次重试全失败后报错。关掉断网再跑一遍即恢复——就是玩家「修好网络点重试」的体验。");
+                offlineBtn.text = $"教学实验 · 模拟断网：{(on ? "开" : "关")}（点击切换，仅 Host/Web 生效）");
+            host.AddSubNote("组合复现两条失败路径（Host 模式）：**检查失败**——进 Play 前就开断网（AssetUtility Inspector 勾选），流程第①步 `Initialize` 失败、整体报「检查网络后重试」；**下载失败**——先「清空全部包缓存」再开断网、跑流程：检查一步过（清单已在本地），下载一步三次重试全失败后报错。关掉断网再跑一遍即恢复；直接切离本章也会归还进入前的断网状态——就是玩家「修好网络点重试」的体验。");
 #endif
 
             // ── 更新策略全景 ──

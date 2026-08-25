@@ -24,6 +24,9 @@ namespace Game.Framework.Demo.Core
     [RequireComponent(typeof(UIDocument))]
     public sealed class DemoShellController : MonoBehaviour
     {
+        // 小于这个宽度时，固定左栏会吞掉大部分正文空间；切成“上导航、下正文”比继续压缩两列更可读。
+        private const float NarrowLayoutWidth = 720f;
+
         [SerializeField] private UIDocument _document;
         [Tooltip("整体样式表 DemoTheme.uss。")]
         [SerializeField] private StyleSheet _theme;
@@ -66,6 +69,8 @@ namespace Game.Framework.Demo.Core
 
         private void OnDestroy()
         {
+            var root = _document != null ? _document.rootVisualElement : null;
+            root?.UnregisterCallback<GeometryChangedEvent>(OnRootGeometryChanged);
             ReleaseCurrentModule();
             // 不 Dispose _context：它由 MonoDemoContext（MonoGameContextBase）的生命周期负责释放。
         }
@@ -117,6 +122,9 @@ namespace Game.Framework.Demo.Core
             root.Clear();
             if (_theme != null) root.styleSheets.Add(_theme);
             root.AddToClassList("demo-root");
+            root.UnregisterCallback<GeometryChangedEvent>(OnRootGeometryChanged);
+            root.RegisterCallback<GeometryChangedEvent>(OnRootGeometryChanged);
+            ApplyResponsiveLayout(root.resolvedStyle.width);
 
             var titleBar = new Label("SSFramework · 框架功能演示");
             titleBar.AddToClassList("demo-app-title");
@@ -176,6 +184,15 @@ namespace Game.Framework.Demo.Core
             chapterNavigation.Add(_nextChapterButton);
 
             BuildNav();
+        }
+
+        private void OnRootGeometryChanged(GeometryChangedEvent evt) => ApplyResponsiveLayout(evt.newRect.width);
+
+        private void ApplyResponsiveLayout(float width)
+        {
+            var root = _document != null ? _document.rootVisualElement : null;
+            if (root == null || float.IsNaN(width) || width <= 0f) return;
+            root.EnableInClassList("demo-root--narrow", width < NarrowLayoutWidth);
         }
 
         private void BuildNav()
