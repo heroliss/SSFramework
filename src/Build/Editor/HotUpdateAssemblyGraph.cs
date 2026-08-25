@@ -19,7 +19,7 @@ namespace Game.Framework.Build
     ///
     /// 图取自 <see cref="CompilationPipeline.GetAssemblies(AssembliesType)"/> 的 <b>Player</b> 视图：
     /// 编辑器专用与测试程序集天然不在内（不进玩家包，怎么引用都不受热更约束）；
-    /// 预编译 DLL（Odin / R3 核心等）没有 asmdef、不在图中——它们也进不了热更列表，无需校验。
+    /// 预编译 DLL（序列化器 / R3 核心等）没有 asmdef、不在图中——它们也进不了热更列表，无需校验。
     /// </summary>
     internal static class HotUpdateAssemblyGraph
     {

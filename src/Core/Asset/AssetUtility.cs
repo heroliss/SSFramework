@@ -4,7 +4,6 @@ using System.Threading;
 using Cysharp.Threading.Tasks;
 using Game.Framework.Utility;
 using R3;
-using Sirenix.OdinInspector;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
@@ -52,45 +51,35 @@ namespace Game.Framework
         public AssetPlayMode CurrentPlayMode { get; private set; } = AssetPlayMode.EditorSimulate;
         public ReadOnlyReactiveProperty<AssetInitState> InitState => GetState(_defaultPackageName).State;
 
-        // ── 运行时诊断（只读，仅 Play 模式显示）──
-        // 摆出来的是 utility 自己的运行时状态，不是配置（配置真源在 AssetSystemConfigModel，规则 #19，故这里不回显 CDN 等 Model 字段，
-        // 只显示 utility 解析/初始化的实际结果）。排查初始化失败 / 502 / 端口不一致时直接看「各包状态」。
-        // Build 下无 Inspector，getter 不会被调用，零运行时成本。沿用 MonoLayerBase.ResolvedContext 的同一套 Odin 只读展示约定。
-        [FoldoutGroup(DiagGroup), ShowInInspector, ReadOnly, HideInEditorMode, LabelText("运行模式"), PropertyOrder(-90)]
-        [PropertyTooltip("当前生效的资源运行模式（首次初始化时由 AssetInitSystem 写入）。")]
-        private AssetPlayMode InspectorPlayMode => CurrentPlayMode;
-
-        [FoldoutGroup(DiagGroup), ShowInInspector, ReadOnly, HideInEditorMode, LabelText("默认包"), PropertyOrder(-89)]
-        [PropertyTooltip("utility 解析出的默认资源包名。真源是 AssetSystemConfigModel.DefaultPackageName，经 Configure 写入；此处仅只读回看。")]
-        private string InspectorDefaultPackage => _defaultPackageName;
-
-        [FoldoutGroup(DiagGroup), ShowInInspector, ReadOnly, HideInEditorMode, LabelText("各包初始化状态"), PropertyOrder(-88)]
-        [PropertyTooltip("每个已登记包的初始化状态（Idle / Pending / Initializing / Ready / Failed）。Ready 附当前资源版本、Failed 附简短原因——排查初始化失败 / 确认版本切换先看这里。")]
-        private Dictionary<string, string> InspectorPackageStates
+#if UNITY_EDITOR
+        /// <summary>原生 Inspector 的只读运行时快照；不参与资源状态机。</summary>
+        internal IEnumerable<string> EditorDiagnostics
         {
             get
             {
-                var view = new Dictionary<string, string>(_packages.Count);
-                foreach (var kv in _packages)
+                yield return $"运行模式：{CurrentPlayMode}";
+                yield return $"默认包：{(string.IsNullOrEmpty(_defaultPackageName) ? "（无）" : _defaultPackageName)}";
+                foreach (var pair in _packages)
                 {
-                    var st = kv.Value.State.Value;
-                    view[kv.Key] = st switch
+                    AssetInitState state = pair.Value.State.Value;
+                    string detail = state switch
                     {
-                        AssetInitState.Failed when kv.Value.Attempt.Error != null => $"{st} — {kv.Value.Attempt.Error.Message}",
-                        AssetInitState.Ready => $"{st} — 版本 {GetPackageVersion(kv.Key) ?? "?"}",
-                        _ => st.ToString(),
+                        AssetInitState.Failed when pair.Value.Attempt.Error != null => pair.Value.Attempt.Error.Message,
+                        AssetInitState.Ready => $"版本 {GetPackageVersion(pair.Key) ?? "?"}",
+                        _ => string.Empty,
                     };
+                    yield return string.IsNullOrEmpty(detail)
+                        ? $"{pair.Key}：{state}"
+                        : $"{pair.Key}：{state} — {detail}";
                 }
-                return view;
             }
         }
 
-#if UNITY_EDITOR
         // 编辑器「模拟断网」开关：开启后 provider 的远端请求走不可达地址，使远端拉取（初始化 / 下载 / 需下载的 Load）失败。
         // 序列化且置于诊断折叠组外——它是可在进入 Play 前设置的「控制开关」而非「只读诊断」：已 Ready 的包不会因开关回退，
         // 故只有在包初始化前开启才能让其初始化失败。用 RP<bool> 让 Inspector 与订阅方实时同步。
-        [SerializeField, LabelText("模拟断网（仅 Host/Web）"), PropertyOrder(-100)]
-        [PropertyTooltip("开启 = 远端请求走不可达地址，远端拉取失败。仅编辑器 / 仅远端模式有意义；进 Play 前开启才能让初始化失败，已 Ready 的包不受影响。")]
+        [SerializeField]
+        [Tooltip("开启 = 远端请求走不可达地址，远端拉取失败。仅编辑器 / 仅远端模式有意义；进 Play 前开启才能让初始化失败，已 Ready 的包不受影响。")]
         private RP<bool> _simulateOffline = new(false);
 
         ReadOnlyReactiveProperty<bool> IAssetUtility.SimulateOffline => _simulateOffline;

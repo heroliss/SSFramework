@@ -11,8 +11,6 @@ using Game.Framework.Internal;
 using Game.Framework.Model;
 using Game.Framework.Systems;
 using R3;
-using Sirenix.OdinInspector;
-using Sirenix.Serialization;
 using UnityEngine;
 using DisposableBag = Game.Framework.DisposableBag; // 与 R3.DisposableBag 同名，显式指向框架版
 
@@ -20,8 +18,8 @@ namespace Game.Framework.Diagnostics
 {
     /// <summary>
     /// 框架真机自检：把框架最依赖反射 / 跨 AOT 泛型的链路在当前构建下各跑一遍——DI 容器、<c>RP&lt;T&gt;</c> + R3
-    /// 订阅、struct Command 双泛型零装箱分发、class Command 注入、事件总线、UniTask 异步命令、Odin 对热更类型的
-    /// 序列化往返——逐项 ✓/✗ 落日志、屏显（OnGUI）并在 Inspector 可视化（Odin）。
+    /// 订阅、struct Command 双泛型零装箱分发、class Command 注入、事件总线与 UniTask 异步命令——
+    /// 逐项 ✓/✗ 落日志、屏显并在原生 Inspector 可视化。
     ///
     /// <para>定位：**可选的诊断组件**，不是启动必需。接入 IL2CPP / 热更链路时挂上它做一次性冒烟（验证框架基元
     /// 在当前执行模式下端到端可用，ADR-0008 §6 的验证重点）；上线前把组件移除即可。自检用到的最小层 / 命令都是
@@ -39,24 +37,17 @@ namespace Game.Framework.Diagnostics
         private GameContext _ctx;
         private DisposableBag _bag;
 
-        // ───────────── Inspector 可视化（Odin，运行时实时值；编辑器旁路下进 Play 即可见） ─────────────
+        internal string KernelAssembly => typeof(GameContext).Assembly.GetName().Name;
 
-        [ShowInInspector, ReadOnly, LabelText("框架内核程序集"), PropertyOrder(0)]
-        private string KernelAssembly => typeof(GameContext).Assembly.GetName().Name;
+        internal string Environment => $"{Application.platform}{(Application.isEditor ? "（编辑器旁路）" : "")}";
 
-        [ShowInInspector, ReadOnly, LabelText("运行环境"), PropertyOrder(1)]
-        private string Environment => $"{Application.platform}{(Application.isEditor ? "（编辑器旁路）" : "")}";
+        internal bool AllOk => _results.Count > 0 && !_results.Exists(r => r.StartsWith("✗", StringComparison.Ordinal));
 
-        [ShowInInspector, ReadOnly, LabelText("全部通过"), PropertyOrder(2)]
-        private bool AllOk => _results.Count > 0 && !_results.Exists(r => r.StartsWith("✗", StringComparison.Ordinal));
-
-        [ShowInInspector, ReadOnly, LabelText("逐项结果"), PropertyOrder(3)]
-        private IReadOnlyList<string> Results => _results;
+        internal IReadOnlyList<string> Results => _results;
 
         private void Start() => Run();
 
         /// <summary>跑一遍全部自检（同步项立即出结果、异步项完成后追加）。可重复调用：每次先清理上一轮再重跑。</summary>
-        [Button("重新自检"), PropertyOrder(-1)]
         public void Run()
         {
             // 重跑前清掉上一轮（Inspector 按钮可能多次触发），避免 Context / 订阅泄漏。
@@ -114,15 +105,6 @@ namespace Game.Framework.Diagnostics
                 _bag.Subscribe<CountReachedEvent>(e => got = e.Value);
                 _ctx.SendEvent(new CountReachedEvent { Value = 7 });
                 if (got != 7) throw new Exception($"事件未送达（got {got}）");
-            });
-
-            Check("Odin 序列化热更类型往返", () =>
-            {
-                var src = new OdinPayload { Name = "hot", Table = new Dictionary<string, int> { ["a"] = 1, ["b"] = 2 } };
-                byte[] bytes = SerializationUtility.SerializeValue(src, DataFormat.Binary);
-                var dst = SerializationUtility.DeserializeValue<OdinPayload>(bytes, DataFormat.Binary);
-                if (dst == null || dst.Name != "hot" || dst.Table == null || dst.Table["b"] != 2)
-                    throw new Exception("往返后数据不一致");
             });
 
             RunAsyncChecks().Forget(ex =>
@@ -242,11 +224,5 @@ namespace Game.Framework.Diagnostics
             public int Value;
         }
 
-        /// <summary>Odin 序列化往返的载荷：验证 AOT 的 Sirenix.Serialization 对热更类型走反射 formatter。</summary>
-        private sealed class OdinPayload
-        {
-            public string Name;
-            public Dictionary<string, int> Table;
-        }
     }
 }

@@ -377,17 +377,12 @@ namespace Game.Framework.Editor
                 throw new IOException("隔离构建目录已经存在，拒绝覆盖：" + projectDirectory);
 
             Directory.CreateDirectory(Path.Combine(projectDirectory, "Assets", "Editor"));
-            Directory.CreateDirectory(Path.Combine(projectDirectory, "Assets", "Plugins", "Sirenix"));
             Directory.CreateDirectory(Path.Combine(projectDirectory, "Packages"));
             Directory.CreateDirectory(Path.Combine(projectDirectory, "ProjectSettings"));
 
             CopyDirectory(
                 FrameworkModuleSourceCatalog.Resolve("Packages/nuget-packages").PhysicalPath,
                 Path.Combine(projectDirectory, "Packages", "nuget-packages"),
-                _ => false);
-            CopyDirectory(
-                FullPath("Assets/Plugins/Sirenix/Assemblies"),
-                Path.Combine(projectDirectory, "Assets", "Plugins", "Sirenix", "Assemblies"),
                 _ => false);
 
             string templateSource = ResolveChildTemplate().PhysicalPath;

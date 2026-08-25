@@ -1,11 +1,12 @@
 using System;
+#if UNITY_EDITOR
 using System.Collections.Generic;
 using System.Text;
+#endif
 using Game.Framework.Common;
 using Game.Framework.Localization;
 using Game.Framework.Logging;
 using Game.Framework.Utility;
-using Sirenix.OdinInspector;
 using TMPro;
 using UnityEngine;
 using TextCoreFontAsset = UnityEngine.TextCore.Text.FontAsset;
@@ -39,10 +40,9 @@ namespace Game.Framework.Fonts
 
         private LocaleFontChain _chain;
 
-        // 运行时只读诊断：各主字体当前的 fallback 链（资产名按序），链条是否生效一眼可查。仅 Play 显示。
-        [FoldoutGroup(DiagGroup), ShowInInspector, ReadOnly, HideInEditorMode, LabelText("当前 fallback 链"), PropertyOrder(-90)]
-        [PropertyTooltip("各主字体资产上当前的 fallback 表（按查找顺序）。切语言后此处应出现该语言的补充字体与 OS 兜底字体。")]
-        private IReadOnlyList<string> InspectorChains
+#if UNITY_EDITOR
+        /// <summary>Editor Header 读取的当前 fallback 链；不进入 Player 编译结果。</summary>
+        internal IReadOnlyList<string> EditorDiagnostics
         {
             get
             {
@@ -54,6 +54,7 @@ namespace Game.Framework.Fonts
                 return lines;
             }
         }
+#endif
 
         private void Start()
         {
@@ -79,16 +80,19 @@ namespace Game.Framework.Fonts
             _chain = null;
         }
 
-        private static string FormatChain<T>(string prefix, string mainName, List<T> table) where T : UnityEngine.Object
+#if UNITY_EDITOR
+        private static string FormatChain<T>(string prefix, string mainName, List<T> table)
+            where T : UnityEngine.Object
         {
-            var sb = new StringBuilder(prefix).Append(mainName).Append(" → ");
-            if (table == null || table.Count == 0) return sb.Append("（空）").ToString();
+            var result = new StringBuilder(prefix).Append(mainName).Append(" → ");
+            if (table == null || table.Count == 0) return result.Append("（空）").ToString();
             for (int i = 0; i < table.Count; i++)
             {
-                if (i > 0) sb.Append(", ");
-                sb.Append(table[i] != null ? table[i].name : "null");
+                if (i > 0) result.Append(", ");
+                result.Append(table[i] != null ? table[i].name : "null");
             }
-            return sb.ToString();
+            return result.ToString();
         }
+#endif
     }
 }

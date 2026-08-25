@@ -11,7 +11,7 @@
 | [0003](0003-custom-di-container.md) | 自研精简 DI 容器 + 主线程独占契约 | Accepted |
 | [0004](0004-assembly-structure-and-rp-location.md) | 程序集结构与 `RP<T>` 归位 | Accepted |
 | [0005](0005-no-runtime-hot-swap-of-layers.md) | 运行时不热替换已注册层 | Accepted |
-| [0006](0006-odin-dependency.md) | Odin 硬依赖现状与未来解耦 | Accepted |
+| [0006](0006-odin-dependency.md) | 第一阶段接受 Odin 硬依赖 | Superseded by 0015 |
 | [0007](0007-custom-object-pool.md) | 自研对象池替代第三方库 | Accepted（MVP） |
 | [0008](0008-hybridclr-integration.md) | HybridCLR 热更：列表驱动机制 + Boot/内核/模块程序集分层 | Accepted |
 | [0009](0009-luban-integration.md) | Luban 配置表：构建期生成 + 运行期经资源系统加载 | Accepted |
@@ -20,7 +20,7 @@
 | [0012](0012-yooasset-3-migration.md) | YooAsset 3.0 迁移：先用官方兼容层 | Superseded by 0013 |
 | [0013](0013-yooasset-native-rewrite.md) | YooAsset 原生 3.0 重写：去兼容层 | Accepted |
 | [0014](0014-realtime-simulation-ownership.md) | 实时仿真 / 逐帧逻辑归 System（Update / R3 EveryUpdate），不走 Command | Accepted |
-| [0015](0015-odin-decoupling-assessment.md) | Odin 解耦的可行路径与改动面评估（精化 0006 方向） | Proposed · 最低优先级（长远可选） |
+| [0015](0015-odin-decoupling-assessment.md) | Unity 原生基线与 Odin 可选增强边界 | Accepted |
 | [0016](0016-ui-framework.md) | UI 框架：渲染后端无关的窗口/层级调度 + UGUI/UIToolkit 双 adapter | Accepted |
 | [0017](0017-dlc-code-hotupdate.md) | DLC 热更：单 CodePackage 承载代码 + 运行时按需加载 + 业务 RawFile 包统一构建 | Proposed · 待实现 |
 | [0018](0018-asset-encryption.md) | 资源加密：偏移内置为默认 + 代码接入位承载自定义，不内置 AES | Accepted |

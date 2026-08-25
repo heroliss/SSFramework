@@ -1,7 +1,6 @@
 using Cysharp.Threading.Tasks;
+using Game.Framework.Context;
 using Game.Framework.Internal;
-using Sirenix.OdinInspector;
-using Sirenix.Serialization;
 using UnityEngine;
 
 namespace Game.Framework.View
@@ -25,15 +24,15 @@ namespace Game.Framework.View
     /// </list>
     /// </remarks>
     [DefaultExecutionOrder(-100)]
-    public abstract class MonoViewBase : SerializedMonoBehaviour, IView, IHasGameContext
+    public abstract class MonoViewBase : MonoBehaviour, IView, IHasGameContext
     {
-        [OdinSerialize, ShowInInspector, LabelText("Target Context"), DisableInPlayMode]
+        [SerializeField]
+        [LockInPlayMode]
         [Tooltip(
             "显式指定要注入的 Context。\n" +
             "• 留空：自动查找 Transform 层级中最近的父级 MonoGameContextBase\n" +
-            "• 拖入 MonoGameContextBase：强制从指定场景 Context 执行 [Inject]\n" +
-            "• 代码赋值 IGameContext：支持纯 C# GameContext")]
-        private IGameContext _targetContext;
+            "• 拖入 MonoGameContextBase：强制从指定场景 Context 执行 [Inject]")]
+        private MonoGameContextBase _targetContext;
 
         private IGameContext _contextProvider;
         private DisposableBag _bag;
@@ -42,10 +41,6 @@ namespace Game.Framework.View
         // 只能用扩展方法（this.GetUtility<T>() / this.RegisterEvent<T>() 等），
         // 由 ICanXxx 权限接口约束 View 层能做什么。框架内部通过 IHasGameContext 拿到。
         IGameContext IHasGameContext.Context => _contextProvider;
-
-        [ShowInInspector, ReadOnly, HideInEditorMode, LabelText("Resolved Context"), PropertyOrder(-100)]
-        [PropertyTooltip("运行时实际生效的 Context（Target Context 为空时自动向上查找的结果）。")]
-        private IGameContext ResolvedContext => _contextProvider;
 
         /// <summary>
         /// View 生命周期容器——订阅（Observable、Framework Event、UnityEvent、C# delegate）、

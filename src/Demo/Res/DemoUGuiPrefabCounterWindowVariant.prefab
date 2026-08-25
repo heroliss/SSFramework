@@ -212,10 +212,6 @@ PrefabInstance:
       propertyPath: m_Name
       value: DemoUGuiPrefabCounterWindowVariant
       objectReference: {fileID: 0}
-    - target: {fileID: 1879519294045912774, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
-      propertyPath: serializationData.Prefab
-      value: 
-      objectReference: {fileID: 1879519294045912774, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
     - target: {fileID: 2213826928334022614, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}
       propertyPath: m_Pivot.x
       value: 0.5
@@ -590,18 +586,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1b50a35f1b49c4e4690f57718f358119, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Game.Framework.Demo::Game.Framework.Demo.Modules.DemoUGuiPrefabCounterWindowVariant
-  serializationData:
-    SerializedFormat: 2
-    SerializedBytes: 
-    ReferencedUnityObjects: []
-    SerializedBytesString: 
-    Prefab: {fileID: 0}
-    PrefabModificationsReferencedUnityObjects: []
-    PrefabModifications: []
-    SerializationNodes:
-    - Name: _targetContext
-      Entry: 6
-      Data: 
+  _targetContext: {fileID: 0}
 --- !u!224 &854747152350745835 stripped
 RectTransform:
   m_CorrespondingSourceObject: {fileID: 2275070145746501953, guid: 71e3a9e89655f3649aa76e58c0390a98, type: 3}

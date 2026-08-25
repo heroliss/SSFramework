@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using Game.Framework.Model;
-using Sirenix.OdinInspector;
 using UnityEngine;
 using UnityEngine.Serialization;
 
@@ -33,7 +32,9 @@ namespace Game.Framework
         [Tooltip("默认资源包：不带 packageName 的 Load(location) 等便捷重载用它。从上面包列表里选。\n" +
                  "留空 =（无默认包）：不带 packageName 的加载、以及未显式指定包的 AssetReference 都会报错——\n" +
                  "此时每个加载都要带 packageName，每个 AssetReference 都要用其字段右侧的包下拉显式选包。")]
-        [ValueDropdown(nameof(EditorPackageNames))]
+#if UNITY_EDITOR
+        [DefaultAssetPackageName]
+#endif
         [FormerlySerializedAs("PackageName")]
         [SerializeField] private string _defaultPackageName = DefaultPackage;
 
@@ -207,15 +208,6 @@ namespace Game.Framework
             return null;
         }
 
-        // Default Package 下拉项：首项是「无默认包」（值为空），其余是列表里各包名。仅编辑器期由 Odin 调用。
-        private IEnumerable<ValueDropdownItem> EditorPackageNames()
-        {
-            yield return new ValueDropdownItem("(无默认包 · Load 须带 packageName)", string.Empty);
-            if (_packages == null) yield break;
-            foreach (var package in _packages)
-                if (package != null && !string.IsNullOrWhiteSpace(package.Name))
-                    yield return new ValueDropdownItem(package.Name, package.Name);
-        }
     }
 
     /// <summary>
@@ -228,7 +220,7 @@ namespace Game.Framework
     {
         [Tooltip("资源包名称（须与构建收集器 AssetBundleCollector 里定义的包名一致）。可从下拉里选已定义的包名，也可手填。为空会被初始化流程忽略。")]
 #if UNITY_EDITOR
-        [ValueDropdown(nameof(EditorPackageNameOptions), AppendNextDrawer = true)]
+        [BuildAssetPackageName]
 #endif
         [SerializeField] private string _name;
 
@@ -268,8 +260,11 @@ namespace Game.Framework
         /// </summary>
         public static Func<IEnumerable<string>> EditorBuildPackageNamesProvider;
 
-        // _name 字段的下拉候选 = 构建收集器里定义的包名（钩子未注入 / 无包时为空列表，AppendNextDrawer 仍可手填）。
-        private static IEnumerable<string> EditorPackageNameOptions()
+        /// <summary>
+        /// 返回编辑器当前已知的构建包名。原生 PropertyDrawer 用它提供候选列表，同时保留自由输入，
+        /// 因此构建 Adapter 未安装或还没创建收集器时不会阻塞配置。
+        /// </summary>
+        internal static IEnumerable<string> EnumerateEditorPackageNames()
         {
             var provider = EditorBuildPackageNamesProvider;
             if (provider == null) yield break;
@@ -279,4 +274,12 @@ namespace Game.Framework
         }
 #endif
     }
+
+#if UNITY_EDITOR
+    /// <summary>标记“从同一资源配置的包列表选择默认包”的原生 Inspector 字段。</summary>
+    internal sealed class DefaultAssetPackageNameAttribute : PropertyAttribute { }
+
+    /// <summary>标记“可从构建收集器选择、也允许手填”的资源包名字段。</summary>
+    internal sealed class BuildAssetPackageNameAttribute : PropertyAttribute { }
+#endif
 }

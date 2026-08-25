@@ -1718,7 +1718,7 @@ Bag.Subscribe(
 > 只升级 `com.code-philosophy.hybridclr` UPM 包还不完整：本机 `HybridCLRData` 里的 libil2cpp Runtime 也必须经
 > `HybridCLR/Installer...` 更新到同版。框架构建入口会校验两者版本，不一致时在耗时生成/编译前停止。
 
-**迭代边界（真机实测）**：热更代码**新增跨 AOT 泛型用法**（如对热更类型做 Odin 序列化、新的 R3 订阅泛型、新的命令双泛型实例化）也**不需要**重跑 Generate / 重出安装包——SuperSet 补元数据 + 解释器兜底已覆盖（IL2CPP 真机自检 8/8 通过于「只重打代码包」前提下）。真正需要 Generate + 重出安装包的是 **AOT 集合本身的变化**：增删第三方库、调整热更列表档位、升级 Unity / HybridCLR。
+**迭代边界（真机实测）**：热更代码新增普通跨 AOT 泛型用法（如新的 R3 订阅泛型、新的命令双泛型实例化）在当前 SuperSet 补元数据 + 解释器兜底方案下通常不需要重跑 Generate / 重出安装包。真正需要 Generate + 重出安装包的是 **AOT 集合本身的变化**：增删第三方库、调整热更列表档位、升级 Unity / HybridCLR。历史 8/8 真机记录还验证了当时项目级 Odin 往返，但不能外推到任意第三方序列化器；其他 serializer 是否需要 formatter/AOT codegen/link 配置，以其官方 AOT 文档与目标平台真机测试为准。当前 Framework 原生自检不再把可选付费插件算作 Core 契约，详见 ADR-0015。
 
 ### 运行时：Boot 场景与入口约定
 

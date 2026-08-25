@@ -470,18 +470,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: a6130a2b3fb37ee4ba7a1bd9499ceec0, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Game.Framework.Demo::Game.Framework.Demo.Modules.UGuiDemoView
-  serializationData:
-    SerializedFormat: 2
-    SerializedBytes: 
-    ReferencedUnityObjects: []
-    SerializedBytesString: 
-    Prefab: {fileID: 0}
-    PrefabModificationsReferencedUnityObjects: []
-    PrefabModifications: []
-    SerializationNodes:
-    - Name: _targetContext
-      Entry: 6
-      Data: 
+  _targetContext: {fileID: 0}
   _scoreText: {fileID: 4322322501314356921}
   _addButton: {fileID: 7527406313680382053}
   _closeButton: {fileID: 5032844553946601687}

@@ -4,7 +4,7 @@
 
 ## 设计不变量
 
-1. `Game.Framework` 是运行时内核，只依赖通用异步/响应式/Inspector 基础库，不依赖具体资源、UI 后端、Protobuf 或业务程序集。
+1. `Game.Framework` 是运行时内核，只依赖通用异步/响应式基础库，不依赖付费 Inspector、具体资源、UI 后端、Protobuf 或业务程序集。
 2. 可替换能力采用“Interface 在稳定侧，Implementation 在可删除 Module”的 Seam：例如 `IAssetProvider ← YooAssetProvider`、`IUIBackend ← UGUI/Toolkit Adapter`。
 3. `Game.Framework.Boot` 是 AOT 薄壳，永不引用 `Game.Framework*` 运行时程序集，否则框架无法作为热更新代码加载。
 4. Editor Implementation 与 Runtime 分离；`Game.Framework.Editor` 是轻量、稳定的编辑器工具基座，拥有跨模块反馈、诊断与通用配置体验；重第三方 Editor 依赖仍放进独立 Editor Module。可选 Editor Module 可以单向依赖该基座，基座不得编译期反向引用它们。
@@ -12,6 +12,13 @@
 6. 删除测试：移除一个可选 Module 目录后，只应失去该能力及其直接消费方，不应迫使核心 Module 修改源码。
 7. 外部程序集的直接依赖必须在 asmdef 显式可见，即使插件 DLL 的 auto-reference 已让代码偶然编译通过；否则 UPM 声明、删除测试与 AI 导航都看不到真实代价。
 8. “源码存在、参与编译、真实消费、linker 根、热更部署、最终 Player”是不同状态；工具与文档不得合并成一个含糊的“已启用”。
+
+Odin Inspector 是项目级可选专业工具，不是 Runtime 前置。通用基线用 Unity 原生 Drawer/fallback Editor
+保证资源包配置、UI 生成配置与诊断；可整体删除的 `Game.Framework.Odin.Editor` 用无持久化的临时 Editor 映射
+组合 OdinEditor 与 Framework 诊断，基线不得反向引用。Fonts 等可选 Module 的专属诊断经 Editor-only contributor
+接缝单向注册，避免通用
+Editor 反向引用。Adapter 不得随 Framework 分发付费插件本体。详见 [Odin 可选集成与移除](optional-odin-integration.md)与
+[ADR-0015](adr/0015-odin-decoupling-assessment.md)。
 
 ## 轻量组合档位与证据口径
 
@@ -53,7 +60,8 @@
 | `Game.Framework.UI.Toolkit` | `UI.Toolkit/` | UI Toolkit Window/View Adapter、`VisualElement` 的 `Bag.BindList` Adapter 与 RenderTexture 显示原语。 | 删除后 UGUI 后端与 UI Core 仍可编译。 |
 | `Game.Framework.UI.Bridge` | `UI.Bridge/` | UGUI/相机内容嵌入 Toolkit 的 RenderTexture Adapter。 | 删除后两套独立 UI 后端仍可用。 |
 | `Game.Framework.Boot` | `Boot/` | HybridCLR/YooAsset 热更启动 AOT 薄壳。 | 可在无热更项目删除；不得反向依赖 Framework Runtime。 |
-| `Game.Framework.Editor` | `Editor/` | 稳定编辑器工具基座：Core 通用 Drawer、跨模块非阻塞反馈、诊断窗口、菜单与配置总览；Module Audit 与隔离 Player Build 体积探针共用结构化组合，Source Catalog 统一解析 Assets / Packages / PackageCache。 | 玩家构建不包含。若删除，需一并删除或改接直接依赖它的 Build / Config / Proto / UGUI Editor 工具；所有 Runtime API 与玩家构建仍不受影响。 |
+| `Game.Framework.Editor` | `Editor/` | 稳定且零付费插件依赖的编辑器工具基座：Core 原生 Drawer/Inspector、跨模块非阻塞反馈、诊断窗口、菜单与配置总览；Module Audit 与隔离 Player Build 体积探针共用结构化组合，Source Catalog 统一解析 Assets / Packages / PackageCache。 | 玩家构建不包含。若删除，需一并删除或改接直接依赖它的 Build / Config / Proto / UGUI Editor 工具；所有 Runtime API 与玩家构建仍不受影响。 |
+| `Game.Framework.Odin.Editor` | `Odin.Editor/` | 可选专业 Inspector Adapter：仅把原生 fallback 接管且 Odin 允许绘制的具体 Framework Mono 类型临时映射到组合诊断的 OdinEditor；不写 Odin 配置，不含或重分发 Odin。 | 移除 Odin 前先整体删除；Domain Reload 后原生 fallback 接管，Runtime 与资产布局不变。 |
 | `Game.Framework.Editor.Tests` | `Editor/Tests/` | 通用 Editor 工具的 EditMode 契约；覆盖 AI PlayMode 预检的无弹窗保存与未命名场景拒绝。 | 随 Editor Module 删除；不进入玩家构建。 |
 | `Game.Framework.Build.Editor` | `Build/Editor/` | YooAsset/HybridCLR 构建管线与 Profile；复用通用 Editor 反馈，重第三方依赖不反向进入基座。 | 无资源/热更构建需求时可删，不污染通用 Editor。 |
 | `Game.Framework.Demo` | `Demo/` | 32 个可运行教学章节，是所有 Module 的消费方与集成样板；Catalog 集中拥有章节 Adapter、生命周期与 Host 教学语义校验。 | 可整体删除；`UNITY_EDITOR` define 保证不进玩家包。 |
@@ -66,6 +74,7 @@
 - 新增程序集前先问：它是否拥有独立的变化原因、第三方依赖或删除边界？如果没有，优先放进现有 Module。
 - 新增 Interface 前做删除测试：去掉某个 Implementation 后，调用方是否仍能以同一抽象工作？只有真实 Seam 才值得抽象。
 - 新增第三方库时，先放入 Adapter Module；不要为了“以后也许替换”把每个类都拆成一对 Interface/Implementation。
+- 新增付费 Editor 插件集成时，原生基线必须先成立；Adapter 只依赖用户已安装的插件，不复制插件本体，并补“删除 Adapter 后仍可编辑/编译”的门禁。
 - 修改 asmdef 引用后，运行完整 Unity 测试，并检查 Boot、Core、两个 UI 后端与可选 Module 的依赖方向。
 - 运行 `SSFramework/诊断/模块裁剪审计`；隐式外部引用应为 0，三条删除测试应通过，并逐项解释新 Module 的项目消费者、热更传播与 linker 根。报告变大只作为调查信号，不以原始 DLL 字节直接宣称最终包体回归。
 - 对包体敏感的结构决策再运行 `SSFramework/诊断/真实构建体积证据`；先切到目标平台，比较同环境下相对 Core 的体积上界，不跨平台外推。

@@ -17,7 +17,7 @@ namespace Game.Framework.Demo.Core
     /// 本 demo 的 UI 是命令式搭出来的（不来自 source VisualTreeAsset），一旦重建就被整棵冲掉。这无法关闭，
     /// 所以本类在 <c>Update</c> 里检测“根容器脱离面板”后调 <c>RebuildUI</c> 重新搭回去——这是命令式 UIDocument 内容的标准做法，不是临时补丁。<br/>
     /// 共享 Context 由<b>父节点</b>的 <see cref="MonoDemoContext"/>（一个真正的 <c>MonoGameContextBase</c>）承载、与本 UIDocument 节点分开：
-    /// 让 Context 生命周期独立于视图，也避免把 Odin <c>SerializedMonoBehaviour</c> 与 UIDocument 堆在同一节点。
+    /// 让 Context 生命周期独立于视图，也避免把框架生命周期宿主与 UIDocument 堆在同一节点。
     /// 挂在 Context 节点下的 Mono 层（如 <c>MonoModelBase</c>）沿 Transform 父链自动注册进同一容器，供“纯 C# vs Mono”对比演示。<br/>
     /// 整体风格集中在 <c>DemoTheme.uss</c>（Inspector 指定到 <see cref="_theme"/>），与各模块内容解耦。
     /// </remarks>

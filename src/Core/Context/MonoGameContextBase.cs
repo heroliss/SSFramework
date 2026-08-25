@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using Game.Framework.Command;
@@ -9,8 +8,6 @@ using Game.Framework.Logging;
 using Game.Framework.Model;
 using Game.Framework.Systems;
 using Game.Framework.Utility;
-using Sirenix.OdinInspector;
-using Sirenix.Serialization;
 using UnityEngine;
 
 namespace Game.Framework.Context
@@ -76,17 +73,27 @@ namespace Game.Framework.Context
     /// </remarks>
     [DefaultExecutionOrder(-1000)]
     [DisallowMultipleComponent]
-    public class MonoGameContextBase : SerializedMonoBehaviour, IGameContext, IHasGameContext
+    public class MonoGameContextBase : MonoBehaviour, IGameContext, IHasGameContext
     {
-        [OdinSerialize, ShowInInspector, LabelText("Parent Context"), DisableInPlayMode]
-        [Tooltip("显式指定父级上下文。支持 MonoGameContextBase 或运行时赋值的纯 C# IGameContext。留空时根据 Inherit From Parent 自动向 Transform 父级查找。")]
-        protected IGameContext _parentContext;
+        [SerializeField]
+        [LockInPlayMode]
+        [InspectorName("Parent Context")]
+        [Tooltip("显式指定父级场景 Context。留空时根据 Inherit From Parent 自动向 Transform 父级查找。")]
+        private MonoGameContextBase _parentContextHost;
 
-        [SerializeField, LabelText("Inherit From Parent"), DisableInPlayMode]
+        /// <summary>
+        /// 纯 C# 父 Context 的代码装配入口。派生类只可在初始化前赋值；Inspector 装配使用
+        /// <see cref="_parentContextHost"/>，避免让 Core 为接口序列化依赖第三方插件。
+        /// </summary>
+        [NonSerialized] protected IGameContext _parentContext;
+
+        [SerializeField]
+        [LockInPlayMode]
         [Tooltip("是否自动向上查找 Transform 层级中的父级上下文。关闭时不会自动查找，但显式设置的 Parent Context 仍然生效。")]
         protected bool _inheritFromParent = true;
 
-        [SerializeField, LabelText("Inherit From Global"), DisableInPlayMode]
+        [SerializeField]
+        [LockInPlayMode]
         [Tooltip("是否在本地和父级解析不到时回退到全局静态主上下文（GameContext.Main）。")]
         protected bool _inheritFromGlobal = true;
 
@@ -103,27 +110,6 @@ namespace Game.Framework.Context
             Ready,
             Failed,
             Disposed,
-        }
-
-        // 运行时只读诊断统一收进「运行时诊断」可折叠框（与三层 Mono 的诊断同名同风格），仅 Play 显示。
-        [FoldoutGroup("运行时诊断"), ShowInInspector, ReadOnly, HideInEditorMode, LabelText("解析到的父级"), PropertyOrder(-100)]
-        [PropertyTooltip("运行时实际生效的父级上下文（Parent Context 为空且 Inherit From Parent 开启时，自动向上查找的结果）。")]
-        private IGameContext ResolvedParent => _resolvedParent;
-
-        // 本 Context 本地注册的契约键（不含父级回退）。看「这个 Context 里有什么」最直接。
-        [FoldoutGroup("运行时诊断"), ShowInInspector, ReadOnly, HideInEditorMode, LabelText("本地注册"), PropertyOrder(-99)]
-        [PropertyTooltip("本 Context 本地注册的契约键（不含父级回退）：运行时覆盖（MonoXxxBase / RegisterXxx）+ 构建时绑定（InstallBindings）。\nGetModel/GetSystem/GetUtility<T>() 先在这里找，未命中再回退父级。")]
-        private List<string> RegisteredServices
-        {
-            get
-            {
-                var names = new List<string>();
-                if (_container != null)
-                    foreach (var t in _container.LocalRegistrations)
-                        names.Add(t.Name);
-                names.Sort();
-                return names;
-            }
         }
 
         /// <summary>
@@ -196,7 +182,9 @@ namespace Game.Framework.Context
                     monoParent.Initialize();
 
                 using var builder = new ContainerBuilder();
-                if (_inheritFromParent && _resolvedParent != null)
+                // 自动父链只会在 _inheritFromParent 开启时被 FindParentContext 选中；显式代码/Inspector
+                // Parent 则不受该开关影响。此处只看最终解析结果，保持字段 Tooltip 的契约。
+                if (_resolvedParent != null)
                     builder.SetParent(ContextInternals.GetContainer(_resolvedParent));
 
                 InstallBindings(builder);
@@ -257,9 +245,10 @@ namespace Game.Framework.Context
 
         private void FindParentContext()
         {
-            if (_parentContext != null)
+            IGameContext explicitParent = _parentContext ?? _parentContextHost;
+            if (explicitParent != null)
             {
-                if (ReferenceEquals(_parentContext, this))
+                if (ReferenceEquals(explicitParent, this))
                 {
                     Log.Error(
                         $"'{name}': Parent Context is set to self; ignoring.",
@@ -267,7 +256,7 @@ namespace Game.Framework.Context
                         context: this);
                     return;
                 }
-                _resolvedParent = _parentContext;
+                _resolvedParent = explicitParent;
                 return;
             }
 

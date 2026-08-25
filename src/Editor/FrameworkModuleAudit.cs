@@ -999,7 +999,7 @@ namespace Game.Framework.Editor
             return result;
         }
 
-        private static string[] ReadAssemblyReferences(string path)
+        internal static string[] ReadAssemblyReferences(string path)
         {
             if (string.IsNullOrEmpty(path))
                 throw new ArgumentException("程序集路径不能为空。", nameof(path));
@@ -1313,7 +1313,7 @@ namespace Game.Framework.Editor
                 var dto = ReadAsmdef(asmdefPath);
                 return dto?.name ?? reference;
             }
-            // asmdef 的程序集名本来就常含点（R3.Unity / Sirenix.Serialization）；
+            // asmdef 的程序集名本来就常含点（R3.Unity / Google.Protobuf）；
             // Path.GetFileNameWithoutExtension 会把最后一段误当扩展名，只对 precompiledReferences 的 .dll 去后缀。
             return reference.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
                 ? reference.Substring(0, reference.Length - 4)
