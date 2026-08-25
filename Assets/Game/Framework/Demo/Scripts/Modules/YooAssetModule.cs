@@ -7,7 +7,7 @@ namespace Game.Framework.Demo.Modules
     /// <summary>
     /// 进阶·YooAsset 底层实现：讲「资源加载」章背后、当前默认后端 YooAsset 的原理——四种 PlayMode、各目录、各清单文件、
     /// 各构建管线的对比表，以及 EditorSimulate / Host 两条「模式 → 操作 → 管线 → 产物 → 运行时读取」的底层流程。
-    /// <b>这是可替换的后端实现，不是框架契约</b>：框架经 IAssetProvider 解耦，换库只改 AssetProviderFactory，本章内容随之替换。
+    /// <b>这是可替换的后端实现，不是框架契约</b>：框架经 IAssetProvider 解耦，换库时替换默认 Provider Adapter，本章内容随之替换。
     /// </summary>
     public sealed class YooAssetModule : DemoModuleBase
     {
@@ -25,8 +25,8 @@ namespace Game.Framework.Demo.Modules
 
             // ── 定位 ──
             host.AddPositioning("YooAsset 是「当前默认后端」，不是框架契约");
-            host.AddNote("框架把所有 YooAsset 接触面收口在 `IAssetProvider`，业务与「资源加载」章只认接口。YooAsset 只是 `AssetProviderFactory` 里 new 出来的默认实现——换 Addressables / 自研只改那一行，本章这些底层随之替换。所以本章是「了解当前后端怎么运转」，不是框架必须知识。",
-                new CodeRef("Assets/Game/Framework/Core/Asset/AssetProviderFactory.cs", "CreateDefault", "provider 工厂（换库就改这）"));
+            host.AddNote("框架把所有 YooAsset 接触面收口在 `IAssetProvider`，业务与「资源加载」章只认接口。Yoo Adapter 在自己的 Assembly 上声明默认实现；换 Addressables / 自研时物理替换 Adapter，无需修改 Core。所以本章是「了解当前后端怎么运转」，不是框架必须知识。",
+                new CodeRef("Assets/Game/Framework/Asset.Yoo/AssemblyInfo.cs", "DefaultAssetProvider", "Yoo Adapter 的默认实现注册"));
 
             // ── 表①·四种 PlayMode ──
             host.AddSectionTitle("四种 PlayMode 对比");

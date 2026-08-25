@@ -27,7 +27,7 @@ namespace Game.Framework.Demo.Modules
         {
             // ── 定位 ──
             host.AddPositioning("编辑器看不到热更，因为它被刻意旁路了");
-            host.AddNote("编辑器下所有程序集本就在 AppDomain 里，引导器直接反射进入口——没有下载、没有 Assembly.Load，开发期对热更机制零感知（这是设计目标，不是缺演示）。真实链路只在 IL2CPP 真机发生：改完热更代码只重打代码包，玩家包重启即用新逻辑。",
+            host.AddNote("编辑器下所有程序集本就在 AppDomain 里，引导器直接反射进入口——没有下载、没有 Assembly.Load，开发期对热更机制零感知（这是设计目标，不是缺演示）。真实链路只在 IL2CPP 真机发生：普通算法改动通常只重打代码包；签名、泛型、布局等结构边界由 stamp 判断，必要时会要求重新 Generate 和构建玩家包。",
                 new CodeRef("Assets/Game/Framework/Boot/HotUpdateLauncher.cs", "class HotUpdateLauncher", "Boot 引导器（编辑器旁路 + 真机全流程）"));
 
             // ── 心智模型 ──
@@ -50,12 +50,12 @@ namespace Game.Framework.Demo.Modules
             host.AddTable(
                 new[] { "菜单（SSFramework/热更构建）", "何时执行", "耗时" },
                 new[] { "1. 同步热更设置", "改了热更列表后", "秒" },
-                new[] { "2. 生成桥接与裁剪文件（Generate All）", "首次接入 / 升级 Unity 或 HybridCLR / 增删第三方库 / 改档位", "分钟" },
+                new[] { "2. 生成桥接与裁剪文件（Generate All）", "首次接入 / 升级环境 / 改 AOT、签名、泛型、布局或原生调用边界（stamp 会拦截）", "分钟" },
                 new[] { "3. 构建代码包", "日常每次热更迭代", "几十秒" },
                 new[] { "4. 部署代码包", "跟在 3 后面（平铺到 Deploy，与资源包同套 CDN 结构）", "秒" });
-            host.AddSubNote("迭代边界（真机实测）：热更代码新增跨 AOT 泛型用法（第三方序列化器处理热更类型、新 R3 订阅泛型等）也只需 3+4——SuperSet 补元数据 + 解释器兜底已覆盖；真正需要 2 + 重出安装包的只有 AOT 集合本身的变化。",
+            host.AddSubNote("迭代边界：只改普通算术、分支、常量等业务算法，且不改变元数据依赖拓扑时，只需 3+4。新增方法/签名/泛型实例、值类型字段布局、P/Invoke / calli 或相关 Attribute 可能改变 Link、AOT 或 MethodBridge，构建器会比较 HybridCLR 目标 DLL 元数据拓扑与 AOT / linker 输入指纹并拒绝沿用旧 Generate；此时执行 2，并按平台重新构建安装包。不要凭『代码在热更程序集里』就断言永远不用 Generate。",
                 new CodeRef("Assets/Game/Framework/Build/Editor/FrameworkHotUpdateBuilder.cs", "class FrameworkHotUpdateBuilder", "构建实现（CompileDll → 清单 → RawFile 包）"));
-            host.AddSubNote("不确定自己漏了哪一步时，模块裁剪审计的“热更产物链”会只读比较唯一 Profile → HybridCLRSettings → Generate stamp → 当前热更拓扑 / AOT 补元数据清单 → DLL 中转，并明确建议执行 1 / 2 / 3。绿色只证明结构与所列文件一致，不证明 DLL 已包含最新源码，也不代表步骤 4 的 Deploy / CDN 已完成；空 Profile 的纯 AOT 档位不强制 Generate 或 CodePackage。");
+            host.AddSubNote("不确定自己漏了哪一步时，模块裁剪审计的“热更产物链”会只读比较唯一 Profile → HybridCLRSettings → Generate stamp → 当前热更拓扑 / AOT 补元数据清单 → DLL 中转，并明确建议执行 1 / 2 / 3。绿色只证明结构与所列文件一致，不证明 DLL 已包含最新源码，也不代表步骤 4 的 Deploy / CDN 已完成；空 Profile 不要求 Generate，但若启用场景仍挂着 HotUpdateLauncher，Player 分支仍需要步骤 3 生成空清单代码包。只有改成直接 AOT 启动后 CodePackage 才可省略。");
 
             // ── 可现场执行的部分:构建期校验 ──
             host.AddSectionTitle("现场可跑：构建期校验（真实调用，与菜单同源）");

@@ -10,7 +10,6 @@
         "Game.Framework.UI.UGui",
         "Game.Framework.UI.Bridge",
         "Luban.Runtime",
-        "R3",
         "R3.Unity",
         "UniTask",
         "Unity.TextMeshPro"
@@ -18,8 +17,11 @@
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
-    "overrideReferences": false,
-    "precompiledReferences": [],
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "R3.dll",
+        "ObservableCollections.dll"
+    ],
     "autoReferenced": true,
     "defineConstraints": [
         "UNITY_EDITOR"

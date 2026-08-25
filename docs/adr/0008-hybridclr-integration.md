@@ -87,7 +87,7 @@ Boot 场景（唯一随包场景：Launcher + 朴素进度 UI，只挂 Boot 程�
 
 **历史 IL2CPP 真机自检通过（GameEntry 自检 8/8，Windows player）**：DI 容器注册/解析、`RP<T>` + R3 订阅（跨 AOT 泛型）、struct Command 分发、双泛型 `ExecuteCommand<TCmd,TResult>` 零装箱返回值、class Command `[Inject]` 注入、事件总线、UniTask 异步命令（解释器 async 状态机），以及当时项目已安装的 Odin `SerializationUtility` 对热更类型的序列化往返。最后一项只是第三方集成的历史证据，不再属于 Framework Core 自检契约。
 
-**迭代边界（实测）**：上述自检是在 v2→v3 **只重打代码包**（不重跑 Generate、不重出安装包）的前提下通过的——热更代码新增跨 AOT 泛型用法（第三方序列化泛型、R3 订阅泛型、命令双泛型等新实例化）由 SuperSet 补元数据 + 解释器兜底覆盖。需要重跑 Generate（并重出安装包）的仍是 AOT 集合本身的变化：增删第三方库 / 调整热更列表档位 / 升级 Unity 或 HybridCLR。
+**迭代边界**：历史 v2→v3 真机自检证明当时那组跨 AOT 泛型变化可只重打代码包，但这不是“热更程序集永远无需 Generate”的普遍保证。普通算法变化且 Player 元数据拓扑不变时仍只需代码包；方法/签名/泛型实例、值类型布局、P/Invoke / calli、Attribute 或 AOT 图变化可能影响 Link、AOT 与 MethodBridge，必须重新 Generate 并重出安装包。构建器以 ADR-0041 的 Player 元数据拓扑 stamp 机器判断，历史样例不再承担外推规则。
 
 ## Consequences
 

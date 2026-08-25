@@ -10,7 +10,7 @@ using UnityEngine.UIElements;
 namespace Game.Framework.Editor.Tests
 {
     /// <summary>
-    /// 锁定 Module 审计的真实引用闭包、删除测试与窄窗口结构；不把原始 DLL 字节锁成包体基线。
+    /// 锁定 Module 审计的当前编译快照引用闭包、删除测试与窄窗口结构；不把它冒充目标 Player 变体。
     /// </summary>
     public sealed class FrameworkModuleAuditTests
     {
@@ -64,6 +64,26 @@ namespace Game.Framework.Editor.Tests
                 reference => reference != "Game.Framework" && reference != "netstandard");
 
             Assert.That(hidden, Is.EqualTo(new[] { "ObservableCollections", "ObservableCollections.R3" }));
+        }
+
+        [Test]
+        public void UndeclaredReferences_DistinguishAsmdefAndPrecompiledDeclarations()
+        {
+            var info = new FrameworkModuleAudit.AssemblyInfo
+            {
+                Name = "Game.Framework.UI",
+                // 把 DLL 名误写进 references 的旧配置不能冒充有效的预编译引用声明。
+                DeclaredReferences = new[] { "Game.Framework", "R3" },
+                DeclaredPrecompiledReferences = new[] { "ObservableCollections" },
+                ActualReferences = new[] { "Game.Framework", "R3", "ObservableCollections" },
+            };
+
+            var hidden = FrameworkModuleAudit.FindUndeclaredDirectReferences(
+                info,
+                _ => true,
+                reference => reference is "R3" or "ObservableCollections");
+
+            Assert.That(hidden, Is.EqualTo(new[] { "R3" }));
         }
 
         [Test]
@@ -304,7 +324,7 @@ namespace Game.Framework.Editor.Tests
                 StagedManifestMatches = true,
             };
             Assert.That(pureAot.RequiresAttention, Is.False,
-                "空 Profile 可以明确选择无 CodePackage 的纯 AOT 档位。 ");
+                "空 Profile 且直接 AOT composition root 可以不需要 CodePackage。 ");
 
             pureAot.StagedManifestExists = true;
             pureAot.StagedManifestAvailable = true;
@@ -322,16 +342,20 @@ namespace Game.Framework.Editor.Tests
         public void InstalledModules_ExternalDependenciesAreExplicit_AndDeletionTestsHold()
         {
             var snapshot = FrameworkModuleAudit.Capture();
-            foreach (var module in snapshot.Assemblies.Values)
+            foreach (var module in snapshot.Assemblies.Values.Where(module =>
+                         module.AsmdefPath.StartsWith("Assets/Game/", StringComparison.Ordinal)))
             {
-                if (!module.IsFrameworkRuntime) continue;
                 Assert.That(module.AsmdefPath,
                     Does.StartWith("Assets/").Or.StartWith("Packages/"),
                     module.Name + " 应保留可由 Unity 定位的稳定 Asset Path。");
                 Assert.That(Directory.Exists(module.SourceDirectory), Is.True,
                     module.Name + " 应保留可由 System.IO 读取的真实物理源码目录。");
                 var hidden = FrameworkModuleAudit.FindUndeclaredExternalReferences(snapshot, module);
-                Assert.That(hidden, Is.Empty, $"{module.Name} 存在 asmdef 不可见的真实外部依赖");
+                Assert.That(hidden, Is.Empty,
+                    $"{module.Name} 的当前 DLL 快照存在 asmdef 不可见的外部依赖；门禁覆盖所有一方 Player 程序集，而不只 Framework Module");
+                if (module.DeclaredPrecompiledReferences.Length > 0)
+                    Assert.That(module.OverrideReferences, Is.True,
+                        $"{module.Name} 的 precompiledReferences 只有在 overrideReferences=true 时才生效");
             }
 
             var core = FrameworkModuleAudit.ComputeReachableAssemblies(
@@ -373,7 +397,7 @@ namespace Game.Framework.Editor.Tests
             Assert.That(report, Does.Not.Contain("⚠ 无法定位程序集文件"),
                 "当前轻量档位或热更清单里存在无法解析的程序集时，字节闭包不能算完整。");
             string deletionSection = report.Substring(
-                report.IndexOf("删除检查（真实元数据引用闭包）", StringComparison.Ordinal));
+                report.IndexOf("删除检查（当前编译快照的元数据引用闭包）", StringComparison.Ordinal));
             Assert.That(deletionSection, Does.Not.Contain("✗ "),
                 "删除检查的文本结论不得只靠测试代码另算后假绿；本地 Generate / 中转证据可在干净 clone 中独立告警。 ");
             Assert.That(report, Does.Contain("Module 当前保留原因"));
@@ -381,6 +405,97 @@ namespace Game.Framework.Editor.Tests
             Assert.That(report, Does.Contain("热更派生证据（只读）"));
             if (result.HotUpdateDeployment.BuildModuleAvailable)
                 Assert.That(report, Does.Contain("CodePackage"));
+        }
+
+        [Test]
+        public void AllAsmdefs_PutPrecompiledDllsInTheEffectiveField()
+        {
+            var firstPartyPlayerAssemblies = new HashSet<string>(
+                UnityEditor.Compilation.CompilationPipeline
+                    .GetAssemblies(UnityEditor.Compilation.AssembliesType.Player)
+                    .Where(assembly => assembly.sourceFiles.Any(path =>
+                        path.Replace('\\', '/').StartsWith("Assets/Game/", StringComparison.Ordinal)))
+                    .Select(assembly => assembly.name),
+                StringComparer.Ordinal);
+            var asmdefNames = new HashSet<string>(
+                AssetDatabase.GetAllAssetPaths()
+                    .Where(path => path.EndsWith(".asmdef", StringComparison.OrdinalIgnoreCase))
+                    .Select(ReadAsmdefDeclaration)
+                    .Select(declaration => declaration?.name)
+                    .Where(name => !string.IsNullOrWhiteSpace(name)),
+                StringComparer.Ordinal);
+            var dllFiles = new HashSet<string>(
+                PluginImporter.GetAllImporters()
+                    .Select(importer => Path.GetFileName(importer.assetPath))
+                    .Where(name => !string.IsNullOrWhiteSpace(name)),
+                StringComparer.OrdinalIgnoreCase);
+            var dllNames = new HashSet<string>(
+                dllFiles.Select(Path.GetFileNameWithoutExtension)
+                    .Where(name => !string.IsNullOrWhiteSpace(name) && !asmdefNames.Contains(name)),
+                StringComparer.OrdinalIgnoreCase);
+            dllNames.UnionWith(PluginImporter.GetAllImporters()
+                .Select(FrameworkModuleAudit.ReadManagedPluginAssemblyIdentity)
+                .Where(name => !string.IsNullOrWhiteSpace(name) && !asmdefNames.Contains(name)));
+            var issues = new List<string>();
+
+            foreach (string path in AssetDatabase.GetAllAssetPaths()
+                         .Where(path => path.StartsWith("Assets/Game/", StringComparison.Ordinal) &&
+                                        path.EndsWith(".asmdef", StringComparison.OrdinalIgnoreCase)))
+            {
+                var declaration = ReadAsmdefDeclaration(path);
+                if (declaration == null) continue;
+                if (firstPartyPlayerAssemblies.Contains(declaration.name) &&
+                    !declaration.overrideReferences)
+                    issues.Add($"{path}: 一方 Player asmdef 必须用 overrideReferences=true 关闭预编译 DLL 的全局 Auto Reference");
+                string[] misplaced = (declaration.references ?? Array.Empty<string>())
+                    .Where(reference => FrameworkModuleAudit.IsPrecompiledAssemblyReference(
+                        reference, asmdefNames, dllNames))
+                    .OrderBy(name => name, StringComparer.Ordinal)
+                    .ToArray();
+                if (misplaced.Length > 0)
+                    issues.Add($"{path}: DLL 写进 references（{string.Join(", ", misplaced)}）");
+                if ((declaration.precompiledReferences?.Length ?? 0) > 0 &&
+                    !declaration.overrideReferences)
+                    issues.Add($"{path}: precompiledReferences 非空但 overrideReferences=false");
+                foreach (string reference in declaration.precompiledReferences ?? Array.Empty<string>())
+                {
+                    if (!reference.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+                        issues.Add($"{path}: precompiledReferences 必须写带 .dll 后缀的文件名（{reference}）");
+                    else if (!dllFiles.Contains(Path.GetFileName(reference)))
+                        issues.Add($"{path}: precompiledReferences 找不到对应 PluginImporter（{reference}）");
+                }
+            }
+
+            Assert.That(issues, Is.Empty,
+                "一方 Player asmdef 必须关闭预编译 DLL 的全局 Auto Reference；需要的 DLL 放进带后缀的 precompiledReferences。\n" +
+                string.Join("\n", issues));
+        }
+
+        [Test]
+        public void ManagedAssemblyIdentity_ComesFromDllMetadataInsteadOfFileName()
+        {
+            string source = typeof(FrameworkModuleAuditTests).Assembly.Location;
+            string directory = Path.Combine(Path.GetTempPath(), "SSFrameworkAssemblyIdentityTests");
+            Directory.CreateDirectory(directory);
+            string renamed = Path.Combine(directory, "Renamed.Plugin.dll");
+            try
+            {
+                File.Copy(source, renamed, overwrite: true);
+                string identity = FrameworkModuleAudit.ReadManagedAssemblyIdentity(renamed);
+                Assert.That(identity, Is.EqualTo("Game.Framework.Editor.Tests"));
+                Assert.That(FrameworkModuleAudit.IsPrecompiledAssemblyReference(
+                        identity,
+                        new HashSet<string>(StringComparer.Ordinal),
+                        new HashSet<string>(new[] { identity }, StringComparer.Ordinal)),
+                    Is.True,
+                    "重命名 DLL 的内部 AssemblyName 若误写进 references，字段门禁也必须识别。 ");
+            }
+            finally
+            {
+                if (File.Exists(renamed)) File.Delete(renamed);
+                if (Directory.Exists(directory) && !Directory.EnumerateFileSystemEntries(directory).Any())
+                    Directory.Delete(directory);
+            }
         }
 
         [Test]
@@ -490,6 +605,25 @@ namespace Game.Framework.Editor.Tests
             {
                 Selection.activeObject = previousSelection;
             }
+        }
+
+        [Serializable]
+        private sealed class AsmdefDeclaration
+        {
+            public string name;
+            public string[] references;
+            public string[] precompiledReferences;
+            public bool overrideReferences;
+        }
+
+        private static AsmdefDeclaration ReadAsmdefDeclaration(string assetPath)
+        {
+            if (!FrameworkModuleSourceCatalog.TryResolve(
+                    assetPath,
+                    out FrameworkModuleSourceCatalog.SourceLocation source,
+                    out string reason))
+                throw new InvalidDataException($"无法读取 {assetPath}：{reason}");
+            return JsonUtility.FromJson<AsmdefDeclaration>(File.ReadAllText(source.PhysicalPath));
         }
 
         private sealed class FakeHotUpdateEvidence

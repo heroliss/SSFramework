@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text;
 using System.Xml.Linq;
 using UnityEditor;
@@ -12,7 +13,7 @@ using UnityEngine;
 namespace Game.Framework.Editor
 {
     /// <summary>
-    /// 从当前 Player 编译图与已编译 DLL 元数据生成 Framework Module 裁剪证据。
+    /// 从当前 Player 编译图、asmdef 声明与当前已编译 DLL 快照生成 Framework Module 裁剪证据。
     /// </summary>
     /// <remarks>
     /// <para>
@@ -49,7 +50,14 @@ namespace Game.Framework.Editor
             internal string OutputPath;
             internal long OutputBytes;
             internal bool AutoReferenced;
+            internal bool OverrideReferences;
+            /// <summary>asmdef 的 <c>references</c>，只表示对其他 asmdef 程序集的显式边。</summary>
             internal string[] DeclaredReferences = Array.Empty<string>();
+            /// <summary>
+            /// 仅当 <c>overrideReferences</c> 启用时生效的 <c>precompiledReferences</c>。
+            /// 预编译 DLL 名写进 <c>references</c> 不会被当作显式声明。
+            /// </summary>
+            internal string[] DeclaredPrecompiledReferences = Array.Empty<string>();
             internal string[] ActualReferences = Array.Empty<string>();
 
             internal bool IsFrameworkRuntime => IsFrameworkAssembly(Name) &&
@@ -97,7 +105,7 @@ namespace Game.Framework.Editor
             internal long ExternalBytes;
         }
 
-        /// <summary>记录“DLL 真实引用存在，但 asmdef 没有直接声明”的模块依赖。</summary>
+        /// <summary>记录“当前 DLL 快照存在引用，但 asmdef 没有直接声明”的模块依赖。</summary>
         internal sealed class DependencyIssue
         {
             internal string ModuleName;
@@ -260,6 +268,7 @@ namespace Game.Framework.Editor
                 .ToArray();
 
             var referencePaths = BuildReferencePathMap(playerAssemblies);
+            Dictionary<string, string> precompiledIdentities = BuildPrecompiledReferenceIdentityMap();
             var infos = new Dictionary<string, AssemblyInfo>(StringComparer.Ordinal);
             foreach (var assembly in playerAssemblies)
             {
@@ -288,7 +297,9 @@ namespace Game.Framework.Editor
                     OutputPath = outputPath,
                     OutputBytes = File.Exists(outputPath) ? new FileInfo(outputPath).Length : 0L,
                     AutoReferenced = dto?.autoReferenced ?? true,
-                    DeclaredReferences = GetDeclaredReferences(dto),
+                    OverrideReferences = dto?.overrideReferences ?? false,
+                    DeclaredReferences = GetDeclaredAssemblyReferences(dto),
+                    DeclaredPrecompiledReferences = GetEffectivePrecompiledReferences(dto, precompiledIdentities),
                     ActualReferences = ReadAssemblyReferences(outputPath),
                 };
             }
@@ -498,15 +509,20 @@ namespace Game.Framework.Editor
 
         internal static string[] FindUndeclaredDirectReferences(
             AssemblyInfo info,
-            Func<string, bool> isRelevantExternal)
+            Func<string, bool> isRelevantExternal,
+            Func<string, bool> isPrecompiledReference = null)
         {
             if (info == null) throw new ArgumentNullException(nameof(info));
             if (isRelevantExternal == null) throw new ArgumentNullException(nameof(isRelevantExternal));
 
-            var declared = new HashSet<string>(info.DeclaredReferences, StringComparer.Ordinal);
+            var declaredAssemblies = new HashSet<string>(info.DeclaredReferences, StringComparer.Ordinal);
+            var declaredPrecompiled = new HashSet<string>(
+                info.DeclaredPrecompiledReferences, StringComparer.Ordinal);
             return info.ActualReferences
                 .Where(isRelevantExternal)
-                .Where(reference => !declared.Contains(reference))
+                .Where(reference => isPrecompiledReference?.Invoke(reference) == true
+                    ? !declaredPrecompiled.Contains(reference)
+                    : !declaredAssemblies.Contains(reference) && !declaredPrecompiled.Contains(reference))
                 .Distinct(StringComparer.Ordinal)
                 .OrderBy(reference => reference, StringComparer.Ordinal)
                 .ToArray();
@@ -516,7 +532,8 @@ namespace Game.Framework.Editor
         {
             if (snapshot == null) throw new ArgumentNullException(nameof(snapshot));
             return FindUndeclaredDirectReferences(info,
-                reference => IsRelevantExternalReference(snapshot, reference));
+                reference => IsRelevantExternalReference(snapshot, reference),
+                reference => !snapshot.Assemblies.ContainsKey(reference));
         }
 
         internal static ModuleStatus[] BuildModuleStatuses(
@@ -712,11 +729,11 @@ namespace Game.Framework.Editor
             sb.AppendLine("────────────────────────────────────────");
             foreach (var issue in issues)
             {
-                sb.AppendLine($"  ⚠ {issue.ModuleName} 的真实外部引用未在 asmdef 显式声明：" +
+                sb.AppendLine($"  ⚠ {issue.ModuleName} 的当前 DLL 快照外部引用未在 asmdef 显式声明：" +
                               string.Join(", ", issue.References));
             }
             if (issues.Count == 0)
-                sb.AppendLine("  ✓ 所有 Runtime Module 的真实外部引用都能从 asmdef 直接读出。");
+                sb.AppendLine("  ✓ 所有 Runtime Module 的当前 DLL 快照外部引用都能从 asmdef 直接读出。");
             else
                 sb.AppendLine($"  共 {issues.Sum(issue => issue.References.Length)} 条隐式引用；" +
                               "这不等于运行时错误，但会削弱删除测试、UPM 依赖声明与 AI 可导航性。");
@@ -879,7 +896,7 @@ namespace Game.Framework.Editor
 
         private static void AppendDeletionTests(StringBuilder sb, IReadOnlyCollection<DeletionCheck> checks)
         {
-            sb.AppendLine("删除检查（真实元数据引用闭包）");
+            sb.AppendLine("删除检查（当前编译快照的元数据引用闭包）");
             sb.AppendLine("────────────────────────────────────────");
             foreach (var check in checks)
                 AppendDeletionResult(sb, check.Name, check.Passed);
@@ -956,14 +973,6 @@ namespace Game.Framework.Editor
                 if (!string.IsNullOrEmpty(uiOnlyLargest.Key))
                     recommendations.Add($"单 UI 后端组合新增的最大外部 DLL 是 {uiOnlyLargest.Key}（{FormatBytes(uiOnlyLargest.Value)} 原始托管体积）。若目标是 Web / 小游戏，优先用真实构建验证它。 ");
 
-                long collectionBytes = result.CommonProfiles
-                    .Skip(1)
-                    .SelectMany(profile => profile.Footprint.ExternalAssemblies)
-                    .Where(pair => pair.Key.StartsWith("ObservableCollections", StringComparison.Ordinal))
-                    .GroupBy(pair => pair.Key, StringComparer.Ordinal)
-                    .Sum(group => group.First().Value);
-                if (collectionBytes > 0)
-                    recommendations.Add($"列表集合相关 DLL 原始合计约 {FormatBytes(collectionBytes)}。先看目标平台 BuildReport，再决定是否值得把列表绑定单独拆成 Module。 ");
             }
 
             recommendations.Add("原始 DLL 大小只用于发现候选；IL2CPP 裁剪、AOT、压缩后的最终差异必须看目标平台 Player BuildReport。 ");
@@ -993,10 +1002,50 @@ namespace Game.Framework.Editor
             {
                 string path = FullPath(reference);
                 if (!File.Exists(path)) continue;
-                string name = Path.GetFileNameWithoutExtension(path);
-                if (!result.ContainsKey(name)) result[name] = path;
+                string name = ReadManagedAssemblyIdentity(path);
+                if (string.IsNullOrWhiteSpace(name)) continue;
+                if (!result.TryGetValue(name, out string existing))
+                {
+                    result[name] = path;
+                    continue;
+                }
+                if (string.Equals(existing, path, StringComparison.OrdinalIgnoreCase)) continue;
+
+                string existingHash = ComputeFileSha256(existing);
+                string candidateHash = ComputeFileSha256(path);
+                if (!string.Equals(existingHash, candidateHash, StringComparison.Ordinal))
+                    throw new InvalidDataException(
+                        $"Player 编译图中 AssemblyName '{name}' 对应多个内容不同的 DLL：{existing}；{path}");
+
+                // 相同身份且字节相同的副本不会改变闭包；固定选字典序较小路径，保证报告稳定。
+                if (string.Compare(path, existing, StringComparison.OrdinalIgnoreCase) < 0)
+                    result[name] = path;
             }
             return result;
+        }
+
+        internal static string ReadManagedAssemblyIdentity(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return string.Empty;
+            try
+            {
+                return AssemblyName.GetAssemblyName(FullPath(path)).Name ?? string.Empty;
+            }
+            catch (BadImageFormatException)
+            {
+                return string.Empty;
+            }
+            catch (FileLoadException)
+            {
+                return string.Empty;
+            }
+        }
+
+        private static string ComputeFileSha256(string path)
+        {
+            using var stream = File.OpenRead(path);
+            using var sha256 = SHA256.Create();
+            return Convert.ToBase64String(sha256.ComputeHash(stream));
         }
 
         internal static string[] ReadAssemblyReferences(string path)
@@ -1222,7 +1271,7 @@ namespace Game.Framework.Editor
         }
 
         /// <summary>
-        /// 读取全部项目与 Package asmdef 的显式引用，供物理删除计划使用。它与 Player DLL 的真实消费
+        /// 读取全部项目与 Package asmdef 的显式引用，供物理删除计划使用。它与当前编译快照的代码消费
         /// 是两种证据：不进入 Player 的程序集不会保留玩家代码，却仍会在被引用 Module 删除后阻塞编译。
         /// </summary>
         private static Dictionary<string, string[]> ReadDeclaredConsumers()
@@ -1233,7 +1282,7 @@ namespace Game.Framework.Editor
             {
                 AsmdefJson dto = ReadAsmdef(path);
                 if (dto == null || string.IsNullOrWhiteSpace(dto.name)) continue;
-                foreach (string dependency in GetDeclaredReferences(dto))
+                foreach (string dependency in GetAllConfiguredReferences(dto))
                 {
                     if (string.IsNullOrWhiteSpace(dependency) ||
                         dependency.Equals(dto.name, StringComparison.Ordinal))
@@ -1291,11 +1340,76 @@ namespace Game.Framework.Editor
             }
         }
 
-        private static string[] GetDeclaredReferences(AsmdefJson dto)
+        private static string[] GetDeclaredAssemblyReferences(AsmdefJson dto)
         {
             if (dto == null) return Array.Empty<string>();
-            return (dto.references ?? Array.Empty<string>())
-                .Concat(dto.precompiledReferences ?? Array.Empty<string>())
+            return NormalizeDeclaredReferences(dto.references);
+        }
+
+        private static string[] GetEffectivePrecompiledReferences(
+            AsmdefJson dto,
+            IReadOnlyDictionary<string, string> precompiledIdentities)
+        {
+            if (dto == null || !dto.overrideReferences) return Array.Empty<string>();
+            // Unity 要求这里写带 .dll 后缀的 PluginImporter 文件名；无后缀字符串不是有效声明，
+            // 配置按“文件名”，真实 AssemblyRef 按 DLL 内部 AssemblyName；两者允许合法地不同。
+            return (dto.precompiledReferences ?? Array.Empty<string>())
+                .Where(reference => reference?.Trim().EndsWith(
+                    ".dll", StringComparison.OrdinalIgnoreCase) == true)
+                .Select(reference => Path.GetFileName(reference.Trim()))
+                .Where(file => precompiledIdentities != null && precompiledIdentities.ContainsKey(file))
+                .Select(file => precompiledIdentities[file])
+                .Where(identity => !string.IsNullOrWhiteSpace(identity))
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(identity => identity, StringComparer.Ordinal)
+                .ToArray();
+        }
+
+        private static Dictionary<string, string> BuildPrecompiledReferenceIdentityMap()
+        {
+            var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (PluginImporter importer in PluginImporter.GetAllImporters())
+            {
+                string file = Path.GetFileName(importer.assetPath);
+                string identity = ReadManagedPluginAssemblyIdentity(importer);
+                if (!string.IsNullOrWhiteSpace(file) && !string.IsNullOrWhiteSpace(identity))
+                    result[file] = identity;
+            }
+            return result;
+        }
+
+        internal static string ReadManagedPluginAssemblyIdentity(PluginImporter importer)
+        {
+            if (importer == null || importer.isNativePlugin ||
+                !importer.assetPath.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ||
+                !FrameworkModuleSourceCatalog.TryResolve(importer.assetPath, out var source, out _))
+                return string.Empty;
+            return ReadManagedAssemblyIdentity(source.PhysicalPath);
+        }
+
+        internal static bool IsPrecompiledAssemblyReference(
+            string reference,
+            ISet<string> asmdefNames,
+            ISet<string> precompiledAssemblyNames)
+        {
+            if (string.IsNullOrWhiteSpace(reference) ||
+                reference.StartsWith("GUID:", StringComparison.OrdinalIgnoreCase))
+                return false;
+            if (reference.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)) return true;
+            return (asmdefNames == null || !asmdefNames.Contains(reference)) &&
+                   precompiledAssemblyNames?.Contains(reference) == true;
+        }
+
+        private static string[] GetAllConfiguredReferences(AsmdefJson dto)
+        {
+            if (dto == null) return Array.Empty<string>();
+            return NormalizeDeclaredReferences((dto.references ?? Array.Empty<string>())
+                .Concat(dto.precompiledReferences ?? Array.Empty<string>()));
+        }
+
+        private static string[] NormalizeDeclaredReferences(IEnumerable<string> references)
+        {
+            return (references ?? Array.Empty<string>())
                 .Select(NormalizeDeclaredReference)
                 .Where(reference => !string.IsNullOrEmpty(reference))
                 .Distinct(StringComparer.Ordinal)
@@ -1320,7 +1434,7 @@ namespace Game.Framework.Editor
                 : reference;
         }
 
-        private static bool IsEditorConstrained(string assemblyName)
+        internal static bool IsEditorConstrained(string assemblyName)
         {
             string path = CompilationPipeline.GetAssemblyDefinitionFilePathFromAssemblyName(assemblyName);
             var dto = ReadAsmdef(path);
@@ -1387,6 +1501,7 @@ namespace Game.Framework.Editor
             public string name;
             public string[] references;
             public string[] precompiledReferences;
+            public bool overrideReferences;
             public bool autoReferenced = true;
             public string[] defineConstraints;
         }

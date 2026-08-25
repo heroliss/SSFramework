@@ -27,6 +27,7 @@ namespace Game.Framework.Editor
     {
         internal const string RunsRoot = "Library/SSFramework/BuildSizeProbe";
         internal const string ChildTemplateFileName = "FrameworkBuildSizeProbeChild.cs.txt";
+        internal const string UnityIl2CppPathEnvironmentVariable = "UNITY_IL2CPP_PATH";
 
         private const string LatestRunPreferencePrefix = "SSFramework.BuildSizeProbe.LatestRun.";
         private static readonly string[] AlwaysRequiredPackages =
@@ -143,6 +144,26 @@ namespace Game.Framework.Editor
         internal static bool IsRunning => _activeRun != null;
         internal static bool StopAfterCurrentRequested => _stopAfterCurrent;
         internal static RunReport CurrentReport => _activeRun?.Report;
+
+        /// <summary>
+        /// 无窗口状态的 Core 删除测试入口，供 CI / AI 自动化复用与人工快速回归。
+        /// 完整组合选择仍使用“真实构建体积证据”窗口。
+        /// </summary>
+        [MenuItem("SSFramework/诊断/AI 自动化/Core 隔离构建（Player Build）", priority = 31)]
+        private static void StartCoreOnlyFromMenu()
+        {
+            try
+            {
+                Start(new[] { "core" });
+                FrameworkEditorFeedback.ReportSummary(
+                    "Core 隔离构建",
+                    "已在 Library/SSFramework/BuildSizeProbe 启动独立 Player Build；结果完成后可在“真实构建体积证据”窗口查看。");
+            }
+            catch (Exception exception)
+            {
+                FrameworkEditorFeedback.ReportResult("Core 隔离构建", false, exception.Message);
+            }
+        }
 
         internal static string LatestRunDirectory =>
             EditorPrefs.GetString(LatestRunPreferencePrefix + HashProjectPath(), string.Empty);
@@ -476,6 +497,7 @@ namespace Game.Framework.Editor
                 CreateNoWindow = true,
                 WorkingDirectory = run.ProjectDirectory,
             };
+            SanitizeChildEnvironment(startInfo);
             Process process = Process.Start(startInfo);
             if (process == null)
                 throw new InvalidOperationException("无法启动隔离 Unity 子进程。");
@@ -539,10 +561,10 @@ namespace Game.Framework.Editor
 
             record.Status = "失败";
             record.Errors = Math.Max(record.Errors, 1);
-            string logTail = ReadLogTail(record.LogPath, 12);
-            record.Message = string.IsNullOrWhiteSpace(logTail)
+            string logExcerpt = ReadDiagnosticLogExcerpt(record.LogPath, 12);
+            record.Message = string.IsNullOrWhiteSpace(logExcerpt)
                 ? $"Unity 子进程退出码 {exitCode}，且没有生成结果文件。"
-                : $"Unity 子进程退出码 {exitCode}。日志末尾：\n{logTail}";
+                : $"Unity 子进程退出码 {exitCode}。关键日志：\n{logExcerpt}";
         }
 
         private static void CompleteRun(string note)
@@ -930,18 +952,41 @@ namespace Game.Framework.Editor
         private static ProfileRecord FindRecord(string key) =>
             _activeRun.Report.Profiles.First(record => record.Key == key);
 
-        private static string ReadLogTail(string path, int lines)
+        internal static void SanitizeChildEnvironment(System.Diagnostics.ProcessStartInfo startInfo)
+        {
+            if (startInfo == null) throw new ArgumentNullException(nameof(startInfo));
+
+            // HybridCLR 会在主 Unity 进程中写入进程级 UNITY_IL2CPP_PATH。Process.Start 默认继承该值，
+            // 但隔离工程刻意不安装 HybridCLR；若不移除，连普通脚本编译也会错误访问主工程的本地
+            // libil2cpp，最终只留下误导性的“executeMethod class could not be found”。
+            startInfo.EnvironmentVariables.Remove(UnityIl2CppPathEnvironmentVariable);
+        }
+
+        internal static string ReadDiagnosticLogExcerpt(string path, int lines)
         {
             if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return string.Empty;
             try
             {
                 string[] all = File.ReadAllLines(path);
-                return string.Join("\n", all.Skip(Math.Max(0, all.Length - lines)));
+                string[] signals = all.Where(IsDiagnosticLogLine).Take(lines).ToArray();
+                return signals.Length > 0
+                    ? string.Join("\n", signals)
+                    : string.Join("\n", all.Skip(Math.Max(0, all.Length - lines)));
             }
             catch
             {
                 return string.Empty;
             }
+        }
+
+        private static bool IsDiagnosticLogLine(string line)
+        {
+            if (string.IsNullOrWhiteSpace(line)) return false;
+            return line.IndexOf("Exception:", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   Regex.IsMatch(line, @"\berror\s+CS\d+\b", RegexOptions.IgnoreCase) ||
+                   line.IndexOf("Compilation failed", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   line.IndexOf("executeMethod class", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   line.IndexOf("BuildFailedException", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private static string QuoteArgument(string value) =>

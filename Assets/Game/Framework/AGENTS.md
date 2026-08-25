@@ -9,7 +9,7 @@
 - `Game.Framework.Boot` 是 AOT 薄壳，永不引用任何 `Game.Framework*` Runtime 程序集。
 - Runtime 与 Editor 分离。Drawer/EditorWindow 放 Editor asmdef；重第三方 Editor 依赖建立内聚的独立 Module，避免污染通用 Editor。
 - Core 与热更新 Runtime Module 保持 `autoReferenced:false`。新增/移动程序集时同步 `docs/framework-module-map.md`、热更清单、Demo/Test asmdef，并执行完整测试。
-- Runtime Module 直接使用的外部程序集必须在 asmdef `references` / `precompiledReferences` 中显式可见；不能因为插件 DLL 的 auto-reference 恰好让编译通过就隐藏依赖。改引用后运行 `SSFramework/诊断/模块裁剪审计`，核对真实元数据闭包与删除测试。
+- Runtime Module 直接使用的外部程序集必须按 Unity 的真实字段显式声明：asmdef 生成的程序集放 `references`；预编译 DLL 放带 `.dll` 后缀的 `precompiledReferences`，并设 `overrideReferences:true`。不得把 DLL 名写进 `references` 冒充声明，也不能依赖插件 `Auto Reference` 恰好让编译通过。改引用后运行 `SSFramework/诊断/模块裁剪审计`；`AllAsmdefs_PutPrecompiledDllsInTheEffectiveField` 同时作为机器门禁。
 - 通用 Editor 工具读取 Framework 源码、asmdef、`link.xml` 或模板时，通过 `FrameworkModuleSourceCatalog` 保留稳定 Asset Path 并解析真实 Physical Path；不要把 `Assets/...` 直接交给 `System.IO`，也不要假设源码一定在项目根目录内。该约束让同一 Implementation 可从 `Assets`、嵌入式 Package 或 `PackageCache` 工作。
 - 第三方库不直接修改；依赖行为通过 Adapter 封装，并在边界注释记录版本相关假设与失败语义。
 - Framework 面向使用者的 Editor 工具、默认配置与通用说明必须保持项目无关。可以动态展示扫描当前工程所得的场景、程序集与路径作为证据，但不得把 DemoScene、样例包、业务目录或项目程序集硬编码成默认值、固定分类或必经步骤；具体案例留在对应 Demo、项目配置或明确标记的案例文档中。

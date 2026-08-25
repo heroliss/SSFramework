@@ -28,7 +28,7 @@ Framework 工具和教学不得使用一个“已启用”布尔值合并以下�
 
 `SSFramework/诊断/模块裁剪审计` 继续从实际 Player 编译图、asmdef、DLL 元数据、热更 Profile，以及项目 Assets 与全部已注册 Package 中的 `link.xml` 派生 Catalog，不新增“已安装 Module”资产，也不让用户重复维护依赖。asmdef、linker 规则与模板的读取统一经过 `FrameworkModuleSourceCatalog`；稳定 Asset Path 用于定位和报告，真实 Physical Path 用于 I/O，因此 registry/Git 包位于 `Library/PackageCache` 时不会被误判为缺失。详见 ADR-0040。
 
-Build Editor Module 额外提供只读派生证据：比较唯一 Profile 与 HybridCLRSettings、复用代码包构建门禁校验 Generate stamp，并把当前热更拓扑顺序及 `AOTGenericReferences.PatchedAOTAssemblyList` 与 `Assets/HotUpdateDlls` 中转 manifest、实际文件互相核对。通用 Editor 通过反射读取这个可删除 Module，不建立编译期反向依赖；空 Profile 的纯 AOT 档位不强制生成代码包，缺失 / 重复 Profile 则不冒充明确配置。中转一致只证明结构与文件存在，不证明 DLL 内容相对源码新鲜，也不冒充 YooAsset bundle、Deploy 目录或 CDN 已更新。
+Build Editor Module 额外提供只读派生证据：比较唯一 Profile 与 HybridCLRSettings、复用代码包构建门禁校验 Generate stamp，并把当前热更拓扑顺序及 `AOTGenericReferences.PatchedAOTAssemblyList` 与 `Assets/HotUpdateDlls` 中转 manifest、实际文件互相核对。通用 Editor 通过反射读取这个可删除 Module，不建立编译期反向依赖；空 Profile 不强制 Generate，但审计会检查启用场景是否仍依赖 `HotUpdateLauncher`：保留 Launcher 时仍要求其 Player 分支读取的空清单 CodePackage，只有直接 AOT composition root 才把中转视为可选。缺失 / 重复 Profile 不冒充明确配置。中转一致只证明结构与文件存在，不证明 DLL 内容相对源码新鲜，也不冒充 YooAsset bundle、Deploy 目录或 CDN 已更新。
 
 每个 Runtime Module 显示：
 

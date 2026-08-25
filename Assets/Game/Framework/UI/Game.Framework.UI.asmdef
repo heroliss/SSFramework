@@ -4,16 +4,17 @@
     "references": [
         "Game.Framework",
         "UniTask",
-        "Unity.InputSystem",
-        "R3",
-        "ObservableCollections",
-        "ObservableCollections.R3"
+        "Unity.InputSystem"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
-    "overrideReferences": false,
-    "precompiledReferences": [],
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "R3.dll",
+        "ObservableCollections.dll",
+        "ObservableCollections.R3.dll"
+    ],
     "autoReferenced": false,
     "defineConstraints": [],
     "versionDefines": [],

@@ -3,18 +3,19 @@
     "rootNamespace": "Game.Framework.Odin.Editor",
     "references": [
         "Game.Framework",
-        "Game.Framework.Editor",
-        "Sirenix.OdinInspector.Editor",
-        "Sirenix.Utilities",
-        "Sirenix.Utilities.Editor"
+        "Game.Framework.Editor"
     ],
     "includePlatforms": [
         "Editor"
     ],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
-    "overrideReferences": false,
-    "precompiledReferences": [],
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "Sirenix.OdinInspector.Editor.dll",
+        "Sirenix.Utilities.dll",
+        "Sirenix.Utilities.Editor.dll"
+    ],
     "autoReferenced": true,
     "defineConstraints": [
         "ODIN_INSPECTOR"

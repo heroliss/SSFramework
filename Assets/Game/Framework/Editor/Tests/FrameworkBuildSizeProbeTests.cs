@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using NUnit.Framework;
@@ -226,6 +227,45 @@ namespace Game.Framework.Editor.Tests
                 Is.False);
             Assert.That(FrameworkBuildSizeProbe.IsShippingOutputPath("Symbols/GameAssembly.pdb"), Is.False);
             Assert.That(FrameworkBuildSizeProbe.IsShippingOutputPath("Probe.dSYM/Contents/file"), Is.False);
+        }
+
+        [Test]
+        public void ChildEnvironment_DoesNotInheritHybridClrIl2CppOverride()
+        {
+            var startInfo = new ProcessStartInfo { UseShellExecute = false };
+            startInfo.EnvironmentVariables[FrameworkBuildSizeProbe.UnityIl2CppPathEnvironmentVariable] =
+                "D:/main-project/HybridCLRData/LocalIl2CppData";
+
+            FrameworkBuildSizeProbe.SanitizeChildEnvironment(startInfo);
+
+            Assert.That(startInfo.EnvironmentVariables.ContainsKey(
+                FrameworkBuildSizeProbe.UnityIl2CppPathEnvironmentVariable), Is.False,
+                "隔离工程未安装 HybridCLR，不能继承主 Unity 进程的本地 IL2CPP 路径。 ");
+        }
+
+        [Test]
+        public void FailedChildLog_PrefersFirstActionableDiagnosticOverMisleadingTail()
+        {
+            string path = Path.Combine(Path.GetTempPath(), "SSFrameworkProbeLog-" + Guid.NewGuid() + ".log");
+            try
+            {
+                File.WriteAllLines(path, new[]
+                {
+                    "startup",
+                    "DirectoryNotFoundException: missing local il2cpp",
+                    "noise after the real failure",
+                    "executeMethod class 'SSFrameworkBuildProbeChild' could not be found.",
+                });
+
+                string excerpt = FrameworkBuildSizeProbe.ReadDiagnosticLogExcerpt(path, 12);
+
+                Assert.That(excerpt, Does.StartWith("DirectoryNotFoundException:"));
+                Assert.That(excerpt, Does.Contain("executeMethod class"));
+            }
+            finally
+            {
+                if (File.Exists(path)) File.Delete(path);
+            }
         }
 
         [Test]

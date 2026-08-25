@@ -45,7 +45,7 @@ CJK 全量字库体积大（单字体 15~30MB，多语言更甚），全量随�
 
 ### 4. asmdef：`Game.Framework.Fonts`（独立模块，不进内核）
 
-- `Framework/Fonts/`，引用 `Game.Framework` + `R3` + `Unity.TextMeshPro`（TextCore / UIElements 是引擎模块自动可用）；`autoReferenced:false`，进热更列表。命名空间取复数 `Fonts`——单数 `Font` 段会就近劫持 `UnityEngine.Font` 类型引用（同 `Systems` 先例，AGENTS #6）。
+- `Framework/Fonts/`，asmdef 引用 `Game.Framework` + `Unity.TextMeshPro`，并通过 `overrideReferences:true + precompiledReferences:["R3.dll"]` 显式声明预编译依赖（TextCore / UIElements 是引擎模块自动可用）；`autoReferenced:false`，进热更列表。命名空间取复数 `Fonts`——单数 `Font` 段会就近劫持 `UnityEngine.Font` 类型引用（同 `Systems` 先例，AGENTS #6）。
 - 内核不需要接口（ports & adapters 服务于「内核调模块」，本模块是纯接线组件、没人调它）——先例 `MonoUIBackKeyDriver`。顺带移除内核 asmdef 里无使用者的 `Unity.TextMeshPro` 引用（TMP 依赖归本模块）。
 
 ### 5. Editor 工具：常用字集生成（`Framework/Fonts/Editor/`）
