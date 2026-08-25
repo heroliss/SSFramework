@@ -26,7 +26,7 @@ Framework 工具和教学不得使用一个“已启用”布尔值合并以下�
 
 ### 2. 深化现有 Module Audit，不建立第二份模块注册表
 
-`SSFramework/诊断/模块裁剪审计` 继续从实际 Player 编译图、asmdef、DLL 元数据、热更 Profile 与 `Assets/**/link.xml` 派生 Catalog，不新增“已安装 Module”资产，也不让用户重复维护依赖。
+`SSFramework/诊断/模块裁剪审计` 继续从实际 Player 编译图、asmdef、DLL 元数据、热更 Profile，以及项目 Assets 与全部已注册 Package 中的 `link.xml` 派生 Catalog，不新增“已安装 Module”资产，也不让用户重复维护依赖。asmdef、linker 规则与模板的读取统一经过 `FrameworkModuleSourceCatalog`；稳定 Asset Path 用于定位和报告，真实 Physical Path 用于 I/O，因此 registry/Git 包位于 `Library/PackageCache` 时不会被误判为缺失。详见 ADR-0040。
 
 Build Editor Module 额外提供只读派生证据：比较唯一 Profile 与 HybridCLRSettings、复用代码包构建门禁校验 Generate stamp，并把当前热更拓扑顺序及 `AOTGenericReferences.PatchedAOTAssemblyList` 与 `Assets/HotUpdateDlls` 中转 manifest、实际文件互相核对。通用 Editor 通过反射读取这个可删除 Module，不建立编译期反向依赖；空 Profile 的纯 AOT 档位不强制生成代码包，缺失 / 重复 Profile 则不冒充明确配置。中转一致只证明结构与文件存在，不证明 DLL 内容相对源码新鲜，也不冒充 YooAsset bundle、Deploy 目录或 CDN 已更新。
 
@@ -66,7 +66,7 @@ Module 目录内的无条件 `link.xml` 进入 Module 风险提示。Module 目�
 
 asmdef 管**编译依赖边界**，UnityLinker 管**成员裁剪**，HybridCLR Profile 管**热更部署集合**，UPM 管**源码包、版本和包依赖**。四者互补，不互相替代。
 
-当前 Framework 仍位于项目 `Assets` 下，Module Audit 只读说明依赖与移除条件；不接管 UPM 的安装、卸载、版本解析、registry 或 lockfile。等某个删除边界在真实项目中长期稳定，再按 ADR-0010 把粗粒度 Module 抽成独立 UPM package，由 Package Manager 负责安装和传递依赖；Module Audit 仍负责项目级真实消费者、热更与 linker 证据。
+当前 Framework 仓库仍位于项目 `Assets` 下，但 Module Audit 和体积探针已经能读取已安装 UPM 源码。它们只读说明依赖与移除条件，不接管 UPM 的安装、卸载、版本解析、registry 或 lockfile。等某个删除边界在真实项目中长期稳定，再按 ADR-0010 把粗粒度 Module 抽成独立 UPM package，由 Package Manager 负责安装和传递依赖；Module Audit 仍负责项目级真实消费者、热更与 linker 证据。
 
 ## Consequences
 
@@ -92,6 +92,7 @@ asmdef 管**编译依赖边界**，UnityLinker 管**成员裁剪**，HybridCLR P
 - ADR-0010（UPM 抽包路线）
 - ADR-0027（列表绑定 Module 粒度）
 - ADR-0038（隔离构建体积探针）
+- ADR-0040（UPM-aware Module Source Catalog）
 - `docs/framework-module-map.md`
 - [Unity asmdef 文件格式](https://docs.unity3d.com/cn/6000.0/Manual/assembly-definition-file-format.html)
 - [Unity 托管代码裁剪](https://docs.unity3d.com/cn/6000.0/Manual/managed-code-stripping.html)

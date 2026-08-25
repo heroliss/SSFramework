@@ -23,6 +23,8 @@ Framework Module Audit 已能从 Player 编译图和 DLL 元数据证明 Core、
 
 组合及 Module 源目录继续来自 Framework Module Audit，同一份审计结果同时驱动窗口、原始报告和真实构建，不维护第二份“Core / UGUI / Toolkit”清单。这使 Module 变化集中在一个地方，保持 locality。
 
+Module 源码不假设位于 `Assets/Game/Framework`。审计先经 `FrameworkModuleSourceCatalog` 把 `Assets/...`、`Packages/...` 或 PackageCache 绝对路径还原为“稳定 Asset 身份 + 真实物理目录 + package id”，探针从物理目录复制，并在 JSON / Markdown 证据中只保留可分享的资产来源与实际复制内容指纹。复制到隔离工程时以程序集名作为目标目录，避免不同 Package 都使用 `Runtime/` 叶目录而互相覆盖；若两个 asmdef 源目录相同或互相嵌套则 fail-fast，因为目录复制无法诚实表达删除组合。Domain Reload 恢复会逐一校验报告档位、package 身份与内容指纹，漂移时完成已启动档位后停止。详见 ADR-0040。
+
 ### 2. 依赖版本来自当前工程，但按组合最小化
 
 隔离工程复用当前 `Packages/manifest.json` 中的 R3、UniTask、Input System、UGUI / TMP、YooAsset 版本以及内置 Unity Module 版本；NuGet 嵌入包和 Odin 运行时 DLL 从当前工程复制。每个组合单独生成最小 manifest，例如 Core 不安装 Input System / UGUI，Toolkit 不因另一档需要 UGUI 而被污染。
@@ -79,6 +81,7 @@ Unity Windows IL2CPP 会把 `*_BackUpThisFolder_ButDontShipItWithYourGame` 的 C
 - ✅ 主工程不切平台、不改场景、不改 Build Settings，人工与 AI 自动化都能安全重复运行。
 - ✅ 主工程 Domain Reload / 重启不会让仍在工作的子构建失去 owner；进度能从落盘状态恢复。
 - ✅ JSON + Markdown 同时服务 CI、issue 与人工阅读；窗口只负责选择与反馈，Implementation 保持 locality。
+- ✅ 源码位于 Assets、嵌入式 Package 或 registry/Git PackageCache 时复用同一探针 Implementation；报告能追溯每个 Module 的 package 版本。
 - ⚠ 第一次创建隔离工程要重新导入包，IL2CPP / WebGL 多档构建可能耗时较长并占用 `Library` 磁盘。
 - ⚠ `preserve="all"` 是体积上界，不应把 Windows 结果外推为 WebGL，也不应宣称等于具体游戏最终包体。
 - ⚠ 当前只证明代码 Module 与引擎/第三方依赖；业务资源包、字体字集、shader variants 与 HybridCLR CodePackage 仍应由真实产品构建单独度量。

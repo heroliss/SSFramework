@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using NUnit.Framework;
 using UnityEditor;
+using UnityEditor.Compilation;
 
 namespace Game.Framework.Editor.Tests
 {
@@ -12,14 +13,9 @@ namespace Game.Framework.Editor.Tests
         [Test]
         public void ReusableFrameworkSources_DoNotHardCodeRepositorySpecificProjects()
         {
-            string editorAsmdefPath = AssetDatabase.FindAssets("Game.Framework.Editor t:AssemblyDefinitionAsset")
-                .Select(AssetDatabase.GUIDToAssetPath)
-                .First(path => Path.GetFileName(path) == "Game.Framework.Editor.asmdef");
-            string editorDirectory = Path.GetDirectoryName(Path.GetFullPath(editorAsmdefPath));
-            string root = Directory.GetParent(editorDirectory)!.FullName;
             string[] forbidden =
             {
-                "Assets/Game/Framework/Demo",
+                "Assets/Game/Framework",
                 "Assets/Game/Outpost",
                 "Assets/Game/Main",
                 "Assets/Game/Settings",
@@ -31,17 +27,28 @@ namespace Game.Framework.Editor.Tests
                 "Outpost",
             };
             var violations = new List<string>();
-            foreach (string file in Directory.GetFiles(root, "*.cs", SearchOption.AllDirectories))
+            foreach (string assetPath in AssetDatabase.GetAllAssetPaths()
+                         .Where(path => path.EndsWith(".cs", System.StringComparison.OrdinalIgnoreCase)))
             {
-                string normalized = file.Replace('\\', '/');
+                string normalized = assetPath.Replace('\\', '/');
                 if (normalized.Contains("/Demo/") || normalized.Contains("/Test/") ||
                     normalized.Contains("/Tests/"))
                     continue;
 
-                string source = File.ReadAllText(file);
+                string assemblyName = CompilationPipeline.GetAssemblyNameFromScriptPath(assetPath);
+                if (string.IsNullOrEmpty(assemblyName) ||
+                    (!assemblyName.Equals(FrameworkModuleAudit.CoreAssemblyName,
+                         System.StringComparison.Ordinal) &&
+                     !assemblyName.StartsWith(FrameworkModuleAudit.CoreAssemblyName + ".",
+                         System.StringComparison.Ordinal)))
+                    continue;
+
+                FrameworkModuleSourceCatalog.SourceLocation location =
+                    FrameworkModuleSourceCatalog.Resolve(assetPath);
+                string source = File.ReadAllText(location.PhysicalPath);
                 foreach (string token in forbidden)
                     if (source.Contains(token))
-                        violations.Add(Path.GetRelativePath(root, file).Replace('\\', '/') + " → " + token);
+                        violations.Add(location.AssetPath + " → " + token);
             }
 
             Assert.That(violations, Is.Empty,

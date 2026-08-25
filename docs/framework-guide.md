@@ -2772,7 +2772,7 @@ builder.RegisterOwned(new WebSocketUtility(serializer: proto), typeof(IWebSocket
 
 #### 先查原因，再决定是否值得拆
 
-打开 `SSFramework/诊断/模块裁剪审计`。顶部先比较热更 Profile、HybridCLRSettings、Generate stamp 与当前 DLL 中转清单；Module 区优先显示有 linker 根或热更违规的项，每张卡再把 Player DLL 真实消费者与完整 asmdef 图中的删除阻塞者（无论是否进入 Player）分开。常用组合之外，还能展开“任意 Module 入口”查看真实闭包；全局第三方和 `Assets/HybridCLRGenerate/link.xml` 单独折叠显示，后者是 Generate 产物，不应手改。这里的原始 DLL 字节用于找候选，不是最终安装包大小。
+打开 `SSFramework/诊断/模块裁剪审计`。顶部先比较热更 Profile、HybridCLRSettings、Generate stamp 与当前 DLL 中转清单；Module 区优先显示有 linker 根或热更违规的项，每张卡再把 Player DLL 真实消费者与完整 asmdef 图中的删除阻塞者（无论是否进入 Player）分开，并显示源码来自项目 Assets 还是某个 package 版本。常用组合之外，还能展开“任意 Module 入口”查看真实闭包；项目与已安装 Package 的 `link.xml` 都会被扫描，全局第三方和 `Assets/HybridCLRGenerate/link.xml` 单独折叠显示，后者是 Generate 产物，不应手改。这里的原始 DLL 字节用于找候选，不是最终安装包大小。
 
 一个容易踩坑的例子：当前可选 Runtime Module 都引用 Core。若 Core 在热更 Profile 中，那么仍参与 Player 编译的 Fonts / Bridge 等 Module 不能被**单独**取消热更，否则它们会变成引用热更 Core 的 AOT 程序集，构建校验会拒绝。这不是配置工具“太严格”，而是 AOT 必须先于热更代码存在的加载边界。
 
@@ -2788,13 +2788,13 @@ Core 是稳定上游，不作为普通可删除 Module。对强体积约束项�
 
 #### 用真实构建回答“值不值得”
 
-打开 `SSFramework/诊断/真实构建体积证据`。探针在 `Library` 下创建隔离空工程，每档只复制审计闭包中的 Runtime Module；主工程业务场景、未选目录、HybridCLR 生成物和未选 Module 的 `link.xml` 都不会混入。除 Core / 两套 UI / full 外，“任意 Module 入口”默认折叠且不勾选，可按需验证 Yoo、Proto、Fonts、Bridge 等组合。
+打开 `SSFramework/诊断/真实构建体积证据`。探针在 `Library` 下创建隔离空工程，每档只从 Source Catalog 记录的真实物理目录复制审计闭包中的 Runtime Module；Module 在 `Assets`、嵌入式 Package 或 registry/Git PackageCache 都适用，报告同时记录稳定资产目录、package 身份和实际复制文件的内容指纹。主工程业务场景、未选目录、HybridCLR 生成物和未选 Module 的 `link.xml` 都不会混入。除 Core / 两套 UI / full 外，“任意 Module 入口”默认折叠且不勾选，可按需验证 Yoo、Proto、Fonts、Bridge 等组合。若 Domain Reload 后档位拓扑、package 或源码内容发生变化，探针会完成已附着的当前子进程后停止，避免一份报告混入两套来源。
 
 探针沿用当前平台、脚本后端与 stripping，且完整保留所选程序集，因此数字是**可比较的体积上界**：适合在同一环境比较“增加这个 Module 最多带来多少”，不等于具体游戏只使用部分类型后的精确增量，也不能把 Windows 数字外推到 WebGL。默认比较的“可发布输出”排除 Unity 的 BackUp / DoNotShip 中间产物与调试符号；正式产品仍要看包含业务 CodePackage、资源、字体字集和 shader variants 的完整发布构建。
 
 #### 与 Unity Package Manager 是什么关系
 
-它们不冲突，也不是同一层：asmdef 管编译依赖，UnityLinker 管成员裁剪，HybridCLR Profile 管热更部署集合，UPM 管 package 的安装、版本和传递依赖。当前 Module 位于项目 `Assets` 下，审计工具只读分析和给清单，不自动改 `Packages/manifest.json`、删目录或实现一套小型 Package Manager。等某个删除边界经过多个项目验证稳定，再把它按 ADR-0010 抽成独立 UPM package；届时由 Package Manager 安装 / 卸载，审计工具仍负责告诉你项目消费者、linker 和热更是否真正清干净。设计依据见 ADR-0039。
+它们不冲突，也不是同一层：asmdef 管编译依赖，UnityLinker 管成员裁剪，HybridCLR Profile 管热更部署集合，UPM 管 package 的安装、版本和传递依赖。当前仓库中的 Module 位于项目 `Assets`，但审计与体积探针已通过 Source Catalog 支持已安装 Package；工具仍只读分析和给清单，不自动改 `Packages/manifest.json`、删目录或实现一套小型 Package Manager。等某个删除边界经过多个项目验证稳定，再把它按 ADR-0010 抽成独立 UPM package；届时由 Package Manager 安装 / 卸载，审计工具仍负责告诉你项目消费者、linker 和热更是否真正清干净。设计依据见 ADR-0039、0040。
 
 ### 参考结构
 

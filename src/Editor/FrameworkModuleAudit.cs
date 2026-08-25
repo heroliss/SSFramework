@@ -42,6 +42,10 @@ namespace Game.Framework.Editor
         {
             internal string Name;
             internal string AsmdefPath;
+            internal string SourceDirectory;
+            internal string PackageName;
+            internal string PackageVersion;
+            internal string PackageId;
             internal string OutputPath;
             internal long OutputBytes;
             internal bool AutoReferenced;
@@ -119,7 +123,7 @@ namespace Game.Framework.Editor
         }
 
         /// <summary>
-        /// 一条位于 Assets 下的 UnityLinker 根标记。它可能保留 Module 自身，也可能由某个可选 Module
+        /// 一条位于项目 Assets 或已安装 Package 中的 UnityLinker 根标记。它可能保留 Module 自身，也可能由某个可选 Module
         /// 保留外部程序集；后者同样会影响“没有引用该 Module 时是否真的能变小”。
         /// </summary>
         internal sealed class LinkerPreservation
@@ -130,6 +134,9 @@ namespace Game.Framework.Editor
             internal string Scope;
             internal bool IgnoreIfUnreferenced;
             internal bool RequiredOnlyIfReferenced;
+            internal string SourcePackageName;
+            internal string SourcePackageVersion;
+            internal string SourcePackageId;
 
             internal bool IsUnconditional => !IgnoreIfUnreferenced && !RequiredOnlyIfReferenced;
             internal bool IsGenerated => Path.StartsWith("Assets/HybridCLRGenerate/", StringComparison.OrdinalIgnoreCase);
@@ -256,13 +263,28 @@ namespace Game.Framework.Editor
             var infos = new Dictionary<string, AssemblyInfo>(StringComparer.Ordinal);
             foreach (var assembly in playerAssemblies)
             {
-                string asmdefPath = CompilationPipeline.GetAssemblyDefinitionFilePathFromAssemblyName(assembly.name);
-                var dto = ReadAsmdef(asmdefPath);
+                string reportedAsmdefPath = CompilationPipeline.GetAssemblyDefinitionFilePathFromAssemblyName(assembly.name);
+                FrameworkModuleSourceCatalog.SourceLocation asmdefSource = null;
+                if (!string.IsNullOrWhiteSpace(reportedAsmdefPath) &&
+                    !FrameworkModuleSourceCatalog.TryResolve(
+                        reportedAsmdefPath, out asmdefSource, out string sourceReason))
+                    throw new InvalidDataException(
+                        $"无法解析程序集 {assembly.name} 的源码身份：{sourceReason}");
+                if (IsFrameworkAssembly(assembly.name) &&
+                    (asmdefSource == null || !File.Exists(asmdefSource.PhysicalPath)))
+                    throw new FileNotFoundException(
+                        $"Framework Module {assembly.name} 已进入 Player 编译图，但找不到其 asmdef 物理源码。",
+                        asmdefSource?.PhysicalPath ?? reportedAsmdefPath);
+                var dto = ReadAsmdef(reportedAsmdefPath);
                 string outputPath = FullPath(assembly.outputPath);
                 infos[assembly.name] = new AssemblyInfo
                 {
                     Name = assembly.name,
-                    AsmdefPath = asmdefPath ?? string.Empty,
+                    AsmdefPath = asmdefSource?.AssetPath ?? reportedAsmdefPath ?? string.Empty,
+                    SourceDirectory = asmdefSource?.PhysicalDirectory ?? string.Empty,
+                    PackageName = asmdefSource?.PackageName ?? string.Empty,
+                    PackageVersion = asmdefSource?.PackageVersion ?? string.Empty,
+                    PackageId = asmdefSource?.PackageId ?? string.Empty,
                     OutputPath = outputPath,
                     OutputBytes = File.Exists(outputPath) ? new FileInfo(outputPath).Length : 0L,
                     AutoReferenced = dto?.autoReferenced ?? true,
@@ -1141,40 +1163,62 @@ namespace Game.Framework.Editor
         private static LinkerPreservation[] ReadLinkerPreservations(
             IReadOnlyDictionary<string, AssemblyInfo> assemblies)
         {
-            var moduleDirectories = assemblies.Values
-                .Where(info => info.IsFrameworkRuntime && !string.IsNullOrWhiteSpace(info.AsmdefPath))
-                .Select(info => new
-                {
-                    info.Name,
-                    Directory = NormalizeFullPath(Path.GetDirectoryName(info.AsmdefPath)),
-                })
-                .Where(item => !string.IsNullOrEmpty(item.Directory))
-                .OrderByDescending(item => item.Directory.Length)
-                .ToArray();
-
             var result = new List<LinkerPreservation>();
-            foreach (string fullPath in Directory.EnumerateFiles(Application.dataPath, "link.xml",
-                         SearchOption.AllDirectories))
+            foreach (FrameworkModuleSourceCatalog.SourceLocation source in
+                     FrameworkModuleSourceCatalog.EnumerateFiles("link.xml"))
             {
-                string normalized = NormalizeFullPath(fullPath);
-                string owner = moduleDirectories
-                    .Where(item => IsPathInside(normalized, item.Directory))
-                    .Select(item => item.Name)
-                    .FirstOrDefault() ?? string.Empty;
-                string projectPath = ToProjectPath(fullPath);
+                string owner = ResolveLinkerOwner(source.PhysicalPath, assemblies.Values);
                 try
                 {
-                    result.AddRange(ParseLinkerPreservations(File.ReadAllText(fullPath), projectPath, owner));
+                    LinkerPreservation[] parsed = ParseLinkerPreservations(
+                        File.ReadAllText(source.PhysicalPath), source.AssetPath, owner);
+                    foreach (LinkerPreservation rule in parsed)
+                    {
+                        rule.SourcePackageName = source.PackageName;
+                        rule.SourcePackageVersion = source.PackageVersion;
+                        rule.SourcePackageId = source.PackageId;
+                    }
+                    result.AddRange(parsed);
                 }
                 catch (Exception ex)
                 {
-                    throw new InvalidDataException($"无法解析 UnityLinker 配置：{projectPath}", ex);
+                    throw new InvalidDataException($"无法解析 UnityLinker 配置：{source.AssetPath}", ex);
                 }
             }
             return result
                 .OrderBy(rule => rule.Path, StringComparer.Ordinal)
                 .ThenBy(rule => rule.AssemblyName, StringComparer.Ordinal)
                 .ToArray();
+        }
+
+        /// <summary>
+        /// 只在 link.xml 位于唯一且最深的 Module 源码目录时归属该 Module；package 根或同目录多
+        /// asmdef 保持全局/Package 证据，避免用枚举顺序猜 owner。
+        /// </summary>
+        internal static string ResolveLinkerOwner(
+            string physicalPath,
+            IEnumerable<AssemblyInfo> assemblies)
+        {
+            var matches = (assemblies ?? Array.Empty<AssemblyInfo>())
+                .Where(info => info != null && info.IsFrameworkRuntime &&
+                               !string.IsNullOrWhiteSpace(info.SourceDirectory))
+                .Where(info => FrameworkModuleSourceCatalog.IsPhysicalPathInside(
+                    physicalPath, info.SourceDirectory))
+                .Select(info => new
+                {
+                    info.Name,
+                    Directory = Path.GetFullPath(info.SourceDirectory)
+                        .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                })
+                .ToArray();
+            if (matches.Length == 0) return string.Empty;
+            int deepest = matches.Max(item => item.Directory.Length);
+            string[] owners = matches
+                .Where(item => item.Directory.Length == deepest)
+                .Select(item => item.Name)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            return owners.Length == 1 ? owners[0] : string.Empty;
         }
 
         /// <summary>
@@ -1229,30 +1273,17 @@ namespace Game.Framework.Editor
                 : assemblyName;
         }
 
-        private static string NormalizeFullPath(string path) =>
-            string.IsNullOrWhiteSpace(path)
-                ? string.Empty
-                : Path.GetFullPath(path).Replace('\\', '/').TrimEnd('/');
-
-        private static bool IsPathInside(string path, string directory) =>
-            path.Equals(directory, StringComparison.OrdinalIgnoreCase) ||
-            path.StartsWith(directory + "/", StringComparison.OrdinalIgnoreCase);
-
-        private static string ToProjectPath(string fullPath)
-        {
-            string root = NormalizeFullPath(Directory.GetParent(Application.dataPath)?.FullName);
-            string normalized = NormalizeFullPath(fullPath);
-            return IsPathInside(normalized, root)
-                ? normalized.Substring(root.Length + 1)
-                : normalized;
-        }
-
         private static AsmdefJson ReadAsmdef(string path)
         {
-            if (string.IsNullOrEmpty(path) || !File.Exists(path)) return null;
+            if (!FrameworkModuleSourceCatalog.TryResolve(
+                    path,
+                    out FrameworkModuleSourceCatalog.SourceLocation source,
+                    out _) ||
+                !File.Exists(source.PhysicalPath))
+                return null;
             try
             {
-                return JsonUtility.FromJson<AsmdefJson>(File.ReadAllText(path));
+                return JsonUtility.FromJson<AsmdefJson>(File.ReadAllText(source.PhysicalPath));
             }
             catch (Exception)
             {

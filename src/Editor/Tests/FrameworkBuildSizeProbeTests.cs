@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using NUnit.Framework;
 using UnityEngine;
@@ -43,8 +45,11 @@ namespace Game.Framework.Editor.Tests
                 Does.Not.Contain(FrameworkModuleAudit.ToolkitAssemblyName));
             Assert.That(plans.Single(plan => plan.Key == "toolkit").Assemblies,
                 Does.Not.Contain(FrameworkModuleAudit.UGuiAssemblyName));
-            Assert.That(plans.SelectMany(plan => plan.SourceDirectories),
+            Assert.That(plans.SelectMany(plan => plan.Sources).Select(source => source.AssetDirectory),
                 Has.None.Matches<string>(path => path.Replace('\\', '/').Contains("/Editor/")));
+            Assert.That(plans.SelectMany(plan => plan.Sources)
+                    .All(source => System.IO.Directory.Exists(source.PhysicalDirectory)), Is.True,
+                "隔离构建必须拿到 Assets 或 PackageCache 中真实存在的 Module 源码目录。");
         }
 
         [Test]
@@ -98,6 +103,119 @@ namespace Game.Framework.Editor.Tests
         }
 
         [Test]
+        public void SourceDirectories_MustBeDisjointToKeepDeletionEvidenceHonest()
+        {
+            string root = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(), "SSFrameworkProbeSourceOverlap");
+            var exception = Assert.Throws<System.IO.InvalidDataException>(() =>
+                FrameworkBuildSizeProbe.ValidateDisjointSourceDirectories(new[]
+                {
+                    new FrameworkBuildSizeProbe.ModuleSourcePlan
+                    {
+                        AssemblyName = "Game.Framework.Parent",
+                        AssetDirectory = "Packages/example/Runtime",
+                        PhysicalDirectory = root,
+                    },
+                    new FrameworkBuildSizeProbe.ModuleSourcePlan
+                    {
+                        AssemblyName = "Game.Framework.Child",
+                        AssetDirectory = "Packages/example/Runtime/Child",
+                        PhysicalDirectory = System.IO.Path.Combine(root, "Child"),
+                    },
+                }));
+
+            Assert.That(exception?.Message, Does.Contain("夹带另一个"));
+        }
+
+        [Test]
+        public void SourceIdentity_IgnoresCacheRelocationButRejectsPackageDrift()
+        {
+            var recorded = new FrameworkBuildSizeProbe.ModuleSourcePlan
+            {
+                AssemblyName = "Game.Framework",
+                AssetDirectory = "Packages/com.example.framework/Runtime",
+                PhysicalDirectory = "C:/cache/old",
+                PackageName = "com.example.framework",
+                PackageVersion = "1.0.0",
+                PackageId = "com.example.framework@1.0.0",
+                SourceFingerprint = "source-hash-1",
+            };
+            var relocated = new FrameworkBuildSizeProbe.ModuleSourcePlan
+            {
+                AssemblyName = recorded.AssemblyName,
+                AssetDirectory = recorded.AssetDirectory,
+                PhysicalDirectory = "D:/cache/new",
+                PackageName = recorded.PackageName,
+                PackageVersion = recorded.PackageVersion,
+                PackageId = recorded.PackageId,
+                SourceFingerprint = recorded.SourceFingerprint,
+            };
+
+            Assert.That(FrameworkBuildSizeProbe.FindSourceIdentityMismatch(
+                new[] { recorded }, new[] { relocated }), Is.Empty);
+
+            relocated.SourceFingerprint = "source-hash-2";
+            Assert.That(FrameworkBuildSizeProbe.FindSourceIdentityMismatch(
+                new[] { recorded }, new[] { relocated }), Does.Contain("源码身份已变化"));
+
+            relocated.SourceFingerprint = recorded.SourceFingerprint;
+            relocated.PackageId = "com.example.framework@2.0.0";
+            Assert.That(FrameworkBuildSizeProbe.FindSourceIdentityMismatch(
+                new[] { recorded }, new[] { relocated }), Does.Contain("源码身份已变化"));
+        }
+
+        [Test]
+        public void SourceFingerprint_TracksCopiedContentButIgnoresSkippedEditorFiles()
+        {
+            string root = Path.Combine(
+                Path.GetTempPath(), "SSFrameworkProbeFingerprint-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(Path.Combine(root, "Editor"));
+            try
+            {
+                string runtimeFile = Path.Combine(root, "Runtime.cs");
+                string editorFile = Path.Combine(root, "Editor", "Inspector.cs");
+                File.WriteAllText(runtimeFile, "runtime-v1");
+                File.WriteAllText(editorFile, "editor-v1");
+                string original = FrameworkBuildSizeProbe.ComputeModuleSourceFingerprint(root);
+
+                File.WriteAllText(editorFile, "editor-v2");
+                Assert.That(FrameworkBuildSizeProbe.ComputeModuleSourceFingerprint(root), Is.EqualTo(original),
+                    "Editor/Test 内容不会复制进隔离工程，不应让恢复身份误报漂移。");
+
+                File.WriteAllText(runtimeFile, "runtime-v2");
+                Assert.That(FrameworkBuildSizeProbe.ComputeModuleSourceFingerprint(root), Is.Not.EqualTo(original),
+                    "实际复制内容变化后，Domain Reload 恢复必须拒绝混用旧报告。 ");
+            }
+            finally
+            {
+                if (Directory.Exists(root)) Directory.Delete(root, true);
+            }
+        }
+
+        [Test]
+        public void RecoveryDrift_RejectsProfileRemovedFromCurrentModuleTopology()
+        {
+            var report = new FrameworkBuildSizeProbe.RunReport
+            {
+                FormatVersion = 4,
+                Profiles = new[]
+                {
+                    new FrameworkBuildSizeProbe.ProfileRecord
+                    {
+                        Key = "removed-module",
+                        Sources = Array.Empty<FrameworkBuildSizeProbe.ModuleSourcePlan>(),
+                    },
+                },
+            };
+
+            string drift = FrameworkBuildSizeProbe.FindRecoveryDrift(
+                report,
+                new Dictionary<string, FrameworkBuildSizeProbe.ProfilePlan>(StringComparer.Ordinal));
+
+            Assert.That(drift, Does.Contain("已不在当前 Module 拓扑"));
+        }
+
+        [Test]
         public void ShippingOutput_ExcludesUnityDoNotShipEvidenceAndDebugSymbols()
         {
             Assert.That(FrameworkBuildSizeProbe.IsShippingOutputPath("GameAssembly.dll"), Is.True);
@@ -126,6 +244,19 @@ namespace Game.Framework.Editor.Tests
                     {
                         Key = "core", Title = "只用核心", Status = "成功", OutputBytes = 1024,
                         RawOutputBytes = 4096,
+                        Sources = new[]
+                        {
+                            new FrameworkBuildSizeProbe.ModuleSourcePlan
+                            {
+                                AssemblyName = FrameworkModuleAudit.CoreAssemblyName,
+                                AssetDirectory = "Packages/com.example.framework/Runtime",
+                                PhysicalDirectory = "Library/PackageCache/com.example.framework/Runtime",
+                                PackageName = "com.example.framework",
+                                PackageVersion = "1.2.3",
+                                PackageId = "com.example.framework@1.2.3",
+                                SourceFingerprint = "abcdef0123456789",
+                            },
+                        },
                     },
                     new FrameworkBuildSizeProbe.ProfileRecord
                     {
@@ -141,6 +272,11 @@ namespace Game.Framework.Editor.Tests
             Assert.That(markdown, Does.Contain("体积上界"));
             Assert.That(markdown, Does.Contain("未选 Module"));
             Assert.That(markdown, Does.Contain("非发布构建证据"));
+            Assert.That(markdown, Does.Contain(
+                "Game.Framework ← Packages/com.example.framework/Runtime (com.example.framework@1.2.3)"));
+            Assert.That(markdown, Does.Contain("实际复制内容 SHA-256：`abcdef0123456789`"));
+            Assert.That(JsonUtility.ToJson(report), Does.Not.Contain("PackageCache"),
+                "可分享 JSON 只记录稳定 Asset/package 身份，不得泄漏机器专属物理缓存路径。");
         }
 
         [Test]

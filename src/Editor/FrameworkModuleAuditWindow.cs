@@ -394,6 +394,19 @@ namespace Game.Framework.Editor
             title.style.fontSize = 14;
             title.style.unityFontStyleAndWeight = FontStyle.Bold;
             card.Add(title);
+            string sourceOwner = string.IsNullOrWhiteSpace(status.Module.PackageName)
+                ? "项目 Assets"
+                : "Package " + (!string.IsNullOrWhiteSpace(status.Module.PackageId)
+                    ? status.Module.PackageId
+                    : status.Module.PackageName +
+                      (string.IsNullOrWhiteSpace(status.Module.PackageVersion)
+                          ? string.Empty
+                          : "@" + status.Module.PackageVersion));
+            var source = Wrap(new Label($"源码：{sourceOwner} · {status.Module.AsmdefPath}"));
+            source.tooltip = status.Module.SourceDirectory;
+            source.style.color = MutedTextColor;
+            source.style.marginBottom = 3;
+            card.Add(source);
 
             var metrics = CreateResponsiveRow("module-audit-status-metrics-" + status.Module.Name);
             metrics.Add(CreateMetric("Player 实际消费", status.DirectConsumers.Length.ToString(),
@@ -465,7 +478,14 @@ namespace Game.Framework.Editor
             foreach (var group in preservations.GroupBy(rule => rule.Path, StringComparer.OrdinalIgnoreCase))
             {
                 var card = CreateCard("module-audit-global-link-" + Math.Abs(group.Key.GetHashCode()));
-                string origin = group.First().IsGenerated ? "HybridCLR 生成物" : "项目 / 第三方规则";
+                FrameworkModuleAudit.LinkerPreservation first = group.First();
+                string origin = first.IsGenerated
+                    ? "HybridCLR 生成物"
+                    : !string.IsNullOrWhiteSpace(first.SourcePackageName)
+                        ? "Package " + (!string.IsNullOrWhiteSpace(first.SourcePackageId)
+                            ? first.SourcePackageId
+                            : first.SourcePackageName)
+                        : "项目 / 第三方规则";
                 var title = Wrap(new Label(origin + " · " + group.Key));
                 title.style.unityFontStyleAndWeight = FontStyle.Bold;
                 card.Add(title);

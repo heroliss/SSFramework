@@ -45,3 +45,4 @@
 | [0037](0037-ui-loading-ownership.md) | 全局 Loading 所有权：引用计数 lease + 陈旧句柄安全 | Accepted |
 | [0038](0038-isolated-framework-build-size-probe.md) | Framework Module 隔离构建体积探针：真实删除 + Player BuildReport 上界证据 | Accepted |
 | [0039](0039-framework-module-retention-model.md) | Framework Module 选择与保留证据：五层正交状态 + 安全移除事务 + UPM 分工 | Accepted |
+| [0040](0040-upm-aware-module-source-catalog.md) | UPM-aware Module Source Catalog：稳定 Asset 身份 + 真实物理源码 + Package 所有权 | Accepted |
