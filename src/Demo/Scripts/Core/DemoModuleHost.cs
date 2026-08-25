@@ -24,6 +24,7 @@ namespace Game.Framework.Demo.Core
         private readonly Stack<VisualElement> _targets = new();
         private readonly CancellationTokenSource _lifetimeCts = new();
         private readonly DemoTeachingTrace _teachingTrace = new();
+        private bool _experimentNoticeAvailableInSection;
         private bool _disposed;
 
         // 后续 Add* 实际落到的容器：栈顶优先，否则根 Content。
@@ -92,6 +93,7 @@ namespace Game.Framework.Demo.Core
         /// </summary>
         public Label AddPositioning(string text)
         {
+            _experimentNoticeAvailableInSection = false;
             _teachingTrace.Record(DemoTeachingElement.Positioning);
             return AddSectionTitleCore("定位：" + text);
         }
@@ -99,6 +101,7 @@ namespace Game.Framework.Demo.Core
         /// <summary>小节标题。开篇定位请使用 <see cref="AddPositioning"/>。</summary>
         public Label AddSectionTitle(string text)
         {
+            _experimentNoticeAvailableInSection = false;
             _teachingTrace.Record(DemoTeachingElement.Section);
             return AddSectionTitleCore(text);
         }
@@ -235,6 +238,65 @@ namespace Game.Framework.Demo.Core
         }
 
         /// <summary>
+        /// 教学实验提示卡：在执行故意失败、持久写入或共享状态变更前，统一说明影响范围、
+        /// 可观察证据与恢复动作。这里只约束信息结构，不代替章节捕获预期异常；未处理异常仍代表 Demo 缺陷。
+        /// </summary>
+        public VisualElement AddExperimentNotice(
+            string impact,
+            string expectedEvidence,
+            string recovery,
+            CodeRef code = default)
+        {
+            EnsureExperimentText(impact, nameof(impact));
+            EnsureExperimentText(expectedEvidence, nameof(expectedEvidence));
+            EnsureExperimentText(recovery, nameof(recovery));
+
+            _teachingTrace.Record(DemoTeachingElement.ExperimentNotice, code);
+            _experimentNoticeAvailableInSection = true;
+
+            var card = new VisualElement();
+            card.AddToClassList("demo-experiment");
+
+            var titleRow = new VisualElement();
+            titleRow.AddToClassList("demo-experiment-title-row");
+            var title = new Label("教学实验 · 执行前先看");
+            title.AddToClassList("demo-experiment-title");
+            titleRow.Add(title);
+            AppendCodeLink(titleRow, code);
+            card.Add(titleRow);
+
+            AddExperimentRow(card, "影响范围", impact);
+            AddExperimentRow(card, "预期证据", expectedEvidence);
+            AddExperimentRow(card, "恢复方式", recovery);
+
+            Target.Add(card);
+            return card;
+        }
+
+        private static void AddExperimentRow(VisualElement card, string term, string description)
+        {
+            var row = new VisualElement();
+            row.AddToClassList("demo-experiment-row");
+
+            var termLabel = new Label(term);
+            termLabel.AddToClassList("demo-experiment-term");
+            termLabel.enableRichText = false;
+            row.Add(termLabel);
+
+            var descLabel = new Label(DemoRichText.Render(description));
+            descLabel.AddToClassList("demo-experiment-desc");
+            descLabel.style.whiteSpace = WhiteSpace.Normal;
+            row.Add(descLabel);
+            card.Add(row);
+        }
+
+        private static void EnsureExperimentText(string text, string paramName)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                throw new ArgumentException("教学实验必须说明影响范围、预期证据和恢复方式。", paramName);
+        }
+
+        /// <summary>
         /// 对比表格：表头行 + 若干数据行，等宽列、单元格自动换行。用于把多项并排对比
         /// （如各 PlayMode / 各目录 / 各清单文件 的作用差异），比一堆 note 更易横向比读。
         /// 每个数据行的单元格数应与 <paramref name="headers"/> 一致。
@@ -281,19 +343,72 @@ namespace Game.Framework.Demo.Core
         /// </summary>
         /// <returns>动作按钮本身，便于调用方进一步配置（禁用、改文案等）。</returns>
         public Button AddActionRow(string buttonText, Action onClick, CodeRef code = default)
+            => AddActionRowCore(buttonText, onClick, code, DemoTeachingElement.Action, isExperiment: false);
+
+        /// <summary>
+        /// 当前小节中的教学实验动作。必须先调用 <see cref="AddExperimentNotice"/>；Host 自动添加稳定按钮前缀与样式，
+        /// 只记录语义、不捕获回调异常，避免把真实 Demo 缺陷伪装成预期失败。
+        /// </summary>
+        public Button AddExperimentActionRow(string buttonText, Action onClick, CodeRef code = default)
         {
-            _teachingTrace.Record(DemoTeachingElement.Action, code);
+            EnsureExperimentNoticeForAction();
+            return AddActionRowCore(
+                NormalizeExperimentButtonText(buttonText),
+                onClick,
+                code,
+                DemoTeachingElement.ExperimentAction,
+                isExperiment: true);
+        }
+
+        private Button AddActionRowCore(
+            string buttonText,
+            Action onClick,
+            CodeRef code,
+            DemoTeachingElement element,
+            bool isExperiment)
+        {
+            if (onClick == null) throw new ArgumentNullException(nameof(onClick));
+            _teachingTrace.Record(element, code);
             var row = new VisualElement();
             row.AddToClassList("demo-action-row");
 
             var btn = new Button(onClick) { text = buttonText };
             btn.AddToClassList("demo-btn");
+            if (isExperiment) btn.AddToClassList("demo-btn--experiment");
             row.Add(btn);
 
             AppendCodeLink(row, code);
             Target.Add(row);
             return btn;
         }
+
+        [Obsolete("异步教学实验按钮必须使用 AddExperimentAsyncActionRow(Func<CancellationToken, UniTask>)。", true)]
+        public Button AddExperimentActionRow(string buttonText, Func<UniTask> onClick, CodeRef code = default)
+            => throw new NotSupportedException();
+
+        [Obsolete("异步教学实验按钮必须使用 AddExperimentAsyncActionRow(Func<CancellationToken, UniTask>)。", true)]
+        public Button AddExperimentActionRow(string buttonText, Func<UniTaskVoid> onClick, CodeRef code = default)
+            => throw new NotSupportedException();
+
+        [Obsolete("异步教学实验按钮必须使用 AddExperimentAsyncActionRow(Func<CancellationToken, UniTask>)。", true)]
+        public Button AddExperimentActionRow(string buttonText, Func<System.Threading.Tasks.Task> onClick, CodeRef code = default)
+            => throw new NotSupportedException();
+
+        [Obsolete("异步教学实验按钮必须使用 AddExperimentAsyncActionRow(Func<CancellationToken, UniTask>)。", true)]
+        public Button AddExperimentActionRow(string buttonText, Func<System.Threading.Tasks.ValueTask> onClick, CodeRef code = default)
+            => throw new NotSupportedException();
+
+        [Obsolete("异步教学实验按钮必须使用 AddExperimentAsyncActionRow(Func<CancellationToken, UniTask>)。", true)]
+        public Button AddExperimentActionRow<T>(string buttonText, Func<UniTask<T>> onClick, CodeRef code = default)
+            => throw new NotSupportedException();
+
+        [Obsolete("异步教学实验按钮必须使用 AddExperimentAsyncActionRow(Func<CancellationToken, UniTask>)。", true)]
+        public Button AddExperimentActionRow<T>(string buttonText, Func<System.Threading.Tasks.Task<T>> onClick, CodeRef code = default)
+            => throw new NotSupportedException();
+
+        [Obsolete("异步教学实验按钮必须使用 AddExperimentAsyncActionRow(Func<CancellationToken, UniTask>)。", true)]
+        public Button AddExperimentActionRow<T>(string buttonText, Func<System.Threading.Tasks.ValueTask<T>> onClick, CodeRef code = default)
+            => throw new NotSupportedException();
 
         // 这组不可调用重载是编译期护栏：返回 task 的表达式 lambda 本来也能被 C# 当成 Action，悄悄丢掉返回值。
         // 给常见异步返回类型提供更精确的候选后，错误写法会命中 [Obsolete(error: true)]，在编译期被引导到带生命周期令牌的入口。
@@ -335,17 +450,44 @@ namespace Game.Framework.Demo.Core
             string buttonText,
             Func<CancellationToken, UniTask> onClick,
             CodeRef code = default)
+            => AddAsyncActionRowCore(buttonText, onClick, code, DemoTeachingElement.Action, isExperiment: false);
+
+        /// <summary>
+        /// 当前小节中的异步教学实验动作。生命周期、禁用与异常兜底语义同 <see cref="AddAsyncActionRow"/>；
+        /// 章节仍应只在回调内捕获可精确识别的预期失败。
+        /// </summary>
+        public Button AddExperimentAsyncActionRow(
+            string buttonText,
+            Func<CancellationToken, UniTask> onClick,
+            CodeRef code = default)
+        {
+            EnsureExperimentNoticeForAction();
+            return AddAsyncActionRowCore(
+                NormalizeExperimentButtonText(buttonText),
+                onClick,
+                code,
+                DemoTeachingElement.ExperimentAction,
+                isExperiment: true);
+        }
+
+        private Button AddAsyncActionRowCore(
+            string buttonText,
+            Func<CancellationToken, UniTask> onClick,
+            CodeRef code,
+            DemoTeachingElement element,
+            bool isExperiment)
         {
             if (onClick == null) throw new ArgumentNullException(nameof(onClick));
             if (_disposed) throw new ObjectDisposedException(nameof(DemoModuleHost));
 
-            _teachingTrace.Record(DemoTeachingElement.Action, code);
+            _teachingTrace.Record(element, code);
 
             var row = new VisualElement();
             row.AddToClassList("demo-action-row");
 
             var btn = new Button { text = buttonText };
             btn.AddToClassList("demo-btn");
+            if (isExperiment) btn.AddToClassList("demo-btn--experiment");
             var binding = new DemoAsyncActionBinding(btn, onClick, _lifetimeCts.Token, buttonText);
             btn.clicked += () => binding.Invoke().Forget();
             row.Add(btn);
@@ -353,6 +495,21 @@ namespace Game.Framework.Demo.Core
             AppendCodeLink(row, code);
             Target.Add(row);
             return btn;
+        }
+
+        private void EnsureExperimentNoticeForAction()
+        {
+            if (!_experimentNoticeAvailableInSection)
+                throw new InvalidOperationException(
+                    "教学实验动作前必须在同一小节调用 AddExperimentNotice，说明影响范围、预期证据和恢复方式。");
+        }
+
+        private static string NormalizeExperimentButtonText(string buttonText)
+        {
+            if (string.IsNullOrWhiteSpace(buttonText))
+                throw new ArgumentException("教学实验按钮必须有可读名称。", nameof(buttonText));
+            const string prefix = "教学实验 · ";
+            return buttonText.StartsWith(prefix, StringComparison.Ordinal) ? buttonText : prefix + buttonText;
         }
 
         /// <summary>

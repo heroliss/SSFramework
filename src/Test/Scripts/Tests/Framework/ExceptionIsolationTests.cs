@@ -138,10 +138,11 @@ namespace Game.Framework.Test
 
             // 第一次 SendEvent：bad handler 抛，R3 会通过 OnErrorResume 走默认处理
             // 我们不关心异常去哪儿（R3 控制），只关心 safe handler 至少被调用一次
-            LogAssert.ignoreFailingMessages = true;
-            _ctx.SendEvent(new TestEvent("a", 1));
-            _ctx.SendEvent(new TestEvent("b", 2));
-            LogAssert.ignoreFailingMessages = false;
+            RunIgnoringExpectedFailingMessages(() =>
+            {
+                _ctx.SendEvent(new TestEvent("a", 1));
+                _ctx.SendEvent(new TestEvent("b", 2));
+            });
 
             Assert.GreaterOrEqual(safeCount, 1,
                 "另一个正常订阅者至少应当收到一次事件——异常 handler 不应让整个 Subject 停摆");
@@ -160,9 +161,8 @@ namespace Game.Framework.Test
 
             using var bad = _ctx.RegisterEvent<TestEvent>(_ => throw new InvalidOperationException());
 
-            LogAssert.ignoreFailingMessages = true;
-            _ctx.SendEvent(new TestEvent("after-bad", 1));
-            LogAssert.ignoreFailingMessages = false;
+            RunIgnoringExpectedFailingMessages(() =>
+                _ctx.SendEvent(new TestEvent("after-bad", 1)));
 
             Assert.GreaterOrEqual(safeCount, 2,
                 "添加 bad handler 后，后续 SendEvent 仍应至少投递到 safe handler 一次");
@@ -189,6 +189,21 @@ namespace Game.Framework.Test
             Assert.DoesNotThrow(
                 () => _ctx.ExecuteCommand(new CommandWithMissingDep()),
                 "Inject 失败应当输出 Warning 后继续执行 Command，由业务自己处理 null");
+        }
+
+        private static void RunIgnoringExpectedFailingMessages(Action action)
+        {
+            var previous = LogAssert.ignoreFailingMessages;
+            try
+            {
+                LogAssert.ignoreFailingMessages = true;
+                action();
+            }
+            finally
+            {
+                // 这是进程级测试开关；即使被测事件意外上抛，也不能污染后续无关测试。
+                LogAssert.ignoreFailingMessages = previous;
+            }
         }
     }
 }

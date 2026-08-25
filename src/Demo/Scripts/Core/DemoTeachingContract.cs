@@ -14,7 +14,9 @@ namespace Game.Framework.Demo.Core
         Step,
         Concept,
         Table,
+        ExperimentNotice,
         Action,
+        ExperimentAction,
         Value,
         CodeReference,
         Unavailable,
@@ -34,6 +36,8 @@ namespace Game.Framework.Demo.Core
         internal int ExplanationCount { get; private set; }
         internal int StepCount { get; private set; }
         internal int StructuredExplanationCount { get; private set; }
+        internal int ExperimentNoticeCount { get; private set; }
+        internal int ExperimentActionCount { get; private set; }
         internal int ActionCount { get; private set; }
         internal int ValueCount { get; private set; }
         internal int CodeReferenceCount { get; private set; }
@@ -71,8 +75,17 @@ namespace Game.Framework.Demo.Core
                     ExplanationCount++;
                     StructuredExplanationCount++;
                     break;
+                case DemoTeachingElement.ExperimentNotice:
+                    ExplanationCount++;
+                    StructuredExplanationCount++;
+                    ExperimentNoticeCount++;
+                    break;
                 case DemoTeachingElement.Action:
                     ActionCount++;
+                    break;
+                case DemoTeachingElement.ExperimentAction:
+                    ActionCount++;
+                    ExperimentActionCount++;
                     break;
                 case DemoTeachingElement.Value:
                     ValueCount++;

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using Game.Framework.Demo.Core;
@@ -31,24 +32,22 @@ namespace Game.Framework.Demo.Modules
         private const string DemoCategory = "Demo";
 
         /// <summary>
-        /// demo 捕获 sink：把收到的每条日志回调出去喂给「捕获面板」。演示两件事——
+        /// demo 捕获 sink：把收到的每条日志放进并发队列，再由主线程喂给「捕获面板」。演示两件事——
         /// ① <see cref="ILogSink"/> 是可插拔接缝（<c>AddSink</c> 就能让日志多一个去向）；
         /// ② 每个 sink 自带 <see cref="MinLevel"/>、独立过滤（面板可只留 Warning+，而 Console 照收全部）。
         /// </summary>
         private sealed class CapturingSink : ILogSink
         {
-            private readonly Action<LogEntry> _onLog;
+            private readonly ConcurrentQueue<LogEntry> _pending = new();
             public LogLevel MinLevel { get; set; }
 
-            public CapturingSink(LogLevel minLevel, Action<LogEntry> onLog)
-            {
-                MinLevel = minLevel;
-                _onLog = onLog;
-            }
+            public CapturingSink(LogLevel minLevel) => MinLevel = minLevel;
 
-            // ⚠ 契约：Log 可能被任意线程调用（如网络后台线程记日志）。本 demo 的日志都由主线程触发，
-            // 故直接回调更新 UI 是安全的；真实的跨线程 sink（如文件）要自行加锁（见 FileLogSink）。
-            public void Log(in LogEntry entry) => _onLog(entry);
+            // CaptureUnityLogs 会从 logMessageReceivedThreaded 投递后台日志。sink 只入并发队列，
+            // UI List 与 Label 统一由 VisualElement scheduler 在主线程排空，不能从日志线程直接触碰。
+            public void Log(in LogEntry entry) => _pending.Enqueue(entry);
+
+            public bool TryDequeue(out LogEntry entry) => _pending.TryDequeue(out entry);
         }
 
         // 插值惰性求值的探针：被求值就自增。用它证明「总闸门没放行到 Trace 时 $"..." 里的表达式一次都没跑」。
@@ -65,10 +64,11 @@ namespace Game.Framework.Demo.Modules
             // 进入本章时的全局日志状态快照，切走本章时原样恢复：Log 是进程级静态门面，
             // demo 不能把它留在「装着捕获 sink / 总闸门开着 / 接管着 Unity 日志流」的脏状态里污染其它章。
             var prevMinLevel = Log.MinLevel;
+            var previousCaptureUnityLogs = Log.IsCapturingUnityLogs;
 
             CapturingSink capturing = null;    // 当前装着的捕获 sink（null = 没装）
             FileLogSink fileSink = null;       // 当前装着的文件 sink（null = 没装）
-            bool capturingUnity = false;       // 是否已接管 Unity 日志流
+            bool capturingUnity = previousCaptureUnityLogs; // 展示真实全局状态；离章恢复进入前值，不擅自关闭业务已有接管。
             var captured = new List<string>(); // 捕获面板的行缓冲（只留最近若干行）
 
             // ── 定位 ──
@@ -92,22 +92,26 @@ namespace Game.Framework.Demo.Modules
                 Log.Warning("配置缺省，回退默认值", DemoCategory);
                 levelLabel.text = "已发一条 Warning（Console 里是黄色警告）。";
             }, CodeRef.Here("Log.Warning(\"配置缺省", "Warning"));
-            host.AddActionRow("Error（自动补抓堆栈）", () =>
+            host.AddExperimentNotice(
+                "只写日志，不让游戏流程失败；会向当前所有满足级别的 sink 广播。",
+                "Error 无异常：Console 1 条 Error、结构化 sink 1 个 LogEntry。Error + 异常：结构化 sink 仍是 1 个条目，默认 Console 显示 1 条 Error + 1 条 Exception。",
+                "无需恢复业务状态；观察完可清空 Unity Console。文件/遥测 sink 若已安装，也会保留对应记录。");
+            host.AddExperimentActionRow("Error（自动补抓堆栈）", () =>
             {
                 Log.Error("存档写入失败", category: DemoCategory);
-                levelLabel.text = "已发一条 Error。注意：没带异常的 Error，门面会**自动补抓调用栈**存进 LogEntry.StackTrace——落盘的 error 若既无异常又无栈，事后只剩一句话、根本没法定位。";
+                levelLabel.text = "[教学预期] Console 1 条 Error；结构化 sink 1 个 LogEntry。没带异常时，门面会自动补抓调用栈存进 LogEntry.StackTrace。";
             }, CodeRef.Here("Log.Error(\"存档写入失败\"", "Error"));
-            host.AddActionRow("Error + 异常", () =>
+            host.AddExperimentActionRow("Error + 异常", () =>
             {
                 Log.Error("存档反序列化失败", new InvalidOperationException("bad json"), DemoCategory);
-                levelLabel.text = "已发 Error + 异常：异常自带堆栈，故不再补抓。默认 sink 额外走一次 Debug.LogException 保留 Unity 的定位能力。";
+                levelLabel.text = "[教学预期] 结构化 sink 仍只收到 1 个 LogEntry；默认 Console 显示 1 条 Error + 1 条 Exception，以保留 Unity 的异常定位能力。";
             }, CodeRef.Here("new InvalidOperationException(\"bad json\")", "Error + 异常"));
             host.AddActionRow("Info + context（点 Console 高亮场景物体）", () =>
             {
                 var assets = UnityEngine.Object.FindFirstObjectByType<DemoPoolAssets>();
                 Log.Info("这条日志挂了个 context——去 Console 点它，Hierarchy 会高亮到对应物体", DemoCategory, context: assets);
                 levelLabel.text = assets != null
-                    ? "已发送。去 Unity Console **点这条日志**，Hierarchy 里会高亮定位到那个 GameObject——这是 Unity 独有的实用能力（等价 Debug.Log(msg, context) 的第二参）。"
+                    ? "已发送。去 Unity Console 点这条日志，Hierarchy 会高亮对应 GameObject——这是 Unity 独有的实用能力（等价 Debug.Log(msg, context) 的第二参）。"
                     : "场景里没找到可用作 context 的物体，但 API 用法就是第三参 context。";
             }, CodeRef.Here("context: assets", "context 参数"));
 
@@ -161,7 +165,7 @@ namespace Game.Framework.Demo.Modules
 
             // ── 可插拔 sink ──
             host.AddSectionTitle("接缝：装一个捕获 sink，看多播 + 每 sink 自带 MinLevel");
-            var panel = host.AddValueDisplay("捕获面板（空）：装上 demo 捕获 sink 后，同一条日志会**同时**进 Unity Console 和这里——这就是「多播」。");
+            var panel = host.AddValueDisplay("捕获面板（空）：装上 demo 捕获 sink 后，同一条日志会同时进 Unity Console 和这里——这就是「多播」。");
             panel.style.whiteSpace = WhiteSpace.Normal;
             panel.enableRichText = false; // 捕获到的日志正文可能含任意字符，关富文本免得被当标签吞掉
             var sinkLabel = host.AddValueDisplay();
@@ -171,7 +175,7 @@ namespace Game.Framework.Demo.Modules
                 ? "当前没装捕获 sink。发的日志只进默认 Console sink。"
                 : $"已装捕获 sink，MinLevel = {capturing.MinLevel}。低于它的级别不会进捕获面板，但仍进 Console——每个 sink 独立过滤。";
 
-            // 捕获 sink 的回调：把一条 LogEntry 格式化进面板缓冲（只留最近 8 行）。
+            // 主线程排空捕获队列：把一条 LogEntry 格式化进面板缓冲（只留最近 8 行）。
             void AppendCaptured(LogEntry e)
             {
                 string cat = e.Category != null ? $"[{e.Category}] " : "";
@@ -189,12 +193,22 @@ namespace Game.Framework.Demo.Modules
                 if (captured.Count > 8) captured.RemoveAt(0);
                 panel.text = "捕获面板（最近 8 条）：\n" + string.Join("\n", captured);
             }
+
+            void DrainCapturedEntries()
+            {
+                while (capturing != null && capturing.TryDequeue(out var entry))
+                    AppendCaptured(entry);
+            }
+
+            // UI Toolkit scheduler 在主线程执行；离章时暂停，防止旧页面继续消费队列。
+            var captureDrain = panel.schedule.Execute(DrainCapturedEntries).Every(50);
+            Bag.Add(Disposable.Create(captureDrain.Pause));
             RefreshSink();
 
             host.AddActionRow("装捕获 sink（AddSink，MinLevel=Trace 全收）", () =>
             {
                 if (capturing != null) return;
-                capturing = new CapturingSink(LogLevel.Trace, AppendCaptured);
+                capturing = new CapturingSink(LogLevel.Trace);
                 Log.AddSink(capturing);
                 RefreshSink();
             }, CodeRef.Here("Log.AddSink(capturing)", "AddSink 装 sink"));
@@ -207,6 +221,7 @@ namespace Game.Framework.Demo.Modules
             host.AddActionRow("拆掉捕获 sink（RemoveSink）", () =>
             {
                 if (capturing == null) return;
+                DrainCapturedEntries();
                 Log.RemoveSink(capturing);
                 capturing = null; // 操作按钮主动拆除
                 RefreshSink();
@@ -215,6 +230,7 @@ namespace Game.Framework.Demo.Modules
                 new CodeRef("Assets/Game/Framework/Core/Logging/ILogSink.cs", "public interface ILogSink", "sink 接缝契约"));
             host.AddSubNote("⚠ `ILogSink.Log` 可能被**后台线程**调用（如网络接收循环记日志）：持可变状态（文件句柄 / 缓冲）的 sink 要自行加锁（见 `FileLogSink`）。门面对 sink 列表用 copy-on-write，广播本身无锁。",
                 CodeRef.Here("private sealed class CapturingSink", "demo 捕获 sink 实现"));
+            host.AddSubNote("本章捕获 sink 也遵守这条：后台线程只写 `ConcurrentQueue`，UI Toolkit scheduler 再在主线程排空并更新面板；不能因为 Demo 按钮本身从主线程点击，就假设接管来的引擎/第三方日志也在主线程。");
 
             // ── 接管 Unity 日志流 ──
             host.AddSectionTitle("接管 Unity 日志流：让引擎报错 / 第三方 / 裸 Debug.Log 也进 sink");
@@ -222,8 +238,13 @@ namespace Game.Framework.Demo.Modules
             unityLabel.style.whiteSpace = WhiteSpace.Normal;
             void RefreshUnity() => unityLabel.text = capturingUnity
                 ? "已接管 ✓ 现在裸 Debug.Log* 也会进 sink（捕获面板 / 文件）。试试下面「发一条裸 Debug.LogError」。"
-                : "未接管。此时裸 Debug.Log* **不会**进 sink——玩家崩溃的那个 NullReferenceException 根本不在你的日志文件里。";
+                : "未接管。此时裸 Debug.Log* 不会进 sink——玩家崩溃的那个 NullReferenceException 根本不在你的日志文件里。";
             RefreshUnity();
+
+            host.AddExperimentNotice(
+                "向 Unity 原生日志流发送 1 条 Error；若已接管，会额外进入框架 sink，但不会回声写回 Console。",
+                "Console 始终只有 1 条 Error；接管并安装捕获 sink 后，面板额外收到 1 个标记“来自 Unity 日志流”的条目。",
+                "无需恢复日志内容；可点取消接管。切离本章时会恢复进入本章前的接管状态。");
 
             host.AddActionRow("接管 Unity 日志流（CaptureUnityLogs）", () =>
             {
@@ -232,7 +253,7 @@ namespace Game.Framework.Demo.Modules
                 capturingUnity = true;
                 RefreshUnity();
             }, CodeRef.Here("Log.CaptureUnityLogs(true)", "接管 Unity 日志流"));
-            host.AddActionRow("发一条裸 Debug.LogError（完全不走门面）", () =>
+            host.AddExperimentActionRow("发一条裸 Debug.LogError", () =>
             {
                 Debug.LogError("[裸 Debug] 我根本没调用 Log 门面");
                 unityLabel.text = capturingUnity
@@ -258,16 +279,25 @@ namespace Game.Framework.Demo.Modules
             var fileLabel = host.AddValueDisplay();
             fileLabel.style.whiteSpace = WhiteSpace.Normal;
             void RefreshFile() => fileLabel.text = fileSink == null
-                ? "没装文件 sink。"
-                : $"已装文件 sink → {logPath}（Info 及以上落盘，超阈值自动按大小滚动、保留最近几份）。";
+                ? $"没装文件 sink。已有日志文件不会被删除：{logPath}"
+                : $"已装文件 sink → {logPath}（持久追加；Info 及以上落盘，超阈值自动按大小滚动、保留最近几份）。";
             RefreshFile();
-            host.AddActionRow("装文件 sink（AddSink FileLogSink）", () =>
+            host.AddExperimentNotice(
+                "创建或追加 persistentDataPath/framework-logs/demo.log；日志跨 Play 保留，离章只关闭句柄、不删除文件。",
+                "安装后总会写入会话头；仅当全局 MinLevel 也放行 Info 时，示例 Info 才会追加。结果区会明确告诉你本次是否被总闸门过滤。",
+                "点“拆掉文件 sink”关闭句柄；需要清文件时在日志目录中明确删除 demo.log。");
+            host.AddExperimentActionRow("装文件 sink（创建/追加 demo.log）", () =>
             {
                 if (fileSink != null) return;
+                // 这里解释的是“全局总闸门”本身，不能用 IsEnabled：它还会把安装前已有 sink 的分闸门算进去。
+                bool infoEnabled = Log.MinLevel <= LogLevel.Info;
                 fileSink = new FileLogSink(logPath, LogLevel.Info);
                 Log.AddSink(fileSink);
                 Log.Info("文件 sink 已装上，这条会落盘", DemoCategory);
                 RefreshFile();
+                fileLabel.text += infoEnabled
+                    ? "\n本次全局总闸门放行 Info：会话头 + 示例 Info 均已追加。"
+                    : $"\n本次全局总闸门为 {Log.MinLevel}：会话头已写入，但示例 Info 被过滤；把总闸门调到 Info/Trace 后再发日志即可落盘。";
             }, CodeRef.Here("new FileLogSink(logPath", "装文件 sink"));
             host.AddActionRow("拆掉文件 sink（RemoveSink + Dispose 关句柄）", () =>
             {
@@ -318,10 +348,32 @@ namespace Game.Framework.Demo.Modules
             // 切走本章：拆掉 demo 装的 sink、取消接管、恢复总闸门——不给全局静态门面留脏状态。
             Bag.Add(Disposable.Create(() =>
             {
-                if (capturing != null) Log.RemoveSink(capturing);
-                if (fileSink != null) { Log.RemoveSink(fileSink); fileSink.Dispose(); }
-                if (capturingUnity) Log.CaptureUnityLogs(false);
-                Log.MinLevel = prevMinLevel;
+                try
+                {
+                    if (capturing != null) Log.RemoveSink(capturing);
+                }
+                finally
+                {
+                    try
+                    {
+                        if (fileSink != null)
+                        {
+                            Log.RemoveSink(fileSink);
+                            fileSink.Dispose();
+                        }
+                    }
+                    finally
+                    {
+                        try
+                        {
+                            Log.CaptureUnityLogs(previousCaptureUnityLogs);
+                        }
+                        finally
+                        {
+                            Log.MinLevel = prevMinLevel;
+                        }
+                    }
+                }
             }));
         }
     }

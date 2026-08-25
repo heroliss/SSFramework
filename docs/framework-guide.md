@@ -1257,6 +1257,14 @@ public class MiniGameController : MonoBehaviour
 
 `MonoViewBase/MonoModelBase/MonoSystemBase/MonoUtilityBase` 内置 protected `Bag`——动态加载通过 `Bag.Load<T>(location)` / `Bag.LoadScene(...)`，handle 自动登记到 Bag，`OnDestroy` 时统一释放；`Bag.LoadText` / `Bag.LoadBytes` 是内容直读（拷出即释放句柄、不进 Bag），按包构建类型自动路由（普通 AB 包按 TextAsset 取内容，RawFile 包走原生通道）。`AssetReference<T>` 字段则自己持有 handle，并由宿主 `OnDestroy` 自动 `Dispose`。真实引用计数由具体资源 provider 维护，框架只管理“谁负责释放哪一类 handle”。
 
+`ScriptableObject` 或纯 C# 配置没有 Mono `Awake/OnDestroy`，应由实际持有者显式建立所有权：加载配置的 `Bag` 调用 `Bag.BindAssetReferences(config)`，把配置的直接 `AssetReference` 字段绑定到同一个资源入口、宿主取消信号和释放作用域。框架刻意不递归接管嵌套/共享 SO，避免某个短命 View 把共享配置的引用提前释放。旧代码若完全没绑定，仍可从 `GameContext.Main` 取得加载器以兼容迁移，但会输出 Warning；这个回退**只补加载来源，不把 handle 登记进任何 Bag**，引用仍必须手动 `Dispose`。新代码不要把回退当正常路径。
+
+```csharp
+var config = await Bag.Load<GameConfig>("GameConfig");
+Bag.BindAssetReferences(config);                 // 配置与内部引用同属这个 Bag
+var icon = await config.IconRef.Get();
+```
+
 ### 基础用法
 
 ```csharp
@@ -1368,6 +1376,8 @@ await this.GetUtility<IAssetUtility>().Initialize("DlcPack"); // 指定包
 `Initialize` 的普通网络 / 清单失败不直接抛，仍由该包 `InitState` 落到 `Failed`；但调用者 token 取消会保留 `OperationCanceledException`。这里的取消只表示“当前页面不再等”：物理初始化已经启动后仍由 `AssetUtility` 生命周期持有，包继续保持 `Initializing`，最终落到 `Ready` / `Failed`。新的同包调用只加入这份 owner，不会在 YooAsset operation 尚未结束时重入初始化。
 
 > ⚠ 既没开自动初始化、也没 `Initialize` 过的包，`Load` 它会**直接抛**「未初始化」异常（fail-fast，不是无限等待）——要加载的包要么开自动初始化、要么先 `Initialize`。
+
+包 Ready 后，地址不存在或类型不匹配采用“双通道失败”：调用方得到 `null`，可以用占位资源维持玩家流程；同时记录 Error，让开发者看见 manifest/类型配置缺陷。若“没有这份资源”本来就是正常业务分支，先用 `GetLocationState` 预检，不要靠故意触发 Error 做分支判断。它与上面的未初始化异常是两套语义：前者是单次资源请求可兜底，后者是系统前置条件未成立，应在流程入口等待 Ready 或捕获异常。
 
 资源地址预检不要再组合两个含义不完整的 bool；一次读取四态快照：
 
@@ -2093,6 +2103,8 @@ var loaded = await storage.Load<PlayerSaveData>("save/slot1");  // null = 无可
 ### 防损坏（框架兜住的核心价值）
 
 写路径固定走「临时文件 → 原子替换 → 旧版自动变 `.bak`」——任何时刻磁盘上都有一份完整可读的数据，**写一半崩溃 / 断电不丢档**；读路径主文件损坏自动回退备份。每个 key 至多三个文件：`<key>.sav`（主）/ `.sav.bak`（上一版）/ `.sav.tmp`（写入途中）。默认序列化是带缩进的明文 JSON，`.sav` 可直接用文本编辑器打开调试。
+
+回退成功只说明“读到了健康备份”，坏主文件仍在。要主动修复成健康的主/备双份数据，需要把回退对象连续 `Save` 两次：第一次重建主文件时，原坏主文件可能被推进 `.bak`；第二次才把健康主文件推进备份。Demo 的 ③/④ 步骤会精确展示 2 条 Warning 与这个双写恢复过程，并提供只删除本章白名单 key 的幂等重置，避免测试数据跨 Play 干扰后续学习。
 
 所有操作内部走**全局 FIFO 串行**（同 key 竞态、读写交错天然消失；存储低频，串行无感知），文件 IO 切线程池不卡帧。**别 fire-and-forget Save**——await 它（`Exists` 是不排队的同步快照，紧跟未落盘的写可能看不到）。
 
@@ -2917,6 +2929,8 @@ Log.Write(LogLevel.Info, "purchase",
     new[] { new KeyValuePair<string, object>("sku", skuId) });
 ```
 
+`Log.Error(message, exception)` 在日志模型中仍是**一个** `LogEntry`；默认 Unity sink 为保留 Console 的异常定位体验，会显示一条 Error 再调用一次 `Debug.LogException`，因此 Console 可见两条红色项。没有异常的 Error 通常只显示一条。测试断言和教学说明要区分“结构化条目数”与“Unity Console 项数”，不要把正常的双呈现误判为重复日志。
+
 ### `Trace` 写成插值 —— 关掉时真·零成本
 
 ```csharp
@@ -2941,6 +2955,8 @@ Log.AddSink(new FileLogSink(
     Path.Combine(Application.persistentDataPath, "logs", "game.log"),
     minLevel: LogLevel.Info));
 ```
+
+文件 sink 采用持久追加：`Dispose`/离开页面只关闭句柄，不删除日志；下一次 Play 会追加新的会话头。Demo 的文件实验也遵守这一点，并在执行前明确文件路径、证据和恢复方式。
 
 - **多 sink 广播**：一条日志可同时进 Console + 文件（+ 未来的遥测）。
 - **每个 sink 自带 `MinLevel`**：让 Console 只留 Warning 以上（`new UnityDebugLogSink { MinLevel = LogLevel.Warning }`），细粒度日志交给文件 sink。
@@ -2971,6 +2987,6 @@ Log.CaptureUnityLogs();   // 订阅 Application.logMessageReceivedThreaded
 
 **刻意不做的还有消息模板**（Serilog / MEL 的 `Log.Information("处理了 {Count} 条", count)` 那套）：占位符自动变结构化字段是服务端的共识，但客户端几乎不产结构化日志（正是不上 ZLogger 的同一条理由），为它自研一套模板解析 + 缓存不划算。要结构化就用 `Log.Write(level, msg, fields)` 显式传字段。
 
-> **活样板**：demo「能力 · 日志 · 分级 + 可插拔 sink」章（`LoggingDemoModule`）把上面每一点做成可点的按钮——装 demo 捕获 sink 看多播、调全局/单 sink 的 `MinLevel` 看两道闸门独立过滤、**用一个计数器亲眼验证全局级别不放行 `Trace` 时插值表达式一次都没求值**、点「发一条裸 `Debug.LogError`」看它经桥接进入 sink、装 `FileLogSink` 看落盘。
+> **活样板**：demo「能力 · 日志 · 分级 + 可插拔 sink」章（`LoggingDemoModule`）把上面每一点做成可点的按钮——装 demo 捕获 sink 看多播、调全局/单 sink 的 `MinLevel` 看两道闸门独立过滤、**用一个计数器亲眼验证全局级别不放行 `Trace` 时插值表达式一次都没求值**、点「发一条裸 `Debug.LogError`」看它经桥接进入 sink、装 `FileLogSink` 看落盘。所有会故意制造红/黄 Console 项或持久文件的动作都先显示“影响范围 / 预期证据 / 恢复方式”，便于人工和 AI 自动化区分教学现象与 Demo 缺陷。
 
 详见 ADR-0034、AGENTS #34。

@@ -46,8 +46,14 @@ namespace Game.Framework.Test
         [TearDown]
         public void TearDown()
         {
-            _storage.Dispose();
-            if (Directory.Exists(_root)) Directory.Delete(_root, true);
+            try
+            {
+                _storage?.Dispose();
+            }
+            finally
+            {
+                if (Directory.Exists(_root)) Directory.Delete(_root, true);
+            }
         }
 
         private string MainPath(string key) => Path.Combine(_root, key + ".sav");
@@ -105,6 +111,35 @@ namespace Game.Framework.Test
             Assert.NotNull(loaded);
             Assert.AreEqual(1, loaded.Level);
             Assert.AreEqual("v1", loaded.Name);
+
+            // 只 Save 一次虽然会重建主文件，却会把原来的坏主文件推进 .bak；连续保存两次，
+            // 再次损坏主文件后仍能从备份读回，才证明主文件与备份都已恢复健康。
+            await _storage.Save(key, loaded);
+            await _storage.Save(key, loaded);
+            File.WriteAllBytes(MainPath(key), Encoding.UTF8.GetBytes("corrupted-again###"));
+            LogAssert.Expect(LogType.Warning, new Regex("主文件反序列化失败"));
+            LogAssert.Expect(LogType.Warning, new Regex("回退上一版备份"));
+
+            var recoveredAgain = await _storage.Load<SaveData>(key);
+            Assert.NotNull(recoveredAgain, "连续保存两次后，备份也必须恢复为可读数据");
+            Assert.AreEqual(1, recoveredAgain.Level);
+            Assert.AreEqual("v1", recoveredAgain.Name);
+        });
+
+        [UnityTest]
+        public IEnumerator DeleteKnownDemoKeys_IsIdempotent_AndLeavesUnrelatedData() => UniTask.ToCoroutine(async () =>
+        {
+            string[] demoKeys = { "profile", "save/slot1", "save/slot2", "legacy" };
+            foreach (string key in demoKeys)
+                await _storage.Save(key, new SaveData { Level = 1 });
+            await _storage.Save("unrelated/settings", new SaveData { Level = 9 });
+
+            foreach (string key in demoKeys) await _storage.Delete(key);
+            foreach (string key in demoKeys) await _storage.Delete(key); // 重复重置仍应是 no-op
+
+            foreach (string key in demoKeys)
+                Assert.IsFalse(_storage.Exists(key), $"已知 demo key 应被重置：{key}");
+            Assert.IsTrue(_storage.Exists("unrelated/settings"), "白名单重置不得删除未列出的持久数据");
         });
 
         [UnityTest]

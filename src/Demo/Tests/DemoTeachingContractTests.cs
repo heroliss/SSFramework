@@ -102,6 +102,66 @@ namespace Game.Framework.Demo.Tests
             Assert.IsTrue(teardownCalled, "教学契约失败也属于 Build 失败，必须释放半构建章节资源。");
         }
 
+        [Test]
+        public void ExperimentNotice_RecordsSemanticTraceAndBuildsAStableInformationCard()
+        {
+            var root = new VisualElement();
+            using var host = new DemoModuleHost(root);
+
+            var card = host.AddExperimentNotice(
+                "只改本章隔离数据。",
+                "Console 出现两条 Warning。",
+                "点击恢复按钮即可幂等恢复。");
+
+            Assert.AreEqual(1, host.TeachingTrace.ExperimentNoticeCount);
+            Assert.AreEqual(DemoTeachingElement.ExperimentNotice,
+                host.TeachingTrace.Elements[0]);
+            Assert.IsTrue(card.ClassListContains("demo-experiment"));
+            Assert.AreEqual(3,
+                card.Query<Label>(className: "demo-experiment-term").ToList().Count);
+            Assert.AreEqual(3,
+                card.Query<Label>(className: "demo-experiment-desc").ToList().Count);
+        }
+
+        [TestCase(null, "证据", "恢复", "impact")]
+        [TestCase("影响", " ", "恢复", "expectedEvidence")]
+        [TestCase("影响", "证据", "", "recovery")]
+        public void ExperimentNotice_RejectsAnIncompleteRecoveryContract(
+            string impact,
+            string evidence,
+            string recovery,
+            string parameter)
+        {
+            using var host = new DemoModuleHost(new VisualElement());
+            var error = Assert.Throws<ArgumentException>(() =>
+                host.AddExperimentNotice(impact, evidence, recovery));
+            Assert.AreEqual(parameter, error.ParamName);
+        }
+
+        [Test]
+        public void ExperimentAction_RequiresANoticeInTheSameSectionAndRecordsMachineReadableSemantics()
+        {
+            using var host = new DemoModuleHost(new VisualElement());
+            host.AddSectionTitle("实验");
+
+            var error = Assert.Throws<InvalidOperationException>(() =>
+                host.AddExperimentActionRow("破坏数据", () => { }));
+            StringAssert.Contains("同一小节", error.Message);
+
+            host.AddExperimentNotice("仅测试数据", "一条 Warning", "点击恢复");
+            var button = host.AddExperimentActionRow("破坏数据", () => { });
+
+            Assert.AreEqual("教学实验 · 破坏数据", button.text);
+            Assert.IsTrue(button.ClassListContains("demo-btn--experiment"));
+            Assert.AreEqual(1, host.TeachingTrace.ExperimentActionCount);
+            Assert.AreEqual(1, host.TeachingTrace.ActionCount,
+                "实验动作仍属于 Capability/Workflow 所需的可执行入口。");
+
+            host.AddSectionTitle("下一节");
+            Assert.Throws<InvalidOperationException>(() =>
+                host.AddExperimentActionRow("不能借用上一节提示卡", () => { }));
+        }
+
         private static void ActivateOnce(ContractModule module)
         {
             using var catalog = new DemoModuleCatalog(new[] { module });
