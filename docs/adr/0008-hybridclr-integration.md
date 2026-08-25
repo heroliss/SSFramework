@@ -105,7 +105,7 @@ Boot 场景（唯一随包场景：Launcher + 朴素进度 UI，只挂 Boot 程�
   部署决策（按版本可变），不是代码的内在属性；一个领域单元 = 一个 asmdef = 热更列表一行 =（DLC 时）一个资源 package。
 - Demo 不参与热更（编辑器教学定位，asmdef 用 `defineConstraints:["UNITY_EDITOR"]` 排除出玩家包——
   **不能用 `includePlatforms:["Editor"]`**：编辑器平台程序集的 MonoBehaviour 挂在场景上进 Play 模式会被剔成 missing，DemoScene 直接报废；define 约束在编辑器域恒满足、Play 正常，仅出包时不编译）。
-- 热更入口：`Game.Main.GameEntry` 静态类 + `static void Enter()`（游戏的 main，类型全名在 Launcher Inspector 可配）。
+- 热更入口：Launcher Inspector 显式配置程序集限定类型；该类型提供公共静态无参入口方法（默认方法名 `Enter`），作为游戏的 main。
 - 边玩边下/版本灰度：本期不做；YooAsset 按需下载原语已具备，需要时组合。
 - **入口的启动编排落地（2026-07，Outpost M5 驱动，详见 ADR-0029）**：`GameEntry.Enter` 从「挂自检」模板换成真实编排——
   代码搭最小引导资源栈（`MonoGameContextBase` + `AssetUtility` 双 AddComponent → `Configure`(为此提升 public) →

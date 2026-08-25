@@ -47,9 +47,9 @@ namespace Game.Framework.Boot
         [SerializeField] private string[] _cdnUrls = Array.Empty<string>();
 
         [Header("热更入口")]
-        [Tooltip("入口类型的程序集限定名，如 \"Game.Main.GameEntry, Game.Main\"。\n" +
+        [Tooltip("入口类型的程序集限定名，如 \"MyGame.GameEntry, MyGame.Runtime\"。\n" +
                  "约定一个公共静态无参方法作为入口（默认 Enter），DLL 全部加载完后反射调用。")]
-        [SerializeField] private string _entryTypeName = "Game.Main.GameEntry, Game.Main";
+        [SerializeField] private string _entryTypeName = "";
 
         [Tooltip("入口静态方法名。")]
         [SerializeField] private string _entryMethodName = "Enter";
@@ -91,6 +91,7 @@ namespace Game.Framework.Boot
         {
             try
             {
+                ValidateConfiguration();
 #if UNITY_EDITOR
                 // 编辑器旁路：程序集已全部在 AppDomain，包初始化 / 补元数据 / Assembly.Load 全部多余。
                 Status("编辑器旁路：直接进入入口");
@@ -109,6 +110,26 @@ namespace Game.Framework.Boot
                 Status("启动失败：" + e.Message);
                 Debug.LogException(e);
             }
+        }
+
+        // 配置错误必须在初始化 YooAsset、请求网络或写缓存前失败；否则新组件的空入口会在所有耗时副作用完成后才暴露。
+        private void ValidateConfiguration()
+        {
+            if (string.IsNullOrWhiteSpace(_codePackageName))
+                throw new InvalidOperationException("[HotUpdateLauncher] 未配置代码包名（Inspector：Code Package Name）。");
+            if (string.IsNullOrWhiteSpace(_entryTypeName))
+                throw new InvalidOperationException("[HotUpdateLauncher] 未配置热更入口类型名（Inspector：Entry Type Name）。");
+            if (string.IsNullOrWhiteSpace(_entryMethodName))
+                throw new InvalidOperationException("[HotUpdateLauncher] 未配置热更入口方法名（Inspector：Entry Method Name）。");
+            if (_playMode != BootPlayMode.Host) return;
+
+            bool hasCdn = false;
+            if (_cdnUrls != null)
+                foreach (string url in _cdnUrls)
+                    if (!string.IsNullOrWhiteSpace(url)) { hasCdn = true; break; }
+            if (!hasCdn)
+                throw new InvalidOperationException(
+                    "[HotUpdateLauncher] Host 模式没有配置 CDN 地址；需要联网检查更新时填写 Cdn Urls，纯内置分发请改用 Offline。");
         }
 
 #if !UNITY_EDITOR

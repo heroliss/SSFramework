@@ -12,8 +12,8 @@ namespace Game.Framework.Build
     /// 换项目 / 换目录结构时改 Inspector 即可，不动代码。
     ///
     /// 路径字段一律相对工程根目录，保证多人协作不受本机绝对路径影响。
-    /// <b>工程可并存多套</b>（如 demo 一套 + 正式游戏一套）：每套指向各自的 luban.conf 源与输出目录、互不干扰；
-    /// <see cref="ResolveAll"/> 返回全部、生成菜单逐套生成。一套都没有时 <see cref="Resolve"/> 按默认布局自动建一套。
+    /// <b>工程可并存多套</b>（例如按数据域或构建目标拆分）：每套指向各自的 luban.conf 源与输出目录、互不干扰；
+    /// <see cref="ResolveAll"/> 返回全部、生成菜单逐套生成。路径无法从框架推导，因此缺失时不自动制造配置。
     /// </summary>
     [CreateAssetMenu(fileName = "LubanConfigProfile", menuName = "SSFramework/配置表生成配置 (Luban Profile)")]
     public sealed class LubanConfigProfile : ScriptableObject
@@ -25,8 +25,8 @@ namespace Game.Framework.Build
         [SerializeField] private string _lubanToolPath = "Tools/Luban/Luban.exe";
 
         [Tooltip("luban.conf 路径（相对工程根目录）。表定义（Defines/）与数据（Datas/）的入口都由它声明。\n" +
-                 "可放任意位置；随模块删除 / 抽包就放该模块目录下并用 ~ 后缀避免 Unity 导入（demo 那套在 Demo/Configs~/）。")]
-        [SerializeField] private string _confPath = "Assets/Game/Framework/Demo/Configs~/luban.conf";
+                 "可放任意位置；随模块删除 / 抽包就放该模块目录下并用 ~ 后缀避免 Unity 导入。")]
+        [SerializeField] private string _confPath = "";
 
         [Header("生成目标")]
         [Tooltip("luban.conf 里 targets 的 name（决定 topModule / 分组）。")]
@@ -40,59 +40,49 @@ namespace Game.Framework.Build
 
         [Header("产物输出")]
         [Tooltip("生成 C# 代码的输出目录（相对工程根目录，生成器会整理该目录，勿手放文件）。")]
-        [SerializeField] private string _outputCodeDir = "Assets/Game/Framework/Demo/Config/Gen";
+        [SerializeField] private string _outputCodeDir = "";
 
         [Tooltip("生成数据文件的输出目录（相对工程根目录）。须在某个 YooAsset 收集器范围内（.bytes 按普通资源收集成 TextAsset 即可，按文件名寻址），数据才打得进资源包。")]
-        [SerializeField] private string _outputDataDir = "Assets/Game/Framework/Demo/Res/Configs";
+        [SerializeField] private string _outputDataDir = "";
 
-        [Tooltip("表清单类（LubanTableManifest.g.cs）的命名空间——须与 luban.conf 该 target 的 topModule 一致，清单才和生成代码同住一个命名空间。\n" +
+        [Tooltip("表清单类（LubanTableManifest.g.cs）的命名空间——通常与 luban.conf 该 target 的 topModule 一致；topModule 为空时可留空，生成到全局命名空间。\n" +
                  "⚠ topModule 不要嵌在含 System 子命名空间的层级下（如 Game.Framework.*）：生成代码裸写 System.Func/Collections，会被就近解析劫持（CS0234）。")]
-        [SerializeField] private string _manifestNamespace = "DemoCfg";
+        [SerializeField] private string _manifestNamespace = "";
 
         [Tooltip("附加 CLI 参数（原样追加，如 -x l10n.provider=default）。一般留空。")]
         [SerializeField] private string _extraArgs = "";
 
-        public string LubanToolPath => _lubanToolPath.Trim();
-        public string ConfPath => _confPath.Trim();
-        public string Target => _target.Trim();
-        public string CodeTarget => _codeTarget.Trim();
-        public string DataTarget => _dataTarget.Trim();
-        public string OutputCodeDir => _outputCodeDir.Trim().TrimEnd('/', '\\');
-        public string OutputDataDir => _outputDataDir.Trim().TrimEnd('/', '\\');
-        public string ManifestNamespace => _manifestNamespace.Trim();
-        public string ExtraArgs => _extraArgs.Trim();
+        public string LubanToolPath => _lubanToolPath?.Trim() ?? "";
+        public string ConfPath => _confPath?.Trim() ?? "";
+        public string Target => _target?.Trim() ?? "";
+        public string CodeTarget => _codeTarget?.Trim() ?? "";
+        public string DataTarget => _dataTarget?.Trim() ?? "";
+        public string OutputCodeDir => _outputCodeDir?.Trim().TrimEnd('/', '\\') ?? "";
+        public string OutputDataDir => _outputDataDir?.Trim().TrimEnd('/', '\\') ?? "";
+        public string ManifestNamespace => _manifestNamespace?.Trim() ?? "";
+        public string ExtraArgs => _extraArgs?.Trim() ?? "";
 
         /// <summary>
         /// 返回工程内**所有** Luban profile（按资产路径排序，显示稳定）。每套对应一套配置表，生成菜单逐套生成、互不干扰。
-        /// 一套都没有时按默认布局自动建一套并返回（首次接入即可直接用）。
+        /// 一套都没有时返回空列表；用 Assets/Create 或配置总览的“新建配置”显式创建。
         /// </summary>
         public static IReadOnlyList<LubanConfigProfile> ResolveAll()
         {
-            var guids = AssetDatabase.FindAssets("t:" + nameof(LubanConfigProfile));
-            if (guids.Length == 0)
-                return new[] { CreateDefault() };
-
-            return guids.Select(g => AssetDatabase.LoadAssetAtPath<LubanConfigProfile>(AssetDatabase.GUIDToAssetPath(g)))
+            return AssetDatabase.FindAssets("t:" + nameof(LubanConfigProfile))
+                        .Select(AssetDatabase.GUIDToAssetPath)
+                        .OrderBy(path => path, System.StringComparer.Ordinal)
+                        .Select(AssetDatabase.LoadAssetAtPath<LubanConfigProfile>)
                         .Where(p => p != null)
-                        .OrderBy(AssetDatabase.GetAssetPath, System.StringComparer.Ordinal)
                         .ToList();
         }
 
         /// <summary>
-        /// 第一套 profile（按路径序）——只需任意 / 主配置时的便利访问。
+        /// 第一套 profile（按路径序）——只需任意 / 主配置时的便利访问。工程没有配置时抛出清晰的
+        /// <see cref="System.InvalidOperationException"/>，不再创建指向样例目录的隐式资产；需要可选探测时使用 <see cref="ResolveAll"/>。
         /// 要按各套操作（定位 / 打开目录 / 单独生成）用 <see cref="ResolveAll"/> 或「配置总览」窗口（<see cref="LubanConfigOverviewWindow"/>）。
         /// </summary>
-        public static LubanConfigProfile Resolve() => ResolveAll()[0];
-
-        // 工程内一套 profile 都没有时按本仓库默认布局建一套（落在 Config/，默认指向 demo 那套源 / 输出）。
-        private static LubanConfigProfile CreateDefault()
-        {
-            var profile = CreateInstance<LubanConfigProfile>();
-            const string path = "Assets/Game/Framework/Config/LubanConfigProfile.asset";
-            AssetDatabase.CreateAsset(profile, path);
-            AssetDatabase.SaveAssets();
-            Debug.Log($"[配置表构建] 未找到 Luban profile，已按默认布局自动创建：{path}");
-            return profile;
-        }
+        public static LubanConfigProfile Resolve() => ResolveAll().FirstOrDefault() ??
+            throw new System.InvalidOperationException(
+                "工程里没有 LubanConfigProfile。请在 SSFramework/配置表构建/配置总览 中显式新建并填写项目路径。");
     }
 }

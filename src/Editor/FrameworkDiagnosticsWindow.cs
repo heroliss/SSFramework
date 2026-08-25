@@ -827,7 +827,7 @@ namespace Game.Framework.Editor
             _commandHint = new HelpBox(
                 "未记录到命令。接入（opt-in、不改变执行语义）：根 Context 的 InstallBindings 里注册\n" +
                 "builder.RegisterValue(new LoggingCommandSystem(), typeof(ICommandSystem));\n" +
-                "替换默认 CommandSystem 即得全局命令流水（demo 的 MonoDemoContext 已接入）。",
+                "替换默认 CommandSystem 即得全局命令流水；是否启用由各项目的 Composition Root 明确决定。",
                 HelpBoxMessageType.Info);
             pane.Add(_commandHint);
 

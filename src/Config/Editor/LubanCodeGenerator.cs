@@ -30,6 +30,21 @@ namespace Game.Framework.Build
         /// </summary>
         public static (bool ok, string message) Generate(LubanConfigProfile profile)
         {
+            if (profile == null)
+                return (false, "没有 LubanConfigProfile，无法生成。");
+
+            var missing = new System.Collections.Generic.List<string>();
+            if (string.IsNullOrWhiteSpace(profile.LubanToolPath)) missing.Add("Luban CLI 路径");
+            if (string.IsNullOrWhiteSpace(profile.ConfPath)) missing.Add("luban.conf 路径");
+            if (string.IsNullOrWhiteSpace(profile.OutputCodeDir)) missing.Add("代码输出目录");
+            if (string.IsNullOrWhiteSpace(profile.OutputDataDir)) missing.Add("数据输出目录");
+            if (string.IsNullOrWhiteSpace(profile.Target)) missing.Add("生成目标");
+            if (string.IsNullOrWhiteSpace(profile.CodeTarget)) missing.Add("代码模板");
+            if (string.IsNullOrWhiteSpace(profile.DataTarget)) missing.Add("数据格式");
+            if (missing.Count > 0)
+                return (false, "Luban profile 尚未配置完整：" + string.Join("、", missing) +
+                               "。请先在配置总览中定位该资产并填写项目实际路径。");
+
             string projectRoot = Path.GetDirectoryName(Application.dataPath);
             string toolPath = Path.GetFullPath(Path.Combine(projectRoot, profile.LubanToolPath));
             string confPath = Path.GetFullPath(Path.Combine(projectRoot, profile.ConfPath));

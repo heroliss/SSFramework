@@ -1422,7 +1422,7 @@ switch (asset.GetLocationState("ui/logo"))
 
 Host 模式默认允许 `Load` 对未缓存 bundle 当场按需下载。大型 DLC 若不想“误 Load 一个资源就自动下载”，在 `AssetSystemConfigModel.Packages` 列表里取消该包的「启用按需下载」：之后本包未缓存资源的 `Load` 直接失败，业务必须先用下载器显式预下载并展示进度。包级策略（自动初始化 / 启用按需下载）都在这一处按包配置。
 
-> **包名别写裸字符串**：菜单 `SSFramework/资源构建/生成包名常量代码` 从收集器的包列表生成常量类（默认 `Game.Main.AssetPackages`，输出路径 / 命名空间在构建 profile 配），`Initialize` / `Load` 等的 `packageName` 参数用 `AssetPackages.Xxx`——收集器改名 / 删包后重新生成，引用处编译期报错，不用等运行时才发现。
+> **包名别写裸字符串**：菜单 `SSFramework/资源构建/生成包名常量代码` 从收集器的包列表生成常量类；输出路径与命名空间必须在构建 profile 中指向实际业务程序集，框架不猜项目布局。`Initialize` / `Load` 等的 `packageName` 参数用生成的 `AssetPackages.Xxx`——收集器改名 / 删包后重新生成，引用处编译期报错，不用等运行时才发现。
 
 ### 运营链路：发版与启动更新
 
@@ -1724,7 +1724,7 @@ Bag.Subscribe(
 
 唯一随包场景（BootScene）挂 `HotUpdateLauncher`，Inspector 配置：
 
-- **入口类型名**：默认 `"Game.Main.GameEntry, Game.Main"`——约定入口是公共静态无参方法 `Enter()`，DLL 全部加载完后反射调用。入口即业务的 main：创建全局 Context、初始化资源系统、加载首场景都从这往下走。
+- **入口类型名**：必填程序集限定名，例如 `"MyGame.GameEntry, MyGame.Runtime"`；入口提供公共静态无参方法 `Enter()`，DLL 全部加载完后反射调用。它就是业务的 main：创建全局 Context、初始化资源系统、加载首场景都从这里往下走。
 - **CDN 地址列表**：第一条主、其余备，取址 `{CDN}/{包名}/{文件}`，与资源包同一套部署结构。
 - **模式**：`Host`（远端检查更新；fresh install 也可回退随包内置代码清单）/ `Offline`（纯单机，永不联网）。
 
@@ -1744,7 +1744,7 @@ await assets.LoadScene("FirstScene");            // Single：卸掉 Boot 场景�
 Object.Destroy(go);                              // 交棒：首场景根 Context 与其场景内三件套接管
 ```
 
-首场景内的三件套随后照常初始化——provider 对已初始化的包按名复用、不重复拉清单，引导栈与场景三件套两个 `AssetUtility` 实例可安全并存。完整样板（编辑器旁路 `EditorSimulate` / 玩家包 Host 的 `#if` 分支）见 `Assets/Game/Main/GameEntry.cs`。
+首场景内的三件套随后照常初始化——provider 对已初始化的包按名复用、不重复拉清单，引导栈与场景三件套两个 `AssetUtility` 实例可安全并存。项目入口通常放在业务 Runtime 程序集中；本仓库的垂直切片另提供一份明确标记为案例的完整实现。
 
 ### 铁则（违反会在构建期被校验器拦下或真机才爆雷）
 
@@ -1774,9 +1774,9 @@ Object.Destroy(go);                              // 交棒：首场景根 Contex
 
 ## 16. 配置表（Luban）
 
-表定义（XML）与数据（JSON / Excel）放在一处 conf 源目录（demo 那套在 `Assets/Game/Framework/Demo/Configs~/`，`~` 后缀让 Unity 不导入、纯构建期输入）→ 菜单跑 Luban CLI 生成**配置 C# 类 + 二进制数据 + 表清单** → 运行期由一个自加载的配置 Utility 服务持表，数据文件随资源包打包与热更。设计原理与取舍见 ADR-0009；源 / 输出目录在模块里怎么摆见 §26「推荐项目结构」。
+表定义（XML）与数据（JSON / Excel）放在一处 conf 源目录；可用 `~` 后缀让 Unity 不导入这类纯构建期输入。菜单跑 Luban CLI 生成**配置 C# 类 + 二进制数据 + 表清单** → 运行期由一个自加载的配置 Utility 服务持表，数据文件随资源包打包与热更。设计原理与取舍见 ADR-0009；源 / 输出目录在模块里怎么摆见 §26「推荐项目结构」。
 
-> **多套并存**：每套配置 = 一个 `LubanConfigProfile`（各自的 conf 源 + 输出目录 + topModule，互不干扰）。demo 与正式游戏可各一套——`LubanConfigProfile.ResolveAll()` 返回全部、菜单「生成」逐套生成，多套集中管理用「配置总览」窗口。demo 那套（源 / 代码 / 数据全在 `Demo/` 内）随 demo 程序集与样例资源包在正式打包时一并排除。
+> **多套并存**：每套配置 = 一个 `LubanConfigProfile`（各自的 conf 源 + 输出目录 + topModule，互不干扰），可按数据域、客户端/服务端目标或可选内容拆分。`ResolveAll()` 返回全部，菜单“生成”逐套执行，多套集中管理用“配置总览”窗口。路径不可从框架推导，因此没有 profile 时只给出明确空状态，不自动创建指向样例目录的假配置。
 
 ### 心智模型：构建期生成，运行期只是读字节
 
@@ -1784,7 +1784,7 @@ Object.Destroy(go);                              // 交棒：首场景根 Contex
 
 | 生成产物 | 落点 | 谁消费 |
 |---|---|---|
-| 配置 C# 类（`Tables` / `TbXxx` / bean） | 生成代码目录（归业务 / demo 程序集） | 业务代码强类型查表 |
+| 配置 C# 类（`Tables` / `TbXxx` / bean） | 生成代码目录（归目标消费程序集） | 业务代码强类型查表 |
 | 二进制数据（`*.bytes`） | 资源收集范围内的目录（普通资源收集，按文件名寻址） | 运行期按 TextAsset 加载取字节 |
 | 表清单（`LubanTableManifest.g.cs`） | 随生成代码 | 配置服务据此并行预载 |
 
@@ -1821,8 +1821,8 @@ Bag.Subscribe(config.State, s => { if (s == ConfigInitState.Ready) Refresh(); })
 ### 新项目接入步骤
 
 1. Luban CLI 解压到 `Tools/Luban/`（**不入库**，官方 release 可重下；缺 .NET 8 运行时时管线自动 `DOTNET_ROLL_FORWARD=LatestMajor`）。
-2. 建一处 conf 源目录：`luban.conf`（入口）+ `Defines/*.xml`（表定义）+ `Datas/`（数据）。放哪都行（路径填进 profile）；想随某模块一起删 / 抽包就放该模块目录下、用 `~` 后缀避免 Unity 导入。demo 那套在 `Demo/Configs~/`，是最小可跑样例。
-3. 建一个 `LubanConfigProfile`（菜单 `配置总览` 列出所有套）：填 conf 源、输出目录、topModule（见下方铁则）。与 demo 那套并存、互不干扰。
+2. 建一处 conf 源目录：`luban.conf`（入口）+ `Defines/*.xml`（表定义）+ `Datas/`（数据）。放哪都行（路径填进 profile）；想随某模块一起删 / 抽包就放该模块目录下、用 `~` 后缀避免 Unity 导入。
+3. 在“配置总览”显式新建一个 `LubanConfigProfile`：填 conf 源、输出目录、topModule（见下方铁则）。需要多套时继续新建，各套互不干扰。
 4. 菜单 `SSFramework/配置表构建/生成全部`——逐套产出代码 / 数据 / 清单。
 5. 确认数据输出目录在某个 YooAsset 收集器范围内（`.bytes` 按普通资源收集成 TextAsset、按文件名寻址）；demo 复用现成的 `FrameworkDemoGroup` 收集器，真实项目通常加进 DefaultPackage 的收集组。
 6. 写一个一行子类闭合泛型 `class GameConfigUtility : MonoConfigUtilityBase<Tables>`，补上面两个 override（`TableFiles` / `CreateTables`）；挂在 Context 子节点即可（与资源系统同 Context，靠容器父级回退共享 `IAssetUtility`，不必单独再挂一套资源系统）。
@@ -1835,16 +1835,16 @@ Bag.Subscribe(config.State, s => { if (s == ConfigInitState.Ready) Refresh(); })
 - Excel 布局约定：**A 列是标记列**——`##var` 行写字段名、`##` 行是注释行，数据行 A 列留空、数据从 B 列起；多 sheet 用 `表单名@文件.xlsx`。`monster.xlsx` 是活样例（程序生成的 xlsx Luban 也照常读，无需真装 Office）。
 - 输出格式用 **bin**（与 `cs-bin` 代码模板配对，紧凑、解析快）；需要肉眼调试数据时换 `-d json` + `cs-simple-json`。
 
-**LubanConfigProfile 字段速查**（demo 值 → 正式项目怎么改）：
+**LubanConfigProfile 字段速查**：
 
-| 字段 | demo 值 | 正式项目 |
+| 字段 | 常见起点 | 项目约束 |
 |---|---|---|
 | 生成目标 target | `client` | `luban.conf` 里 `targets[].name`——决定 topModule 与 groups 过滤；前后端共表时可加 `server` target 各取所需字段 |
 | 代码模板 codeTarget | `cs-bin` | 与数据格式配对换：`cs-simple-json`（肉眼可调试）等；非 C# 端有 `java-bin` / `ts-json` / `go-bin` / `lua-bin` 等 |
 | 数据格式 dataTarget | `bin` | 与代码模板配对：`json` / `bson` / `lua` 等（cs-bin↔bin、cs-simple-json↔json 必须成对） |
-| 输出代码目录 | `Demo/Config/Gen` | 业务程序集下，如 `Assets/Game/Main/Config/Gen`（该 asmdef 引用 `Luban.Runtime` + `Game.Framework.Config`） |
-| 输出数据目录 | `Demo/Res/Configs` | 默认包某收集器范围内，如 `Assets/Game/Main/Res/Configs` |
-| 清单命名空间 | `DemoCfg` | 与 luban.conf 的 topModule 同步改（顶层短名，如 `Cfg`，避开 `Game.Framework.*`，见下方铁则） |
+| 输出代码目录 | 必填 | 目标业务程序集下，如 `Assets/Scripts/Config/Generated`（该 asmdef 引用 `Luban.Runtime` + `Game.Framework.Config`） |
+| 输出数据目录 | 必填 | 某个资源收集器范围内，如 `Assets/Content/Configs` |
+| 清单命名空间 | 与 topModule 同步 | topModule 有值时填同名顶层短名（如 `Cfg`，避开 `Game.Framework.*`）；topModule 为空时可留空，生成到全局命名空间 |
 
 ### 按需加载：按配置集拆，不按表拆
 
@@ -2772,7 +2772,7 @@ builder.RegisterOwned(new WebSocketUtility(serializer: proto), typeof(IWebSocket
 
 #### 先查原因，再决定是否值得拆
 
-打开 `SSFramework/诊断/模块裁剪审计`。顶部先比较热更 Profile、HybridCLRSettings、Generate stamp 与当前 DLL 中转清单；Module 区优先显示有 linker 根或热更违规的项，每张卡再把 Player DLL 真实消费者与全 asmdef 删除阻塞者（含 Demo / Editor / Tests）分开。常用组合之外，还能展开“任意 Module 入口”查看真实闭包；全局第三方和 `Assets/HybridCLRGenerate/link.xml` 单独折叠显示，后者是 Generate 产物，不应手改。这里的原始 DLL 字节用于找候选，不是最终安装包大小。
+打开 `SSFramework/诊断/模块裁剪审计`。顶部先比较热更 Profile、HybridCLRSettings、Generate stamp 与当前 DLL 中转清单；Module 区优先显示有 linker 根或热更违规的项，每张卡再把 Player DLL 真实消费者与完整 asmdef 图中的删除阻塞者（无论是否进入 Player）分开。常用组合之外，还能展开“任意 Module 入口”查看真实闭包；全局第三方和 `Assets/HybridCLRGenerate/link.xml` 单独折叠显示，后者是 Generate 产物，不应手改。这里的原始 DLL 字节用于找候选，不是最终安装包大小。
 
 一个容易踩坑的例子：当前可选 Runtime Module 都引用 Core。若 Core 在热更 Profile 中，那么仍参与 Player 编译的 Fonts / Bridge 等 Module 不能被**单独**取消热更，否则它们会变成引用热更 Core 的 AOT 程序集，构建校验会拒绝。这不是配置工具“太严格”，而是 AOT 必须先于热更代码存在的加载边界。
 

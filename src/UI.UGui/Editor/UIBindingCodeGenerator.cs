@@ -34,12 +34,29 @@ namespace Game.Framework.UI.UGui.Editor
         /// </summary>
         public static (bool ok, string message) Generate(string prefabPath, UIBindingData data, UICodeGenProfile profile)
         {
+            if (profile == null)
+                return (false, "没有 UICodeGenProfile。请先打开 SSFramework/UI 绑定/配置并填写生成目标。");
             if (string.IsNullOrEmpty(prefabPath) || !prefabPath.EndsWith(".prefab"))
                 return (false, $"不是 prefab：{prefabPath}");
             if (data == null)
                 return (false, $"{prefabPath} 根上没有 UIBindingData——先在 Prefab 编辑模式选节点标记 / 在 Hierarchy 点「＋」绑定。");
             if (data.Entries == null || data.Entries.Count == 0)
                 return (false, $"{prefabPath} 没有任何绑定。先标记要绑的节点。");
+
+            string ns = UIBindingUtil.ResolveNamespace(prefabPath, data, profile);
+            string outputDir = UIBindingUtil.ResolveOutputDir(prefabPath, data, profile);
+            string generatedDir = UIBindingUtil.ResolveGeneratedDir(prefabPath, data, profile);
+            var missingTargets = new List<string>();
+            if (string.IsNullOrWhiteSpace(ns)) missingTargets.Add("命名空间");
+            if (string.IsNullOrWhiteSpace(outputDir)) missingTargets.Add("逻辑目录");
+            if (string.IsNullOrWhiteSpace(generatedDir)) missingTargets.Add("生成目录");
+            if (missingTargets.Count > 0)
+                return (false, "UI 生成目标尚未配置完整：" + string.Join("、", missingTargets) +
+                               "。请在全工程 Profile、目录配置或当前 prefab 覆盖中明确填写。");
+            if (!TryResolveProjectAssetDirectory(outputDir, out string outDirAbs) ||
+                !TryResolveProjectAssetDirectory(generatedDir, out string genDirAbs))
+                return (false, "UI 逻辑目录与生成目录必须是 Assets/ 下的项目相对路径，避免把代码写到工程外或 Package 源码中。" +
+                               $"\n逻辑目录：{outputDir}\n生成目录：{generatedDir}");
 
             string className = UIBindingUtil.ResolveClassName(prefabPath, data, profile); // 文件名模板 + 占位符 → 类名 / 文件名
             string location = Path.GetFileNameWithoutExtension(prefabPath); // AddressByFileName：[UIWindow(Asset)] 恒 = prefab 文件名，与类名无关
@@ -142,19 +159,11 @@ namespace Game.Framework.UI.UGui.Editor
             }
 
             // 生成目标：覆盖链 prefab 覆盖 → 目录配置 → Profile（命名空间须保持逻辑/绑定两 partial 一致，故走同一解析）。
-            string ns = UIBindingUtil.ResolveNamespace(prefabPath, data, profile);
-            string outputDir = UIBindingUtil.ResolveOutputDir(prefabPath, data, profile);
-            string generatedDir = UIBindingUtil.ResolveGeneratedDir(prefabPath, data, profile);
-
             // 落盘：绑定 partial 与逻辑骨架分目录。
-            string projectRoot = Directory.GetParent(Application.dataPath)!.FullName;
-
-            string genDirAbs = Path.Combine(projectRoot, generatedDir);
             Directory.CreateDirectory(genDirAbs);
             string nodesAbs = Path.Combine(genDirAbs, className + ".nodes.g.cs");
             File.WriteAllText(nodesAbs, BuildNodesFile(ns, className, prefabPath, fields, isVariant ? baseClassName : null, removedFields), Utf8NoBom);
 
-            string outDirAbs = Path.Combine(projectRoot, outputDir);
             Directory.CreateDirectory(outDirAbs);
             string logicAbs = Path.Combine(outDirAbs, className + ".cs");
             bool createdLogic = !File.Exists(logicAbs);
@@ -174,6 +183,42 @@ namespace Game.Framework.UI.UGui.Editor
                 : $"逻辑文件已存在，未覆盖：{outputDir}/{className}.cs";
             string warnNote = warnings.Count > 0 ? "\n  ⚠ " + string.Join("\n  ⚠ ", warnings) : string.Empty;
             return (true, $"生成完成：{className}（{kind}，命名空间 {ns}）\n  绑定 → {generatedDir}/{className}.nodes.g.cs（已覆盖）\n  {logicNote}{swapNote}{warnNote}");
+        }
+
+        /// <summary>
+        /// 把 <c>Assets/...</c> 目录解析为绝对路径，并确认规范化后的结果仍位于当前项目 Assets 内。
+        /// 单看字符串前缀无法拦截 <c>Assets/../../Outside</c>，必须在任何建目录或写文件前完成此检查。
+        /// </summary>
+        internal static bool TryResolveProjectAssetDirectory(string relativePath, out string absolutePath)
+        {
+            absolutePath = string.Empty;
+            if (string.IsNullOrWhiteSpace(relativePath)) return false;
+
+            string normalized = relativePath.Trim().Replace('\\', '/');
+            if (!normalized.StartsWith("Assets/", StringComparison.Ordinal)) return false;
+
+            try
+            {
+                string assetsRoot = Path.GetFullPath(Application.dataPath)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                string projectRoot = Directory.GetParent(assetsRoot)!.FullName;
+                string candidate = Path.GetFullPath(Path.Combine(projectRoot, normalized))
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                string assetsPrefix = assetsRoot + Path.DirectorySeparatorChar;
+                var comparison = Path.DirectorySeparatorChar == '\\'
+                    ? StringComparison.OrdinalIgnoreCase
+                    : StringComparison.Ordinal;
+                if (!candidate.StartsWith(assetsPrefix, comparison)) return false;
+
+                absolutePath = candidate;
+                return true;
+            }
+            catch (Exception exception) when (exception is ArgumentException ||
+                                              exception is NotSupportedException ||
+                                              exception is PathTooLongException)
+            {
+                return false;
+            }
         }
 
         // 把生成的窗口脚本挂到 prefab 根：移除根上任何「非目标」的窗口脚本（变体继承的基脚本 / 改名前的旧脚本），加目标脚本。

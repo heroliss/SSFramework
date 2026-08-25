@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -23,8 +24,11 @@ namespace Game.Framework.Editor
     public static class SceneShortcutMenu
     {
         private const string Root = "SSFramework/场景/";
-        private const string PlaySub = "▶ 打开并 Play/";
-        private const string BootToggle = Root + "从 Boot 场景启动 Play";
+        internal const string PlaySub = "▶ 打开并 Play/";
+        internal const string EditProfileLabel = "⚙ 编辑场景快捷入口";
+        internal const string RefreshLabel = "↻ 刷新场景菜单";
+        internal const string BootToggleLabel = "从 Boot 场景启动 Play";
+        private const string BootToggle = Root + BootToggleLabel;
 
         // 本次注册的所有动态项名，刷新时先逐个移除、再重建（避免残留旧项 / 改名后的孤儿）。
         private static readonly List<string> _registered = new();
@@ -40,7 +44,7 @@ namespace Game.Framework.Editor
 
         // ── 固定菜单项（编译期静态；与动态场景项在同一「场景」子菜单里按 priority 合并）──
 
-        [MenuItem(Root + "⚙ 编辑场景快捷入口", priority = 500)]
+        [MenuItem(Root + EditProfileLabel, priority = 500)]
         private static void EditProfile()
         {
             var profile = SceneShortcutProfile.Resolve();
@@ -48,7 +52,7 @@ namespace Game.Framework.Editor
             EditorGUIUtility.PingObject(profile);
         }
 
-        [MenuItem(Root + "↻ 刷新场景菜单", priority = 501)]
+        [MenuItem(Root + RefreshLabel, priority = 501)]
         private static void RefreshMenu() => Rebuild();
 
         [MenuItem(BootToggle, priority = 400)]
@@ -91,9 +95,16 @@ namespace Game.Framework.Editor
                 MenuBridge.Remove(name);
             _registered.Clear();
 
-            var profile = SceneShortcutProfile.Resolve();
+            // 域重载只重建已有配置，不因安装框架或重编译就向 Assets 写入新 profile。
+            var profile = SceneShortcutProfile.Find();
+            if (profile == null)
+            {
+                ApplyPlayFromBoot(null);
+                return;
+            }
 
             int order = 0;
+            var usedMenuPaths = CreateReservedMenuPaths();
             foreach (var entry in profile.Entries)
             {
                 if (entry.Scene == null) continue; // 空槽位忽略
@@ -101,7 +112,8 @@ namespace Game.Framework.Editor
                 if (string.IsNullOrEmpty(path)) continue;
 
                 string label = string.IsNullOrEmpty(entry.DisplayName) ? entry.Scene.name : entry.DisplayName;
-                string group = string.IsNullOrEmpty(entry.Group) ? string.Empty : entry.Group + "/";
+                string group = entry.Group;
+                (group, label) = ResolveUniqueMenuPath(group, label, path, usedMenuPaths);
                 bool additive = entry.OpenAdditive;
 
                 // 打开：平铺（或按分组）挂在「场景」下。
@@ -118,6 +130,98 @@ namespace Game.Framework.Editor
             // Boot 启动覆盖：每次加载按配置重新施加（该状态不跨域重载持久化）。
             ApplyPlayFromBoot(profile);
         }
+
+        /// <summary>
+        /// 同组菜单项重名时优先附加场景父目录，再以稳定序号兜底；不同分组可安全复用同名叶子。
+        /// Unity 动态菜单用完整路径作为键，不消歧会让后注册项覆盖前一项。
+        /// </summary>
+        internal static (string group, string label) ResolveUniqueMenuPath(
+            string group,
+            string label,
+            string assetPath,
+            ISet<string> usedMenuPaths)
+        {
+            group = ResolveSafeMenuGroup(group, usedMenuPaths);
+            // DisplayName 是叶子标签而非第二套分组语法；把斜杠显示为全角字符，避免一个名字意外制造菜单树。
+            label = string.IsNullOrWhiteSpace(label)
+                ? "Scene"
+                : label.Trim().Replace('/', '／').Replace('\\', '／');
+            if (TryReserveMenuPaths(group, label, usedMenuPaths)) return (group, label);
+
+            string normalized = assetPath?.Replace('\\', '/') ?? string.Empty;
+            string parent = Path.GetFileName(Path.GetDirectoryName(normalized));
+            string basis = string.IsNullOrWhiteSpace(parent) ? label : $"{label} ({parent})";
+            string candidate = basis;
+            int suffix = 2;
+            while (!TryReserveMenuPaths(group, candidate, usedMenuPaths))
+                candidate = $"{basis} #{suffix++}";
+            return (group, candidate);
+        }
+
+        internal static HashSet<string> CreateReservedMenuPaths() => new(StringComparer.Ordinal)
+        {
+            EditProfileLabel,
+            RefreshLabel,
+            BootToggleLabel,
+        };
+
+        private static string ResolveSafeMenuGroup(string group, ISet<string> usedMenuPaths)
+        {
+            var segments = (group ?? string.Empty)
+                .Replace('\\', '/')
+                .Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+            for (int i = 0; i < segments.Length; i++)
+                segments[i] = string.IsNullOrWhiteSpace(segments[i]) ? "场景组" : segments[i].Trim();
+
+            // 已存在的可点击叶子不能同时充当父菜单。若配置组落在某个叶子之下，只改冲突层级的显示名，
+            // 保留其余层级；随后继续检查，因为重命名后仍可能撞到另一个动态叶子。
+            bool renamed;
+            do
+            {
+                renamed = false;
+                string normalized = string.Join("/", segments);
+                foreach (string existing in usedMenuPaths)
+                {
+                    if (!normalized.Equals(existing, StringComparison.Ordinal) &&
+                        !normalized.StartsWith(existing + "/", StringComparison.Ordinal))
+                        continue;
+
+                    int conflictSegment = existing.Split('/').Length - 1;
+                    if (conflictSegment >= 0 && conflictSegment < segments.Length)
+                    {
+                        segments[conflictSegment] += " (场景组)";
+                        renamed = true;
+                        break;
+                    }
+                }
+            } while (renamed);
+
+            return segments.Length == 0 ? string.Empty : string.Join("/", segments) + "/";
+        }
+
+        private static bool TryReserveMenuPaths(string group, string label, ISet<string> usedMenuPaths)
+        {
+            string openPath = group + label;
+            string playPath = PlaySub + group + label;
+            if (PathsConflict(openPath, playPath) ||
+                HasLeafConflict(openPath, usedMenuPaths) || HasLeafConflict(playPath, usedMenuPaths))
+                return false;
+            usedMenuPaths.Add(openPath);
+            usedMenuPaths.Add(playPath);
+            return true;
+        }
+
+        private static bool HasLeafConflict(string candidate, IEnumerable<string> usedMenuPaths)
+        {
+            foreach (string existing in usedMenuPaths)
+                if (PathsConflict(candidate, existing)) return true;
+            return false;
+        }
+
+        private static bool PathsConflict(string left, string right) =>
+            left.Equals(right, StringComparison.Ordinal) ||
+            left.StartsWith(right + "/", StringComparison.Ordinal) ||
+            right.StartsWith(left + "/", StringComparison.Ordinal);
 
         private static void AddDynamic(string name, int priority, Action action)
         {

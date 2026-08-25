@@ -11,6 +11,7 @@
 - Core 与热更新 Runtime Module 保持 `autoReferenced:false`。新增/移动程序集时同步 `docs/framework-module-map.md`、热更清单、Demo/Test asmdef，并执行完整测试。
 - Runtime Module 直接使用的外部程序集必须在 asmdef `references` / `precompiledReferences` 中显式可见；不能因为插件 DLL 的 auto-reference 恰好让编译通过就隐藏依赖。改引用后运行 `SSFramework/诊断/模块裁剪审计`，核对真实元数据闭包与删除测试。
 - 第三方库不直接修改；依赖行为通过 Adapter 封装，并在边界注释记录版本相关假设与失败语义。
+- Framework 面向使用者的 Editor 工具、默认配置与通用说明必须保持项目无关。可以动态展示扫描当前工程所得的场景、程序集与路径作为证据，但不得把 DemoScene、样例包、业务目录或项目程序集硬编码成默认值、固定分类或必经步骤；具体案例留在对应 Demo、项目配置或明确标记的案例文档中。
 
 ## 公共 API 与注释
 

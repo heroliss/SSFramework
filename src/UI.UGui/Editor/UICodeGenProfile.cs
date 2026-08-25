@@ -11,22 +11,20 @@ namespace Game.Framework.UI.UGui.Editor
     /// UGUI 节点绑定生成配置（编辑器资产）——「生成的代码落哪、什么命名空间、默认绑哪个组件」的单一真源。
     /// <see cref="UIBindingCodeGenerator"/> 只读本资产；换项目 / 换目录改 Inspector 即可，不动代码。
     /// </summary>
-    /// <remarks>
-    /// 仓库内默认指向 demo 路径（demo 是框架的活样板消费方，同 <c>LubanConfigProfile</c> 的约定）；真实项目改 Inspector。
-    /// </remarks>
+    /// <remarks>业务程序集与目录无法由框架推导，新配置的三个根目标留空；现有项目配置按类型发现，不会被覆盖。</remarks>
     [InitializeOnLoad]
     [CreateAssetMenu(fileName = "UICodeGenProfile", menuName = "SSFramework/UI 绑定生成配置 (UI CodeGen Profile)")]
     public sealed class UICodeGenProfile : ScriptableObject
     {
         [Title("生成目标（根默认；支持 {PrefabName} / {DirectoryName} / {ParentDirectoryName} 占位符）")]
         [LabelText("命名空间"), PropertyTooltip("生成代码的命名空间。占位符值会被清洗成合法标识符段（含空格/横杠的目录名也安全）。")]
-        [SerializeField] private string _namespaceRoot = "Game.Framework.Demo.Modules";
+        [SerializeField] private string _namespaceRoot = "";
 
         [LabelText("逻辑目录"), FolderPath, PropertyTooltip("手写窗口逻辑 <Name>.cs 的输出目录（工程相对 Assets 路径，须在目标业务程序集范围内）。仅在文件不存在时创建一次。")]
-        [SerializeField] private string _outputCodeDir = "Assets/Game/Framework/Demo/Scripts/Modules";
+        [SerializeField] private string _outputCodeDir = "";
 
         [LabelText("生成目录"), FolderPath, PropertyTooltip("生成的节点绑定 <Name>.nodes.g.cs 的输出目录（每次覆盖）。须与逻辑代码在同一业务程序集内（partial 才链得上）。")]
-        [SerializeField] private string _generatedCodeDir = "Assets/Game/Framework/Demo/Scripts/Modules/Generated";
+        [SerializeField] private string _generatedCodeDir = "";
 
         [LabelText("文件名/类名"), PropertyTooltip("生成的文件名（= 生成的 partial 类名），不含扩展名。默认 {PrefabName} = prefab 文件名。注意：[UIWindow(Asset=...)] 的加载地址恒 = prefab 文件名，不受本项影响。")]
         [SerializeField] private string _fileNameTemplate = "{PrefabName}";
@@ -79,9 +77,9 @@ namespace Game.Framework.UI.UGui.Editor
         [FormerlySerializedAs("_autoAssignVariantScript")]
         [SerializeField] private bool _autoAssignWindowScript = true;
 
-        public string OutputCodeDir => _outputCodeDir.Trim().TrimEnd('/', '\\');
-        public string GeneratedCodeDir => _generatedCodeDir.Trim().TrimEnd('/', '\\');
-        public string NamespaceRoot => _namespaceRoot.Trim();
+        public string OutputCodeDir => _outputCodeDir?.Trim().TrimEnd('/', '\\') ?? "";
+        public string GeneratedCodeDir => _generatedCodeDir?.Trim().TrimEnd('/', '\\') ?? "";
+        public string NamespaceRoot => _namespaceRoot?.Trim() ?? "";
         public string FileNameTemplate => string.IsNullOrWhiteSpace(_fileNameTemplate) ? "{PrefabName}" : _fileNameTemplate.Trim();
         public IReadOnlyList<string> BuiltinComponentPriority => _builtinComponentPriority;
         public string FieldNameTemplate => string.IsNullOrWhiteSpace(_fieldNameTemplate) ? "{node}" : _fieldNameTemplate.Trim();
@@ -99,30 +97,34 @@ namespace Game.Framework.UI.UGui.Editor
             EditorApplication.projectChanged += () => _cached = null;
         }
 
-        /// <summary>解析全工程唯一的 profile：找已有（多个取第一个并警告），没有就按默认布局自动建一个。结果缓存，避免逐帧扫描资产。</summary>
+        /// <summary>解析全工程唯一的 profile：找已有（多个取第一个并警告），没有就创建一份待配置的空资产。结果缓存，避免逐帧扫描资产。</summary>
         public static UICodeGenProfile Resolve()
         {
             if (_cached != null) return _cached;
 
-            var guids = AssetDatabase.FindAssets("t:" + nameof(UICodeGenProfile));
-            if (guids.Length > 0)
+            var paths = AssetDatabase.FindAssets("t:" + nameof(UICodeGenProfile))
+                .Select(AssetDatabase.GUIDToAssetPath)
+                .OrderBy(path => path, System.StringComparer.Ordinal)
+                .ToArray();
+            if (paths.Length > 0)
             {
-                if (guids.Length > 1)
+                if (paths.Length > 1)
                 {
-                    var paths = guids.Select(AssetDatabase.GUIDToAssetPath);
                     Debug.LogWarning("[UI 绑定] 找到多个 UICodeGenProfile，仅第一个生效，请删到只剩一个：\n  " +
                                      string.Join("\n  ", paths));
                 }
-                return _cached = AssetDatabase.LoadAssetAtPath<UICodeGenProfile>(AssetDatabase.GUIDToAssetPath(guids[0]));
+                return _cached = AssetDatabase.LoadAssetAtPath<UICodeGenProfile>(paths[0]);
             }
 
             var profile = CreateInstance<UICodeGenProfile>();
             // 落在项目配置位（与构建 profile / 收集器设置同住），不在 Framework/ 内——这是项目配置实例，
             // 不该随框架进 UPM 包（ADR-0010/0011）；Resolve 按类型扫描定位，不认路径。
-            const string path = "Assets/Game/Settings/UICodeGenProfile.asset";
+            string path = Game.Framework.Editor.FrameworkProjectSettingsLocation.EnsureDirectory() +
+                          "/UICodeGenProfile.asset";
             AssetDatabase.CreateAsset(profile, path);
             AssetDatabase.SaveAssets();
-            Debug.Log($"[UI 绑定] 未找到 UICodeGenProfile，已按默认布局自动创建：{path}");
+            Debug.Log($"[UI 绑定] 未找到 UICodeGenProfile，已创建空配置：{path}。" +
+                      "请先填写目标业务程序集的命名空间、逻辑目录与生成目录。");
             return _cached = profile;
         }
     }

@@ -6,7 +6,7 @@ namespace Game.Framework.Build
 {
     /// <summary>
     /// 「配置表生成总览」窗口：把工程内所有 <see cref="LubanConfigProfile"/> 集中成卡片——每套列出 luban.conf 源、目标、
-    /// 代码 / 数据输出目录、命名空间，并提供「生成这套 / 打开各目录 / 点名定位资产」。多套并存（demo + 正式游戏）时
+    /// 代码 / 数据输出目录、命名空间，并提供「生成这套 / 打开各目录 / 点名定位资产」。多套按数据域或构建目标并存时
     /// 一眼看清各套落点、按套操作，省得到处翻文件夹；顶部「生成全部」等同菜单「1. 生成」。
     /// </summary>
     public sealed class LubanConfigOverviewWindow : EditorWindow
@@ -24,6 +24,7 @@ namespace Game.Framework.Build
             if (position.width < 380f)
             {
                 EditorGUILayout.LabelField("配置表生成 · 总览", EditorStyles.boldLabel);
+                if (GUILayout.Button("新建配置")) CreateProfile();
                 if (GUILayout.Button("刷新")) Repaint();
             }
             else
@@ -31,13 +32,13 @@ namespace Game.Framework.Build
                 using (new EditorGUILayout.HorizontalScope())
                 {
                     EditorGUILayout.LabelField("配置表生成 · 总览", EditorStyles.boldLabel);
+                    if (GUILayout.Button("新建配置", GUILayout.Width(80))) CreateProfile();
                     if (GUILayout.Button("刷新", GUILayout.Width(60))) Repaint();
                 }
             }
             EditorGUILayout.HelpBox(
                 "每套配置 = 一个 Luban Profile（各自的 luban.conf 源 + 输出目录 + 命名空间），互不干扰。\n" +
-                "demo 与正式游戏可各一套并存；demo 那套的代码 / 数据落在 Demo/ 隔离岛（程序集带 UNITY_EDITOR 约束、数据在样例资源包），" +
-                "正式打包时随 demo 一并排除。",
+                "可按数据域、客户端/服务端目标或可选内容拆成多套；每套只描述自己的输入与输出。路径由项目明确填写，框架不会猜测业务目录。",
                 MessageType.Info);
 
             var profiles = LubanConfigProfile.ResolveAll();
@@ -64,10 +65,20 @@ namespace Game.Framework.Build
             }
             if (playing)
                 EditorGUILayout.LabelField("（运行中——停止后可生成）", EditorStyles.miniLabel);
+            if (profiles.Count == 0)
+                EditorGUILayout.LabelField("（无配置——点击“新建配置”后填写 conf 与输出目录）", EditorStyles.wordWrappedMiniLabel);
 
             foreach (var profile in profiles)
                 DrawCard(profile, playing, compact);
             EditorGUILayout.EndScrollView();
+        }
+
+        private static void CreateProfile()
+        {
+            if (!EditorApplication.ExecuteMenuItem("Assets/Create/SSFramework/配置表生成配置 (Luban Profile)"))
+                Game.Framework.Editor.FrameworkEditorFeedback.Warn(
+                    "新建 Luban 配置未启动",
+                    "影响：没有创建资产。\n下一步：在 Project 窗口使用 Assets/Create/SSFramework/配置表生成配置。");
         }
 
         // 一套配置一张卡片：资产名（点击定位选中）+ 源 / 目标 / 输出 / 命名空间 + 响应式操作区。

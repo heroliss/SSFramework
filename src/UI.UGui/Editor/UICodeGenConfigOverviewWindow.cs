@@ -100,8 +100,7 @@ namespace Game.Framework.UI.UGui.Editor
         {
             if (string.IsNullOrEmpty(value))
             {
-                if (isProfile) return; // Profile 这四项不该为空
-                value = "（继承）";
+                value = isProfile ? "（未配置）" : "（继承）";
             }
 
             if (!compact)
