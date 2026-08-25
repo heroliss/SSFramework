@@ -191,6 +191,43 @@ namespace Game.Framework.Editor.Tests
         }
 
         [Test]
+        public void LinkerOwner_UsesUniqueDeepestModuleAndNeverGuessesAmbiguousDirectory()
+        {
+            string root = Path.Combine(Path.GetTempPath(), "SSFrameworkLinkOwner");
+            string shared = Path.Combine(root, "Shared");
+            var sharedA = new FrameworkModuleAudit.AssemblyInfo
+            {
+                Name = "Game.Framework.SharedA",
+                SourceDirectory = shared,
+            };
+            var sharedB = new FrameworkModuleAudit.AssemblyInfo
+            {
+                Name = "Game.Framework.SharedB",
+                SourceDirectory = shared,
+            };
+            Assert.That(FrameworkModuleAudit.ResolveLinkerOwner(
+                Path.Combine(shared, "link.xml"), new[] { sharedA, sharedB }), Is.Empty,
+                "同一物理目录的多个 asmdef 必须保持歧义，不能按枚举顺序猜 owner。");
+
+            var parent = new FrameworkModuleAudit.AssemblyInfo
+            {
+                Name = "Game.Framework.Parent",
+                SourceDirectory = root,
+            };
+            var child = new FrameworkModuleAudit.AssemblyInfo
+            {
+                Name = "Game.Framework.Child",
+                SourceDirectory = Path.Combine(root, "Child"),
+            };
+            Assert.That(FrameworkModuleAudit.ResolveLinkerOwner(
+                    Path.Combine(root, "Child", "link.xml"), new[] { parent, child }),
+                Is.EqualTo(child.Name));
+            Assert.That(FrameworkModuleAudit.ResolveLinkerOwner(
+                    Path.Combine(Path.GetDirectoryName(root)!, "link.xml"), new[] { parent, child }),
+                Is.Empty, "位于所有 asmdef 上层的 package 根规则应保留为全局/Package 证据。");
+        }
+
+        [Test]
         public void HotUpdateInspection_MapsBuildEvidenceWithoutCompileTimeDependency()
         {
             var target = new FrameworkModuleAudit.HotUpdateDeploymentEvidence
@@ -288,6 +325,11 @@ namespace Game.Framework.Editor.Tests
             foreach (var module in snapshot.Assemblies.Values)
             {
                 if (!module.IsFrameworkRuntime) continue;
+                Assert.That(module.AsmdefPath,
+                    Does.StartWith("Assets/").Or.StartWith("Packages/"),
+                    module.Name + " 应保留可由 Unity 定位的稳定 Asset Path。");
+                Assert.That(Directory.Exists(module.SourceDirectory), Is.True,
+                    module.Name + " 应保留可由 System.IO 读取的真实物理源码目录。");
                 var hidden = FrameworkModuleAudit.FindUndeclaredExternalReferences(snapshot, module);
                 Assert.That(hidden, Is.Empty, $"{module.Name} 存在 asmdef 不可见的真实外部依赖");
             }

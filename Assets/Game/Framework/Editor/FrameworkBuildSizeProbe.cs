@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Security;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using UnityEditor;
@@ -25,8 +26,7 @@ namespace Game.Framework.Editor
     internal static class FrameworkBuildSizeProbe
     {
         internal const string RunsRoot = "Library/SSFramework/BuildSizeProbe";
-        internal const string ChildTemplatePath =
-            "Assets/Game/Framework/Editor/Templates/FrameworkBuildSizeProbeChild.cs.txt";
+        internal const string ChildTemplateFileName = "FrameworkBuildSizeProbeChild.cs.txt";
 
         private const string LatestRunPreferencePrefix = "SSFramework.BuildSizeProbe.LatestRun.";
         private static readonly string[] AlwaysRequiredPackages =
@@ -47,6 +47,19 @@ namespace Game.Framework.Editor
         internal static event Action Changed;
 
         [Serializable]
+        internal sealed class ModuleSourcePlan
+        {
+            public string AssemblyName;
+            public string AssetDirectory;
+            [NonSerialized]
+            public string PhysicalDirectory;
+            public string PackageName;
+            public string PackageVersion;
+            public string PackageId;
+            public string SourceFingerprint;
+        }
+
+        [Serializable]
         internal sealed class ProfilePlan
         {
             public string Key;
@@ -54,7 +67,7 @@ namespace Game.Framework.Editor
             public string Description;
             public string[] RootAssemblies = Array.Empty<string>();
             public string[] Assemblies = Array.Empty<string>();
-            public string[] SourceDirectories = Array.Empty<string>();
+            public ModuleSourcePlan[] Sources = Array.Empty<ModuleSourcePlan>();
             public bool IsAdvanced;
         }
 
@@ -74,6 +87,7 @@ namespace Game.Framework.Editor
             public string Status;
             public string Message;
             public string[] Assemblies = Array.Empty<string>();
+            public ModuleSourcePlan[] Sources = Array.Empty<ModuleSourcePlan>();
             public string OutputPath;
             public string ResultPath;
             public string LogPath;
@@ -91,7 +105,7 @@ namespace Game.Framework.Editor
         [Serializable]
         internal sealed class RunReport
         {
-            public int FormatVersion = 2;
+            public int FormatVersion = 4;
             public string CreatedUtc;
             public string CompletedUtc;
             public string UnityVersion;
@@ -161,7 +175,7 @@ namespace Game.Framework.Editor
         {
             RunReport report = LoadLatestReport();
             if (report == null) return;
-            report.FormatVersion = 2;
+            report.FormatVersion = 4;
             WriteReports(report);
             Changed?.Invoke();
         }
@@ -174,6 +188,19 @@ namespace Game.Framework.Editor
                 .Concat(new[] { (profile: result.FullProfile, advanced: false) })
                 .Concat(result.ModuleProfiles.Select(profile => (profile, advanced: true)));
             var runtimeByName = result.RuntimeModules.ToDictionary(module => module.Name, StringComparer.Ordinal);
+            var sourceByName = runtimeByName.Values
+                .Select(module => new ModuleSourcePlan
+                {
+                    AssemblyName = module.Name,
+                    AssetDirectory = NormalizeAssetPath(Path.GetDirectoryName(module.AsmdefPath)),
+                    PhysicalDirectory = module.SourceDirectory,
+                    PackageName = module.PackageName,
+                    PackageVersion = module.PackageVersion,
+                    PackageId = module.PackageId,
+                    SourceFingerprint = ComputeModuleSourceFingerprint(module.SourceDirectory),
+                })
+                .ToDictionary(source => source.AssemblyName, StringComparer.Ordinal);
+            ValidateDisjointSourceDirectories(sourceByName.Values);
             return profiles.Select(item =>
             {
                 FrameworkModuleAudit.AuditProfile profile = item.profile;
@@ -188,11 +215,7 @@ namespace Game.Framework.Editor
                     Description = profile.Description,
                     RootAssemblies = profile.Roots,
                     Assemblies = assemblies,
-                    SourceDirectories = assemblies
-                        .Select(name => Path.GetDirectoryName(runtimeByName[name].AsmdefPath))
-                        .Where(path => !string.IsNullOrWhiteSpace(path))
-                        .Distinct(StringComparer.OrdinalIgnoreCase)
-                        .ToArray(),
+                    Sources = assemblies.Select(name => sourceByName[name]).ToArray(),
                     IsAdvanced = item.advanced,
                 };
             }).ToArray();
@@ -239,6 +262,7 @@ namespace Game.Framework.Editor
                     Status = "等待",
                     Message = "等待前序组合完成。",
                     Assemblies = plan.Assemblies,
+                    Sources = plan.Sources,
                 }).ToArray(),
             };
 
@@ -358,7 +382,7 @@ namespace Game.Framework.Editor
             Directory.CreateDirectory(Path.Combine(projectDirectory, "ProjectSettings"));
 
             CopyDirectory(
-                FullPath("Packages/nuget-packages"),
+                FrameworkModuleSourceCatalog.Resolve("Packages/nuget-packages").PhysicalPath,
                 Path.Combine(projectDirectory, "Packages", "nuget-packages"),
                 _ => false);
             CopyDirectory(
@@ -366,7 +390,7 @@ namespace Game.Framework.Editor
                 Path.Combine(projectDirectory, "Assets", "Plugins", "Sirenix", "Assemblies"),
                 _ => false);
 
-            string templateSource = FullPath(ChildTemplatePath);
+            string templateSource = ResolveChildTemplate().PhysicalPath;
             if (!File.Exists(templateSource))
                 throw new FileNotFoundException("找不到隔离构建子进程模板。", templateSource);
             File.Copy(templateSource,
@@ -557,6 +581,7 @@ namespace Game.Framework.Editor
             try
             {
                 var plans = CreatePlans().ToDictionary(plan => plan.Key, StringComparer.Ordinal);
+                string sourceDrift = FindRecoveryDrift(report, plans);
                 foreach (var record in report.Profiles.Where(record => record.Status == "准备"))
                 {
                     record.Status = "等待";
@@ -578,6 +603,45 @@ namespace Game.Framework.Editor
                 EditorApplication.update += PollChildProcess;
 
                 ProfileRecord building = report.Profiles.FirstOrDefault(record => record.Status == "构建中");
+                if (!string.IsNullOrEmpty(sourceDrift))
+                {
+                    if (building != null && TryAttachUnityProcess(building.ChildProcessId, out _childProcess))
+                    {
+                        _activeProfile = plans.TryGetValue(building.Key, out ProfilePlan currentPlan)
+                            ? currentPlan
+                            : new ProfilePlan { Key = building.Key, Title = building.Title };
+                        _stopAfterCurrent = true;
+                        building.Message = "检测到源码身份漂移；已重新附着当前子进程，完成后停止：" + sourceDrift;
+                        foreach (ProfileRecord waiting in report.Profiles.Where(record => record.Status == "等待"))
+                            waiting.Message = "检测到源码身份漂移；当前组合完成后跳过，避免混合两套来源。";
+                        WriteReports(report);
+                        Changed?.Invoke();
+                        return;
+                    }
+
+                    if (building != null)
+                    {
+                        building.Status = "失败";
+                        building.Errors = Math.Max(building.Errors, 1);
+                        building.ChildProcessId = 0;
+                        building.Message = sourceDrift;
+                    }
+                    else
+                    {
+                        ProfileRecord invalidPending = report.Profiles.FirstOrDefault(
+                            record => record.Status == "等待");
+                        if (invalidPending != null)
+                        {
+                            invalidPending.Status = "失败";
+                            invalidPending.Errors = Math.Max(invalidPending.Errors, 1);
+                            invalidPending.Message = sourceDrift;
+                        }
+                    }
+                    _stopAfterCurrent = true;
+                    Debug.LogError("[BuildSizeProbe] " + sourceDrift);
+                    CompleteRun(sourceDrift);
+                    return;
+                }
                 if (building == null)
                 {
                     WriteReports(report);
@@ -644,7 +708,7 @@ namespace Game.Framework.Editor
 
         private static void PrepareProfileSources(string projectDirectory, ProfilePlan profile)
         {
-            string childTemplate = FullPath(ChildTemplatePath);
+            string childTemplate = ResolveChildTemplate().PhysicalPath;
             File.Copy(childTemplate,
                 Path.Combine(projectDirectory, "Assets", "Editor", "FrameworkBuildSizeProbeChild.cs"), true);
 
@@ -658,10 +722,17 @@ namespace Game.Framework.Editor
             DeleteDirectoryInsideWorkspace(frameworkDestination, projectDirectory);
             Directory.CreateDirectory(frameworkDestination);
 
-            foreach (string sourceDirectory in profile.SourceDirectories)
+            foreach (ModuleSourcePlan module in profile.Sources)
             {
-                string source = FullPath(sourceDirectory);
-                string destination = Path.Combine(frameworkDestination, Path.GetFileName(source));
+                if (module == null || string.IsNullOrWhiteSpace(module.PhysicalDirectory) ||
+                    !Directory.Exists(module.PhysicalDirectory))
+                    throw new DirectoryNotFoundException(
+                        $"找不到 {module?.AssemblyName ?? "未知 Module"} 的物理源码目录：" +
+                        (module?.PhysicalDirectory ?? "（空）"));
+                string source = Path.GetFullPath(module.PhysicalDirectory);
+                string destination = Path.Combine(
+                    frameworkDestination,
+                    SafeDirectoryName(module.AssemblyName));
                 CopyDirectory(source, destination, ShouldSkipModulePath);
             }
 
@@ -720,6 +791,17 @@ namespace Game.Framework.Editor
                 sb.AppendLine(record.Message ?? string.Empty);
                 if (record.Assemblies?.Length > 0)
                     sb.AppendLine("\nModule：" + string.Join(", ", record.Assemblies));
+                if (record.Sources?.Length > 0)
+                {
+                    sb.AppendLine("\n源码证据：");
+                    foreach (ModuleSourcePlan source in record.Sources)
+                    {
+                        string owner = SourceOwner(source);
+                        sb.AppendLine($"- {source.AssemblyName} ← {source.AssetDirectory} ({owner})");
+                        if (!string.IsNullOrWhiteSpace(source.SourceFingerprint))
+                            sb.AppendLine($"  - 实际复制内容 SHA-256：`{source.SourceFingerprint}`");
+                    }
+                }
                 if (record.LargestFiles?.Length > 0)
                 {
                     sb.AppendLine("\n较大的输出文件：");
@@ -872,6 +954,142 @@ namespace Game.Framework.Editor
 
         private static string FullPath(string projectRelativePath) =>
             Path.GetFullPath(Path.Combine(ProjectRoot, projectRelativePath));
+
+        private static FrameworkModuleSourceCatalog.SourceLocation ResolveChildTemplate() =>
+            FrameworkModuleSourceCatalog.FindUniqueFileInAssemblySource(
+                ChildTemplateFileName, FrameworkModuleAudit.CoreAssemblyName + ".Editor");
+
+        internal static void ValidateDisjointSourceDirectories(
+            IEnumerable<ModuleSourcePlan> sourcePlans)
+        {
+            ModuleSourcePlan[] sources = sourcePlans?
+                .Where(source => source != null && !string.IsNullOrWhiteSpace(source.PhysicalDirectory))
+                .OrderBy(source => source.AssemblyName, StringComparer.Ordinal)
+                .ToArray() ?? Array.Empty<ModuleSourcePlan>();
+            for (int i = 0; i < sources.Length; i++)
+            for (int j = i + 1; j < sources.Length; j++)
+            {
+                if (!FrameworkModuleSourceCatalog.IsPhysicalPathInside(
+                        sources[i].PhysicalDirectory, sources[j].PhysicalDirectory) &&
+                    !FrameworkModuleSourceCatalog.IsPhysicalPathInside(
+                        sources[j].PhysicalDirectory, sources[i].PhysicalDirectory))
+                    continue;
+                throw new InvalidDataException(
+                    "隔离构建要求每个 Runtime Module 拥有互不嵌套的源码目录；否则复制一个 Module 会夹带另一个：" +
+                    $"{sources[i].AssemblyName} ({sources[i].AssetDirectory}) ↔ " +
+                    $"{sources[j].AssemblyName} ({sources[j].AssetDirectory})");
+            }
+        }
+
+        internal static string FindSourceIdentityMismatch(
+            IEnumerable<ModuleSourcePlan> recorded,
+            IEnumerable<ModuleSourcePlan> current)
+        {
+            string[] oldKeys = SourceIdentityKeys(recorded);
+            string[] currentKeys = SourceIdentityKeys(current);
+            return oldKeys.SequenceEqual(currentKeys, StringComparer.Ordinal)
+                ? string.Empty
+                : "Module 源码身份已变化；原报告为 [" + string.Join(", ", oldKeys) +
+                  "]，当前为 [" + string.Join(", ", currentKeys) + "]。";
+        }
+
+        internal static string FindRecoveryDrift(
+            RunReport report,
+            IReadOnlyDictionary<string, ProfilePlan> currentPlans)
+        {
+            if (report == null) return "恢复报告为空，无法验证 Module 源码身份。";
+            if (report.FormatVersion < 4)
+                return "报告格式早于 v4，缺少实际复制内容的指纹，拒绝跨 Domain Reload 猜测续跑。";
+            if (currentPlans == null) return "当前 Module 拓扑为空，无法验证恢复报告。";
+
+            var recordedKeys = new HashSet<string>(StringComparer.Ordinal);
+            foreach (ProfileRecord record in report.Profiles ?? Array.Empty<ProfileRecord>())
+            {
+                if (record == null || string.IsNullOrWhiteSpace(record.Key))
+                    return "恢复报告包含没有稳定 Key 的构建组合，拒绝猜测续跑。";
+                if (!recordedKeys.Add(record.Key))
+                    return $"恢复报告重复记录构建组合 {record.Key}，拒绝猜测续跑。";
+                if (!currentPlans.TryGetValue(record.Key, out ProfilePlan current))
+                    return $"构建组合 {record.Key} 已不在当前 Module 拓扑中，拒绝静默跳过。";
+
+                string mismatch = FindSourceIdentityMismatch(record.Sources, current.Sources);
+                if (!string.IsNullOrEmpty(mismatch)) return $"构建组合 {record.Key}：{mismatch}";
+            }
+
+            return string.Empty;
+        }
+
+        private static string[] SourceIdentityKeys(IEnumerable<ModuleSourcePlan> sources) =>
+            (sources ?? Array.Empty<ModuleSourcePlan>())
+            .Where(source => source != null)
+            .Select(source => string.Join("|",
+                source.AssemblyName ?? string.Empty,
+                NormalizeAssetPath(source.AssetDirectory),
+                SourceOwner(source),
+                source.SourceFingerprint ?? string.Empty))
+            .OrderBy(value => value, StringComparer.Ordinal)
+            .ToArray();
+
+        internal static string ComputeModuleSourceFingerprint(string sourceDirectory)
+        {
+            if (string.IsNullOrWhiteSpace(sourceDirectory) || !Directory.Exists(sourceDirectory))
+                throw new DirectoryNotFoundException("无法为不存在的 Module 源码目录生成内容指纹：" +
+                                                     (sourceDirectory ?? "（空）"));
+
+            string root = Path.GetFullPath(sourceDirectory);
+            string[] files = Directory.GetFiles(root, "*", SearchOption.AllDirectories)
+                .Select(path => new
+                {
+                    PhysicalPath = path,
+                    RelativePath = RelativePath(root, path).Replace('\\', '/'),
+                })
+                .Where(file => !ShouldSkipModulePath(file.RelativePath))
+                .OrderBy(file => file.RelativePath, StringComparer.Ordinal)
+                .Select(file => file.PhysicalPath)
+                .ToArray();
+
+            using var sha256 = SHA256.Create();
+            using (var hashingStream = new CryptoStream(Stream.Null, sha256, CryptoStreamMode.Write))
+            using (var writer = new BinaryWriter(hashingStream, new UTF8Encoding(false), true))
+            {
+                foreach (string file in files)
+                {
+                    string relativePath = RelativePath(root, file).Replace('\\', '/');
+                    using FileStream input = File.OpenRead(file);
+                    writer.Write(relativePath);
+                    writer.Write(input.Length);
+                    writer.Flush();
+                    input.CopyTo(hashingStream);
+                }
+                writer.Flush();
+                hashingStream.FlushFinalBlock();
+            }
+
+            return BitConverter.ToString(sha256.Hash ?? Array.Empty<byte>())
+                .Replace("-", string.Empty)
+                .ToLowerInvariant();
+        }
+
+        private static string SourceOwner(ModuleSourcePlan source)
+        {
+            if (source == null || string.IsNullOrWhiteSpace(source.PackageName)) return "Assets";
+            if (!string.IsNullOrWhiteSpace(source.PackageId)) return source.PackageId;
+            return source.PackageName +
+                   (string.IsNullOrWhiteSpace(source.PackageVersion)
+                       ? string.Empty
+                       : "@" + source.PackageVersion);
+        }
+
+        private static string SafeDirectoryName(string value)
+        {
+            string candidate = string.IsNullOrWhiteSpace(value) ? "Module" : value.Trim();
+            foreach (char invalid in Path.GetInvalidFileNameChars())
+                candidate = candidate.Replace(invalid, '_');
+            return candidate;
+        }
+
+        private static string NormalizeAssetPath(string path) =>
+            string.IsNullOrWhiteSpace(path) ? string.Empty : path.Replace('\\', '/').TrimEnd('/');
 
         private static string ProjectRoot =>
             Path.GetDirectoryName(Application.dataPath) ?? Directory.GetCurrentDirectory();

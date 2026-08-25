@@ -15,7 +15,7 @@
 
 ## 轻量组合档位与证据口径
 
-菜单 `SSFramework/诊断/模块裁剪审计` 会读取当前目标平台的 Player 编译图、asmdef、已编译 DLL 的**真实元数据引用**、FrameworkHotUpdateProfile 和全部 `Assets/**/link.xml`。窗口先只读比较唯一 Profile、HybridCLRSettings、Generate stamp、当前热更加载顺序、AOT 补元数据清单与 DLL 中转目录，再解释每个 Runtime Module 的项目 / Framework 消费者、热更依赖传播和 linker 根；之后给出 Core-only、Core + UGUI、Core + Toolkit、全部 Runtime Module、Profile 期望热更档位，以及任意 Module 作为入口的 what-if 闭包。空 Profile 的纯 AOT 档位不强制 Generate / CodePackage；缺失或重复 Profile 会明确告警。完整闭包、全局 / HybridCLR 生成的 linker 规则和原始报告按需展开。它同时机器执行三条删除测试：Core 不带 UI、UGUI 不带 Toolkit/Bridge、Toolkit 不带 UGUI/Bridge。
+菜单 `SSFramework/诊断/模块裁剪审计` 会读取当前目标平台的 Player 编译图、asmdef、已编译 DLL 的**真实元数据引用**、FrameworkHotUpdateProfile，以及项目 Assets 与全部已注册 Package 中的 `link.xml`。`FrameworkModuleSourceCatalog` 同时保留 Unity 可定位的 Asset Path 与可供 `System.IO` 读取的 Physical Path，并标记 package 名称/版本；因此源码搬到嵌入式包或 `PackageCache` 后仍使用同一套审计和构建证据。窗口先只读比较唯一 Profile、HybridCLRSettings、Generate stamp、当前热更加载顺序、AOT 补元数据清单与 DLL 中转目录，再解释每个 Runtime Module 的项目 / Framework 消费者、热更依赖传播和 linker 根；之后给出 Core-only、Core + UGUI、Core + Toolkit、全部 Runtime Module、Profile 期望热更档位，以及任意 Module 作为入口的 what-if 闭包。空 Profile 的纯 AOT 档位不强制 Generate / CodePackage；缺失或重复 Profile 会明确告警。完整闭包、全局 / HybridCLR 生成的 linker 规则和原始报告按需展开。它同时机器执行三条删除测试：Core 不带 UI、UGUI 不带 Toolkit/Bridge、Toolkit 不带 UGUI/Bridge。
 
 报告里的大小是链接、AOT、压缩前的原始托管 DLL，只用于发现“一个很小的 Adapter 意外拖入很大的外部依赖”以及比较组合；它不是最终包体承诺。需要真实平台证据时打开 `SSFramework/诊断/真实构建体积证据`：探针在 `Library` 下创建隔离空工程，只复制所选 Runtime Module 和当前版本依赖，再用当前目标平台 / 脚本后端读取 Player BuildReport。所选程序集完整保留，因此结果是可重复的体积上界；详情见 ADR-0038。
 
@@ -23,7 +23,7 @@
 
 | 层 | 回答的问题 | 当前证据 |
 |---|---|---|
-| 源码 / Package | 文件、导入器和 asmdef 是否安装？ | `Assets`、UPM manifest / lock |
+| 源码 / Package | 文件、导入器和 asmdef 是否安装？恢复时源码是否仍是同一份？ | Source Catalog 的 Asset / Physical / package 身份、UPM manifest / lock；隔离探针另记录实际复制内容指纹 |
 | Player 编译 | 当前平台是否编译该程序集？ | `CompilationPipeline.GetAssemblies(Player)`；`autoReferenced:false` 不会让源码停止编译 |
 | 真实消费 / 删除阻塞 | 谁在 Player DLL 元数据里实际引用；谁在任意 asmdef 中声明引用？ | 前者解释玩家保留候选，后者覆盖完整 asmdef 图中的物理删除编译阻塞；字符串反射仍需人工说明 |
 | 保留 / 部署根 | 什么会让它留下？ | 场景、资源、反射、`link.xml`；HybridCLR Profile 同步后按程序集部署完整 DLL |
@@ -53,7 +53,7 @@
 | `Game.Framework.UI.Toolkit` | `UI.Toolkit/` | UI Toolkit Window/View Adapter、`VisualElement` 的 `Bag.BindList` Adapter 与 RenderTexture 显示原语。 | 删除后 UGUI 后端与 UI Core 仍可编译。 |
 | `Game.Framework.UI.Bridge` | `UI.Bridge/` | UGUI/相机内容嵌入 Toolkit 的 RenderTexture Adapter。 | 删除后两套独立 UI 后端仍可用。 |
 | `Game.Framework.Boot` | `Boot/` | HybridCLR/YooAsset 热更启动 AOT 薄壳。 | 可在无热更项目删除；不得反向依赖 Framework Runtime。 |
-| `Game.Framework.Editor` | `Editor/` | 稳定编辑器工具基座：Core 通用 Drawer、跨模块非阻塞反馈、诊断窗口、菜单与配置总览；Module Audit 与隔离 Player Build 体积探针共用结构化组合。 | 玩家构建不包含。若删除，需一并删除或改接直接依赖它的 Build / Config / Proto / UGUI Editor 工具；所有 Runtime API 与玩家构建仍不受影响。 |
+| `Game.Framework.Editor` | `Editor/` | 稳定编辑器工具基座：Core 通用 Drawer、跨模块非阻塞反馈、诊断窗口、菜单与配置总览；Module Audit 与隔离 Player Build 体积探针共用结构化组合，Source Catalog 统一解析 Assets / Packages / PackageCache。 | 玩家构建不包含。若删除，需一并删除或改接直接依赖它的 Build / Config / Proto / UGUI Editor 工具；所有 Runtime API 与玩家构建仍不受影响。 |
 | `Game.Framework.Editor.Tests` | `Editor/Tests/` | 通用 Editor 工具的 EditMode 契约；覆盖 AI PlayMode 预检的无弹窗保存与未命名场景拒绝。 | 随 Editor Module 删除；不进入玩家构建。 |
 | `Game.Framework.Build.Editor` | `Build/Editor/` | YooAsset/HybridCLR 构建管线与 Profile；复用通用 Editor 反馈，重第三方依赖不反向进入基座。 | 无资源/热更构建需求时可删，不污染通用 Editor。 |
 | `Game.Framework.Demo` | `Demo/` | 32 个可运行教学章节，是所有 Module 的消费方与集成样板；Catalog 集中拥有章节 Adapter、生命周期与 Host 教学语义校验。 | 可整体删除；`UNITY_EDITOR` define 保证不进玩家包。 |

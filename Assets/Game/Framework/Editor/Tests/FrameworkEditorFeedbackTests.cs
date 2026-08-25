@@ -1,6 +1,9 @@
 using System.IO;
 using System.Collections.Generic;
+using System.Linq;
 using NUnit.Framework;
+using UnityEditor;
+using UnityEditor.Compilation;
 using UnityEngine.TestTools;
 using UnityEngine;
 
@@ -73,23 +76,37 @@ namespace Game.Framework.Editor.Tests
         [Test]
         public void FrameworkSource_HasOnlyReviewedModalInteractions()
         {
-            string projectRoot = Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
-            string frameworkRoot = Path.Combine(projectRoot, "Assets/Game/Framework");
+            FrameworkModuleSourceCatalog.SourceLocation sceneShortcut =
+                FrameworkModuleSourceCatalog.FindUniqueFileInAssemblySource(
+                    "SceneShortcutMenu.cs", FrameworkModuleAudit.CoreAssemblyName + ".Editor");
             var confirmationWhitelist = new Dictionary<string, string>
             {
-                ["Assets/Game/Framework/Build/Editor/AssetBuildMenu.cs"] =
-                    "\"全量重建\",",
-                ["Assets/Game/Framework/Editor/SceneShortcut/SceneShortcutMenu.cs"] =
+                [sceneShortcut.AssetPath] =
                     "\"正在运行 Play\",",
             };
+            if (FrameworkModuleSourceCatalog.TryFindUniqueFileInAssemblySource(
+                    "AssetBuildMenu.cs", "Game.Framework.Build.Editor", out var assetBuildMenu))
+                confirmationWhitelist.Add(assetBuildMenu.AssetPath, "\"全量重建\",");
 
-            foreach (string sourcePath in Directory.GetFiles(frameworkRoot, "*.cs", SearchOption.AllDirectories))
+            foreach (string assetPath in AssetDatabase.GetAllAssetPaths()
+                         .Where(path => path.EndsWith(".cs", System.StringComparison.OrdinalIgnoreCase))
+                         .Where(path =>
+                         {
+                             string assemblyName = CompilationPipeline.GetAssemblyNameFromScriptPath(path);
+                             return assemblyName != null &&
+                                    (assemblyName.Equals(FrameworkModuleAudit.CoreAssemblyName,
+                                         System.StringComparison.Ordinal) ||
+                                     assemblyName.StartsWith(FrameworkModuleAudit.CoreAssemblyName + ".",
+                                         System.StringComparison.Ordinal));
+                         }))
             {
-                string relative = sourcePath.Substring(projectRoot.Length + 1).Replace('\\', '/');
+                FrameworkModuleSourceCatalog.SourceLocation sourceLocation =
+                    FrameworkModuleSourceCatalog.Resolve(assetPath);
+                string relative = sourceLocation.AssetPath;
                 if (relative.EndsWith("FrameworkEditorFeedbackTests.cs"))
                     continue;
 
-                string source = File.ReadAllText(sourcePath);
+                string source = File.ReadAllText(sourceLocation.PhysicalPath);
                 int count = CountOccurrences(source, "EditorUtility.DisplayDialog");
                 Assert.That(CountOccurrences(source, "EditorUtility.DisplayDialogComplex"), Is.Zero,
                     relative + " 含有未登记的复杂模态弹窗。 ");
