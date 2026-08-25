@@ -71,13 +71,12 @@ namespace Game.Framework.Editor.Tests
 
             // CopyAsset 以及同批 EditMode 用例触发的导入可能跨过当前 Editor 帧；预检本身应当
             // 对繁忙状态 fail-fast，因此测试先等到真实调用前置条件成立，而不是削弱生产保护。
-            double timeoutAt = EditorApplication.timeSinceStartup + 10d;
-            while (EditorApplication.isCompiling || EditorApplication.isUpdating)
-            {
-                Assert.That(EditorApplication.timeSinceStartup, Is.LessThan(timeoutAt),
-                    "等待 Unity 完成测试资产导入超时");
+            double timeoutAt = EditorApplication.timeSinceStartup + 30d;
+            while ((EditorApplication.isCompiling || EditorApplication.isUpdating) &&
+                   EditorApplication.timeSinceStartup < timeoutAt)
                 yield return null;
-            }
+            Assert.That(EditorApplication.isCompiling || EditorApplication.isUpdating, Is.False,
+                "等待 Unity 完成测试资产导入超时");
 
             var savedPaths = FrameworkAutomationPreflight.PreparePlayModeTests();
 

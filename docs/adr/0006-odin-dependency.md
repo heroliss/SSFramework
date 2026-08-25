@@ -1,18 +1,19 @@
-# ADR-0006：Odin 硬依赖现状与未来解耦
+# ADR-0006：第一阶段接受 Odin 硬依赖
 
-**Status:** Accepted
+**Status:** Superseded by [ADR-0015](0015-odin-decoupling-assessment.md)
 
 ## Context
 
-`MonoViewBase` 与 `MonoLayerBase<TLayer>`（Model/System/Utility 基类）都继承 Odin 的 `SerializedMonoBehaviour`，靠 `[OdinSerialize]` 序列化接口类型字段 `IGameContext _targetContext`（Unity 原生序列化无法序列化接口引用）。Odin（Sirenix）是付费插件。
+早期 `MonoViewBase`、`MonoLayerBase<TLayer>` 与 `MonoGameContextBase` 继承 Odin 的
+`SerializedMonoBehaviour`，用 `[OdinSerialize]` 保存接口类型的 Context 引用，并用 Odin Attribute
+显示运行时诊断。项目当时已经采购 Odin，先用成熟插件快速建立可观察的 Inspector 体验是合理的阶段性选择。
 
 ## Decision
 
-**第一阶段接受 Odin 硬依赖。** 它直接解决"Inspector 拖拽/序列化接口类型的 Context 引用"这一核心需求，且项目已采购。
+第一阶段接受 Odin 硬依赖，不为尚未开始的跨项目分发提前维护第二套 Inspector。
 
-## Consequences
+## Superseded reason
 
-- ✅ `Target Context` 可在 Inspector 拖拽，支持 `MonoGameContextBase` 与运行时赋值的纯 C# `IGameContext`。
-- ⚠️ 作为"面向广泛使用的框架"，硬依赖付费插件是复用障碍。
-- 🔮 未来解耦方向（成本不低，非当前优先）：把 `SerializedMonoBehaviour` 降级为 `MonoBehaviour`。
-  > **方向修正（见 [ADR-0015](0015-odin-decoupling-assessment.md)）**：原先设想的 `[SerializeReference]` 替代**不适用**于 `_targetContext` / `_parentContext`——这俩字段存的是 `MonoGameContextBase`（`UnityEngine.Object`），而 `[SerializeReference]` 只适用于纯托管对象。可行路径是把字段降为具体 `MonoGameContextBase` 类型（Unity 原生拖拽）+ 运行时 `IGameContext` 覆盖分离；真正的主成本是把 `[ShowInInspector]` 运行时诊断改写成自定义 Editor。详细改动面 / 风险 / 排期建议见 ADR-0015。
+UPM 抽包与轻量组合已经进入实际实施阶段，付费插件硬依赖开始直接阻塞分发、授权和删除测试。
+[ADR-0015](0015-odin-decoupling-assessment.md) 已落地 Unity 原生基线，并把 Odin 调整为项目级可选专业增强。
+本 ADR 只保留为历史背景，不再代表当前架构。

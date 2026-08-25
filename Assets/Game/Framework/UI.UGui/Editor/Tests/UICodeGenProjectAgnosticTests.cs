@@ -94,5 +94,16 @@ namespace Game.Framework.UI.UGui.Editor.Tests
                 UnityEngine.Object.DestroyImmediate(profile);
             }
         }
+
+        [Test]
+        public void NativeFolderPicker_StoresPortableAssetPaths()
+        {
+            Assert.That(UICodeGenEditorGUI.TryToAssetPath(Application.dataPath, out string assetsRoot), Is.True);
+            Assert.That(assetsRoot, Is.EqualTo("Assets"));
+
+            string frameworkFolder = Path.Combine(Application.dataPath, "Game", "Framework");
+            Assert.That(UICodeGenEditorGUI.TryToAssetPath(frameworkFolder, out string frameworkPath), Is.True);
+            Assert.That(frameworkPath, Is.EqualTo("Assets/Game/Framework"));
+        }
     }
 }

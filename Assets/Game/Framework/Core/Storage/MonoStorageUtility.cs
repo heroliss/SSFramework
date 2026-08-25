@@ -4,7 +4,6 @@ using System.IO;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using Game.Framework.Utility;
-using Sirenix.OdinInspector;
 using UnityEngine;
 
 namespace Game.Framework.Storage
@@ -27,10 +26,10 @@ namespace Game.Framework.Storage
 
         private StorageUtility _impl;
 
-        // 运行时只读诊断：实际读写的绝对路径，排查「存到哪了 / 为什么没读到」直接看这。仅 Play 显示、Build 零成本。
-        [FoldoutGroup(DiagGroup), ShowInInspector, ReadOnly, HideInEditorMode, LabelText("存储根目录"), PropertyOrder(-90)]
-        [PropertyTooltip("实际读写的绝对路径（persistentDataPath/<根目录名>）。")]
-        private string InspectorRoot => Path.Combine(Application.persistentDataPath, _rootFolder ?? string.Empty);
+#if UNITY_EDITOR
+        /// <summary>原生 Inspector 展示的实际存储根路径。</summary>
+        internal string EditorStorageRoot => Path.Combine(Application.persistentDataPath, _rootFolder ?? string.Empty);
+#endif
 
         protected override void Awake()
         {

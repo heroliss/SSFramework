@@ -1,7 +1,11 @@
 {
     "name": "Game.Framework.Fonts.Editor",
     "rootNamespace": "Game.Framework.Fonts.Editor",
-    "references": [],
+    "references": [
+        "Game.Framework",
+        "Game.Framework.Fonts",
+        "Game.Framework.Editor"
+    ],
     "includePlatforms": [
         "Editor"
     ],

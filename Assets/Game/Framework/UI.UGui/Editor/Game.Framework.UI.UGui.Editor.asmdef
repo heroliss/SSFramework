@@ -3,9 +3,7 @@
     "rootNamespace": "Game.Framework.UI.UGui.Editor",
     "references": [
         "Game.Framework.UI.UGui",
-        "Game.Framework.Editor",
-        "Sirenix.OdinInspector.Attributes",
-        "Sirenix.OdinInspector.Editor"
+        "Game.Framework.Editor"
     ],
     "includePlatforms": [
         "Editor"

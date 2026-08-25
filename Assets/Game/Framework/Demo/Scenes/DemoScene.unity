@@ -497,18 +497,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: be8e815717e986c4aa23d6f5517476e5, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Game.Framework.Demo::Game.Framework.Demo.Modules.MonoScoreModel
-  serializationData:
-    SerializedFormat: 2
-    SerializedBytes: 
-    ReferencedUnityObjects: []
-    SerializedBytesString: 
-    Prefab: {fileID: 0}
-    PrefabModificationsReferencedUnityObjects: []
-    PrefabModifications: []
-    SerializationNodes:
-    - Name: _targetContext
-      Entry: 6
-      Data: 
+  _targetContext: {fileID: 0}
   <Score>k__BackingField:
     value: 0
 --- !u!1 &549681962
@@ -632,18 +621,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b0bd7f25ad691ff41ae0d1b9be25b859, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Game.Framework.UI.UGui::Game.Framework.UI.UGui.MonoUGuiUI
-  serializationData:
-    SerializedFormat: 2
-    SerializedBytes: 
-    ReferencedUnityObjects: []
-    SerializedBytesString: 
-    Prefab: {fileID: 0}
-    PrefabModificationsReferencedUnityObjects: []
-    PrefabModifications: []
-    SerializationNodes:
-    - Name: _targetContext
-      Entry: 6
-      Data: 
+  _targetContext: {fileID: 0}
   _canvas: {fileID: 2005434962}
 --- !u!114 &609003092
 MonoBehaviour:
@@ -657,18 +635,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: bf64b4e01adda594e8f341bcf8de4c2d, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Game.Framework::Game.Framework.Context.MonoGameContextBase
-  serializationData:
-    SerializedFormat: 2
-    SerializedBytes: 
-    ReferencedUnityObjects: []
-    SerializedBytesString: 
-    Prefab: {fileID: 0}
-    PrefabModificationsReferencedUnityObjects: []
-    PrefabModifications: []
-    SerializationNodes:
-    - Name: _parentContext
-      Entry: 6
-      Data: 
+  _parentContextHost: {fileID: 0}
   _inheritFromParent: 1
   _inheritFromGlobal: 1
 --- !u!1 &943790224
@@ -715,18 +682,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 46dff7ad211ab314e936e07232f79205, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Game.Framework.Fonts::Game.Framework.Fonts.MonoLocaleFonts
-  serializationData:
-    SerializedFormat: 2
-    SerializedBytes: 
-    ReferencedUnityObjects: []
-    SerializedBytesString: 
-    Prefab: {fileID: 0}
-    PrefabModificationsReferencedUnityObjects: []
-    PrefabModifications: []
-    SerializationNodes:
-    - Name: _targetContext
-      Entry: 6
-      Data: 
+  _targetContext: {fileID: 0}
   _tmpMainFonts:
   - {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   _toolkitMainFonts:
@@ -844,18 +800,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1d6d2a27cfbf98946890a25bcdf8c8ae, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Game.Framework.Demo::Game.Framework.Demo.Core.MonoDemoContext
-  serializationData:
-    SerializedFormat: 2
-    SerializedBytes: 
-    ReferencedUnityObjects: []
-    SerializedBytesString: 
-    Prefab: {fileID: 0}
-    PrefabModificationsReferencedUnityObjects: []
-    PrefabModifications: []
-    SerializationNodes:
-    - Name: _parentContext
-      Entry: 6
-      Data: 
+  _parentContextHost: {fileID: 0}
   _inheritFromParent: 1
   _inheritFromGlobal: 1
 --- !u!4 &962892730
@@ -926,18 +871,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 6a4d087758a34164ca175b0304373913, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Game.Framework::Game.Framework.AssetInitSystem
-  serializationData:
-    SerializedFormat: 2
-    SerializedBytes: 
-    ReferencedUnityObjects: []
-    SerializedBytesString: 
-    Prefab: {fileID: 0}
-    PrefabModificationsReferencedUnityObjects: []
-    PrefabModifications: []
-    SerializationNodes:
-    - Name: _targetContext
-      Entry: 6
-      Data: 
+  _targetContext: {fileID: 0}
 --- !u!114 &1007168412
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -950,18 +884,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c70828e016ec41bcaac22b9924dece11, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Game.Framework::Game.Framework.AssetUtility
-  serializationData:
-    SerializedFormat: 2
-    SerializedBytes: 
-    ReferencedUnityObjects: []
-    SerializedBytesString: 
-    Prefab: {fileID: 0}
-    PrefabModificationsReferencedUnityObjects: []
-    PrefabModifications: []
-    SerializationNodes:
-    - Name: _targetContext
-      Entry: 6
-      Data: 
+  _targetContext: {fileID: 0}
   _simulateOffline:
     value: 0
 --- !u!114 &1007168413
@@ -976,18 +899,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e5f5650a4a5040c46ba6789cd530ffbe, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Game.Framework::Game.Framework.AssetSystemConfigModel
-  serializationData:
-    SerializedFormat: 2
-    SerializedBytes: 
-    ReferencedUnityObjects: []
-    SerializedBytesString: 
-    Prefab: {fileID: 0}
-    PrefabModificationsReferencedUnityObjects: []
-    PrefabModifications: []
-    SerializationNodes:
-    - Name: _targetContext
-      Entry: 6
-      Data: 
+  _targetContext: {fileID: 0}
   _packages:
   - _name: FrameworkSamplesPackage
     _autoInitialize: 0
@@ -1207,18 +1119,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: df1910858b9e3494593abd24a7ace5ef, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Game.Framework.Demo::Game.Framework.Demo.Modules.DemoAssetRefs
-  serializationData:
-    SerializedFormat: 2
-    SerializedBytes: 
-    ReferencedUnityObjects: []
-    SerializedBytesString: 
-    Prefab: {fileID: 0}
-    PrefabModificationsReferencedUnityObjects: []
-    PrefabModifications: []
-    SerializationNodes:
-    - Name: _targetContext
-      Entry: 6
-      Data: 
+  _targetContext: {fileID: 0}
   _logoRef:
     _assetGUID: 23c87949bd2898f4c9ac58e792af981b
     _packageName: 
@@ -1274,18 +1175,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: a7e2727bc4ce8a348a4d3bdeca44d0d6, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Game.Framework.Demo::Game.Framework.Demo.Config.DemoConfigUtility
-  serializationData:
-    SerializedFormat: 2
-    SerializedBytes: 
-    ReferencedUnityObjects: []
-    SerializedBytesString: 
-    Prefab: {fileID: 0}
-    PrefabModificationsReferencedUnityObjects: []
-    PrefabModifications: []
-    SerializationNodes:
-    - Name: _targetContext
-      Entry: 6
-      Data: 
+  _targetContext: {fileID: 0}
   _packageName: 
   _initializePackageIfIdle: 1
 --- !u!1 &1499793785
@@ -1333,18 +1223,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: bc288dfeae19acf4897876157c7abb40, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Game.Framework.Demo::Game.Framework.Demo.Modules.DemoSubContext
-  serializationData:
-    SerializedFormat: 2
-    SerializedBytes: 
-    ReferencedUnityObjects: []
-    SerializedBytesString: 
-    Prefab: {fileID: 0}
-    PrefabModificationsReferencedUnityObjects: []
-    PrefabModifications: []
-    SerializationNodes:
-    - Name: _parentContext
-      Entry: 6
-      Data: 
+  _parentContextHost: {fileID: 0}
   _inheritFromParent: 1
   _inheritFromGlobal: 1
 --- !u!1 &1762131462
@@ -1442,18 +1321,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d273b8a3abca6c34ca7587bae2e511e1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Game.Framework.UI.Toolkit::Game.Framework.UI.Toolkit.MonoToolkitUI
-  serializationData:
-    SerializedFormat: 2
-    SerializedBytes: 
-    ReferencedUnityObjects: []
-    SerializedBytesString: 
-    Prefab: {fileID: 0}
-    PrefabModificationsReferencedUnityObjects: []
-    PrefabModifications: []
-    SerializationNodes:
-    - Name: _targetContext
-      Entry: 6
-      Data: 
+  _targetContext: {fileID: 0}
   _document: {fileID: 0}
 --- !u!114 &1819273409
 MonoBehaviour:
@@ -1534,18 +1402,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: be8e815717e986c4aa23d6f5517476e5, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Game.Framework.Demo::Game.Framework.Demo.Modules.MonoScoreModel
-  serializationData:
-    SerializedFormat: 2
-    SerializedBytes: 
-    ReferencedUnityObjects: []
-    SerializedBytesString: 
-    Prefab: {fileID: 0}
-    PrefabModificationsReferencedUnityObjects: []
-    PrefabModifications: []
-    SerializationNodes:
-    - Name: _targetContext
-      Entry: 6
-      Data: 
+  _targetContext: {fileID: 0}
   <Score>k__BackingField:
     value: 0
 --- !u!1 &2005434958

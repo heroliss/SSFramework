@@ -1,7 +1,5 @@
-using System.Collections.Generic;
 using Cysharp.Threading.Tasks;
-using Sirenix.OdinInspector;
-using Sirenix.Serialization;
+using Game.Framework.Context;
 using UnityEngine;
 
 namespace Game.Framework.Internal
@@ -24,18 +22,22 @@ namespace Game.Framework.Internal
     /// 「Mono 生命周期与 Context」）。
     /// </remarks>
     /// <typeparam name="TLayer">层标记接口：<c>IModel</c> / <c>ISystem</c> / <c>IUtility</c>。</typeparam>
-    public abstract class MonoLayerBase<TLayer> : SerializedMonoBehaviour, IHasGameContext where TLayer : class
+    public abstract class MonoLayerBase<TLayer> : MonoBehaviour, IHasGameContext where TLayer : class
     {
-        /// <summary>Odin 折叠组名：三层共享，把所有运行时只读诊断收进同一个可折叠框。派生类（如 AssetUtility）的诊断项用同一常量，渲染时合并到一处。</summary>
+        /// <summary>
+        /// 旧版派生 Utility 用来合并 Inspector 诊断分组的兼容常量。Framework 原生 Inspector 不再读取它；
+        /// 业务侧自有 Inspector/Odin Attribute 可在迁移期继续引用。
+        /// </summary>
+        [System.Obsolete("Framework 原生诊断不再使用字符串分组；请把业务诊断放进自己的 Editor Adapter。")]
         protected const string DiagGroup = "运行时诊断";
 
-        [OdinSerialize, ShowInInspector, LabelText("Target Context"), DisableInPlayMode]
+        [SerializeField]
+        [LockInPlayMode]
         [Tooltip(
             "显式指定要注册到的 Context。\n" +
             "• 留空：自动查找 Transform 层级中最近的父级 MonoGameContextBase\n" +
-            "• 拖入 MonoGameContextBase：强制注册到指定场景 Context\n" +
-            "• 代码赋值 IGameContext：支持纯 C# GameContext")]
-        private IGameContext _targetContext;
+            "• 拖入 MonoGameContextBase：强制注册到指定场景 Context")]
+        private MonoGameContextBase _targetContext;
 
         private IGameContext _contextProvider;
         private DisposableBag _bag;
@@ -44,27 +46,6 @@ namespace Game.Framework.Internal
         // 只能用扩展方法（this.GetXxx<T>() 等），由 ICanXxx 权限接口约束各层能做什么。
         // 框架内部通过 IHasGameContext 拿到。
         IGameContext IHasGameContext.Context => _contextProvider;
-
-        // 运行时只读诊断统一收进「运行时诊断」可折叠框，仅 Play 模式显示、Build 下不被调用。三层（Model/System/Utility）共享。
-        [FoldoutGroup(DiagGroup), ShowInInspector, ReadOnly, HideInEditorMode, LabelText("解析到的 Context"), PropertyOrder(-100)]
-        [PropertyTooltip("运行时实际注册到的 Context（Target Context 为空时自动向上查找的结果）。")]
-        private IGameContext ResolvedContext => _contextProvider;
-
-        // 本层在容器里注册到的契约键（具体类型 + 派生自层标记的接口），按 ContainerLayerExtensions.RegisterFor 同一套规则计算，
-        // 展示的就是「GetXxx<T>() 能用哪些 T 解析到本实例」，用于排查 DI 注册。
-        [FoldoutGroup(DiagGroup), ShowInInspector, ReadOnly, HideInEditorMode, LabelText("注册契约"), PropertyOrder(-99)]
-        [PropertyTooltip("本层注册到容器的契约键：具体类型 + 所有派生自层标记接口（不含层标记自身）。\nthis.GetModel/GetSystem/GetUtility<T>() 用这些键之一即可解析到本实例。")]
-        private List<string> RegisteredContracts
-        {
-            get
-            {
-                var concrete = GetType();
-                var names = new List<string> { concrete.Name };
-                foreach (var iface in LayerInterfacesCache.GetLayerInterfaces(concrete, typeof(TLayer)))
-                    names.Add(iface.Name);
-                return names;
-            }
-        }
 
         /// <summary>
         /// 本层生命周期容器——加载与本层同寿命的资源、订阅事件、登记任意 <see cref="System.IDisposable"/>。

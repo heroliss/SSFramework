@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using Sirenix.OdinInspector;
 using UnityEditor;
 using UnityEngine;
 
@@ -18,35 +17,17 @@ namespace Game.Framework.UI.UGui.Editor
     [CreateAssetMenu(fileName = "UICodeGenDirConfig", menuName = "SSFramework/UI 绑定目录配置 (UI CodeGen Dir Config)")]
     public sealed class UICodeGenDirConfig : ScriptableObject
     {
-        [ShowInInspector, PropertyOrder(-10), LabelText("父配置")]
-        [PropertyTooltip("未填的项从这里（或更上层）继承；点击可定位。由目录层级推导、只读。")]
-        private UnityEngine.Object ParentConfig => UIBindingUtil.DirConfigParent(this, UICodeGenProfile.Resolve());
-
-        [Title("覆盖项（留空 = 继承父配置 / 全工程默认）")]
-        [LabelText("命名空间"), PropertyTooltip("覆盖本目录（及子目录）下 prefab 的生成命名空间。支持 {PrefabName}/{DirectoryName}/{ParentDirectoryName} 占位符。")]
+        [Tooltip("覆盖本目录（及子目录）下 prefab 的生成命名空间。支持 {PrefabName}/{DirectoryName}/{ParentDirectoryName} 占位符。")]
         [SerializeField] private string _namespaceOverride;
 
-        [LabelText("逻辑目录"), FolderPath, PropertyTooltip("覆盖手写逻辑 <Name>.cs 的输出目录（工程相对 Assets 路径）。")]
+        [Tooltip("覆盖手写逻辑 <Name>.cs 的输出目录（工程相对 Assets 路径）。")]
         [SerializeField] private string _outputDirOverride;
 
-        [LabelText("生成目录"), FolderPath, PropertyTooltip("覆盖生成的 <Name>.nodes.g.cs 的输出目录（工程相对 Assets 路径）。")]
+        [Tooltip("覆盖生成的 <Name>.nodes.g.cs 的输出目录（工程相对 Assets 路径）。")]
         [SerializeField] private string _generatedDirOverride;
 
-        [LabelText("文件名/类名"), PropertyTooltip("覆盖生成文件名 / 类名模板（= 生成的类名，含占位符，不含扩展名）。")]
+        [Tooltip("覆盖生成文件名 / 类名模板（= 生成的类名，含占位符，不含扩展名）。")]
         [SerializeField] private string _fileNameOverride;
-
-        [Title("生效预览（占位符按各 prefab 路径展开，此处仅模板）")]
-        [ShowInInspector, DisplayAsString(false), PropertyOrder(100), LabelText("命名空间")]
-        private string EffNamespace => EffLine(UIBindingUtil.GenTargetField.Namespace, NamespaceOrNull);
-
-        [ShowInInspector, DisplayAsString(false), PropertyOrder(101), LabelText("逻辑目录")]
-        private string EffOutputDir => EffLine(UIBindingUtil.GenTargetField.OutputDir, OutputDirOrNull);
-
-        [ShowInInspector, DisplayAsString(false), PropertyOrder(102), LabelText("生成目录")]
-        private string EffGeneratedDir => EffLine(UIBindingUtil.GenTargetField.GeneratedDir, GeneratedDirOrNull);
-
-        [ShowInInspector, DisplayAsString(false), PropertyOrder(103), LabelText("文件名/类名")]
-        private string EffFileName => EffLine(UIBindingUtil.GenTargetField.FileName, FileNameOrNull);
 
         /// <summary>本配置设定的命名空间（trim 后；未设则 <c>null</c>）。</summary>
         public string NamespaceOrNull => Norm(_namespaceOverride);
@@ -61,10 +42,11 @@ namespace Game.Framework.UI.UGui.Editor
         private static string NormDir(string s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim().TrimEnd('/', '\\');
 
         // 生效预览单项：已填 = 本配置值；否则父配置 / 全工程继承来的原始模板 + 来源。各项独立一行（[DisplayAsString] 长路径自动换行、不截断）。
-        private string EffLine(UIBindingUtil.GenTargetField field, string own)
+        internal string EffectiveLine(UIBindingUtil.GenTargetField field, UICodeGenProfile profile)
         {
+            string own = UIBindingUtil.RawFieldValue(this, field);
             if (own != null) return $"{own}    ← 本配置";
-            var (raw, source, _) = UIBindingUtil.DirConfigInheritedRaw(this, field, UICodeGenProfile.Resolve());
+            var (raw, source, _) = UIBindingUtil.DirConfigInheritedRaw(this, field, profile);
             return $"{raw}    ← {source}";
         }
 

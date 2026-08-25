@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using Game.Framework.Utility;
-using Sirenix.OdinInspector;
 using UnityEngine;
 
 namespace Game.Framework.Audio
@@ -36,10 +35,10 @@ namespace Game.Framework.Audio
 
         private AudioUtility _impl;
 
-        // 运行时只读诊断：主/组音量、当前音乐、活动声音数。仅 Play 显示、Build 零成本。
-        [FoldoutGroup(DiagGroup), ShowInInspector, ReadOnly, HideInEditorMode, LabelText("音频状态"), PropertyOrder(-90)]
-        [PropertyTooltip("主音量 / 各组音量 / 当前音乐 / 活动与空闲声音数。")]
-        private IReadOnlyList<string> InspectorAudio => _impl?.GetAudioDiagnostics();
+#if UNITY_EDITOR
+        /// <summary>原生 Inspector 的只读运行时快照；底层实现尚未建立时为空。</summary>
+        internal IReadOnlyList<string> EditorDiagnostics => _impl?.GetAudioDiagnostics() ?? Array.Empty<string>();
+#endif
 
         protected override void Awake()
         {

@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Reflection;
 using System.Text.RegularExpressions;
 using Cysharp.Threading.Tasks;
 using Game.Framework.Common;
@@ -34,10 +35,35 @@ namespace Game.Framework.Test
             public void Dispose() => DisposeCount++;
         }
 
+        private sealed class ContextMarker { }
+
+        private sealed class BindingMonoContext : MonoGameContextBase
+        {
+            internal readonly ContextMarker Marker = new();
+
+            protected override void InstallBindings(ContainerBuilder builder)
+                => builder.RegisterValue(Marker, typeof(ContextMarker));
+        }
+
+        private sealed class TargetedMonoView : Game.Framework.View.MonoViewBase
+        {
+            [Inject] private ContextMarker _marker;
+            internal ContextMarker Marker => _marker;
+        }
+
         private sealed class FailingMonoContext : MonoGameContextBase
         {
             internal static Action<ContainerBuilder> Install;
             protected override void InstallBindings(ContainerBuilder builder) => Install?.Invoke(builder);
+        }
+
+        private sealed class ConfigurableMonoContext : MonoGameContextBase
+        {
+            internal void UseExplicitParent(IGameContext parent)
+            {
+                _parentContext = parent;
+                _inheritFromParent = false;
+            }
         }
 
         private GameObject _root;
@@ -189,6 +215,74 @@ namespace Game.Framework.Test
                 "无 Inspector 绑定且无父级时，Model 应按 Context 自动绑定顺序回退到 GameContext.Main");
         });
 
+        [UnityTest]
+        public IEnumerator ExplicitCodeParent_RemainsEffectiveWhenAutomaticParentSearchIsDisabled()
+            => UniTask.ToCoroutine(async () =>
+            {
+                var probe = new DisposeProbe();
+                using var builder = new ContainerBuilder();
+                builder.RegisterValue(probe, typeof(DisposeProbe));
+                using var parent = new GameContext(builder.Build(), inheritFromGlobal: false);
+
+                var childObject = new GameObject("ExplicitParentChild");
+                childObject.SetActive(false);
+                childObject.transform.SetParent(_root.transform);
+                var child = childObject.AddComponent<ConfigurableMonoContext>();
+                child.UseExplicitParent(parent);
+                childObject.SetActive(true);
+                await UniTask.Yield();
+
+                Assert.That(child.TryResolve(typeof(DisposeProbe), out object resolved), Is.True);
+                Assert.That(resolved, Is.SameAs(probe),
+                    "关闭自动 Transform 父链查找不应禁用显式代码 Parent。 ");
+            });
+
+        [UnityTest]
+        public IEnumerator NativeSerializedContextReferences_OverrideNearestTransformContextBeforeAwake()
+            => UniTask.ToCoroutine(async () =>
+            {
+                var nearestObject = new GameObject("NearestContext");
+                nearestObject.transform.SetParent(_root.transform);
+                var nearest = nearestObject.AddComponent<BindingMonoContext>();
+
+                var explicitObject = new GameObject("ExplicitContext");
+                explicitObject.transform.SetParent(_root.transform);
+                var explicitContext = explicitObject.AddComponent<BindingMonoContext>();
+                await UniTask.Yield();
+
+                var childContextObject = new GameObject("ExplicitParentHost");
+                childContextObject.SetActive(false);
+                childContextObject.transform.SetParent(nearestObject.transform);
+                var childContext = childContextObject.AddComponent<MonoGameContextBase>();
+                SetPrivateField(typeof(MonoGameContextBase), childContext, "_parentContextHost", explicitContext);
+
+                var modelObject = new GameObject("ExplicitTargetModel");
+                modelObject.SetActive(false);
+                modelObject.transform.SetParent(nearestObject.transform);
+                var model = modelObject.AddComponent<TestMonoModel>();
+                SetPrivateField(typeof(MonoModelBase).BaseType, model, "_targetContext", explicitContext);
+
+                var viewObject = new GameObject("ExplicitTargetView");
+                viewObject.SetActive(false);
+                viewObject.transform.SetParent(nearestObject.transform);
+                var view = viewObject.AddComponent<TargetedMonoView>();
+                SetPrivateField(typeof(Game.Framework.View.MonoViewBase), view, "_targetContext", explicitContext);
+
+                childContextObject.SetActive(true);
+                modelObject.SetActive(true);
+                viewObject.SetActive(true);
+                await UniTask.Yield();
+
+                Assert.That(childContext.Resolve(typeof(ContextMarker)), Is.SameAs(explicitContext.Marker),
+                    "原生 Parent Context 字段应优先于最近 Transform Context。");
+                Assert.That(explicitContext.GetModel<TestMonoModel>(), Is.SameAs(model),
+                    "MonoLayer 原生 Target Context 字段应决定注册目标。");
+                Assert.That(nearest.TryResolve(typeof(TestMonoModel), out _), Is.False,
+                    "显式 Target 不应同时注册到最近 Transform Context。");
+                Assert.That(view.Marker, Is.SameAs(explicitContext.Marker),
+                    "MonoView 原生 Target Context 字段应决定注入来源。");
+            });
+
 #if UNITY_EDITOR
         [UnityTest]
         public IEnumerator ReadyContext_DiagnosticSnapshotShowsCommittedState() => UniTask.ToCoroutine(async () =>
@@ -305,5 +399,12 @@ namespace Game.Framework.Test
                 Assert.AreEqual(1, probe.DisposeCount, "子层 Awake 不应触发失败 Context 重试或二次清理");
                 FailingMonoContext.Install = null;
             });
+
+        private static void SetPrivateField(Type owner, object target, string name, object value)
+        {
+            FieldInfo field = owner?.GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(field, Is.Not.Null, $"找不到迁移后的序列化字段 {owner?.Name}.{name}");
+            field.SetValue(target, value);
+        }
     }
 }

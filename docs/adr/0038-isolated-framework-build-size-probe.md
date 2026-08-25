@@ -27,7 +27,7 @@ Module 源码不假设位于 `Assets/Game/Framework`。审计先经 `FrameworkMo
 
 ### 2. 依赖版本来自当前工程，但按组合最小化
 
-隔离工程复用当前 `Packages/manifest.json` 中的 R3、UniTask、Input System、UGUI / TMP、YooAsset 版本以及内置 Unity Module 版本；NuGet 嵌入包和 Odin 运行时 DLL 从当前工程复制。每个组合单独生成最小 manifest，例如 Core 不安装 Input System / UGUI，Toolkit 不因另一档需要 UGUI 而被污染。
+隔离工程复用当前 `Packages/manifest.json` 中的 R3、UniTask、Input System、UGUI / TMP、YooAsset 版本以及内置 Unity Module 版本；当前 NuGet 嵌入包从主工程复制。Framework 原生基线不依赖 Odin，探针也不复制付费插件。每个组合单独生成最小 manifest，例如 Core 不安装 Input System / UGUI，Toolkit 不因另一档需要 UGUI 而被污染。
 
 探针不联网选择“更新版本”，也不修改第三方库。若主工程缺少选中 Module 声明的依赖，构建前 fail-fast，而不是默默换一个版本继续。
 

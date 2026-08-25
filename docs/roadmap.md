@@ -18,15 +18,16 @@
 5. **编译期权限**：`ICanGetModel`/`ICanSendEvent` 等接口在编译期约束每层能做什么，不靠口头约定。
 6. **引擎组件可跨层**：`Rigidbody`/`Transform` 等天生贯穿数据/逻辑/视图，框架允许它们正交于五层被共享。
 
-## 关键不变量：核心层范式无关
+## 关键不变量：领域契约与 UI 后端解耦
 
-框架的核心层——`Context` / DI 容器 / `Command` / `Model` / `System` / `Utility` / `Event` / `DisposableBag` / 权限接口——**全是范式无关的纯 C#**，不绑定任何 UI 技术或 MonoBehaviour。
+`Context` / DI 容器 / `Command` / `Model` / `System` / `Utility` / `Event` / 权限接口的核心语义不依赖
+UGUI、UI Toolkit 或付费 Inspector 插件。Core Module 同时提供两类入口：纯 C# 基类适合测试、服务与非组件对象；
+`MonoContext` / `MonoModel` / `MonoSystem` / `MonoUtility` / `MonoView` 是基于 Unity 原生 `MonoBehaviour`
+序列化的场景宿主 Adapter。
 
-唯一绑定 UGUI/Mono 的是：
-- `MonoViewBase`（继承 `SerializedMonoBehaviour`）
-- `DisposableBag` 的 `UnityEvent` / `Button.onClick` 便利重载
-
-这意味着接入新 UI/范式时，**核心零改动**，只需新增"适配层"。
+`DisposableBag` 的 `UnityEvent` / `Button.onClick` 便利重载属于 Unity/UGUI 易用性扩展，不改变生命周期 Interface；
+具体 UI 后端、列表绑定和 RenderTexture Bridge 仍位于独立 Module。接入新 UI 范式时应新增 Adapter，除非实战证明
+现有核心 Interface 本身缺少通用语义。
 
 ## 阶段路线图
 
@@ -86,7 +87,7 @@ DOTS 是数据/Job/Burst 范式，与引用式 OOP 不同。框架的定位是**
 - **MagicOnion** —— 基于 gRPC 的实时通信；网络模块（ADR-0028）已落地 JSON 起步，MagicOnion 是整套 RPC 范式（非本模块传输接缝），真用时「直接用 + 框架管其余」。
 - ~~**ObservableCollections**~~ —— ✅ 已融入（ADR-0027）：`ObservableList<T>` + `Bag.BindList` 补 R3 集合响应式空缺，藏在绑定接口后。
 - **ZString** —— 零分配字符串构造，UI/日志高频拼接场景。
-- 选型原则：先确认"框架真的需要"，再评估与既有栈（UniTask/R3/YooAsset/Odin）的契合度与 AOT/热更兼容性，最后藏在框架接口后引入。
+- 选型原则：先确认"框架真的需要"，再评估与既有栈（UniTask/R3/YooAsset）的契合度与 AOT/热更兼容性，最后藏在框架接口后引入；Odin 属于项目级可选 Editor 增强，不再进入 Core 依赖栈。
 
 ## 建议推进节奏（2026-07 全面审查后）
 
@@ -134,7 +135,7 @@ M0 骨架 → M1 战斗核心 → M2 升级 → M3 存档/音频/本地化 → M
 
 ### 长期（已有 ADR / 规划，时机到再动）
 
-- UPM 抽包（ADR-0010，**前置验收已由切片 M0-M6 全程完成**）、Odin 解耦（ADR-0015）。DOTS 接缝已验证（Phase 3 / ADR-0030），框架侧可选模块待真实需求再立项。
+- UPM 抽包（ADR-0010，**前置验收已由切片 M0-M6 全程完成**）；Odin 解耦已完成原生基线、删除门禁与可整体删除的 Editor Adapter（ADR-0015），后续 Validator/迁移器仍需真实需求再立项。DOTS 接缝已验证（Phase 3 / ADR-0030），框架侧可选模块待真实需求再立项。
 - **第二个 `IAssetProvider` 实现**（如 Addressables）——目的不是替换 YooAsset，而是用第二实现**验证抽象边界**：只有一个实现的接口不算真抽象。
 
 ## 文档地图

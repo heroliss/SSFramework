@@ -13,16 +13,16 @@
 5. **Demo + guide + AI 规则同步**：教学和协作约束不能继续推荐旧路径；
 6. **全量验证**：编译、EditMode、PlayMode、Demo 防腐检查与文档一致性。
 
-## 已验证基线（2026-08-24）
+## 已验证基线（2026-08-25）
 
 | 维度 | 当前事实 |
 |---|---|
 | Unity | 6000.3.22f1 |
-| Framework Module | 23 个 asmdef Module；依赖与删除测试见 `framework-module-map.md` |
+| Framework Module | 25 个 asmdef Module（含测试与可选 Odin Editor Adapter）；依赖与删除测试见 `framework-module-map.md` |
 | Demo | 32 个自动发现章节；Catalog 集中拥有 Adapter 生命周期，并按 Capability / Concept / Workflow 校验真实 Build 教学语义 |
 | 教程 | `framework-guide.md` 28 章 |
-| ADR | 0001–0037；0035 为 Container Factory 所有权，0036 为 AI PlayMode 预检，0037 为 UI Loading 所有权 |
-| 测试 | PlayMode 422 + EditMode 106，全绿；交互式 MCP 先预检，命令行入口默认 EditMode + PlayMode |
+| ADR | 0001–0040；0038 为隔离构建体积证据，0039 为模块保留模型，0040 为 UPM-aware 源码目录 |
+| 测试 | PlayMode 427 + EditMode 191，全绿；交互式 MCP 先预检，命令行入口默认 EditMode + PlayMode |
 | Demo CodeRef | 299 处可打开源码跳转全部精准命中；注释、文案与外部文档路径不计入源码构造点 |
 | AI 常驻规则预算 | 最深 AGENTS 链 29.88 KiB，低于 Codex 默认 32 KiB 项目指令上限；新增常驻规则前需继续评估外移空间 |
 
@@ -141,6 +141,30 @@
 - 隔离体积探针从 Catalog 的真实目录复制源码，以程序集名隔离同名 `Runtime/` 叶目录，相同/嵌套源码域则拒绝制造虚假删除证据；JSON / Markdown 不落盘 PackageCache 绝对路径，但会保存过滤 Editor/Test 后实际复制文件的 SHA-256 指纹。Domain Reload 会逐档检查拓扑、package 与内容漂移，已移除档位不再被静默过滤。模板和弹窗门禁按程序集源码域查找，不受无关 Package 同名文件影响。
 - 架构取舍记录于 ADR-0040；这完成了 UPM 抽包前的工具链路径准备，但没有越权实现安装、卸载、版本解析或第二套 Package Manager。
 
+### P1 · Odin 可选依赖与原生基线
+
+- 保留 Odin 作为当前项目推荐的专业 Inspector / Validator 工具，但 Framework 的公共基线不再继承
+  `SerializedMonoBehaviour`，Core、Fonts、UGUI Editor、通用 Editor、测试与隔离构建探针均不再声明 Sirenix 编译引用。
+- `_targetContext` 与可序列化父 Context 改为 Unity 原生具体组件引用；纯代码父 Context 仍通过非序列化
+  `IGameContext` 路径表达。显式代码父级在关闭自动层级搜索时仍然有效，避免把两个不同配置语义错误绑定。
+- 新增原生 fallback Mono Inspector、字段/Header 诊断、资源包名称下拉与 UGUI 代码生成 Inspector；窄 Inspector
+  会纵向重排，资源包 PropertyDrawer 的菜单回写对多对象使用新的 `SerializedObject`，普通校验失败走非模态反馈。
+  可选 Odin Editor Adapter 以无持久化的临时 Editor 映射保留业务属性绘制并追加框架诊断；映射只替换原生
+  fallback，按 Odin 的程序集分类/逐类型设置启用，并在配置资产更新后延迟重应用。字段 Drawer/Header hook
+  覆盖其余场景，实际所有权由真实组件测试锁定。
+- 在 Odin 仍安装的主工程中审计 6 个场景/Prefab 的 34 个旧 `serializationData` 节点，确认全部为空后通过
+  Unity `ForceReserializeAssets` 迁移为原生字段；没有手改 YAML，也没有丢失对象引用。
+- 删除测试通过 CompilationPipeline 定位 Assets/Packages 中的 Framework 生产源码和 asmdef，并读取已编译 DLL
+  直接引用，阻止 Sirenix 重新渗入通用基线且拒绝零样本假绿；隔离空工程只复制
+  `Game.Framework`，在 Windows IL2CPP / Minimal Stripping 下实际构建成功（0 error / 0 warning，发布输出
+  66.64 MiB）。该数字是当前平台的完整保留上界，不是 WebGL 或具体游戏包体承诺。
+- ADR-0015 取代“Core 硬依赖 Odin”的旧结论；`Game.Framework.Odin.Editor` 只承担 Odin 绘制 + Framework
+  诊断这一真实共存增量，映射不写 Odin 配置，可整体删除且不改变 Runtime/资产布局。后续 Validator 规则、专用数据宿主或迁移器
+  仍需独立证据，Adapter 不得随框架重新分发商业插件，不为目录对称制造空壳能力。
+- UPM 长期按安装/版本/删除粒度组织 Core、YooAsset、UI、Protobuf、Yoo-HybridCLR 与可选 Odin Adapter，
+  不机械按每个 asmdef 抽包。下一阶段重点是标准化 Git 依赖与 embedded NuGet DLL 的发布来源，并在干净消费工程
+  验证安装 recipe，而不是复制第二套 Package Manager。
+
 ### P2 · Demo 动态字体资产仓库卫生
 
 - 清空 `DemoLatin SDF` 与 `DemoNotoSansSC SDF` 中由编辑器会话生成的 glyph / character / atlas 缓存，保留 Dynamic 模式、源字体引用、atlas 配置与 `Clear Dynamic Data On Build`；序列化资产合计减少约 4.2 MiB，运行时仍按需生成字形。
@@ -156,7 +180,7 @@
 | P1 | CI 真正接线 | 当前脚本已可作为门禁；选择 GitHub Actions / 自建 Runner 后再落配置，避免仓库里放一份无人运行的“装饰性 CI”。 |
 | P2 | 大文件按职责复查 | `DiagnosticsWindow`、`YooAssetProvider`、`AssetUtility` 等只在发现两个独立变化轴或测试 Seam 时拆；单纯行数不是理由。 |
 | P2 | WebGL / 小游戏固定 Runner 基线 | 隔离探针已能在当前目标平台生成真实 Player BuildReport 上界；下一步等确定发布平台与 CI Runner 后保存同环境 artifact / 阈值，避免把本机 Windows 数字当 WebGL 基线。 |
-| P2 | UPM 抽包准备 | 按 Module 删除测试清理业务反向依赖、Samples~/Documentation~ 与第三方声明；达到真实复用需求再执行 ADR-0010 路线。 |
+| P2 | UPM 分发依赖标准化 | Module 源码与 Odin 原生基线已经具备；下一步拆解 Git 直依赖与 embedded NuGet 单体包的发布来源，形成可重复安装 recipe，并在干净消费工程验证 Core / 可选 Adapter 的安装与删除，不在框架内复制第二套 Package Manager。 |
 
 ## 每批完成门禁
 

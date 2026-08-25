@@ -53,7 +53,7 @@ namespace Game.Framework.Demo.Modules
                 new[] { "2. 生成桥接与裁剪文件（Generate All）", "首次接入 / 升级 Unity 或 HybridCLR / 增删第三方库 / 改档位", "分钟" },
                 new[] { "3. 构建代码包", "日常每次热更迭代", "几十秒" },
                 new[] { "4. 部署代码包", "跟在 3 后面（平铺到 Deploy，与资源包同套 CDN 结构）", "秒" });
-            host.AddSubNote("迭代边界（真机实测）：热更代码新增跨 AOT 泛型用法（Odin 序列化热更类型、新 R3 订阅泛型等）也只需 3+4——SuperSet 补元数据 + 解释器兜底已覆盖；真正需要 2 + 重出安装包的只有 AOT 集合本身的变化。",
+            host.AddSubNote("迭代边界（真机实测）：热更代码新增跨 AOT 泛型用法（第三方序列化器处理热更类型、新 R3 订阅泛型等）也只需 3+4——SuperSet 补元数据 + 解释器兜底已覆盖；真正需要 2 + 重出安装包的只有 AOT 集合本身的变化。",
                 new CodeRef("Assets/Game/Framework/Build/Editor/FrameworkHotUpdateBuilder.cs", "class FrameworkHotUpdateBuilder", "构建实现（CompileDll → 清单 → RawFile 包）"));
             host.AddSubNote("不确定自己漏了哪一步时，模块裁剪审计的“热更产物链”会只读比较唯一 Profile → HybridCLRSettings → Generate stamp → 当前热更拓扑 / AOT 补元数据清单 → DLL 中转，并明确建议执行 1 / 2 / 3。绿色只证明结构与所列文件一致，不证明 DLL 已包含最新源码，也不代表步骤 4 的 Deploy / CDN 已完成；空 Profile 的纯 AOT 档位不强制 Generate 或 CodePackage。");
 

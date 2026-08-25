@@ -35,7 +35,8 @@
 | UniTask、YooAsset | AOT，必须 | Boot 引用它们，AOT 不能引用热更 |
 | `Game.Framework`（内核） | 默认热更，**可退回 AOT** | Context/DI/Command/Event/层基类/Bag/RP/Pool + 资源系统后端无关部分；性能敏感版本移出列表跑原生 |
 | `Game.Framework.Asset.Yoo`（自内核抽出） | 默认热更 | YooAsset 接触面（Provider 及注册胶水）。把 ADR-0013 的「YooAsset 收口在 Provider」从口头纪律升格为 asmdef 编译期强制；适配层是集成 bug 高发区（见 `docs/yooasset-pitfalls.md`），可热修价值高 |
-| R3、Odin | AOT（默认） | Odin 预编译 DLL 没得选；R3 有 `RuntimeInitializeOnLoad`/PlayerLoop 入位问题且更新频率极低，热更红利≈0。机制不禁止（满足 §3 准则即可进列表） |
+| R3 | AOT（默认） | 有 `RuntimeInitializeOnLoad`/PlayerLoop 入位问题且更新频率极低，热更红利≈0。机制不禁止（满足 §3 准则即可进列表） |
+| Odin（项目可选） | 安装时为预编译 AOT DLL | Framework 原生基线不再依赖；项目若自行安装，仍按普通第三方 AOT 依赖管理，不进入 Framework 包。见 ADR-0015 |
 | 业务程序集、纯业务玩法库 | 热更 | 主战场；先单一热更 asmdef，多包拆分等真实业务出现再说 |
 
 内核**不再细拆**（纯 C# 核心 vs Mono 适配、Pool 独立等）：拆开后它们在任何现实配置里同进同退，多一条边界只多管理成本。这条缝留给 UPM 抽包（[0010](0010-framework-reusability-upm.md)）时再议。未来模块（网络/存储/UI 框架/Luban 运行时）落地时各占一个 `Game.Framework.X` asmdef，粒度随真实模块自然生长。
@@ -84,9 +85,9 @@ Boot 场景（唯一随包场景：Launcher + 朴素进度 UI，只挂 Boot 程�
 
 框架的 [InjectionPlan](../../Assets/Game/Framework/Core/Internal/InjectionPlan.cs) / [LayerInterfacesCache](../../Assets/Game/Framework/Core/Internal/LayerInterfacesCache.cs) / `GameContext.FindContextField` 对热更类型有效（都是真实 `System.Type`，解释器下元数据齐全）。AOT 泛型补元数据由 `AOTGenericReferences` 扫描自动覆盖。
 
-**IL2CPP 真机自检通过（GameEntry 自检 8/8，Windows player）**：DI 容器注册/解析、`RP<T>` + R3 订阅（跨 AOT 泛型）、struct Command 分发、双泛型 `ExecuteCommand<TCmd,TResult>` 零装箱返回值、class Command `[Inject]` 注入、事件总线、UniTask 异步命令（解释器 async 状态机）、Odin `SerializationUtility` 对热更类型的序列化往返（反射 formatter）。
+**历史 IL2CPP 真机自检通过（GameEntry 自检 8/8，Windows player）**：DI 容器注册/解析、`RP<T>` + R3 订阅（跨 AOT 泛型）、struct Command 分发、双泛型 `ExecuteCommand<TCmd,TResult>` 零装箱返回值、class Command `[Inject]` 注入、事件总线、UniTask 异步命令（解释器 async 状态机），以及当时项目已安装的 Odin `SerializationUtility` 对热更类型的序列化往返。最后一项只是第三方集成的历史证据，不再属于 Framework Core 自检契约。
 
-**迭代边界（实测）**：上述自检是在 v2→v3 **只重打代码包**（不重跑 Generate、不重出安装包）的前提下通过的——热更代码新增跨 AOT 泛型用法（Odin 泛型、R3 订阅泛型、命令双泛型等新实例化）由 SuperSet 补元数据 + 解释器兜底覆盖。需要重跑 Generate（并重出安装包）的仍是 AOT 集合本身的变化：增删第三方库 / 调整热更列表档位 / 升级 Unity 或 HybridCLR。Odin `SerializedMonoBehaviour` 挂场景资产反序列化热更类型未单测（当前形态业务场景全 bundle 化、入口后才加载，等真实业务场景接入时一并验证）。
+**迭代边界（实测）**：上述自检是在 v2→v3 **只重打代码包**（不重跑 Generate、不重出安装包）的前提下通过的——热更代码新增跨 AOT 泛型用法（第三方序列化泛型、R3 订阅泛型、命令双泛型等新实例化）由 SuperSet 补元数据 + 解释器兜底覆盖。需要重跑 Generate（并重出安装包）的仍是 AOT 集合本身的变化：增删第三方库 / 调整热更列表档位 / 升级 Unity 或 HybridCLR。
 
 ## Consequences
 
@@ -96,7 +97,7 @@ Boot 场景（唯一随包场景：Launcher + 朴素进度 UI，只挂 Boot 程�
 - ✅ `Game.Framework.Asset.Yoo` 抽出顺带把 ADR-0013 的隔离纪律变成编译期强制。
 - ⚠️ 抽取 Provider 需把「谁来 new YooAssetProvider」反转为注册/工厂（内核不得引用模块）。
 - ⚠️ 构建管线新增职责：CompileDll、补元数据清单、manifest 生成、RawFile 包构建、引用图校验。
-- ✅ Odin × 热更类型、解释器下泛型桥接已通过 Windows IL2CPP 真机自检（见 §6；`SerializedMonoBehaviour` 场景资产形态留待真实业务场景接入时补验）。
+- ✅ 当时项目级 Odin × 热更类型、解释器下泛型桥接曾通过 Windows IL2CPP 真机自检；当前 Framework 原生基线不再依赖该插件，证据保留但不作为 Core 发布门禁。
 
 ## 已决事项（初版开放决策的落定）
 

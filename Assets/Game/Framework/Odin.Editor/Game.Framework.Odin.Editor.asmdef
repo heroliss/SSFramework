@@ -1,0 +1,24 @@
+{
+    "name": "Game.Framework.Odin.Editor",
+    "rootNamespace": "Game.Framework.Odin.Editor",
+    "references": [
+        "Game.Framework",
+        "Game.Framework.Editor",
+        "Sirenix.OdinInspector.Editor",
+        "Sirenix.Utilities",
+        "Sirenix.Utilities.Editor"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "ODIN_INSPECTOR"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
