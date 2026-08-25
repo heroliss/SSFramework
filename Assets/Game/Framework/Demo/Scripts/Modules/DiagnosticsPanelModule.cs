@@ -39,6 +39,17 @@ namespace Game.Framework.Demo.Modules
             host.AddNote("流水是 **opt-in** 的：来自 `LoggingCommandSystem`——`ICommandSystem` 的**装饰器**（「命令分发可替换」的现成活样板），根 Context 注册它替换默认 `CommandSystem` 即得；泛型直转发、struct 路径保持零装箱、异常照原样冒出，不改任何执行语义。demo 根 Context 已这样注册：",
                 new CodeRef("Assets/Game/Framework/Demo/Scripts/Core/MonoDemoContext.cs", "new LoggingCommandSystem()", "demo 的接入（一行替换注册）"));
 
+            // ── 初始化问题 ──
+            host.AddSectionTitle("看到多个 Mono 初始化问题，先别按数量猜 bug");
+            host.AddNote("子 Context 初始化时会先确保父 Context 已完成。若根 Context 的 `InstallBindings` 抛错，根、子、孙三层都可能失败——窗口会显示 **1 个根因、影响 3 个 Context**，而不是把同一故障冒充三处独立 bug。先定位每组的“最先失败对象”，再展开受影响链确认传播范围。",
+                new CodeRef("Assets/Game/Framework/Editor/MonoContextIssueAnalysis.cs", "class MonoContextIssueAnalysis", "父子级联的只读聚合模型"));
+            host.AddConcept("当前 Play", "故障正在影响这次运行，需要处理；首要根因卡使用 Error 语义。");
+            host.AddConcept("历史证据", "已经退出 Play，只是保留上次失败供定位 / 复制，不表示当前仍在执行坏逻辑；场景重载后会重建。若项目关闭了 Scene Reload，先手动重载场景再复测。");
+            host.AddConcept("时序提醒", "激活对象还停在 `Uninitialized/Initializing`，但尚未抛异常，所以不计入根因数。只短暂出现一帧通常无碍；持续存在再从“最上游未就绪”检查激活状态与 `Awake` 时序。");
+            host.AddConcept("复制整组诊断", "一次带出最先失败对象、受影响链、父级和完整根因堆栈；贴 issue 或交给 AI 时不要重复复制多份级联异常。");
+            host.AddSubNote("Edit Mode 里普通 `Uninitialized` 很正常：MonoBehaviour 还没执行 `Awake`。只有 Play 中激活对象持续没初始化，或状态明确为 `Failed`，面板才把它列为问题。当前 DemoScene 正常运行时三套 Context 都应为 Ready。",
+                new CodeRef("Assets/Game/Framework/Editor/FrameworkDiagnosticsWindow.cs", "ShouldReportMonoIssue", "什么状态才需要报告"));
+
             // ── 泄漏排查 ──
             host.AddSectionTitle("泄漏排查三板斧");
             host.AddConcept("趋势线", "顶栏 Bag / Context 折线只升不降 = 有宿主没释放——先看这里定性。");
@@ -49,7 +60,7 @@ namespace Game.Framework.Demo.Modules
             host.AddSectionTitle("边界");
             host.AddNote("采集仅在 Editor（玩家包连 Development Build 都编译消除、零成本）；真机诊断走「日志」章那套（`Log` + `CaptureUnityLogs` + `FileLogSink` 落盘）。纯 C# `new GameContext(...)` 时顺手设 `DebugName`（诊断专用、业务逻辑不得依赖），树上就不会出现匿名节点——场景 Context 与 Flow 状态子 Context 框架已自动命名。");
 
-            host.AddTip("速记：进 Play → 菜单 SSFramework/诊断/框架诊断面板；Command 流水 = 根 Context 注册 LoggingCommandSystem（demo 已接）；泄漏看趋势线 + 订阅计数 + 树上残影。深度见 framework-guide §23 / ADR-0026。");
+            host.AddTip("速记：进 Play → 菜单 SSFramework/诊断/框架诊断面板；Mono 问题先看“根因”而非“影响数”，再分当前 / 历史；Command 流水 = 根 Context 注册 LoggingCommandSystem（demo 已接）；泄漏看趋势线 + 订阅计数 + 树上残影。深度见 framework-guide §23 / ADR-0026。");
         }
 
         private static void RunMenu(string path)
