@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using Game.Framework.Editor;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -112,7 +113,9 @@ namespace Game.Framework.UI.UGui.Editor
             string rel = FileUtil.GetProjectRelativePath(picked.Replace('\\', '/'));
             if (string.IsNullOrEmpty(rel) || !(rel == "Assets" || rel.StartsWith("Assets/")))
             {
-                EditorUtility.DisplayDialog("UI 绑定", "请选择本工程 Assets 目录下的文件夹。", "好");
+                FrameworkEditorFeedback.Warn(
+                    "UI 生成目录未修改",
+                    "影响：仍保留原目录。\n原因：所选目录不在当前工程 Assets 内。\n下一步：选择 Assets 或其子目录。");
                 return null;
             }
             return rel;

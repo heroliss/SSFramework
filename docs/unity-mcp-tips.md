@@ -21,6 +21,8 @@ Codex 的 MCP 配置指向 `D:/unity-mcp-server/src/index.js`。下面是调用�
 ## 4. 编译结果与建脚本
 
 - 编译结果用 `unity_get_compilation_errors`（基于 CompilationPipeline，不受 console 清空 / Play 刷屏影响；`severity: error|warning|all`），不要靠读 console。
+- 框架菜单的普通完成、失败、缺配置和 PlayMode 拦截统一输出一条 `[SSFramework.Tool][INFO|SUCCESS|WARNING|FAILURE]` Console 记录，并在当前 Editor 窗口短暂提示；它们不会再打开阻塞主线程的“结果弹窗”。自动化应读取稳定状态标记和完整详情：`INFO` 表示没有副作用且无需修复（也用于用户主动取消），`WARNING` 表示本次没有按理想路径完成或需要留意，`FAILURE` 才是失败。
+- 仍会出现的弹窗必须代表真实选择，而不是结果通知：目前包括清理增量缓存的“全量重建”、在 Play 中打开其他场景前是否停止运行，以及 Unity 原生的脏场景保存选择。AI 不应盲点确认；先根据操作语义决定是否有权限继续。
 - 新建脚本用 `unity_script_create`（走 Unity 脚本 API，导入可靠），别用文件工具 Write 后手动刷新。
 
 ## 5. 跑测试用 advanced_tool 的 testing 工具

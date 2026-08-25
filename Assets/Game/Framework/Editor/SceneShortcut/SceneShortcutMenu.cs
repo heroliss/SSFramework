@@ -176,7 +176,10 @@ namespace Game.Framework.Editor
                         "正在运行 Play",
                         "当前处于 Play 模式，需要先退出 Play 才能打开场景。\n\n是否退出 Play 并打开该场景？",
                         "退出并打开", "取消"))
+                {
+                    FrameworkEditorFeedback.Info("切换场景已取消", "Play 继续运行，当前场景没有变化。");
                     return;
+                }
 
                 // 退出 Play 是异步的：记下目标，回到编辑态（EnteredEditMode）后再打开。
                 _pendingOpen = (path, additive, andPlay);
@@ -204,7 +207,10 @@ namespace Game.Framework.Editor
             // 替换打开会卸载当前场景——先走 Unity 的「是否保存」提示；用户点取消则中止。
             // 附加打开不动当前场景，无需保存提示。
             if (!additive && !EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
+            {
+                FrameworkEditorFeedback.Info("打开场景已取消", "当前场景及其未保存改动保持不变。");
                 return;
+            }
 
             var mode = additive ? OpenSceneMode.Additive : OpenSceneMode.Single;
             var scene = EditorSceneManager.OpenScene(path, mode);

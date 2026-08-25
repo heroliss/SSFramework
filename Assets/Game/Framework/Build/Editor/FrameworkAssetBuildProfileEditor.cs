@@ -1,3 +1,4 @@
+using Game.Framework.Editor;
 using UnityEditor;
 using UnityEngine;
 
@@ -9,7 +10,7 @@ namespace Game.Framework.Build
     /// 菜单 <c>SSFramework/资源构建/同步收集器包列表</c> 是等价快捷入口。
     /// </summary>
     [CustomEditor(typeof(FrameworkAssetBuildProfile))]
-    public sealed class FrameworkAssetBuildProfileEditor : Editor
+    public sealed class FrameworkAssetBuildProfileEditor : UnityEditor.Editor
     {
         // 打开 Inspector 时解析一次代码包名（Resolve 是工程级 FindAssets，不放每帧重绘里跑）。
         private string _codePackageName;
@@ -36,16 +37,14 @@ namespace Game.Framework.Build
             {
                 var profile = (FrameworkAssetBuildProfile)target;
                 string summary = profile.SyncFromCollector();
-                Debug.Log("[资源构建] 同步收集器包列表：\n" + summary);
-                EditorUtility.DisplayDialog("同步完成", summary, "好");
+                FrameworkEditorFeedback.ReportSummary("同步资源包列表", summary, profile);
             }
 
             if (GUILayout.Button("生成包名常量代码"))
             {
                 var profile = (FrameworkAssetBuildProfile)target;
                 var (ok, message) = AssetPackageConstantsGenerator.Generate(profile);
-                Debug.Log("[资源构建] 生成包名常量：\n" + message);
-                EditorUtility.DisplayDialog(ok ? "生成完成" : "生成失败", message, "好");
+                FrameworkEditorFeedback.ReportResult("生成资源包名常量", ok, message, profile);
             }
         }
     }

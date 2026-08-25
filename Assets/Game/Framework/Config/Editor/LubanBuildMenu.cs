@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using System.Text;
+using Game.Framework.Editor;
 using UnityEditor;
-using UnityEngine;
 
 namespace Game.Framework.Build
 {
@@ -24,13 +24,23 @@ namespace Game.Framework.Build
         /// <summary>
         /// 逐套生成给定 profile——菜单「生成全部」与总览窗口的「生成全部 / 生成这套」共用入口。
         /// 先挡 Play 模式（生成改源码会触发重编译、打断运行 / 产生半新半旧状态），再逐套调
-        /// <see cref="LubanCodeGenerator.Generate"/>；CLI 全量输出进 Console，弹窗只给每套成败结论。
+        /// <see cref="LubanCodeGenerator.Generate"/>；CLI 全量输出合并进一条非阻塞 Console 结果。
         /// </summary>
         internal static void GenerateProfiles(IReadOnlyList<LubanConfigProfile> profiles)
         {
             if (EditorApplication.isPlayingOrWillChangePlaymode)
             {
-                EditorUtility.DisplayDialog("配置表构建", "Play 模式下不能生成配置（会改代码触发重编译），请先停止运行。", "好");
+                FrameworkEditorFeedback.Warn(
+                    "Luban 配置生成已阻止",
+                    "影响：没有生成代码或数据。\n原因：Play 模式下生成会改源码并触发重编译。\n下一步：停止 Play 后重试。");
+                return;
+            }
+            if (profiles == null || profiles.Count == 0)
+            {
+                FrameworkEditorFeedback.Warn(
+                    "Luban 配置生成未启动",
+                    "影响：没有生成代码或数据。\n原因：工程里没有 LubanConfigProfile。\n" +
+                    "下一步：打开 SSFramework/配置表构建/配置总览，新建或定位配置后重试。");
                 return;
             }
 
@@ -45,9 +55,10 @@ namespace Game.Framework.Build
                 report.AppendLine();
             }
 
-            Debug.Log("[配置表构建] 生成：\n" + report);
-            string dialog = allOk ? $"已生成 {profiles.Count} 套配置。\n\n详情见 Console。" : "部分配置生成失败，详情见 Console。";
-            EditorUtility.DisplayDialog(allOk ? "配置生成完成" : "配置生成失败", dialog, "好");
+            FrameworkEditorFeedback.ReportResult(
+                $"生成 Luban 配置（{profiles.Count} 套）",
+                allOk,
+                report.ToString());
         }
     }
 }

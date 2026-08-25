@@ -159,8 +159,13 @@ namespace Game.Framework.Diagnostics
             }
         }
 
-        private void LogSummary() =>
-            Debug.Log($"[FrameworkSelfCheck] {Caption} 自检完成 allOk={AllOk}\n" + string.Join("\n", _results));
+        private void LogSummary()
+        {
+            string summary = $"[FrameworkSelfCheck] {Caption} 自检完成 allOk={AllOk}\n" +
+                             string.Join("\n", _results);
+            if (AllOk) Debug.Log(summary);
+            else Debug.LogError(summary);
+        }
 
         private void OnGUI()
         {
