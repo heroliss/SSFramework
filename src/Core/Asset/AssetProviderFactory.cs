@@ -1,18 +1,22 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
 
 namespace Game.Framework
 {
     /// <summary>
-    /// 默认资源 provider 创建点——全框架唯一决定「用哪个具体 provider」的地方。
-    ///
-    /// <see cref="AssetUtility"/> 只依赖 <see cref="IAssetProvider"/>；换底层资源库（YooAsset → Addressables / 自研）
-    /// 只改本文件的 <see cref="DefaultProviderTypeName"/>（或换掉对应模块程序集），Settings / InitSystem / 业务加载 API 全都不动。
-    ///
+    /// 默认资源 provider 创建点。<see cref="AssetUtility"/> 只依赖 <see cref="IAssetProvider"/>；具体 Adapter
+    /// 在自己的 Assembly 上通过 <see cref="DefaultAssetProviderAttribute"/> 声明默认实现，Core 不保存实现类型名。
+    /// 删除 Yoo、换成 Addressables / 自研时，安装另一个带注册属性的 Adapter 即可，不必修改只读 Core 包。
+    /// </summary>
+    /// <remarks>
     /// <para>
-    /// <b>为什么是反射而不是直接 <c>new</c>？</b>具体 provider 住在独立模块程序集（如 <c>Game.Framework.Asset.Yoo</c>，
-    /// 把 YooAsset 依赖隔离在模块里，见 ADR-0008/0013），而内核「永不引用模块」（引用方向纪律：接口在内核、实现在模块）。
-    /// 编译期引用被纪律禁止，唯一的默认装配通道就是按程序集限定名反射。代价是这条引用对 IL2CPP linker 不可见——
-    /// 模块作 AOT 时靠模块目录下的 <c>link.xml</c> 防裁剪；模块作热更时解释器元数据齐全，无此问题。
+    /// <b>为什么是 Assembly 注册？</b>Interface 在 Core、Implementation 在 Adapter，Core 不能反向引用 Adapter。
+    /// Assembly attribute 让“我提供默认实现”与实现保持 Locality，同时没有运行时初始化顺序竞争。注册数量必须恰好为一：
+    /// 未安装时解释如何接入，装了两个后端时列出冲突，不按加载顺序静默选一个。
+    /// Adapter 仍必须确保自己的程序集会进入 Player 并在创建资源系统前已加载；反射注册不是 linker 根。
+    /// 推荐让 Adapter 自带 <c>link.xml</c>，并对目标平台 AOT Player 做一次初始化回归。
     /// </para>
     ///
     /// <para>
@@ -27,29 +31,88 @@ namespace Game.Framework
     ///   <item><b>类型名脆弱 + 漏抽象</b>：多态序列化通常在 YAML 里存程序集限定类型名，改名/移动/换 asmdef 就断引用；
     ///         且要在 Inspector 选择器里挑具体实现类等于把实现反向暴露给编辑器。</item>
     /// </list>
-    /// <b>判别标准</b>：「全局一次性的架构装配」→ 留代码（本工厂 / DI 容器注册）；
+    /// <b>判别标准</b>：「全局一次性的架构装配」→ 留在 Adapter 的 Assembly 注册 / 项目 Composition Root；
     /// 「按实例变化、由人在 Inspector 编排的数据 / 策略多态」（如技能上的 <c>[SerializeReference] IEffect</c> 列表）→ 才考虑多态序列化。
     /// provider 属于前者。
     /// </para>
-    /// </summary>
+    /// </remarks>
     internal static class AssetProviderFactory
     {
-        /// <summary>
-        /// 默认 provider 的程序集限定名。换资源库后端改这里（新模块的类型全名 + 程序集名）。
-        /// 对应类型须实现 <see cref="IAssetProvider"/> 且有无参构造（internal 也可，反射不受限）。
-        /// </summary>
-        private const string DefaultProviderTypeName = "Game.Framework.YooAssetProvider, Game.Framework.Asset.Yoo";
-
         public static IAssetProvider CreateDefault()
         {
-            var type = Type.GetType(DefaultProviderTypeName, throwOnError: false);
-            if (type == null)
-                throw new InvalidOperationException(
-                    $"[AssetProviderFactory] 找不到默认 provider 类型 '{DefaultProviderTypeName}'。" +
-                    "检查：① 模块程序集是否在工程/构建里（热更档位下需先由引导加载）；" +
-                    "② AOT 构建是否带上了模块目录下的 link.xml（防 IL2CPP 裁剪）；③ 类型名/程序集名是否改动过。");
+            var registeredTypes = new List<Type>();
+            foreach (Assembly assembly in AppDomain.CurrentDomain.GetAssemblies()
+                         .OrderBy(item => item.GetName().Name, StringComparer.Ordinal))
+            {
+                try
+                {
+                    registeredTypes.AddRange(assembly
+                        .GetCustomAttributes(typeof(DefaultAssetProviderAttribute), inherit: false)
+                        .Cast<DefaultAssetProviderAttribute>()
+                        .Select(attribute => attribute.ProviderType));
+                }
+                catch (Exception exception)
+                {
+                    throw new InvalidOperationException(
+                        $"[AssetProviderFactory] 读取程序集 {assembly.GetName().Name} 的默认 Provider 注册失败。",
+                        exception);
+                }
+            }
 
-            return (IAssetProvider)Activator.CreateInstance(type, nonPublic: true);
+            Type type = SelectDefaultProviderType(registeredTypes);
+            try
+            {
+                return (IAssetProvider)Activator.CreateInstance(type, nonPublic: true);
+            }
+            catch (Exception exception)
+            {
+                throw new InvalidOperationException(
+                    $"[AssetProviderFactory] 无法创建默认 Provider {type.FullName}。", exception);
+            }
         }
+
+        internal static Type SelectDefaultProviderType(IEnumerable<Type> registeredTypes)
+        {
+            Type[] types = (registeredTypes ?? throw new ArgumentNullException(nameof(registeredTypes))).ToArray();
+            if (types.Length == 0)
+                throw new InvalidOperationException(
+                    "[AssetProviderFactory] 没有注册默认资源 Provider。安装一个资源 Adapter，并在其 AssemblyInfo.cs " +
+                    "声明 [assembly: DefaultAssetProvider(typeof(YourProvider))]；若项目完全不用资源系统，请不要挂载 AssetUtility。");
+
+            foreach (Type type in types)
+            {
+                if (type == null || type.IsAbstract || type.IsInterface ||
+                    !typeof(IAssetProvider).IsAssignableFrom(type))
+                    throw new InvalidOperationException(
+                        $"[AssetProviderFactory] 注册类型 {type?.FullName ?? "<null>"} 不是可构造的 IAssetProvider 实现。");
+                if (type.GetConstructor(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                        binder: null, Type.EmptyTypes, modifiers: null) == null)
+                    throw new InvalidOperationException(
+                        $"[AssetProviderFactory] 注册类型 {type.FullName} 缺少无参构造函数。");
+            }
+
+            if (types.Length > 1)
+                throw new InvalidOperationException(
+                    "[AssetProviderFactory] 检测到多个默认资源 Provider，请只保留一个 Adapter 注册：" +
+                    string.Join("、", types.Select(type => type.AssemblyQualifiedName)));
+            return types[0];
+        }
+    }
+
+    /// <summary>
+    /// 在资源 Adapter 的 Assembly 上声明默认 <see cref="IAssetProvider"/> Implementation。
+    /// 每个应用进程必须恰好存在一个注册；属性不等于全局启用开关，物理删除 Adapter 即移除该实现。
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Assembly, AllowMultiple = true)]
+    public sealed class DefaultAssetProviderAttribute : Attribute
+    {
+        /// <summary>创建一条默认 Provider 注册。</summary>
+        /// <param name="providerType">
+        /// 实现 <see cref="IAssetProvider"/> 且具有 public 或 non-public 无参构造函数的具体类型。
+        /// </param>
+        public DefaultAssetProviderAttribute(Type providerType) => ProviderType = providerType;
+
+        /// <summary>Adapter 提供的默认 Provider 类型。</summary>
+        public Type ProviderType { get; }
     }
 }

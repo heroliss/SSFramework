@@ -2,14 +2,15 @@
     "name": "Game.Framework.Network.Proto",
     "rootNamespace": "Game.Framework",
     "references": [
-        "Game.Framework",
-        "Google.Protobuf"
+        "Game.Framework"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
-    "overrideReferences": false,
-    "precompiledReferences": [],
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "Google.Protobuf.dll"
+    ],
     "autoReferenced": false,
     "defineConstraints": [],
     "versionDefines": [],

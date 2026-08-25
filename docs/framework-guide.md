@@ -1375,6 +1375,8 @@ await this.GetUtility<IAssetUtility>().Initialize("DlcPack"); // 指定包
 
 `Initialize` 的普通网络 / 清单失败不直接抛，仍由该包 `InitState` 落到 `Failed`；但调用者 token 取消会保留 `OperationCanceledException`。这里的取消只表示“当前页面不再等”：物理初始化已经启动后仍由 `AssetUtility` 生命周期持有，包继续保持 `Initializing`，最终落到 `Ready` / `Failed`。新的同包调用只加入这份 owner，不会在 YooAsset operation 尚未结束时重入初始化。
 
+默认资源后端采用 Adapter-local 装配：Yoo 模块在自己的 `AssemblyInfo.cs` 声明 `[assembly: DefaultAssetProvider(typeof(YooAssetProvider))]`，Core 的 `AssetProviderFactory` 只发现并校验已加载程序集中的注册，不保存 Yoo 类型名。换 Addressables / 自研时物理删除旧 Adapter、让新 Adapter 实现 `IAssetProvider` 并声明同一属性；未注册、非法类型或同时注册两个默认后端都会 fail-fast。自定义 Adapter 还要像 Yoo 模块一样自带 `link.xml`（或等价静态根），保证 Player 包含并加载该程序集，并在目标平台 AOT Player 验证一次“发现 → 构造 → 初始化”；Assembly attribute 本身不是 linker 根。项目若完全不使用资源系统，可以不安装任何 Adapter，但也不要在场景里挂 `AssetUtility`。这是一条安装 / 删除 Seam，不是运行期切换开关。
+
 > ⚠ 既没开自动初始化、也没 `Initialize` 过的包，`Load` 它会**直接抛**「未初始化」异常（fail-fast，不是无限等待）——要加载的包要么开自动初始化、要么先 `Initialize`。
 
 包 Ready 后，地址不存在或类型不匹配采用“双通道失败”：调用方得到 `null`，可以用占位资源维持玩家流程；同时记录 Error，让开发者看见 manifest/类型配置缺陷。若“没有这份资源”本来就是正常业务分支，先用 `GetLocationState` 预检，不要靠故意触发 Error 做分支判断。它与上面的未初始化异常是两套语义：前者是单次资源请求可兜底，后者是系统前置条件未成立，应在流程入口等待 Ready 或捕获异常。
@@ -1703,22 +1705,24 @@ Bag.Subscribe(
 | 菜单 | 何时执行 | 耗时 |
 |---|---|---|
 | `1. 同步热更设置` | 改了热更列表后 | 秒 |
-| `2. 生成桥接与裁剪文件`（Generate All） | 首次接入 / 升级 Unity 或 HybridCLR / 增删第三方库 / 改热更列表档位 | 分钟（内部跑迷你构建） |
+| `2. 生成桥接与裁剪文件`（Generate All） | 首次接入 / 升级环境 / 改 AOT、签名、泛型、布局或原生调用边界（stamp 会拦截） | 分钟（内部跑迷你构建） |
 | `3. 构建代码包` | **日常每次热更迭代**：CompileDll → 生成清单 → RawFile 打包 | 几十秒 |
 | `4. 部署代码包` | 跟在 3 后面：平铺到 `AssetBuild/Deploy`（本地伺服 / CI 上传同一目录） | 秒 |
 
-日常改完热更代码只需 3 + 4；玩家包（安装包）只在 AOT 部分变化时才重出。
+日常只改普通算法且不改变元数据拓扑时只需 3 + 4；Player 元数据边界变化时重新执行 2，并按目标平台重出玩家包。
 
-构建器会把最近一次 Generate 的 Unity / HybridCLR 版本、目标平台、Development、热更程序集列表、UPM 包锁、NuGet 清单与 HybridCLRSettings 内容哈希，以及会影响 AOT 的 PlayerSettings 指纹记录在
+构建器会把最近一次 Generate 的 Unity / HybridCLR 版本、目标平台、Development、热更程序集列表、UPM 包锁、NuGet 清单与 HybridCLRSettings 内容哈希、HybridCLR 针对目标平台编译的热更 DLL 元数据拓扑、非热更 Player 程序集的源码/asmdef/预编译输入、Player linker 根（source `link.xml`、启用场景、Resources / Preloaded 资产及其序列化依赖），以及会影响 AOT 的 PlayerSettings 指纹记录在
 `HybridCLRData/SSFramework/generation-stamp.json`。构建代码包时任一项不一致都会提前失败，并要求重跑第 2 步；有热更程序集时，
 `AOTGenericReferences.cs` 缺失、格式异常、意外生成空清单，或任一裁剪 AOT DLL 缺失也会直接失败。这样不会把编辑器旁路下看不见的旧生成物问题推迟到 IL2CPP 真机启动。
 
-想在真正构建前先看当前处于哪一层，打开 `SSFramework/诊断/模块裁剪审计`：顶部“热更产物链”只读比较唯一 FrameworkHotUpdateProfile、HybridCLRSettings、Generate stamp、当前拓扑加载顺序、`AOTGenericReferences.PatchedAOTAssemblyList` 与 `Assets/HotUpdateDlls/hotupdate_manifest.bytes`，分别提示该执行 1、2 还是 3。绿色只代表**清单结构与当前派生输入相符、所列文件存在**，不证明 DLL 内容已经包含最新源码；YooAsset bundle 是否构建、`AssetBuild/Deploy` 是否更新、CDN 是否上传仍属于步骤 3 / 4 与发布流水线。空 Profile 明确选择纯 AOT 时，Generate 与 DLL 中转都不是强制项；缺少 Profile 则不会被静默当成纯 AOT，因为构建菜单会创建默认热更档位。
+热更元数据拓扑覆盖 TypeDef / MethodDef / 字段布局、泛型约束与实例、Attribute 构造/命名参数、类型转发、P/Invoke / calli 以及 IL 中的元数据操作数，并保留条目数量；普通算术、分支和常量不参与。AOT 侧无法在日常校验时凭空得到尚未构建的目标 DLL，因此采用更保守但可证明的输入哈希：任一非热更 Player 源文件、asmdef、Player define、编译器选项、response file、Roslyn Analyzer / Source Generator 输入或非 Unity 内置预编译 DLL 变化都要求重新 Generate。Linker 根另行记录依赖图、动态 linker processor 实现，并对 `.unity` / `.prefab` / `.asset` 等序列化根哈希内容；`Assets/HybridCLRGenerate/link.xml` 是输出而非输入，明确排除。自定义 processor 若读取框架不知道的外部配置，配置变化后仍须主动 Generate。这里刻意不读取 `CompilationPipeline.GetAssemblies(Player).outputPath`；Unity 6000 可能仍返回 `Library/ScriptAssemblies` 的 Editor DLL。
+
+想在真正构建前先看当前处于哪一层，打开 `SSFramework/诊断/模块裁剪审计`：顶部“热更产物链”只读比较唯一 FrameworkHotUpdateProfile、HybridCLRSettings、Generate stamp、当前拓扑加载顺序、`AOTGenericReferences.PatchedAOTAssemblyList` 与 `Assets/HotUpdateDlls/hotupdate_manifest.bytes`，分别提示该执行 1、2 还是 3。绿色只代表**清单结构与当前派生输入相符、所列文件存在**，不证明 DLL 内容已经包含最新源码；YooAsset bundle 是否构建、`AssetBuild/Deploy` 是否更新、CDN 是否上传仍属于步骤 3 / 4 与发布流水线。空 Profile 明确选择纯 AOT 时不要求 Generate；若启用的 Player 场景仍依赖 `HotUpdateLauncher`，其 Player 分支仍会读取 manifest，因此必须执行步骤 3 产出空清单 CodePackage。只有启用场景不再使用 Launcher、改由直接 AOT composition root 启动时，DLL 中转才是可选项。缺少 Profile 不会被静默当成纯 AOT，因为构建菜单会创建默认热更档位。
 
 > 只升级 `com.code-philosophy.hybridclr` UPM 包还不完整：本机 `HybridCLRData` 里的 libil2cpp Runtime 也必须经
 > `HybridCLR/Installer...` 更新到同版。框架构建入口会校验两者版本，不一致时在耗时生成/编译前停止。
 
-**迭代边界（真机实测）**：热更代码新增普通跨 AOT 泛型用法（如新的 R3 订阅泛型、新的命令双泛型实例化）在当前 SuperSet 补元数据 + 解释器兜底方案下通常不需要重跑 Generate / 重出安装包。真正需要 Generate + 重出安装包的是 **AOT 集合本身的变化**：增删第三方库、调整热更列表档位、升级 Unity / HybridCLR。历史 8/8 真机记录还验证了当时项目级 Odin 往返，但不能外推到任意第三方序列化器；其他 serializer 是否需要 formatter/AOT codegen/link 配置，以其官方 AOT 文档与目标平台真机测试为准。当前 Framework 原生自检不再把可选付费插件算作 Core 契约，详见 ADR-0015。
+**迭代边界**：只改算术、分支、常量等业务算法，且不改变元数据拓扑时，仍可直接 CompileDll。新增方法/签名/泛型实例、值类型布局、P/Invoke / calli 或相关 Attribute 可能改变 Link、AOT 或 MethodBridge；stamp 会拒绝沿用旧 Generate，不能因为代码位于热更程序集就断言永远不必重出安装包。SuperSet 与解释器兜底降低了普通跨 AOT 泛型的风险，但不替代生成器自己的结构输入。第三方 serializer 是否还需要 formatter/AOT codegen/link 配置，以其官方 AOT 文档与目标平台真机测试为准。当前 Framework 原生自检不再把可选付费插件算作 Core 契约，详见 ADR-0015。
 
 ### 运行时：Boot 场景与入口约定
 
@@ -1757,7 +1761,7 @@ Object.Destroy(go);                              // 交棒：首场景根 Contex
 
 代码热更是**部署决策**，可以完全不用——很多游戏只热更资源、或什么都不热更。两种搭法：
 
-1. **最省**：热更列表清空 → 全部 AOT。所有程序集启动即在 AppDomain，`HotUpdateLauncher` 的"编辑器旁路"成为**唯一路径**（反射进 `Enter()`，不下载、不加载代码包）。这时连 Boot 都可省掉：直接在随包首场景挂 `MonoGlobalContext`，由它（或一个启动脚本）调 `GameEntry.Enter()`——**无反射、无 CodePackage**。"随包场景不得挂热更脚本"的硬边界此时**不存在**（没有任何程序集热更），业务场景 / prefab 也不必 bundle 化。
+1. **最省**：热更列表清空 → 全部 AOT，并把启用的随包场景从 `HotUpdateLauncher` 改为直接 AOT composition root。所有程序集启动即在 AppDomain，可在首场景挂 `MonoGlobalContext`，由它（或一个启动脚本）调 `GameEntry.Enter()`——**无反射、无 CodePackage**。若只清空列表却仍保留 Launcher，编辑器看起来会旁路成功，但 Player 的 `RunPlayer` 仍会初始化 CodePackage 并读取 manifest；此组合必须用步骤 3 构建一个空清单代码包。"随包场景不得挂热更脚本"的硬边界在直接 AOT 方案中不存在（没有任何程序集热更），业务场景 / prefab 也不必 bundle 化。
 2. **保留统一管线**：想以后随时能打开代码热更，就留着 Boot + `HotUpdateLauncher`，模式设 `Offline`、热更列表留空——管线形态不变，只是永不联网更代码，将来要开热更只需把程序集拖进列表。
 
 两种搭法下**资源热更（YooAsset）都独立可用**：SO / prefab / 配置表数据 `.bytes` 仍可随资源包按需下载 / 热更，不依赖代码热更。一句话：**不热更代码 = 把程序集移出热更列表（或列表为空）+ 可选地省掉 Boot 反射那层**，框架其余用法零变化。
@@ -2546,7 +2550,7 @@ public readonly struct GetItemsCommand : ICommand<IReadOnlyObservableList<ItemDa
 }
 ```
 
-> `ObservableList<T>` 直接用库类型、**不包装、不加别名**——像用 R3 的 `Observable` 一样。它名字本就短、也不是 Unity 可序列化类型（放不进 Inspector），套壳只是噪音。业务代码 `using ObservableCollections;` 即可（NuGet DLL 自动引用）。
+> `ObservableList<T>` 直接用库类型、**不包装、不加别名**——像用 R3 的 `Observable` 一样。它名字本就短、也不是 Unity 可序列化类型（放不进 Inspector），套壳只是噪音。业务代码 `using ObservableCollections;`；消费它的 asmdef 必须启用 `overrideReferences:true`，并在 `precompiledReferences` 显式列出 `ObservableCollections.dll`，不要依赖 NuGet 插件的全局 Auto Reference。
 
 ### View 侧：`Bag.BindList` 增量绑定
 
@@ -2760,19 +2764,21 @@ builder.RegisterOwned(new WebSocketUtility(serializer: proto), typeof(IWebSocket
 
 先从最小入口开始：只要 MVCS / Context 时，业务 asmdef 只引用 `Game.Framework`；需要窗口调度再加 `Game.Framework.UI` 与 **UGUI 或 Toolkit 其中一个后端**；只有确实需要混合渲染时才加 Bridge，需要自动字体链、YooAsset Adapter 或 Google.Protobuf 时再加对应 Module。Demo 带 `UNITY_EDITOR` 约束，不进入真实玩家编译图。
 
+这里要区分两种 Unity 声明：另一个 asmdef 生成的程序集放 `references`；NuGet / PluginImporter 提供的预编译 DLL 放带 `.dll` 后缀的 `precompiledReferences`，并启用 `overrideReferences:true`。把 `R3`、`ObservableCollections` 或 `Google.Protobuf` 这类 DLL 名写进 `references` 不会形成有效 DLL 声明，编译成功只说明插件仍开着 Auto Reference。模块审计与 EditMode 门禁会把这种“看似显式、实际全局可见”的配置判为问题。
+
 但“不在业务 asmdef 的 references”只回答了依赖方向，不能直接回答包体。理解下面五层，遇到“我明明没用，为什么还在包里”就不会猜：
 
 | 层 | 它决定什么 | 常见误解 |
 |---|---|---|
 | 源码 / Package 已安装 | 目录、导入器、asmdef 与包依赖是否存在 | “装着但没调用，等于没成本”——编辑器导入与构建 Hook 仍可能存在 |
 | asmdef 参与 Player 编译 | 当前平台是否产出该程序集 | `autoReferenced:false` 只禁止隐式引用，**不会禁止编译** |
-| DLL 真实引用 | 哪个 Framework / 项目程序集真的消费它 | 静态元数据看不到字符串反射、场景和资源根 |
+| 当前 DLL 快照引用 | 当前已编译变体里哪个 Framework / 项目程序集消费它 | Unity 6000 的 CompilationPipeline 可能返回 Editor DLL；静态元数据也看不到字符串反射、场景和资源根 |
 | linker / 热更根 | `link.xml`、反射保护或 HybridCLR Profile 是否保留 / 部署它 | UnityLinker 做成员裁剪；HybridCLR 代码包则按程序集放完整 DLL |
 | 最终 Player | IL2CPP、引擎模块、压缩与资源合并后的发布结果 | 只能看目标平台 BuildReport / 发布产物，不能从原始 DLL 猜 |
 
 #### 先查原因，再决定是否值得拆
 
-打开 `SSFramework/诊断/模块裁剪审计`。顶部先比较热更 Profile、HybridCLRSettings、Generate stamp 与当前 DLL 中转清单；Module 区优先显示有 linker 根或热更违规的项，每张卡再把 Player DLL 真实消费者与完整 asmdef 图中的删除阻塞者（无论是否进入 Player）分开，并显示源码来自项目 Assets 还是某个 package 版本。常用组合之外，还能展开“任意 Module 入口”查看真实闭包；项目与已安装 Package 的 `link.xml` 都会被扫描，全局第三方和 `Assets/HybridCLRGenerate/link.xml` 单独折叠显示，后者是 Generate 产物，不应手改。这里的原始 DLL 字节用于找候选，不是最终安装包大小。
+打开 `SSFramework/诊断/模块裁剪审计`。顶部先比较热更 Profile、HybridCLRSettings、Generate stamp 与当前 DLL 中转清单；Module 区优先显示有 linker 根或热更违规的项，每张卡再把当前 DLL 快照消费者与完整 asmdef 图中的删除阻塞者（无论是否进入 Player）分开，并显示源码来自项目 Assets 还是某个 package 版本。常用组合之外，还能展开“任意 Module 入口”查看代码闭包；项目与已安装 Package 的 `link.xml` 都会被扫描，全局第三方和 `Assets/HybridCLRGenerate/link.xml` 单独折叠显示，后者是 Generate 产物，不应手改。所有一方 Player asmdef 已关闭预编译 DLL 的全局 Auto Reference；目标平台条件分支仍以真实 Player/HybridCLR 编译为准。这里的原始 DLL 字节用于找候选，不是最终安装包大小。
 
 一个容易踩坑的例子：当前可选 Runtime Module 都引用 Core。若 Core 在热更 Profile 中，那么仍参与 Player 编译的 Fonts / Bridge 等 Module 不能被**单独**取消热更，否则它们会变成引用热更 Core 的 AOT 程序集，构建校验会拒绝。这不是配置工具“太严格”，而是 AOT 必须先于热更代码存在的加载边界。
 
@@ -2790,11 +2796,25 @@ Core 是稳定上游，不作为普通可删除 Module。对强体积约束项�
 
 打开 `SSFramework/诊断/真实构建体积证据`。探针在 `Library` 下创建隔离空工程，每档只从 Source Catalog 记录的真实物理目录复制审计闭包中的 Runtime Module；Module 在 `Assets`、嵌入式 Package 或 registry/Git PackageCache 都适用，报告同时记录稳定资产目录、package 身份和实际复制文件的内容指纹。主工程业务场景、未选目录、HybridCLR 生成物和未选 Module 的 `link.xml` 都不会混入。除 Core / 两套 UI / full 外，“任意 Module 入口”默认折叠且不勾选，可按需验证 Yoo、Proto、Fonts、Bridge 等组合。若 Domain Reload 后档位拓扑、package 或源码内容发生变化，探针会完成已附着的当前子进程后停止，避免一份报告混入两套来源。
 
+CI / AI 只需做最小删除测试时，可直接执行无窗口菜单 `SSFramework/诊断/AI 自动化/Core 隔离构建（Player Build）`；它只启动 Core 档并把报告写进同一目录，不依赖窗口焦点或按钮状态。
+
 探针沿用当前平台、脚本后端与 stripping，且完整保留所选程序集，因此数字是**可比较的体积上界**：适合在同一环境比较“增加这个 Module 最多带来多少”，不等于具体游戏只使用部分类型后的精确增量，也不能把 Windows 数字外推到 WebGL。默认比较的“可发布输出”排除 Unity 的 BackUp / DoNotShip 中间产物与调试符号；正式产品仍要看包含业务 CodePackage、资源、字体字集和 shader variants 的完整发布构建。
 
 #### 与 Unity Package Manager 是什么关系
 
 它们不冲突，也不是同一层：asmdef 管编译依赖，UnityLinker 管成员裁剪，HybridCLR Profile 管热更部署集合，UPM 管 package 的安装、版本和传递依赖。当前仓库中的 Module 位于项目 `Assets`，但审计与体积探针已通过 Source Catalog 支持已安装 Package；工具仍只读分析和给清单，不自动改 `Packages/manifest.json`、删目录或实现一套小型 Package Manager。等某个删除边界经过多个项目验证稳定，再把它按 ADR-0010 抽成独立 UPM package；届时由 Package Manager 安装 / 卸载，审计工具仍负责告诉你项目消费者、linker 和热更是否真正清干净。设计依据见 ADR-0039、0040。
+
+当前第三方依赖的真实所有权不是“一包全装都算 Core”：
+
+| Depth | 第三方依赖 | 为什么 / 怎么删 |
+|---|---|---|
+| Core 基础 | UniTask、R3 + R3.Unity 及其 BCL 支撑 DLL | `IAsyncCommand` 与 `RP<T>` 的公共契约直接使用这些类型；再套一层自研 Task / Observable 只是浅 Adapter，不能在不改公共 API 的情况下删除。 |
+| UI Module | ObservableCollections + ObservableCollections.R3 | 增量列表引擎与公开绑定签名直接消费；删除共享 UI 及两个后端后，Core 不再需要它们。 |
+| Proto Adapter | Google.Protobuf | 只属于 `Game.Framework.Network.Proto` 与使用生成消息的业务程序集；不用官方 protobuf 时可删除 Adapter 与业务生成代码，Core 仍保留 JSON / 轻量 ProtoWire。 |
+| Asset Adapter | YooAsset | 由 `Game.Framework.Asset.Yoo` 实现并注册默认 Provider；可替换为另一个 `IAssetProvider` Adapter。 |
+| Editor 增强 | Odin Inspector | 只属于可选 `Game.Framework.Odin.Editor` 与项目插件，不进入 Runtime 基线，也不随 Framework 包重分发。 |
+
+目前 embedded `Packages/nuget-packages` 仍把 R3、ObservableCollections、Google.Protobuf 与支撑 DLL 放在一个物理 package 里，隔离探针会复制这整个来源，因此它能证明 Player 链接结果，却还不能证明“干净消费工程只安装最小 DLL 闭包”。正式 UPM 分发应让 Core / UI / Proto package 各自拥有真实二进制闭包、版本、哈希与 Third Party Notices；在完成干净工程安装/删除矩阵前，不把当前聚合目录冒充最终发布结构。
 
 ### 参考结构
 

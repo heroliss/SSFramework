@@ -5,15 +5,16 @@
         "Game.Framework",
         "Game.Framework.UI",
         "UniTask",
-        "R3",
-        "R3.Unity",
-        "ObservableCollections"
+        "R3.Unity"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
-    "overrideReferences": false,
-    "precompiledReferences": [],
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "R3.dll",
+        "ObservableCollections.dll"
+    ],
     "autoReferenced": false,
     "defineConstraints": [],
     "versionDefines": [],

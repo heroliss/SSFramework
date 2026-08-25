@@ -10,7 +10,7 @@ roadmap 中期最后一项：`RP<T>` / `ReadOnlyReactiveProperty<T>` 是**单值
 - 把集合塞进 `RP<IReadOnlyList<T>>`，每次增删推**整包**新列表。View 收到后只能「清空容器 → 重建全部子视图」。代价：丢滚动位置 / 选中 / 输入焦点，每帧重建抖 GC，大列表卡顿。它能跑，但把「加一项」放大成「重画整表」。
 - 缺的是**增量通知**：集合告诉订阅者「第 3 位插了一个」「第 5 位被删了」「0 和 2 换位了」，UI 只动那一处。
 
-Cysharp 的 **ObservableCollections** 正是这个原语（与已用的 UniTask / R3 同生态，roadmap「Cysharp 生态候选」已列）：`ObservableList<T>` 持有集合并发出细粒度变化事件；配套 **Observablecollections.R3** 把变化桥成 R3 `Observable<T>`，与框架「一切皆流 + Bag 订阅」的心智无缝。两个包已随 NuGetForUnity 装好（`Packages/nuget-packages`），且与框架用的同一个 R3 程序集（1.3.1）绑定，无类型身份冲突；DLL 设置与 R3.dll 一致（auto-reference、全平台），IL2CPP / 热更同样兜得住。
+Cysharp 的 **ObservableCollections** 正是这个原语（与已用的 UniTask / R3 同生态，roadmap「Cysharp 生态候选」已列）：`ObservableList<T>` 持有集合并发出细粒度变化事件；配套 **Observablecollections.R3** 把变化桥成 R3 `Observable<T>`，与框架「一切皆流 + Bag 订阅」的心智无缝。两个包已随 NuGetForUnity 装好（`Packages/nuget-packages`），且与框架用的同一个 R3 程序集（1.3.1）绑定，无类型身份冲突。PluginImporter 目前仍允许全平台 Auto Reference，但第一方消费 asmdef 必须用 `overrideReferences + precompiledReferences` 建立真实显式边；IL2CPP / 热更再由 linker 与 Generate 证据验证。
 
 实测 `ObservableList<T>.ObserveChanged()` 的语义（决定绑定正确性的关键，已在 Editor 验证而非猜测）：
 - 每次结构变化摊成**逐项** `Add` / `Remove` / `Move` 事件——`Add`/`AddRange`/`Insert` 都是逐项 `Add`（`NewStartingIndex` 为真实插入位）；`RemoveAt`/`RemoveRange` 逐项 `Remove`；`Move` 一条；索引器赋值一条 `Replace`；`Clear` 一条 `Reset`。
@@ -51,7 +51,7 @@ Model 持有集合就用 `ObservableList<T>`（如 `RP<T>` 之于单值）；只
 - 集合状态有了与单值 `RP<T>` 对称的原语（`ObservableList<T>`）与绑定（`Bag.BindList` ↔ `Bag.BindText`），一套心智覆盖「单值」与「集合」两类响应式状态。
 - 内核零改动、不新增内核依赖；ObservableCollections 只在 UI 层与业务层出现，守住范式无关内核不变量。绑定引擎在 `Game.Framework.UI`（热更列表内），两后端共享。
 - 增量维护逻辑单点、纯 C# 可测（`ReactiveListBindingTests` 用引用式假容器覆盖种入 / 增删移换 / 换值 / Reset / 解绑 + 每项子 bag 释放），不依赖场景与帧推进。
-- Test 程序集 `overrideReferences:true`，显式补了 `ObservableCollections.dll` + `ObservableCollections.R3.dll` 两条 precompiledReferences；运行时共享 UI asmdef 也显式声明两者，两个后端为公开绑定签名显式声明 `ObservableCollections`，不再借 auto-reference 隐藏依赖。
+- Test 程序集 `overrideReferences:true`，显式补了 `ObservableCollections.dll` + `ObservableCollections.R3.dll` 两条 precompiledReferences；运行时共享 UI asmdef 同样显式声明两者，两个后端按各自直接使用的公开绑定签名声明 `ObservableCollections.dll`，不再把 DLL 名误写进 `references` 或借 Auto Reference 隐藏依赖。
 - 五件套齐：本 ADR / 引擎（`Game.Framework.UI/ReactiveListBinding.cs`）+ 双后端适配 / 测试（`ReactiveListBindingTests`）/ demo「响应式列表 · 集合绑定」章（`Modules/ReactiveListModule.cs`）/ guide §24 + AGENTS #31。
 - ObservableCollections 从「roadmap 候选」变成已融入依赖：Model 显式使用集合类型，`Bag.BindList` 收口增量维护与逐行生命周期 Implementation；不再用“整个库都被隐藏”描述这条依赖。
 

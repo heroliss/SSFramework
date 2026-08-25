@@ -3,7 +3,6 @@
     "rootNamespace": "Game.Framework.Editor",
     "references": [
         "Game.Framework",
-        "R3",
         "R3.Unity"
     ],
     "includePlatforms": [
@@ -11,8 +10,10 @@
     ],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
-    "overrideReferences": false,
-    "precompiledReferences": [],
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "R3.dll"
+    ],
     "autoReferenced": true,
     "defineConstraints": [],
     "versionDefines": [],

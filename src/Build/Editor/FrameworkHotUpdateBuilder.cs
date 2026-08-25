@@ -2,15 +2,19 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using Game.Framework.Boot;
+using Game.Framework.Editor;
 using HybridCLR.Editor;
 using HybridCLR.Editor.Commands;
 using HybridCLR.Editor.Installer;
 using HybridCLR.Editor.Settings;
 using UnityEditor;
+using UnityEditor.Build;
+using UnityEditor.Compilation;
 using UnityEditorInternal;
 using UnityEngine;
 using YooAsset;        // EBundleType / EFileNameStyle / EBundledCopyOption
@@ -104,12 +108,46 @@ namespace Game.Framework.Build
             {
                 ProfileAssemblies = GetSortedHotUpdateAssemblyNames(profile).ToArray(),
             };
-            evidence.StagingRequired = evidence.ProfileAssemblies.Length > 0;
+            evidence.StagingRequired = IsCodePackageRequired(
+                evidence.ProfileAssemblies,
+                HasHotUpdateLauncherInEnabledScenes());
 
             InspectHybridClrSettings(evidence);
             InspectGenerationStamp(profile, evidence);
             InspectStagedManifest(evidence);
             return evidence;
+        }
+
+        internal static bool IsCodePackageRequired(
+            IReadOnlyCollection<string> hotUpdateAssemblies,
+            bool hasLauncherInEnabledScene)
+            => (hotUpdateAssemblies?.Count ?? 0) > 0 || hasLauncherInEnabledScene;
+
+        /// <summary>
+        /// 空热更列表只代表“无需加载热更 DLL”，不代表当前 Player 启动架构不读 CodePackage。
+        /// 只要任一启用场景依赖 <see cref="HotUpdateLauncher"/>，Player 分支就仍会初始化包并读取空清单。
+        /// </summary>
+        private static bool HasHotUpdateLauncherInEnabledScenes()
+        {
+            string[] launcherScripts = AssetDatabase.FindAssets("HotUpdateLauncher t:MonoScript")
+                .Select(AssetDatabase.GUIDToAssetPath)
+                .Where(path => AssetDatabase.LoadAssetAtPath<MonoScript>(path)?.GetClass() ==
+                               typeof(HotUpdateLauncher))
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            if (launcherScripts.Length != 1)
+                throw new InvalidOperationException(
+                    $"无法唯一定位 {typeof(HotUpdateLauncher).FullName} 脚本资产（找到 {launcherScripts.Length} 个）。");
+
+            string launcherScript = launcherScripts[0];
+            foreach (EditorBuildSettingsScene scene in EditorBuildSettings.scenes)
+            {
+                if (!scene.enabled || string.IsNullOrWhiteSpace(scene.path)) continue;
+                if (AssetDatabase.GetDependencies(scene.path, recursive: true)
+                    .Contains(launcherScript, StringComparer.Ordinal))
+                    return true;
+            }
+            return false;
         }
 
         private static void InspectHybridClrSettings(FrameworkHotUpdateEvidence evidence)
@@ -252,8 +290,10 @@ namespace Game.Framework.Build
             evidence.StagedManifestAvailable = false;
             evidence.StagedManifestMatches = !evidence.StagingRequired;
             evidence.StagedMessage = evidence.StagingRequired
-                ? "✗ 未找到当前 DLL 中转清单；执行“3. 构建代码包”后才会生成。"
-                : "○ Profile 为纯 AOT：DLL 中转 / CodePackage 可选；未发现中转清单不影响纯 AOT Player。";
+                ? evidence.ProfileAssemblies.Length == 0
+                    ? "✗ Profile 虽为空，但启用的 Player 场景仍使用 HotUpdateLauncher；它会读取空清单。请执行“3. 构建代码包”，或移除 Boot 引导并改用直接 AOT 启动。"
+                    : "✗ 未找到当前 DLL 中转清单；执行“3. 构建代码包”后才会生成。"
+                : "○ Profile 为纯 AOT，且启用场景不使用 HotUpdateLauncher：DLL 中转 / CodePackage 可选。";
         }
 
         internal static void ApplyStagedManifestEvidence(
@@ -492,12 +532,45 @@ namespace Game.Framework.Build
                 // Generate 失败时不能继续沿用旧 stamp，否则下一次日常构建会把旧产物误判为新鲜。
                 InvalidateGenerationStamp();
 
-                PrebuildCommand.GenerateAll();
+                // TMP / TextCore 会在 Player 构建预处理阶段把启用了 Clear Dynamic Data On Build 的
+                // 动态 atlas 直接写回源 .asset。Generate 只需要裁剪构建产物，不应让这项 Player 优化污染源码。
+                AssetDatabase.SaveAssets();
+                BuildMutableAssetSnapshot mutableAssets = BuildMutableAssetSnapshot.Capture();
+                int restoredAssets = 0;
+                Exception generateFailure = null;
+                try
+                {
+                    PrebuildCommand.GenerateAll();
+                }
+                catch (Exception exception)
+                {
+                    generateFailure = exception;
+                }
+
+                Exception restoreFailure = null;
+                try
+                {
+                    restoredAssets = mutableAssets.RestoreChangedFiles();
+                }
+                catch (Exception exception)
+                {
+                    restoreFailure = exception;
+                }
+                if (generateFailure != null && restoreFailure != null)
+                    throw new AggregateException(
+                        "Generate/All 与构建预处理资产恢复均失败；两个异常都必须处理，不能让恢复错误遮蔽原始构建错误。",
+                        generateFailure, restoreFailure);
+                if (generateFailure != null) ExceptionDispatchInfo.Capture(generateFailure).Throw();
+                if (restoreFailure != null) ExceptionDispatchInfo.Capture(restoreFailure).Throw();
+
                 AssetDatabase.Refresh(); // link.xml / AOTGenericReferences.cs 落在 Assets 下，刷新入库
                 WriteGenerationStamp(profile);
 
                 return (true, sync + "\n" + installerMessage +
-                    "\n✓ Generate/All 完成并记录生成环境（Il2CppDef / link.xml / 裁剪 AOT DLL / 桥接函数 / AOT 泛型引用）。");
+                    "\n✓ Generate/All 完成并记录生成环境（Il2CppDef / link.xml / 裁剪 AOT DLL / 桥接函数 / AOT 泛型引用）。" +
+                    (restoredAssets > 0
+                        ? $"\n✓ 已恢复 {restoredAssets} 个被构建预处理临时清空的动态字体源资产。"
+                        : string.Empty));
             }
             catch (Exception e)
             {
@@ -531,12 +604,13 @@ namespace Game.Framework.Build
                 var hotNames = profile.HotUpdateAssemblyNames;
                 if (hotNames.Count > 0)
                 {
+                    // stamp 的热更侧必须比较当前目标平台 DLL，而不是 Editor ScriptAssemblies；先做一次快速
+                    // CompileDll，既刷新证据也是本次代码包本来就需要的产物。
+                    CompileDllCommand.CompileDll(target, EditorUserBuildSettings.development);
                     var (fresh, freshnessMessage) = ValidateGenerationStamp(profile);
                     sb.AppendLine(freshnessMessage);
                     if (!fresh) return (false, sb.ToString().TrimEnd());
                 }
-                if (hotNames.Count > 0)
-                    CompileDllCommand.CompileDll(target, EditorUserBuildSettings.development);
 
                 // 3. 重建中转目录：热更 DLL（拓扑序）+ AOT 补元数据 DLL + 清单。
                 RebuildDllAssetDir();
@@ -696,7 +770,7 @@ namespace Game.Framework.Build
             var installer = new InstallerController();
             var stamp = new GenerationStamp
             {
-                FormatVersion = 2,
+                FormatVersion = 4,
                 UnityVersion = Application.unityVersion,
                 HybridClrVersion = installer.PackageVersion,
                 BuildTarget = EditorUserBuildSettings.activeBuildTarget.ToString(),
@@ -706,6 +780,9 @@ namespace Game.Framework.Build
                 NuGetPackagesSha256 = HashRequiredProjectFile("Packages/nuget-packages/packages.config"),
                 HybridClrSettingsSha256 = HashRequiredProjectFile("ProjectSettings/HybridCLRSettings.asset"),
                 PlayerBuildSettings = GetPlayerBuildSettingsFingerprint(),
+                HotUpdateTargetMetadataTopologySha256 = GetHotUpdateTargetMetadataTopologyFingerprint(profile),
+                AotSourceInputsSha256 = GetAotSourceInputsFingerprint(profile.HotUpdateAssemblyNames),
+                PlayerLinkerRootsSha256 = GetPlayerLinkerRootsFingerprint(),
                 GeneratedAtUtc = DateTime.UtcNow.ToString("O"),
             };
             string dir = Path.GetDirectoryName(GenerationStampPath);
@@ -728,7 +805,7 @@ namespace Game.Framework.Build
                 return (false, "✗ Generate/All 环境记录损坏：" + e.Message + "。请重新执行生成。");
             }
 
-            if (stamp == null || stamp.FormatVersion != 2)
+            if (stamp == null || stamp.FormatVersion != 4)
                 return (false, "✗ Generate/All 环境记录版本不兼容。请重新执行生成。");
 
             var installer = new InstallerController();
@@ -744,6 +821,21 @@ namespace Game.Framework.Build
                 mismatches.Add($"Development {stamp.Development} → {EditorUserBuildSettings.development}");
             if (!(stamp.HotUpdateAssemblies ?? new List<string>()).SequenceEqual(GetSortedHotUpdateAssemblyNames(profile)))
                 mismatches.Add("热更程序集列表已变化");
+            if (!string.Equals(
+                    stamp.HotUpdateTargetMetadataTopologySha256,
+                    GetHotUpdateTargetMetadataTopologyFingerprint(profile),
+                    StringComparison.Ordinal))
+                mismatches.Add("目标平台热更 DLL 元数据拓扑已变化");
+            if (!string.Equals(
+                    stamp.AotSourceInputsSha256,
+                    GetAotSourceInputsFingerprint(profile.HotUpdateAssemblyNames),
+                    StringComparison.Ordinal))
+                mismatches.Add("AOT 程序集源码或预编译输入已变化");
+            if (!string.Equals(
+                    stamp.PlayerLinkerRootsSha256,
+                    GetPlayerLinkerRootsFingerprint(),
+                    StringComparison.Ordinal))
+                mismatches.Add("Player linker 根（link.xml / 场景 / Resources / Preloaded）已变化");
             if (!string.Equals(stamp.PackageLockSha256, HashRequiredProjectFile("Packages/packages-lock.json"), StringComparison.Ordinal))
                 mismatches.Add("Packages/packages-lock.json 已变化");
             if (!string.Equals(stamp.NuGetPackagesSha256, HashRequiredProjectFile("Packages/nuget-packages/packages.config"), StringComparison.Ordinal))
@@ -763,14 +855,328 @@ namespace Game.Framework.Build
         private static List<string> GetSortedHotUpdateAssemblyNames(FrameworkHotUpdateProfile profile)
             => profile.HotUpdateAssemblyNames.OrderBy(name => name, StringComparer.Ordinal).ToList();
 
+        /// <summary>
+        /// 读取 HybridCLR 针对当前目标平台编译出的热更 DLL，记录结构、签名、泛型、Attribute、P/Invoke 与
+        /// 元数据调用点。不能读取 <c>CompilationPipeline.GetAssemblies(Player).outputPath</c>：Unity 6000 返回的
+        /// 仍可能是 <c>Library/ScriptAssemblies</c> Editor DLL，即使 defines 表面上没有 UNITY_EDITOR。
+        /// </summary>
+        private static string GetHotUpdateTargetMetadataTopologyFingerprint(FrameworkHotUpdateProfile profile)
+        {
+            var topology = new Dictionary<string, string[]>(StringComparer.Ordinal);
+            string directory = SettingsUtil.GetHotUpdateDllsOutputDirByTarget(
+                EditorUserBuildSettings.activeBuildTarget);
+            foreach (string assemblyName in GetSortedHotUpdateAssemblyNames(profile))
+            {
+                string path = Path.Combine(directory, assemblyName + ".dll");
+                if (!File.Exists(path))
+                    throw new FileNotFoundException(
+                        $"目标平台热更 DLL 尚未产出：{assemblyName}。请先完成 Generate/All 或 CompileDll。", path);
+                topology[assemblyName] = FrameworkPlayerMetadataTopology.ReadEntries(path);
+            }
+            return ComputeDependencyTopologySha256(topology);
+        }
+
+        /// <summary>
+        /// AOT 目标 DLL 只有在真正 Player Build 后才可靠；日常校验改为哈希所有非热更 Player 源文件、asmdef、
+        /// Player defines 与非 Unity 内置预编译 DLL。它对 AOT 普通逻辑变化也保守失效，但不会把热更算法改动
+        /// 误判成必须 Generate，同时覆盖 #if !UNITY_EDITOR / 平台分支。
+        /// </summary>
+        internal static string GetAotSourceInputsFingerprint(IEnumerable<string> hotUpdateAssemblies)
+        {
+            var hot = new HashSet<string>(hotUpdateAssemblies ?? Array.Empty<string>(), StringComparer.Ordinal);
+            UnityEditor.Compilation.Assembly[] playerAssemblies = CompilationPipeline
+                .GetAssemblies(AssembliesType.Player)
+                .Where(assembly => !FrameworkModuleAudit.IsEditorConstrained(assembly.name))
+                .ToArray();
+            var playerNames = new HashSet<string>(
+                playerAssemblies.Select(assembly => assembly.name), StringComparer.OrdinalIgnoreCase);
+            var inputs = new Dictionary<string, string[]>(StringComparer.Ordinal);
+            foreach (UnityEditor.Compilation.Assembly assembly in playerAssemblies)
+            {
+                if ((assembly.defines ?? Array.Empty<string>()).Contains("UNITY_EDITOR", StringComparer.Ordinal))
+                    throw new InvalidOperationException(
+                        $"AOT 源输入 {assembly.name} 意外包含 UNITY_EDITOR define，无法建立 Player 新鲜度证据。");
+                if (hot.Contains(assembly.name)) continue;
+
+                var entries = new List<string>();
+                entries.AddRange(GetCompilerOptionsFingerprintEntries(assembly));
+                entries.AddRange((assembly.defines ?? Array.Empty<string>())
+                    .OrderBy(define => define, StringComparer.Ordinal)
+                    .Select(define => "D|" + define));
+                foreach (string sourceFile in (assembly.sourceFiles ?? Array.Empty<string>())
+                             .OrderBy(path => path, StringComparer.Ordinal))
+                    entries.Add("S|" + HashRequiredFile(sourceFile, assembly.name + " 源文件"));
+
+                string asmdefPath = CompilationPipeline.GetAssemblyDefinitionFilePathFromAssemblyName(assembly.name);
+                if (!string.IsNullOrWhiteSpace(asmdefPath) &&
+                    FrameworkModuleSourceCatalog.TryResolve(asmdefPath, out var source, out _))
+                    entries.Add("ASMDEF|" + HashRequiredFile(source.PhysicalPath, assembly.name + " asmdef"));
+                inputs[assembly.name] = entries.ToArray();
+            }
+
+            var precompiledByName = new Dictionary<string, (string path, string hash)>(
+                StringComparer.OrdinalIgnoreCase);
+            foreach (UnityEditor.Compilation.Assembly assembly in playerAssemblies)
+            foreach (string reference in assembly.compiledAssemblyReferences ?? Array.Empty<string>())
+            {
+                string fullPath = Path.GetFullPath(reference);
+                string name = FrameworkModuleAudit.ReadManagedAssemblyIdentity(fullPath);
+                if (string.IsNullOrWhiteSpace(name)) continue;
+                if (IsPathInside(fullPath, EditorApplication.applicationContentsPath) ||
+                    playerNames.Contains(name))
+                    continue;
+                string hash = HashRequiredFile(fullPath, "Player 预编译依赖");
+                if (precompiledByName.TryGetValue(name, out var existing) &&
+                    !string.Equals(existing.hash, hash, StringComparison.Ordinal))
+                    throw new InvalidOperationException(
+                        $"Player 编译图中程序集名 {name} 对应多个不同预编译 DLL：{existing.path}；{fullPath}");
+                if (!precompiledByName.ContainsKey(name) ||
+                    string.Compare(fullPath, existing.path, StringComparison.OrdinalIgnoreCase) < 0)
+                    precompiledByName[name] = (fullPath, hash);
+            }
+            inputs["$precompiled"] = precompiledByName
+                .OrderBy(pair => pair.Key, StringComparer.Ordinal)
+                .Select(pair => pair.Key + "|" + pair.Value.hash)
+                .ToArray();
+            return ComputeDependencyTopologySha256(inputs);
+        }
+
+        /// <summary>
+        /// 编译器选项、响应文件和 Roslyn Analyzer / Source Generator 输入同样可以改变 AOT 元数据；
+        /// 只哈希源码与 defines 会让 <c>csc.rsp</c> 或生成器配置变化后错误复用旧 Generate 产物。
+        /// </summary>
+        internal static string[] GetCompilerOptionsFingerprintEntries(
+            UnityEditor.Compilation.Assembly assembly)
+        {
+            if (assembly == null) throw new ArgumentNullException(nameof(assembly));
+            ScriptCompilerOptions options = assembly.compilerOptions;
+            if (options == null)
+                throw new InvalidOperationException($"Player 程序集 {assembly.name} 缺少 ScriptCompilerOptions。 ");
+
+            var entries = new List<string>
+            {
+                $"COMPILER|language={options.LanguageVersion}|api={options.ApiCompatibilityLevel}|" +
+                $"unsafe={options.AllowUnsafeCode}|optimization={options.CodeOptimization}|" +
+                $"editorCompatibility={options.EditorAssembliesCompatibilityLevel}",
+            };
+            AddOrderedValues(entries, "ARG", options.AdditionalCompilerArguments);
+            AddOrderedCompilerFiles(entries, "RSP", options.ResponseFiles, assembly.name);
+            AddOrderedCompilerFiles(entries, "ANALYZER", options.RoslynAnalyzerDllPaths, assembly.name);
+            AddOrderedCompilerFiles(entries, "ADDITIONAL", options.RoslynAdditionalFilePaths, assembly.name);
+            AddOptionalCompilerFile(entries, "ANALYZER_CONFIG", options.AnalyzerConfigPath, assembly.name);
+            AddOptionalCompilerFile(entries, "RULESET", options.RoslynAnalyzerRulesetPath, assembly.name);
+            return entries.ToArray();
+        }
+
+        private static void AddOrderedValues(ICollection<string> entries, string kind, string[] values)
+        {
+            string[] source = values ?? Array.Empty<string>();
+            for (int index = 0; index < source.Length; index++)
+                entries.Add($"{kind}|{index}|{source[index] ?? string.Empty}");
+        }
+
+        private static void AddOrderedCompilerFiles(
+            ICollection<string> entries,
+            string kind,
+            string[] paths,
+            string assemblyName)
+        {
+            string[] source = paths ?? Array.Empty<string>();
+            for (int index = 0; index < source.Length; index++)
+                entries.Add($"{kind}|{index}|{GetCompilerInputFileEvidence(source[index], assemblyName)}");
+        }
+
+        private static void AddOptionalCompilerFile(
+            ICollection<string> entries,
+            string kind,
+            string path,
+            string assemblyName)
+        {
+            entries.Add(string.IsNullOrWhiteSpace(path)
+                ? kind + "|<none>"
+                : kind + "|" + GetCompilerInputFileEvidence(path, assemblyName));
+        }
+
+        private static string GetCompilerInputFileEvidence(string path, string assemblyName)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                throw new InvalidDataException($"Player 程序集 {assemblyName} 包含空编译器输入路径。 ");
+            string fullPath = Path.GetFullPath(path);
+            string identity;
+            if (IsPathInside(fullPath, AssetBuildLayout.ProjectRoot))
+                identity = "$project/" + Path.GetRelativePath(AssetBuildLayout.ProjectRoot, fullPath)
+                    .Replace('\\', '/');
+            else if (IsPathInside(fullPath, EditorApplication.applicationContentsPath))
+                identity = "$unity/" + Path.GetRelativePath(
+                        EditorApplication.applicationContentsPath, fullPath)
+                    .Replace('\\', '/');
+            else
+                identity = "$external/" + Path.GetFileName(fullPath);
+            return identity + "|" + HashRequiredFile(fullPath, assemblyName + " 编译器输入");
+        }
+
+        /// <summary>
+        /// 记录 HybridCLR 裁剪 AOT DLL 的非代码根：有效 source link.xml、启用场景、Resources、Preloaded
+        /// 资产及其依赖图。序列化资产还记录内容哈希，以发现“依赖集合没变但组件/字段根变化”的情况。
+        /// </summary>
+        internal static string GetPlayerLinkerRootsFingerprint()
+        {
+            var inputs = new Dictionary<string, string[]>(StringComparer.Ordinal);
+            string generatedLinkXml = NormalizeAssetPath(
+                "Assets/" + HybridCLRSettings.Instance.outputLinkFile.TrimStart('/', '\\'));
+            var linkEntries = new List<string>();
+            foreach (string assetPath in AssetDatabase.GetAllAssetPaths()
+                         .Where(path => Path.GetFileName(path).Equals(
+                             "link.xml", StringComparison.OrdinalIgnoreCase))
+                         .Select(NormalizeAssetPath)
+                         .Where(path => !path.Equals(generatedLinkXml, StringComparison.OrdinalIgnoreCase))
+                         .OrderBy(path => path, StringComparer.Ordinal))
+            {
+                if (!FrameworkModuleSourceCatalog.TryResolve(assetPath, out var source, out string reason))
+                    throw new InvalidDataException($"无法解析 UnityLinker 输入 {assetPath}：{reason}");
+                linkEntries.Add(assetPath + "|" + HashRequiredFile(source.PhysicalPath, assetPath));
+            }
+            inputs["$link.xml"] = linkEntries.ToArray();
+
+            // Unity Package 与项目 Editor 代码都能在构建期动态生成额外 link.xml。记录 processor 类型和
+            // 当前实现程序集，至少让实现变更主动失效；processor 读取的任意外部配置仍属于扩展边界。
+            inputs["$dynamic-processors"] = TypeCache.GetTypesDerivedFrom<IUnityLinkerProcessor>()
+                .Where(type => type != null && type.Assembly != null)
+                .OrderBy(type => type.AssemblyQualifiedName, StringComparer.Ordinal)
+                .Select(type =>
+                {
+                    string assemblyPath = type.Assembly.Location;
+                    string implementation = !string.IsNullOrWhiteSpace(assemblyPath) && File.Exists(assemblyPath)
+                        ? HashRequiredFile(assemblyPath, type.FullName + " linker processor")
+                        : "<dynamic-assembly>";
+                    return type.AssemblyQualifiedName + "|" + implementation;
+                })
+                .ToArray();
+
+            var rootEntries = new List<string>();
+            var roots = new SortedSet<string>(StringComparer.Ordinal);
+            EditorBuildSettingsScene[] scenes = EditorBuildSettings.scenes;
+            for (int index = 0; index < scenes.Length; index++)
+            {
+                EditorBuildSettingsScene scene = scenes[index];
+                string path = NormalizeAssetPath(scene.path);
+                rootEntries.Add($"SCENE|{index}|enabled={scene.enabled}|{path}");
+                if (scene.enabled && !string.IsNullOrWhiteSpace(path)) roots.Add(path);
+            }
+            foreach (string path in AssetDatabase.GetAllAssetPaths()
+                         .Where(path => path.IndexOf("/Resources/", StringComparison.OrdinalIgnoreCase) >= 0)
+                         .Where(path => !AssetDatabase.IsValidFolder(path)))
+                roots.Add(NormalizeAssetPath(path));
+            UnityEngine.Object[] preloaded = PlayerSettings.GetPreloadedAssets() ?? Array.Empty<UnityEngine.Object>();
+            for (int index = 0; index < preloaded.Length; index++)
+            {
+                string path = preloaded[index] == null
+                    ? "<null>"
+                    : NormalizeAssetPath(AssetDatabase.GetAssetPath(preloaded[index]));
+                rootEntries.Add($"PRELOADED|{index}|{path}");
+                if (!string.IsNullOrWhiteSpace(path) && path != "<null>") roots.Add(path);
+            }
+
+            foreach (string root in roots)
+            {
+                rootEntries.Add("ROOT|" + root);
+                string[] dependencies = AssetDatabase.GetDependencies(root, recursive: true)
+                    .Select(NormalizeAssetPath)
+                    .OrderBy(path => path, StringComparer.Ordinal)
+                    .ToArray();
+                foreach (string dependency in dependencies)
+                {
+                    rootEntries.Add($"DEP|{root}|{dependency}");
+                    if (!IsSerializedLinkerRootAsset(dependency)) continue;
+                    if (!FrameworkModuleSourceCatalog.TryResolve(
+                            dependency, out var source, out string reason))
+                        throw new InvalidDataException(
+                            $"无法解析 UnityLinker 序列化依赖 {dependency}（根：{root}）：{reason}");
+                    rootEntries.Add($"SERIALIZED|{dependency}|" +
+                                    HashRequiredFile(source.PhysicalPath, dependency));
+                }
+            }
+            inputs["$roots"] = rootEntries.ToArray();
+            return ComputeDependencyTopologySha256(inputs);
+        }
+
+        internal static bool IsSerializedLinkerRootAsset(string assetPath)
+        {
+            string extension = Path.GetExtension(assetPath);
+            return extension.Equals(".unity", StringComparison.OrdinalIgnoreCase) ||
+                   extension.Equals(".prefab", StringComparison.OrdinalIgnoreCase) ||
+                   extension.Equals(".asset", StringComparison.OrdinalIgnoreCase) ||
+                   extension.Equals(".controller", StringComparison.OrdinalIgnoreCase) ||
+                   extension.Equals(".overrideController", StringComparison.OrdinalIgnoreCase) ||
+                   extension.Equals(".playable", StringComparison.OrdinalIgnoreCase) ||
+                   extension.Equals(".anim", StringComparison.OrdinalIgnoreCase) ||
+                   extension.Equals(".mat", StringComparison.OrdinalIgnoreCase) ||
+                   extension.Equals(".uxml", StringComparison.OrdinalIgnoreCase) ||
+                   extension.Equals(".guiskin", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string NormalizeAssetPath(string path) =>
+            (path ?? string.Empty).Replace('\\', '/');
+
+        private static bool IsPathInside(string path, string directory)
+        {
+            string fullPath = Path.GetFullPath(path);
+            string fullDirectory = Path.GetFullPath(directory).TrimEnd(
+                Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            return fullPath.StartsWith(fullDirectory, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>对程序集名和完整依赖条目分别排序；保留重复数量，同时避免元数据表返回顺序造成伪失效。</summary>
+        internal static string ComputeDependencyTopologySha256(
+            IReadOnlyDictionary<string, string[]> topology)
+        {
+            if (topology == null) throw new ArgumentNullException(nameof(topology));
+            using var canonical = new MemoryStream();
+            using (var writer = new BinaryWriter(canonical, Encoding.UTF8, leaveOpen: true))
+            {
+                var assemblies = topology.OrderBy(pair => pair.Key, StringComparer.Ordinal).ToArray();
+                writer.Write(assemblies.Length);
+                foreach (var pair in assemblies)
+                {
+                    if (string.IsNullOrWhiteSpace(pair.Key))
+                        throw new ArgumentException("程序集依赖拓扑不能包含空程序集名。", nameof(topology));
+                    WriteLengthPrefixedUtf8(writer, pair.Key);
+                    string[] entries = (pair.Value ?? Array.Empty<string>())
+                        .Where(entry => entry != null)
+                        .OrderBy(entry => entry, StringComparer.Ordinal)
+                        .ToArray();
+                    writer.Write(entries.Length);
+                    foreach (string entry in entries) WriteLengthPrefixedUtf8(writer, entry);
+                }
+            }
+
+            using var sha256 = SHA256.Create();
+            canonical.Position = 0;
+            byte[] hash = sha256.ComputeHash(canonical);
+            return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
+        }
+
+        private static void WriteLengthPrefixedUtf8(BinaryWriter writer, string value)
+        {
+            byte[] bytes = Encoding.UTF8.GetBytes(value ?? string.Empty);
+            writer.Write(bytes.Length);
+            writer.Write(bytes);
+        }
+
         // UPM 包锁和 NuGet 清单决定实际进入 AOT 世界的第三方程序集版本；HybridCLRSettings 决定桥接、裁剪与生成策略。
         // 只看“版本显示值”不够，直接记内容哈希能覆盖 lock 重解析、显式 DLL 依赖与设置新增字段等变化。
         private static string HashRequiredProjectFile(string relativePath)
         {
             string path = Path.Combine(AssetBuildLayout.ProjectRoot, relativePath);
-            if (!File.Exists(path))
-                throw new FileNotFoundException($"生成环境输入文件不存在：{relativePath}", path);
-            using var stream = File.OpenRead(path);
+            return HashRequiredFile(path, relativePath);
+        }
+
+        private static string HashRequiredFile(string path, string description)
+        {
+            string fullPath = Path.GetFullPath(path);
+            if (!File.Exists(fullPath))
+                throw new FileNotFoundException($"生成环境输入文件不存在：{description}", fullPath);
+            using var stream = File.OpenRead(fullPath);
             using var sha256 = SHA256.Create();
             return BitConverter.ToString(sha256.ComputeHash(stream)).Replace("-", "").ToLowerInvariant();
         }
@@ -791,6 +1197,76 @@ namespace Game.Framework.Build
             });
         }
 
+        /// <summary>
+        /// 保护 Unity 构建预处理会原地修改的项目资产。只选择序列化字段明确启用了
+        /// <c>m_ClearDynamicDataOnBuild</c> 的 FontAsset，避免把普通构建输出或用户在构建期间的其它修改一起回滚。
+        /// </summary>
+        private sealed class BuildMutableAssetSnapshot
+        {
+            private readonly Entry[] _entries;
+
+            private BuildMutableAssetSnapshot(Entry[] entries) => _entries = entries;
+
+            internal static BuildMutableAssetSnapshot Capture()
+            {
+                var paths = new SortedSet<string>(StringComparer.Ordinal);
+                foreach (string filter in new[] { "t:FontAsset", "t:TMP_FontAsset" })
+                foreach (string guid in AssetDatabase.FindAssets(filter, new[] { "Assets" }))
+                {
+                    string path = AssetDatabase.GUIDToAssetPath(guid);
+                    if (!path.EndsWith(".asset", StringComparison.OrdinalIgnoreCase)) continue;
+                    UnityEngine.Object asset = AssetDatabase.LoadMainAssetAtPath(path);
+                    if (asset == null) continue;
+                    using var serialized = new SerializedObject(asset);
+                    SerializedProperty clearOnBuild = serialized.FindProperty("m_ClearDynamicDataOnBuild");
+                    if (clearOnBuild?.boolValue == true) paths.Add(path);
+                }
+
+                return new BuildMutableAssetSnapshot(paths.Select(path => new Entry(
+                        path,
+                        File.ReadAllBytes(Path.Combine(AssetBuildLayout.ProjectRoot, path))))
+                    .ToArray());
+            }
+
+            internal int RestoreChangedFiles()
+            {
+                int restored = 0;
+                var failures = new List<Exception>();
+                foreach (Entry entry in _entries)
+                {
+                    try
+                    {
+                        string physicalPath = Path.Combine(AssetBuildLayout.ProjectRoot, entry.AssetPath);
+                        if (File.Exists(physicalPath) && File.ReadAllBytes(physicalPath).SequenceEqual(entry.Bytes))
+                            continue;
+                        File.WriteAllBytes(physicalPath, entry.Bytes);
+                        AssetDatabase.ImportAsset(entry.AssetPath, ImportAssetOptions.ForceUpdate);
+                        restored++;
+                    }
+                    catch (Exception exception)
+                    {
+                        failures.Add(new IOException("恢复被构建预处理修改的资产失败：" + entry.AssetPath, exception));
+                    }
+                }
+                if (failures.Count > 0)
+                    throw new AggregateException(
+                        $"{failures.Count} 个构建期可变资产恢复失败；已继续尝试其余资产。", failures);
+                return restored;
+            }
+
+            private readonly struct Entry
+            {
+                internal Entry(string assetPath, byte[] bytes)
+                {
+                    AssetPath = assetPath;
+                    Bytes = bytes;
+                }
+
+                internal string AssetPath { get; }
+                internal byte[] Bytes { get; }
+            }
+        }
+
         [Serializable]
         private sealed class GenerationStamp
         {
@@ -804,6 +1280,9 @@ namespace Game.Framework.Build
             public string NuGetPackagesSha256;
             public string HybridClrSettingsSha256;
             public string PlayerBuildSettings;
+            public string HotUpdateTargetMetadataTopologySha256;
+            public string AotSourceInputsSha256;
+            public string PlayerLinkerRootsSha256;
             public string GeneratedAtUtc;
         }
 
@@ -835,6 +1314,7 @@ namespace Game.Framework.Build
         private static void EnsureCollector(string packageName)
         {
             var setting = BundleCollectorSettingData.Setting;
+            bool changed = false;
             var pkg = setting.Packages.FirstOrDefault(p => p.PackageName == packageName);
             if (pkg == null)
             {
@@ -845,34 +1325,86 @@ namespace Game.Framework.Build
                     AutoCollectShaders = false, // 纯 DLL 包，无 shader 可收
                 };
                 setting.Packages.Add(pkg);
+                changed = true;
             }
 
             // EnableAddressable 必须为 true：AddressByFileName 生成的短地址（"hotupdate_manifest"、"Game.Framework.dll" 等）
             // 只有在此选项开启时才会写入 YooAsset location 字典；关闭时只能用完整 AssetPath 查询，
             // 运行时 LoadAssetAsync("hotupdate_manifest") 就会报 "Location is invalid"。
             // 对已有 package 也强制更新（幂等），避免历史存档未开启时遗留旧包失效。
-            pkg.EnableAddressable = true;
+            if (!pkg.EnableAddressable)
+            {
+                pkg.EnableAddressable = true;
+                changed = true;
+            }
 
             var group = pkg.Groups.FirstOrDefault(g => g.GroupName == CodeGroupName);
             if (group == null)
             {
                 group = new BundleCollectorGroup { GroupName = CodeGroupName, GroupDesc = "热更 DLL + 清单（自动维护，勿手动改）" };
                 pkg.Groups.Add(group);
+                changed = true;
             }
 
-            if (group.Collectors.All(c => c.CollectPath != DllAssetDir))
+            changed |= ApplyCodeCollectorGroupContract(
+                group, DllAssetDir, AssetDatabase.AssetPathToGUID(DllAssetDir));
+            // YooAsset 的 SaveFile 会重写整份 YAML；配置未变时跳过，避免一次日常代码包构建制造无关 diff。
+            if (changed) BundleCollectorSettingData.SaveFile();
+        }
+
+        internal static bool ApplyCodeCollectorContract(
+            BundleCollector collector,
+            string collectPath,
+            string collectorGuid)
+        {
+            if (collector == null) throw new ArgumentNullException(nameof(collector));
+            bool changed = false;
+            changed |= SetIfDifferent(collector.CollectPath, collectPath,
+                value => collector.CollectPath = value);
+            changed |= SetIfDifferent(collector.CollectorGUID, collectorGuid,
+                value => collector.CollectorGUID = value);
+            if (collector.CollectorType != ECollectorType.MainAssetCollector)
             {
-                group.Collectors.Add(new BundleCollector
-                {
-                    CollectPath = DllAssetDir,
-                    CollectorGUID = AssetDatabase.AssetPathToGUID(DllAssetDir),
-                    CollectorType = ECollectorType.MainAssetCollector,
-                    AddressRuleName = nameof(AddressByFileName), // 去扩展名：xxx.dll.bytes → location "xxx.dll"
-                    PackRuleName = nameof(PackRawFile),          // RawFile 包要求每文件独立 bundle
-                    FilterRuleName = nameof(CollectAll),
-                });
+                collector.CollectorType = ECollectorType.MainAssetCollector;
+                changed = true;
             }
-            BundleCollectorSettingData.SaveFile();
+            changed |= SetIfDifferent(collector.AddressRuleName, nameof(AddressByFileName),
+                value => collector.AddressRuleName = value);
+            changed |= SetIfDifferent(collector.PackRuleName, nameof(PackRawFile),
+                value => collector.PackRuleName = value);
+            changed |= SetIfDifferent(collector.FilterRuleName, nameof(CollectAll),
+                value => collector.FilterRuleName = value);
+            return changed;
+        }
+
+        internal static bool ApplyCodeCollectorGroupContract(
+            BundleCollectorGroup group,
+            string collectPath,
+            string collectorGuid)
+        {
+            if (group == null) throw new ArgumentNullException(nameof(group));
+            bool changed = false;
+            // CodeGroupName 是框架声明的自动维护组，不允许旧路径或重复 Collector 残留并越界收集。
+            BundleCollector collector = group.Collectors.FirstOrDefault();
+            if (collector == null)
+            {
+                collector = new BundleCollector();
+                group.Collectors.Add(collector);
+                changed = true;
+            }
+            foreach (BundleCollector duplicate in group.Collectors.Skip(1).ToArray())
+            {
+                group.Collectors.Remove(duplicate);
+                changed = true;
+            }
+            return ApplyCodeCollectorContract(collector, collectPath, collectorGuid) || changed;
+        }
+
+        private static bool SetIfDifferent(string current, string expected, Action<string> setter)
+        {
+            if (string.Equals(current, expected, StringComparison.Ordinal)) return false;
+            setter(expected);
+            return true;
         }
 
         // 只保留最近 2 个版本目录（与 FrameworkAssetBuilder.CleanupOldVersions 同思路；代码包不读资源 profile 的保留数）。

@@ -51,7 +51,7 @@ namespace Game.Framework.Editor
                     paddingBottom = 4,
                 },
             };
-            _actions.Add(CreateActionButton("重新检测", Refresh, "重新读取当前 Player 编译图和 DLL 引用。"));
+            _actions.Add(CreateActionButton("重新检测", Refresh, "重新读取当前 Player 编译图、asmdef 与当前 DLL 快照。"));
             _actions.Add(CreateActionButton("复制完整报告", CopyReport, "复制可粘贴到 issue 或评审中的纯文本报告。"));
             _actions.Add(CreateActionButton("打开模块地图", () => OpenFile("docs/framework-module-map.md"),
                 "查看各程序集的职责、依赖方向与删除标准。"));
@@ -181,7 +181,7 @@ namespace Game.Framework.Editor
             AddSectionTitle("当前 Module · 为什么可能被带入");
             var model = CreateCard("module-audit-retention-model");
             model.Add(CreateInfoLabel(
-                "不要把五件事混成“自动裁剪”：① 源码/Package 已安装；② asmdef 参与 Player 编译；③ 业务或 Module 真实引用；④ link.xml / 场景 / 反射成为 UnityLinker 根；⑤ HybridCLR 按 Profile 同步、Generate 后部署完整 DLL。最终 Player 还要经过链接、IL2CPP 与压缩；下面只显示当前可证明的输入。"));
+                "不要把五件事混成“自动裁剪”：① 源码/Package 已安装；② asmdef 参与 Player 编译；③ 当前编译快照存在代码引用；④ link.xml / 场景 / 反射成为 UnityLinker 根；⑤ HybridCLR 按 Profile 同步、Generate 后部署完整 DLL。Unity 6000 的编译 API 可能给出 Editor DLL 变体，目标平台结论仍要看真实构建；下面只显示当前可证明的输入。"));
             _content.Add(model);
 
             FrameworkModuleAudit.ModuleStatus[] attentionStatuses = result.ModuleStatuses
@@ -347,7 +347,7 @@ namespace Game.Framework.Editor
                 metrics.Add(CreateMetric("DLL 中转",
                     stagingValue,
                     !evidence.StagingRequired && !evidence.StagedManifestExists
-                        ? "纯 AOT 可不建代码包"
+                        ? "直接 AOT 启动，可不建代码包"
                         : string.IsNullOrWhiteSpace(evidence.StagedVersion)
                         ? "尚无可读版本"
                         : "版本 " + evidence.StagedVersion));
@@ -585,8 +585,8 @@ namespace Game.Framework.Editor
                     result.HasHotUpdateDeploymentWarnings
                         ? "Profile 缺失 / 重复，或至少一层 Settings、Generate、DLL 中转证据已漂移；查看顶部热更产物链。"
                         : result.HotUpdateDeployment.StagingRequired
-                            ? "唯一 Profile、HybridCLRSettings、Generate stamp 与 DLL 中转清单相互一致。"
-                            : "唯一空 Profile 明确选择纯 AOT；Generate 与 DLL 中转不作强制要求。"));
+                            ? "唯一 Profile、HybridCLRSettings、所需 Generate 证据与 DLL 中转清单相互一致。"
+                            : "唯一空 Profile 明确选择纯 AOT，且启用场景未使用 HotUpdateLauncher；Generate 与 DLL 中转不作强制要求。"));
             card.Add(CreateCheckRow(!result.HasUnresolvedAssemblies,
                 "报告没有缺失的程序集文件",
                 result.HasUnresolvedAssemblies

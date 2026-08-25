@@ -22,7 +22,7 @@ Editor 反向引用。Adapter 不得随 Framework 分发付费插件本体。详
 
 ## 轻量组合档位与证据口径
 
-菜单 `SSFramework/诊断/模块裁剪审计` 会读取当前目标平台的 Player 编译图、asmdef、已编译 DLL 的**真实元数据引用**、FrameworkHotUpdateProfile，以及项目 Assets 与全部已注册 Package 中的 `link.xml`。`FrameworkModuleSourceCatalog` 同时保留 Unity 可定位的 Asset Path 与可供 `System.IO` 读取的 Physical Path，并标记 package 名称/版本；因此源码搬到嵌入式包或 `PackageCache` 后仍使用同一套审计和构建证据。窗口先只读比较唯一 Profile、HybridCLRSettings、Generate stamp、当前热更加载顺序、AOT 补元数据清单与 DLL 中转目录，再解释每个 Runtime Module 的项目 / Framework 消费者、热更依赖传播和 linker 根；之后给出 Core-only、Core + UGUI、Core + Toolkit、全部 Runtime Module、Profile 期望热更档位，以及任意 Module 作为入口的 what-if 闭包。空 Profile 的纯 AOT 档位不强制 Generate / CodePackage；缺失或重复 Profile 会明确告警。完整闭包、全局 / HybridCLR 生成的 linker 规则和原始报告按需展开。它同时机器执行三条删除测试：Core 不带 UI、UGUI 不带 Toolkit/Bridge、Toolkit 不带 UGUI/Bridge。
+菜单 `SSFramework/诊断/模块裁剪审计` 会读取当前目标平台的 Player 编译图、asmdef、当前已编译 DLL 快照的元数据引用、FrameworkHotUpdateProfile，以及项目 Assets 与全部已注册 Package 中的 `link.xml`。Unity 6000 的 CompilationPipeline `outputPath` 仍可能指向 Editor 变体，所以这份 DLL 闭包用于发现依赖方向和候选，不冒充目标 Player 证明；所有一方 Player asmdef 另以 `overrideReferences:true` 关闭预编译 DLL 的全局 Auto Reference，平台分支中的漏声明会在真实目标编译时失败。`FrameworkModuleSourceCatalog` 同时保留 Unity 可定位的 Asset Path 与可供 `System.IO` 读取的 Physical Path，并标记 package 名称/版本；因此源码搬到嵌入式包或 `PackageCache` 后仍使用同一套审计和构建证据。窗口先只读比较唯一 Profile、HybridCLRSettings、Generate stamp、当前热更加载顺序、AOT 补元数据清单与 DLL 中转目录，再解释每个 Runtime Module 的项目 / Framework 消费者、热更依赖传播和 linker 根；之后给出 Core-only、Core + UGUI、Core + Toolkit、全部 Runtime Module、Profile 期望热更档位，以及任意 Module 作为入口的 what-if 闭包。空 Profile 不强制 Generate；只有启用场景不依赖 `HotUpdateLauncher` 的直接 AOT composition root 才可省 CodePackage，保留 Launcher 时步骤 3 会产出其 Player 分支需要的空清单包。缺失或重复 Profile 会明确告警。完整闭包、全局 / HybridCLR 生成的 linker 规则和原始报告按需展开。它同时机器执行三条删除测试：Core 不带 UI、UGUI 不带 Toolkit/Bridge、Toolkit 不带 UGUI/Bridge。
 
 报告里的大小是链接、AOT、压缩前的原始托管 DLL，只用于发现“一个很小的 Adapter 意外拖入很大的外部依赖”以及比较组合；它不是最终包体承诺。需要真实平台证据时打开 `SSFramework/诊断/真实构建体积证据`：探针在 `Library` 下创建隔离空工程，只复制所选 Runtime Module 和当前版本依赖，再用当前目标平台 / 脚本后端读取 Player BuildReport。所选程序集完整保留，因此结果是可重复的体积上界；详情见 ADR-0038。
 
@@ -32,11 +32,11 @@ Editor 反向引用。Adapter 不得随 Framework 分发付费插件本体。详
 |---|---|---|
 | 源码 / Package | 文件、导入器和 asmdef 是否安装？恢复时源码是否仍是同一份？ | Source Catalog 的 Asset / Physical / package 身份、UPM manifest / lock；隔离探针另记录实际复制内容指纹 |
 | Player 编译 | 当前平台是否编译该程序集？ | `CompilationPipeline.GetAssemblies(Player)`；`autoReferenced:false` 不会让源码停止编译 |
-| 真实消费 / 删除阻塞 | 谁在 Player DLL 元数据里实际引用；谁在任意 asmdef 中声明引用？ | 前者解释玩家保留候选，后者覆盖完整 asmdef 图中的物理删除编译阻塞；字符串反射仍需人工说明 |
+| 当前代码消费 / 删除阻塞 | 谁在当前 DLL 快照元数据里引用；谁在任意 asmdef 中声明引用？ | 前者解释代码保留候选但可能是 Editor 变体，后者覆盖完整 asmdef 图中的物理删除编译阻塞；目标平台、Assembly 注册与反射创建仍需结合真实构建和 linker 根说明 |
 | 保留 / 部署根 | 什么会让它留下？ | 场景、资源、反射、`link.xml`；HybridCLR Profile 同步后按程序集部署完整 DLL |
 | 最终 Player | 链接、IL2CPP、引擎模块和压缩后是多少？ | 目标平台 BuildReport / 发布产物 |
 
-当前 `Asset.Yoo`、`Network.Proto`、`UI.Toolkit` Module 目录各有无条件 `link.xml`：分别保留 Yoo Adapter、Google.Protobuf、UIElementsModule。它们不一定是错误，但意味着“业务没有静态调用”不能推出“最终自动消失”。`Asset.Yoo` 还有字符串反射选择边界，不能在建立显式注册根前盲目改成条件保留。`Assets/HybridCLRGenerate/link.xml` 是生成物，第三方目录的规则有自己的升级边界；审计只读展示，不提供一键改写。
+当前 `Asset.Yoo`、`Network.Proto`、`UI.Toolkit` Module 目录各有无条件 `link.xml`：分别保留 Yoo Adapter、Google.Protobuf、UIElementsModule。它们不一定是错误，但意味着“业务没有静态调用”不能推出“最终自动消失”。`Asset.Yoo` 的默认 Provider 注册属于 Adapter Assembly，Core 不再保存具体类型名；保守的 `link.xml` 仍覆盖自定义属性 + 反射创建在不同 Unity linker 版本下的可达性差异。`Assets/HybridCLRGenerate/link.xml` 是生成物，第三方目录的规则有自己的升级边界；审计只读展示，不提供一键改写。
 
 当前所有 Runtime Module 都参与 Player 编译并引用 Core。若 Core 热更，仍留在编译图的可选 Module 不能被单独改成 AOT，否则形成 AOT → 热更违规。强裁剪应把“迁移消费者、删除 / 卸载 Module 使其退出编译图、清理 Profile、同步并重新 Generate”作为一项结构事务；不要先只从 Profile 取消再同步。完整决策见 ADR-0039。
 
@@ -45,7 +45,7 @@ Editor 反向引用。Adapter 不得随 Framework 分发付费插件本体。详
 | Module | 路径 | 职责 / 边界 | 删除测试 |
 |---|---|---|---|
 | `Game.Framework` | `Core/` | Context、Container、MVCS 权限、Command/Event、生命周期与通用 Interface；含零第三方实现的 Storage/Audio/Flow/Localization/Logging/Network 等能力。 | 不可删除；其余运行时 Module 的稳定依赖方向指向它。 |
-| `Game.Framework.Asset.Yoo` | `Asset.Yoo/` | `IAssetProvider` 的 YooAsset Adapter，YooAsset 接触面集中在这里。 | 删除后仅失去 YooAsset Implementation；内核资源 Interface 仍可编译。 |
+| `Game.Framework.Asset.Yoo` | `Asset.Yoo/` | `IAssetProvider` 的 YooAsset Adapter；YooAsset 接触面和 `[assembly: DefaultAssetProvider]` 默认装配都集中在这里。 | 删除后仅失去 YooAsset Implementation；Core 不含 Yoo 类型名，安装另一个注册 Adapter 即可替换。 |
 | `Game.Framework.Asset.Yoo.Tests` | `Asset.Yoo/Tests/Editor/` | Yoo package 进程级 Reader/Writer、取消、缓存世代、同步快照与后台终态的纯 EditMode 契约。 | 随 Yoo Adapter 删除；不进入玩家构建，也不让通用 Core Test 反向依赖可选 Adapter。 |
 | `Game.Framework.Config` | `Config/` | 配置运行时编排与 `IConfigUtility<TTables>`；不依赖 Luban。 | 删除后失去配置表 Module，Core 不改。 |
 | `Game.Framework.Config.Editor` | `Config/Editor/` | Luban CLI/Profile/生成与配置总览入口；复用通用 Editor 反馈。 | 可与 Config 一起删除；不向 Runtime 泄漏 Editor 依赖。 |
