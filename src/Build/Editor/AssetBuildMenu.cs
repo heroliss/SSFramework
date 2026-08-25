@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using System.Diagnostics;
 using System.Net.Sockets;
+using Game.Framework.Editor;
 using UnityEditor;
 using YooAsset.Editor; // BundleBuilderHelper（内置首包根目录）
 using Debug = UnityEngine.Debug;
@@ -47,7 +48,10 @@ namespace Game.Framework.Build
             if (!EditorUtility.DisplayDialog("全量重建",
                     "将清掉 SBP 增量构建缓存后【全量】重建所有启用的包——比平时慢得多，仅在怀疑增量缓存损坏 / 产物异常时用。继续？",
                     "全量重建", "取消"))
+            {
+                FrameworkEditorFeedback.Info("资源包全量重建已取消", "没有清理缓存，也没有启动构建。");
                 return;
+            }
             RunBuild(clearBuildCache: true);
         }
 
@@ -62,9 +66,8 @@ namespace Game.Framework.Build
 
             var (ok, message) = FrameworkAssetBuilder.Build(
                 profile, packages, version, clearBuildCache, UseDependencyDB);
-            Debug.Log("[资源构建] 构建：\n" + message);
+            FrameworkEditorFeedback.ReportResult("资源包构建", ok, message);
             if (ok) EditorUtility.RevealInFinder(AssetBuildLayout.BundlesRoot);
-            EditorUtility.DisplayDialog(ok ? "构建完成" : "构建有失败项", message, "好");
         }
 
         [MenuItem(Root + "2. 部署（平铺到 Deploy）", priority = 2)]
@@ -75,16 +78,15 @@ namespace Game.Framework.Build
             string deployDir = AssetBuildLayout.DeployRoot;
 
             var (ok, message) = FrameworkAssetBuilder.Deploy(packages, deployDir);
-            Debug.Log("[资源构建] 部署：\n" + message);
+            FrameworkEditorFeedback.ReportResult("资源包部署", ok, message);
             if (ok) EditorUtility.RevealInFinder(deployDir);
-            EditorUtility.DisplayDialog(ok ? "部署完成（本地伺服 / CI 上传共用）" : "部署失败", message, "好");
         }
 
         [MenuItem(Root + "3. 启动本地 CDN 服务", priority = 3)]
         private static void Menu_StartServer()
         {
             string msg = StartServer(FrameworkAssetBuildProfile.Resolve());
-            Debug.Log("[资源构建] " + msg);
+            FrameworkEditorFeedback.ReportSummary("启动本地 CDN 服务", msg);
         }
 
         // ───────────── 构建配置 ─────────────
@@ -102,10 +104,9 @@ namespace Game.Framework.Build
         {
             var profile = FrameworkAssetBuildProfile.Resolve();
             string summary = profile.SyncFromCollector();
-            Debug.Log("[资源构建] 同步收集器包列表：\n" + summary);
+            FrameworkEditorFeedback.ReportSummary("同步资源包列表", summary);
             Selection.activeObject = profile;
             EditorGUIUtility.PingObject(profile);
-            EditorUtility.DisplayDialog("同步完成", summary, "好");
         }
 
         [MenuItem(Root + "生成包名常量代码", priority = 22)]
@@ -113,13 +114,12 @@ namespace Game.Framework.Build
         {
             var profile = FrameworkAssetBuildProfile.Resolve();
             var (ok, message) = AssetPackageConstantsGenerator.Generate(profile);
-            Debug.Log("[资源构建] 生成包名常量：\n" + message);
+            FrameworkEditorFeedback.ReportResult("生成资源包名常量", ok, message);
             if (ok)
             {
                 var asset = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(profile.PackageConstantsPath);
                 if (asset != null) EditorGUIUtility.PingObject(asset);
             }
-            EditorUtility.DisplayDialog(ok ? "生成完成" : "生成失败", message, "好");
         }
 
         // 勾选式开关：构建时是否用「资源依赖缓存数据库」加速收集阶段（YooAsset UseAssetDependencyDB）。
@@ -167,9 +167,9 @@ namespace Game.Framework.Build
                 int kbps = profile.LocalServeThrottleKBps;
 
                 if (!Directory.Exists(deployDir))
-                    return $"③ 部署目录不存在：{deployDir}（先执行「1. 构建资源包」+「2. 部署」）。";
+                    return $"⚠ ③ 部署目录不存在：{deployDir}（先执行「1. 构建资源包」+「2. 部署」）。";
                 if (IsPortOpen(port))
-                    return $"③ 本地服务已在 127.0.0.1:{port} 运行（复用现有进程，目录 {deployDir}）。改限速请先关掉它再启动。";
+                    return $"✓ ③ 本地服务已在 127.0.0.1:{port} 运行（复用现有进程，目录 {deployDir}）。改限速请先关掉它再启动。";
 
                 // http.server 不支持限速：限速>0 时跑一个分块+sleep 的小脚本，否则用标准 http.server。
                 string args = kbps > 0 ? $"\"{WriteThrottleScript()}\" {port} {kbps}" : $"-m http.server {port}";
@@ -182,11 +182,11 @@ namespace Game.Framework.Build
                     WorkingDirectory = deployDir,
                     UseShellExecute = true, // 开独立控制台常驻；false 进程会随 Editor 退出
                 });
-                return $"③ 已启动本地 CDN 服务（{mode}，端口 {port}，目录 {deployDir}）。";
+                return $"✓ ③ 已启动本地 CDN 服务（{mode}，端口 {port}，目录 {deployDir}）。";
             }
             catch (Exception e)
             {
-                return $"③ 起服务失败（{e.Message}）。确认 python 在 PATH，或手动在部署目录起 HTTP 服务。";
+                return $"✗ ③ 起服务失败（{e.Message}）。确认 python 在 PATH，或手动在部署目录起 HTTP 服务。";
             }
         }
 

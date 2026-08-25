@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using Game.Framework.Editor;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -101,11 +102,16 @@ namespace Game.Framework.Build
         {
             if (EditorApplication.isPlayingOrWillChangePlaymode)
             {
-                EditorUtility.DisplayDialog("需退出 Play 模式", "AssetBundle 构建管线不能在 Play 模式运行。", "好");
+                FrameworkEditorFeedback.Warn(
+                    "资源构建预检已阻止",
+                    "影响：本次构建没有启动。\n原因：AssetBundle 构建管线不能在 Play 模式运行。\n下一步：停止 Play 后重新执行构建菜单。");
                 return false;
             }
             // 弹窗让用户保存已修改的场景；用户取消则中止构建。
-            return EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo();
+            bool mayContinue = EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo();
+            if (!mayContinue)
+                FrameworkEditorFeedback.Info("资源构建已取消", "没有启动构建；当前场景改动保持不变。");
+            return mayContinue;
         }
 
         /// <summary>
@@ -176,7 +182,6 @@ namespace Game.Framework.Build
                         if (!bundledOk)
                         {
                             failed.Add($"{pkg}：构建管线报告成功，但首包产物校验失败：{bundledError}");
-                            Debug.LogError($"[AssetBuilder] 包 '{pkg}' 首包产物不完整：{bundledError}");
                             continue;
                         }
 
@@ -215,8 +220,7 @@ namespace Game.Framework.Build
             }
             catch (Exception e)
             {
-                Debug.LogException(e);
-                return (false, e.Message + "（详见 Console）");
+                return (false, "资源包构建过程抛出未处理异常；本次操作未完整成功。\n" + e);
             }
         }
 
@@ -252,8 +256,7 @@ namespace Game.Framework.Build
             }
             catch (Exception e)
             {
-                Debug.LogException(e);
-                return (false, e.Message + "（详见 Console）");
+                return (false, "部署过程抛出未处理异常；目标目录可能只有部分文件，请修复后重新部署。\n" + e);
             }
         }
 

@@ -22,10 +22,10 @@ namespace Game.Framework.Editor
             var profiles = ServiceInstallerProfile.ResolveAll();
             if (profiles.Count == 0)
             {
-                EditorUtility.DisplayDialog("没有找到配置",
-                    "工程里没有 ServiceInstallerProfile 资产。\n\n" +
-                    "经 Assets/Create/SSFramework/服务安装器配置 创建一个，配置「扫描目录 → 输出路径/命名空间」后再生成。",
-                    "好");
+                FrameworkEditorFeedback.Warn(
+                    "服务安装器生成未启动",
+                    "影响：没有生成或修改代码。\n原因：工程里没有 ServiceInstallerProfile 资产。\n" +
+                    "下一步：经 Assets/Create/SSFramework/服务安装器配置 创建一个，配置“扫描目录 → 输出路径 / 命名空间”后重试。");
                 return;
             }
             GenerateProfiles(profiles);
@@ -37,14 +37,15 @@ namespace Game.Framework.Editor
         /// <summary>
         /// 逐份生成给定 profile——菜单「生成服务安装器代码」、总览窗口与 Inspector 生成按钮共用入口。
         /// 先挡 Play 模式（生成改 .g.cs 会触发重编译、打断运行 / 产生半新半旧状态），再逐份调
-        /// <see cref="ServiceInstallerGenerator.Generate"/>，汇总结果进 Console + 弹窗。
+        /// <see cref="ServiceInstallerGenerator.Generate"/>，汇总为一条带稳定严重级别的非阻塞结果。
         /// </summary>
         internal static void GenerateProfiles(IReadOnlyList<ServiceInstallerProfile> profiles)
         {
             if (EditorApplication.isPlayingOrWillChangePlaymode)
             {
-                EditorUtility.DisplayDialog("服务安装器",
-                    "Play 模式下不能生成（会改代码触发重编译），请先停止运行。", "好");
+                FrameworkEditorFeedback.Warn(
+                    "服务安装器生成已阻止",
+                    "影响：没有生成或修改代码。\n原因：Play 模式下改 .g.cs 会触发重编译并打断运行。\n下一步：停止 Play 后重试。");
                 return;
             }
 
@@ -60,8 +61,7 @@ namespace Game.Framework.Editor
             }
 
             string summary = sb.ToString();
-            Debug.Log("[服务安装器] 生成结果：\n" + summary);
-            EditorUtility.DisplayDialog(allOk ? "生成完成" : "生成有失败项", summary, "好");
+            FrameworkEditorFeedback.ReportResult("生成服务安装器", allOk, summary);
         }
     }
 

@@ -1,5 +1,5 @@
+using Game.Framework.Editor;
 using UnityEditor;
-using UnityEngine;
 
 namespace Game.Framework.Build
 {
@@ -18,8 +18,7 @@ namespace Game.Framework.Build
         {
             var profile = FrameworkHotUpdateProfile.Resolve();
             string summary = profile.SyncToHybridCLRSettings();
-            Debug.Log("[热更构建] 同步热更设置：\n" + summary);
-            EditorUtility.DisplayDialog("同步热更设置", summary, "好");
+            FrameworkEditorFeedback.ReportSummary("同步热更设置", summary);
         }
 
         [MenuItem(Root + "2. 生成桥接与裁剪文件（Generate All，慢）", priority = 2)]
@@ -30,8 +29,7 @@ namespace Game.Framework.Build
 
             var profile = FrameworkHotUpdateProfile.Resolve();
             var (ok, message) = FrameworkHotUpdateBuilder.Generate(profile);
-            Debug.Log("[热更构建] Generate：\n" + message);
-            EditorUtility.DisplayDialog(ok ? "Generate 完成" : "Generate 失败", message, "好");
+            FrameworkEditorFeedback.ReportResult("热更 Generate", ok, message);
         }
 
         [MenuItem(Root + "3. 构建代码包（CompileDll → RawFile 包）", priority = 3)]
@@ -42,9 +40,8 @@ namespace Game.Framework.Build
             var profile = FrameworkHotUpdateProfile.Resolve();
             string version = FrameworkAssetBuildProfile.Resolve().ResolveVersionNow(); // 与资源包共用版本号格式
             var (ok, message) = FrameworkHotUpdateBuilder.BuildCodePackage(profile, version);
-            Debug.Log("[热更构建] 构建代码包：\n" + message);
+            FrameworkEditorFeedback.ReportResult("构建热更代码包", ok, message);
             if (ok) EditorUtility.RevealInFinder(AssetBuildLayout.BundlesRoot);
-            EditorUtility.DisplayDialog(ok ? "代码包构建完成" : "代码包构建失败", message, "好");
         }
 
         [MenuItem(Root + "4. 部署代码包（平铺到 Deploy）", priority = 4)]
@@ -52,9 +49,8 @@ namespace Game.Framework.Build
         {
             var profile = FrameworkHotUpdateProfile.Resolve();
             var (ok, message) = FrameworkAssetBuilder.Deploy(new[] { profile.CodePackageName }, AssetBuildLayout.DeployRoot);
-            Debug.Log("[热更构建] 部署代码包：\n" + message);
+            FrameworkEditorFeedback.ReportResult("部署热更代码包", ok, message);
             if (ok) EditorUtility.RevealInFinder(AssetBuildLayout.DeployRoot);
-            EditorUtility.DisplayDialog(ok ? "部署完成（与资源包同一 Deploy 目录）" : "部署失败", message, "好");
         }
 
         // ───────────── 配置与诊断 ─────────────
@@ -72,8 +68,7 @@ namespace Game.Framework.Build
         {
             var profile = FrameworkHotUpdateProfile.Resolve();
             var (ok, summary) = HotUpdateAssemblyGraph.Validate(profile.HotUpdateAssemblyNames);
-            Debug.Log("[热更构建] 校验热更程序集列表：\n" + summary);
-            EditorUtility.DisplayDialog(ok ? "校验通过" : "校验未通过", summary, "好");
+            FrameworkEditorFeedback.ReportResult("校验热更程序集列表", ok, summary);
         }
     }
 }

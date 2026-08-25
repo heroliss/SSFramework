@@ -1,4 +1,5 @@
 using System.Text;
+using Game.Framework.Editor;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -24,7 +25,9 @@ namespace Game.Framework.UI.UGui.Editor
             var stage = PrefabStageUtility.GetCurrentPrefabStage();
             if (stage == null)
             {
-                EditorUtility.DisplayDialog("UI 绑定", "请在 Prefab 编辑模式下选中节点再标记（双击 prefab 进入编辑）。", "好");
+                FrameworkEditorFeedback.Warn(
+                    "标记 UI 绑定节点未执行",
+                    "影响：Prefab 没有变化。\n原因：当前不在 Prefab 编辑模式。\n下一步：双击 prefab 进入编辑，选中子节点后重试。");
                 return;
             }
 
@@ -63,11 +66,10 @@ namespace Game.Framework.UI.UGui.Editor
             if (marked == 0)
             {
                 Undo.RevertAllDownToGroup(group); // 把（可能刚加的空）组件撤回，保持干净
-                EditorUtility.DisplayDialog("UI 绑定",
+                FrameworkEditorFeedback.Warn("标记 UI 绑定节点未执行",
                     skipped.Length > 0
-                        ? "选中的节点都在子 View 内部，已跳过（见 Console）。父窗口应直接标记那个子 View 节点。"
-                        : "没有可标记的节点——请选中当前 prefab 里的子节点（不要选根）。",
-                    "好");
+                        ? "影响：Prefab 没有变化。\n原因：选中节点都在子 View 内部，父 View 不跨边界绑定。\n下一步：标记子 View 节点本身，或进入子 View 维护其内部绑定。"
+                        : "影响：Prefab 没有变化。\n原因：没有选中当前 prefab 内可绑定的子节点。\n下一步：选择非根节点后重试。");
                 return;
             }
 
@@ -84,7 +86,9 @@ namespace Game.Framework.UI.UGui.Editor
             var stage = PrefabStageUtility.GetCurrentPrefabStage();
             if (stage == null)
             {
-                EditorUtility.DisplayDialog("UI 绑定", "请在 Prefab 编辑模式下选中节点再取消标记。", "好");
+                FrameworkEditorFeedback.Warn(
+                    "取消 UI 绑定标记未执行",
+                    "影响：Prefab 没有变化。\n原因：当前不在 Prefab 编辑模式。\n下一步：双击 prefab 进入编辑，选择已标记节点后重试。");
                 return;
             }
 
@@ -92,7 +96,7 @@ namespace Game.Framework.UI.UGui.Editor
             var data = UIBindingUtil.GetData(root);
             if (data == null)
             {
-                EditorUtility.DisplayDialog("UI 绑定", "本 prefab 还没有任何绑定。", "好");
+                FrameworkEditorFeedback.Info("取消 UI 绑定标记", "本 prefab 没有绑定数据，无需修改。");
                 return;
             }
 
@@ -106,7 +110,7 @@ namespace Game.Framework.UI.UGui.Editor
 
             if (removed == 0)
             {
-                EditorUtility.DisplayDialog("UI 绑定", "选中的节点没有绑定标记。", "好");
+                FrameworkEditorFeedback.Info("取消 UI 绑定标记", "选中节点没有绑定标记，Prefab 未修改。");
                 return;
             }
 
@@ -124,14 +128,15 @@ namespace Game.Framework.UI.UGui.Editor
         {
             if (EditorApplication.isPlayingOrWillChangePlaymode)
             {
-                EditorUtility.DisplayDialog("UI 绑定", "Play 模式下不能生成代码（会触发重编译打断运行），请先停止运行。", "好");
+                FrameworkEditorFeedback.Warn(
+                    "UI 绑定代码生成已阻止",
+                    "影响：没有生成代码。\n原因：Play 模式下生成会触发重编译并打断运行。\n下一步：停止 Play 后重试。");
                 return;
             }
 
             string path = AssetDatabase.GetAssetPath(Selection.activeObject);
             var (ok, message) = UIBindingCodeGenerator.GenerateFromAsset(path, UICodeGenProfile.Resolve());
-            Debug.Log("[UI 绑定] " + message);
-            EditorUtility.DisplayDialog(ok ? "UI 绑定生成完成" : "UI 绑定生成失败", message, "好");
+            FrameworkEditorFeedback.ReportResult("生成 UI 绑定代码", ok, message, Selection.activeObject);
         }
 
         [MenuItem("Assets/SSFramework/生成 UI 绑定代码", true)]

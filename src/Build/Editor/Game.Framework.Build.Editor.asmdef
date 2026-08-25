@@ -3,6 +3,7 @@
     "rootNamespace": "Game.Framework.Build",
     "references": [
         "Game.Framework",
+        "Game.Framework.Editor",
         "Game.Framework.Boot",
         "YooAsset",
         "YooAsset.Editor",

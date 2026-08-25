@@ -25,5 +25,5 @@
 - 自动保存本身是显式副作用，调用日志列出保存路径，代码审查可追溯；未命名工作不会被擅自命名或覆盖。
 - 预检与测试运行仍是两个步骤。这样保留 MCP 测试 job 的过滤、轮询和结果能力，也避免项目重新实现一套 Test Runner。
 - `Game.Framework.Editor.Tests` 用真实临时场景覆盖成功保存和未命名场景拒绝，并验证“批次中含未命名场景时，有路径的脏场景也保持未保存”。每个用例创建带 GUID 的独占目录，TearDown 只删除明确持有的目录，不会误删用户预先存在的同名资产。
-- 删除 `Game.Framework.Editor` 后只失去 Editor 自动化体验，不影响 Runtime Framework 或玩家构建，符合 Editor Module 的删除测试。
+- `Game.Framework.Editor` 现作为稳定编辑器工具基座；删除它时还需一并删除或改接直接复用其反馈能力的可选 Editor 工具。所有这些程序集都只编译进 Editor，因此 Runtime Framework 与玩家构建不受影响，删除边界以 `docs/framework-module-map.md` 为准。
 - 验收实测：先经菜单预检，再由 MCP 启动全量测试；2026-08-24 当前基线 EditMode 106/106、PlayMode 422/422，且没有再次出现保存弹窗或 0-test 队列卡死。

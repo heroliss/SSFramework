@@ -1,7 +1,9 @@
 {
     "name": "Game.Framework.Network.Proto.Editor",
     "rootNamespace": "Game.Framework.Network.Proto.Editor",
-    "references": [],
+    "references": [
+        "Game.Framework.Editor"
+    ],
     "includePlatforms": [
         "Editor"
     ],

@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using System.Text;
+using Game.Framework.Editor;
 using UnityEditor;
-using UnityEngine;
 
 namespace Game.Framework.Network.Proto.Editor
 {
@@ -24,20 +24,23 @@ namespace Game.Framework.Network.Proto.Editor
         /// <summary>
         /// 逐套生成给定 profile——菜单「生成全部」与总览窗口的「生成全部 / 生成这套」共用入口。
         /// 先挡 Play 模式（生成改源码会触发重编译、打断运行 / 产生半新半旧状态），再逐套调
-        /// <see cref="ProtoCodeGenerator.Generate"/>；protoc 全量输出进 Console，弹窗只给每套成败结论。
+        /// <see cref="ProtoCodeGenerator.Generate"/>；protoc 全量输出合并进一条非阻塞 Console 结果。
         /// </summary>
         internal static void GenerateProfiles(IReadOnlyList<ProtoConfigProfile> profiles)
         {
             if (EditorApplication.isPlayingOrWillChangePlaymode)
             {
-                EditorUtility.DisplayDialog("Protobuf 生成", "Play 模式下不能生成（会改代码触发重编译），请先停止运行。", "好");
+                FrameworkEditorFeedback.Warn(
+                    "Protobuf 生成已阻止",
+                    "影响：没有生成代码。\n原因：Play 模式下生成会改源码并触发重编译。\n下一步：停止 Play 后重试。");
                 return;
             }
             if (profiles.Count == 0)
             {
-                EditorUtility.DisplayDialog("Protobuf 生成",
-                    "工程里还没有 Proto profile。\n经 Assets/Create/SSFramework/Protobuf 生成配置 创建，" +
-                    "或打开「配置总览」窗口新建。", "好");
+                FrameworkEditorFeedback.Warn(
+                    "Protobuf 生成未启动",
+                    "影响：没有生成代码。\n原因：工程里还没有 ProtoConfigProfile。\n" +
+                    "下一步：打开 SSFramework/Protobuf/配置总览，点“新建 Profile…”并配置源 / 输出目录后重试。");
                 return;
             }
 
@@ -52,9 +55,10 @@ namespace Game.Framework.Network.Proto.Editor
                 report.AppendLine();
             }
 
-            Debug.Log("[Protobuf 生成] 生成：\n" + report);
-            string dialog = allOk ? $"已生成 {profiles.Count} 套协议代码。\n\n详情见 Console。" : "部分协议生成失败，详情见 Console。";
-            EditorUtility.DisplayDialog(allOk ? "Protobuf 生成完成" : "Protobuf 生成失败", dialog, "好");
+            FrameworkEditorFeedback.ReportResult(
+                $"生成 Protobuf 协议（{profiles.Count} 套）",
+                allOk,
+                report.ToString());
         }
     }
 }

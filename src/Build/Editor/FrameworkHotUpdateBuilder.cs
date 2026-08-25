@@ -501,8 +501,7 @@ namespace Game.Framework.Build
             }
             catch (Exception e)
             {
-                Debug.LogException(e);
-                return (false, "Generate/All 失败：" + e.Message + "（详见 Console）");
+                return (false, "Generate/All 失败；旧生成戳已失效，修复后必须重新执行本步骤。\n" + e);
             }
         }
 
@@ -591,8 +590,7 @@ namespace Game.Framework.Build
             }
             catch (Exception e)
             {
-                Debug.LogException(e);
-                return (false, e.Message + "（详见 Console）");
+                return (false, "热更代码包构建抛出未处理异常；不要部署本次中间产物。\n" + e);
             }
         }
 

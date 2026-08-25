@@ -7,7 +7,7 @@
 1. `Game.Framework` 是运行时内核，只依赖通用异步/响应式/Inspector 基础库，不依赖具体资源、UI 后端、Protobuf 或业务程序集。
 2. 可替换能力采用“Interface 在稳定侧，Implementation 在可删除 Module”的 Seam：例如 `IAssetProvider ← YooAssetProvider`、`IUIBackend ← UGUI/Toolkit Adapter`。
 3. `Game.Framework.Boot` 是 AOT 薄壳，永不引用 `Game.Framework*` 运行时程序集，否则框架无法作为热更新代码加载。
-4. Editor Implementation 与 Runtime 分离；重第三方 Editor 依赖放进独立 Editor Module，不污染通用 `Game.Framework.Editor`。
+4. Editor Implementation 与 Runtime 分离；`Game.Framework.Editor` 是轻量、稳定的编辑器工具基座，拥有跨模块反馈、诊断与通用配置体验；重第三方 Editor 依赖仍放进独立 Editor Module。可选 Editor Module 可以单向依赖该基座，基座不得编译期反向引用它们。
 5. 运行时内核和可热更新 Module 保持 `autoReferenced:false`；消费方通过 asmdef 显式声明依赖。
 6. 删除测试：移除一个可选 Module 目录后，只应失去该能力及其直接消费方，不应迫使核心 Module 修改源码。
 7. 外部程序集的直接依赖必须在 asmdef 显式可见，即使插件 DLL 的 auto-reference 已让代码偶然编译通过；否则 UPM 声明、删除测试与 AI 导航都看不到真实代价。
@@ -41,21 +41,21 @@
 | `Game.Framework.Asset.Yoo` | `Asset.Yoo/` | `IAssetProvider` 的 YooAsset Adapter，YooAsset 接触面集中在这里。 | 删除后仅失去 YooAsset Implementation；内核资源 Interface 仍可编译。 |
 | `Game.Framework.Asset.Yoo.Tests` | `Asset.Yoo/Tests/Editor/` | Yoo package 进程级 Reader/Writer、取消、缓存世代、同步快照与后台终态的纯 EditMode 契约。 | 随 Yoo Adapter 删除；不进入玩家构建，也不让通用 Core Test 反向依赖可选 Adapter。 |
 | `Game.Framework.Config` | `Config/` | 配置运行时编排与 `IConfigUtility<TTables>`；不依赖 Luban。 | 删除后失去配置表 Module，Core 不改。 |
-| `Game.Framework.Config.Editor` | `Config/Editor/` | Luban CLI/Profile/生成与配置总览入口。 | 可与 Config 一起删除；不向 Runtime 泄漏 Editor 依赖。 |
+| `Game.Framework.Config.Editor` | `Config/Editor/` | Luban CLI/Profile/生成与配置总览入口；复用通用 Editor 反馈。 | 可与 Config 一起删除；不向 Runtime 泄漏 Editor 依赖。 |
 | `Game.Framework.Fonts` | `Fonts/` | TMP/Toolkit 多语言 fallback 链；TMP 依赖收口。 | 删除后仅失去自动字体链，本地化 Interface 仍可用。 |
 | `Game.Framework.Fonts.Editor` | `Fonts/Editor/` | 常用字集扫描与生成。 | 可独立删除，不影响运行时字体链。 |
 | `Game.Framework.Network.Proto` | `Network.Proto/` | Google.Protobuf Adapter，把生成的 `IMessage` 接到内核网络 Seam。 | 删除后 JSON 与内核手写 Protobuf 仍可用。 |
-| `Game.Framework.Network.Proto.Editor` | `Network.Proto/Editor/` | protoc Profile、代码生成与总览入口。 | 可与 Proto Runtime 一起删除，Core 不改。 |
+| `Game.Framework.Network.Proto.Editor` | `Network.Proto/Editor/` | protoc Profile、代码生成与总览入口；复用通用 Editor 反馈。 | 可与 Proto Runtime 一起删除，Core 不改。 |
 | `Game.Framework.UI` | `UI/` | 渲染中立窗口编排、层级/栈/模态/过渡及后端 Interface；当前也承载 ObservableCollections 增量列表引擎，因此该第三方依赖会随 UI Core 进入托管闭包。 | 删除后失去窗口框架与列表绑定引擎，但 Core MVCS 仍可用。 |
 | `Game.Framework.UI.UGui` | `UI.UGui/` | UGUI Window/View Adapter，含 `Transform → GameObject` 的 `Bag.BindList` Adapter。 | 删除后 Toolkit 后端与 UI Core 仍可编译。 |
-| `Game.Framework.UI.UGui.Editor` | `UI.UGui/Editor/` | UGUI 节点绑定生成等 Editor 工具。 | 可独立删除，不影响 UGUI Runtime 手写接线。 |
+| `Game.Framework.UI.UGui.Editor` | `UI.UGui/Editor/` | UGUI 节点绑定生成等 Editor 工具；复用通用 Editor 反馈。 | 可独立删除，不影响 UGUI Runtime 手写接线。 |
 | `Game.Framework.UI.UGui.Editor.Tests` | `UI.UGui/Editor/Tests/` | UGUI 绑定 Inspector、Popup 与 Overlay 的 EditMode 布局/偏好契约。 | 随 UGUI Editor Module 删除；不进入玩家构建。 |
 | `Game.Framework.UI.Toolkit` | `UI.Toolkit/` | UI Toolkit Window/View Adapter、`VisualElement` 的 `Bag.BindList` Adapter 与 RenderTexture 显示原语。 | 删除后 UGUI 后端与 UI Core 仍可编译。 |
 | `Game.Framework.UI.Bridge` | `UI.Bridge/` | UGUI/相机内容嵌入 Toolkit 的 RenderTexture Adapter。 | 删除后两套独立 UI 后端仍可用。 |
 | `Game.Framework.Boot` | `Boot/` | HybridCLR/YooAsset 热更启动 AOT 薄壳。 | 可在无热更项目删除；不得反向依赖 Framework Runtime。 |
-| `Game.Framework.Editor` | `Editor/` | Core 通用 Drawer、诊断窗口、菜单与配置总览；Module Audit 与隔离 Player Build 体积探针共用结构化组合。 | 玩家构建不包含；可替换 Editor 体验而不动 Runtime API。 |
+| `Game.Framework.Editor` | `Editor/` | 稳定编辑器工具基座：Core 通用 Drawer、跨模块非阻塞反馈、诊断窗口、菜单与配置总览；Module Audit 与隔离 Player Build 体积探针共用结构化组合。 | 玩家构建不包含。若删除，需一并删除或改接直接依赖它的 Build / Config / Proto / UGUI Editor 工具；所有 Runtime API 与玩家构建仍不受影响。 |
 | `Game.Framework.Editor.Tests` | `Editor/Tests/` | 通用 Editor 工具的 EditMode 契约；覆盖 AI PlayMode 预检的无弹窗保存与未命名场景拒绝。 | 随 Editor Module 删除；不进入玩家构建。 |
-| `Game.Framework.Build.Editor` | `Build/Editor/` | YooAsset/HybridCLR 构建管线与 Profile。 | 无资源/热更构建需求时可删，不污染通用 Editor。 |
+| `Game.Framework.Build.Editor` | `Build/Editor/` | YooAsset/HybridCLR 构建管线与 Profile；复用通用 Editor 反馈，重第三方依赖不反向进入基座。 | 无资源/热更构建需求时可删，不污染通用 Editor。 |
 | `Game.Framework.Demo` | `Demo/` | 32 个可运行教学章节，是所有 Module 的消费方与集成样板；Catalog 集中拥有章节 Adapter、生命周期与 Host 教学语义校验。 | 可整体删除；`UNITY_EDITOR` define 保证不进玩家包。 |
 | `Game.Framework.Demo.Tests` | `Demo/Tests/` | Demo 专属 EditMode 门禁：章节生命周期/回滚、教学形态与结构化降级契约、内嵌服务器、关键示例行为及全部 CodeRef 防腐。 | 随 Demo 一起删除；不让 Demo 专属依赖反向进入通用 Test Module。 |
 | `Game.Framework.Demo.PlayMode.Tests` | `Demo/Tests/PlayMode/` | 加载真实 DemoScene，穿过 Context、Catalog 与 Shell 逐章 Build 32 个 Adapter，并验证真实缺依赖降级页。 | 随 Demo 一起删除；不进入玩家构建，也不把场景集成依赖塞回纯 EditMode 门禁。 |
