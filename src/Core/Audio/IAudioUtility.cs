@@ -24,7 +24,7 @@ namespace Game.Framework.Audio
     /// <c>builder.RegisterOwned(new AudioUtility(), typeof(IAudioUtility))</c>（随 Context Dispose 全停，推荐）；
     /// 全局唯一、不关心释放用 <c>RegisterValue</c>；要 Inspector 配初始音量 / 跟随场景节点用 <c>MonoAudioUtility</c>。<br/>
     /// <b>线程</b>：主线程独占（框架统一契约）。<br/>
-    /// <b>失败语义（宽容，学池不学存储）</b>：clip 为 null 抛参数异常；Dispose 后调用 = Editor/Dev LogError + 安全 no-op
+    /// <b>失败语义（宽容，学池不学存储）</b>：clip 为 null 抛参数异常；Dispose 后调用 = Editor/Dev <c>Log.Error</c> + 安全 no-op
     /// （丢一声音效不致命）；停一个已结束的 handle 是安全 no-op（陈旧 handle 是常态）。<br/>
     /// <b>全局暂停</b>：用 Unity 自己的 <c>AudioListener.pause</c>，框架不包装；暂停期间不会把暂停中的声音误当播完回收。
     /// </remarks>

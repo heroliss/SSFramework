@@ -75,7 +75,7 @@ public interface IAudioUtility : IUtility
 | 情形 | 行为 |
 |---|---|
 | clip 为 null | 抛 `ArgumentNullException`（代码写错了） |
-| Dispose 后调用 | Editor/Dev `LogError` + 安全 no-op（返回失效 handle）——丢一声音效不致命，不值得炸游戏 |
+| Dispose 后调用 | Editor/Dev `Log.Error` + 安全 no-op（返回失效 handle）——丢一声音效不致命，不值得炸游戏 |
 | 停一个已结束/已停的 handle | 安全 no-op（陈旧 handle 是常态，不是错误） |
 | 场景无 AudioListener / batchmode 无音频设备 | 不出声但 API 全部可用（Unity 自身行为，框架不加判定） |
 
@@ -104,3 +104,9 @@ public interface IAudioUtility : IUtility
 **风险：**
 
 - batchmode（CI 命令行跑测试）下 Unity 无音频设备，「播放推进」类断言不可靠——相关测试在 `Application.isBatchMode` 下 `Assert.Ignore`，编辑器内跑全量（音量数学 / 池化 / handle 语义等结构性测试不受影响）。
+
+## 2026-08-26 修订（异步驱动诊断进入日志 Seam）
+
+- 淡变任务和中央 voice 回收驱动的非取消异常通过 `Game.Framework.Logging.Log` 记录，保留原始 exception；可用的 `AudioSource` 或音频根节点作为 Unity context，便于 Console 定位，也让文件/遥测 sink 获得同一证据。
+- Dispose 后误用仍只在 Editor/Development 报错并宽容 no-op；迁移日志入口不改变发布版行为。category 固定为 `AudioUtility`，默认 Console 前缀保持不变。
+- 没有为此增加新的 Audio provider 或公共 Interface。`IAudioUtility` 已是足够深的 Seam；诊断只属于现有 Implementation 的生命周期职责。
