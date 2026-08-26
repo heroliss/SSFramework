@@ -5,16 +5,16 @@ namespace Game.Framework
     /// </summary>
     public enum ConfigInitState
     {
-        /// <summary>尚未开始加载（初始化 System 还没跑到，或场景里没挂它）。</summary>
+        /// <summary>自加载组件的 <c>Start</c> 尚未执行。</summary>
         Idle,
 
         /// <summary>正在预载数据文件并构造表实例。</summary>
         Loading,
 
-        /// <summary>全部表就绪，配置 Model 的 Tables 已可用。</summary>
+        /// <summary>全部表就绪，配置 Utility 的 Tables 已可用。</summary>
         Ready,
 
-        /// <summary>加载或构造失败（数据缺失 / 反序列化异常等），详情见错误日志；Tables 保持为空。</summary>
+        /// <summary>加载或构造失败（数据缺失 / 反序列化异常等）；Tables 保持为空，<c>EnsureReady</c> 会抛出原始异常。</summary>
         Failed
     }
 }

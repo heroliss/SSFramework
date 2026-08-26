@@ -83,7 +83,7 @@ namespace Game.Framework.Demo.Tests
                     @"\b(?:AddAsyncActionRow|AddExperimentAsyncActionRow)\s*\(").Count;
             }
 
-            Assert.AreEqual(61, asyncActionRows,
+            Assert.AreEqual(62, asyncActionRows,
                 "异步按钮增删时同步审查：必须全部走普通或教学实验的异步入口，不能藏回同步 Action + Forget/void 包装。 ");
 
             AssertActionOverloadGuards(nameof(DemoModuleHost.AddActionRow));
