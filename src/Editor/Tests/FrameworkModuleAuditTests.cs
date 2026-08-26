@@ -87,6 +87,951 @@ namespace Game.Framework.Editor.Tests
         }
 
         [Test]
+        public void ExternalDependencyEvidence_GroupsPackageAndKeepsConsumerLayersSeparate()
+        {
+            var core = new FrameworkModuleAudit.AssemblyInfo
+            {
+                Name = FrameworkModuleAudit.CoreAssemblyName,
+                ActualReferences = new[] { "R3.Unity" },
+            };
+            var sources = new Dictionary<string, FrameworkModuleAudit.DependencySource>(StringComparer.Ordinal)
+            {
+                ["R3"] = PackageSource("R3", "com.cysharp.r3"),
+                ["R3.Unity"] = PackageSource("R3.Unity", "com.cysharp.r3"),
+            };
+            var declared = new[]
+            {
+                new FrameworkModuleAudit.DeclaredConsumerEvidence
+                {
+                    DependencyAssemblyName = "R3.Unity",
+                    ConsumerAssemblyName = core.Name,
+                    ConsumerAsmdefPath = "Assets/Game/Framework/Core/Game.Framework.asmdef",
+                    ConsumerSourceKind = FrameworkModuleSourceCatalog.SourceKind.ProjectAssets,
+                    PlatformScope = FrameworkModuleAudit.ConsumerPlatformScope.Player,
+                },
+            };
+            var actual = new[]
+            {
+                new FrameworkModuleAudit.ActualConsumerEvidence
+                {
+                    DependencyAssemblyName = "R3.Unity",
+                    ConsumerAssemblyName = core.Name,
+                    ConsumerSourceKind = FrameworkModuleSourceCatalog.SourceKind.ProjectAssets,
+                    PlatformScope = FrameworkModuleAudit.ConsumerPlatformScope.Player,
+                },
+                new FrameworkModuleAudit.ActualConsumerEvidence
+                {
+                    DependencyAssemblyName = "R3",
+                    ConsumerAssemblyName = "R3.Unity",
+                    ConsumerSourceKind = FrameworkModuleSourceCatalog.SourceKind.GitPackage,
+                    ConsumerPackageName = "com.cysharp.r3",
+                    PlatformScope = FrameworkModuleAudit.ConsumerPlatformScope.Player,
+                },
+            };
+            var snapshot = new FrameworkModuleAudit.Snapshot(
+                new Dictionary<string, FrameworkModuleAudit.AssemblyInfo> { [core.Name] = core },
+                new Dictionary<string, string>(),
+                Array.Empty<string>(),
+                "test",
+                declaredConsumers: declared,
+                dependencySources: sources,
+                actualConsumers: actual);
+            var footprint = new FrameworkModuleAudit.Footprint();
+            footprint.ExternalAssemblies["R3"] = 10;
+            footprint.ExternalAssemblies["R3.Unity"] = 20;
+            footprint.ExternalBytes = 30;
+            var profile = new FrameworkModuleAudit.AuditProfile
+            {
+                Key = "core",
+                Roots = new[] { core.Name },
+                Footprint = footprint,
+            };
+
+            FrameworkModuleAudit.ExternalDependencyEvidence evidence =
+                FrameworkModuleAudit.BuildExternalDependencyEvidence(snapshot, new[] { profile }).Single();
+
+            Assert.That(evidence.Key, Is.EqualTo("upm:com.cysharp.r3"));
+            Assert.That(evidence.Assemblies.Select(item => item.AssemblyName),
+                Is.EquivalentTo(new[] { "R3", "R3.Unity" }));
+            Assert.That(evidence.ProfileRawBytesByKey["core"], Is.EqualTo(30));
+            Assert.That(evidence.MaxProfileRawBytes, Is.EqualTo(30));
+            Assert.That(evidence.ActualConsumers.Select(item => item.ConsumerAssemblyName),
+                Is.EqualTo(new[] { core.Name }),
+                "同一 Package 内部边不能重复冒充项目直接消费者。 ");
+            Assert.That(evidence.DeclaredConsumers, Has.Length.EqualTo(1));
+            Assert.That(evidence.DirectProfileKeys, Is.EqualTo(new[] { "core" }));
+            Assert.That(evidence.Role, Is.EqualTo(FrameworkModuleAudit.ExternalDependencyRole.BaseRuntime));
+            Assert.That(evidence.RemovalState,
+                Is.EqualTo(FrameworkModuleAudit.ExternalDependencyRemovalState.RequiredByCore));
+        }
+
+        [Test]
+        public void ExternalDependencyEvidence_DistinguishesOptionalEditorAndUnknownRemovalStates()
+        {
+            var optional = new FrameworkModuleAudit.AssemblyInfo
+            {
+                Name = "Game.Framework.Optional",
+                ActualReferences = new[] { "Optional.Plugin" },
+            };
+            FrameworkModuleAudit.DependencySource optionalSource = PackageSource(
+                "Optional.Plugin", "com.example.optional");
+            var optionalSnapshot = new FrameworkModuleAudit.Snapshot(
+                new Dictionary<string, FrameworkModuleAudit.AssemblyInfo> { [optional.Name] = optional },
+                new Dictionary<string, string>(), Array.Empty<string>(), "test",
+                declaredConsumers: new[]
+                {
+                    DeclaredEdge("Optional.Plugin", optional.Name,
+                        FrameworkModuleAudit.ConsumerPlatformScope.Player),
+                },
+                dependencySources: new Dictionary<string, FrameworkModuleAudit.DependencySource>
+                {
+                    ["Optional.Plugin"] = optionalSource,
+                },
+                actualConsumers: new[]
+                {
+                    ActualEdge("Optional.Plugin", optional.Name,
+                        FrameworkModuleAudit.ConsumerPlatformScope.Player),
+                });
+            var optionalFootprint = new FrameworkModuleAudit.Footprint();
+            optionalFootprint.ExternalAssemblies["Optional.Plugin"] = 42;
+            optionalFootprint.ExternalBytes = 42;
+            var optionalProfile = new FrameworkModuleAudit.AuditProfile
+            {
+                Key = "module-game-framework-optional",
+                Roots = new[] { optional.Name },
+                Footprint = optionalFootprint,
+            };
+            var optionalEvidence = FrameworkModuleAudit.BuildExternalDependencyEvidence(
+                optionalSnapshot, new[] { optionalProfile }).Single();
+            Assert.That(optionalEvidence.RemovalState,
+                Is.EqualTo(FrameworkModuleAudit.ExternalDependencyRemovalState.RemoveWithOptionalModuleCandidate));
+
+            var editorSource = new FrameworkModuleAudit.DependencySource
+            {
+                AssemblyName = "System.OptionalPlugin",
+                AssetPath = "Assets/Plugins/Optional/System.OptionalPlugin.dll",
+                SourceKind = FrameworkModuleSourceCatalog.SourceKind.ProjectAssets,
+                IsPrecompiledAssembly = true,
+                IsExternal = true,
+            };
+            var editorSnapshot = new FrameworkModuleAudit.Snapshot(
+                new Dictionary<string, FrameworkModuleAudit.AssemblyInfo>(),
+                new Dictionary<string, string>(), Array.Empty<string>(), "test",
+                declaredConsumers: new[]
+                {
+                    DeclaredEdge("System.OptionalPlugin", "Game.Framework.Odin.Editor",
+                        FrameworkModuleAudit.ConsumerPlatformScope.Editor),
+                },
+                dependencySources: new Dictionary<string, FrameworkModuleAudit.DependencySource>
+                {
+                    ["System.OptionalPlugin"] = editorSource,
+                },
+                actualConsumers: new[]
+                {
+                    ActualEdge("System.OptionalPlugin", "Game.Framework.Odin.Editor",
+                        FrameworkModuleAudit.ConsumerPlatformScope.Editor),
+                });
+            var editorEvidence = FrameworkModuleAudit.BuildExternalDependencyEvidence(
+                editorSnapshot, Array.Empty<FrameworkModuleAudit.AuditProfile>()).Single();
+            Assert.That(editorEvidence.Role, Is.EqualTo(FrameworkModuleAudit.ExternalDependencyRole.EditorTool));
+            Assert.That(editorEvidence.RemovalState,
+                Is.EqualTo(FrameworkModuleAudit.ExternalDependencyRemovalState.RemoveWithEditorToolCandidate));
+            Assert.That(editorEvidence.Assemblies.Single().AssemblyName, Is.EqualTo("System.OptionalPlugin"),
+                "已解析到 Assets 的 Editor-only System.* DLL 不能被 BCL 名称规则静默吞掉。 ");
+
+            var unknownSnapshot = new FrameworkModuleAudit.Snapshot(
+                new Dictionary<string, FrameworkModuleAudit.AssemblyInfo>(),
+                new Dictionary<string, string>(), Array.Empty<string>(), "test",
+                declaredConsumers: new[]
+                {
+                    DeclaredEdge("Mystery", "Game.Framework.Optional",
+                        FrameworkModuleAudit.ConsumerPlatformScope.Player),
+                },
+                dependencySources: new Dictionary<string, FrameworkModuleAudit.DependencySource>
+                {
+                    ["Mystery"] = new FrameworkModuleAudit.DependencySource
+                    {
+                        AssemblyName = "Mystery",
+                        SourceKind = FrameworkModuleSourceCatalog.SourceKind.UnknownPackage,
+                        IsExternal = true,
+                    },
+                },
+                dependencyEvidenceIssues: new[]
+                {
+                    new FrameworkModuleAudit.EvidenceIssue { Code = "unknown", Message = "test" },
+                });
+            var unknownEvidence = FrameworkModuleAudit.BuildExternalDependencyEvidence(
+                unknownSnapshot, Array.Empty<FrameworkModuleAudit.AuditProfile>()).Single();
+            Assert.That(unknownEvidence.RemovalState,
+                Is.EqualTo(FrameworkModuleAudit.ExternalDependencyRemovalState.ReviewRequired));
+            Assert.That(unknownEvidence.Role,
+                Is.EqualTo(FrameworkModuleAudit.ExternalDependencyRole.OptionalRuntime),
+                "全局扫描问题只能收紧删除结论，不能抹掉已经成立的引入者角色证据。 ");
+        }
+
+        [Test]
+        public void ExternalDependencyEvidence_IncludesActualOnlyConsumersAndKeepsStructuredScope()
+        {
+            const string module = "Game.Framework.ActualOnly";
+            const string plugin = "Actual.Only.Plugin";
+            var snapshot = new FrameworkModuleAudit.Snapshot(
+                new Dictionary<string, FrameworkModuleAudit.AssemblyInfo>(),
+                new Dictionary<string, string>(), Array.Empty<string>(), "test",
+                dependencySources: new Dictionary<string, FrameworkModuleAudit.DependencySource>
+                {
+                    [plugin] = PackageSource(plugin, "com.example.actual-only"),
+                },
+                actualConsumers: new[]
+                {
+                    ActualEdge(plugin, module, FrameworkModuleAudit.ConsumerPlatformScope.Player),
+                });
+
+            FrameworkModuleAudit.ExternalDependencyEvidence evidence =
+                FrameworkModuleAudit.BuildExternalDependencyEvidence(
+                    snapshot, Array.Empty<FrameworkModuleAudit.AuditProfile>()).Single();
+
+            Assert.That(evidence.ActualConsumers, Has.Length.EqualTo(1));
+            Assert.That(evidence.ActualConsumers[0].PlatformScope,
+                Is.EqualTo(FrameworkModuleAudit.ConsumerPlatformScope.Player));
+            Assert.That(evidence.Introducers.Select(item => item.ConsumerAssemblyName),
+                Is.EqualTo(new[] { module }));
+            Assert.That(evidence.Role,
+                Is.EqualTo(FrameworkModuleAudit.ExternalDependencyRole.OptionalRuntime));
+            Assert.That(evidence.HasProfileMeasurement, Is.False,
+                "Editor-only 或未进入 what-if 档位的程序集应显示未测得，而不是伪装成 0 B。 ");
+        }
+
+        [Test]
+        public void ExternalDependencyEvidence_IncludesActualOnlyExternalAsmdefAlreadyInCompilationGraph()
+        {
+            const string packageAssembly = "External.Package.Asmdef";
+            var source = PackageSource(packageAssembly, "com.example.asmdef");
+            var snapshot = new FrameworkModuleAudit.Snapshot(
+                new Dictionary<string, FrameworkModuleAudit.AssemblyInfo>
+                {
+                    [packageAssembly] = new FrameworkModuleAudit.AssemblyInfo
+                    {
+                        Name = packageAssembly,
+                        AsmdefPath = source.AssetPath,
+                        PackageName = source.PackageName,
+                        PackageVersion = source.PackageVersion,
+                        PackageId = source.PackageId,
+                        SourceKind = source.SourceKind,
+                    },
+                },
+                new Dictionary<string, string>(), Array.Empty<string>(), "test",
+                dependencySources: new Dictionary<string, FrameworkModuleAudit.DependencySource>
+                {
+                    [packageAssembly] = source,
+                },
+                actualConsumers: new[]
+                {
+                    ActualEdge(packageAssembly, "Project.Runtime",
+                        FrameworkModuleAudit.ConsumerPlatformScope.Player),
+                });
+
+            FrameworkModuleAudit.ExternalDependencyEvidence evidence =
+                FrameworkModuleAudit.BuildExternalDependencyEvidence(
+                    snapshot, Array.Empty<FrameworkModuleAudit.AuditProfile>()).Single();
+
+            Assert.That(evidence.PackageName, Is.EqualTo("com.example.asmdef"));
+            Assert.That(evidence.Role,
+                Is.EqualTo(FrameworkModuleAudit.ExternalDependencyRole.ProjectConsumer));
+        }
+
+        [Test]
+        public void ExternalDependencyEvidence_DoesNotEnumeratePackageInternalEdgesWithoutFirstPartySeed()
+        {
+            const string facade = "Unseeded.Facade";
+            const string leaf = "Unseeded.Leaf";
+            var snapshot = new FrameworkModuleAudit.Snapshot(
+                new Dictionary<string, FrameworkModuleAudit.AssemblyInfo>(),
+                new Dictionary<string, string>(), Array.Empty<string>(), "test",
+                dependencySources: new Dictionary<string, FrameworkModuleAudit.DependencySource>
+                {
+                    [facade] = PackageSource(facade, "com.example.facade"),
+                    [leaf] = PackageSource(leaf, "com.example.leaf"),
+                },
+                actualConsumers: new[]
+                {
+                    new FrameworkModuleAudit.ActualConsumerEvidence
+                    {
+                        DependencyAssemblyName = leaf,
+                        ConsumerAssemblyName = facade,
+                        ConsumerSourceKind = FrameworkModuleSourceCatalog.SourceKind.GitPackage,
+                        ConsumerPackageName = "com.example.facade",
+                        PlatformScope = FrameworkModuleAudit.ConsumerPlatformScope.Player,
+                    },
+                });
+
+            Assert.That(FrameworkModuleAudit.BuildExternalDependencyEvidence(
+                snapshot, Array.Empty<FrameworkModuleAudit.AuditProfile>()), Is.Empty);
+        }
+
+        [Test]
+        public void ExternalDependencyEvidence_SeparatesIntroducerFromProfilePropagation()
+        {
+            const string optional = "Game.Framework.Optional";
+            const string upper = "Game.Framework.UI.UGui";
+            const string plugin = "Optional.Plugin";
+            var snapshot = new FrameworkModuleAudit.Snapshot(
+                new Dictionary<string, FrameworkModuleAudit.AssemblyInfo>
+                {
+                    [optional] = new FrameworkModuleAudit.AssemblyInfo
+                    {
+                        Name = optional,
+                        ActualReferences = new[] { plugin },
+                    },
+                    [upper] = new FrameworkModuleAudit.AssemblyInfo
+                    {
+                        Name = upper,
+                        ActualReferences = new[] { optional },
+                    },
+                },
+                new Dictionary<string, string>(), Array.Empty<string>(), "test",
+                dependencySources: new Dictionary<string, FrameworkModuleAudit.DependencySource>
+                {
+                    [plugin] = PackageSource(plugin, "com.example.optional"),
+                },
+                actualConsumers: new[]
+                {
+                    ActualEdge(plugin, optional, FrameworkModuleAudit.ConsumerPlatformScope.Player),
+                    ActualEdge(optional, upper, FrameworkModuleAudit.ConsumerPlatformScope.Player),
+                });
+            var optionalFootprint = new FrameworkModuleAudit.Footprint();
+            optionalFootprint.ExternalAssemblies[plugin] = 10;
+            var upperFootprint = new FrameworkModuleAudit.Footprint();
+            upperFootprint.ExternalAssemblies[plugin] = 10;
+            var profiles = new[]
+            {
+                new FrameworkModuleAudit.AuditProfile
+                {
+                    Key = "module-optional", Roots = new[] { optional }, Footprint = optionalFootprint,
+                },
+                new FrameworkModuleAudit.AuditProfile
+                {
+                    Key = "ugui", Roots = new[] { upper }, Footprint = upperFootprint,
+                },
+            };
+
+            FrameworkModuleAudit.ExternalDependencyEvidence evidence =
+                FrameworkModuleAudit.BuildExternalDependencyEvidence(snapshot, profiles).Single();
+
+            Assert.That(evidence.AffectedProfileKeys, Is.EquivalentTo(new[] { "module-optional", "ugui" }));
+            Assert.That(evidence.DirectProfileKeys, Is.EqualTo(new[] { "module-optional" }));
+            Assert.That(evidence.TransitiveProfileKeys, Is.EqualTo(new[] { "ugui" }));
+            Assert.That(evidence.Introducers.Select(item => item.ConsumerAssemblyName),
+                Is.EqualTo(new[] { optional }),
+                "上层入口只传播依赖，不应被重复计算为新的第三方依赖引入者。 ");
+            Assert.That(evidence.Role,
+                Is.EqualTo(FrameworkModuleAudit.ExternalDependencyRole.OptionalRuntime));
+        }
+
+        [Test]
+        public void ExternalDependencyEvidence_KeepsRawBytesPerProfileInsteadOfSummingIndependentMaxima()
+        {
+            const string module = "Game.Framework.Optional";
+            const string first = "Split.Package.First";
+            const string second = "Split.Package.Second";
+            var snapshot = new FrameworkModuleAudit.Snapshot(
+                new Dictionary<string, FrameworkModuleAudit.AssemblyInfo>
+                {
+                    [module] = new FrameworkModuleAudit.AssemblyInfo
+                    {
+                        Name = module,
+                        ActualReferences = new[] { first },
+                    },
+                },
+                new Dictionary<string, string>(), Array.Empty<string>(), "test",
+                dependencySources: new Dictionary<string, FrameworkModuleAudit.DependencySource>
+                {
+                    [first] = PackageSource(first, "com.example.split"),
+                    [second] = PackageSource(second, "com.example.split"),
+                },
+                actualConsumers: new[]
+                {
+                    ActualEdge(first, module, FrameworkModuleAudit.ConsumerPlatformScope.Player),
+                    new FrameworkModuleAudit.ActualConsumerEvidence
+                    {
+                        DependencyAssemblyName = second,
+                        ConsumerAssemblyName = first,
+                        ConsumerSourceKind = FrameworkModuleSourceCatalog.SourceKind.GitPackage,
+                        ConsumerPackageName = "com.example.split",
+                        PlatformScope = FrameworkModuleAudit.ConsumerPlatformScope.Player,
+                    },
+                });
+            var firstFootprint = new FrameworkModuleAudit.Footprint();
+            firstFootprint.ExternalAssemblies[first] = 10;
+            var secondFootprint = new FrameworkModuleAudit.Footprint();
+            secondFootprint.ExternalAssemblies[second] = 20;
+            var profiles = new[]
+            {
+                new FrameworkModuleAudit.AuditProfile
+                {
+                    Key = "first", Roots = new[] { module }, Footprint = firstFootprint,
+                },
+                new FrameworkModuleAudit.AuditProfile
+                {
+                    Key = "second", Roots = new[] { module }, Footprint = secondFootprint,
+                },
+            };
+
+            FrameworkModuleAudit.ExternalDependencyEvidence evidence =
+                FrameworkModuleAudit.BuildExternalDependencyEvidence(snapshot, profiles).Single();
+
+            Assert.That(evidence.ProfileRawBytesByKey["first"], Is.EqualTo(10));
+            Assert.That(evidence.ProfileRawBytesByKey["second"], Is.EqualTo(20));
+            Assert.That(evidence.MaxProfileRawBytes, Is.EqualTo(20),
+                "不同 Profile 中互斥出现的程序集不能被拼成一个不存在的 30 B 档位。 ");
+        }
+
+        [Test]
+        public void ExternalDependencyEvidence_ScopedScanIssueOnlyTightensMatchingDependencyGroup()
+        {
+            const string plugin = "Scoped.Plugin";
+            Dictionary<string, FrameworkModuleAudit.AssemblyInfo> HealthyFrameworkAssemblies() =>
+                new[]
+                    {
+                        FrameworkModuleAudit.CoreAssemblyName,
+                        FrameworkModuleAudit.UGuiAssemblyName,
+                        FrameworkModuleAudit.ToolkitAssemblyName,
+                    }
+                    .ToDictionary(name => name, name => new FrameworkModuleAudit.AssemblyInfo
+                    {
+                        Name = name,
+                        AutoReferenced = false,
+                    }, StringComparer.Ordinal);
+            FrameworkModuleAudit.Snapshot SnapshotWithIssue(string subject) => new(
+                HealthyFrameworkAssemblies(),
+                new Dictionary<string, string>(), Array.Empty<string>(), "test",
+                dependencySources: new Dictionary<string, FrameworkModuleAudit.DependencySource>
+                {
+                    [plugin] = PackageSource(plugin, "com.example.scoped"),
+                },
+                actualConsumers: new[]
+                {
+                    ActualEdge(plugin, "Game.Framework.Optional",
+                        FrameworkModuleAudit.ConsumerPlatformScope.Player),
+                },
+                dependencyEvidenceIssues: new[]
+                {
+                    new FrameworkModuleAudit.EvidenceIssue
+                    {
+                        Code = "editor-assembly-missing",
+                        Message = "test",
+                        SubjectAssemblyName = subject,
+                    },
+                });
+
+            FrameworkModuleAudit.Snapshot unrelatedSnapshot = SnapshotWithIssue("Other.Plugin");
+            FrameworkModuleAudit.Snapshot matchingSnapshot = SnapshotWithIssue(plugin);
+            FrameworkModuleAudit.ExternalDependencyEvidence unrelated =
+                FrameworkModuleAudit.BuildExternalDependencyEvidence(
+                    unrelatedSnapshot, Array.Empty<FrameworkModuleAudit.AuditProfile>()).Single();
+            FrameworkModuleAudit.ExternalDependencyEvidence matching =
+                FrameworkModuleAudit.BuildExternalDependencyEvidence(
+                    matchingSnapshot, Array.Empty<FrameworkModuleAudit.AuditProfile>()).Single();
+
+            Assert.That(unrelated.RemovalState,
+                Is.EqualTo(FrameworkModuleAudit.ExternalDependencyRemovalState.RemoveWithOptionalModuleCandidate));
+            Assert.That(unrelated.EvidenceIssues, Is.Empty);
+            Assert.That(matching.RemovalState,
+                Is.EqualTo(FrameworkModuleAudit.ExternalDependencyRemovalState.ReviewRequired));
+            Assert.That(matching.EvidenceIssues.Select(item => item.Code),
+                Does.Contain("editor-assembly-missing"));
+
+            FrameworkModuleAudit.AuditResult unrelatedResult =
+                FrameworkModuleAudit.Analyze(unrelatedSnapshot);
+            FrameworkModuleAudit.AuditResult matchingResult =
+                FrameworkModuleAudit.Analyze(matchingSnapshot);
+            FrameworkModuleAudit.AuditResult globalResult =
+                FrameworkModuleAudit.Analyze(SnapshotWithIssue(string.Empty));
+
+            Assert.That(unrelatedResult.DependencyEvidenceIssues, Is.Empty,
+                "可归属但不在一方依赖图中的问题不应冒充全局扫描失败。 ");
+            Assert.That(unrelatedResult.DependencyEvidenceIssueCount, Is.Zero);
+            Assert.That(unrelatedResult.RequiresAttention, Is.False);
+            Assert.That(matchingResult.DependencyEvidenceIssues, Is.Empty,
+                "scoped issue 只在匹配卡片显示，不能在顶部重复出现。 ");
+            Assert.That(matchingResult.DependencyEvidenceIssueCount, Is.EqualTo(1));
+            Assert.That(matchingResult.ExternalDependencies.Single().EvidenceIssues, Has.Length.EqualTo(1));
+            Assert.That(matchingResult.RequiresAttention, Is.True);
+            Assert.That(globalResult.DependencyEvidenceIssues, Has.Length.EqualTo(1));
+            Assert.That(globalResult.DependencyEvidenceIssueCount, Is.EqualTo(1),
+                "一条全局问题只能计数一次。 ");
+            Assert.That(globalResult.ExternalDependencies.Single().EvidenceIssues, Is.Empty);
+            Assert.That(globalResult.RequiresAttention, Is.True);
+        }
+
+        [Test]
+        public void ExternalDependencyEvidence_EditorOnlyProjectConsumerWinsOverProjectRuntimeRole()
+        {
+            const string plugin = "Editor.Tool.Plugin";
+            var snapshot = new FrameworkModuleAudit.Snapshot(
+                new Dictionary<string, FrameworkModuleAudit.AssemblyInfo>(),
+                new Dictionary<string, string>(), Array.Empty<string>(), "test",
+                dependencySources: new Dictionary<string, FrameworkModuleAudit.DependencySource>
+                {
+                    [plugin] = PackageSource(plugin, "com.example.editor-tool"),
+                },
+                actualConsumers: new[]
+                {
+                    ActualEdge(plugin, "Project.Editor.Tool",
+                        FrameworkModuleAudit.ConsumerPlatformScope.Editor),
+                });
+
+            FrameworkModuleAudit.ExternalDependencyEvidence evidence =
+                FrameworkModuleAudit.BuildExternalDependencyEvidence(
+                    snapshot, Array.Empty<FrameworkModuleAudit.AuditProfile>()).Single();
+
+            Assert.That(evidence.Role, Is.EqualTo(FrameworkModuleAudit.ExternalDependencyRole.EditorTool));
+            Assert.That(evidence.RemovalState,
+                Is.EqualTo(FrameworkModuleAudit.ExternalDependencyRemovalState.RemoveWithEditorToolCandidate));
+        }
+
+        [Test]
+        public void ExternalDependencyEvidence_ProjectEditorPlusFrameworkRuntimeRequiresProjectMigration()
+        {
+            const string plugin = "Mixed.Consumer.Plugin";
+            var snapshot = new FrameworkModuleAudit.Snapshot(
+                new Dictionary<string, FrameworkModuleAudit.AssemblyInfo>(),
+                new Dictionary<string, string>(), Array.Empty<string>(), "test",
+                dependencySources: new Dictionary<string, FrameworkModuleAudit.DependencySource>
+                {
+                    [plugin] = PackageSource(plugin, "com.example.mixed"),
+                },
+                actualConsumers: new[]
+                {
+                    ActualEdge(plugin, "Game.Framework.Optional",
+                        FrameworkModuleAudit.ConsumerPlatformScope.Player),
+                    ActualEdge(plugin, "Project.Editor.Tool",
+                        FrameworkModuleAudit.ConsumerPlatformScope.Editor),
+                });
+
+            FrameworkModuleAudit.ExternalDependencyEvidence evidence =
+                FrameworkModuleAudit.BuildExternalDependencyEvidence(
+                    snapshot, Array.Empty<FrameworkModuleAudit.AuditProfile>()).Single();
+
+            Assert.That(evidence.Role,
+                Is.EqualTo(FrameworkModuleAudit.ExternalDependencyRole.ProjectConsumer));
+            Assert.That(evidence.RemovalState,
+                Is.EqualTo(FrameworkModuleAudit.ExternalDependencyRemovalState.ProjectConsumerMigrationRequired));
+        }
+
+        [Test]
+        public void ExternalDependencyEvidence_DoesNotCrossEditorAndPlayerVariantEdges()
+        {
+            const string facade = "Variant.Facade";
+            const string editorLeaf = "Variant.Editor.Leaf";
+            const string playerLeaf = "Variant.Player.Leaf";
+            var snapshot = new FrameworkModuleAudit.Snapshot(
+                new Dictionary<string, FrameworkModuleAudit.AssemblyInfo>(),
+                new Dictionary<string, string>(), Array.Empty<string>(), "test",
+                dependencySources: new Dictionary<string, FrameworkModuleAudit.DependencySource>
+                {
+                    [facade] = PackageSource(facade, "com.example.facade"),
+                    [editorLeaf] = PackageSource(editorLeaf, "com.example.editor"),
+                    [playerLeaf] = PackageSource(playerLeaf, "com.example.player"),
+                },
+                actualConsumers: new[]
+                {
+                    ActualEdge(facade, "Game.Framework.Optional",
+                        FrameworkModuleAudit.ConsumerPlatformScope.Player),
+                    new FrameworkModuleAudit.ActualConsumerEvidence
+                    {
+                        DependencyAssemblyName = editorLeaf,
+                        ConsumerAssemblyName = facade,
+                        ConsumerSourceKind = FrameworkModuleSourceCatalog.SourceKind.GitPackage,
+                        PlatformScope = FrameworkModuleAudit.ConsumerPlatformScope.Editor,
+                    },
+                    new FrameworkModuleAudit.ActualConsumerEvidence
+                    {
+                        DependencyAssemblyName = playerLeaf,
+                        ConsumerAssemblyName = facade,
+                        ConsumerSourceKind = FrameworkModuleSourceCatalog.SourceKind.GitPackage,
+                        PlatformScope = FrameworkModuleAudit.ConsumerPlatformScope.Player,
+                    },
+                });
+
+            FrameworkModuleAudit.ExternalDependencyEvidence[] evidence =
+                FrameworkModuleAudit.BuildExternalDependencyEvidence(
+                    snapshot, Array.Empty<FrameworkModuleAudit.AuditProfile>());
+
+            Assert.That(evidence.Select(item => item.PackageName),
+                Does.Contain("com.example.player"));
+            Assert.That(evidence.Select(item => item.PackageName),
+                Does.Not.Contain("com.example.editor"),
+                "Player 一方种子不能沿同 AssemblyName 的 Editor-only 变体串入依赖。 ");
+        }
+
+        [Test]
+        public void ExternalDependencyEvidence_TestSeedCanTraverseEditorDependencyEdge()
+        {
+            const string facade = "Test.Facade";
+            const string leaf = "Editor.Leaf";
+            var snapshot = new FrameworkModuleAudit.Snapshot(
+                new Dictionary<string, FrameworkModuleAudit.AssemblyInfo>(),
+                new Dictionary<string, string>(), Array.Empty<string>(), "test",
+                dependencySources: new Dictionary<string, FrameworkModuleAudit.DependencySource>
+                {
+                    [facade] = PackageSource(facade, "com.example.test-facade"),
+                    [leaf] = PackageSource(leaf, "com.example.editor-leaf"),
+                },
+                actualConsumers: new[]
+                {
+                    ActualEdge(facade, "Project.Editor.Tests",
+                        FrameworkModuleAudit.ConsumerPlatformScope.Tests),
+                    new FrameworkModuleAudit.ActualConsumerEvidence
+                    {
+                        DependencyAssemblyName = leaf,
+                        ConsumerAssemblyName = facade,
+                        ConsumerSourceKind = FrameworkModuleSourceCatalog.SourceKind.GitPackage,
+                        ConsumerPackageName = "com.example.test-facade",
+                        PlatformScope = FrameworkModuleAudit.ConsumerPlatformScope.Editor,
+                    },
+                });
+
+            FrameworkModuleAudit.ExternalDependencyEvidence leafEvidence =
+                FrameworkModuleAudit.BuildExternalDependencyEvidence(
+                        snapshot, Array.Empty<FrameworkModuleAudit.AuditProfile>())
+                    .Single(item => item.PackageName == "com.example.editor-leaf");
+
+            Assert.That(leafEvidence.Introducers.Single().PlatformScope,
+                Is.EqualTo(FrameworkModuleAudit.ConsumerPlatformScope.Tests));
+            Assert.That(leafEvidence.Role,
+                Is.EqualTo(FrameworkModuleAudit.ExternalDependencyRole.EditorTool));
+        }
+
+        [Test]
+        public void ExternalDependencyEvidence_TracesAcrossExternalAssemblyRefsToFirstPartyIntroducer()
+        {
+            const string facade = "External.Facade";
+            const string leaf = "External.Leaf";
+            const string module = "Game.Framework.Optional";
+            var sources = new Dictionary<string, FrameworkModuleAudit.DependencySource>
+            {
+                [facade] = PackageSource(facade, "com.example.facade"),
+                [leaf] = PackageSource(leaf, "com.example.leaf"),
+            };
+            var snapshot = new FrameworkModuleAudit.Snapshot(
+                new Dictionary<string, FrameworkModuleAudit.AssemblyInfo>(),
+                new Dictionary<string, string>(), Array.Empty<string>(), "test",
+                dependencySources: sources,
+                actualConsumers: new[]
+                {
+                    ActualEdge(facade, module, FrameworkModuleAudit.ConsumerPlatformScope.Player),
+                    new FrameworkModuleAudit.ActualConsumerEvidence
+                    {
+                        DependencyAssemblyName = leaf,
+                        ConsumerAssemblyName = facade,
+                        ConsumerSourceKind = FrameworkModuleSourceCatalog.SourceKind.GitPackage,
+                        ConsumerPackageName = "com.example.facade",
+                        PlatformScope = FrameworkModuleAudit.ConsumerPlatformScope.Player,
+                    },
+                });
+
+            FrameworkModuleAudit.ExternalDependencyEvidence leafEvidence =
+                FrameworkModuleAudit.BuildExternalDependencyEvidence(
+                        snapshot, Array.Empty<FrameworkModuleAudit.AuditProfile>())
+                    .Single(item => item.PackageName == "com.example.leaf");
+
+            Assert.That(leafEvidence.Introducers.Select(item => item.ConsumerAssemblyName),
+                Is.EqualTo(new[] { module }));
+            Assert.That(leafEvidence.Role,
+                Is.EqualTo(FrameworkModuleAudit.ExternalDependencyRole.OptionalRuntime));
+        }
+
+        [TestCase("UNITY_EDITOR", "Editor")]
+        [TestCase("!UNITY_EDITOR", "Player")]
+        [TestCase("UNITY_INCLUDE_TESTS", "Tests")]
+        [TestCase("!UNITY_INCLUDE_TESTS", "Mixed")]
+        [TestCase("UNITY_EDITOR || DEVELOPMENT_BUILD", "Unknown")]
+        public void DefineConstraintScope_RequiresExactUnambiguousTokens(
+            string constraint,
+            string expected)
+        {
+            Assert.That(FrameworkModuleAudit.ClassifyDefineConstraintScope(new[] { constraint }).ToString(),
+                Is.EqualTo(expected));
+        }
+
+        [Test]
+        public void PlatformScope_RejectsConflictingConstraintAndIncludePlatformEvidence()
+        {
+            Assert.That(FrameworkModuleAudit.ClassifyDefineConstraintScope(
+                    new[] { "UNITY_INCLUDE_TESTS", "!UNITY_EDITOR" }),
+                Is.EqualTo(FrameworkModuleAudit.ConsumerPlatformScope.Unknown));
+            Assert.That(FrameworkModuleAudit.ClassifyPlatformScopeForTests(
+                    new[] { "UNITY_EDITOR" },
+                    new[] { "Standalone" },
+                    Array.Empty<string>()),
+                Is.EqualTo(FrameworkModuleAudit.ConsumerPlatformScope.Unknown));
+            Assert.That(FrameworkModuleAudit.ClassifyPlatformScopeForTests(
+                    new[] { "UNITY_INCLUDE_TESTS" },
+                    new[] { "Editor" },
+                    Array.Empty<string>()),
+                Is.EqualTo(FrameworkModuleAudit.ConsumerPlatformScope.Tests));
+        }
+
+        [TestCase("Player", "Editor")]
+        [TestCase("Mixed", "Editor")]
+        [TestCase("Unknown", "Editor")]
+        [TestCase("Tests", "Tests")]
+        public void EditorSnapshotScope_NeverPretendsToBePlayerEvidence(
+            string declared,
+            string expected)
+        {
+            Assert.That(FrameworkModuleAudit.ClassifyEditorSnapshotScope(
+                    Enum.Parse<FrameworkModuleAudit.ConsumerPlatformScope>(declared)).ToString(),
+                Is.EqualTo(expected));
+        }
+
+        [Test]
+        public void DependencySourceVariants_OnlyAcceptProvenPlatformExclusiveDlls()
+        {
+            var editor = new FrameworkModuleAudit.DependencySourceVariant
+            {
+                HasCompatibilityEvidence = true,
+                IsEditorCompatible = true,
+            };
+            var player = new FrameworkModuleAudit.DependencySourceVariant
+            {
+                HasCompatibilityEvidence = true,
+                IsActiveBuildTargetCompatible = true,
+                CompatibleBuildTargets = new[] { "StandaloneWindows64" },
+            };
+            var overlapping = new FrameworkModuleAudit.DependencySourceVariant
+            {
+                HasCompatibilityEvidence = true,
+                IsEditorCompatible = true,
+                IsActiveBuildTargetCompatible = true,
+                CompatibleBuildTargets = new[] { "StandaloneWindows64" },
+            };
+            var unknown = new FrameworkModuleAudit.DependencySourceVariant();
+            var alsoUnknown = new FrameworkModuleAudit.DependencySourceVariant
+            {
+                HasCompatibilityEvidence = true,
+            };
+
+            Assert.That(FrameworkModuleAudit.AreDependencySourceVariantsPlatformExclusive(editor, player),
+                Is.True);
+            Assert.That(FrameworkModuleAudit.AreDependencySourceVariantsPlatformExclusive(editor, overlapping),
+                Is.False);
+            Assert.That(FrameworkModuleAudit.AreDependencySourceVariantsPlatformExclusive(editor, unknown),
+                Is.False);
+            Assert.That(FrameworkModuleAudit.AreDependencySourceVariantsPlatformExclusive(
+                alsoUnknown,
+                new FrameworkModuleAudit.DependencySourceVariant { HasCompatibilityEvidence = true }),
+                Is.False,
+                "只观察到 Editor/当前目标都不兼容，不能证明它们在 Android、iOS 等其他平台互斥。 ");
+        }
+
+        [Test]
+        public void ExternalDependencyEvidence_DeclaredOnlyCoreStillKeepsCoreRole()
+        {
+            const string plugin = "Declared.Only.Plugin";
+            var snapshot = new FrameworkModuleAudit.Snapshot(
+                new Dictionary<string, FrameworkModuleAudit.AssemblyInfo>(),
+                new Dictionary<string, string>(), Array.Empty<string>(), "test",
+                declaredConsumers: new[]
+                {
+                    DeclaredEdge(plugin, FrameworkModuleAudit.CoreAssemblyName,
+                        FrameworkModuleAudit.ConsumerPlatformScope.Player),
+                },
+                dependencySources: new Dictionary<string, FrameworkModuleAudit.DependencySource>
+                {
+                    [plugin] = PackageSource(plugin, "com.example.declared-only"),
+                });
+
+            FrameworkModuleAudit.ExternalDependencyEvidence evidence =
+                FrameworkModuleAudit.BuildExternalDependencyEvidence(
+                    snapshot, Array.Empty<FrameworkModuleAudit.AuditProfile>()).Single();
+
+            Assert.That(evidence.Role, Is.EqualTo(FrameworkModuleAudit.ExternalDependencyRole.BaseRuntime));
+            Assert.That(evidence.RemovalState,
+                Is.EqualTo(FrameworkModuleAudit.ExternalDependencyRemovalState.RequiredByCore));
+            Assert.That(evidence.Introducers.Select(item => item.ConsumerAssemblyName),
+                Is.EqualTo(new[] { FrameworkModuleAudit.CoreAssemblyName }));
+        }
+
+        [Test]
+        public void ExternalDependencyEvidence_UnknownPackageDirectnessDoesNotPretendTransitive()
+        {
+            const string plugin = "Directness.Unknown";
+            FrameworkModuleAudit.DependencySource source = PackageSource(plugin, "com.example.unknown-depth");
+            source.HasPackageDirectness = false;
+            source.IsDirectPackageDependency = false;
+            var snapshot = new FrameworkModuleAudit.Snapshot(
+                new Dictionary<string, FrameworkModuleAudit.AssemblyInfo>(),
+                new Dictionary<string, string>(), Array.Empty<string>(), "test",
+                dependencySources: new Dictionary<string, FrameworkModuleAudit.DependencySource>
+                {
+                    [plugin] = source,
+                },
+                actualConsumers: new[]
+                {
+                    ActualEdge(plugin, "Game.Framework.Optional",
+                        FrameworkModuleAudit.ConsumerPlatformScope.Player),
+                });
+
+            FrameworkModuleAudit.ExternalDependencyEvidence evidence =
+                FrameworkModuleAudit.BuildExternalDependencyEvidence(
+                    snapshot, Array.Empty<FrameworkModuleAudit.AuditProfile>()).Single();
+
+            Assert.That(evidence.RemovalSteps, Has.Some.Contains("层级当前不可用"));
+            Assert.That(evidence.RemovalSteps, Has.None.Contains("间接 Package"));
+        }
+
+        [Test]
+        public void ExternalDependencyEvidence_InconsistentPackageGroupForcesReviewWithoutErasingRole()
+        {
+            const string firstAssembly = "Example.First";
+            const string secondAssembly = "Example.Second";
+            FrameworkModuleAudit.DependencySource first = PackageSource(firstAssembly, "com.example.group");
+            FrameworkModuleAudit.DependencySource second = PackageSource(secondAssembly, "com.example.group");
+            second.PackageVersion = "2.0.0";
+            second.PackageId = "com.example.group@2.0.0";
+            var snapshot = new FrameworkModuleAudit.Snapshot(
+                new Dictionary<string, FrameworkModuleAudit.AssemblyInfo>(),
+                new Dictionary<string, string>(), Array.Empty<string>(), "test",
+                dependencySources: new Dictionary<string, FrameworkModuleAudit.DependencySource>
+                {
+                    [firstAssembly] = first,
+                    [secondAssembly] = second,
+                },
+                actualConsumers: new[]
+                {
+                    ActualEdge(firstAssembly, "Game.Framework.Optional",
+                        FrameworkModuleAudit.ConsumerPlatformScope.Player),
+                    ActualEdge(secondAssembly, "Game.Framework.Optional",
+                        FrameworkModuleAudit.ConsumerPlatformScope.Player),
+                });
+
+            FrameworkModuleAudit.ExternalDependencyEvidence evidence =
+                FrameworkModuleAudit.BuildExternalDependencyEvidence(
+                    snapshot, Array.Empty<FrameworkModuleAudit.AuditProfile>()).Single();
+
+            Assert.That(evidence.EvidenceIssues.Select(item => item.Code),
+                Does.Contain("package-version-inconsistent"));
+            Assert.That(evidence.EvidenceIssues.Select(item => item.Code),
+                Does.Contain("package-id-inconsistent"));
+            Assert.That(evidence.Role,
+                Is.EqualTo(FrameworkModuleAudit.ExternalDependencyRole.OptionalRuntime));
+            Assert.That(evidence.RemovalState,
+                Is.EqualTo(FrameworkModuleAudit.ExternalDependencyRemovalState.ReviewRequired));
+        }
+
+        [Test]
+        public void PrecompiledAssemblyCapture_ReadsRealDllToDllEdgesAndKeepsPlatformScope()
+        {
+            string sourceAssembly = typeof(FrameworkModuleAuditTests).Assembly.Location;
+            string directory = Path.Combine(Path.GetTempPath(), "SSFrameworkPrecompiledConsumerTests");
+            Directory.CreateDirectory(directory);
+            string copiedAssembly = Path.Combine(directory, "Precompiled.Consumer.dll");
+            try
+            {
+                File.Copy(sourceAssembly, copiedAssembly, overwrite: true);
+                var source = new FrameworkModuleAudit.DependencySource
+                {
+                    AssemblyName = "Precompiled.Consumer",
+                    SourceKind = FrameworkModuleSourceCatalog.SourceKind.ProjectAssets,
+                    IsExternal = true,
+                    IsPrecompiledAssembly = true,
+                    Variants = new[]
+                    {
+                        new FrameworkModuleAudit.DependencySourceVariant
+                        {
+                            AssetPath = "Assets/Plugins/Editor/Precompiled.Consumer.dll",
+                            PhysicalPath = copiedAssembly,
+                            HasCompatibilityEvidence = true,
+                            IsEditorCompatible = true,
+                        },
+                    },
+                };
+
+                FrameworkModuleAudit.ActualConsumerEvidence[] edges =
+                    FrameworkModuleAudit.ReadPrecompiledActualConsumers(source);
+
+                Assert.That(edges, Is.Not.Empty);
+                Assert.That(edges.Select(item => item.DependencyAssemblyName),
+                    Does.Contain("nunit.framework"));
+                Assert.That(edges.All(item => item.ConsumerAssemblyName == source.AssemblyName), Is.True);
+                Assert.That(edges.All(item =>
+                    item.PlatformScope == FrameworkModuleAudit.ConsumerPlatformScope.Editor), Is.True);
+
+                var snapshot = new FrameworkModuleAudit.Snapshot(
+                    new Dictionary<string, FrameworkModuleAudit.AssemblyInfo>(),
+                    new Dictionary<string, string>(), Array.Empty<string>(), "test",
+                    dependencySources: new Dictionary<string, FrameworkModuleAudit.DependencySource>
+                    {
+                        [source.AssemblyName] = source,
+                    },
+                    actualConsumers: new[]
+                    {
+                        ActualEdge(source.AssemblyName, "Project.Editor.Tool",
+                            FrameworkModuleAudit.ConsumerPlatformScope.Editor),
+                    });
+                FrameworkModuleAudit.ExternalDependencyEvidence evidence =
+                    FrameworkModuleAudit.BuildExternalDependencyEvidence(
+                        snapshot, Array.Empty<FrameworkModuleAudit.AuditProfile>()).Single();
+                Assert.That(evidence.HasProfileMeasurement, Is.False);
+                Assert.That(evidence.HasInstalledBinaryMeasurement, Is.True);
+                Assert.That(evidence.InstalledBinaryBytes, Is.GreaterThan(0));
+            }
+            finally
+            {
+                if (File.Exists(copiedAssembly)) File.Delete(copiedAssembly);
+                if (Directory.Exists(directory) && !Directory.EnumerateFileSystemEntries(directory).Any())
+                    Directory.Delete(directory);
+            }
+        }
+
+        [Test]
+        public void PrecompiledAssemblyCapture_ReportsMissingAndCorruptDllsAsEvidenceIssues()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "SSFrameworkPrecompiledIssueTests");
+            Directory.CreateDirectory(directory);
+            string corruptPath = Path.Combine(directory, "Corrupt.dll");
+            string missingPath = Path.Combine(directory, "Missing.dll");
+            try
+            {
+                File.WriteAllBytes(corruptPath, new byte[] { 0x53, 0x53, 0x46 });
+                FrameworkModuleAudit.DependencySource Source(string physicalPath) => new()
+                {
+                    AssemblyName = Path.GetFileNameWithoutExtension(physicalPath),
+                    IsExternal = true,
+                    IsPrecompiledAssembly = true,
+                    Variants = new[]
+                    {
+                        new FrameworkModuleAudit.DependencySourceVariant
+                        {
+                            AssetPath = "Assets/Plugins/" + Path.GetFileName(physicalPath),
+                            PhysicalPath = physicalPath,
+                        },
+                    },
+                };
+                var issues = new List<FrameworkModuleAudit.EvidenceIssue>();
+
+                Assert.That(FrameworkModuleAudit.ReadPrecompiledActualConsumers(
+                    Source(missingPath), issues.Add), Is.Empty);
+                Assert.That(FrameworkModuleAudit.ReadPrecompiledActualConsumers(
+                    Source(corruptPath), issues.Add), Is.Empty);
+
+                Assert.That(issues.Select(item => item.Code),
+                    Does.Contain("precompiled-assembly-missing"));
+                Assert.That(issues.Select(item => item.Code),
+                    Does.Contain("precompiled-assembly-metadata-unreadable"));
+                Assert.That(issues.Select(item => item.SubjectAssemblyName),
+                    Is.EquivalentTo(new[] { "Missing", "Corrupt" }));
+            }
+            finally
+            {
+                if (File.Exists(corruptPath)) File.Delete(corruptPath);
+                if (Directory.Exists(directory) && !Directory.EnumerateFileSystemEntries(directory).Any())
+                    Directory.Delete(directory);
+            }
+        }
+
+        [Test]
         public void LinkXml_SeparatesUnconditionalAndConditionalRoots()
         {
             var rules = FrameworkModuleAudit.ParseLinkerPreservations(@"
@@ -342,8 +1287,16 @@ namespace Game.Framework.Editor.Tests
         public void InstalledModules_ExternalDependenciesAreExplicit_AndDeletionTestsHold()
         {
             var snapshot = FrameworkModuleAudit.Capture();
-            foreach (var module in snapshot.Assemblies.Values.Where(module =>
-                         module.AsmdefPath.StartsWith("Assets/Game/", StringComparison.Ordinal)))
+            FrameworkModuleAudit.AssemblyInfo[] firstPartyAssemblies = snapshot.Assemblies.Values
+                .Where(module => module.SourceKind == FrameworkModuleSourceCatalog.SourceKind.ProjectAssets ||
+                                 module.Name.Equals(FrameworkModuleAudit.CoreAssemblyName, StringComparison.Ordinal) ||
+                                 module.Name.StartsWith(
+                                     FrameworkModuleAudit.CoreAssemblyName + ".", StringComparison.Ordinal))
+                .ToArray();
+            Assert.That(firstPartyAssemblies, Has.Some.Matches<FrameworkModuleAudit.AssemblyInfo>(module =>
+                module.Name == FrameworkModuleAudit.CoreAssemblyName),
+                "Framework 搬到 Packages 后门禁仍必须覆盖 Core，不能因 Assets 路径过滤变成零迭代假绿。 ");
+            foreach (var module in firstPartyAssemblies)
             {
                 Assert.That(module.AsmdefPath,
                     Does.StartWith("Assets/").Or.StartWith("Packages/"),
@@ -380,6 +1333,16 @@ namespace Game.Framework.Editor.Tests
 
             var result = FrameworkModuleAudit.Analyze(snapshot);
             Assert.That(result.IsHealthy, Is.True);
+            Assert.That(result.DependencyEvidenceIssues, Is.Empty,
+                "第三方依赖扫描不能把 asmdef / Editor DLL / PluginImporter 读取失败静默解释为零消费者。 ");
+            Assert.That(result.ExternalDependencies, Is.Not.Empty);
+            Assert.That(result.ExternalDependencies.SelectMany(item => item.EvidenceIssues
+                    .Select(issue => item.DisplayName + " · " + issue)), Is.Empty,
+                "同一依赖组的来源、版本、directness 或 DLL 变体证据不应互相冲突。 ");
+            Assert.That(result.ExternalDependencies.Where(item => item.HasUnknownSource)
+                    .Select(item => item.DisplayName),
+                Is.Empty,
+                "当前项目的外部依赖都应能还原到 Package 或 Assets DLL，不应长期停留在 Unknown。 ");
             var bridgeStatus = result.ModuleStatuses.FirstOrDefault(status =>
                 status.Module.Name == FrameworkModuleAudit.BridgeAssemblyName);
             if (bridgeStatus != null)
@@ -403,6 +1366,7 @@ namespace Game.Framework.Editor.Tests
             Assert.That(report, Does.Contain("Module 当前保留原因"));
             Assert.That(report, Does.Contain("全局与生成的 link.xml 证据"));
             Assert.That(report, Does.Contain("热更派生证据（只读）"));
+            Assert.That(report, Does.Contain("第三方依赖证据目录"));
             if (result.HotUpdateDeployment.BuildModuleAvailable)
                 Assert.That(report, Does.Contain("CodePackage"));
         }
@@ -414,7 +1378,10 @@ namespace Game.Framework.Editor.Tests
                 UnityEditor.Compilation.CompilationPipeline
                     .GetAssemblies(UnityEditor.Compilation.AssembliesType.Player)
                     .Where(assembly => assembly.sourceFiles.Any(path =>
-                        path.Replace('\\', '/').StartsWith("Assets/Game/", StringComparison.Ordinal)))
+                               path.Replace('\\', '/').StartsWith("Assets/Game/", StringComparison.Ordinal)) ||
+                           assembly.name.Equals(FrameworkModuleAudit.CoreAssemblyName, StringComparison.Ordinal) ||
+                           assembly.name.StartsWith(
+                               FrameworkModuleAudit.CoreAssemblyName + ".", StringComparison.Ordinal))
                     .Select(assembly => assembly.name),
                 StringComparer.Ordinal);
             var asmdefNames = new HashSet<string>(
@@ -439,11 +1406,16 @@ namespace Game.Framework.Editor.Tests
             var issues = new List<string>();
 
             foreach (string path in AssetDatabase.GetAllAssetPaths()
-                         .Where(path => path.StartsWith("Assets/Game/", StringComparison.Ordinal) &&
-                                        path.EndsWith(".asmdef", StringComparison.OrdinalIgnoreCase)))
+                         .Where(path => path.EndsWith(".asmdef", StringComparison.OrdinalIgnoreCase)))
             {
                 var declaration = ReadAsmdefDeclaration(path);
                 if (declaration == null) continue;
+                bool firstParty = path.StartsWith("Assets/Game/", StringComparison.Ordinal) ||
+                                  declaration.name.Equals(
+                                      FrameworkModuleAudit.CoreAssemblyName, StringComparison.Ordinal) ||
+                                  declaration.name.StartsWith(
+                                      FrameworkModuleAudit.CoreAssemblyName + ".", StringComparison.Ordinal);
+                if (!firstParty) continue;
                 if (firstPartyPlayerAssemblies.Contains(declaration.name) &&
                     !declaration.overrideReferences)
                     issues.Add($"{path}: 一方 Player asmdef 必须用 overrideReferences=true 关闭预编译 DLL 的全局 Auto Reference");
@@ -522,6 +1494,12 @@ namespace Game.Framework.Editor.Tests
                     "module-audit-hot-update-evidence");
                 var hotUpdateMetrics = window.rootVisualElement.Q<VisualElement>(
                     "module-audit-hot-update-metrics");
+                var externalSummary = window.rootVisualElement.Q<VisualElement>(
+                    "module-audit-external-summary");
+                var externalCatalog = window.rootVisualElement.Q<Foldout>(
+                    "module-audit-external-catalog");
+                var externalMetrics = window.rootVisualElement.Q<VisualElement>(
+                    "module-audit-external-metrics");
                 Assert.That(actions, Is.Not.Null);
                 Assert.That(content, Is.Not.Null);
                 Assert.That(content.horizontalScrollerVisibility, Is.EqualTo(ScrollerVisibility.Hidden));
@@ -540,6 +1518,11 @@ namespace Game.Framework.Editor.Tests
                     "全局和生成规则用于追踪，不应抢占新手的首屏结论。 ");
                 Assert.That(hotUpdateEvidence, Is.Not.Null);
                 Assert.That(hotUpdateMetrics, Is.Not.Null);
+                Assert.That(externalSummary, Is.Not.Null);
+                Assert.That(externalCatalog, Is.Not.Null);
+                Assert.That(externalCatalog.value, Is.False,
+                    "第三方依赖详情默认折叠，先给来源/用途/证据完整度摘要。 ");
+                Assert.That(externalMetrics, Is.Not.Null);
                 Assert.That(raw.value, Is.False, "程序集明细和原始报告默认折叠，先展示结论与建议。");
                 Assert.That(window.rootVisualElement.Q<TextField>(), Is.Null,
                     "主体不再使用会整片选中、产生横向长行的多行 TextField。");
@@ -554,6 +1537,7 @@ namespace Game.Framework.Editor.Tests
                 Assert.That(summaryMetrics[0].style.flexGrow.value, Is.EqualTo(0f),
                     "窄窗纵排时使用内容高度，避免 flexBasis:0 把按钮或指标压扁。 ");
                 Assert.That(hotUpdateMetrics.style.flexDirection.value, Is.EqualTo(FlexDirection.Column));
+                Assert.That(externalMetrics.style.flexDirection.value, Is.EqualTo(FlexDirection.Column));
 
                 window.ApplyResponsiveLayoutForTests(900f);
                 Assert.That(actions.style.flexDirection.value, Is.EqualTo(FlexDirection.Row));
@@ -606,6 +1590,44 @@ namespace Game.Framework.Editor.Tests
                 Selection.activeObject = previousSelection;
             }
         }
+
+        private static FrameworkModuleAudit.DependencySource PackageSource(
+            string assemblyName,
+            string packageName) => new()
+        {
+            AssemblyName = assemblyName,
+            AssetPath = $"Packages/{packageName}/{assemblyName}.asmdef",
+            PackageName = packageName,
+            PackageVersion = "1.0.0",
+            PackageId = packageName + "@1.0.0",
+            SourceKind = FrameworkModuleSourceCatalog.SourceKind.GitPackage,
+            HasPackageDirectness = true,
+            IsDirectPackageDependency = true,
+            IsExternal = true,
+        };
+
+        private static FrameworkModuleAudit.DeclaredConsumerEvidence DeclaredEdge(
+            string dependency,
+            string consumer,
+            FrameworkModuleAudit.ConsumerPlatformScope scope) => new()
+        {
+            DependencyAssemblyName = dependency,
+            ConsumerAssemblyName = consumer,
+            ConsumerAsmdefPath = "Assets/Game/" + consumer + ".asmdef",
+            ConsumerSourceKind = FrameworkModuleSourceCatalog.SourceKind.ProjectAssets,
+            PlatformScope = scope,
+        };
+
+        private static FrameworkModuleAudit.ActualConsumerEvidence ActualEdge(
+            string dependency,
+            string consumer,
+            FrameworkModuleAudit.ConsumerPlatformScope scope) => new()
+        {
+            DependencyAssemblyName = dependency,
+            ConsumerAssemblyName = consumer,
+            ConsumerSourceKind = FrameworkModuleSourceCatalog.SourceKind.ProjectAssets,
+            PlatformScope = scope,
+        };
 
         [Serializable]
         private sealed class AsmdefDeclaration

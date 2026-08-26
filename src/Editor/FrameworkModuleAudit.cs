@@ -34,7 +34,6 @@ namespace Game.Framework.Editor
         internal const string ToolkitAssemblyName = "Game.Framework.UI.Toolkit";
         internal const string BridgeAssemblyName = "Game.Framework.UI.Bridge";
 
-        private static readonly string[] EditorOnlyConstraints = { "UNITY_EDITOR", "UNITY_INCLUDE_TESTS" };
         private static readonly Dictionary<string, AssemblyReferenceCacheEntry> AssemblyReferenceCache =
             new(StringComparer.OrdinalIgnoreCase);
         private static readonly object AssemblyReferenceCacheLock = new();
@@ -47,6 +46,9 @@ namespace Game.Framework.Editor
             internal string PackageName;
             internal string PackageVersion;
             internal string PackageId;
+            internal FrameworkModuleSourceCatalog.SourceKind SourceKind;
+            internal bool HasPackageDirectness;
+            internal bool IsDirectPackageDependency;
             internal string OutputPath;
             internal long OutputBytes;
             internal bool AutoReferenced;
@@ -72,6 +74,10 @@ namespace Game.Framework.Editor
             internal readonly string HotUpdateNote;
             internal readonly LinkerPreservation[] LinkerPreservations;
             internal readonly Dictionary<string, string[]> DeclaredConsumersByDependency;
+            internal readonly DeclaredConsumerEvidence[] DeclaredConsumers;
+            internal readonly ActualConsumerEvidence[] ActualConsumers;
+            internal readonly Dictionary<string, DependencySource> DependencySources;
+            internal readonly EvidenceIssue[] DependencyEvidenceIssues;
             internal readonly HotUpdateDeploymentEvidence HotUpdateDeployment;
 
             internal Snapshot(
@@ -81,7 +87,11 @@ namespace Game.Framework.Editor
                 string hotUpdateNote,
                 LinkerPreservation[] linkerPreservations = null,
                 Dictionary<string, string[]> declaredConsumersByDependency = null,
-                HotUpdateDeploymentEvidence hotUpdateDeployment = null)
+                HotUpdateDeploymentEvidence hotUpdateDeployment = null,
+                DeclaredConsumerEvidence[] declaredConsumers = null,
+                Dictionary<string, DependencySource> dependencySources = null,
+                ActualConsumerEvidence[] actualConsumers = null,
+                EvidenceIssue[] dependencyEvidenceIssues = null)
             {
                 Assemblies = assemblies;
                 ReferencePaths = referencePaths;
@@ -90,6 +100,10 @@ namespace Game.Framework.Editor
                 LinkerPreservations = linkerPreservations ?? Array.Empty<LinkerPreservation>();
                 DeclaredConsumersByDependency = declaredConsumersByDependency ??
                                                         new Dictionary<string, string[]>(StringComparer.Ordinal);
+                DeclaredConsumers = declaredConsumers ?? Array.Empty<DeclaredConsumerEvidence>();
+                ActualConsumers = actualConsumers ?? Array.Empty<ActualConsumerEvidence>();
+                DependencySources = dependencySources ?? new Dictionary<string, DependencySource>(StringComparer.Ordinal);
+                DependencyEvidenceIssues = dependencyEvidenceIssues ?? Array.Empty<EvidenceIssue>();
                 HotUpdateDeployment = hotUpdateDeployment ?? new HotUpdateDeploymentEvidence();
             }
         }
@@ -103,6 +117,184 @@ namespace Game.Framework.Editor
             internal long FrameworkBytes;
             internal long ProjectBytes;
             internal long ExternalBytes;
+        }
+
+        internal enum DeclaredReferenceKind
+        {
+            AssemblyDefinition,
+            PrecompiledAssembly,
+        }
+
+        internal enum ConsumerPlatformScope
+        {
+            Player,
+            Editor,
+            Tests,
+            Mixed,
+            Unknown,
+        }
+
+        /// <summary>
+        /// 完整 asmdef 图中的一条声明边。它不证明当前 DLL 已调用目标，但会在删除目标后形成编译阻塞。
+        /// </summary>
+        internal sealed class DeclaredConsumerEvidence
+        {
+            internal string DependencyAssemblyName = string.Empty;
+            internal string ConfiguredReference = string.Empty;
+            internal DeclaredReferenceKind ReferenceKind;
+            internal string ConsumerAssemblyName = string.Empty;
+            internal string ConsumerAsmdefPath = string.Empty;
+            internal FrameworkModuleSourceCatalog.SourceKind ConsumerSourceKind;
+            internal string ConsumerPackageName = string.Empty;
+            internal ConsumerPlatformScope PlatformScope;
+
+            internal bool ConsumerIsFramework => IsFrameworkAssembly(ConsumerAssemblyName);
+            internal bool ConsumerIsProjectAsset =>
+                ConsumerSourceKind == FrameworkModuleSourceCatalog.SourceKind.ProjectAssets;
+            internal bool ConsumerIsEditorOnly => PlatformScope is ConsumerPlatformScope.Editor or
+                                                  ConsumerPlatformScope.Tests;
+        }
+
+        /// <summary>当前已编译 DLL 快照中的一条直接元数据引用，Player 与 Editor 变体分开标记。</summary>
+        internal sealed class ActualConsumerEvidence
+        {
+            internal string DependencyAssemblyName = string.Empty;
+            internal string ConsumerAssemblyName = string.Empty;
+            internal string ConsumerAsmdefPath = string.Empty;
+            internal FrameworkModuleSourceCatalog.SourceKind ConsumerSourceKind;
+            internal string ConsumerPackageName = string.Empty;
+            internal ConsumerPlatformScope PlatformScope;
+
+            internal bool ConsumerIsFramework => IsFrameworkAssembly(ConsumerAssemblyName);
+            internal bool ConsumerIsProjectAsset =>
+                ConsumerSourceKind == FrameworkModuleSourceCatalog.SourceKind.ProjectAssets;
+            internal bool ConsumerIsEditorOnly => PlatformScope is ConsumerPlatformScope.Editor or
+                                                  ConsumerPlatformScope.Tests;
+        }
+
+        internal sealed class EvidenceIssue
+        {
+            internal string Code = string.Empty;
+            internal string Message = string.Empty;
+            /// <summary>
+            /// 可选的程序集作用域。为空表示扫描级全局问题；有值时只收紧包含该程序集的依赖组。
+            /// </summary>
+            internal string SubjectAssemblyName = string.Empty;
+
+            public override string ToString() => $"[{Code}] {Message}";
+        }
+
+        /// <summary>同一逻辑 AssemblyName 的一个物理实现；平台互斥变体不能被静默折叠。</summary>
+        internal sealed class DependencySourceVariant
+        {
+            internal string AssetPath = string.Empty;
+            internal string PhysicalPath = string.Empty;
+            internal bool HasCompatibilityEvidence;
+            internal bool IsEditorCompatible;
+            /// <summary>只表示当前 <see cref="EditorUserBuildSettings.activeBuildTarget"/>，不是所有 Player 平台。</summary>
+            internal bool IsActiveBuildTargetCompatible;
+            internal string[] CompatibleBuildTargets = Array.Empty<string>();
+        }
+
+        /// <summary>某个可引用程序集的来源身份；未知来源保持 Unknown，不按名称猜第三方归属。</summary>
+        internal sealed class DependencySource
+        {
+            internal string AssemblyName = string.Empty;
+            internal string AssetPath = string.Empty;
+            internal string PhysicalPath = string.Empty;
+            internal string PackageName = string.Empty;
+            internal string PackageVersion = string.Empty;
+            internal string PackageId = string.Empty;
+            internal FrameworkModuleSourceCatalog.SourceKind SourceKind =
+                FrameworkModuleSourceCatalog.SourceKind.UnknownPackage;
+            internal bool HasPackageDirectness;
+            internal bool IsDirectPackageDependency;
+            internal bool IsPrecompiledAssembly;
+            internal bool IsExternal;
+            internal DependencySourceVariant[] Variants = Array.Empty<DependencySourceVariant>();
+
+            internal bool IsKnown => !string.IsNullOrWhiteSpace(AssetPath) ||
+                                     !string.IsNullOrWhiteSpace(PhysicalPath) || Variants.Length > 0;
+
+            internal IEnumerable<string> AllAssetPaths => Variants.Select(item => item.AssetPath)
+                .Append(AssetPath)
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Distinct(StringComparer.OrdinalIgnoreCase);
+
+            internal IEnumerable<string> AllPhysicalPaths => Variants.Select(item => item.PhysicalPath)
+                .Append(PhysicalPath)
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Distinct(StringComparer.OrdinalIgnoreCase);
+        }
+
+        internal enum ExternalDependencyRole
+        {
+            BaseRuntime,
+            OptionalRuntime,
+            SharedRuntime,
+            EditorTool,
+            ProjectConsumer,
+            Unknown,
+        }
+
+        internal enum ExternalDependencyRemovalState
+        {
+            RequiredByCore,
+            RemoveWithOptionalModuleCandidate,
+            RemoveWithEditorToolCandidate,
+            SharedConsumerMigrationRequired,
+            ProjectConsumerMigrationRequired,
+            ReviewRequired,
+        }
+
+        /// <summary>
+        /// 以实际 Package（或单个 Assets DLL / Unknown 程序集）为单位聚合的外部依赖证据。
+        /// 安装来源、当前编译快照消费、完整 asmdef 声明和 what-if Profile 影响互不替代。
+        /// </summary>
+        internal sealed class ExternalDependencyEvidence
+        {
+            internal string Key = string.Empty;
+            internal string DisplayName = string.Empty;
+            internal string PackageName = string.Empty;
+            internal string PackageVersion = string.Empty;
+            internal string PackageId = string.Empty;
+            internal FrameworkModuleSourceCatalog.SourceKind SourceKind;
+            internal bool HasPackageDirectness;
+            internal bool IsDirectPackageDependency;
+            internal DependencySource[] Assemblies = Array.Empty<DependencySource>();
+            internal DeclaredConsumerEvidence[] DeclaredConsumers = Array.Empty<DeclaredConsumerEvidence>();
+            internal ActualConsumerEvidence[] ActualConsumers = Array.Empty<ActualConsumerEvidence>();
+            internal ActualConsumerEvidence[] Introducers = Array.Empty<ActualConsumerEvidence>();
+            internal EvidenceIssue[] EvidenceIssues = Array.Empty<EvidenceIssue>();
+            internal string[] DirectProfileKeys = Array.Empty<string>();
+            internal string[] TransitiveProfileKeys = Array.Empty<string>();
+            internal string[] FrameworkConsumers = Array.Empty<string>();
+            internal string[] ProjectConsumers = Array.Empty<string>();
+            internal ExternalDependencyRole Role;
+            internal ExternalDependencyRemovalState RemovalState;
+            internal string Summary = string.Empty;
+            internal string[] RemovalSteps = Array.Empty<string>();
+            internal string[] VerificationSteps = Array.Empty<string>();
+            internal SortedDictionary<string, long> ProfileRawBytesByKey =
+                new(StringComparer.Ordinal);
+            internal long InstalledBinaryBytes;
+            internal bool HasInstalledBinaryMeasurement;
+
+            internal bool HasProfileMeasurement => ProfileRawBytesByKey.Count > 0;
+            internal long MaxProfileRawBytes => ProfileRawBytesByKey.Count == 0
+                ? 0
+                : ProfileRawBytesByKey.Values.Max();
+
+            internal bool TryGetProfileRawBytes(string profileKey, out long bytes) =>
+                ProfileRawBytesByKey.TryGetValue(profileKey, out bytes);
+
+            internal bool HasUnknownSource => SourceKind ==
+                                              FrameworkModuleSourceCatalog.SourceKind.UnknownPackage;
+            internal bool HasEvidenceGaps => HasUnknownSource || EvidenceIssues.Length > 0;
+            internal string[] AffectedProfileKeys => DirectProfileKeys.Concat(TransitiveProfileKeys)
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(key => key, StringComparer.Ordinal)
+                .ToArray();
         }
 
         /// <summary>记录“当前 DLL 快照存在引用，但 asmdef 没有直接声明”的模块依赖。</summary>
@@ -237,6 +429,8 @@ namespace Game.Framework.Editor
             internal LinkerPreservation[] UnconditionalModulePreservations = Array.Empty<LinkerPreservation>();
             internal LinkerPreservation[] GlobalPreservations = Array.Empty<LinkerPreservation>();
             internal DeletionCheck[] DeletionChecks = Array.Empty<DeletionCheck>();
+            internal ExternalDependencyEvidence[] ExternalDependencies = Array.Empty<ExternalDependencyEvidence>();
+            internal EvidenceIssue[] DependencyEvidenceIssues = Array.Empty<EvidenceIssue>();
             internal string[] Recommendations = Array.Empty<string>();
             internal bool AllRuntimeModulesOptIn;
 
@@ -251,8 +445,19 @@ namespace Game.Framework.Editor
             internal bool HasRetentionWarnings => UnconditionalModulePreservations.Length > 0;
             internal bool HasHotUpdateViolations => ModuleStatuses.Any(status => status.HasHotUpdateViolation);
             internal bool HasHotUpdateDeploymentWarnings => HotUpdateDeployment?.RequiresAttention == true;
+            internal bool HasUnknownExternalDependencySources =>
+                ExternalDependencies.Any(dependency => dependency.HasUnknownSource);
+            internal bool HasDependencyEvidenceGaps => DependencyEvidenceIssues.Length > 0 ||
+                                                       ExternalDependencies.Any(dependency =>
+                                                           dependency.EvidenceIssues.Length > 0);
+            internal int DependencyEvidenceIssueCount => DependencyEvidenceIssues.Length +
+                                                          ExternalDependencies.Sum(dependency =>
+                                                              dependency.EvidenceIssues.Length);
 
-            internal bool RequiresAttention => !IsHealthy || HasRetentionWarnings || HasHotUpdateDeploymentWarnings;
+            internal bool RequiresAttention => !IsHealthy || HasRetentionWarnings ||
+                                               HasHotUpdateDeploymentWarnings ||
+                                               HasUnknownExternalDependencySources ||
+                                               HasDependencyEvidenceGaps;
 
             internal bool IsHealthy => DependencyIssues.Length == 0 &&
                                        AllRuntimeModulesOptIn &&
@@ -294,6 +499,9 @@ namespace Game.Framework.Editor
                     PackageName = asmdefSource?.PackageName ?? string.Empty,
                     PackageVersion = asmdefSource?.PackageVersion ?? string.Empty,
                     PackageId = asmdefSource?.PackageId ?? string.Empty,
+                    SourceKind = asmdefSource?.Kind ?? FrameworkModuleSourceCatalog.SourceKind.UnknownPackage,
+                    HasPackageDirectness = asmdefSource?.HasPackageDirectness ?? false,
+                    IsDirectPackageDependency = asmdefSource?.IsDirectPackageDependency ?? false,
                     OutputPath = outputPath,
                     OutputBytes = File.Exists(outputPath) ? new FileInfo(outputPath).Length : 0L,
                     AutoReferenced = dto?.autoReferenced ?? true,
@@ -304,6 +512,8 @@ namespace Game.Framework.Editor
                 };
             }
 
+            DependencyCapture dependencyCapture = CaptureDependencyEvidence(
+                infos, referencePaths, precompiledIdentities);
             HotUpdateDeploymentEvidence hotUpdate = ReadHotUpdateEvidence();
             return new Snapshot(
                 infos,
@@ -311,8 +521,12 @@ namespace Game.Framework.Editor
                 hotUpdate.ProfileAssemblies,
                 hotUpdate.Note,
                 ReadLinkerPreservations(infos),
-                ReadDeclaredConsumers(),
-                hotUpdate);
+                dependencyCapture.DeclaredConsumersByDependency,
+                hotUpdate,
+                dependencyCapture.DeclaredConsumers,
+                dependencyCapture.Sources,
+                dependencyCapture.ActualConsumers,
+                dependencyCapture.Issues);
         }
 
         /// <summary>
@@ -403,6 +617,11 @@ namespace Game.Framework.Editor
                     .OrderBy(rule => rule.Path, StringComparer.Ordinal)
                     .ThenBy(rule => rule.AssemblyName, StringComparer.Ordinal)
                     .ToArray(),
+                // 只有无法归属到具体 AssemblyName 的扫描问题才属于审计全局；程序集级问题
+                // 由 ExternalDependencyEvidence 按组消费，避免重复展示或污染无关依赖。
+                DependencyEvidenceIssues = snapshot.DependencyEvidenceIssues
+                    .Where(issue => string.IsNullOrWhiteSpace(issue.SubjectAssemblyName))
+                    .ToArray(),
                 AllRuntimeModulesOptIn = runtimeModules.All(module => !module.AutoReferenced),
                 DeletionChecks = new[]
                 {
@@ -429,6 +648,10 @@ namespace Game.Framework.Editor
                     },
                 },
             };
+            IEnumerable<AuditProfile> evidenceProfiles = commonProfiles.Concat(moduleProfiles)
+                .Concat(new[] { fullProfile });
+            if (hotUpdateProfile != null) evidenceProfiles = evidenceProfiles.Concat(new[] { hotUpdateProfile });
+            result.ExternalDependencies = BuildExternalDependencyEvidence(snapshot, evidenceProfiles);
             result.Recommendations = BuildRecommendations(result);
             return result;
         }
@@ -445,7 +668,7 @@ namespace Game.Framework.Editor
             sb.AppendLine(!result.RequiresAttention
                 ? "结论：当前模块边界健康，没有发现会阻碍按需裁剪的问题。"
                 : result.IsHealthy
-                    ? "结论：程序集依赖方向健康，但 linker 保留或热更派生状态仍需要理解 / 处理。"
+                    ? "结论：程序集依赖方向健康，但第三方来源、linker 保留或热更派生状态仍需要理解 / 处理。"
                     : "结论：发现需要处理或确认的问题，请先看检查结果。 ");
             sb.AppendLine("说明：这里比较的是编译后的原始 DLL，不是最终包体；真正发布大小仍以目标平台 Player BuildReport 为准。 ");
             sb.AppendLine();
@@ -461,15 +684,16 @@ namespace Game.Framework.Editor
             AppendDependencyVisibility(sb, result.DependencyIssues);
             AppendModuleStatuses(sb, result.ModuleStatuses);
             AppendGlobalPreservations(sb, result.GlobalPreservations);
+            AppendExternalDependencies(sb, result.ExternalDependencies, result.DependencyEvidenceIssues);
             foreach (var profile in result.CommonProfiles)
-                AppendProfile(sb, profile);
-            AppendProfile(sb, result.FullProfile);
+                AppendProfile(sb, profile, result.ExternalDependencies);
+            AppendProfile(sb, result.FullProfile, result.ExternalDependencies);
 
             sb.AppendLine("热更 Profile 期望档位");
             sb.AppendLine("────────────────────────────────────────");
             sb.AppendLine("  " + result.HotUpdateNote);
             if (result.HotUpdateProfile != null)
-                AppendFootprint(sb, result.HotUpdateProfile, indent: "  ");
+                AppendFootprint(sb, result.HotUpdateProfile, result.ExternalDependencies, indent: "  ");
             sb.AppendLine();
             AppendHotUpdateDeployment(sb, result.HotUpdateDeployment);
 
@@ -781,6 +1005,50 @@ namespace Game.Framework.Editor
             sb.AppendLine();
         }
 
+        private static void AppendExternalDependencies(
+            StringBuilder sb,
+            IReadOnlyCollection<ExternalDependencyEvidence> dependencies,
+            IReadOnlyCollection<EvidenceIssue> issues)
+        {
+            sb.AppendLine("第三方依赖证据目录");
+            sb.AppendLine("────────────────────────────────────────");
+            sb.AppendLine("  来源、Package 解析层级、当前 DLL 消费、asmdef 删除阻塞与 what-if 档位是不同证据；目录保持只读，不替代 Package Manager。 ");
+            foreach (EvidenceIssue issue in issues)
+                sb.AppendLine($"  ⚠ [{issue.Code}] {issue.Message}");
+            if (dependencies.Count == 0)
+                sb.AppendLine("  （一方消费者未引入可识别的外部程序集）");
+            foreach (ExternalDependencyEvidence dependency in dependencies)
+            {
+                string version = string.IsNullOrWhiteSpace(dependency.PackageVersion)
+                    ? string.Empty
+                    : "@" + dependency.PackageVersion;
+                string bytes = dependency.HasProfileMeasurement
+                    ? FormatBytes(dependency.MaxProfileRawBytes) + "（最高档位原始字节）"
+                    : "当前档位未测得字节";
+                sb.AppendLine($"  • {dependency.DisplayName}{version} · {dependency.Summary} · {bytes}");
+                sb.AppendLine("      程序集：" + string.Join("、", dependency.Assemblies.Select(item => item.AssemblyName)));
+                if (dependency.ActualConsumers.Length > 0)
+                    sb.AppendLine("      当前 DLL 直接消费者：" + string.Join("、", dependency.ActualConsumers.Select(item =>
+                        item.ConsumerAssemblyName + "（" + item.PlatformScope + "）")));
+                if (dependency.Introducers.Length > 0)
+                    sb.AppendLine("      最初引入者：" + string.Join("、", dependency.Introducers.Select(item =>
+                        item.ConsumerAssemblyName + "（" + item.PlatformScope + "）")));
+                if (dependency.DeclaredConsumers.Length > 0)
+                    sb.AppendLine("      asmdef 声明消费者：" + string.Join("、", dependency.DeclaredConsumers
+                        .Select(item => item.ConsumerAssemblyName + "（" + item.PlatformScope + "）")
+                        .Distinct(StringComparer.Ordinal)));
+                if (dependency.AffectedProfileKeys.Length > 0)
+                    sb.AppendLine("      影响档位：" + string.Join("、", dependency.AffectedProfileKeys));
+                foreach (EvidenceIssue issue in dependency.EvidenceIssues)
+                    sb.AppendLine($"      ⚠ [{issue.Code}] {issue.Message}");
+                if (dependency.HasInstalledBinaryMeasurement && !dependency.HasProfileMeasurement)
+                    sb.AppendLine("      已安装二进制：" + FormatBytes(dependency.InstalledBinaryBytes) +
+                                  "（仅证明磁盘文件存在，不是 what-if Profile 体积）");
+                sb.AppendLine("      移除前：" + string.Join(" ", dependency.RemovalSteps));
+            }
+            sb.AppendLine();
+        }
+
         private static void AppendHotUpdateDeployment(
             StringBuilder sb,
             HotUpdateDeploymentEvidence evidence)
@@ -809,15 +1077,22 @@ namespace Game.Framework.Editor
             sb.AppendLine();
         }
 
-        private static void AppendProfile(StringBuilder sb, AuditProfile profile)
+        private static void AppendProfile(
+            StringBuilder sb,
+            AuditProfile profile,
+            IReadOnlyCollection<ExternalDependencyEvidence> externalDependencies)
         {
             sb.AppendLine(profile.Title);
             sb.AppendLine("────────────────────────────────────────");
-            AppendFootprint(sb, profile, indent: "  ");
+            AppendFootprint(sb, profile, externalDependencies, indent: "  ");
             sb.AppendLine();
         }
 
-        private static void AppendFootprint(StringBuilder sb, AuditProfile profile, string indent)
+        private static void AppendFootprint(
+            StringBuilder sb,
+            AuditProfile profile,
+            IReadOnlyCollection<ExternalDependencyEvidence> externalDependencies,
+            string indent)
         {
             var footprint = profile.Footprint;
             sb.AppendLine(indent + "适用：" + profile.Description);
@@ -834,11 +1109,16 @@ namespace Game.Framework.Editor
                           $" + 外部依赖 {FormatBytes(footprint.ExternalBytes)}");
             if (footprint.ExternalAssemblies.Count > 0)
             {
-                string external = string.Join(", ", footprint.ExternalAssemblies
-                    .OrderByDescending(pair => pair.Value)
-                    .ThenBy(pair => pair.Key, StringComparer.Ordinal)
-                    .Select(pair => $"{pair.Key} {FormatBytes(pair.Value)}"));
-                sb.AppendLine(indent + "外部依赖：" + external);
+                string external = string.Join(", ", externalDependencies
+                    .Where(dependency => dependency.AffectedProfileKeys.Contains(
+                        profile.Key, StringComparer.Ordinal))
+                    .OrderByDescending(dependency => dependency.ProfileRawBytesByKey.TryGetValue(
+                        profile.Key, out long bytes) ? bytes : 0)
+                    .ThenBy(dependency => dependency.DisplayName, StringComparer.Ordinal)
+                    .Select(dependency => $"{dependency.DisplayName} " +
+                                          FormatBytes(dependency.ProfileRawBytesByKey.TryGetValue(
+                                              profile.Key, out long bytes) ? bytes : 0)));
+                sb.AppendLine(indent + "外部依赖组：" + external + "（完整消费与移除证据见目录）");
             }
             if (footprint.UnresolvedAssemblies.Count > 0)
                 sb.AppendLine(indent + "⚠ 无法定位程序集文件，闭包与字节数可能不完整：" +
@@ -894,6 +1174,592 @@ namespace Game.Framework.Editor
             footprint.ExternalBytes += bytes;
         }
 
+        internal static ExternalDependencyEvidence[] BuildExternalDependencyEvidence(
+            Snapshot snapshot,
+            IEnumerable<AuditProfile> profiles)
+        {
+            if (snapshot == null) throw new ArgumentNullException(nameof(snapshot));
+            if (profiles == null) throw new ArgumentNullException(nameof(profiles));
+
+            AuditProfile[] profileArray = profiles.Where(profile => profile != null).ToArray();
+            var graph = new ExternalDependencyGraph(snapshot);
+            HashSet<string> candidateNames = graph.DiscoverCandidates(profileArray);
+
+            string GroupKey(DependencySource source) => !string.IsNullOrWhiteSpace(source.PackageName)
+                ? "upm:" + source.PackageName
+                : !string.IsNullOrWhiteSpace(source.AssetPath)
+                    ? "asset:" + source.AssetPath
+                    : "unknown:" + source.AssemblyName;
+
+            return candidateNames
+                .Where(name => !IsPlatformReference(snapshot, name))
+                .Select(graph.ResolveSource)
+                .Where(source => source.IsExternal)
+                .GroupBy(GroupKey, StringComparer.Ordinal)
+                .Select(group => BuildExternalDependencyGroup(
+                    snapshot, graph, profileArray, group.Key, group))
+                .OrderBy(dependency => dependency.Role)
+                .ThenBy(dependency => dependency.DisplayName, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+
+        private static ExternalDependencyEvidence BuildExternalDependencyGroup(
+            Snapshot snapshot,
+            ExternalDependencyGraph graph,
+            IReadOnlyCollection<AuditProfile> profiles,
+            string key,
+            IEnumerable<DependencySource> groupedSources)
+        {
+            DependencySource[] sources = groupedSources
+                .GroupBy(source => source.AssemblyName, StringComparer.Ordinal)
+                .Select(group => group.First())
+                .OrderBy(source => source.AssemblyName, StringComparer.Ordinal)
+                .ToArray();
+            var assemblyNames = new HashSet<string>(sources.Select(source => source.AssemblyName),
+                StringComparer.Ordinal);
+            DependencySource first = sources[0];
+
+            DeclaredConsumerEvidence[] declared = snapshot.DeclaredConsumers
+                .Where(edge => assemblyNames.Contains(edge.DependencyAssemblyName))
+                .OrderBy(edge => edge.ConsumerAssemblyName, StringComparer.Ordinal)
+                .ThenBy(edge => edge.DependencyAssemblyName, StringComparer.Ordinal)
+                .ToArray();
+            ActualConsumerEvidence[] actual = snapshot.ActualConsumers
+                .Where(edge => assemblyNames.Contains(edge.DependencyAssemblyName))
+                .Where(edge => !assemblyNames.Contains(edge.ConsumerAssemblyName))
+                .OrderBy(edge => edge.ConsumerAssemblyName, StringComparer.Ordinal)
+                .ThenBy(edge => edge.DependencyAssemblyName, StringComparer.Ordinal)
+                .ThenBy(edge => edge.PlatformScope)
+                .ToArray();
+
+            IntroducerTrace introducerTrace = graph.FindIntroducers(assemblyNames);
+            ActualConsumerEvidence[] introducers = introducerTrace.Introducers;
+            string[] frameworkConsumers = introducers
+                .Where(edge => edge.ConsumerIsFramework)
+                .Select(edge => edge.ConsumerAssemblyName)
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(name => name, StringComparer.Ordinal)
+                .ToArray();
+            string[] projectConsumers = introducers
+                .Where(edge => edge.ConsumerIsProjectAsset && !edge.ConsumerIsFramework)
+                .Select(edge => edge.ConsumerAssemblyName)
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(name => name, StringComparer.Ordinal)
+                .ToArray();
+
+            var directProfiles = new List<string>();
+            var transitiveProfiles = new List<string>();
+            foreach (AuditProfile profile in profiles)
+            {
+                if (!profile.Footprint.ExternalAssemblies.Keys.Any(assemblyNames.Contains)) continue;
+                bool direct = profile.Roots.Any(root =>
+                    snapshot.Assemblies.TryGetValue(root, out AssemblyInfo rootInfo) &&
+                    rootInfo.ActualReferences.Any(assemblyNames.Contains));
+                (direct ? directProfiles : transitiveProfiles).Add(profile.Key);
+            }
+
+            var profileRawBytesByKey = new SortedDictionary<string, long>(StringComparer.Ordinal);
+            foreach (AuditProfile profile in profiles)
+            {
+                KeyValuePair<string, long>[] measurements = profile.Footprint.ExternalAssemblies
+                    .Where(pair => assemblyNames.Contains(pair.Key))
+                    .ToArray();
+                if (measurements.Length > 0)
+                    profileRawBytesByKey[profile.Key] = measurements.Sum(pair => pair.Value);
+            }
+
+            string[] installedPhysicalPaths = sources
+                .Where(source => source.IsPrecompiledAssembly)
+                .SelectMany(source => source.AllPhysicalPaths)
+                .Where(File.Exists)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            long installedBinaryBytes = installedPhysicalPaths.Sum(path => new FileInfo(path).Length);
+            bool hasInstalledBinaryMeasurement = installedPhysicalPaths.Length > 0;
+
+            string[] affected = directProfiles.Concat(transitiveProfiles)
+                .Distinct(StringComparer.Ordinal).ToArray();
+            EvidenceIssue[] scopedScanIssues = snapshot.DependencyEvidenceIssues
+                .Where(issue => !string.IsNullOrWhiteSpace(issue.SubjectAssemblyName) &&
+                                assemblyNames.Contains(issue.SubjectAssemblyName))
+                .ToArray();
+            bool hasGlobalScanGap = snapshot.DependencyEvidenceIssues.Any(issue =>
+                string.IsNullOrWhiteSpace(issue.SubjectAssemblyName));
+            EvidenceIssue[] groupIssues = ValidateDependencyGroupConsistency(sources)
+                .Concat(scopedScanIssues)
+                .Concat(introducerTrace.HasUnknownPlatformEvidence
+                    ? new[]
+                    {
+                        new EvidenceIssue
+                        {
+                            Code = "dependency-platform-scope-unknown",
+                            Message = "至少一条引入链的平台范围无法确认；角色保留，删除结论收紧为待复核。 ",
+                        },
+                    }
+                    : Array.Empty<EvidenceIssue>())
+                .ToArray();
+            bool hasGaps = hasGlobalScanGap || groupIssues.Length > 0 ||
+                           sources.Any(source => source.SourceKind ==
+                                                 FrameworkModuleSourceCatalog.SourceKind.UnknownPackage);
+            bool coreIntroduces = introducers.Any(edge =>
+                edge.ConsumerAssemblyName.Equals(CoreAssemblyName, StringComparison.Ordinal));
+            bool firstPartyOnlyEditor = introducers.Length > 0 &&
+                                        introducers.All(edge => edge.ConsumerIsEditorOnly);
+            bool hasAnyProjectIntroducer = introducers.Any(edge =>
+                edge.ConsumerIsProjectAsset && !edge.ConsumerIsFramework);
+            string[] frameworkRuntimeIntroducers = introducers
+                .Where(edge => edge.ConsumerIsFramework && !edge.ConsumerIsEditorOnly)
+                .Select(edge => edge.ConsumerAssemblyName)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+
+            ExternalDependencyRole role;
+            if (coreIntroduces)
+            {
+                role = ExternalDependencyRole.BaseRuntime;
+            }
+            else if (firstPartyOnlyEditor)
+            {
+                role = ExternalDependencyRole.EditorTool;
+            }
+            else if (hasAnyProjectIntroducer)
+            {
+                role = ExternalDependencyRole.ProjectConsumer;
+            }
+            else if (frameworkRuntimeIntroducers.Length == 1)
+            {
+                role = ExternalDependencyRole.OptionalRuntime;
+            }
+            else if (frameworkRuntimeIntroducers.Length > 1)
+            {
+                role = ExternalDependencyRole.SharedRuntime;
+            }
+            else
+            {
+                role = ExternalDependencyRole.Unknown;
+            }
+
+            ExternalDependencyRemovalState removal = hasGaps
+                ? ExternalDependencyRemovalState.ReviewRequired
+                : role switch
+                {
+                    ExternalDependencyRole.BaseRuntime => ExternalDependencyRemovalState.RequiredByCore,
+                    ExternalDependencyRole.OptionalRuntime =>
+                        ExternalDependencyRemovalState.RemoveWithOptionalModuleCandidate,
+                    ExternalDependencyRole.EditorTool =>
+                        ExternalDependencyRemovalState.RemoveWithEditorToolCandidate,
+                    ExternalDependencyRole.SharedRuntime =>
+                        ExternalDependencyRemovalState.SharedConsumerMigrationRequired,
+                    ExternalDependencyRole.ProjectConsumer =>
+                        ExternalDependencyRemovalState.ProjectConsumerMigrationRequired,
+                    _ => ExternalDependencyRemovalState.ReviewRequired,
+                };
+
+            var evidence = new ExternalDependencyEvidence
+            {
+                Key = key,
+                DisplayName = !string.IsNullOrWhiteSpace(first.PackageName)
+                    ? first.PackageName
+                    : sources.Length == 1 ? first.AssemblyName : key,
+                PackageName = first.PackageName,
+                PackageVersion = first.PackageVersion,
+                PackageId = first.PackageId,
+                SourceKind = first.SourceKind,
+                HasPackageDirectness = first.HasPackageDirectness,
+                IsDirectPackageDependency = first.IsDirectPackageDependency,
+                Assemblies = sources,
+                DeclaredConsumers = declared,
+                ActualConsumers = actual,
+                Introducers = introducers,
+                EvidenceIssues = groupIssues,
+                DirectProfileKeys = directProfiles.Distinct(StringComparer.Ordinal)
+                    .OrderBy(name => name, StringComparer.Ordinal).ToArray(),
+                TransitiveProfileKeys = transitiveProfiles.Distinct(StringComparer.Ordinal)
+                    .OrderBy(name => name, StringComparer.Ordinal).ToArray(),
+                FrameworkConsumers = frameworkConsumers,
+                ProjectConsumers = projectConsumers,
+                Role = role,
+                RemovalState = removal,
+                ProfileRawBytesByKey = profileRawBytesByKey,
+                InstalledBinaryBytes = installedBinaryBytes,
+                HasInstalledBinaryMeasurement = hasInstalledBinaryMeasurement,
+            };
+            evidence.Summary = BuildExternalDependencySummary(evidence);
+            evidence.RemovalSteps = BuildExternalDependencyRemovalSteps(evidence);
+            evidence.VerificationSteps = BuildExternalDependencyVerificationSteps(evidence);
+            return evidence;
+        }
+
+        private sealed class IntroducerTrace
+        {
+            internal ActualConsumerEvidence[] Introducers = Array.Empty<ActualConsumerEvidence>();
+            internal bool HasUnknownPlatformEvidence;
+        }
+
+        /// <summary>
+        /// 一次建立正向/反向 AssemblyRef 索引。候选只从一方消费者与 Profile 出发，再沿外部依赖链扩展；
+        /// 反向回溯携带平台范围，避免 Editor/当前目标的同名 DLL 变体被串成一条不存在的路径。
+        /// </summary>
+        private sealed class ExternalDependencyGraph
+        {
+            private const int PlayerFlag = 1;
+            private const int EditorFlag = 2;
+            private const int TestsFlag = 4;
+            private const int AnyMask = PlayerFlag | EditorFlag | TestsFlag;
+
+            private readonly Snapshot _snapshot;
+            private readonly Dictionary<string, ActualConsumerEvidence[]> _outgoing;
+            private readonly Dictionary<string, ActualConsumerEvidence[]> _incoming;
+
+            internal ExternalDependencyGraph(Snapshot snapshot)
+            {
+                _snapshot = snapshot;
+                _outgoing = snapshot.ActualConsumers
+                    .GroupBy(edge => edge.ConsumerAssemblyName, StringComparer.Ordinal)
+                    .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
+                _incoming = snapshot.ActualConsumers
+                    .GroupBy(edge => edge.DependencyAssemblyName, StringComparer.Ordinal)
+                    .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
+            }
+
+            internal HashSet<string> DiscoverCandidates(IEnumerable<AuditProfile> profiles)
+            {
+                var result = new HashSet<string>(StringComparer.Ordinal);
+                var visited = new Dictionary<string, HashSet<int>>(StringComparer.Ordinal);
+                var pending = new Queue<(string AssemblyName, int PlatformMask)>();
+
+                void Enqueue(string assemblyName, int mask)
+                {
+                    if (mask == 0 || !IsExternalDependency(assemblyName)) return;
+                    if (!visited.TryGetValue(assemblyName, out HashSet<int> masks))
+                    {
+                        masks = new HashSet<int>();
+                        visited[assemblyName] = masks;
+                    }
+                    if (!masks.Add(mask)) return;
+                    result.Add(assemblyName);
+                    pending.Enqueue((assemblyName, mask));
+                }
+
+                foreach (AuditProfile profile in profiles)
+                    foreach (string assemblyName in profile.Footprint.ExternalAssemblies.Keys)
+                        Enqueue(assemblyName, PlayerFlag);
+                foreach (DeclaredConsumerEvidence edge in _snapshot.DeclaredConsumers)
+                    if (IsFirstParty(edge))
+                        Enqueue(edge.DependencyAssemblyName, ScopeMask(edge.PlatformScope));
+                foreach (ActualConsumerEvidence edge in _snapshot.ActualConsumers)
+                    if (IsFirstParty(edge))
+                        Enqueue(edge.DependencyAssemblyName, ScopeMask(edge.PlatformScope));
+
+                while (pending.Count > 0)
+                {
+                    (string consumer, int pathMask) = pending.Dequeue();
+                    if (!_outgoing.TryGetValue(consumer, out ActualConsumerEvidence[] edges)) continue;
+                    foreach (ActualConsumerEvidence edge in edges)
+                        Enqueue(edge.DependencyAssemblyName,
+                            pathMask & ScopeMask(edge.PlatformScope));
+                }
+                return result;
+            }
+
+            internal DependencySource ResolveSource(string name)
+            {
+                if (_snapshot.DependencySources.TryGetValue(name, out DependencySource source)) return source;
+                if (_snapshot.Assemblies.TryGetValue(name, out AssemblyInfo info))
+                    return new DependencySource
+                    {
+                        AssemblyName = name,
+                        AssetPath = info.AsmdefPath,
+                        PhysicalPath = string.IsNullOrWhiteSpace(info.SourceDirectory)
+                            ? string.Empty
+                            : Path.Combine(info.SourceDirectory, Path.GetFileName(info.AsmdefPath)),
+                        PackageName = info.PackageName,
+                        PackageVersion = info.PackageVersion,
+                        PackageId = info.PackageId,
+                        SourceKind = info.SourceKind,
+                        HasPackageDirectness = info.HasPackageDirectness,
+                        IsDirectPackageDependency = info.IsDirectPackageDependency,
+                        IsExternal = !IsFrameworkAssembly(name) &&
+                                     info.SourceKind != FrameworkModuleSourceCatalog.SourceKind.ProjectAssets,
+                    };
+                return new DependencySource
+                {
+                    AssemblyName = name,
+                    SourceKind = FrameworkModuleSourceCatalog.SourceKind.UnknownPackage,
+                    IsExternal = true,
+                };
+            }
+
+            internal IntroducerTrace FindIntroducers(ISet<string> assemblyNames)
+            {
+                var visited = new Dictionary<string, Dictionary<int, bool>>(StringComparer.Ordinal);
+                var pending = new Queue<(string AssemblyName, int PlatformMask)>();
+                var introducers = new List<ActualConsumerEvidence>();
+                bool unknownAtBoundary = false;
+
+                void Enqueue(string assemblyName, int mask, bool unknown)
+                {
+                    if (mask == 0) return;
+                    if (!visited.TryGetValue(assemblyName, out Dictionary<int, bool> masks))
+                    {
+                        masks = new Dictionary<int, bool>();
+                        visited[assemblyName] = masks;
+                    }
+                    if (masks.TryGetValue(mask, out bool existingUnknown) &&
+                        (existingUnknown || !unknown))
+                        return;
+                    masks[mask] = existingUnknown || unknown;
+                    pending.Enqueue((assemblyName, mask));
+                }
+
+                foreach (string assemblyName in assemblyNames)
+                    Enqueue(assemblyName, AnyMask, false);
+
+                while (pending.Count > 0)
+                {
+                    (string dependency, int pathMask) = pending.Dequeue();
+                    bool pathUnknown = visited[dependency][pathMask];
+                    if (!_incoming.TryGetValue(dependency, out ActualConsumerEvidence[] edges)) continue;
+                    foreach (ActualConsumerEvidence edge in edges)
+                    {
+                        int edgeMask = ScopeMask(edge.PlatformScope);
+                        int intersection = pathMask & edgeMask;
+                        if (intersection == 0) continue;
+                        bool nextUnknown = pathUnknown || edge.PlatformScope == ConsumerPlatformScope.Unknown;
+                        if (IsFirstParty(edge))
+                        {
+                            introducers.Add(CloneWithScope(edge, ScopeFromMask(intersection)));
+                            unknownAtBoundary |= nextUnknown;
+                        }
+                        else
+                        {
+                            Enqueue(edge.ConsumerAssemblyName, intersection, nextUnknown);
+                        }
+                    }
+                }
+
+                foreach (DeclaredConsumerEvidence edge in _snapshot.DeclaredConsumers.Where(IsFirstParty))
+                {
+                    if (!visited.TryGetValue(
+                            edge.DependencyAssemblyName, out Dictionary<int, bool> dependencyMasks))
+                        continue;
+                    foreach (var pair in dependencyMasks)
+                    {
+                        int intersection = pair.Key & ScopeMask(edge.PlatformScope);
+                        if (intersection == 0) continue;
+                        introducers.Add(new ActualConsumerEvidence
+                        {
+                            DependencyAssemblyName = edge.DependencyAssemblyName,
+                            ConsumerAssemblyName = edge.ConsumerAssemblyName,
+                            ConsumerAsmdefPath = edge.ConsumerAsmdefPath,
+                            ConsumerSourceKind = edge.ConsumerSourceKind,
+                            ConsumerPackageName = edge.ConsumerPackageName,
+                            PlatformScope = ScopeFromMask(intersection),
+                        });
+                        unknownAtBoundary |= pair.Value || edge.PlatformScope == ConsumerPlatformScope.Unknown;
+                    }
+                }
+
+                return new IntroducerTrace
+                {
+                    Introducers = introducers
+                        .GroupBy(edge => edge.ConsumerAssemblyName, StringComparer.Ordinal)
+                        .Select(group =>
+                        {
+                            ActualConsumerEvidence preferred = group.First();
+                            return CloneWithScope(preferred,
+                                CombinePlatformScopes(group.Select(edge => edge.PlatformScope)));
+                        })
+                        .OrderBy(edge => edge.ConsumerAssemblyName, StringComparer.Ordinal)
+                        .ToArray(),
+                    HasUnknownPlatformEvidence = unknownAtBoundary,
+                };
+            }
+
+            private bool IsExternalDependency(string assemblyName) =>
+                !IsPlatformReference(_snapshot, assemblyName) && ResolveSource(assemblyName).IsExternal;
+
+            private bool IsFirstParty(ActualConsumerEvidence edge)
+            {
+                if (edge.ConsumerIsFramework) return true;
+                if (_snapshot.DependencySources.TryGetValue(
+                        edge.ConsumerAssemblyName, out DependencySource source))
+                    return !source.IsExternal && edge.ConsumerIsProjectAsset;
+                if (_snapshot.Assemblies.TryGetValue(edge.ConsumerAssemblyName, out AssemblyInfo info))
+                    return info.SourceKind == FrameworkModuleSourceCatalog.SourceKind.ProjectAssets;
+                return edge.ConsumerIsProjectAsset;
+            }
+
+            private static bool IsFirstParty(DeclaredConsumerEvidence edge) =>
+                edge.ConsumerIsFramework || edge.ConsumerIsProjectAsset;
+
+            private static int ScopeMask(ConsumerPlatformScope scope) => scope switch
+            {
+                ConsumerPlatformScope.Player => PlayerFlag,
+                // Editor 程序集也可被 Test 程序集消费；Tests 是 Editor 域的更窄子集。
+                ConsumerPlatformScope.Editor => EditorFlag | TestsFlag,
+                ConsumerPlatformScope.Tests => TestsFlag,
+                ConsumerPlatformScope.Mixed => AnyMask,
+                _ => AnyMask,
+            };
+
+            private static ConsumerPlatformScope ScopeFromMask(int mask) => mask switch
+            {
+                PlayerFlag => ConsumerPlatformScope.Player,
+                EditorFlag => ConsumerPlatformScope.Editor,
+                TestsFlag => ConsumerPlatformScope.Tests,
+                EditorFlag | TestsFlag => ConsumerPlatformScope.Editor,
+                PlayerFlag | EditorFlag => ConsumerPlatformScope.Mixed,
+                AnyMask => ConsumerPlatformScope.Mixed,
+                _ => ConsumerPlatformScope.Unknown,
+            };
+
+            private static ActualConsumerEvidence CloneWithScope(
+                ActualConsumerEvidence edge,
+                ConsumerPlatformScope scope) => new()
+            {
+                DependencyAssemblyName = edge.DependencyAssemblyName,
+                ConsumerAssemblyName = edge.ConsumerAssemblyName,
+                ConsumerAsmdefPath = edge.ConsumerAsmdefPath,
+                ConsumerSourceKind = edge.ConsumerSourceKind,
+                ConsumerPackageName = edge.ConsumerPackageName,
+                PlatformScope = scope,
+            };
+        }
+
+        private static ConsumerPlatformScope CombinePlatformScopes(
+            IEnumerable<ConsumerPlatformScope> scopes)
+        {
+            ConsumerPlatformScope[] values = scopes.Distinct().ToArray();
+            if (values.Length == 0) return ConsumerPlatformScope.Unknown;
+            if (values.Length == 1) return values[0];
+            if (values.Contains(ConsumerPlatformScope.Player) ||
+                values.Contains(ConsumerPlatformScope.Mixed))
+                return ConsumerPlatformScope.Mixed;
+            if (values.All(value => value is ConsumerPlatformScope.Editor or ConsumerPlatformScope.Tests))
+                return ConsumerPlatformScope.Editor;
+            return ConsumerPlatformScope.Unknown;
+        }
+
+        internal static bool AreDependencySourceVariantsPlatformExclusive(
+            DependencySourceVariant left,
+            DependencySourceVariant right) =>
+            left != null && right != null &&
+            left.HasCompatibilityEvidence && right.HasCompatibilityEvidence &&
+            (left.IsEditorCompatible || left.CompatibleBuildTargets.Length > 0) &&
+            (right.IsEditorCompatible || right.CompatibleBuildTargets.Length > 0) &&
+            !(left.IsEditorCompatible && right.IsEditorCompatible) &&
+            !left.CompatibleBuildTargets.Intersect(
+                right.CompatibleBuildTargets, StringComparer.Ordinal).Any();
+
+        private static EvidenceIssue[] ValidateDependencyGroupConsistency(
+            IReadOnlyCollection<DependencySource> sources)
+        {
+            var issues = new List<EvidenceIssue>();
+            void Add(string code, string message) =>
+                issues.Add(new EvidenceIssue { Code = code, Message = message });
+
+            if (sources.Select(source => source.SourceKind).Distinct().Count() > 1)
+                Add("package-source-kind-inconsistent", "同一依赖组中的程序集来源类型不一致。 ");
+            string[] versions = sources.Select(source => source.PackageVersion)
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            if (versions.Length > 1)
+                Add("package-version-inconsistent", "同一 Package 依赖组解析到了多个版本：" +
+                                                     string.Join("、", versions) + "。 ");
+            string[] packageIds = sources.Select(source => source.PackageId)
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            if (packageIds.Length > 1)
+                Add("package-id-inconsistent", "同一 Package 依赖组的解析标识不一致：" +
+                                                string.Join("、", packageIds) + "。 ");
+            bool[] directness = sources.Where(source => source.HasPackageDirectness)
+                .Select(source => source.IsDirectPackageDependency)
+                .Distinct()
+                .ToArray();
+            if (directness.Length > 1 ||
+                (sources.Any(source => source.HasPackageDirectness) &&
+                 sources.Any(source => !source.HasPackageDirectness)))
+                Add("package-directness-inconsistent", "同一 Package 依赖组的直接/间接解析证据不一致。 ");
+            return issues.ToArray();
+        }
+
+        internal static string DescribeSourceKind(FrameworkModuleSourceCatalog.SourceKind kind) => kind switch
+        {
+            FrameworkModuleSourceCatalog.SourceKind.ProjectAssets => "Assets 插件",
+            FrameworkModuleSourceCatalog.SourceKind.BuiltInPackage => "Unity 内置 Package",
+            FrameworkModuleSourceCatalog.SourceKind.EmbeddedPackage => "嵌入式 Package",
+            FrameworkModuleSourceCatalog.SourceKind.GitPackage => "Git Package",
+            FrameworkModuleSourceCatalog.SourceKind.LocalPackage => "本地路径 Package",
+            FrameworkModuleSourceCatalog.SourceKind.LocalTarballPackage => "本地压缩包 Package",
+            FrameworkModuleSourceCatalog.SourceKind.RegistryPackage => "Registry Package",
+            _ => "来源未知",
+        };
+
+        internal static string DescribeRemovalState(ExternalDependencyRemovalState state) => state switch
+        {
+            ExternalDependencyRemovalState.RequiredByCore => "核心基础依赖",
+            ExternalDependencyRemovalState.RemoveWithOptionalModuleCandidate => "可随单一可选 Module 评估移除",
+            ExternalDependencyRemovalState.RemoveWithEditorToolCandidate => "可随 Editor 工具评估移除",
+            ExternalDependencyRemovalState.SharedConsumerMigrationRequired => "多个能力共享，需先迁移消费者",
+            ExternalDependencyRemovalState.ProjectConsumerMigrationRequired => "项目代码仍在使用，需先迁移",
+            _ => "证据不完整，暂不能判断",
+        };
+
+        private static string BuildExternalDependencySummary(ExternalDependencyEvidence evidence)
+        {
+            string source = DescribeSourceKind(evidence.SourceKind);
+            string packageDepth = !evidence.HasPackageDirectness
+                ? string.Empty
+                : evidence.IsDirectPackageDependency ? "，项目直接声明" : "，由其他 Package 间接解析";
+            return $"{source}{packageDepth}；{DescribeRemovalState(evidence.RemovalState)}。";
+        }
+
+        private static string[] BuildExternalDependencyRemovalSteps(ExternalDependencyEvidence evidence)
+        {
+            var steps = new List<string>();
+            if (evidence.FrameworkConsumers.Length > 0)
+                steps.Add("先处理 Framework 消费者：" + string.Join("、", evidence.FrameworkConsumers) + "。");
+            if (evidence.ProjectConsumers.Length > 0)
+                steps.Add("先迁移项目消费者：" + string.Join("、", evidence.ProjectConsumers) + "。");
+            switch (evidence.RemovalState)
+            {
+                case ExternalDependencyRemovalState.RequiredByCore:
+                    steps.Add("它位于 Core what-if 闭包中；若要替换，需要把 Core 的公共契约与实现一起设计为新的 Seam，不能只删文件。 ");
+                    break;
+                case ExternalDependencyRemovalState.RemoveWithOptionalModuleCandidate:
+                    steps.Add("把唯一引入它的可选 Module、对应 Editor/Test 辅助和热更 Profile 清理放在同一次结构变更中。 ");
+                    break;
+                case ExternalDependencyRemovalState.RemoveWithEditorToolCandidate:
+                    steps.Add("先移除或关闭对应 Editor 工具程序集，再按该依赖的安装形态从 Package Manager 或 Assets 中处理。 ");
+                    break;
+                case ExternalDependencyRemovalState.ReviewRequired:
+                    steps.Add("先修复顶部列出的来源或扫描缺口；在证据完整前，不执行删除。 ");
+                    break;
+            }
+            if (!string.IsNullOrWhiteSpace(evidence.PackageName))
+            {
+                if (!evidence.HasPackageDirectness)
+                    steps.Add("Package 的直接/间接层级当前不可用；先在 Package Manager 与 Packages/manifest.json 核实上游，再决定移除入口。 ");
+                else
+                    steps.Add(evidence.IsDirectPackageDependency
+                        ? "消费者清零后再通过 Unity Package Manager 处理直接依赖；本窗口保持只读。 "
+                        : "这是解析得到的间接 Package；应调整它的直接上游，而不是把缓存目录当成卸载入口。 ");
+            }
+            else if (evidence.Assemblies.Any(source => source.IsPrecompiledAssembly))
+                steps.Add("消费者清零后再从版本控制中移除对应 Assets DLL 与配套资源；本窗口只负责定位和解释。 ");
+            return steps.Distinct(StringComparer.Ordinal).ToArray();
+        }
+
+        private static string[] BuildExternalDependencyVerificationSteps(ExternalDependencyEvidence evidence) => new[]
+        {
+            "等待 Unity 完成重新编译，并再次运行模块裁剪审计，确认没有 Unknown、声明阻塞或当前 DLL 消费边。",
+            "运行受影响 Module 的 EditMode / PlayMode 测试；涉及反射、序列化、热更或 link.xml 时覆盖对应运行路径。",
+            "在真实目标平台生成 Player BuildReport；原始托管 DLL 字节只用于找候选，不能证明最终包体变化。",
+        };
+
         private static void AppendDeletionTests(StringBuilder sb, IReadOnlyCollection<DeletionCheck> checks)
         {
             sb.AppendLine("删除检查（当前编译快照的元数据引用闭包）");
@@ -909,6 +1775,10 @@ namespace Game.Framework.Editor
         private static string[] BuildRecommendations(AuditResult result)
         {
             var recommendations = new List<string>();
+            if (result.HasDependencyEvidenceGaps)
+                recommendations.Add("第三方依赖扫描存在证据缺口；先修复无法读取的 asmdef、Editor DLL 或预编译引用映射，再判断依赖能否移除。 ");
+            else if (result.HasUnknownExternalDependencySources)
+                recommendations.Add("至少一个外部程序集无法映射到 Assets 或已注册 Package；先补全来源证据，不要按名称猜供应商或直接删除。 ");
             if (result.DependencyIssues.Length > 0)
                 recommendations.Add("先把隐式外部引用补进对应 asmdef；否则编辑器能编译，不代表模块真的能独立取舍。");
             if (!result.AllRuntimeModulesOptIn)
@@ -1037,6 +1907,12 @@ namespace Game.Framework.Editor
             }
             catch (FileLoadException)
             {
+                return string.Empty;
+            }
+            catch (Exception)
+            {
+                // 身份读取是证据采集，不应让单个受损/无权限 DLL 中断整个目录；调用方会把空身份
+                // 转成带资产路径的结构化 issue。真正的编译输出不可读仍由 Capture 主路径 fail-fast。
                 return string.Empty;
             }
         }
@@ -1271,35 +2147,438 @@ namespace Game.Framework.Editor
         }
 
         /// <summary>
-        /// 读取全部项目与 Package asmdef 的显式引用，供物理删除计划使用。它与当前编译快照的代码消费
-        /// 是两种证据：不进入 Player 的程序集不会保留玩家代码，却仍会在被引用 Module 删除后阻塞编译。
+        /// 一次读取全部 asmdef 与可见预编译 DLL，统一产出来源、有效声明边、Player/Editor 当前 DLL 边和扫描问题。
+        /// 声明读取失败不会再被解释成“没有消费者”。
         /// </summary>
-        private static Dictionary<string, string[]> ReadDeclaredConsumers()
+        private static DependencyCapture CaptureDependencyEvidence(
+            IReadOnlyDictionary<string, AssemblyInfo> playerAssemblies,
+            IReadOnlyDictionary<string, string> referencePaths,
+            IReadOnlyDictionary<string, string> precompiledIdentities)
         {
-            var consumers = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+            var capture = new DependencyCapture();
+            var declarations = new List<AsmdefRecord>();
             foreach (string path in AssetDatabase.GetAllAssetPaths()
-                         .Where(path => path.EndsWith(".asmdef", StringComparison.OrdinalIgnoreCase)))
+                         .Where(path => path.EndsWith(".asmdef", StringComparison.OrdinalIgnoreCase))
+                         .OrderBy(path => path, StringComparer.Ordinal))
             {
-                AsmdefJson dto = ReadAsmdef(path);
-                if (dto == null || string.IsNullOrWhiteSpace(dto.name)) continue;
-                foreach (string dependency in GetAllConfiguredReferences(dto))
+                if (!FrameworkModuleSourceCatalog.TryResolve(
+                        path, out FrameworkModuleSourceCatalog.SourceLocation source, out string reason) ||
+                    !File.Exists(source.PhysicalPath))
                 {
-                    if (string.IsNullOrWhiteSpace(dependency) ||
-                        dependency.Equals(dto.name, StringComparison.Ordinal))
-                        continue;
-                    if (!consumers.TryGetValue(dependency, out var names))
+                    capture.AddIssue("asmdef-unreadable", $"{path}：{reason}");
+                    continue;
+                }
+
+                AsmdefJson dto;
+                try
+                {
+                    dto = JsonUtility.FromJson<AsmdefJson>(File.ReadAllText(source.PhysicalPath));
+                }
+                catch (Exception ex)
+                {
+                    capture.AddIssue("asmdef-invalid", $"{path}：{ex.Message}");
+                    continue;
+                }
+                if (dto == null || string.IsNullOrWhiteSpace(dto.name))
+                {
+                    capture.AddIssue("asmdef-missing-name", path + "：缺少有效程序集名。");
+                    continue;
+                }
+
+                var record = new AsmdefRecord
+                {
+                    Dto = dto,
+                    Source = source,
+                    PlatformScope = ClassifyPlatformScope(dto),
+                };
+                declarations.Add(record);
+                capture.AddSource(CreateDependencySource(dto.name, source, false));
+            }
+
+            foreach (PluginImporter importer in PluginImporter.GetAllImporters()
+                         .OrderBy(importer => importer.assetPath, StringComparer.Ordinal))
+            {
+                if (importer == null || importer.isNativePlugin ||
+                    !importer.assetPath.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (!FrameworkModuleSourceCatalog.TryResolve(
+                        importer.assetPath, out var source, out string sourceReason))
+                {
+                    capture.AddIssue("managed-plugin-source-unresolved",
+                        $"{importer.assetPath}：{sourceReason}");
+                    continue;
+                }
+                string identity = ReadManagedAssemblyIdentity(source.PhysicalPath);
+                if (string.IsNullOrWhiteSpace(identity))
+                {
+                    capture.AddIssue("managed-plugin-identity-unreadable",
+                        $"{importer.assetPath}：无法读取托管 DLL AssemblyName；若它不是托管插件，请检查 PluginImporter 类型。 ");
+                    continue;
+                }
+                bool editorCompatible;
+                bool playerCompatible;
+                string[] compatibleBuildTargets;
+                try
+                {
+                    editorCompatible = importer.GetCompatibleWithEditor();
+                    compatibleBuildTargets = Enum.GetValues(typeof(BuildTarget))
+                        .Cast<BuildTarget>()
+                        .Where(target => target != BuildTarget.NoTarget)
+                        .GroupBy(target => (int)target)
+                        .Select(group => group.First())
+                        .Where(importer.GetCompatibleWithPlatform)
+                        .Select(target => target.ToString())
+                        .OrderBy(value => value, StringComparer.Ordinal)
+                        .ToArray();
+                    playerCompatible = compatibleBuildTargets.Contains(
+                        EditorUserBuildSettings.activeBuildTarget.ToString(), StringComparer.Ordinal);
+                }
+                catch (Exception ex)
+                {
+                    capture.AddIssue("managed-plugin-platform-unreadable",
+                        $"{importer.assetPath}：无法读取平台兼容性（{ex.Message}）。 ", identity);
+                    editorCompatible = false;
+                    playerCompatible = false;
+                    compatibleBuildTargets = Array.Empty<string>();
+                }
+                capture.AddSource(CreateDependencySource(
+                    identity, source, true, true, editorCompatible, playerCompatible,
+                    compatibleBuildTargets));
+            }
+
+            foreach (var pair in referencePaths.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+            {
+                if (capture.Sources.ContainsKey(pair.Key)) continue;
+                if (FrameworkModuleSourceCatalog.TryResolve(pair.Value, out var source, out _))
+                    capture.AddSource(CreateDependencySource(pair.Key, source, true));
+                else
+                    capture.Sources[pair.Key] = new DependencySource
                     {
-                        names = new HashSet<string>(StringComparer.Ordinal);
-                        consumers.Add(dependency, names);
+                        AssemblyName = pair.Key,
+                        PhysicalPath = pair.Value,
+                        SourceKind = FrameworkModuleSourceCatalog.SourceKind.UnknownPackage,
+                        IsPrecompiledAssembly = true,
+                        IsExternal = true,
+                    };
+            }
+
+            // 预编译 DLL 也可能引用另一个预编译 DLL。只看一方编译输出会漏掉这段传递链，
+            // 进而把真实依赖误判成“没有消费者”。同一平台互斥变体分别读取，Finish 再去重。
+            foreach (DependencySource source in capture.Sources.Values
+                         .Where(source => source.IsExternal && source.IsPrecompiledAssembly)
+                         .OrderBy(source => source.AssemblyName, StringComparer.Ordinal)
+                         .ToArray())
+            {
+                foreach (ActualConsumerEvidence edge in ReadPrecompiledActualConsumers(
+                             source, issue => capture.AddIssue(
+                                 issue.Code, issue.Message, issue.SubjectAssemblyName)))
+                    capture.AddActual(edge);
+            }
+
+            foreach (AsmdefRecord record in declarations.Where(IsFirstPartyConsumer))
+            {
+                foreach (string configured in record.Dto.references ?? Array.Empty<string>())
+                {
+                    string dependency = NormalizeDeclaredReference(configured);
+                    if (dependency.StartsWith("GUID:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        capture.AddIssue("asmdef-guid-unresolved",
+                            $"{record.Source.AssetPath}：无法还原 {configured}。");
+                        continue;
                     }
-                    names.Add(dto.name);
+                    capture.AddDeclared(record, configured, dependency,
+                        DeclaredReferenceKind.AssemblyDefinition);
+                }
+
+                if (!record.Dto.overrideReferences) continue;
+                foreach (string configured in record.Dto.precompiledReferences ?? Array.Empty<string>())
+                {
+                    string file = Path.GetFileName(configured?.Trim() ?? string.Empty);
+                    if (string.IsNullOrWhiteSpace(file) ||
+                        !file.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ||
+                        !precompiledIdentities.TryGetValue(file, out string dependency) ||
+                        string.IsNullOrWhiteSpace(dependency))
+                    {
+                        capture.AddIssue("precompiled-reference-unresolved",
+                            $"{record.Source.AssetPath}：有效 precompiledReferences 无法映射到 DLL AssemblyName（{configured}）。");
+                        continue;
+                    }
+                    capture.AddDeclared(record, configured, dependency,
+                        DeclaredReferenceKind.PrecompiledAssembly);
                 }
             }
 
-            return consumers.ToDictionary(
-                pair => pair.Key,
-                pair => pair.Value.OrderBy(name => name, StringComparer.Ordinal).ToArray(),
-                StringComparer.Ordinal);
+            foreach (var pair in playerAssemblies.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+            {
+                AssemblyInfo consumer = pair.Value;
+                var source = capture.Sources.TryGetValue(consumer.Name, out DependencySource known)
+                    ? known
+                    : null;
+                capture.AddActualReferences(
+                    consumer.Name,
+                    consumer.AsmdefPath,
+                    source,
+                    ConsumerPlatformScope.Player,
+                    consumer.ActualReferences);
+            }
+
+            foreach (UnityEditor.Compilation.Assembly assembly in
+                     CompilationPipeline.GetAssemblies(AssembliesType.Editor)
+                         .OrderBy(item => item.name, StringComparer.Ordinal))
+            {
+                string path = CompilationPipeline.GetAssemblyDefinitionFilePathFromAssemblyName(assembly.name);
+                FrameworkModuleSourceCatalog.SourceLocation source = null;
+                bool predefinedAssembly = string.IsNullOrWhiteSpace(path);
+                if (!predefinedAssembly &&
+                    !FrameworkModuleSourceCatalog.TryResolve(path, out source, out string sourceReason))
+                    capture.AddIssue("editor-assembly-source-unresolved",
+                        $"{assembly.name}（{path}）：{sourceReason}", assembly.name);
+                bool firstParty = predefinedAssembly ||
+                                  source?.Kind == FrameworkModuleSourceCatalog.SourceKind.ProjectAssets ||
+                                  IsFrameworkAssembly(assembly.name);
+                AsmdefRecord record = declarations.FirstOrDefault(item =>
+                    item.Dto.name.Equals(assembly.name, StringComparison.Ordinal));
+                string output = FullPath(assembly.outputPath);
+                if (!File.Exists(output))
+                {
+                    capture.AddIssue("editor-assembly-missing",
+                        $"{assembly.name}：当前 Editor DLL 快照不存在（{output}）。",
+                        firstParty ? string.Empty : assembly.name);
+                    continue;
+                }
+                DependencySource consumerSource = source != null
+                    ? CreateDependencySource(assembly.name, source, false)
+                    : predefinedAssembly
+                        ? null
+                        : new DependencySource
+                        {
+                            AssemblyName = assembly.name,
+                            AssetPath = path,
+                            SourceKind = FrameworkModuleSourceCatalog.SourceKind.UnknownPackage,
+                            IsExternal = true,
+                        };
+                if (consumerSource != null) capture.AddSource(consumerSource);
+                string[] references;
+                try
+                {
+                    references = ReadAssemblyReferences(output);
+                }
+                catch (Exception ex)
+                {
+                    capture.AddIssue("editor-assembly-metadata-unreadable",
+                        $"{assembly.name}（{output}）：{ex.Message}",
+                        firstParty ? string.Empty : assembly.name);
+                    continue;
+                }
+                capture.AddActualReferences(
+                    assembly.name,
+                    source?.AssetPath ?? path ?? string.Empty,
+                    consumerSource,
+                    ClassifyEditorSnapshotScope(record?.PlatformScope ?? ConsumerPlatformScope.Unknown),
+                    references);
+            }
+
+            capture.Finish();
+            return capture;
+        }
+
+        internal static ActualConsumerEvidence[] ReadPrecompiledActualConsumers(
+            DependencySource source,
+            Action<EvidenceIssue> issueSink = null)
+        {
+            if (source == null || !source.IsPrecompiledAssembly) return Array.Empty<ActualConsumerEvidence>();
+            DependencySourceVariant[] variants = source.Variants.Length > 0
+                ? source.Variants
+                : source.AllPhysicalPaths.Select(path => new DependencySourceVariant
+                {
+                    PhysicalPath = path,
+                }).ToArray();
+            var result = new List<ActualConsumerEvidence>();
+            foreach (DependencySourceVariant variant in variants)
+            {
+                if (!File.Exists(variant.PhysicalPath))
+                {
+                    issueSink?.Invoke(new EvidenceIssue
+                    {
+                        Code = "precompiled-assembly-missing",
+                        Message = $"{source.AssemblyName}：预编译 DLL 不存在（{variant.AssetPath} / {variant.PhysicalPath}）。 ",
+                        SubjectAssemblyName = source.AssemblyName,
+                    });
+                    continue;
+                }
+                // 物理变体仍保留在来源目录中，但当前 Editor / active BuildTarget 均不兼容时，
+                // 它不属于“当前已编译 DLL 快照”，不能把其引用边混入当前平台图。
+                if (variant.HasCompatibilityEvidence && !variant.IsEditorCompatible &&
+                    !variant.IsActiveBuildTargetCompatible)
+                    continue;
+                string[] references;
+                try
+                {
+                    references = ReadAssemblyReferences(variant.PhysicalPath);
+                }
+                catch (Exception ex)
+                {
+                    issueSink?.Invoke(new EvidenceIssue
+                    {
+                        Code = "precompiled-assembly-metadata-unreadable",
+                        Message = $"{source.AssemblyName}（{variant.AssetPath}）：{ex.Message}",
+                        SubjectAssemblyName = source.AssemblyName,
+                    });
+                    continue;
+                }
+                ConsumerPlatformScope scope = !variant.HasCompatibilityEvidence
+                    ? ConsumerPlatformScope.Unknown
+                    : variant.IsEditorCompatible && variant.IsActiveBuildTargetCompatible
+                        ? ConsumerPlatformScope.Mixed
+                        : variant.IsEditorCompatible
+                            ? ConsumerPlatformScope.Editor
+                            : variant.IsActiveBuildTargetCompatible
+                                ? ConsumerPlatformScope.Player
+                                : ConsumerPlatformScope.Unknown;
+                result.AddRange(references.Select(dependency => new ActualConsumerEvidence
+                {
+                    DependencyAssemblyName = dependency,
+                    ConsumerAssemblyName = source.AssemblyName,
+                    ConsumerAsmdefPath = variant.AssetPath,
+                    ConsumerSourceKind = source.SourceKind,
+                    ConsumerPackageName = source.PackageName,
+                    PlatformScope = scope,
+                }));
+            }
+            return result
+                .GroupBy(edge => edge.DependencyAssemblyName + "\0" + edge.PlatformScope,
+                    StringComparer.Ordinal)
+                .Select(group => group.First())
+                .OrderBy(edge => edge.DependencyAssemblyName, StringComparer.Ordinal)
+                .ThenBy(edge => edge.PlatformScope)
+                .ToArray();
+        }
+
+        private static bool IsFirstPartyConsumer(AsmdefRecord record) =>
+            record.Source.Kind == FrameworkModuleSourceCatalog.SourceKind.ProjectAssets ||
+            IsFrameworkAssembly(record.Dto.name);
+
+        private static DependencySource CreateDependencySource(
+            string assemblyName,
+            FrameworkModuleSourceCatalog.SourceLocation source,
+            bool isPrecompiled,
+            bool hasCompatibilityEvidence = false,
+            bool isEditorCompatible = false,
+            bool isPlayerCompatible = false,
+            string[] compatibleBuildTargets = null) => new()
+        {
+            AssemblyName = assemblyName ?? string.Empty,
+            AssetPath = source?.AssetPath ?? string.Empty,
+            PhysicalPath = source?.PhysicalPath ?? string.Empty,
+            PackageName = source?.PackageName ?? string.Empty,
+            PackageVersion = source?.PackageVersion ?? string.Empty,
+            PackageId = source?.PackageId ?? string.Empty,
+            SourceKind = source?.Kind ?? FrameworkModuleSourceCatalog.SourceKind.UnknownPackage,
+            HasPackageDirectness = source?.HasPackageDirectness ?? false,
+            IsDirectPackageDependency = source?.IsDirectPackageDependency ?? false,
+            IsPrecompiledAssembly = isPrecompiled,
+            IsExternal = source == null || source.IsPackage || isPrecompiled,
+            Variants = source == null
+                ? Array.Empty<DependencySourceVariant>()
+                : new[]
+                {
+                    new DependencySourceVariant
+                    {
+                        AssetPath = source.AssetPath ?? string.Empty,
+                        PhysicalPath = source.PhysicalPath ?? string.Empty,
+                        HasCompatibilityEvidence = hasCompatibilityEvidence,
+                        IsEditorCompatible = isEditorCompatible,
+                        IsActiveBuildTargetCompatible = isPlayerCompatible,
+                        CompatibleBuildTargets = compatibleBuildTargets ?? Array.Empty<string>(),
+                    },
+                },
+        };
+
+        private static ConsumerPlatformScope ClassifyPlatformScope(AsmdefJson dto)
+        {
+            string[] constraints = dto?.defineConstraints ?? Array.Empty<string>();
+            ConsumerPlatformScope constraintScope = ClassifyDefineConstraintScope(constraints);
+            bool hasPlatformConstraint = constraints.Any(value =>
+                value?.Contains("UNITY_EDITOR", StringComparison.Ordinal) == true ||
+                value?.Contains("UNITY_INCLUDE_TESTS", StringComparison.Ordinal) == true);
+            if (hasPlatformConstraint && constraintScope == ConsumerPlatformScope.Unknown)
+                return ConsumerPlatformScope.Unknown;
+            string[] includes = dto?.includePlatforms ?? Array.Empty<string>();
+            bool includesEditor = includes.Any(platform =>
+                platform.Equals("Editor", StringComparison.OrdinalIgnoreCase));
+            ConsumerPlatformScope platformScope;
+            if (includes.Length > 0)
+                platformScope = includesEditor
+                    ? includes.Length == 1 ? ConsumerPlatformScope.Editor : ConsumerPlatformScope.Mixed
+                    : ConsumerPlatformScope.Player;
+            else
+            {
+                string[] excludes = dto?.excludePlatforms ?? Array.Empty<string>();
+                platformScope = excludes.Any(platform =>
+                    platform.Equals("Editor", StringComparison.OrdinalIgnoreCase))
+                    ? ConsumerPlatformScope.Player
+                    : ConsumerPlatformScope.Mixed;
+            }
+
+            return IntersectDeclaredPlatformScopes(constraintScope, platformScope);
+        }
+
+        /// <summary>
+        /// CompilationPipeline 的 Editor 快照只证明 Editor 域中的引用；即使同一 asmdef 也参与
+        /// Player 编译，这里的边仍不能反向冒充 Player 证据。Test 程序集保留更窄的 Tests 范围。
+        /// </summary>
+        internal static ConsumerPlatformScope ClassifyEditorSnapshotScope(
+            ConsumerPlatformScope declaredScope) =>
+            declaredScope == ConsumerPlatformScope.Tests
+                ? ConsumerPlatformScope.Tests
+                : ConsumerPlatformScope.Editor;
+
+        internal static ConsumerPlatformScope ClassifyPlatformScopeForTests(
+            string[] constraints,
+            string[] includes,
+            string[] excludes) => ClassifyPlatformScope(new AsmdefJson
+        {
+            defineConstraints = constraints,
+            includePlatforms = includes,
+            excludePlatforms = excludes,
+        });
+
+        internal static ConsumerPlatformScope ClassifyDefineConstraintScope(
+            IEnumerable<string> constraints)
+        {
+            string[] values = (constraints ?? Array.Empty<string>())
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value.Trim())
+                .ToArray();
+            if (values.Length == 0) return ConsumerPlatformScope.Unknown;
+            if (values.Any(value => value.Contains("||") || value.Contains("&&") ||
+                                    value.Contains('(') || value.Contains(')')))
+                return ConsumerPlatformScope.Unknown;
+
+            bool editor = values.Contains("UNITY_EDITOR", StringComparer.Ordinal);
+            bool notEditor = values.Contains("!UNITY_EDITOR", StringComparer.Ordinal);
+            bool tests = values.Contains("UNITY_INCLUDE_TESTS", StringComparer.Ordinal);
+            bool notTests = values.Contains("!UNITY_INCLUDE_TESTS", StringComparer.Ordinal);
+            if ((editor && notEditor) || (tests && notTests) || (tests && notEditor))
+                return ConsumerPlatformScope.Unknown;
+            if (tests) return ConsumerPlatformScope.Tests;
+            if (editor) return ConsumerPlatformScope.Editor;
+            if (notEditor) return ConsumerPlatformScope.Player;
+            if (notTests) return ConsumerPlatformScope.Mixed;
+            return ConsumerPlatformScope.Unknown;
+        }
+
+        private static ConsumerPlatformScope IntersectDeclaredPlatformScopes(
+            ConsumerPlatformScope constraint,
+            ConsumerPlatformScope platform)
+        {
+            if (constraint == ConsumerPlatformScope.Unknown) return platform;
+            if (platform == ConsumerPlatformScope.Mixed) return constraint;
+            if (constraint == ConsumerPlatformScope.Mixed) return platform;
+            if (constraint == platform) return constraint;
+            if (constraint == ConsumerPlatformScope.Tests && platform == ConsumerPlatformScope.Editor)
+                return ConsumerPlatformScope.Tests;
+            return ConsumerPlatformScope.Unknown;
         }
 
         private static bool IsTrue(string value) =>
@@ -1372,8 +2651,13 @@ namespace Game.Framework.Editor
             {
                 string file = Path.GetFileName(importer.assetPath);
                 string identity = ReadManagedPluginAssemblyIdentity(importer);
-                if (!string.IsNullOrWhiteSpace(file) && !string.IsNullOrWhiteSpace(identity))
-                    result[file] = identity;
+                if (string.IsNullOrWhiteSpace(file) || string.IsNullOrWhiteSpace(identity)) continue;
+                if (result.TryGetValue(file, out string existing) &&
+                    !existing.Equals(identity, StringComparison.Ordinal))
+                    throw new InvalidDataException(
+                        $"PluginImporter 文件名 {file} 对应多个 AssemblyName：{existing}；{identity}。" +
+                        "precompiledReferences 无法无歧义解析，请先消除同名 DLL。 ");
+                result[file] = identity;
             }
             return result;
         }
@@ -1398,13 +2682,6 @@ namespace Game.Framework.Editor
             if (reference.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)) return true;
             return (asmdefNames == null || !asmdefNames.Contains(reference)) &&
                    precompiledAssemblyNames?.Contains(reference) == true;
-        }
-
-        private static string[] GetAllConfiguredReferences(AsmdefJson dto)
-        {
-            if (dto == null) return Array.Empty<string>();
-            return NormalizeDeclaredReferences((dto.references ?? Array.Empty<string>())
-                .Concat(dto.precompiledReferences ?? Array.Empty<string>()));
         }
 
         private static string[] NormalizeDeclaredReferences(IEnumerable<string> references)
@@ -1438,8 +2715,8 @@ namespace Game.Framework.Editor
         {
             string path = CompilationPipeline.GetAssemblyDefinitionFilePathFromAssemblyName(assemblyName);
             var dto = ReadAsmdef(path);
-            if (dto?.defineConstraints == null) return false;
-            return dto.defineConstraints.Any(constraint => EditorOnlyConstraints.Contains(constraint));
+            ConsumerPlatformScope scope = ClassifyPlatformScope(dto);
+            return scope is ConsumerPlatformScope.Editor or ConsumerPlatformScope.Tests;
         }
 
         private static bool IsFrameworkAssembly(string name)
@@ -1460,28 +2737,42 @@ namespace Game.Framework.Editor
                    name.Equals("netstandard", StringComparison.Ordinal) ||
                    name.Equals("System", StringComparison.Ordinal) ||
                    name.StartsWith("System.", StringComparison.Ordinal) ||
+                   name.Equals("Microsoft.CSharp", StringComparison.Ordinal) ||
+                   name.Equals("Microsoft.CodeAnalysis", StringComparison.Ordinal) ||
+                   name.StartsWith("Microsoft.CodeAnalysis.", StringComparison.Ordinal) ||
                    name.StartsWith("Microsoft.Win32.", StringComparison.Ordinal) ||
+                   name.Equals("Mono.Posix", StringComparison.Ordinal) ||
+                   name.Equals("UnityEngine", StringComparison.Ordinal) ||
                    name.StartsWith("UnityEngine.", StringComparison.Ordinal) ||
+                   name.Equals("UnityEditor", StringComparison.Ordinal) ||
+                   name.StartsWith("Unity.CompilationPipeline.", StringComparison.Ordinal) ||
                    name.StartsWith("UnityEditor.", StringComparison.Ordinal);
         }
 
         private static bool IsPlatformReference(Snapshot snapshot, string name)
         {
-            if (string.IsNullOrEmpty(name) ||
+            if (string.IsNullOrEmpty(name)) return true;
+            // UnityEngine/UnityEditor 模块由 asmdef 的引擎引用语义提供，不通过 references / precompiledReferences
+            // 声明；即使它们的源码或二进制来自已注册 Package，也不能按普通第三方程序集判漏声明。
+            if (name.Equals("UnityEngine", StringComparison.Ordinal) ||
                 name.StartsWith("UnityEngine.", StringComparison.Ordinal) ||
-                name.StartsWith("UnityEditor.", StringComparison.Ordinal))
+                name.Equals("UnityEditor", StringComparison.Ordinal) ||
+                name.StartsWith("UnityEditor.", StringComparison.Ordinal) ||
+                name.StartsWith("Unity.CompilationPipeline.", StringComparison.Ordinal))
                 return true;
 
             // NuGet 也会提供 System.* DLL（例如 Protobuf 依赖的 Unsafe）。按名字会误当 BCL，
-            // 因此只在引用来自 Unity 安装目录时判为平台程序集；项目 Packages 下的同名 DLL 仍要计体积。
-            if (snapshot.ReferencePaths.TryGetValue(name, out string path))
-            {
-                string normalized = path.Replace('\\', '/');
-                string projectRoot = Directory.GetParent(Application.dataPath)?.FullName?.Replace('\\', '/');
-                if (!string.IsNullOrEmpty(projectRoot) &&
-                    normalized.StartsWith(projectRoot + "/", StringComparison.OrdinalIgnoreCase))
-                    return false;
-            }
+            // 因此已解析到 Assets / Package 的外部来源优先于名字规则；Editor-only DLL 可能不在 Player
+            // ReferencePaths 中，仍不能被 System.* 前缀静默吞掉。
+            if (snapshot.DependencySources.TryGetValue(name, out DependencySource source) &&
+                source.IsExternal && source.IsKnown &&
+                (!string.IsNullOrWhiteSpace(source.PackageName) ||
+                 source.AllAssetPaths.Any(path =>
+                     path.Replace('\\', '/').StartsWith("Assets/", StringComparison.OrdinalIgnoreCase))))
+                return false;
+
+            // Unity/Bee 可能把 netstandard 等平台 DLL 复制到项目 Library 下；物理路径位于项目根内
+            // 不能证明它是项目依赖。只有上面的 Source Catalog 能把 System.* 覆盖为外部来源。
             return IsPlatformReference(name);
         }
 
@@ -1503,7 +2794,236 @@ namespace Game.Framework.Editor
             public string[] precompiledReferences;
             public bool overrideReferences;
             public bool autoReferenced = true;
+            public string[] includePlatforms;
+            public string[] excludePlatforms;
             public string[] defineConstraints;
+        }
+
+        private sealed class AsmdefRecord
+        {
+            internal AsmdefJson Dto;
+            internal FrameworkModuleSourceCatalog.SourceLocation Source;
+            internal ConsumerPlatformScope PlatformScope;
+        }
+
+        private sealed class DependencyCapture
+        {
+            private readonly List<DeclaredConsumerEvidence> _declared = new();
+            private readonly List<ActualConsumerEvidence> _actual = new();
+            private readonly List<EvidenceIssue> _issues = new();
+
+            internal readonly Dictionary<string, DependencySource> Sources =
+                new(StringComparer.Ordinal);
+            internal DeclaredConsumerEvidence[] DeclaredConsumers = Array.Empty<DeclaredConsumerEvidence>();
+            internal ActualConsumerEvidence[] ActualConsumers = Array.Empty<ActualConsumerEvidence>();
+            internal EvidenceIssue[] Issues = Array.Empty<EvidenceIssue>();
+            internal Dictionary<string, string[]> DeclaredConsumersByDependency =
+                new(StringComparer.Ordinal);
+
+            internal void AddSource(DependencySource candidate)
+            {
+                if (candidate == null || string.IsNullOrWhiteSpace(candidate.AssemblyName)) return;
+                if (!Sources.TryGetValue(candidate.AssemblyName, out DependencySource existing))
+                {
+                    Sources.Add(candidate.AssemblyName, candidate);
+                    return;
+                }
+                if (!existing.IsKnown && candidate.IsKnown)
+                {
+                    MergeVariants(candidate, existing, validateCompatibility: false);
+                    Sources[candidate.AssemblyName] = candidate;
+                    return;
+                }
+                if (existing.IsKnown && !candidate.IsKnown) return;
+                if (string.Equals(existing.AssetPath, candidate.AssetPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    MergeVariants(existing, candidate, validateCompatibility: false);
+                    return;
+                }
+
+                bool samePackage = !string.IsNullOrWhiteSpace(existing.PackageName) &&
+                                   existing.PackageName.Equals(candidate.PackageName, StringComparison.Ordinal);
+                if (samePackage)
+                {
+                    if (existing.SourceKind != candidate.SourceKind ||
+                        !string.Equals(existing.PackageVersion, candidate.PackageVersion,
+                            StringComparison.Ordinal) ||
+                        existing.HasPackageDirectness != candidate.HasPackageDirectness ||
+                        existing.HasPackageDirectness &&
+                        existing.IsDirectPackageDependency != candidate.IsDirectPackageDependency)
+                        AddIssue("package-source-inconsistent",
+                            $"{candidate.AssemblyName} 的 Package 来源证据不一致：" +
+                            $"{existing.AssetPath}；{candidate.AssetPath}。 ",
+                            candidate.AssemblyName);
+                    MergeVariants(existing, candidate, validateCompatibility: false);
+                    return;
+                }
+
+                bool bothAssetsDll = existing.SourceKind ==
+                                     FrameworkModuleSourceCatalog.SourceKind.ProjectAssets &&
+                                     candidate.SourceKind ==
+                                     FrameworkModuleSourceCatalog.SourceKind.ProjectAssets &&
+                                     existing.IsPrecompiledAssembly && candidate.IsPrecompiledAssembly;
+                if (bothAssetsDll)
+                {
+                    MergeVariants(existing, candidate, validateCompatibility: true);
+                    return;
+                }
+                AddIssue("assembly-source-ambiguous",
+                    $"AssemblyName {candidate.AssemblyName} 对应多个来源：{existing.AssetPath}；{candidate.AssetPath}。",
+                    candidate.AssemblyName);
+            }
+
+            private void MergeVariants(
+                DependencySource target,
+                DependencySource incoming,
+                bool validateCompatibility)
+            {
+                var merged = target.Variants.ToList();
+                foreach (DependencySourceVariant variant in incoming.Variants)
+                {
+                    int samePath = merged.FindIndex(item =>
+                        item.AssetPath.Equals(variant.AssetPath, StringComparison.OrdinalIgnoreCase) &&
+                        item.PhysicalPath.Equals(variant.PhysicalPath, StringComparison.OrdinalIgnoreCase));
+                    if (samePath >= 0)
+                    {
+                        if (!merged[samePath].HasCompatibilityEvidence &&
+                            variant.HasCompatibilityEvidence)
+                            merged[samePath] = variant;
+                        continue;
+                    }
+
+                    if (validateCompatibility && merged.Any(existing =>
+                            !ArePlatformExclusive(existing, variant)))
+                        AddIssue("assembly-source-ambiguous",
+                            $"AssemblyName {target.AssemblyName} 的 Assets DLL 变体平台范围重叠或无法证明互斥：" +
+                            $"{target.AssetPath}；{variant.AssetPath}。 ", target.AssemblyName);
+                    merged.Add(variant);
+                }
+                target.Variants = merged
+                    .OrderBy(item => item.AssetPath, StringComparer.OrdinalIgnoreCase)
+                    .ThenBy(item => item.PhysicalPath, StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+            }
+
+            private static bool ArePlatformExclusive(
+                DependencySourceVariant left,
+                DependencySourceVariant right) =>
+                AreDependencySourceVariantsPlatformExclusive(left, right);
+
+            internal void AddDeclared(
+                AsmdefRecord consumer,
+                string configured,
+                string dependency,
+                DeclaredReferenceKind kind)
+            {
+                if (string.IsNullOrWhiteSpace(dependency) ||
+                    dependency.Equals(consumer.Dto.name, StringComparison.Ordinal))
+                    return;
+                _declared.Add(new DeclaredConsumerEvidence
+                {
+                    DependencyAssemblyName = dependency,
+                    ConfiguredReference = configured?.Trim() ?? string.Empty,
+                    ReferenceKind = kind,
+                    ConsumerAssemblyName = consumer.Dto.name,
+                    ConsumerAsmdefPath = consumer.Source.AssetPath,
+                    ConsumerSourceKind = consumer.Source.Kind,
+                    ConsumerPackageName = consumer.Source.PackageName,
+                    PlatformScope = consumer.PlatformScope,
+                });
+                if (!Sources.ContainsKey(dependency))
+                    Sources[dependency] = new DependencySource
+                    {
+                        AssemblyName = dependency,
+                        SourceKind = FrameworkModuleSourceCatalog.SourceKind.UnknownPackage,
+                        IsExternal = true,
+                    };
+            }
+
+            internal void AddActualReferences(
+                string consumerName,
+                string asmdefPath,
+                DependencySource consumerSource,
+                ConsumerPlatformScope scope,
+                IEnumerable<string> references)
+            {
+                foreach (string dependency in references ?? Array.Empty<string>())
+                {
+                    if (string.IsNullOrWhiteSpace(dependency) ||
+                        dependency.Equals(consumerName, StringComparison.Ordinal))
+                        continue;
+                    AddActual(new ActualConsumerEvidence
+                    {
+                        DependencyAssemblyName = dependency,
+                        ConsumerAssemblyName = consumerName ?? string.Empty,
+                        ConsumerAsmdefPath = asmdefPath ?? string.Empty,
+                        ConsumerSourceKind = consumerSource?.SourceKind ??
+                                             FrameworkModuleSourceCatalog.SourceKind.ProjectAssets,
+                        ConsumerPackageName = consumerSource?.PackageName ?? string.Empty,
+                        PlatformScope = scope,
+                    });
+                }
+            }
+
+            internal void AddActual(ActualConsumerEvidence edge)
+            {
+                if (edge == null || string.IsNullOrWhiteSpace(edge.DependencyAssemblyName) ||
+                    edge.DependencyAssemblyName.Equals(edge.ConsumerAssemblyName, StringComparison.Ordinal))
+                    return;
+                _actual.Add(edge);
+                if (!Sources.ContainsKey(edge.DependencyAssemblyName))
+                    Sources[edge.DependencyAssemblyName] = new DependencySource
+                    {
+                        AssemblyName = edge.DependencyAssemblyName,
+                        SourceKind = FrameworkModuleSourceCatalog.SourceKind.UnknownPackage,
+                        IsExternal = true,
+                    };
+            }
+
+            internal void AddIssue(string code, string message, string subjectAssemblyName = "")
+            {
+                if (string.IsNullOrWhiteSpace(message)) return;
+                _issues.Add(new EvidenceIssue
+                {
+                    Code = code ?? string.Empty,
+                    Message = message,
+                    SubjectAssemblyName = subjectAssemblyName ?? string.Empty,
+                });
+            }
+
+            internal void Finish()
+            {
+                DeclaredConsumers = _declared
+                    .GroupBy(item => item.DependencyAssemblyName + "\0" + item.ConsumerAssemblyName + "\0" +
+                                     item.ReferenceKind, StringComparer.Ordinal)
+                    .Select(group => group.First())
+                    .OrderBy(item => item.DependencyAssemblyName, StringComparer.Ordinal)
+                    .ThenBy(item => item.ConsumerAssemblyName, StringComparer.Ordinal)
+                    .ToArray();
+                ActualConsumers = _actual
+                    .GroupBy(item => item.DependencyAssemblyName + "\0" + item.ConsumerAssemblyName + "\0" +
+                                     item.PlatformScope, StringComparer.Ordinal)
+                    .Select(group => group.First())
+                    .OrderBy(item => item.DependencyAssemblyName, StringComparer.Ordinal)
+                    .ThenBy(item => item.ConsumerAssemblyName, StringComparer.Ordinal)
+                    .ToArray();
+                Issues = _issues
+                    .GroupBy(issue => issue.Code + "\0" + issue.SubjectAssemblyName + "\0" +
+                                      issue.Message, StringComparer.Ordinal)
+                    .Select(group => group.First())
+                    .OrderBy(issue => issue.Code, StringComparer.Ordinal)
+                    .ThenBy(issue => issue.Message, StringComparer.Ordinal)
+                    .ToArray();
+                DeclaredConsumersByDependency = DeclaredConsumers
+                    .GroupBy(item => item.DependencyAssemblyName, StringComparer.Ordinal)
+                    .ToDictionary(
+                        group => group.Key,
+                        group => group.Select(item => item.ConsumerAssemblyName)
+                            .Distinct(StringComparer.Ordinal)
+                            .OrderBy(name => name, StringComparer.Ordinal)
+                            .ToArray(),
+                        StringComparer.Ordinal);
+            }
         }
 
         private sealed class AssemblyReferenceCacheEntry
