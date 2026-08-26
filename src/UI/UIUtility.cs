@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using Game.Framework.Internal;
+using Game.Framework.Logging;
 using UnityEngine;
 
 namespace Game.Framework.UI
@@ -84,8 +85,8 @@ namespace Game.Framework.UI
                 // （与全新打开路径的 cover 语义对称；已是栈顶则只刷新 OnOpen）。
                 if (!wasTop)
                 {
-                    if (curTop != null) SafeHook(curTop.OnCover, curTop);
-                    SafeHook(already.OnReveal, already);
+                    if (curTop != null) SafeHook(nameof(IUIWindow.OnCover), curTop.OnCover, curTop);
+                    SafeHook(nameof(IUIWindow.OnReveal), already.OnReveal, already);
                 }
                 SafeOnOpen(already, args);
                 return already;
@@ -137,7 +138,7 @@ namespace Game.Framework.UI
                 _open[type] = window;
 
                 if (meta.Modal) _backend.SetModalMask(window, true);
-                if (prevTop != null) SafeHook(prevTop.OnCover, prevTop);
+                if (prevTop != null) SafeHook(nameof(IUIWindow.OnCover), prevTop.OnCover, prevTop);
 
                 SafeOnOpen(window, args);
                 // 入场过渡（新建 / 缓存复用都播；已打开置顶刷新不播）。不 await——Open 在 OnOpen 后即返回，
@@ -227,7 +228,8 @@ namespace Game.Framework.UI
         {
             if (_builtins?.Toast == null)
             {
-                Debug.LogError("[UIUtility] 未注册 Toast 内置窗口类型（UIBuiltinWindows.Toast）——本后端入口未提供内置件。");
+                Log.Error("未注册 Toast 内置窗口类型（UIBuiltinWindows.Toast）——本后端入口未提供内置件。",
+                    category: nameof(UIUtility));
                 return;
             }
             await OpenCore(_builtins.Toast, new UIToastArgs(text, duration), ct);
@@ -337,14 +339,15 @@ namespace Game.Framework.UI
 
             // 关掉的是栈顶 → 新栈顶重新露出（批量 CloseAll 时抑制——那个"新栈顶"马上也会被关掉）。
             if (wasTop && layerList.Count > 0 && !_batchClosing)
-                SafeHook(layerList[layerList.Count - 1].OnReveal, layerList[layerList.Count - 1]);
+                SafeHook(nameof(IUIWindow.OnReveal), layerList[layerList.Count - 1].OnReveal,
+                    layerList[layerList.Count - 1]);
 
             // 出场过渡：批量关闭不播（场景切换要的是立刻干净）。hook 同步抛异常 → 记日志按无过渡走。
             var transition = UniTask.CompletedTask;
             if (!_batchClosing)
             {
                 try { transition = window.OnCloseTransition(_context.CancellationToken); }
-                catch (Exception e) { Debug.LogException(e); }
+                catch (Exception e) { LogHookFailure(window, nameof(IUIWindow.OnCloseTransition), e); }
             }
 
             if (transition.Status == UniTaskStatus.Succeeded)
@@ -359,7 +362,8 @@ namespace Game.Framework.UI
         {
             loadingType = _builtins?.Loading;
             if (loadingType != null) return true;
-            Debug.LogError("[UIUtility] 未注册 Loading 内置窗口类型（UIBuiltinWindows.Loading）——本后端入口未提供内置件。");
+            Log.Error("未注册 Loading 内置窗口类型（UIBuiltinWindows.Loading）——本后端入口未提供内置件。",
+                category: nameof(UIUtility));
             return false;
         }
 
@@ -400,7 +404,7 @@ namespace Game.Framework.UI
             BeginTransition();
             try { await transition; }
             catch (OperationCanceledException) { } // Context 销毁级联取消：正常路径，无需日志
-            catch (Exception e) { Debug.LogException(e); }
+            catch (Exception e) { LogHookFailure(window, nameof(IUIWindow.OnCloseTransition), e); }
             finally
             {
                 EndTransition();
@@ -412,7 +416,7 @@ namespace Game.Framework.UI
         // 关闭收尾：OnClose → 按缓存策略隐藏或销毁。
         private void FinishClose(IUIWindow window, UIWindowMeta meta)
         {
-            SafeHook(window.OnClose, window);
+            SafeHook(nameof(IUIWindow.OnClose), window.OnClose, window);
 
             // 缓存入位前检查：出场动画期间同类型可能已被重新打开（_open 有新实例）或另一实例已入缓存——
             // 此时本实例已是孤儿，缓存它会永久泄漏（占坑且永不销毁），直接销毁。
@@ -434,17 +438,17 @@ namespace Game.Framework.UI
         {
             UniTask transition;
             try { transition = window.OnOpenTransition(_context.CancellationToken); }
-            catch (Exception e) { Debug.LogException(e); return; }
+            catch (Exception e) { LogHookFailure(window, nameof(IUIWindow.OnOpenTransition), e); return; }
             if (transition.Status == UniTaskStatus.Succeeded) return; // 默认无过渡：零开销
-            RunOpenTransition(transition).Forget();
+            RunOpenTransition(window, transition).Forget();
         }
 
-        private async UniTaskVoid RunOpenTransition(UniTask transition)
+        private async UniTaskVoid RunOpenTransition(IUIWindow window, UniTask transition)
         {
             BeginTransition();
             try { await transition; }
             catch (OperationCanceledException) { }
-            catch (Exception e) { Debug.LogException(e); }
+            catch (Exception e) { LogHookFailure(window, nameof(IUIWindow.OnOpenTransition), e); }
             finally { EndTransition(); }
         }
 
@@ -483,17 +487,26 @@ namespace Game.Framework.UI
         }
 
         // 窗口 hook 隔离：单个窗口的回调抛异常不应连累框架（与 CommandSystem 的异常隔离一致）。
-        private static void SafeOnCreate(IUIWindow w) => SafeHook(w.OnCreate, w);
+        private static void SafeOnCreate(IUIWindow w)
+            => SafeHook(nameof(IUIWindow.OnCreate), w.OnCreate, w);
+
         private static void SafeOnOpen(IUIWindow w, object args)
         {
             try { w.OnOpen(args); }
-            catch (Exception e) { Debug.LogException(e); }
+            catch (Exception e) { LogHookFailure(w, nameof(IUIWindow.OnOpen), e); }
         }
-        private static void SafeHook(Action hook, IUIWindow owner)
+
+        private static void SafeHook(string hookName, Action hook, IUIWindow owner)
         {
             try { hook(); }
-            catch (Exception e) { Debug.LogException(e); }
+            catch (Exception e) { LogHookFailure(owner, hookName, e); }
         }
+
+        private static void LogHookFailure(IUIWindow owner, string hookName, Exception exception)
+            => Log.Error(
+                $"窗口 {owner.GetType().Name} 的 {hookName} 抛出异常；异常已隔离，UI 编排继续。",
+                exception,
+                nameof(UIUtility));
 
         private void ThrowIfDisposed()
         {

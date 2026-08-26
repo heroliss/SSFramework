@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using Game.Framework.Internal;
+using Game.Framework.Logging;
 using UnityEngine;
 using UnityEngine.UI;
 using Object = UnityEngine.Object;
@@ -56,6 +57,13 @@ namespace Game.Framework.UI.UGui
 
         public async UniTask<IUIWindow> CreateWindow(UIWindowMeta meta, IGameContext context, CancellationToken ct)
         {
+            if (!typeof(UGuiWindowBase).IsAssignableFrom(meta.WindowType))
+            {
+                Log.Error($"{meta.WindowType.Name} 不是 {nameof(UGuiWindowBase)} 派生类型。",
+                    category: nameof(UGuiBackend));
+                return null;
+            }
+
             var parent = _layerRoots[meta.Layer];
             GameObject go;
             DisposableBag wbag = null;
@@ -82,8 +90,9 @@ namespace Game.Framework.UI.UGui
             var window = go.GetComponent(meta.WindowType) as IUIWindow;
             if (window == null)
             {
-                Debug.LogError($"[UGuiBackend] {meta.WindowType.Name} 不是 UGuiWindowBase 派生组件" +
-                               (string.IsNullOrEmpty(meta.Asset) ? "。" : $"，或 prefab '{meta.Asset}' 根上缺失它。"));
+                Log.Error($"{meta.WindowType.Name} 组件未出现在" +
+                          (string.IsNullOrEmpty(meta.Asset) ? "代码创建的窗口根节点。" : $" prefab '{meta.Asset}' 根节点。"),
+                    category: nameof(UGuiBackend));
                 Object.Destroy(go);
                 wbag?.Dispose();
                 return null;
