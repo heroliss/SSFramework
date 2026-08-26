@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Threading;
+using Game.Framework.Logging;
 using UnityEngine;
 
 #if UNITY_EDITOR
@@ -114,9 +115,11 @@ namespace Game.Framework.Internal
             var utility = utilityFactory();
             if (utility == null)
             {
-                Debug.LogWarning(
-                    $"[AssetReferenceBinder] Skip '{target.GetType().Name}': IAssetUtility is null. " +
-                    "Add AssetSystemConfigModel + AssetUtility + AssetInitSystem under the context, or call ref.Bind() manually.");
+                Log.Warning(
+                    $"Skip '{target.GetType().Name}': IAssetUtility is null. " +
+                    "Add AssetSystemConfigModel + AssetUtility + AssetInitSystem under the context, or call ref.Bind() manually.",
+                    nameof(AssetReferenceBinder),
+                    target as UnityEngine.Object);
                 return;
             }
             var bag = bagFactory();

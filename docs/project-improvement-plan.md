@@ -95,6 +95,7 @@
 - Localization、Storage、Pool、Network 及 Core Context / Injection 基础设施的运行时日志已迁移到统一 `Log` 门面。
 - Fonts Runtime 的 5 处降级 Warning 已迁入同一 Seam：默认 Console 文案与 `MonoLocaleFonts` context 保持不变，捕获 sink 契约锁定 level / category / message 和一次性警告语义；字体 Editor 生成工具仍保留原生 `Debug.*`。
 - UI Core、UGUI、Toolkit 与融合 Bridge 的 Runtime 错误/警告已迁入同一 Seam：生命周期异常带窗口类型与 hook 阶段，节点绑定保留窗口 context；UGUI Adapter 同步修正了“文档要求继承 `UGuiWindowBase`、Implementation 却只检查 `IUIWindow`”的浅校验，在层级/资源副作用前 fail-fast。
+- Asset Core 与 Yoo Adapter 的 Runtime 失败/警告已迁入同一 Seam：空地址在 Core Interface 边界 fail-fast，Utility/System 诊断携带 Unity context，Yoo manifest/handle/type 失败保留 Adapter category，初始化 owner 保留原始 exception；第三方内部日志继续交给 Unity 日志桥，避免重复包装。
 - 相邻公共 Interface 注释补齐 `LocaleFontChain` 的字体表快照、OS 资产所有权、Dispose 义务与 Apply 异常，以及 `LocaleFontProfile` 的只读查看和非所有权语义。
 - 迁移按 Module 做定向回归并保留原 Console 文案与 Unity Object context；Logging 自身实现、第三方 Adapter 和编辑器工具不做机械替换。
 - DisposableBag 补齐释放异常隔离：取消回调或单个 `IDisposable` 失败不会截断余下清理，并有契约测试锁定。
@@ -184,7 +185,7 @@
 
 | 优先级 | 候选 | 证据 / 完成标准 |
 |---|---|---|
-| P1 | 日志调用面继续收敛 | ADR-0034 已 Accepted；Fonts 与 UI Runtime 已收敛，Asset / Audio / Boot 等仍有历史裸 `Debug.*`。按 Module 渐进审查，保留 Logging Implementation、第三方 Adapter、Editor 工具及 AOT Boot 的必要原生日志；测试守住消息、context、异常和双击定位语义。 |
+| P1 | 日志调用面继续收敛 | ADR-0034 已 Accepted；Fonts、UI Runtime 与 Asset/Yoo Runtime 已收敛，Audio / Boot 等仍有历史裸 `Debug.*`。按 Module 渐进审查，保留 Logging Implementation、第三方内部日志、Editor 工具及 AOT Boot 的必要原生日志；测试守住消息、context、异常和双击定位语义。 |
 | P1 | 公共 API 注释审计 | 优先生命周期、取消、异常、所有权与 Adapter 接缝；删除复述代码或记录历史的注释。以“调用者能否仅靠悬浮提示正确释放/取消”为完成标准。 |
 | P1 | CI 真正接线 | 当前脚本已可作为门禁；选择 GitHub Actions / 自建 Runner 后再落配置，避免仓库里放一份无人运行的“装饰性 CI”。 |
 | P2 | 大文件按职责复查 | `DiagnosticsWindow`、`YooAssetProvider`、`AssetUtility` 等只在发现两个独立变化轴或测试 Seam 时拆；单纯行数不是理由。 |

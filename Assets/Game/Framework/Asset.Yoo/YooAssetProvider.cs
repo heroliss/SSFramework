@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using Cysharp.Threading.Tasks;
+using Game.Framework.Logging;
 using R3;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -109,7 +110,7 @@ namespace Game.Framework
             var package = GetReadyPackage(packageName);
             if (string.IsNullOrEmpty(locationOrGuid))
             {
-                Debug.LogWarning("[YooAssetProvider] Asset location/GUID is empty.");
+                Log.Warning("Asset location/GUID is empty.", nameof(YooAssetProvider));
                 return null;
             }
 
@@ -136,7 +137,9 @@ namespace Game.Framework
 
             if (assetInfo == null || !assetInfo.IsValid)
             {
-                Debug.LogError($"[YooAssetProvider] Asset not found in package '{packageName}': {locationOrGuid}. {assetInfo?.Error}");
+                Log.Error(
+                    $"Asset not found in package '{packageName}': {locationOrGuid}. {assetInfo?.Error}",
+                    category: nameof(YooAssetProvider));
                 return null;
             }
 
@@ -153,7 +156,9 @@ namespace Game.Framework
 
             if (handle.Status != EOperationStatus.Succeeded)
             {
-                Debug.LogError($"[YooAssetProvider] Load failed in package '{packageName}': {locationOrGuid}, {handle.Error}");
+                Log.Error(
+                    $"Load failed in package '{packageName}': {locationOrGuid}, {handle.Error}",
+                    category: nameof(YooAssetProvider));
                 handle.Release();
                 return null;
             }
@@ -161,9 +166,10 @@ namespace Game.Framework
             var asset = ResolveLoadedObject(handle.AssetObject, type);
             if (asset == null)
             {
-                Debug.LogError(
-                    $"[YooAssetProvider] Loaded asset '{locationOrGuid}' in package '{packageName}' cannot be used as '{type.Name}'. " +
-                    $"Actual type: '{handle.AssetObject?.GetType().Name ?? "null"}'.");
+                Log.Error(
+                    $"Loaded asset '{locationOrGuid}' in package '{packageName}' cannot be used as '{type.Name}'. " +
+                    $"Actual type: '{handle.AssetObject?.GetType().Name ?? "null"}'.",
+                    category: nameof(YooAssetProvider));
                 handle.Release();
                 return null;
             }
@@ -178,7 +184,7 @@ namespace Game.Framework
             var package = GetReadyPackage(packageName);
             if (string.IsNullOrEmpty(location))
             {
-                Debug.LogWarning("[YooAssetProvider] Scene location is empty.");
+                Log.Warning("Scene location is empty.", nameof(YooAssetProvider));
                 return null;
             }
 
@@ -222,7 +228,9 @@ namespace Game.Framework
 
             if (handle.IsDone && handle.Status != EOperationStatus.Succeeded)
             {
-                Debug.LogError($"[YooAssetProvider] Load scene failed in package '{packageName}': {location}, {handle.Error}");
+                Log.Error(
+                    $"Load scene failed in package '{packageName}': {location}, {handle.Error}",
+                    category: nameof(YooAssetProvider));
                 _ = handle.UnloadSceneAsync();
                 return null;
             }
@@ -372,7 +380,9 @@ namespace Game.Framework
                     {
                         var info = package.GetAssetInfo(locationSnapshot[i]);
                         if (info == null || !info.IsValid)
-                            Debug.LogWarning($"[YooAssetProvider] Create location downloader: '{locationSnapshot[i]}' not found in package '{packageName}' manifest — skipped. {info?.Error}");
+                            Log.Warning(
+                                $"Create location downloader: '{locationSnapshot[i]}' not found in package '{packageName}' manifest — skipped. {info?.Error}",
+                                nameof(YooAssetProvider));
                         else
                             infos.Add(info);
                     }
@@ -446,7 +456,9 @@ namespace Game.Framework
                     for (int i = 0; i < locationSnapshot.Count; i++)
                     {
                         if (!package.IsLocationValid(locationSnapshot[i]))
-                            Debug.LogWarning($"[YooAssetProvider] Clear cache by locations: '{locationSnapshot[i]}' not found in package '{packageName}' manifest — skipped.");
+                            Log.Warning(
+                                $"Clear cache by locations: '{locationSnapshot[i]}' not found in package '{packageName}' manifest — skipped.",
+                                nameof(YooAssetProvider));
                     }
                     var op = package.ClearCacheAsync(new ClearCacheOptions(ClearCacheMethods.ClearBundleFilesByLocations, locationSnapshot));
                     await WaitOp(op, CancellationToken.None);
@@ -513,7 +525,7 @@ namespace Game.Framework
         {
             if (string.IsNullOrEmpty(location))
             {
-                Debug.LogWarning("[YooAssetProvider] Text/bytes location is empty.");
+                Log.Warning("Text/bytes location is empty.", nameof(YooAssetProvider));
                 return (null, null);
             }
 
@@ -523,15 +535,19 @@ namespace Game.Framework
 
             if (handle.Status != EOperationStatus.Succeeded)
             {
-                Debug.LogError($"[YooAssetProvider] Load text asset failed in package '{packageName}': {location}, {handle.Error}");
+                Log.Error(
+                    $"Load text asset failed in package '{packageName}': {location}, {handle.Error}",
+                    category: nameof(YooAssetProvider));
                 handle.Release();
                 return (null, null);
             }
 
             if (handle.AssetObject is not TextAsset ta)
             {
-                Debug.LogError($"[YooAssetProvider] '{location}' in package '{packageName}' is not a TextAsset — " +
-                               "only text-like assets (.bytes/.txt/.json...) can be read via LoadText/LoadBytes on an AssetBundle package.");
+                Log.Error(
+                    $"'{location}' in package '{packageName}' is not a TextAsset — " +
+                    "only text-like assets (.bytes/.txt/.json...) can be read via LoadText/LoadBytes on an AssetBundle package.",
+                    category: nameof(YooAssetProvider));
                 handle.Release();
                 return (null, null);
             }
@@ -545,7 +561,7 @@ namespace Game.Framework
         {
             if (string.IsNullOrEmpty(location))
             {
-                Debug.LogWarning("[YooAssetProvider] RawFile location is empty.");
+                Log.Warning("RawFile location is empty.", nameof(YooAssetProvider));
                 return (null, null);
             }
 
@@ -555,14 +571,18 @@ namespace Game.Framework
 
             if (handle.Status != EOperationStatus.Succeeded)
             {
-                Debug.LogError($"[YooAssetProvider] Load raw file failed in package '{packageName}': {location}, {handle.Error}");
+                Log.Error(
+                    $"Load raw file failed in package '{packageName}': {location}, {handle.Error}",
+                    category: nameof(YooAssetProvider));
                 handle.Release();
                 return (null, null);
             }
 
             if (handle.AssetObject is not RawFileObject raw)
             {
-                Debug.LogError($"[YooAssetProvider] '{location}' in package '{packageName}' is not a RawFile.");
+                Log.Error(
+                    $"'{location}' in package '{packageName}' is not a RawFile.",
+                    category: nameof(YooAssetProvider));
                 handle.Release();
                 return (null, null);
             }
@@ -585,10 +605,10 @@ namespace Game.Framework
             string lastVersionError = null;
             bool versionOk = false;
             string configured = (cdnUrls == null || cdnUrls.Count == 0) ? "(未配置)" : string.Join(", ", cdnUrls);
-            // 逐次尝试的诊断走 Log.Verbose（开 Verbose 才打、不污染正常运行）。
+            // 逐次尝试的诊断走 Log.Trace（开 Trace 才打、不污染正常运行）。
             // 失败 Error 通常已含实际 URL + HttpCode，配合开头候选清单即可定位是哪条 CDN 出问题。
-            // 走插值处理器重载：Verbose 关时这些 $"..." 连拼都不拼（旧的 LogVerbose(string) 是先拼好再丢弃）。
-            Logging.Log.Trace($"[YooAssetProvider] '{packageName}' 拉版本：候选 CDN {attempts} 条 [{configured}]");
+            // 走插值处理器重载：Trace 关时这些 $"..." 连拼都不拼。
+            Log.Trace($"'{packageName}' 拉版本：候选 CDN {attempts} 条 [{configured}]", nameof(YooAssetProvider));
             for (int i = 0; i < attempts; i++)
             {
                 var versionOp = package.RequestPackageVersionAsync();
@@ -599,25 +619,25 @@ namespace Game.Framework
                 {
                     version = versionOp.PackageVersion;
                     versionOk = true;
-                    Logging.Log.Trace($"[YooAssetProvider] '{packageName}' 拉版本第 {i + 1}/{attempts} 次成功，版本 {version}。");
+                    Log.Trace($"'{packageName}' 拉版本第 {i + 1}/{attempts} 次成功，版本 {version}。", nameof(YooAssetProvider));
                     break;
                 }
                 lastVersionError = versionOp.Error;
-                Logging.Log.Trace($"[YooAssetProvider] '{packageName}' 拉版本第 {i + 1}/{attempts} 次失败：{lastVersionError}");
+                Log.Trace($"'{packageName}' 拉版本第 {i + 1}/{attempts} 次失败：{lastVersionError}", nameof(YooAssetProvider));
             }
 
             if (!versionOk)
             {
                 if (package.PackageValid)
                 {
-                    Logging.Log.Warning($"[YooAssetProvider] '{packageName}' 远端版本不可用，继续使用当前本地清单：{lastVersionError}");
+                    Log.Warning($"'{packageName}' 远端版本不可用，继续使用当前本地清单：{lastVersionError}", nameof(YooAssetProvider));
                     return;
                 }
 
                 var (fallbackOk, fallbackMessage) = await TryLoadBuiltinManifestAsync(packageName, package, token);
                 if (fallbackOk)
                 {
-                    Logging.Log.Warning($"[YooAssetProvider] '{packageName}' 远端版本不可用，{fallbackMessage} 远端错误：{lastVersionError}");
+                    Log.Warning($"'{packageName}' 远端版本不可用，{fallbackMessage} 远端错误：{lastVersionError}", nameof(YooAssetProvider));
                     return;
                 }
 
@@ -641,24 +661,24 @@ namespace Game.Framework
 
                 if (manifestOp.Status == EOperationStatus.Succeeded)
                 {
-                    Logging.Log.Trace($"[YooAssetProvider] '{packageName}' 拉清单第 {i + 1}/{attempts} 次成功。");
+                    Log.Trace($"'{packageName}' 拉清单第 {i + 1}/{attempts} 次成功。", nameof(YooAssetProvider));
                     return;
                 }
 
                 lastManifestError = manifestOp.Error;
-                Logging.Log.Trace($"[YooAssetProvider] '{packageName}' 拉清单第 {i + 1}/{attempts} 次失败：{lastManifestError}");
+                Log.Trace($"'{packageName}' 拉清单第 {i + 1}/{attempts} 次失败：{lastManifestError}", nameof(YooAssetProvider));
             }
 
             if (package.PackageValid)
             {
-                Logging.Log.Warning($"[YooAssetProvider] '{packageName}' 远端清单不可用，继续使用当前本地清单：{lastManifestError}");
+                Log.Warning($"'{packageName}' 远端清单不可用，继续使用当前本地清单：{lastManifestError}", nameof(YooAssetProvider));
                 return;
             }
 
             var (manifestFallbackOk, manifestFallbackMessage) = await TryLoadBuiltinManifestAsync(packageName, package, token);
             if (manifestFallbackOk)
             {
-                Logging.Log.Warning($"[YooAssetProvider] '{packageName}' 远端清单不可用，{manifestFallbackMessage} 远端错误：{lastManifestError}");
+                Log.Warning($"'{packageName}' 远端清单不可用，{manifestFallbackMessage} 远端错误：{lastManifestError}", nameof(YooAssetProvider));
                 return;
             }
 
@@ -943,7 +963,10 @@ namespace Game.Framework
         public void Dispose()
         {
             if (_native == null) return;
-            Unload().Forget(static ex => Debug.LogException(ex));
+            Unload().Forget(static ex => Log.Error(
+                "Scene unload failed during handle disposal.",
+                ex,
+                nameof(YooSceneHandle)));
         }
     }
 
@@ -1125,7 +1148,9 @@ namespace Game.Framework
             var offset = (int)_fileOffset;
             if (offset <= 0 || offset >= data.Length)
             {
-                Debug.LogError($"[GameBundleOffsetDecryptor] Invalid offset {offset} for a bundle of {data.Length} bytes.");
+                Log.Error(
+                    $"Invalid offset {offset} for a bundle of {data.Length} bytes.",
+                    category: nameof(GameBundleOffsetDecryptor));
                 return data;
             }
 
