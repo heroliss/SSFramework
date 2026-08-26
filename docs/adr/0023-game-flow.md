@@ -52,7 +52,7 @@ public abstract class FlowState
 
 ### 3. 载体与注册：纯 C# 进内核 `Core/Flow/`，注册为 Utility
 
-- `GameFlow`（纯 C#，`IDisposable`，`IHasGameContext`）：零第三方依赖（只用 UniTask），进内核。注册 `builder.RegisterOwned(new GameFlow(), typeof(IGameFlow))`——ADR-0019 注入语义自动回填宿主 Context；宿主 Context Dispose → flow Dispose → 当前状态退出 + 子 Context 撤。
+- `GameFlow`（纯 C#，`IDisposable`，`IHasGameContext`）：零第三方依赖（只用 UniTask），进内核。注册 `builder.RegisterOwned(new GameFlow(), typeof(IGameFlow))`——ADR-0019 注入语义自动回填宿主 Context；宿主 Context Dispose → flow Dispose → 当前 / 进入中 / 退出中状态的子 Context 撤除（不会为了销毁补调尚未开始的 `OnExit`）。
 - **不做 Mono 版**：flow 没有 Inspector 可配项（状态是代码 new 的），也不该跟随场景节点（流程比场景活得长）。要看运行时状态，走后续的框架诊断面板（roadmap 中期⑥）。
 - **子流程 = 组合**：战斗内的阶段机（准备→作战→结算）就是在 `BattleState.InstallBindings` 里再注册一个 `GameFlow`——作用域树天然嵌套，不做 HSM（分层状态机）专门支持。
 
@@ -62,12 +62,14 @@ public abstract class FlowState
 - **转换进行中再 GoTo**：取消在途 `OnEnter` 的 ct、等它结束，直接 Dispose 半进入状态的子 Context（**不调它的 OnExit**——`OnExit` 只在 `OnEnter` 成功完成后才有资格被调；半进入状态的清理靠 Bag/子 Context 整棵撤，这正是 Bag 的本职）。排队槽只有一格、新请求顶替旧排队（最新意图胜：长加载中收到"掉线回登录"，登录赢，不排队）。被顶替/取消的 `GoTo` 返回的 UniTask 以取消结束。
 - **同类状态 GoTo**：正常退旧进新（重开一局是刻意行为，不做幂等——与 PlayMusic 的同 clip no-op 语义相反，各自合理）。
 - 转换完成后向宿主 Context `SendEvent(new FlowChangedEvent(from, to))`——loading 界面/埋点订阅这一个事件即可，不用侵入每个状态。事件链只记录**完整进入成功**的状态：连续转换 `A →（B 被顶替/失败）→ C` 只发布 `A → C`，不会把从未成为 `Current` 的 B 写进历史，也不会因 A 已先退出而误报 `null → C`。若一次失败结束后流程已稳定处于无状态，之后另起的转换才从 `null` 开始。
+- **宿主在 `OnExit` 期间释放**：当前 GoTo 与正在退出的状态不是异步循环里的临时局部量，而是 flow 显式持有的 active transition。Dispose 立即让 GoTo 以取消终止并撤掉退出状态的子 Context；`IsTransitioning` 对外立即为 false，也不会进入下一状态或发布迟到事件。`OnExit` 刻意没有 token，框架不能强杀已经开始的业务任务，因此内部物理 owner 继续观察它到终态；迟到异常仍进入 `Log` Seam，但不再触碰 flow 状态。
 
 ### 5. 失败语义：Enter 失败 = 明确的"无状态"，不静默
 
 - `OnEnter` 抛异常/被取消：子 Context 立即撤（Bag 把已加载的部分资源放掉），`Current = null`，异常从 `GoTo` 的 UniTask 冒出——由调用方决定重试/进错误状态，框架不猜（对齐存储的 fail-fast：流程走错比音效丢一声严重得多）。
 - `GoTo` 的 UniTask 必须被 `await` 或由导航边界显式观察：UI 不关心完成时机，不代表可以丢弃进入失败；`OnEnter` 内转向因不能 await，应交给一个捕获取消、记录其它异常的 fire-and-forget Adapter。
 - `OnExit` 抛异常：经统一 `Log` Seam 记录 Error 后**继续转换**（离开失败不该把整个游戏卡死在旧阶段；旧子 Context 照撤，文件 / 遥测 sink 也能拿到同一异常）。
+- `OnExit` 是尽力而为的“优雅告别”，不是资源所有权边界。宿主销毁时，尚未开始的退出不会补调；已经开始但不结束的退出也不能阻止整棵撤。所有可靠清理必须进入状态 `Bag` 或子 Context 的 owned 服务，迟到的 `OnExit` 代码不得再依赖已撤的 Context / Bag。
 - Dispose 后调用 `GoTo`：抛 `ObjectDisposedException`（对齐 GameContext.ExecuteCommand 语义）。
 
 ### 6. 刻意不做
@@ -82,4 +84,5 @@ public abstract class FlowState
 - 业务获得「阶段 = 类型 + 作用域」的显式结构：看 `FlowState` 子类列表即知游戏有哪些阶段，每阶段占用什么一目了然（都在它的 InstallBindings/OnEnter 里）。
 - 转换语义（最新意图胜、Enter 失败无状态）是**框架拍板**的约定——换取业务不必自己处理竞态；不合口味的项目自己包一层排队策略。
 - 状态机自身无 Unity 对象，PlayMode 测试可全程无场景跑（转换/取消/失败/事件全可同步或短 await 断言），batchmode 无风险。
+- 没有取消 token 的 `OnExit` 不再拥有 flow 的逻辑寿命：宿主释放可立即完成 flow 收尾，同时由一个窄的物理 owner 保留异常观察。这增加了一条明确边界，但避免第三方上报、存档等退出任务把 Context 永久挂住。
 - demo 章做「启动→登录→大厅→战斗」四状态迷你 Flow：面板实时显示 Current / 流转日志（含 GoTo 三种结局），大厅注册阶段私有服务演示整棵撤，战斗带构造参数 + 1.5s 模拟加载供手动验证最新意图胜。

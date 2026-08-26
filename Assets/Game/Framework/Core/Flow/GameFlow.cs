@@ -17,7 +17,9 @@ namespace Game.Framework.Flow
     /// 回填宿主 Context（<see cref="IHasGameContext"/> 字段），脱离容器直接 new 后调 GoTo 会抛
     /// <see cref="InvalidOperationException"/>。<br/>
     /// <b>Dispose</b>（宿主 Context Dispose 时由容器逆序调用）：取消在途进入、当前 / 半进入状态的
-    /// 子 Context 整棵撤；<c>OnExit</c> 是异步方法，此路径不调用（见 <see cref="FlowState.OnExit"/> 契约）。
+    /// 子 Context 整棵撤；若已在等待 <c>OnExit</c>，则立即取消逻辑转换并撤掉正在退出的子 Context，
+    /// 物理 <c>OnExit</c> 允许迟到结束且仍由框架观察异常。尚未开始退出时，此路径不主动调用 <c>OnExit</c>
+    /// （见 <see cref="FlowState.OnExit"/> 契约）。
     /// Dispose 后 GoTo 抛 <see cref="ObjectDisposedException"/>（对齐 GameContext.ExecuteCommand——
     /// 流程走错比音效丢一声严重，fail-fast）。<br/>
     /// <b>转换中的宿主释放</b>：转换循环每次 await 恢复后都检查 Dispose 标记，半路收尾不半途而废。
@@ -26,10 +28,13 @@ namespace Game.Framework.Flow
     {
         private GameContext _context; // RegisterOwned 注册即注入时由 AttachTo 回填
         private FlowState _current;
+        private FlowState _exiting;   // OnExit 已开始但尚未物理结束；Dispose 必须能立即撤其 scope
         private FlowState _entering;  // 在途进入的状态：Dispose 需要能直接撤它的子 Context
         private FlowState _pendingState;
         private UniTaskCompletionSource _pendingTcs;
+        private UniTaskCompletionSource _activeTcs; // 当前已被循环接受的 GoTo；退出阶段同样必须有终态 owner
         private CancellationTokenSource _enterCts;
+        private readonly CancellationTokenSource _lifetimeCts = new();
         private bool _running;
         private bool _disposed;
 
@@ -37,7 +42,7 @@ namespace Game.Framework.Flow
 
         public FlowState Current => _current;
 
-        public bool IsTransitioning => _running;
+        public bool IsTransitioning => !_disposed && _running;
 
         public bool IsIn<TState>() where TState : FlowState => _current is TState;
 
@@ -64,7 +69,7 @@ namespace Game.Framework.Flow
             _pendingTcs = tcs;
 
             if (_running)
-                _enterCts?.Cancel(); // 在途 OnEnter 协作取消让路；未在 Enter 阶段（如 OnExit 中）则由循环的排队检查接手
+                CancelEnterSafely(); // 在途 OnEnter 协作取消让路；未在 Enter 阶段（如 OnExit 中）则由循环的排队检查接手
             else
                 RunTransitions().Forget();
 
@@ -89,6 +94,7 @@ namespace Game.Framework.Flow
                     var tcs = _pendingTcs;
                     _pendingState = null;
                     _pendingTcs = null;
+                    _activeTcs = tcs;
 
                     // 1) 退出当前状态。OnExit 失败只记录（离开失败不卡死在旧阶段），子 Context 照撤。
                     var old = _current;
@@ -96,15 +102,26 @@ namespace Game.Framework.Flow
                     if (old != null)
                     {
                         transitionFrom ??= old;
-                        try { await old.OnExit(); }
-                        catch (Exception e)
+                        _exiting = old;
+                        try
                         {
-                            Log.Error(
-                                $"FlowState '{old.GetType().Name}' OnExit failed; transition continues and its scope will still be disposed.",
-                                e,
-                                "GameFlow");
+                            // OnExit 没有 token（它是尽力而为的优雅告别），不能强迫业务物理停止；但宿主释放时
+                            // flow 自己的 waiter 必须立即脱离，不能让已接受的 GoTo 与整个 flow 永久悬挂。
+                            // ObserveExitToTerminal 继续持有物理任务并观察迟到异常，不制造无人观察的 UniTask。
+                            // token 必须先取：OnExit 的同步部分允许重入宿主 Dispose，而 Dispose 会释放 CTS。
+                            var lifetimeToken = _lifetimeCts.Token;
+                            await ObserveExitToTerminal(old).AttachExternalCancellation(lifetimeToken);
                         }
-                        old.DisposeScope();
+                        catch (OperationCanceledException) when (_disposed)
+                        {
+                            tcs.TrySetCanceled();
+                            return;
+                        }
+                        finally
+                        {
+                            old.DisposeScope();
+                            if (ReferenceEquals(_exiting, old)) _exiting = null;
+                        }
                         if (_disposed) { tcs.TrySetCanceled(); return; }
                     }
 
@@ -173,7 +190,42 @@ namespace Game.Framework.Flow
                     }
                 }
             }
-            finally { _running = false; }
+            finally
+            {
+                _activeTcs = null;
+                _running = false;
+            }
+        }
+
+        /// <summary>
+        /// 持有一次已经开始的物理 <see cref="FlowState.OnExit"/> 直到终态。逻辑转换可在宿主 Dispose 时
+        /// 通过外部 cancellation 脱离等待，但本 owner 仍会观察迟到失败并写入统一日志。
+        /// </summary>
+        private static async UniTask ObserveExitToTerminal(FlowState state)
+        {
+            try { await state.OnExit(); }
+            catch (Exception e)
+            {
+                Log.Error(
+                    $"FlowState '{state.GetType().Name}' OnExit failed; flow cleanup continues and its scope is still released.",
+                    e,
+                    "GameFlow");
+            }
+        }
+
+        // CancellationTokenSource.Cancel 会聚合并抛出业务注册的取消回调异常。取消意图此时已经成立，
+        // 但不能让一个坏回调截断 GoTo 返回值或宿主 Dispose 的 scope sweep。
+        private void CancelEnterSafely()
+        {
+            if (_enterCts == null) return;
+            try { _enterCts.Cancel(); }
+            catch (Exception e)
+            {
+                Log.Error(
+                    "An OnEnter cancellation callback failed; flow cancellation and scope cleanup continue.",
+                    e,
+                    "GameFlow");
+            }
         }
 
         /// <summary>
@@ -189,10 +241,17 @@ namespace Game.Framework.Flow
             _pendingTcs?.TrySetCanceled();
             _pendingTcs = null;
             _pendingState = null;
+            _activeTcs?.TrySetCanceled();
 
-            _enterCts?.Cancel();
+            // 先结束 flow 自己对无 token OnExit 的等待；物理任务由 ObserveExitToTerminal 继续观察到终态。
+            _lifetimeCts.Cancel();
+            _lifetimeCts.Dispose();
+
+            CancelEnterSafely();
+            _exiting?.DisposeScope();
             _entering?.DisposeScope();
             _current?.DisposeScope();
+            _exiting = null;
             _current = null;
         }
     }

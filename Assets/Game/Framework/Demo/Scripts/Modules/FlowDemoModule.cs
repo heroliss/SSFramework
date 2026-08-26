@@ -100,6 +100,7 @@ namespace Game.Framework.Demo.Modules
             host.AddNote("**观察整棵撤**：进大厅时日志出现「宝箱服务已注册」（`LobbyDemoState.InstallBindings` 里 RegisterOwned 的阶段私有服务）；切去任意别处时出现「宝箱服务已随子 Context 撤除」——没有任何手写清理代码，这就是「每状态一个子 Context」买到的东西。",
                 CodeRef.Here("RegisterOwned(new LobbyChestService(", "阶段私有服务"));
             host.AddNote("**观察最新意图胜**：战斗加载的 1.5 秒内点「进登录」——战斗的在途进入被协作取消（日志出现「被顶替」，其半建的子 Context 整棵撤、不调 OnExit），最终落在登录。转换全程串行，业务不用自己处理竞态。");
+            host.AddConcept("OnExit 是优雅告别，不是可靠清理", "它只在完整进入后的正常退出开始时调用，适合存档上报等尽力而为工作；可靠释放必须进状态 Bag 或子 Context 持有的服务。宿主若在 OnExit 期间销毁，GoTo 与子 Context 会立即收口，不等这个无 token 的物理任务；迟到代码不能再访问已撤的 Context / Bag，迟到异常仍会进入统一日志。");
 
             // ── 刻意不做 ──
             host.AddSectionTitle("刻意不做");
@@ -108,7 +109,7 @@ namespace Game.Framework.Demo.Modules
             host.AddConcept("不做场景绑定", "状态 ≠ 场景（多状态共享一场景、一状态加载多场景都常见）。状态在 `OnEnter` 里自己 `Bag.LoadScene(...)`，退出随 Bag 卸载。");
             host.AddConcept("不做历史栈", "「返回上一状态」是业务记一个变量再 GoTo 的事；UI 返回栈已归 UI 框架管（「UI 框架」章），流程层再来一个栈会打架。");
 
-            host.AddTip("速记：阶段 = FlowState 子类（一次性实例，传参走构造）；私有服务进 InstallBindings、订阅资源进 Bag，退出整棵撤；GoTo 串行 + 最新意图胜，await 它可拿到完成 / 被顶替 / 失败。微观逻辑状态机（技能连招、AI）不要用它。深度见 framework-guide 流程章 / ADR-0023。");
+            host.AddTip("速记：阶段 = FlowState 子类（一次性实例，传参走构造）；私有服务进 InstallBindings、订阅资源进 Bag，退出整棵撤；GoTo 串行 + 最新意图胜，await 它可拿到完成 / 被顶替 / 失败；OnExit 只做优雅告别。微观逻辑状态机（技能连招、AI）不要用它。深度见 framework-guide 流程章 / ADR-0023。");
         }
 
         // GoTo 的三种结局都写进日志：完成 / 被更新的 GoTo 顶替（取消）/ Enter 失败（异常冒出，调用方决定去处）。

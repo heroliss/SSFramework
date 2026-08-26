@@ -22,8 +22,8 @@
 | Demo | 32 个自动发现章节；Catalog 集中拥有 Adapter 生命周期，并按 Capability / Concept / Workflow 校验真实 Build 教学语义 |
 | 教程 | `framework-guide.md` 28 章 |
 | ADR | 0001–0042；0040 为 UPM-aware 源码目录，0041/0042 补齐 Module 与外部依赖证据 |
-| 测试 | PlayMode 436 + EditMode 244，全绿；交互式 MCP 后台运行且 PlayMode 先预检，命令行入口默认 EditMode + PlayMode |
-| Demo CodeRef | 310 处可打开源码跳转全部精准命中；注释、文案与外部文档路径不计入源码构造点 |
+| 测试 | PlayMode 448 + EditMode 244，全绿；交互式 MCP 后台运行且 PlayMode 先预检，命令行入口默认 EditMode + PlayMode |
+| Demo CodeRef | 311 处可打开源码跳转全部精准命中；注释、文案与外部文档路径不计入源码构造点 |
 | AI 常驻规则预算 | 最深 AGENTS 链 29.88 KiB，低于 Codex 默认 32 KiB 项目指令上限；新增常驻规则前需继续评估外移空间 |
 
 ## 已完成的高优先级闭环
@@ -61,7 +61,7 @@
 - Demo 外壳新增“本组 / 全部”进度与章节底部上一步/下一步导航；入门/核心提示顺读，能力/进阶明确可按需跳转，实际按钮切章与滚动复位已验证。
 - `DemoModuleHost` 在真实 Build 中记录教学语义，Catalog 按能力/概念/工作流分别检查定位、解释结构、交互或步骤；源码注释、死代码和早退不再能靠 token 数量假绿。
 - 场景依赖缺失统一用结构化降级页说明“为什么不可用 → 如何恢复 → 接下来怎么学”，并强制提供接线源码；UGUI、UI 框架、多 Context 与字体的顶层早退已迁移。
-- 新建独立 Demo PlayMode Module，在真实 DemoScene 中穿过 Context、Catalog 与 Shell 逐章 Build 32 个 Adapter，并用真实 UGUI/UI 框架章节覆盖降级路径；当前 CodeRef 防腐覆盖 310 处精准源码构造。
+- 新建独立 Demo PlayMode Module，在真实 DemoScene 中穿过 Context、Catalog 与 Shell 逐章 Build 32 个 Adapter，并用真实 UGUI/UI 框架章节覆盖降级路径；当前 CodeRef 防腐覆盖 311 处精准源码构造。
 - 重写入门地图，并为 Counter / Model / Command / System / Event 补上选择标准、代价、生命周期与反例；8 个过长章节摘要完成收束，实际 Game View 已检查首屏、对照表和 System 深度说明。
 - Demo 实战发现 `IShopSystem` 泄漏 `ICommandContext`：改成窄业务接口 `TryBuyPotion()`，WalletModel 由 Implementation 注入，并用购买不变量测试锁定。
 - 修正框架层术语漂移：简单原子 Command 可直接写 Model，System 承载可复用/多步规则；Utility 可持有基础设施状态但不持有业务状态。源码 XML doc、README、guide、roadmap 与 ADR-0001 已同步。

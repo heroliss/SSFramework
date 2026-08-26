@@ -14,7 +14,8 @@ namespace Game.Framework.Flow
     /// 自动回填宿主 Context；宿主 Context Dispose 时 flow 连同当前状态子 Context 一并撤。<br/>
     /// <b>转换语义：</b>全程串行（退旧 → 撤旧子 Context → 建新子 Context → 进新）；转换进行中再调
     /// <see cref="GoTo"/> = <b>最新意图胜</b>——排队槽只有一格、新请求顶替旧排队，在途 <c>OnEnter</c> 被协作取消。
-    /// 被顶替 / 取消的 GoTo 返回的 task 以取消结束。<br/>
+    /// 被顶替 / 取消的 GoTo 返回的 task 以取消结束。宿主在 <c>OnExit</c> 期间释放时也不会等待业务任务：
+    /// 正在退出的子 Context 立即撤、GoTo 立即取消；物理 <c>OnExit</c> 可迟到结束，异常仍由框架观察。<br/>
     /// <b>失败语义：</b><c>OnEnter</c> 抛异常 = 子 Context 立即撤、<see cref="Current"/> 为 null、
     /// 异常从 GoTo 的 task 冒出（调用方决定重试 / 进错误状态，框架不猜）。<br/>
     /// <b>不做的事：</b>转换表 / 守卫（哪些转换允许是业务 if 的事）、场景绑定（状态在 OnEnter 里自己
@@ -27,7 +28,7 @@ namespace Game.Framework.Flow
         /// <summary>当前<b>完整进入</b>的状态。未启动 / 转换进行中 / 上次 Enter 失败时为 null。</summary>
         FlowState Current { get; }
 
-        /// <summary>是否有转换正在进行（含排队待处理）。</summary>
+        /// <summary>是否有转换正在进行（含排队待处理）。Dispose 后始终为 false。</summary>
         bool IsTransitioning { get; }
 
         /// <summary>当前状态是否为 <typeparamref name="TState"/>（或其子类）。转换进行中返回 false。</summary>

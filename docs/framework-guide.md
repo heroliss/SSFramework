@@ -2304,11 +2304,13 @@ await flow.GoTo(new BattleState(levelId));      // 异步 UI / Command：观察�
 | 被顶替 / 取消的进入 | 半进入状态整棵撤、**不调 OnExit**（清理靠 Bag）；其 GoTo task 以取消结束 |
 | 状态忽略 ct 跑完 | 正常进入，随后被排队的转换正常退出（协作式取消，不强杀） |
 | `OnEnter` 抛异常 | 子 Context 立即撤、`Current = null`、异常从 GoTo task 冒出——调用方决定重试 / 进错误状态 |
-| `OnExit` 抛异常 | 统一日志记录 Error 后继续转换（离开失败不卡死在旧阶段），旧子 Context 照撤 |
-| 宿主 Context Dispose | flow 连同当前 / 在途状态子 Context 一并撤；此后 GoTo 抛 `ObjectDisposedException` |
+| `OnExit` 抛异常 | 统一日志记录 Error 后继续转换（含宿主释放后的迟到异常），旧子 Context 照撤 |
+| 宿主 Context Dispose | flow 连同当前 / 进入中 / 退出中状态子 Context 立即撤，已接受的 GoTo 以取消终止，`IsTransitioning = false`；此后 GoTo 抛 `ObjectDisposedException` |
 | 同类状态再进入 | 正常退旧进新（重开一局是刻意行为）；复用**同一实例**抛参数异常（一次性守卫） |
 
 转换成功后在宿主 Context 上发 `FlowChangedEvent(From, To)`——loading 界面 / 埋点订阅这一个事件即可，不侵入每个状态。事件只串起**完整进入成功**的状态：`A →（B 进入中被顶替或失败）→ C` 只发布 `A → C`；B 从未成为 `Current`，不应伪装成历史节点，A 也不会因为已先退出而丢成 `null`。只有某次失败已结束、流程稳定处于无状态，后来另起的转换才从 `null` 开始。
+
+`OnExit` 是**尽力而为的优雅告别**，不是可靠清理入口。它刻意没有取消 token：已经开始的上报/存档可能迟到完成；宿主销毁时，框架会立即取消逻辑 GoTo、撤掉退出状态的子 Context，并继续在内部观察物理任务的迟到异常，但不会等它，也不会再进入下一状态。因此所有必须发生的释放都应进入 `Bag` 或状态子 Context 的 owned 服务；`OnExit` 的迟到 continuation 不得再使用已经撤掉的 Context / Bag。
 
 `GoTo` 返回的 UniTask 必须被 `await` 或显式观察：UI 不关心完成时机，不代表可以把进入失败变成不确定时机才出现的未观测异常。通常让异步按钮 / Command 直接 await；同步导航边界则用项目内一个小 Adapter 捕获三种结局。
 
@@ -2338,6 +2340,7 @@ private static async UniTask Observe(IGameFlow flow, FlowState next)
 >
 > - 阶段 = `FlowState` 子类：一次性实例、传参走构造；私有服务进 `InstallBindings`、订阅资源进 `Bag`，退出整棵撤
 > - `GoTo` 是唯一动词：串行 + 最新意图胜；await 它拿完成 / 被顶替 / 失败三种结局
+> - `OnExit` 只做优雅告别；可靠清理进 Bag。宿主释放不会被无 token 的退出任务拖住
 > - 微观逻辑状态机（技能连招 / AI 行为）**不要**用它——那是每帧驱动的粒度，用行为树 / 自定义 FSM
 > - 全局与阶段的边界：全局服务注册在根 Context，阶段私有的注册在状态里——拿不准就问「切走这个阶段时它该死吗」
 
