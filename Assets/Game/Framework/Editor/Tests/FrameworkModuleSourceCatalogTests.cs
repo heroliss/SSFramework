@@ -2,6 +2,7 @@ using System.IO;
 using System.Linq;
 using NUnit.Framework;
 using UnityEditor;
+using UnityEditor.PackageManager;
 
 namespace Game.Framework.Editor.Tests
 {
@@ -23,6 +24,8 @@ namespace Game.Framework.Editor.Tests
             Assert.That(fromAsset.AssetPath, Is.EqualTo(asmdefPath.Replace('\\', '/')));
             Assert.That(File.Exists(fromAsset.PhysicalPath), Is.True);
             Assert.That(fromAsset.IsPackage, Is.False);
+            Assert.That(fromAsset.Kind, Is.EqualTo(FrameworkModuleSourceCatalog.SourceKind.ProjectAssets));
+            Assert.That(fromAsset.HasPackageDirectness, Is.False);
             Assert.That(fromPhysical.AssetPath, Is.EqualTo(fromAsset.AssetPath));
         }
 
@@ -48,6 +51,23 @@ namespace Game.Framework.Editor.Tests
             Assert.That(roundTrip.AssetPath, Is.EqualTo(source.AssetPath));
             Assert.That(roundTrip.PackageName, Is.EqualTo(source.PackageName));
             Assert.That(source.PackageId, Is.Not.Empty);
+            Assert.That(source.Kind, Is.Not.EqualTo(FrameworkModuleSourceCatalog.SourceKind.ProjectAssets));
+            Assert.That(source.HasPackageDirectness, Is.True,
+                "Package directness 是 manifest 解析证据，与代码消费者是否直接引用无关。 ");
+        }
+
+        [TestCase(PackageSource.BuiltIn, "BuiltInPackage")]
+        [TestCase(PackageSource.Embedded, "EmbeddedPackage")]
+        [TestCase(PackageSource.Git, "GitPackage")]
+        [TestCase(PackageSource.Local, "LocalPackage")]
+        [TestCase(PackageSource.LocalTarball, "LocalTarballPackage")]
+        [TestCase(PackageSource.Registry, "RegistryPackage")]
+        [TestCase(PackageSource.Unknown, "UnknownPackage")]
+        public void PackageSource_IsMappedToStableFrameworkVocabulary(
+            PackageSource source,
+            string expected)
+        {
+            Assert.That(FrameworkModuleSourceCatalog.ClassifyPackageSource(source).ToString(), Is.EqualTo(expected));
         }
 
         [Test]

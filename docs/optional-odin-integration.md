@@ -38,7 +38,11 @@ Editor Adapter 中叠加。
    环境探测结果，不能替代物理安装与授权边界。
 5. 运行 EditMode、PlayMode 和 `SSFramework/诊断/模块裁剪审计`。Framework 的
    `FrameworkOptionalDependencyTests` 会从 CompilationPipeline 找到 Assets/Packages 中的 Framework 程序集，
-   同时检查源码、asmdef 与已编译 DLL 的直接引用，并拒绝扫描数为零的假绿。
+   同时检查源码、asmdef 与已编译 DLL 的直接引用，并拒绝扫描数为零的假绿。审计窗口的“第三方依赖证据目录”
+   会保留 Odin 随插件分发的 Editor / NoEditor / NoEmitAndNoEditor 同 AssemblyName 物理变体，并用完整
+   BuildTarget 兼容集合验证它们确实互斥；展开后确认当前 DLL / asmdef 消费者只剩准备一并删除的 Odin
+   Adapter、测试或项目侧工具。若显示项目 Runtime 消费者或 Unknown，先迁移/修复证据，不能把“定位到 DLL”
+   当成可安全删除。
 6. 在一个未安装 Odin 的干净工程安装未来的 Framework UPM 包并编译；这是发布前最终删除测试。
 
 Odin 的具体授权以[官方价格页](https://odininspector.com/pricing)和

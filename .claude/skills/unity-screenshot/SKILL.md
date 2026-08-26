@@ -1,6 +1,6 @@
 ---
 name: unity-screenshot
-description: 通过项目的 Unity MCP 捕获 Game 或 Scene 视图并实际检查图片。用于用户要求截图、查看运行时 UI、拍场景或为 UI/Scene 调试提供视觉证据时。
+description: 通过项目的 Unity MCP 捕获 Game、Scene 或指定 EditorWindow 并实际检查图片。用于用户要求截图、查看运行时 UI、拍场景或检查自定义编辑器窗口时。
 ---
 
 # 共享 Skill 入口

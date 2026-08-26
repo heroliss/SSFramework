@@ -5,6 +5,7 @@ using UnityEditor;
 using UnityEditor.Compilation;
 using UnityEngine;
 using UpmPackageInfo = UnityEditor.PackageManager.PackageInfo;
+using UpmPackageSource = UnityEditor.PackageManager.PackageSource;
 
 namespace Game.Framework.Editor
 {
@@ -23,6 +24,19 @@ namespace Game.Framework.Editor
     /// </remarks>
     internal static class FrameworkModuleSourceCatalog
     {
+        /// <summary>源码在当前工程中的安装形态；只描述来源，不推导能否安全移除。</summary>
+        internal enum SourceKind
+        {
+            ProjectAssets,
+            BuiltInPackage,
+            EmbeddedPackage,
+            GitPackage,
+            LocalPackage,
+            LocalTarballPackage,
+            RegistryPackage,
+            UnknownPackage,
+        }
+
         internal sealed class SourceLocation
         {
             internal string AssetPath = string.Empty;
@@ -32,6 +46,9 @@ namespace Game.Framework.Editor
             internal string PackageName = string.Empty;
             internal string PackageVersion = string.Empty;
             internal string PackageId = string.Empty;
+            internal SourceKind Kind = SourceKind.ProjectAssets;
+            internal bool HasPackageDirectness;
+            internal bool IsDirectPackageDependency;
 
             internal bool IsPackage => !string.IsNullOrEmpty(PackageName);
             internal string AssetDirectory => NormalizeAssetPath(Path.GetDirectoryName(AssetPath));
@@ -182,7 +199,8 @@ namespace Game.Framework.Editor
                 : "Assets/" + canonicalRelative;
             location = CreateLocation(
                 canonicalAssetPath, physical, "Assets", assetsRoot,
-                string.Empty, string.Empty, string.Empty);
+                string.Empty, string.Empty, string.Empty,
+                SourceKind.ProjectAssets, false, false);
             reason = string.Empty;
             return true;
         }
@@ -230,7 +248,10 @@ namespace Game.Framework.Editor
                 physicalRoot,
                 package.name,
                 package.version,
-                package.packageId);
+                package.packageId,
+                ClassifyPackageSource(package.source),
+                true,
+                package.isDirectDependency);
             reason = string.Empty;
             return true;
         }
@@ -270,7 +291,10 @@ namespace Game.Framework.Editor
                     assetsRoot,
                     string.Empty,
                     string.Empty,
-                    string.Empty);
+                    string.Empty,
+                    SourceKind.ProjectAssets,
+                    false,
+                    false);
                 reason = string.Empty;
                 return true;
             }
@@ -289,7 +313,10 @@ namespace Game.Framework.Editor
                     physicalRoot,
                     package.name,
                     package.version,
-                    package.packageId);
+                    package.packageId,
+                    ClassifyPackageSource(package.source),
+                    true,
+                    package.isDirectDependency);
                 reason = string.Empty;
                 return true;
             }
@@ -306,7 +333,10 @@ namespace Game.Framework.Editor
             string physicalRoot,
             string packageName,
             string packageVersion,
-            string packageId) => new()
+            string packageId,
+            SourceKind kind,
+            bool hasPackageDirectness,
+            bool isDirectPackageDependency) => new()
         {
             AssetPath = NormalizeAssetPath(assetPath),
             PhysicalPath = Path.GetFullPath(physicalPath),
@@ -315,6 +345,20 @@ namespace Game.Framework.Editor
             PackageName = packageName ?? string.Empty,
             PackageVersion = packageVersion ?? string.Empty,
             PackageId = packageId ?? string.Empty,
+            Kind = kind,
+            HasPackageDirectness = hasPackageDirectness,
+            IsDirectPackageDependency = isDirectPackageDependency,
+        };
+
+        internal static SourceKind ClassifyPackageSource(UpmPackageSource source) => source switch
+        {
+            UpmPackageSource.BuiltIn => SourceKind.BuiltInPackage,
+            UpmPackageSource.Embedded => SourceKind.EmbeddedPackage,
+            UpmPackageSource.Git => SourceKind.GitPackage,
+            UpmPackageSource.Local => SourceKind.LocalPackage,
+            UpmPackageSource.LocalTarball => SourceKind.LocalTarballPackage,
+            UpmPackageSource.Registry => SourceKind.RegistryPackage,
+            _ => SourceKind.UnknownPackage,
         };
 
         private static UpmPackageInfo[] RegisteredPackages() =>

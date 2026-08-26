@@ -2,7 +2,7 @@
 
 本项目用 **ab-unity-mcp**（Unity Plugin **2.39.5** + 本地 Server **2.35.6**，工具前缀 `unity_*`）。
 Plugin 与 Server 是两个独立仓库、版本号不要求相同；升级时按各自 release 配套检查，项目 `manifest.json` 固定 Plugin tag，
-Codex 的 MCP 配置指向 `D:/unity-mcp-server/src/index.js`。下面是调用时容易踩的点，出错前先看。截图见 [.claude/skills/unity-screenshot/SKILL.md](../.claude/skills/unity-screenshot/SKILL.md)。
+Codex 的 MCP 配置指向 `D:/unity-mcp-server/src/index.js`。下面是调用时容易踩的点，出错前先看。截图见 [.agents/skills/unity-screenshot/SKILL.md](../.agents/skills/unity-screenshot/SKILL.md)；`.claude` 只保留同名路由入口。
 
 ## 1. 实例与端口
 
@@ -17,6 +17,15 @@ Codex 的 MCP 配置指向 `D:/unity-mcp-server/src/index.js`。下面是调用�
 ## 3. 重编译会断连
 
 改 `.cs` 后 `AssetDatabase.Refresh()`（或编辑器自发重编译）进域重载，期间 MCP 可能超时 / 断连——正常，不是失败，别重试同一个写操作。重连后按 §1 重新 select。进 Play / 截图 / 读状态不触发编译，不会断。
+
+### EditorWindow 截图与操作边界
+
+`unity_screenshot_editor_window` 可按标题或类型截取 Inspector、Console 和框架自定义 EditorWindow；它使用
+Win32 `PrintWindow`，即使窗口被遮挡也可观察且不抢焦点。检查诊断/配置窗口时优先用它，截图后仍必须实际打开
+PNG 复查，不能只看工具返回 success。Game/Scene 继续分别用 `unity_screenshot_game` / `unity_screenshot_scene`。
+
+EditorWindow 截图不等于通用交互：可表达的菜单、查询、滚动与尺寸调整优先用 `unity_execute_menu_item` / `unity_execute_code`；
+只有 MCP 无法表达的原生控件点击、拖动或系统弹窗才转 Windows 界面控制。
 
 ## 4. 编译结果与建脚本
 
@@ -71,7 +80,7 @@ Server 2.35.6 对队列 ticket 的瞬时断连会继续轮询，不再盲目重�
 
 AI 经 MCP 驱动 Play 验证时编辑器几乎必然**失焦**，默认设置下 Play 循环暂停（Update 不 tick）——异步初始化/加载会一直卡住，看起来像"加载死了"。进 Play 后先 `execute_code` 执行 `Application.runInBackground = true;` 再做断言。该值是运行时状态，不写工程设置，停止 Play 自动失效。
 
-真实 PlayMode 测试不能只依赖 Agent 在外面“碰巧设到正确一帧”：Test Runner 可能切换域/Play 状态。需要持续 PlayerLoop 的测试应在自己的 `UnitySetUp` 保存旧值并设为 `true`，在 `UnityTearDown` 的 `finally` 恢复。MCP job 在**尚未真正开始**时返回 `blockedReason: editor_unfocused`，启动器可能正在等 Editor 获得一次焦点；先把 Unity 切回前台再观察 job。测试已经进入 PlayerLoop 后则同时看 `Time.frameCount`、当前里程碑与 Console，不要仅凭失焦把业务等待判成死锁。
+真实 PlayMode 测试不能只依赖 Agent 在外面“碰巧设到正确一帧”：Test Runner 可能切换域/Play 状态。需要持续 PlayerLoop 的测试应在自己的 `UnitySetUp` 保存旧值并设为 `true`，在 `UnityTearDown` 的 `finally` 恢复。MCP job 在**尚未真正开始**时返回 `blockedReason: editor_unfocused`，表示启动器正在等 Editor 获得一次焦点，而不是测试失败；临时把 Unity 激活到前台一次并继续轮询同一个 job，不要重新创建测试任务。完成数开始增长后通常不必持续占用前台。测试已经进入 PlayerLoop 后则同时看 `Time.frameCount`、当前里程碑与 Console，不要仅凭失焦把业务等待判成死锁。
 
 用 Additive 场景隔离用户现场时，也不要清空启动场景的全部根节点：Unity Test Framework 的 `Code-based tests runner` 本身就是根节点，销毁后业务帧仍会走，但测试协程再也不会恢复。只撤项目自己的 Composition Root（如 `MonoGameContextBase`），并在 TearDown 卸载测试加载的场景。
 

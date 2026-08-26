@@ -147,7 +147,7 @@ namespace Game.Framework.Editor
                 _rawReport = FrameworkModuleAudit.CreateReport(result);
                 BuildResult(result);
                 _status.text = result.RequiresAttention
-                    ? "检测完成：依赖方向与最终保留原因已分开显示；请先看顶部结论和 Module 状态。"
+                    ? "检测完成：依赖方向、第三方来源与最终保留原因已分开显示；请先看顶部结论和对应证据目录。"
                     : "检测完成：当前模块边界健康，且没有发现无条件 Module 保留规则。大小数字不代表最终包体。";
                 _status.messageType = result.RequiresAttention
                     ? HelpBoxMessageType.Warning
@@ -177,6 +177,8 @@ namespace Game.Framework.Editor
             foreach (string recommendation in result.Recommendations)
                 recommendations.Add(CreateBullet(recommendation));
             _content.Add(recommendations);
+
+            AddExternalDependencyCatalog(result);
 
             AddSectionTitle("当前 Module · 为什么可能被带入");
             var model = CreateCard("module-audit-retention-model");
@@ -217,7 +219,7 @@ namespace Game.Framework.Editor
 
             AddSectionTitle("常用组合");
             foreach (var profile in result.CommonProfiles)
-                _content.Add(CreateProfileCard(profile));
+                _content.Add(CreateProfileCard(profile, result.ExternalDependencies));
 
             var advanced = new Foldout
             {
@@ -226,9 +228,9 @@ namespace Game.Framework.Editor
                 value = false,
                 style = { marginTop = 8, marginBottom = 4 },
             };
-            advanced.Add(CreateProfileCard(result.FullProfile));
+            advanced.Add(CreateProfileCard(result.FullProfile, result.ExternalDependencies));
             if (result.HotUpdateProfile != null)
-                advanced.Add(CreateProfileCard(result.HotUpdateProfile));
+                advanced.Add(CreateProfileCard(result.HotUpdateProfile, result.ExternalDependencies));
             else
                 advanced.Add(CreateInfoLabel(result.HotUpdateNote));
             var arbitraryModules = new Foldout
@@ -241,7 +243,7 @@ namespace Game.Framework.Editor
             arbitraryModules.Add(CreateInfoLabel(
                 "这不是全局启用开关，而是 what-if：假设业务只从某个 Module 进入，会自动带上哪些 Framework 与外部依赖。"));
             foreach (var profile in result.ModuleProfiles)
-                arbitraryModules.Add(CreateProfileCard(profile));
+                arbitraryModules.Add(CreateProfileCard(profile, result.ExternalDependencies));
             advanced.Add(arbitraryModules);
             _content.Add(advanced);
 
@@ -278,7 +280,9 @@ namespace Game.Framework.Editor
             string titleText = clear
                 ? "✓ 当前模块边界与保留规则健康"
                 : result.IsHealthy
-                    ? "△ 依赖方向健康，但保留 / 派生证据需关注"
+                    ? result.HasDependencyEvidenceGaps || result.HasUnknownExternalDependencySources
+                        ? "△ 依赖方向健康，但第三方依赖证据需关注"
+                        : "△ 依赖方向健康，但保留 / 派生证据需关注"
                     : "⚠ 当前模块边界需要关注";
             var title = Wrap(new Label(titleText));
             title.style.fontSize = 17;
@@ -289,7 +293,9 @@ namespace Game.Framework.Editor
             var explanation = Wrap(new Label(clear
                 ? "Framework Module 由消费方显式选择；没有发现隐式引用、反向拖入或无条件 Module link.xml 根。"
                 : result.IsHealthy
-                    ? "asmdef 删除测试通过，但 link.xml 或热更派生状态仍可能让“Profile 已配置”不等于“当前产物已同步”。"
+                    ? result.HasDependencyEvidenceGaps || result.HasUnknownExternalDependencySources
+                        ? "asmdef 删除测试通过，但至少一条第三方来源或扫描输入不完整；修复前不会给出绿色移除结论。"
+                        : "asmdef 删除测试通过，但 link.xml 或热更派生状态仍可能让“Profile 已配置”不等于“当前产物已同步”。"
                     : "至少有一项依赖可见性、程序集定位或删除检查未通过。下面会给出处理顺序。"));
             explanation.style.marginTop = 3;
             explanation.style.color = MutedTextColor;
@@ -385,6 +391,196 @@ namespace Game.Framework.Editor
                 "复制 Profile、Settings、Generate 与 DLL 中转状态，便于 issue / AI 排查。"));
             card.Add(actions);
             _content.Add(card);
+        }
+
+        private void AddExternalDependencyCatalog(FrameworkModuleAudit.AuditResult result)
+        {
+            AddSectionTitle("第三方依赖 · 从哪来、谁在用、如何取舍");
+            var summary = CreateCard("module-audit-external-summary");
+            summary.Add(CreateInfoLabel(
+                "这里按真实 Package 或单个 Assets DLL 聚合，只读解释安装来源、当前 DLL 快照、完整 asmdef 声明和 what-if 档位。它不会安装、卸载或替代 Unity Package Manager。"));
+            var metrics = CreateResponsiveRow("module-audit-external-metrics");
+            metrics.Add(CreateMetric("依赖组", result.ExternalDependencies.Length.ToString(),
+                "同一 Package 的程序集合并显示"));
+            metrics.Add(CreateMetric("核心基础", result.ExternalDependencies.Count(item =>
+                    item.RemovalState == FrameworkModuleAudit.ExternalDependencyRemovalState.RequiredByCore).ToString(),
+                "进入 Core what-if 闭包"));
+            metrics.Add(CreateMetric("可选候选", result.ExternalDependencies.Count(item =>
+                    item.RemovalState is FrameworkModuleAudit.ExternalDependencyRemovalState.RemoveWithOptionalModuleCandidate or
+                        FrameworkModuleAudit.ExternalDependencyRemovalState.RemoveWithEditorToolCandidate).ToString(),
+                "仍需测试与真实构建"));
+            int evidenceGapCount = result.DependencyEvidenceIssueCount;
+            metrics.Add(CreateMetric("证据缺口", evidenceGapCount.ToString(),
+                evidenceGapCount == 0 ? "扫描输入完整" : "先修复再判断移除"));
+            summary.Add(metrics);
+            if (result.DependencyEvidenceIssues.Length > 0)
+            {
+                var issues = new Foldout
+                {
+                    name = "module-audit-external-issues",
+                    text = $"查看 {result.DependencyEvidenceIssues.Length} 条扫描问题",
+                    value = true,
+                    style = { marginTop = 5 },
+                };
+                foreach (var issue in result.DependencyEvidenceIssues)
+                    issues.Add(CreateBullet($"[{issue.Code}] {issue.Message}"));
+                summary.Add(issues);
+            }
+            _content.Add(summary);
+
+            var catalog = new Foldout
+            {
+                name = "module-audit-external-catalog",
+                text = $"查看全部 {result.ExternalDependencies.Length} 组依赖证据",
+                value = false,
+                style = { marginTop = 4, marginBottom = 4 },
+            };
+            foreach (var dependency in result.ExternalDependencies)
+                catalog.Add(CreateExternalDependencyCard(dependency));
+            _content.Add(catalog);
+        }
+
+        private VisualElement CreateExternalDependencyCard(
+            FrameworkModuleAudit.ExternalDependencyEvidence dependency)
+        {
+            var card = CreateCard("module-audit-external-" +
+                                  dependency.Key.Replace(':', '-').Replace('.', '-').Replace('/', '-'));
+            var title = Wrap(new Label(dependency.DisplayName +
+                                       (string.IsNullOrWhiteSpace(dependency.PackageVersion)
+                                           ? string.Empty
+                                           : " @ " + dependency.PackageVersion)));
+            title.style.fontSize = 14;
+            title.style.unityFontStyleAndWeight = FontStyle.Bold;
+            card.Add(title);
+            var summary = Wrap(new Label(dependency.Summary));
+            summary.style.color = dependency.HasEvidenceGaps ? WarningTextColor : MutedTextColor;
+            summary.style.marginBottom = 3;
+            card.Add(summary);
+
+            var metrics = CreateResponsiveRow("module-audit-external-card-metrics-" + dependency.Key);
+            metrics.Add(CreateMetric("来源", FrameworkModuleAudit.DescribeSourceKind(dependency.SourceKind),
+                dependency.HasPackageDirectness
+                    ? dependency.IsDirectPackageDependency ? "manifest 直接依赖" : "Package 间接解析"
+                    : "不适用 Package 层级"));
+            metrics.Add(CreateMetric("程序集", dependency.Assemblies.Length.ToString(),
+                dependency.HasProfileMeasurement
+                    ? FrameworkModuleAudit.FormatBytes(dependency.MaxProfileRawBytes) + " 最高档位原始字节"
+                    : "当前档位未测得字节"));
+            metrics.Add(CreateMetric("当前 DLL 消费", dependency.ActualConsumers.Length.ToString(),
+                "Player / Editor 当前编译快照"));
+            metrics.Add(CreateMetric("声明阻塞", dependency.DeclaredConsumers.Length.ToString(),
+                "完整一方 asmdef 图"));
+            card.Add(metrics);
+
+            var details = new Foldout
+            {
+                text = "查看消费证据与安全处理顺序",
+                value = dependency.HasEvidenceGaps,
+                style = { marginTop = 5 },
+            };
+            AddStringList(details, "程序集", dependency.Assemblies.Select(item => item.AssemblyName));
+            AddStringList(details, "物理来源", dependency.Assemblies.SelectMany(item => item.AllAssetPaths));
+            if (dependency.ActualConsumers.Length > 0)
+            {
+                details.Add(CreateDetailHeading("当前 DLL 直接消费者（真实 AssemblyRef）"));
+                foreach (var edge in dependency.ActualConsumers)
+                    details.Add(CreateBullet(DescribeActualConsumer(edge)));
+            }
+            if (dependency.Introducers.Length > 0)
+            {
+                details.Add(CreateDetailHeading("最初引入者（不重复计算上层传播）"));
+                foreach (var edge in dependency.Introducers)
+                    details.Add(CreateBullet(DescribeActualConsumer(edge)));
+            }
+            if (dependency.DeclaredConsumers.Length > 0)
+            {
+                details.Add(CreateDetailHeading("asmdef 声明消费者（删除后会阻塞编译）"));
+                foreach (var edge in dependency.DeclaredConsumers)
+                    details.Add(CreateBullet(edge.ConsumerAssemblyName + " · " + edge.PlatformScope + " · " +
+                                             (edge.ReferenceKind == FrameworkModuleAudit.DeclaredReferenceKind.PrecompiledAssembly
+                                                 ? "precompiledReferences"
+                                                 : "references")));
+            }
+            AddStringList(details, "直接进入的档位", dependency.DirectProfileKeys.Select(FriendlyProfileKey));
+            AddStringList(details, "经依赖链进入的档位", dependency.TransitiveProfileKeys.Select(FriendlyProfileKey));
+            if (dependency.HasInstalledBinaryMeasurement && !dependency.HasProfileMeasurement)
+                details.Add(CreateInfoLabel("已安装二进制约 " +
+                                            FrameworkModuleAudit.FormatBytes(dependency.InstalledBinaryBytes) +
+                                            "；这只证明磁盘文件存在，不是 what-if Profile 或最终包体。"));
+            if (dependency.EvidenceIssues.Length > 0)
+            {
+                details.Add(CreateDetailHeading("本组证据问题"));
+                foreach (var issue in dependency.EvidenceIssues)
+                    details.Add(CreateBullet($"[{issue.Code}] {issue.Message}"));
+            }
+            details.Add(CreateDetailHeading("移除或替换前"));
+            foreach (string step in dependency.RemovalSteps)
+                details.Add(CreateBullet(step));
+            details.Add(CreateDetailHeading("完成后验证"));
+            foreach (string step in dependency.VerificationSteps)
+                details.Add(CreateBullet(step));
+            card.Add(details);
+
+            var actions = CreateResponsiveRow("module-audit-external-actions-" + dependency.Key);
+            string assetPath = dependency.Assemblies
+                .SelectMany(item => item.AllAssetPaths)
+                .FirstOrDefault(path => !string.IsNullOrWhiteSpace(path));
+            if (!string.IsNullOrWhiteSpace(assetPath))
+                actions.Add(CreateActionButton("定位来源", () => LocatePath(assetPath),
+                    "在 Unity Project 中选中 Package 程序集定义或 Assets DLL；这里只定位，不执行卸载。"));
+            actions.Add(CreateActionButton("复制依赖证据", () => CopyExternalDependencyEvidence(dependency),
+                "复制来源、消费者、处理顺序和验证边界。"));
+            card.Add(actions);
+            return card;
+        }
+
+        private static string FriendlyProfileKey(string key)
+        {
+            if (key == "core") return "只用核心";
+            if (key == "ugui") return "核心 + UGUI";
+            if (key == "toolkit") return "核心 + UI Toolkit";
+            return key.StartsWith("module-", StringComparison.Ordinal)
+                ? key.Substring("module-".Length).Replace('-', '.') + " 入口"
+                : key;
+        }
+
+        private static string DescribeActualConsumer(
+            FrameworkModuleAudit.ActualConsumerEvidence edge)
+        {
+            string owner = edge.ConsumerIsFramework
+                ? "Framework"
+                : edge.ConsumerSourceKind == FrameworkModuleSourceCatalog.SourceKind.ProjectAssets
+                    ? "项目 Assets"
+                    : string.IsNullOrWhiteSpace(edge.ConsumerPackageName)
+                        ? FrameworkModuleAudit.DescribeSourceKind(edge.ConsumerSourceKind)
+                        : edge.ConsumerPackageName;
+            return $"{edge.ConsumerAssemblyName} · {edge.PlatformScope} · {owner}";
+        }
+
+        private static void CopyExternalDependencyEvidence(
+            FrameworkModuleAudit.ExternalDependencyEvidence dependency)
+        {
+            var lines = new List<string>
+            {
+                dependency.DisplayName,
+                dependency.Summary,
+                "程序集：" + string.Join("、", dependency.Assemblies.Select(item => item.AssemblyName)),
+                "当前 DLL 直接消费者：" + (dependency.ActualConsumers.Length == 0
+                    ? "无"
+                    : string.Join("、", dependency.ActualConsumers.Select(DescribeActualConsumer))),
+                "最初引入者：" + (dependency.Introducers.Length == 0
+                    ? "未确认"
+                    : string.Join("、", dependency.Introducers.Select(DescribeActualConsumer))),
+                "asmdef 声明消费者：" + (dependency.DeclaredConsumers.Length == 0
+                    ? "无"
+                    : string.Join("、", dependency.DeclaredConsumers.Select(item => item.ConsumerAssemblyName)
+                        .Distinct(StringComparer.Ordinal))),
+                "移除前：",
+            };
+            lines.AddRange(dependency.RemovalSteps.Select(step => "- " + step));
+            lines.Add("验证：");
+            lines.AddRange(dependency.VerificationSteps.Select(step => "- " + step));
+            EditorGUIUtility.systemCopyBuffer = string.Join("\n", lines);
         }
 
         private VisualElement CreateModuleStatusCard(FrameworkModuleAudit.ModuleStatus status)
@@ -501,7 +697,9 @@ namespace Game.Framework.Editor
             return foldout;
         }
 
-        private VisualElement CreateProfileCard(FrameworkModuleAudit.AuditProfile profile)
+        private VisualElement CreateProfileCard(
+            FrameworkModuleAudit.AuditProfile profile,
+            IReadOnlyCollection<FrameworkModuleAudit.ExternalDependencyEvidence> externalDependencies)
         {
             var card = CreateCard("module-audit-profile-" + profile.Key);
             var title = Wrap(new Label(profile.Title));
@@ -521,7 +719,9 @@ namespace Game.Framework.Editor
                 metrics.Add(CreateMetric("项目代码", FrameworkModuleAudit.FormatBytes(profile.Footprint.ProjectBytes),
                     $"{profile.Footprint.ProjectAssemblies.Count} 个程序集"));
             metrics.Add(CreateMetric("外部依赖", FrameworkModuleAudit.FormatBytes(profile.Footprint.ExternalBytes),
-                "原始 DLL，非最终包体"));
+                externalDependencies.Count(dependency =>
+                    dependency.AffectedProfileKeys.Contains(profile.Key, StringComparer.Ordinal)) +
+                " 组，原始 DLL"));
             card.Add(metrics);
 
             var details = new Foldout
@@ -536,11 +736,15 @@ namespace Game.Framework.Editor
                 AddStringList(details, "项目程序集", profile.Footprint.ProjectAssemblies);
             if (profile.Footprint.ExternalAssemblies.Count > 0)
             {
-                details.Add(CreateDetailHeading("外部依赖（由大到小）"));
-                foreach (var pair in profile.Footprint.ExternalAssemblies
-                             .OrderByDescending(pair => pair.Value)
-                             .ThenBy(pair => pair.Key, StringComparer.Ordinal))
-                    details.Add(CreateDetailLine(pair.Key, FrameworkModuleAudit.FormatBytes(pair.Value)));
+                details.Add(CreateDetailHeading("外部依赖组（完整消费与移除证据见上方目录）"));
+                foreach (var dependency in externalDependencies
+                             .Where(item => item.AffectedProfileKeys.Contains(profile.Key, StringComparer.Ordinal))
+                             .OrderByDescending(item => item.ProfileRawBytesByKey.TryGetValue(
+                                 profile.Key, out long bytes) ? bytes : 0)
+                             .ThenBy(item => item.DisplayName, StringComparer.Ordinal))
+                    details.Add(CreateDetailLine(dependency.DisplayName,
+                        FrameworkModuleAudit.FormatBytes(dependency.ProfileRawBytesByKey.TryGetValue(
+                            profile.Key, out long bytes) ? bytes : 0)));
             }
             if (profile.Footprint.UnresolvedAssemblies.Count > 0)
                 details.Add(new HelpBox("无法定位：" + string.Join("、", profile.Footprint.UnresolvedAssemblies),
