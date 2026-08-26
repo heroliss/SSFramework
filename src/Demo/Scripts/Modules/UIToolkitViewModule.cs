@@ -1,4 +1,5 @@
 using System;
+using Cysharp.Threading.Tasks;
 using Game.Framework.Common;
 using Game.Framework.Demo.Core;
 using Game.Framework.Internal;
@@ -47,13 +48,15 @@ namespace Game.Framework.Demo.Modules
                 Bag.Add(_view); // 切走本章（Teardown → Bag.Dispose）时自动释放视图，订阅随之退订
             }, CodeRef.Here("class UIToolkitDemoView", "UIToolkitDemoView · 纯 C# View"));
 
-            host.AddNote("卡片里：「+1」经 `ExecuteCommand` 写、文字用 `Bag.BindText` 订阅查询 Command；「关闭」`Dispose` 自己——`Bag` 随之释放、`Root` 摘出可视树。",
+            host.AddNote("卡片里：「+1」经 `ExecuteCommand` 同步写；「延迟 +1」则把异步点击交给 `Bag.SubscribeClickAsync`。等待期间关闭卡片，View 的 `Bag` 会取消任务，不会迟到修改分数或产生未观察异常。",
                 CodeRef.Here("protected override void OnCreated", "View 内部接线（OnCreated）"));
 
             host.AddSectionTitle("和 UGUI View 比，差在哪");
             host.AddConcept("载体不同", "UGUI 是 MonoBehaviour + prefab（所见即所得、可拖引用）；UIToolkit 视图是纯 C# + VisualElement，本例直接代码搭，无需 authored 资产。");
             host.AddConcept("接入相同", "两者都实现 `IView`：自动注入、`Bag` 生命周期、`ExecuteCommand` / `RegisterEvent` / `GetUtility` 完全一致——只是 UGUI 走 `MonoViewBase`（Awake 沿父链找 Context），UIToolkit 走 `BindTo`（创建方显式交 Context）。");
             host.AddConcept("绑定相同", "都用 R3 订阅：UGUI `Bag.Subscribe(rop, …)`，UIToolkit `Bag.BindText(label, rop)`——一套心智，没有第二套数据绑定。");
+            host.AddConcept("异步所有权", "`SubscribeClickAsync` 把 View 生命周期 token 交给 handler，并统一观察漏出的异常；它不自动禁按钮、去抖或单飞，因为是否允许并发点击属于具体交互策略。");
+            host.AddCodeLink(CodeRef.Here("Bag.SubscribeClickAsync(delayedBtn", "异步点击 · 生命周期与异常所有权"));
 
             host.AddSectionTitle("核心层对 UI 技术无感");
             host.AddNote("这张卡片读写的分数，和「View · MonoViewBase」(UGUI) 章是**同一个** `MonoScoreModel`、同一对查询/写命令。切到那一章，分数一致——证明 Model / Command / System 根本不知道上层用的是 UGUI 还是 UI Toolkit。");
@@ -127,6 +130,10 @@ namespace Game.Framework.Demo.Modules
             addBtn.AddToClassList("demo-btn");
             Root.Add(addBtn);
 
+            var delayedBtn = new Button { text = "延迟 0.6 秒 +1" };
+            delayedBtn.AddToClassList("demo-btn");
+            Root.Add(delayedBtn);
+
             var closeBtn = new Button { text = "关闭" };
             closeBtn.AddToClassList("demo-btn");
             Root.Add(closeBtn);
@@ -135,6 +142,13 @@ namespace Game.Framework.Demo.Modules
             Bag.BindText(score, this.ExecuteCommand(new GetMonoScoreCommand()), v => $"Score: {v}");
             // 只写：所有外发动作只能 ExecuteCommand（View 拿不到 GetModel / SendEvent 权限，编译期挡住）。
             Bag.SubscribeClick(addBtn, () => this.ExecuteCommand(new RaiseMonoScoreCommand()));
+            // 异步点击：关闭卡片会 Dispose Bag → ct 取消，等待后的 Command 不会迟到执行；
+            // 未预期异常由 UIBinding 的 Log Seam 统一观察。按钮禁用/去抖/单飞仍由具体交互决定。
+            Bag.SubscribeClickAsync(delayedBtn, async ct =>
+            {
+                await UniTask.Delay(TimeSpan.FromMilliseconds(600), cancellationToken: ct);
+                this.ExecuteCommand(new RaiseMonoScoreCommand());
+            });
             // 关闭：请求宿主销毁自己 → Dispose → Bag 释放 + 退订。
             Bag.SubscribeClick(closeBtn, () => _onCloseRequested());
         }
