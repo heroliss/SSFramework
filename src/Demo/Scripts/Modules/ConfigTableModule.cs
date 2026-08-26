@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using DemoCfg;
 using Game.Framework.Common;
@@ -51,13 +52,34 @@ namespace Game.Framework.Demo.Modules
             host.AddSectionTitle("先看结果：各层一行取到强类型表");
             host.AddNote("表由场景里的配置服务在进游戏时加载好（下一节讲它怎么搭）。各层（含 View）一行 " +
                          "`GetUtility<IConfigUtility<Tables>>()` 拿到表根，查询就是纯内存读、不需要查询 Command——下面按钮真实读 Play 中已加载的表。",
-                new CodeRef("Assets/Game/Framework/Config/IConfigUtility.cs", "interface IConfigUtility", "IConfigUtility · 全层直读的配置服务（Tables + State）"));
+                new CodeRef("Assets/Game/Framework/Config/IConfigUtility.cs", "interface IConfigUtility", "IConfigUtility · Tables + State + EnsureReady"));
 
             // 配置是基础设施服务：各层（含本 demo 模块、真实 View）直接 GetUtility 取，无需查询 Command 绕行。
             var config = this.GetUtility<IConfigUtility<Tables>>();
 
             var stateLabel = host.AddValueDisplay("", CodeRef.Here("Bag.Subscribe(config.State", "本处订阅 config.State（收到 Ready 再读表）"));
             Bag.Subscribe(config.State, s => stateLabel.text = $"加载状态：{s}");
+
+            host.AddTable(
+                new[] { "调用场景", "推荐入口", "为什么" },
+                new[] { "加载提示、按钮禁用态、失败提示", "订阅 `State`", "持续观察状态变化，收到 Ready 时 Tables 已可用" },
+                new[] { "启动流程、进关卡前的硬门禁", "`await EnsureReady(token)`", "一次得到 Tables；失败保留原始异常，不必手写终态轮询" });
+            var readyLabel = host.AddValueDisplay("（点下方按钮观察命令式等待）");
+            host.AddAsyncActionRow("等待配置就绪（启动流程推荐）", async ct =>
+            {
+                try
+                {
+                    var tables = await config.EnsureReady(ct);
+                    readyLabel.text = $"就绪：拿到同一份 Tables，物品 {tables.TbItem.DataList.Count} 条、怪物 {tables.TbMonster.DataList.Count} 条";
+                }
+                catch (Exception e)
+                {
+                    readyLabel.text = $"配置失败：{e.Message}（原始异常也已进入统一日志）";
+                }
+            }, CodeRef.Here("await config.EnsureReady(ct)", "命令式门禁 · 直接取得 Tables 或原始异常"));
+            host.AddSubNote("`State` 与 `EnsureReady` 不是两套重复 API：前者是响应式观察，后者把「等待 Ready/Failed → 返回 Tables / 抛根因」收进 Interface。" +
+                            "调用方 token 只让当前等待者离开，不会因为一个窗口关闭就中止其他系统共享的配置加载；组件或 Context 销毁才取消真正的 owner。",
+                new CodeRef("Assets/Game/Framework/Config/IConfigUtility.cs", "UniTask<TTables> EnsureReady", "就绪契约 · 取消与失败语义"));
 
             var itemLabel = host.AddValueDisplay("（点下方按钮查表）");
             host.AddActionRow("查下一条物品（轮巡 TbItem.DataList）", () =>
@@ -116,6 +138,9 @@ namespace Game.Framework.Demo.Modules
                             "`CreateTables` 是**反序列化适配器**——换后端（JSON / 自定义格式）只改 `CreateTables` 一行，`TableFiles` 照旧；" +
                             "多套配置就是多个闭合不同 `Tables` 的子类，各有自己这两块。",
                 new CodeRef("Assets/Game/Framework/Config/MonoConfigUtilityBase.cs", "protected abstract IReadOnlyList<string> TableFiles", "框架基类 · 两个 abstract 接缝"));
+            host.AddSubNote("框架会在任何资源 I/O 前快照并校验清单：空项、重复项会直接失败，`CreateTables` 返回 null 也会被拒绝。这样生成管线或 Adapter 的错误在配置边界就暴露，" +
+                            "不会加载到一半才留下难解释的部分副作用；失败的原始异常既写入 `Log`，也由 `EnsureReady` 交还给需要阻断流程的调用方。",
+                new CodeRef("Assets/Game/Framework/Config/MonoConfigUtilityBase.cs", "private IReadOnlyList<string> SnapshotAndValidateTableFiles()", "清单防线 · I/O 前 fail-fast"));
             host.AddSubNote("组件上还有两个 Inspector 字段：`_packageName`（配置数据在哪个资源包，留空 = 默认包）与 `_initializePackageIfIdle`" +
                             "（该包没开「自动初始化」时，由配置服务在加载前先初始化它——合规启动 / DLC 懒加载等场景才需要；demo 这套勾上了）。",
                 new CodeRef("Assets/Game/Framework/Config/MonoConfigUtilityBase.cs", "private string _packageName", "两个 Inspector 字段：包名 / 按需初始化"));

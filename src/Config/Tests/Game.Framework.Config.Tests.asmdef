@@ -1,0 +1,25 @@
+{
+    "name": "Game.Framework.Config.Tests",
+    "rootNamespace": "Game.Framework",
+    "references": [
+        "Game.Framework",
+        "Game.Framework.Config",
+        "UniTask",
+        "R3.Unity",
+        "UnityEngine.TestRunner"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll",
+        "R3.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

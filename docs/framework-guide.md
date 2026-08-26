@@ -1798,20 +1798,40 @@ Object.Destroy(go);                              // 交棒：首场景根 Contex
 
 | 角色 | 层 | 职责 |
 |---|---|---|
-| `MonoConfigUtilityBase<TTables>` 子类 | Utility | 自加载：清单并行预载 → 调子类工厂构造 → 持有 `Tables` + `ConfigInitState`，自动按 `IConfigUtility<TTables>` 接口注册，对各层只读暴露 |
+| `MonoConfigUtilityBase<TTables>` 子类 | Utility | 自加载：校验并快照清单 → 并行预载 → 调子类工厂构造 → 持有 `Tables` + `ConfigInitState`，自动按 `IConfigUtility<TTables>` 接口注册，对各层只读暴露 |
 
 配置是静态只读引用数据（生成的 `Tables` 本就是数据模型），不占 Model 层、也不像资源系统那样拆「Model + InitSystem」——配置加载没有多包 / CDN / 下载的复杂度，一个自加载 Utility 够了。各层（含 View）直读，查询直接用生成的 `Tables` 强类型 API（`TbItem.Get(id)` / `DataList`），框架不再包查询层：
 
 ```csharp
-// 各层（System / class Command / View）统一直读：
+// 各层（System / class Command / View）统一获取服务：
 var config = this.GetUtility<IConfigUtility<Tables>>();
-var item = config.Tables?.TbItem.Get(id);   // Tables 是普通取值（只读、加载后不变，无 .CurrentValue），null 即未就绪
+
+// 启动流程 / 进关卡门禁：一次拿到 Tables；失败抛原始异常，不手写 State 终态轮询
+var tables = await config.EnsureReady(cancellationToken);
+var item = tables.TbItem.Get(id);
+
 // 也可 [Inject] 字段（View / Model / System 都有 ICanGetUtility）：
 //   [Inject] private IConfigUtility<Tables> _config;
-// 等就绪：订阅 State，不要轮询 Tables 判空
+
+// 响应式界面：订阅 State 驱动加载提示 / 禁用态；收到 Ready 时 Tables 一定可读
 Bag.Subscribe(config.State, s => { if (s == ConfigInitState.Ready) Refresh(); });
+
+// 已知 Ready 的同步热路径直接读普通属性（只读、加载后不变，无 .CurrentValue）
+var cachedItem = config.Tables.TbItem.Get(id);
 // struct Command 里经 ctx：ctx.GetUtility<IConfigUtility<Tables>>().Tables
 ```
+
+`State` 和 `EnsureReady` 是两种消费形态，不是重复设计：
+
+| 需要 | 用什么 | 失败 / 取消语义 |
+|---|---|---|
+| 持续显示 Loading / Ready / Failed，随状态刷新 UI | 订阅 `State` | 状态只表达可观察阶段；收到 Ready 时 `Tables` 已发布 |
+| 在继续流程前必须得到表根 | `await EnsureReady(token)` | 返回同一份 `Tables`；Failed 重新抛出该次加载的原始异常 |
+| 已经由上游证明 Ready 的高频同步读取 | `Tables` | 普通只读属性，不负责等待；未就绪时为 null |
+
+`EnsureReady` 的调用方 token **只取消这个等待者**，不传给共享的物理加载。一个窗口关闭不能把别的 System 也在等待的配置加载截断；真正的 owner 是配置组件 + Context，它们销毁时才取消加载及全部未完成等待。服务失败后不会偷偷重试：重试应重建所属 Context / 组件，避免旧表与新表在同一作用域并存。
+
+> **升级兼容性**：继承 `MonoConfigUtilityBase<TTables>` 的项目子类无需修改；若项目绕过基类、直接实现了 `IConfigUtility<TTables>`，需要补 `EnsureReady(token)` 并遵守上表的发布顺序、根异常与 waiter/owner 取消边界。框架没有提供退化的默认实现，因为仅靠 `State == Failed` 无法恢复已经丢失的原始异常。
 
 **接入只补两个 override**——它们是框架（后端无关）与项目（具体后端）之间仅有的接缝：
 
@@ -1820,7 +1840,7 @@ Bag.Subscribe(config.State, s => { if (s == ConfigInitState.Ready) Refresh(); })
 | `TableFiles` | 预载哪些数据文件（数据清单） | 直接交还生成的 `LubanTableManifest.Files` | 不变（仍返回你的清单） |
 | `CreateTables` | 字节怎么变表根（反序列化适配器） | `new Tables(f => new ByteBuf(getBytes(f)))`——唯一碰 Luban `ByteBuf` 的一行 | 改这一行（JSON 就 parse JSON，不要 `ByteBuf`） |
 
-通用编排（并行预载、异步→同步桥、加载状态机、按 `IConfigUtility<TTables>` 接口注册、生命周期）全在框架基类；多套配置 = 多个闭合不同 `Tables` 的子类，各有自己这两块。
+通用编排（清单快照与 fail-fast 校验、并行预载、异步→同步桥、加载状态机、就绪/失败/取消契约、按 `IConfigUtility<TTables>` 接口注册、生命周期）全在框架基类；多套配置 = 多个闭合不同 `Tables` 的子类，各有自己这两块。空清单、空 location、重复 location 会在资源 I/O 前失败，`CreateTables` 返回 null 也会被拒绝，避免 Adapter 错误变成稍后的空引用。
 
 ### 新项目接入步骤
 
@@ -1868,13 +1888,14 @@ Luban 生成的 `Tables` 构造函数是**同步、一次性构造全表**（每
 - **topModule 别嵌进含 `System` 子命名空间的层级**（如 `Game.Framework.*`）：生成代码裸写 `System.Func` / `System.Collections`，会被就近解析劫持（CS0234）。demo 用顶层 `DemoCfg`。
 - **生成代码目录被 Luban 接管**：它会清理目录里的陌生文件（表清单是 CLI 跑完后由管线补写的），勿手放任何文件进去。
 - **数据文件按普通资源收集（TextAsset），不要用 PackRawFile**：YooAsset 的 bundle 类型是包级二选一，AB 包混入 RawFile 收集器后运行时直接失败（实测）。读取统一用 `Bag.LoadBytes`——它按包构建管线自动路由（普通 AB 包按 TextAsset 取内容、RawFile 包走原生通道），业务无需关心包类型。
+- **流程门禁不要自己 `WaitUntil(State is Ready or Failed)`**：这会重复终态编排，并在 Failed 时丢掉根因。使用 `await EnsureReady(token)`；只有加载提示等持续 UI 才订阅 `State`。
 - 配置是**只读数据，启动一次性加载**：改数值 = 改 `Datas/` → 重新生成 → 数据 `.bytes` 随资源包热更即可；改表**结构**会改生成代码 → 走代码热更 / 发版。
 - `Game.Framework.Config` 引用热更内核，已在热更列表（ADR-0008 铁律：AOT 不引用热更）；`Luban.Runtime` 来自 UPM 包、保持 AOT。
 
 > **要点回顾**
 >
 > - 构建期菜单一键生成「代码 + 数据 + 清单」三件套；运行期只是按清单预载字节、构造一次 `Tables`
-> - 运行期是一个自加载的配置 Utility 服务（不占 Model、不拆 System）：各层含 View 经 `GetUtility<IConfigUtility<Tables>>().Tables` 直读，接入只补 `TableFiles` / `CreateTables` 两个 override
+> - 运行期是一个自加载的配置 Utility 服务（不占 Model、不拆 System）：流程 `await EnsureReady(token)`，响应式 UI 订 `State`，已就绪热路径读 `Tables`
 > - 框架 `Game.Framework.Config` 模块后端无关（不引用 Luban）——接触 Luban 的只有项目侧 `CreateTables` 一行
 > - 数据文件走资源包通道：打包 / 下载 / 热更与普通资源同一套机制
 

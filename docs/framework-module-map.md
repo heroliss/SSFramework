@@ -53,6 +53,7 @@ Editor 反向引用。Adapter 不得随 Framework 分发付费插件本体。详
 | `Game.Framework.Asset.Yoo.Tests` | `Asset.Yoo/Tests/Editor/` | Yoo package 进程级 Reader/Writer、取消、缓存世代、同步快照与后台终态的纯 EditMode 契约。 | 随 Yoo Adapter 删除；不进入玩家构建，也不让通用 Core Test 反向依赖可选 Adapter。 |
 | `Game.Framework.Config` | `Config/` | 配置运行时编排与 `IConfigUtility<TTables>`；不依赖 Luban。 | 删除后失去配置表 Module，Core 不改。 |
 | `Game.Framework.Config.Editor` | `Config/Editor/` | Luban CLI/Profile/生成与配置总览入口；复用通用 Editor 反馈。 | 可与 Config 一起删除；不向 Runtime 泄漏 Editor 依赖。 |
+| `Game.Framework.Config.Tests` | `Config/Tests/` | 配置就绪、根失败、取消所有权与清单边界的 PlayMode 契约；使用可控资源 Provider，不依赖 Luban/YooAsset。 | 随 Config 一起删除；不让通用 Core Test 反向依赖可选 Config Module。 |
 | `Game.Framework.Fonts` | `Fonts/` | TMP/Toolkit 多语言 fallback 链；TMP 依赖收口。 | 删除后仅失去自动字体链，本地化 Interface 仍可用。 |
 | `Game.Framework.Fonts.Editor` | `Fonts/Editor/` | 常用字集扫描与生成。 | 可独立删除，不影响运行时字体链。 |
 | `Game.Framework.Network.Proto` | `Network.Proto/` | Google.Protobuf Adapter，把生成的 `IMessage` 接到内核网络 Seam。 | 删除后 JSON 与内核手写 Protobuf 仍可用。 |

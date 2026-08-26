@@ -1,3 +1,5 @@
+using System.Threading;
+using Cysharp.Threading.Tasks;
 using Game.Framework.Utility;
 using R3;
 
@@ -10,7 +12,9 @@ namespace Game.Framework
     /// Model，而是当「提供数据的服务」放 Utility 层：各层经 <c>this.GetUtility&lt;IConfigUtility&lt;TTables&gt;&gt;()</c>
     /// 或 <c>[Inject] IConfigUtility&lt;TTables&gt;</c> 直读，无需查询 Command 绕行（View 也有 <c>ICanGetUtility</c>）。</para>
     ///
-    /// <para>后端无关——框架只约定「表根 + 状态」，表如何生成 / 何种格式反序列化由项目侧子类决定。</para>
+    /// <para>后端无关——框架只约定「表根 + 就绪契约」，表如何生成 / 何种格式反序列化由项目侧子类决定。</para>
+    /// <para>通常继承 <see cref="MonoConfigUtilityBase{TTables}"/> 获得完整实现；直接实现本 Interface 的自定义服务必须同时保持
+    /// <see cref="State"/>、<see cref="Tables"/> 与 <see cref="EnsureReady"/> 的发布顺序、失败和取消语义。</para>
     /// </summary>
     /// <typeparam name="TTables">配置表根类型：加载完成后一次性构造的只读数据入口。</typeparam>
     public interface IConfigUtility<TTables> : IUtility where TTables : class
@@ -18,11 +22,27 @@ namespace Game.Framework
         /// <summary>
         /// 配置表根实例。加载完成前为 <c>null</c>，<see cref="State"/> 到 <see cref="ConfigInitState.Ready"/> 后可用。
         /// 配置是一次性加载的只读数据、之后不变，所以这里是**普通取值**而非响应流（读法 <c>config.Tables.TbItem.Get(id)</c>，
-        /// 无需 <c>.CurrentValue</c>）——要"等就绪"请订阅 <see cref="State"/>，不要订阅 / 轮询本属性。
+        /// 无需 <c>.CurrentValue</c>）——响应式界面订阅 <see cref="State"/>，命令式启动流程等待 <see cref="EnsureReady"/>；
+        /// 不要轮询本属性。
         /// </summary>
         TTables Tables { get; }
 
-        /// <summary>加载状态流。订阅即得当前值；等配置可用时订阅它（收到 <see cref="ConfigInitState.Ready"/> 再读 <see cref="Tables"/>）。</summary>
+        /// <summary>
+        /// 加载状态流。订阅即得当前值；适合驱动加载提示、禁用态与失败提示等响应式界面。
+        /// 收到 <see cref="ConfigInitState.Ready"/> 时 <see cref="Tables"/> 已可用。
+        /// </summary>
         ReadOnlyReactiveProperty<ConfigInitState> State { get; }
+
+        /// <summary>
+        /// 等待当前配置服务的单次自加载完成并返回表根。已经就绪时同步完成；加载失败时重新抛出该次加载的原始异常。
+        /// </summary>
+        /// <remarks>
+        /// <paramref name="cancellationToken"/> 只取消当前调用者的等待，不会停止由组件与 Context 生命周期共同拥有的共享加载；
+        /// 其他调用者仍可继续等待同一次结果。组件或 Context 销毁会取消共享加载及尚未完成的等待。
+        /// 本服务是一次性自加载，不在失败后隐式重试；需要重试时应重建其所属 Context / 组件，避免一部分调用者看到旧表、另一部分看到新表。
+        /// </remarks>
+        /// <exception cref="System.OperationCanceledException">调用者取消等待，或拥有该加载的组件 / Context 已销毁。</exception>
+        /// <exception cref="System.Exception">清单、资源加载或表根构造失败时，保留并重新抛出原始异常。</exception>
+        UniTask<TTables> EnsureReady(CancellationToken cancellationToken = default);
     }
 }
