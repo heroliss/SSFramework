@@ -2022,7 +2022,7 @@ public sealed class CounterWindow : UIToolkitWindowBase
 }
 ```
 
-**UGUI** —— 继承 `UGuiWindowBase`（它是 `MonoViewBase`），在 `OnCreated` 接线（**不要覆写 Awake**，注入由 `MonoViewBase` 负责）。两种来源都行：`[UIWindow(Asset="ui/xxx")]` 指向 prefab（prefab 上拖好 Button/Text 引用），或 **`Asset` 留空纯代码搭建**（backend 空 GameObject + AddComponent，窗口在 `OnCreated` 里用代码建 UGUI 控件，与 UI Toolkit 对称）。
+**UGUI** —— 继承 `UGuiWindowBase`（它是 `MonoViewBase`），在 `OnCreated` 接线（**不要覆写 Awake**，注入由 `MonoViewBase` 负责）。两种来源都行：`[UIWindow(Asset="ui/xxx")]` 指向 prefab（prefab 上拖好 Button/Text 引用），或 **`Asset` 留空纯代码搭建**（backend 空 GameObject + AddComponent，窗口在 `OnCreated` 里用代码建 UGUI 控件，与 UI Toolkit 对称）。UGUI / Toolkit Adapter 都会在加载资源前验证对应窗口基类；只实现 `IUIWindow`、却绕过 `UGuiWindowBase` / `UIToolkitWindowBase` 的类型会立即返回 null 并给出带 category 的错误，避免产生没有注入与 Bag 所有权的半有效窗口。
 
 ### 数据绑定：统一走 R3 订阅
 

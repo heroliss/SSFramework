@@ -1,5 +1,6 @@
 using System.Threading;
 using Cysharp.Threading.Tasks;
+using Game.Framework.Logging;
 using Game.Framework.View;
 using UnityEngine;
 
@@ -46,12 +47,14 @@ namespace Game.Framework.UI.UGui
             var target = string.IsNullOrEmpty(path) ? transform : transform.Find(path);
             if (target == null)
             {
-                Debug.LogError($"[{GetType().Name}] 绑定失败：找不到节点路径 \"{path}\"（prefab 结构与生成的绑定代码不一致，请重新生成）。", this);
+                Log.Error($"绑定失败：找不到节点路径 \"{path}\"（prefab 结构与生成的绑定代码不一致，请重新生成）。",
+                    category: GetType().Name, context: this);
                 return null;
             }
             var component = target.GetComponent<T>();
             if (component == null)
-                Debug.LogError($"[{GetType().Name}] 绑定失败：节点 \"{path}\" 上没有组件 {typeof(T).Name}。", this);
+                Log.Error($"绑定失败：节点 \"{path}\" 上没有组件 {typeof(T).Name}。",
+                    category: GetType().Name, context: this);
             return component;
         }
 
@@ -65,7 +68,8 @@ namespace Game.Framework.UI.UGui
             var target = string.IsNullOrEmpty(path) ? transform : transform.Find(path);
             if (target == null)
             {
-                Debug.LogError($"[{GetType().Name}] 绑定失败：找不到节点路径 \"{path}\"（prefab 结构与生成的绑定代码不一致，请重新生成）。", this);
+                Log.Error($"绑定失败：找不到节点路径 \"{path}\"（prefab 结构与生成的绑定代码不一致，请重新生成）。",
+                    category: GetType().Name, context: this);
                 return null;
             }
             return target.gameObject;

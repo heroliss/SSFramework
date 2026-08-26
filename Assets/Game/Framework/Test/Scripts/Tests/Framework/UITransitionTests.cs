@@ -107,6 +107,8 @@ namespace Game.Framework.Test
         [Test]
         public void TransitionThrows_UnblocksInput_AndCloseStillFinishes()
         {
+            LogAssert.Expect(LogType.Error,
+                new Regex("ThrowingCloseTransitionWindow.*OnCloseTransition.*异常已隔离"));
             LogAssert.Expect(LogType.Exception, new Regex("transition boom"));
 
             var w = Open<ThrowingCloseTransitionWindow>();

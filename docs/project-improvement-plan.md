@@ -13,7 +13,7 @@
 5. **Demo + guide + AI 规则同步**：教学和协作约束不能继续推荐旧路径；
 6. **全量验证**：编译、EditMode、PlayMode、Demo 防腐检查与文档一致性。
 
-## 已验证基线（2026-08-25）
+## 已验证基线（2026-08-26）
 
 | 维度 | 当前事实 |
 |---|---|
@@ -21,8 +21,8 @@
 | Framework Module | 25 个 asmdef Module（含测试与可选 Odin Editor Adapter）；依赖与删除测试见 `framework-module-map.md` |
 | Demo | 32 个自动发现章节；Catalog 集中拥有 Adapter 生命周期，并按 Capability / Concept / Workflow 校验真实 Build 教学语义 |
 | 教程 | `framework-guide.md` 28 章 |
-| ADR | 0001–0040；0038 为隔离构建体积证据，0039 为模块保留模型，0040 为 UPM-aware 源码目录 |
-| 测试 | PlayMode 427 + EditMode 191，全绿；交互式 MCP 先预检，命令行入口默认 EditMode + PlayMode |
+| ADR | 0001–0042；0040 为 UPM-aware 源码目录，0041/0042 补齐 Module 与外部依赖证据 |
+| 测试 | PlayMode 430 + EditMode 244，全绿；交互式 MCP 后台运行且 PlayMode 先预检，命令行入口默认 EditMode + PlayMode |
 | Demo CodeRef | 299 处可打开源码跳转全部精准命中；注释、文案与外部文档路径不计入源码构造点 |
 | AI 常驻规则预算 | 最深 AGENTS 链 29.88 KiB，低于 Codex 默认 32 KiB 项目指令上限；新增常驻规则前需继续评估外移空间 |
 
@@ -47,10 +47,11 @@
 ### P1 · 教学与 AI 可维护性
 
 - 三层 AGENTS 常驻规则压缩并重新路由；最深链从约 60 KiB 降到约 23 KiB。
-- repo skills 以 `.agents/skills` 为跨工具正文，`.claude/skills` 只做路由；四个入口均通过 validator。
+- repo skills 以 `.agents/skills` 为跨工具正文，`.claude/skills` 只做路由；当前 3 个 Skill / 6 个发现入口均通过 validator。
 - Demo 目录校验 Id / Title / Category / Order / Summary；CodeRef 防腐校验已实跑。
 - 新增跨工具 AI 协作指南与 Framework Module 地图。
 - 新增跨工具 PlayMode 自动化预检：显式保存有路径脏场景、未命名场景 fail-fast，不用全局 Hook 劫持人工 Play；Editor 契约测试锁定“整批先验证再写入”，并以每用例唯一且显式持有的临时目录防止误删用户资产。
+- 新增后台优先的 Unity 自动化 Skill：`editor_unfocused` 只作观察值，测试按真实进度轮询，不再固定抢占 Windows 焦点；原生模态框与真实输入验证才升级到 OS UI。
 - Editor 工具补齐响应式布局：诊断/配置窗口按宽度重排，`AssetReference` 在窄 Inspector 自动纵向降级，UI Binding 的 Inspector、节点/总览 Popup 与 Overlay 在窄宽度或低工作区仍保留全部操作。
 - Popup 高度按所在显示器工作区预算并把完整内容放进滚动视口；布局测试覆盖极窄宽度、负坐标显示器、无效分辨率与偏好状态恢复，不会为测试意外创建配置资产或残留全局 `EditorPrefs`。
 
@@ -93,6 +94,7 @@
 
 - Localization、Storage、Pool、Network 及 Core Context / Injection 基础设施的运行时日志已迁移到统一 `Log` 门面。
 - Fonts Runtime 的 5 处降级 Warning 已迁入同一 Seam：默认 Console 文案与 `MonoLocaleFonts` context 保持不变，捕获 sink 契约锁定 level / category / message 和一次性警告语义；字体 Editor 生成工具仍保留原生 `Debug.*`。
+- UI Core、UGUI、Toolkit 与融合 Bridge 的 Runtime 错误/警告已迁入同一 Seam：生命周期异常带窗口类型与 hook 阶段，节点绑定保留窗口 context；UGUI Adapter 同步修正了“文档要求继承 `UGuiWindowBase`、Implementation 却只检查 `IUIWindow`”的浅校验，在层级/资源副作用前 fail-fast。
 - 相邻公共 Interface 注释补齐 `LocaleFontChain` 的字体表快照、OS 资产所有权、Dispose 义务与 Apply 异常，以及 `LocaleFontProfile` 的只读查看和非所有权语义。
 - 迁移按 Module 做定向回归并保留原 Console 文案与 Unity Object context；Logging 自身实现、第三方 Adapter 和编辑器工具不做机械替换。
 - DisposableBag 补齐释放异常隔离：取消回调或单个 `IDisposable` 失败不会截断余下清理，并有契约测试锁定。
@@ -182,7 +184,7 @@
 
 | 优先级 | 候选 | 证据 / 完成标准 |
 |---|---|---|
-| P1 | 日志调用面继续收敛 | ADR-0034 已 Accepted；Fonts Runtime 已收敛，Asset / Audio / UI / Boot 等仍有历史裸 `Debug.*`。按 Module 渐进审查，保留 Logging Implementation、第三方 Adapter、Editor 工具及 AOT Boot 的必要原生日志；测试守住消息、context、异常和双击定位语义。 |
+| P1 | 日志调用面继续收敛 | ADR-0034 已 Accepted；Fonts 与 UI Runtime 已收敛，Asset / Audio / Boot 等仍有历史裸 `Debug.*`。按 Module 渐进审查，保留 Logging Implementation、第三方 Adapter、Editor 工具及 AOT Boot 的必要原生日志；测试守住消息、context、异常和双击定位语义。 |
 | P1 | 公共 API 注释审计 | 优先生命周期、取消、异常、所有权与 Adapter 接缝；删除复述代码或记录历史的注释。以“调用者能否仅靠悬浮提示正确释放/取消”为完成标准。 |
 | P1 | CI 真正接线 | 当前脚本已可作为门禁；选择 GitHub Actions / 自建 Runner 后再落配置，避免仓库里放一份无人运行的“装饰性 CI”。 |
 | P2 | 大文件按职责复查 | `DiagnosticsWindow`、`YooAssetProvider`、`AssetUtility` 等只在发现两个独立变化轴或测试 Seam 时拆；单纯行数不是理由。 |

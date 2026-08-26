@@ -66,3 +66,5 @@ Game.Framework.UI        (核心，渲染中立)  IUIUtility / UIUtility 编排 
 用法手册见 `docs/framework-guide.md` §17；活样例见 demo「View · UIToolkit」+「UI 框架 · 窗口/层级」章。
 
 **2026-08-24 验证补充：**Demo 新增 Destroy / Cache 两个现场对照窗，以稳定实例号和 `OnCreate / OnOpen / OnClose` 计数展示真实生命周期；PlayMode 契约穿过 DemoScene 的 `MonoToolkitUI` Adapter，锁定 Destroy 重开换实例、Cache 重开复用同一实例。这样核心 fake backend 测试与真实 Adapter 证据形成两层验证，也明确 Cache 是“常驻内存与状态管理复杂度换创建速度”，不是默认更优。
+
+**2026-08-26 Adapter 契约补强：**Toolkit 原本会在加载 UXML 前验证 `UIToolkitWindowBase`，UGUI 却只检查最终对象能否转成 `IUIWindow`，使普通 `MonoBehaviour + IUIWindow` 能绕过 `MonoViewBase` 注入与 Bag 所有权。两个 Adapter 现统一在创建层级或加载资源前验证各自窗口基类并 fail-fast；窗口类型、prefab 根组件、节点绑定与生命周期 hook 错误统一进入 `Log` Seam，category、异常和 Unity context 可同时被 Console、文件与测试 sink 消费。`UIRuntimeLoggingTests` 锁定“失败前无层级副作用”和 context 透传。

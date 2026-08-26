@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using Game.Framework.Internal;
+using Game.Framework.Logging;
 using Game.Framework.UI;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -59,14 +60,16 @@ namespace Game.Framework.UI.Toolkit
         {
             if (!typeof(UIToolkitWindowBase).IsAssignableFrom(meta.WindowType))
             {
-                Debug.LogError($"[ToolkitBackend] {meta.WindowType.Name} 不是 UIToolkitWindowBase 派生类型。");
+                Log.Error($"{meta.WindowType.Name} 不是 {nameof(UIToolkitWindowBase)} 派生类型。",
+                    category: nameof(ToolkitBackend));
                 return null;
             }
             // 框架用 Activator 实例化窗口，必须有 public 无参构造——缺了就在加载资源前给清晰错误，
             // 而不是等到 Activator.CreateInstance 抛晦涩的 MissingMethodException（且那时 UXML 已加载、句柄要回收）。
             if (meta.WindowType.GetConstructor(Type.EmptyTypes) == null)
             {
-                Debug.LogError($"[ToolkitBackend] {meta.WindowType.Name} 缺少 public 无参构造——UI Toolkit 窗口由框架 Activator 实例化，数据走 OnOpen(args) 而非构造函数。");
+                Log.Error($"{meta.WindowType.Name} 缺少 public 无参构造——UI Toolkit 窗口由框架 Activator 实例化，" +
+                          "数据走 OnOpen(args) 而非构造函数。", category: nameof(ToolkitBackend));
                 return null;
             }
 

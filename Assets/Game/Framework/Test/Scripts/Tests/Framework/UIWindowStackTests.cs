@@ -6,6 +6,7 @@ using System.Threading;
 using Cysharp.Threading.Tasks;
 using Game.Framework.Context;
 using Game.Framework.Internal;
+using Game.Framework.Logging;
 using Game.Framework.UI;
 using Game.Framework.UI.Toolkit;
 using Game.Framework.UI.UGui;
@@ -26,6 +27,7 @@ namespace Game.Framework.Test
         private GameContext _ctx;
         private FakeBackend _backend;
         private UIUtility _ui;
+        private CapturingSink _logSink;
 
         [SetUp]
         public void SetUp()
@@ -33,11 +35,14 @@ namespace Game.Framework.Test
             _ctx = new GameContext(new ContainerBuilder().Build(), inheritFromGlobal: false);
             _backend = new FakeBackend();
             _ui = new UIUtility(_ctx, _backend);
+            _logSink = new CapturingSink();
+            Log.AddSink(_logSink);
         }
 
         [TearDown]
         public void TearDown()
         {
+            Log.RemoveSink(_logSink);
             _ui.Dispose();
             _ctx.Dispose();
         }
@@ -210,11 +215,18 @@ namespace Game.Framework.Test
         [Test]
         public void HookThrows_IsIsolated_StackStaysConsistent()
         {
-            LogAssert.Expect(LogType.Exception, new Regex("boom")); // SafeOnOpen 把异常吞成日志
+            LogAssert.Expect(LogType.Error, new Regex("ThrowingOnOpen.*OnOpen.*异常已隔离"));
+            LogAssert.Expect(LogType.Exception, new Regex("boom"));
 
             var w = Open<ThrowingOnOpen>(); // OnOpen 抛异常，但不应让 Open 抛出
             Assert.IsNotNull(w);
             Assert.IsTrue(_ui.IsOpen<ThrowingOnOpen>(), "hook 抛异常不应阻止窗口入栈");
+
+            var entry = _logSink.Entries.Single(e => e.Exception is InvalidOperationException);
+            Assert.AreEqual(LogLevel.Error, entry.Level);
+            Assert.AreEqual(nameof(UIUtility), entry.Category);
+            StringAssert.Contains(nameof(IUIWindow.OnOpen), entry.Message,
+                "文件/遥测 sink 也应知道失败的是哪个生命周期 hook，而不只收到一条裸异常");
 
             // 内部状态未被污染：后续开/关仍正常。
             Open<PageA>();
@@ -540,6 +552,13 @@ namespace Game.Framework.Test
         }
 
         // ── fakes ────────────────────────────────────────────────────────────
+
+        private sealed class CapturingSink : ILogSink
+        {
+            public LogLevel MinLevel => LogLevel.Trace;
+            public readonly List<LogEntry> Entries = new();
+            public void Log(in LogEntry entry) => Entries.Add(entry);
+        }
 
         private class FakeWindow : IUIWindow
         {

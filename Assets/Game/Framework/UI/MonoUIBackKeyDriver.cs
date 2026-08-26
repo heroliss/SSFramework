@@ -1,3 +1,4 @@
+using Game.Framework.Logging;
 using UnityEngine;
 
 namespace Game.Framework.UI
@@ -26,7 +27,8 @@ namespace Game.Framework.UI
                 _ui = GetComponent<IUIUtility>();
                 if (_ui == null)
                 {
-                    Debug.LogError("[MonoUIBackKeyDriver] 同节点上没有 UI 入口（MonoUGuiUI / MonoToolkitUI）——本组件应与 UI 入口挂在同一 GameObject 上。", this);
+                    Log.Error("同节点上没有 UI 入口（MonoUGuiUI / MonoToolkitUI）——本组件应与 UI 入口挂在同一 GameObject 上。",
+                        category: nameof(MonoUIBackKeyDriver), context: this);
                     enabled = false;
                     return;
                 }

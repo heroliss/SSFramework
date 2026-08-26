@@ -1,4 +1,5 @@
 using System;
+using Game.Framework.Logging;
 using Game.Framework.UI.Toolkit;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -210,7 +211,8 @@ namespace Game.Framework.UI.Bridge
             var es = EventSystem.current != null ? EventSystem.current : FindFirstObjectByType<EventSystem>();
             if (es == null)
             {
-                Debug.LogWarning("[MonoUGuiEmbed] 开了输入穿透但场景没有 EventSystem——嵌入 UGUI 不会响应输入。", this);
+                Log.Warning("开了输入穿透但场景没有 EventSystem——嵌入 UGUI 不会响应输入。",
+                    nameof(MonoUGuiEmbed), this);
                 return;
             }
             _input = new UGuiEmbedInputForwarder(_element, _raycaster, es,
@@ -224,7 +226,8 @@ namespace Game.Framework.UI.Bridge
             {
                 int idx = LayerMask.NameToLayer(_isolationLayer);
                 if (idx >= 0) return idx;
-                Debug.LogWarning($"[MonoUGuiEmbed] 隔离层 '{_isolationLayer}' 在工程里不存在，回退默认层——嵌入内容可能漏进主画面。请在 Tags & Layers 预留该 layer 并让主相机剔除它。", this);
+                Log.Warning($"隔离层 '{_isolationLayer}' 在工程里不存在，回退默认层——嵌入内容可能漏进主画面。" +
+                            "请在 Tags & Layers 预留该 layer 并让主相机剔除它。", nameof(MonoUGuiEmbed), this);
             }
             return gameObject.layer;
         }
