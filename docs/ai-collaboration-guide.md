@@ -17,7 +17,7 @@ SSFramework/
 │       └── Demo/Scripts/Modules/
 │           ├── AGENTS.md             # Demo 教学章节约束
 │           └── CLAUDE.md             # @AGENTS.md
-├── .agents/skills/                   # 跨工具 Skill 的权威正文（当前 2 个）
+├── .agents/skills/                   # 跨工具 Skill 的权威正文（当前 3 个）
 ├── .claude/skills/                   # Claude 发现入口，路由到 .agents 正文
 ├── .mcp.json                         # Claude MCP 项目配置（当前为空）
 └── docs/
@@ -96,6 +96,11 @@ Claude Code 从工作目录向上读取 `CLAUDE.md`，并在访问子目录文�
 Hook 适合格式化、配置审计、阻止危险命令、结束前确定性验证。需要复杂架构判断时，不要强塞进 shell Hook；让测试或人工/Agent review 承担。
 
 Unity 交互式 Editor 还有一类更适合“项目内代码门禁”的固定时机：PlayMode 测试前若存在脏场景，原生保存弹窗会同时阻塞 Unity 主线程与 MCP 队列。项目没有为此复制 Claude/Codex Hook，而是在 `Game.Framework.Editor` 提供跨工具菜单 `SSFramework/诊断/AI 自动化/PlayMode 测试预检（保存脏场景）`。Agent 先显式调用它，再调用各自的 Unity 测试工具；详细失败语义与恢复流程见 `docs/unity-mcp-tips.md`。这种实现比某个客户端的 Hook 更靠近事件源，也不会把人工 Play 变成全局静默保存。
+
+测试与普通 Editor 自动化的“后台优先”流程由 Project Skill `unity-background-automation` 收口：`editor_unfocused`
+是当前 MCP job 的观察值，不是 Test Runner 门禁；Agent 轮询真实进度，不为测试固定抢焦点。只有原生模态框、真实输入焦点/
+拖拽验证或已经阻塞 MCP 主线程的现场才升级到 OS UI。这个判断有明确触发条件且包含多步诊断，适合 Skill；不放进 Hook
+强制每次切窗口，也不在 Framework Runtime 增加与产品无关的焦点设置。
 
 同一原则也用于框架 Editor 工具反馈：普通成功、失败、缺配置和 PlayMode 拦截通过 `FrameworkEditorFeedback` 输出稳定的 `[SSFramework.Tool][状态]` Console 记录与短暂通知，不用模态结果弹窗。完整详情留在 Console，失败使用 Error、提醒使用 Warning，Agent 可据此可靠判定结果；只有清缓存、停止 Play 后切场景、保存脏场景这类真实选择保留确认。源码门禁会扫描当前实际存在的框架模块，并只允许经过审查的确认框白名单，因此物理裁剪可选模块不会破坏测试。
 

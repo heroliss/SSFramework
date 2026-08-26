@@ -76,11 +76,25 @@ Server 2.35.6 对队列 ticket 的瞬时断连会继续轮询，不再盲目重�
 - `unity_scene_get_hierarchy` 默认是稠密输出（缺失字段代表默认值）；只有诊断序列化细节时才传 `verbose:true`。
 - 资产创建/覆盖必须显式 `overwrite:true`，删除前先查清精确对象；可撤销操作用 `unity_undo_last` / `unity_undo_history`，不要假设每个工具都自动落成独立 Undo。
 
-## 9. Play 验证先开 `Application.runInBackground`
+## 9. Test Runner 可在后台运行，不把 `editor_unfocused` 当阻塞
 
-AI 经 MCP 驱动 Play 验证时编辑器几乎必然**失焦**，默认设置下 Play 循环暂停（Update 不 tick）——异步初始化/加载会一直卡住，看起来像"加载死了"。进 Play 后先 `execute_code` 执行 `Application.runInBackground = true;` 再做断言。该值是运行时状态，不写工程设置，停止 Play 自动失效。
+当前工程的 Player Settings 已启用 Run In Background；更重要的是 Unity Test Framework 1.6 会在 EditMode launcher 与
+PlayMode `PreparePlayModeRunTask` 内临时设置 `Application.runInBackground = true`，结束后恢复原值。因此经 Test Runner
+启动的测试不需要 Unity 一直处于前台，也不必每轮再用 `execute_code` 重复设置。单个 fixture 只有在脱离标准 Runner 也必须自洽，
+或它明确验证后台/焦点语义时，才需要自己保存和恢复该值。
 
-真实 PlayMode 测试不能只依赖 Agent 在外面“碰巧设到正确一帧”：Test Runner 可能切换域/Play 状态。需要持续 PlayerLoop 的测试应在自己的 `UnitySetUp` 保存旧值并设为 `true`，在 `UnityTearDown` 的 `finally` 恢复。MCP job 在**尚未真正开始**时返回 `blockedReason: editor_unfocused`，表示启动器正在等 Editor 获得一次焦点，而不是测试失败；临时把 Unity 激活到前台一次并继续轮询同一个 job，不要重新创建测试任务。完成数开始增长后通常不必持续占用前台。测试已经进入 PlayerLoop 后则同时看 `Time.frameCount`、当前里程碑与 Console，不要仅凭失焦把业务等待判成死锁。
+Test Framework 还会在运行期间把 Editor Interaction Mode 临时切到 `NoThrottling`，避免后台空闲节流拖慢任务，结束后恢复。
+不应把该设置永久改成 `NoThrottling`：它不会解决原生模态框或真实输入焦点问题，只会让空闲 Editor 持续占用更多 CPU 与功耗。
+
+AnkleBreaker Unity MCP 2.39.5 的 `blockedReason: editor_unfocused` 由 job 序列化层在
+`InternalEditorUtility.isApplicationActive == false` 时直接附加，不参与 `TestRunnerApi.Execute` 或任务状态机；名称容易让人误判。
+`total=0` 也可能只是测试发现、编译或域重载尚未回调 `RunStarted`。固定做法是保存 job id，用 30–60 秒 server-side wait
+继续轮询同一个 job；只要 total/completed/currentTest、Console 里程碑或 Editor 状态在变化，就保持后台，不抢焦点、不清 job、
+不重复启动。2026-08-26 实测在从未激活 Unity 的情况下，带该字段的 EditMode 16/16 与 PlayMode 14/14 都正常完成。
+
+连续约 120 秒没有任何进度时，再依次检查编译、域重载、当前测试耗时、Console、保存弹窗与场景状态。只有这些证据都不能解释
+停顿，才把“临时激活 Unity 一次”作为诊断实验，并继续观察原 job；它不是默认前置条件。普通手动 Play 不经过 Test Runner 时，
+后台 PlayerLoop 仍取决于项目设置/运行时值，不应由通用框架为所有消费项目静默改写产品行为。
 
 用 Additive 场景隔离用户现场时，也不要清空启动场景的全部根节点：Unity Test Framework 的 `Code-based tests runner` 本身就是根节点，销毁后业务帧仍会走，但测试协程再也不会恢复。只撤项目自己的 Composition Root（如 `MonoGameContextBase`），并在 TearDown 卸载测试加载的场景。
 
@@ -116,7 +130,12 @@ Unity 自动化优先使用语义接口，不把 Editor 当成只能按坐标点
 3. 视觉证据按对象选择 `unity_graphics_game_capture` / `unity_screenshot_game`、Scene View 截图或 `unity_screenshot_editor_window`。指定 EditorWindow 的截图可在窗口被遮挡时工作，但不等于能点击窗口内任意坐标。
 4. 只有 Windows 原生模态框、文件选择器、临时右键/下拉弹层、真实焦点/拖拽行为，或 MCP 已被模态框阻塞时，才使用操作系统 UI 自动化；若只是普通 Unity 状态，不因 Editor 在后台就切换到桌面控制。
 
-边界：Unity MCP 不是通用鼠标/键盘代理，不能承诺捕获或操作任意屏幕矩形、Tooltip、上下文菜单和系统子窗口。尤其原生保存框已经出现时，Unity 主线程与 MCP 队列可能一起被阻塞；先人工或经系统 UI 自动化关闭，再回到 §5 的预检流程，不要重复提交 Unity 命令。Game/Scene/指定 EditorWindow 都能由 MCP 捕获时，截图与定位操作应留在 Unity 工具链内。
+需要真实前台的剩余范围很小：原生保存/文件/凭据/崩溃窗口，验证物理键鼠、Game View 输入焦点、拖拽与 Docking，或捕获
+Tooltip、上下文菜单等临时弹层。场景、组件、资产、菜单、Console、测试、构建和指定 EditorWindow 截图均不应因此常驻前台。
+Input System 的“PlayerLoop 在后台继续”与“键鼠设备失焦后是否仍投递”也是两个问题；后台逻辑测试优先用程序化输入，只有产品
+确实要求真实焦点行为时才做前台端到端验证。
+
+边界：Unity MCP 不是通用鼠标/键盘代理，不能承诺捕获或操作任意屏幕矩形、Tooltip、上下文菜单和系统子窗口。尤其原生保存框已经出现时，Unity 主线程与 MCP 队列可能一起被阻塞；先人工或经系统 UI 自动化关闭，再回到 §5 的预检流程，不要重复提交 Unity 命令。若只需一次 OS 激活，窄命令行 Adapter 最终仍调用 Windows 前台 API；它可以避免坐标点击，但不能做到“切焦点却完全不打扰用户”。Game/Scene/指定 EditorWindow 都能由 MCP 捕获时，截图与定位操作应留在 Unity 工具链内。完整后台判定流程见 Project Skill `unity-background-automation`。
 
 ---
 经验沉淀文档：踩到新坑、确认调用方式后追加一节即可。
