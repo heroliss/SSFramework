@@ -61,12 +61,13 @@ public abstract class FlowState
 - 转换全程串行：`OnExit(旧) → Dispose(旧子 Context) → Build(新子 Context) → OnEnter(新)`。
 - **转换进行中再 GoTo**：取消在途 `OnEnter` 的 ct、等它结束，直接 Dispose 半进入状态的子 Context（**不调它的 OnExit**——`OnExit` 只在 `OnEnter` 成功完成后才有资格被调；半进入状态的清理靠 Bag/子 Context 整棵撤，这正是 Bag 的本职）。排队槽只有一格、新请求顶替旧排队（最新意图胜：长加载中收到"掉线回登录"，登录赢，不排队）。被顶替/取消的 `GoTo` 返回的 UniTask 以取消结束。
 - **同类状态 GoTo**：正常退旧进新（重开一局是刻意行为，不做幂等——与 PlayMusic 的同 clip no-op 语义相反，各自合理）。
-- 转换完成后向宿主 Context `SendEvent(new FlowChangedEvent(from, to))`——loading 界面/埋点订阅这一个事件即可，不用侵入每个状态。
+- 转换完成后向宿主 Context `SendEvent(new FlowChangedEvent(from, to))`——loading 界面/埋点订阅这一个事件即可，不用侵入每个状态。事件链只记录**完整进入成功**的状态：连续转换 `A →（B 被顶替/失败）→ C` 只发布 `A → C`，不会把从未成为 `Current` 的 B 写进历史，也不会因 A 已先退出而误报 `null → C`。若一次失败结束后流程已稳定处于无状态，之后另起的转换才从 `null` 开始。
 
 ### 5. 失败语义：Enter 失败 = 明确的"无状态"，不静默
 
 - `OnEnter` 抛异常/被取消：子 Context 立即撤（Bag 把已加载的部分资源放掉），`Current = null`，异常从 `GoTo` 的 UniTask 冒出——由调用方决定重试/进错误状态，框架不猜（对齐存储的 fail-fast：流程走错比音效丢一声严重得多）。
-- `OnExit` 抛异常：LogException 后**继续转换**（离开失败不该把整个游戏卡死在旧阶段；旧子 Context 照撤）。
+- `GoTo` 的 UniTask 必须被 `await` 或由导航边界显式观察：UI 不关心完成时机，不代表可以丢弃进入失败；`OnEnter` 内转向因不能 await，应交给一个捕获取消、记录其它异常的 fire-and-forget Adapter。
+- `OnExit` 抛异常：经统一 `Log` Seam 记录 Error 后**继续转换**（离开失败不该把整个游戏卡死在旧阶段；旧子 Context 照撤，文件 / 遥测 sink 也能拿到同一异常）。
 - Dispose 后调用 `GoTo`：抛 `ObjectDisposedException`（对齐 GameContext.ExecuteCommand 语义）。
 
 ### 6. 刻意不做

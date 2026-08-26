@@ -2283,8 +2283,7 @@ public sealed class BattleState : FlowState
 }
 
 // 切阶段（View 按钮 / System 战斗结束……任意层经 GetUtility<IGameFlow>()）：
-flow.GoTo(new BattleState(levelId));            // UI 导航直接丢弃返回值
-await flow.GoTo(new BootState());               // 引导序列可 await：完成 / 被顶替（取消）/ Enter 失败（异常）
+await flow.GoTo(new BattleState(levelId));      // 异步 UI / Command：观察完成 / 被顶替（取消）/ Enter 失败（异常）
 ```
 
 ### 转换语义（框架拍板，业务不用自己处理竞态）
@@ -2296,13 +2295,27 @@ await flow.GoTo(new BootState());               // 引导序列可 await：完�
 | 被顶替 / 取消的进入 | 半进入状态整棵撤、**不调 OnExit**（清理靠 Bag）；其 GoTo task 以取消结束 |
 | 状态忽略 ct 跑完 | 正常进入，随后被排队的转换正常退出（协作式取消，不强杀） |
 | `OnEnter` 抛异常 | 子 Context 立即撤、`Current = null`、异常从 GoTo task 冒出——调用方决定重试 / 进错误状态 |
-| `OnExit` 抛异常 | LogException 后继续转换（离开失败不卡死在旧阶段），旧子 Context 照撤 |
+| `OnExit` 抛异常 | 统一日志记录 Error 后继续转换（离开失败不卡死在旧阶段），旧子 Context 照撤 |
 | 宿主 Context Dispose | flow 连同当前 / 在途状态子 Context 一并撤；此后 GoTo 抛 `ObjectDisposedException` |
 | 同类状态再进入 | 正常退旧进新（重开一局是刻意行为）；复用**同一实例**抛参数异常（一次性守卫） |
 
-转换成功后在宿主 Context 上发 `FlowChangedEvent(From, To)`——loading 界面 / 埋点订阅这一个事件即可，不侵入每个状态。
+转换成功后在宿主 Context 上发 `FlowChangedEvent(From, To)`——loading 界面 / 埋点订阅这一个事件即可，不侵入每个状态。事件只串起**完整进入成功**的状态：`A →（B 进入中被顶替或失败）→ C` 只发布 `A → C`；B 从未成为 `Current`，不应伪装成历史节点，A 也不会因为已先退出而丢成 `null`。只有某次失败已结束、流程稳定处于无状态，后来另起的转换才从 `null` 开始。
 
-⚠ 在 `OnEnter` 里转向别处（如启动检测到强更 → 进更新页）：调 `GoTo` 后直接 `return`，**不要 await 它**——本次进入会被取消，await 会互相等待。
+`GoTo` 返回的 UniTask 必须被 `await` 或显式观察：UI 不关心完成时机，不代表可以把进入失败变成不确定时机才出现的未观测异常。通常让异步按钮 / Command 直接 await；同步导航边界则用项目内一个小 Adapter 捕获三种结局。
+
+⚠ 在 `OnEnter` 里转向别处（如启动检测到强更 → 进更新页）：把 `GoTo` 交给上述导航 Adapter 后直接 `return`，**不要 await 它**——新请求会取消本次进入，原地 await 会互相等待。Adapter 对“最新意图胜”的取消静默收口，对其它异常调用 `Log.Error(..., exception)`；不要裸 `.Forget()`。
+
+```csharp
+public static void Request(IGameFlow flow, FlowState next)
+    => Observe(flow, next).Forget(); // Observe 已捕获全部结局，这里的 Forget 不会漏掉 fault
+
+private static async UniTask Observe(IGameFlow flow, FlowState next)
+{
+    try { await flow.GoTo(next); }
+    catch (OperationCanceledException) { } // 被更新意图顶替 / 宿主释放：正常收口
+    catch (Exception e) { Log.Error($"Failed to enter '{next}'.", e, "GameFlow"); }
+}
+```
 
 ### 刻意不做
 

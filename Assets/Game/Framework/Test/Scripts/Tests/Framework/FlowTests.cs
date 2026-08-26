@@ -1,14 +1,13 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Text.RegularExpressions;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using Game.Framework.Context;
 using Game.Framework.Flow;
 using Game.Framework.Internal;
+using Game.Framework.Logging;
 using NUnit.Framework;
-using UnityEngine;
 using UnityEngine.TestTools;
 
 namespace Game.Framework.Test
@@ -16,7 +15,8 @@ namespace Game.Framework.Test
     /// <summary>
     /// 验证游戏流程状态机（ADR-0023）：每状态一个子 Context（父链解析 / 整棵撤）、
     /// 串行转换与最新意图胜（在途取消 / 排队顶替 / 忽略 ct 的状态正常进入后再退出）、
-    /// Enter 失败无状态、OnExit 异常不阻断、一次性实例守卫、宿主 Dispose 收尾。
+    /// 成功事件跳过未完成候选但保留最后已发布来源、Enter 失败无状态、OnExit 异常不阻断、
+    /// 一次性实例守卫、宿主 Dispose 收尾。
     /// 状态机自身无 Unity 对象，全部用例不依赖场景与帧推进，batchmode 无风险。
     /// </summary>
     public class FlowTests
@@ -162,6 +162,87 @@ namespace Game.Framework.Test
             CollectionAssert.AreEqual(new[] { "enter:A", "enter:B" }, _log); // 半进入不调 OnExit
         }
 
+        [Test]
+        public void GoToDuringEnter_FinalEventKeepsLastPublishedStateAsFrom()
+        {
+            var events = new List<FlowChangedEvent>();
+            using var subscription = _host.RegisterEvent<FlowChangedEvent>(e => events.Add(e));
+            var a = State("A");
+            var b2 = State("B", enter: HangUntilCanceled);
+            var c = State("C");
+
+            _flow.GoTo(a);
+            var superseded = _flow.GoTo(b2);
+            var latest = _flow.GoTo(c);
+
+            Assert.AreEqual(UniTaskStatus.Canceled, superseded.Status);
+            Assert.AreEqual(UniTaskStatus.Succeeded, latest.Status);
+            Assert.AreSame(c, _flow.Current);
+            Assert.AreEqual(2, events.Count, "未完整进入的 B 不应发布 FlowChangedEvent");
+            Assert.AreSame(a, events[1].From,
+                "连续转换应从最后一个已发布状态 A 直接报告到 C，而不是伪造 null → C");
+            Assert.AreSame(c, events[1].To);
+        }
+
+        [UnityTest]
+        public IEnumerator GoToDuringExit_FinalEventKeepsDepartedStateAsFrom() => UniTask.ToCoroutine(async () =>
+        {
+            var exitGate = new UniTaskCompletionSource();
+            var events = new List<FlowChangedEvent>();
+            using var subscription = _host.RegisterEvent<FlowChangedEvent>(e => events.Add(e));
+            var a = State("A", exit: () => exitGate.Task);
+            var b2 = State("B");
+            var c = State("C");
+
+            await _flow.GoTo(a);
+            var superseded = _flow.GoTo(b2); // 卡在 A.OnExit
+            var latest = _flow.GoTo(c);      // B 尚未进入便被 C 顶替
+
+            Assert.AreEqual(UniTaskStatus.Pending, superseded.Status);
+            exitGate.TrySetResult();
+            await latest;
+
+            Assert.AreEqual(UniTaskStatus.Canceled, superseded.Status);
+            Assert.AreSame(c, _flow.Current);
+            Assert.AreEqual(2, events.Count, "从未进入的 B 不应发布 FlowChangedEvent");
+            Assert.AreSame(a, events[1].From,
+                "A 已退出但仍是本轮连续转换最后一个已发布状态，最终事件应报告 A → C");
+            Assert.AreSame(c, events[1].To);
+        });
+
+        [UnityTest]
+        public IEnumerator EnterFailsWithPendingIntent_FinalEventKeepsLastPublishedStateAsFrom() => UniTask.ToCoroutine(async () =>
+        {
+            var enterGate = new UniTaskCompletionSource();
+            var events = new List<FlowChangedEvent>();
+            using var subscription = _host.RegisterEvent<FlowChangedEvent>(e => events.Add(e));
+            var a = State("A");
+            var broken = State("Broken", enter: async _ =>
+            {
+                await enterGate.Task; // 刻意忽略 flow 的取消 token，模拟物理操作最终失败
+                throw new InvalidOperationException("pending-enter-boom");
+            });
+            var c = State("C");
+
+            await _flow.GoTo(a);
+            var failed = _flow.GoTo(broken);
+            var latest = _flow.GoTo(c);
+            enterGate.TrySetResult();
+
+            Exception error = null;
+            try { await failed; }
+            catch (Exception e) { error = e; }
+
+            Assert.IsInstanceOf<InvalidOperationException>(error);
+            Assert.AreEqual("pending-enter-boom", error.Message);
+            await latest;
+
+            Assert.AreEqual(2, events.Count);
+            Assert.AreSame(a, events[1].From,
+                "同一轮连续转换里的失败候选不应切断最后一个已发布来源");
+            Assert.AreSame(c, events[1].To);
+        });
+
         [UnityTest]
         public IEnumerator QueueSlotIsOne_MiddleRequestSuperseded_IgnoredCtEntersThenExits() => UniTask.ToCoroutine(async () =>
         {
@@ -214,6 +295,8 @@ namespace Game.Framework.Test
         [Test]
         public void EnterThrows_CurrentNull_TaskFaults_ScopeDisposed()
         {
+            var events = new List<FlowChangedEvent>();
+            using var subscription = _host.RegisterEvent<FlowChangedEvent>(e => events.Add(e));
             var probe = new Probe();
             var a = State("A",
                 install: b => b.RegisterOwned(probe, typeof(Probe)),
@@ -237,23 +320,48 @@ namespace Game.Framework.Test
             var b2 = State("B");             // 失败后流程仍可用
             _flow.GoTo(b2);
             Assert.AreSame(b2, _flow.Current);
+            Assert.AreEqual(1, events.Count);
+            Assert.IsNull(events[0].From,
+                "失败已经结束并稳定处于无状态后，后来另起的转换应明确从 null 开始");
+            Assert.AreSame(b2, events[0].To);
         }
 
         [Test]
-        public void ExitThrows_LoggedAndTransitionContinues()
+        public void ExitThrows_UsesLoggingSeamAndTransitionContinues()
         {
+            var previousSinks = new List<ILogSink>(Log.Sinks);
+            var previousMinLevel = Log.MinLevel;
+            var sink = new CapturingSink();
             var probe = new Probe();
             var a = State("A",
                 install: b => b.RegisterOwned(probe, typeof(Probe)),
                 exit: () => throw new InvalidOperationException("exit-boom"));
             var b2 = State("B");
 
-            _flow.GoTo(a);
-            LogAssert.Expect(LogType.Exception, new Regex("exit-boom"));
-            _flow.GoTo(b2);
+            try
+            {
+                Log.ClearSinks();
+                Log.AddSink(sink);
+                Log.MinLevel = LogLevel.Trace;
 
-            Assert.AreSame(b2, _flow.Current);
-            Assert.IsTrue(probe.Disposed, "OnExit 抛异常不影响旧子 Context 整棵撤");
+                _flow.GoTo(a);
+                _flow.GoTo(b2);
+
+                Assert.AreSame(b2, _flow.Current);
+                Assert.IsTrue(probe.Disposed, "OnExit 抛异常不影响旧子 Context 整棵撤");
+                Assert.AreEqual(1, sink.Entries.Count);
+                Assert.AreEqual(LogLevel.Error, sink.Entries[0].Level);
+                Assert.AreEqual("GameFlow", sink.Entries[0].Category);
+                StringAssert.Contains(nameof(TestState), sink.Entries[0].Message);
+                StringAssert.Contains("continues", sink.Entries[0].Message);
+                Assert.AreEqual("exit-boom", sink.Entries[0].Exception.Message);
+            }
+            finally
+            {
+                Log.ClearSinks();
+                foreach (var previousSink in previousSinks) Log.AddSink(previousSink);
+                Log.MinLevel = previousMinLevel;
+            }
         }
 
         // ── 误用守卫 ─────────────────────────────────────────────────────────
@@ -330,6 +438,13 @@ namespace Game.Framework.Test
             _flow.GoTo(State("Elsewhere")); // 退出 Outer：子 flow 连同 Inner 的子 Context 级联撤
 
             Assert.IsTrue(innerProbe.Disposed, "子 flow 的当前状态应随外层状态整棵撤");
+        }
+
+        private sealed class CapturingSink : ILogSink
+        {
+            public LogLevel MinLevel => LogLevel.Trace;
+            public readonly List<LogEntry> Entries = new();
+            public void Log(in LogEntry entry) => Entries.Add(entry);
         }
     }
 }

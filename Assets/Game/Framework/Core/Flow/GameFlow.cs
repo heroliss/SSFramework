@@ -3,7 +3,7 @@ using System.Threading;
 using Cysharp.Threading.Tasks;
 using Game.Framework.Context;
 using Game.Framework.Internal;
-using UnityEngine;
+using Game.Framework.Logging;
 
 namespace Game.Framework.Flow
 {
@@ -78,6 +78,9 @@ namespace Game.Framework.Flow
         private async UniTaskVoid RunTransitions()
         {
             _running = true;
+            // 一轮连续转换可能跨过多个从未完整进入的候选状态。事件的 From 要保留最后一个已发布状态，
+            // 直到某个 To 真正进入成功；否则 A → (B 被顶替) → C 会被误报成 null → C。
+            FlowState transitionFrom = null;
             try
             {
                 while (!_disposed && _pendingState != null)
@@ -92,8 +95,15 @@ namespace Game.Framework.Flow
                     _current = null;
                     if (old != null)
                     {
+                        transitionFrom ??= old;
                         try { await old.OnExit(); }
-                        catch (Exception e) { Debug.LogException(e); }
+                        catch (Exception e)
+                        {
+                            Log.Error(
+                                $"FlowState '{old.GetType().Name}' OnExit failed; transition continues and its scope will still be disposed.",
+                                e,
+                                "GameFlow");
+                        }
                         old.DisposeScope();
                         if (_disposed) { tcs.TrySetCanceled(); return; }
                     }
@@ -141,7 +151,8 @@ namespace Game.Framework.Flow
                             return;
                         }
                         _current = next;
-                        _context.SendEvent(new FlowChangedEvent(old, next));
+                        _context.SendEvent(new FlowChangedEvent(transitionFrom, next));
+                        transitionFrom = null;
                         tcs.TrySetResult();
                     }
                     catch (OperationCanceledException)
