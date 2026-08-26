@@ -1,8 +1,10 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using Cysharp.Threading.Tasks;
 using Game.Framework.Audio;
+using Game.Framework.Logging;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
@@ -250,12 +252,34 @@ namespace Game.Framework.Test
 
             // Dispose 后误用：Editor/Dev 报 error 帮抓过期引用，但返回失效 handle、不炸游戏。
             LogAssert.Expect(LogType.Error, new Regex("after Dispose"));
-            var stale = _audio.PlaySfx(_clipA);
+            var sink = new CapturingSink();
+            Log.AddSink(sink);
+            AudioHandle stale;
+            try
+            {
+                stale = _audio.PlaySfx(_clipA);
+            }
+            finally
+            {
+                Log.RemoveSink(sink);
+            }
+
             Assert.IsFalse(stale.IsPlaying);
+            Assert.AreEqual(1, sink.Entries.Count);
+            Assert.AreEqual(LogLevel.Error, sink.Entries[0].Level);
+            Assert.AreEqual(nameof(AudioUtility), sink.Entries[0].Category);
+            StringAssert.Contains(nameof(IAudioUtility), sink.Entries[0].Message);
             handle.Stop(); // 陈旧句柄静默
 
             await UniTask.Yield(); // 让帧末延迟销毁生效
             Assert.IsNull(GameObject.Find(RootName), "Dispose 应销毁音频根节点");
         });
+
+        private sealed class CapturingSink : ILogSink
+        {
+            public LogLevel MinLevel => LogLevel.Trace;
+            public readonly List<LogEntry> Entries = new();
+            public void Log(in LogEntry entry) => Entries.Add(entry);
+        }
     }
 }
