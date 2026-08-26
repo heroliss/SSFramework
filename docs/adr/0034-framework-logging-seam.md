@@ -129,6 +129,7 @@ roadmap「Cysharp 生态候选」里 **ZLogger**（零分配结构化日志）�
 - ZLogger 成为**可选升级**：客户端默认不吞 `Microsoft.Extensions.Logging` DLL；要结构化 / 遥测时按需接入，且服务端（Outpost `Server~/` 已是 ASP.NET Core）能与客户端共用同一套日志抽象心智。
 - 180 处 `Debug.Log` 渐进迁移，无一次性大改风险。**阶段 C 后这件事进一步降级**：`CaptureUnityLogs()` 让裸 `Debug.Log`（乃至引擎与第三方的）也进 sink，迁移只为拿更好的 API（category / context / 结构化 / Trace 门控），不再是「进不了文件」的硬伤。
 - UI Core、UGUI、Toolkit 与融合 Bridge 的 Runtime 配置错误和 hook 异常已迁入 Seam；hook 日志补上窗口类型与阶段，UGUI 绑定错误保留窗口 context。迁移过程同时修正了 UGUI Adapter 仅在文案声明、却未真正执行的窗口基类校验，说明按 Module 收敛的价值不只是统一写法，还能让错误语义与真实 Interface 契约对齐。
+- Asset Core 与 Yoo Adapter 的 Runtime 失败证据已迁入同一 Seam：Core 输入守卫在第三方工作前 fail-fast，`AssetUtility` / `AssetInitSystem` 携带 Unity context，Yoo 加载失败保留独立 Adapter category，初始化 owner 保留原始 exception；YooAsset 自身日志仍由 Unity 日志桥按需接管，不重复包装。
 - **阶段 C 的净收益**：门面对业务开放（`Log.Info` / `Log.Error`）；`Trace` 关掉时**真·零成本**（插值处理器，实测回归覆盖）——顺带自己拿到了 ZLogger 两大卖点之一的「零分配」，坐实客户端不引它；`CaptureUnityLogs` 补上「玩家崩溃不在日志文件里」这个最大缺口；`[HideInCallstack]` 保住双击定位（否则这类门面必然被弃用）。代价是 `Trace` 插值参数不得有副作用（已入 AGENTS #34 + XML doc）。
 - **依赖引入分界**：接缝 + 两个内核 sink（阶段 A）零第三方依赖、**已落地**。ZLogger 模块（阶段 B）实测后**放弃**（依赖 ≈ 1.4 MB，见上「实测复盘」）——客户端框架保持零第三方日志依赖，ZLogger 留作服务端 / 将来客户端遥测刚需时、接缝后的可选实现。**接缝先行的价值在此兑现**：试错第三方库的代价被压到「删依赖」，内核与业务代码零改动。
 
@@ -136,6 +137,6 @@ roadmap「Cysharp 生态候选」里 **ZLogger**（零分配结构化日志）�
 
 - ① ADR：本文。
 - ② 接口在内核、实现在模块：`Core/Logging/`（`Log` 门面 + `ILogSink` + 两个默认 sink + `UnityLogBridge` + 插值处理器 & polyfill）✅；`Game.Framework.Logging.ZLogger/`（可选 sink 模块）——实测放弃、未落地（见「实测复盘」）。
-- ③ 测试：`LoggingTests`（PlayMode）✅ 覆盖多播 / per-sink `MinLevel` / `IsEnabled` / Trace 门控 / **插值惰性求值（兼跨程序集处理器识别的回归测试）** / 异常与自动抓栈 / `context` 透传 / sink 异常隔离 / **Unity 日志流桥接 + 防回声** / `FileLogSink` 落盘·会话头·滚动；`UIRuntimeLoggingTests` 另穿过 UI Adapter 验证 category、context 与 fail-fast 副作用顺序。
+- ③ 测试：`LoggingTests`（PlayMode）✅ 覆盖多播 / per-sink `MinLevel` / `IsEnabled` / Trace 门控 / **插值惰性求值（兼跨程序集处理器识别的回归测试）** / 异常与自动抓栈 / `context` 透传 / sink 异常隔离 / **Unity 日志流桥接 + 防回声** / `FileLogSink` 落盘·会话头·滚动；`UIRuntimeLoggingTests` 穿过 UI Adapter 验证 category、context 与 fail-fast 副作用顺序；`AssetOperationCoordinationTests` / `YooAssetLoadTests` 则锁定资源 Core 守卫、初始化根异常与 Yoo Adapter 分类。
 - ④ demo：能力章「日志 · 分级 + 可插拔 sink」（`LoggingDemoModule`）✅——装 demo 捕获 sink 看多播、调其 `MinLevel` 看每 sink 独立过滤、**用一个计数器亲眼验证「Verbose 关时插值表达式一次都没求值」**、点「发一条裸 `Debug.LogError`」看它经桥接进入 sink、装 `FileLogSink` 看落盘、`Write(fields)` 看结构化字段。（原判「无业务 API、参照 ADR-0026 诊断面板 demo 不适用」——后修正：门面/sink 虽是基础设施，但「可替换接缝 + 广播 + 分级 + 惰性求值」这套心智值得一个可点的章，尤其惰性求值这种「看不见的行为」，用计数器演示远胜纯文字。）
 - ⑤ guide §28 + AGENTS #18 / #34 ✅。

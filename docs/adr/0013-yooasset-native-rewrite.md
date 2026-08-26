@@ -78,3 +78,14 @@ YooAsset 3.0 的 `AsyncOperationBase` 没有通用外部取消；框架的 `Wait
 没有采用“三态”，因为只拆出 NotReady 仍会让“Invalid”和“AvailableLocally”共用一个 false；也没有让未 Ready 直接抛异常，因为预检常用于不阻塞地驱动 UI，而初始化精确错误已有独立状态流。Core 的 `AssetUtility` 持有包生命周期真源：非 Ready 时不调用 Provider；Ready 后先验证地址，再读取下载缓存。两步之间若有维护 Writer 开始或排队，Yoo Adapter 继续 fail-fast，拒绝跨缓存世代拼出伪快照。
 
 `IAssetProvider` 不扩张：它的两个 bool 是 Adapter Implementation 细节，其他后端只需实现原有 Seam。旧 `CheckLocationValid` / `IsNeedDownload` 从 `IAssetUtility` 移出，仅以 `[Obsolete]` 扩展方法保留源码迁移路径并精确保留旧 false 语义；新业务与 Demo 只使用四态 Interface。
+
+## 2026-08-26 修订（资源失败证据进入日志 Seam）
+
+资源 Module 的失败信息按产生位置保留来源，而不是全部压成一类“资源加载失败”：
+
+- Core 的空 location / GUID 等调用错误在 `AssetUtility` 或 `AssetReference` 边界 fail-fast，不触发包初始化，也不下沉 Yoo Adapter；`AssetUtility` 日志携带自身 Unity context，便于 Console 定位并让文件/遥测 sink 保留对象来源。
+- YooAsset manifest 找不到地址、原生 handle 失败或类型不匹配时，由 `YooAssetProvider` 以独立 category 记录；默认 Console 文案仍显示原有 `[YooAssetProvider]` 前缀，但分类不再埋在 message 里。
+- 包初始化失败仍由 `AssetUtility` owner 统一把状态落到 `Failed`，同时把原始 exception、运行模式和修复提示交给日志 Seam；调用者随后通过 `EnsureInitialized` 收到的仍是同一个根异常对象。
+- 不重新包装 YooAsset 自己产生的内部日志；需要全量落盘时由 `Log.CaptureUnityLogs()` 接管 Unity 日志流，避免 Adapter 重复输出同一第三方错误。
+
+这次没有扩张 `IAssetProvider` / `IAssetUtility` Interface。日志是横切 Seam，资源 Core 与 Yoo Implementation 只依赖内核 `Game.Framework.Logging`；测试分别锁定 Core fail-fast、Adapter category，以及初始化异常/context 的透传。

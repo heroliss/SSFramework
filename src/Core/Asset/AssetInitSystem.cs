@@ -4,6 +4,7 @@ using System.Threading;
 using Cysharp.Threading.Tasks;
 using Game.Framework.Common;
 using Game.Framework.Internal;
+using Game.Framework.Logging;
 using Game.Framework.Systems;
 using UnityEngine;
 
@@ -52,7 +53,11 @@ namespace Game.Framework
                 var ex = new InvalidOperationException(
                     "[AssetInitSystem] AssetUtility or AssetSystemConfigModel not found in Context. " +
                     "Place both components under the same MonoGameContextBase.");
-                Debug.LogError(ex);
+                Log.Error(
+                    "Asset system wiring is incomplete; automatic initialization cannot start.",
+                    ex,
+                    nameof(AssetInitSystem),
+                    this);
                 _utility?.FailDefaultInitialization(ex);
                 return;
             }
@@ -67,7 +72,11 @@ namespace Game.Framework
             if (configError != null)
             {
                 var ex = new InvalidOperationException("[AssetInitSystem] " + configError);
-                Debug.LogError(ex);
+                Log.Error(
+                    "Asset system configuration is invalid; the default package was marked failed.",
+                    ex,
+                    nameof(AssetInitSystem),
+                    this);
                 _utility.FailDefaultInitialization(ex);
             }
 

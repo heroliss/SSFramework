@@ -75,8 +75,9 @@ namespace Game.Framework
                 return assetUtility;
             }
 
-            Debug.LogError(
-                "[AssetReference] No IAssetUtility bound. Use a MonoXxxBase field, call Bind(), or register IAssetUtility in GameContext.Main.");
+            Log.Error(
+                "No IAssetUtility bound. Use a MonoXxxBase field, call Bind(), or register IAssetUtility in GameContext.Main.",
+                category: "AssetReference");
             return null;
         }
 
@@ -128,7 +129,7 @@ namespace Game.Framework
 
             if (!HasGuid)
             {
-                Debug.LogWarning("[AssetReference] GUID is empty, assign asset in Inspector.");
+                Log.Warning("GUID is empty, assign asset in Inspector.", "AssetReference");
                 return null;
             }
 

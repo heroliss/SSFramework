@@ -5,6 +5,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using Game.Framework.Context;
+using Game.Framework.Logging;
 using NUnit.Framework;
 using R3;
 using UnityEngine;
@@ -71,6 +72,10 @@ namespace Game.Framework.Test
         [UnityTest]
         public IEnumerator LocationState_DistinguishesNotReadyInvalidLocalAndRemote_PerPackage()
             => LocationState_DistinguishesNotReadyInvalidLocalAndRemote_PerPackageAsync().ToCoroutine();
+
+        [UnityTest]
+        public IEnumerator EmptyLocation_IsReportedThroughLoggingSeam_BeforeProviderWork()
+            => EmptyLocation_IsReportedThroughLoggingSeam_BeforeProviderWorkAsync().ToCoroutine();
 
         private async UniTask SetUpAsync()
         {
@@ -216,10 +221,21 @@ namespace Game.Framework.Test
             await firstGate.Started.Task;
             var ensureFirstAttempt = _utility.EnsureInitialized(Package);
             LogAssert.Expect(LogType.Error,
-                new Regex("Package 'CoordinationTestPackage'.*first-init-failed", RegexOptions.Singleline));
-            firstGate.Release.TrySetResult();
+                new Regex("Package 'CoordinationTestPackage'.*初始化失败", RegexOptions.Singleline));
+            LogAssert.Expect(LogType.Exception, new Regex("first-init-failed"));
+            var sink = new CapturingSink();
+            Log.AddSink(sink);
+            try
+            {
+                firstGate.Release.TrySetResult();
+                await first; // Initialize 的普通物理失败仍以状态表达，不直接抛。
+            }
+            finally
+            {
+                Log.RemoveSink(sink);
+            }
 
-            await first; // Initialize 的普通物理失败仍以状态表达，不直接抛。
+            AssertInitializationFailureEntry(sink, expected);
             Exception ensureError = null;
             try
             {
@@ -259,9 +275,21 @@ namespace Game.Framework.Test
             });
 
             LogAssert.Expect(LogType.Error,
-                new Regex("Package 'CoordinationTestPackage'.*sync-init-failed", RegexOptions.Singleline));
-            var first = _utility.Initialize(Package);
+                new Regex("Package 'CoordinationTestPackage'.*初始化失败", RegexOptions.Singleline));
+            LogAssert.Expect(LogType.Exception, new Regex("sync-init-failed"));
+            var sink = new CapturingSink();
+            Log.AddSink(sink);
+            UniTask first;
+            try
+            {
+                first = _utility.Initialize(Package);
+            }
+            finally
+            {
+                Log.RemoveSink(sink);
+            }
 
+            AssertInitializationFailureEntry(sink, expected);
             Assert.IsTrue(retryRequested);
             Assert.IsTrue(first.GetAwaiter().IsCompleted,
                 "同步失败触发重试后，原调用必须完成自己的 attempt，不能被重定向到新 attempt");
@@ -359,6 +387,42 @@ namespace Game.Framework.Test
             Assert.AreEqual(otherPackage, _provider.LastQueriedPackage);
         }
 
+        private async UniTask EmptyLocation_IsReportedThroughLoggingSeam_BeforeProviderWorkAsync()
+        {
+            LogAssert.Expect(LogType.Warning, "[AssetUtility] Location is empty.");
+            var sink = new CapturingSink();
+            Log.AddSink(sink);
+            IAssetHandle<GameObject> handle;
+            try
+            {
+                handle = await _utility.Load<GameObject>(string.Empty);
+            }
+            finally
+            {
+                Log.RemoveSink(sink);
+            }
+
+            Assert.IsNull(handle);
+            Assert.AreEqual(1, sink.Entries.Count);
+            Assert.AreEqual(LogLevel.Warning, sink.Entries[0].Level);
+            Assert.AreEqual(nameof(AssetUtility), sink.Entries[0].Category);
+            Assert.AreSame(_utility, sink.Entries[0].Context,
+                "资源输入守卫应携带产生诊断的 Utility，便于 Console 定位并让外部 sink 保留上下文");
+            Assert.AreEqual(0, _provider.InitializeCalls,
+                "空地址应在 Core Interface 边界 fail-fast，不应触发包初始化或下沉到 Adapter");
+        }
+
+        private void AssertInitializationFailureEntry(CapturingSink sink, Exception expected)
+        {
+            Assert.AreEqual(1, sink.Entries.Count);
+            var entry = sink.Entries[0];
+            Assert.AreEqual(LogLevel.Error, entry.Level);
+            Assert.AreEqual(nameof(AssetUtility), entry.Category);
+            Assert.AreSame(expected, entry.Exception,
+                "初始化失败的根异常必须穿过日志 Seam，不能只剩格式化后的 message");
+            Assert.AreSame(_utility, entry.Context);
+        }
+
         private async UniTask MakeReady()
         {
             var gate = _provider.PlanInitialization();
@@ -382,6 +446,13 @@ namespace Game.Framework.Test
             }
 
             Assert.IsTrue(canceled, "应向取消等待的调用者保留 OperationCanceledException");
+        }
+
+        private sealed class CapturingSink : ILogSink
+        {
+            public LogLevel MinLevel => LogLevel.Trace;
+            public readonly List<LogEntry> Entries = new();
+            public void Log(in LogEntry entry) => Entries.Add(entry);
         }
 
         private sealed class ControllableAssetProvider : IAssetProvider

@@ -136,8 +136,24 @@ namespace Game.Framework.Test
         private async UniTask Utility_Load_InvalidPath_ShouldReturnNullAsync()
         {
             LogAssert.Expect(LogType.Error, new Regex("Asset not found.*__NonExistentAsset__"));
-            var handle = await _utility.Load<GameObject>("__NonExistentAsset__");
+            var sink = new CapturingSink();
+            Log.AddSink(sink);
+            IAssetHandle<GameObject> handle;
+            try
+            {
+                handle = await _utility.Load<GameObject>("__NonExistentAsset__");
+            }
+            finally
+            {
+                Log.RemoveSink(sink);
+            }
+
             Assert.IsNull(handle, "不存在的路径应返回 null");
+            Assert.AreEqual(1, sink.Entries.Count);
+            Assert.AreEqual(LogLevel.Error, sink.Entries[0].Level);
+            Assert.AreEqual("YooAssetProvider", sink.Entries[0].Category,
+                "第三方加载失败应在 Yoo Adapter 边界保留可过滤的来源分类");
+            StringAssert.Contains("__NonExistentAsset__", sink.Entries[0].Message);
         }
 
         /// <summary>
@@ -332,9 +348,22 @@ namespace Game.Framework.Test
             Assert.IsFalse(invalidRef.HasGuid, "空 GUID 的 HasGuid 应为 false");
 
             LogAssert.Expect(LogType.Warning, "[AssetReference] GUID is empty, assign asset in Inspector.");
+            var sink = new CapturingSink();
+            Log.AddSink(sink);
             GameObject result = null;
-            yield return invalidRef.Get().ContinueWith(x => result = x).ToCoroutine();
+            try
+            {
+                yield return invalidRef.Get().ContinueWith(x => result = x).ToCoroutine();
+            }
+            finally
+            {
+                Log.RemoveSink(sink);
+            }
+
             Assert.IsNull(result);
+            Assert.AreEqual(1, sink.Entries.Count);
+            Assert.AreEqual(LogLevel.Warning, sink.Entries[0].Level);
+            Assert.AreEqual("AssetReference", sink.Entries[0].Category);
         }
 
         // ── AssetReferenceList 批量加载测试 ──────────────────────────
@@ -537,6 +566,13 @@ namespace Game.Framework.Test
         {
             await ApplyConfiguredDelay();
             return await _config.PrefabReference.Get();
+        }
+
+        private sealed class CapturingSink : ILogSink
+        {
+            public LogLevel MinLevel => LogLevel.Trace;
+            public readonly List<LogEntry> Entries = new();
+            public void Log(in LogEntry entry) => Entries.Add(entry);
         }
     }
 }

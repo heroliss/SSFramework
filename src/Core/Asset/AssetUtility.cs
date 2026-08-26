@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using Cysharp.Threading.Tasks;
+using Game.Framework.Logging;
 using Game.Framework.Utility;
 using R3;
 using UnityEngine;
@@ -195,8 +196,11 @@ namespace Game.Framework
                 var config = _config;
                 var ownerToken = _disposeCts.Token;
                 RunInitializationOwner(state, attempt, packageName, mode, provider, config, ownerToken)
-                    .Forget(ex => Logging.Log.Error(
-                        $"[AssetUtility] Package '{packageName}' initialization owner stopped unexpectedly.", ex));
+                    .Forget(ex => Log.Error(
+                        $"Package '{packageName}' initialization owner stopped unexpectedly.",
+                        ex,
+                        nameof(AssetUtility),
+                        this));
             }
 
             // 每个调用者只等待共享结果。取消这个 await 不触碰 owner、不改变 InitState；owner 最终仍会落到 Ready / Failed。
@@ -231,7 +235,10 @@ namespace Game.Framework
                 state.State.Value = AssetInitState.Failed;
                 // 完成 owner 捕获的 attempt，而不是同步 State 订阅回调可能新建的重试 attempt。
                 attempt.Done.TrySetResult();
-                Debug.Log($"[AssetUtility] Package '{packageName}' initialization canceled.");
+                Log.Info(
+                    $"Package '{packageName}' initialization canceled.",
+                    nameof(AssetUtility),
+                    this);
             }
             catch (Exception ex)
             {
@@ -239,7 +246,11 @@ namespace Game.Framework
                 attempt.Error = ex;
                 state.State.Value = AssetInitState.Failed;
                 attempt.Done.TrySetResult(); // 同上：失败经 attempt.Error 传递，不给 TCS 挂异常
-                Debug.LogError($"[AssetUtility] Package '{packageName}' 初始化失败（模式 {mode}）：{ex.Message}\n" + InitFailureHint(mode));
+                Log.Error(
+                    $"Package '{packageName}' 初始化失败（模式 {mode}）。\n{InitFailureHint(mode)}",
+                    ex,
+                    nameof(AssetUtility),
+                    this);
             }
         }
 
@@ -362,7 +373,7 @@ namespace Game.Framework
         {
             if (string.IsNullOrEmpty(location))
             {
-                Debug.LogWarning("[AssetUtility] Location is empty.");
+                Log.Warning("Location is empty.", nameof(AssetUtility), this);
                 return null;
             }
 
@@ -379,7 +390,7 @@ namespace Game.Framework
         {
             if (string.IsNullOrEmpty(guid))
             {
-                Debug.LogWarning("[AssetUtility] GUID is empty.");
+                Log.Warning("GUID is empty.", nameof(AssetUtility), this);
                 return null;
             }
 
@@ -403,7 +414,7 @@ namespace Game.Framework
         {
             if (string.IsNullOrEmpty(location))
             {
-                Debug.LogWarning("[AssetUtility] Scene location is empty.");
+                Log.Warning("Scene location is empty.", nameof(AssetUtility), this);
                 return null;
             }
 
@@ -420,7 +431,7 @@ namespace Game.Framework
         {
             if (string.IsNullOrEmpty(location))
             {
-                Debug.LogWarning("[AssetUtility] Text location is empty.");
+                Log.Warning("Text location is empty.", nameof(AssetUtility), this);
                 return null;
             }
 
@@ -437,7 +448,7 @@ namespace Game.Framework
         {
             if (string.IsNullOrEmpty(location))
             {
-                Debug.LogWarning("[AssetUtility] Bytes location is empty.");
+                Log.Warning("Bytes location is empty.", nameof(AssetUtility), this);
                 return null;
             }
 
@@ -648,7 +659,9 @@ namespace Game.Framework
             if (handle.Asset is T asset)
                 return new TypedAssetHandle<T>(handle, asset);
 
-            Debug.LogError($"[AssetUtility] Loaded asset '{key}' cannot be used as '{typeof(T).Name}'.");
+            Log.Error(
+                $"Loaded asset '{key}' cannot be used as '{typeof(T).Name}'.",
+                category: nameof(AssetUtility));
             handle.Dispose();
             return null;
         }
