@@ -37,18 +37,24 @@ namespace Game.Framework.Flow
         /// 转换到新状态。<paramref name="next"/> 是<b>一次性实例</b>：每次转换 new 一个新对象
         /// （传参走构造函数；重进同类状态 = new 同类新实例），复用已消费的实例抛参数异常。
         /// 返回的 task 在该次转换完成时结束；被更新的 GoTo 顶替 / 宿主 Dispose 时以取消结束；
-        /// <c>OnEnter</c> 失败时携带其异常。等火起步的引导序列可以 <c>await</c> 它，UI 导航可直接丢弃。
+        /// <c>OnEnter</c> 失败时携带其异常。调用方必须 <c>await</c> 或显式观察三种结局；
+        /// “不关心何时完成”不等于可以丢弃 faulted UniTask。<c>OnEnter</c> 内转向不能 await（会互等），
+        /// 应交给项目的导航边界捕获取消并记录其它异常，随后直接 return。
         /// </summary>
         UniTask GoTo(FlowState next);
     }
 
     /// <summary>
     /// 流程状态切换完成事件，在宿主 Context 上发送（转换<b>成功</b>后）。
-    /// loading 界面 / 埋点订阅这一个事件即可，不必侵入每个状态。
+    /// loading 界面 / 埋点订阅这一个事件即可，不必侵入每个状态。连续转换中被取消 / 顶替 / 进入失败、
+    /// 从未成为 <see cref="IGameFlow.Current"/> 的中间状态不会出现在事件链里。
     /// </summary>
     public readonly struct FlowChangedEvent : IEvent
     {
-        /// <summary>切换前的状态；首次进入时为 null。</summary>
+        /// <summary>
+        /// 本轮连续转换开始前最后一个完整进入的状态；首次进入，或流程此前已明确进入无状态时为 null。
+        /// 例如 A →（B 进入中被顶替）→ C 只发布 A → C。
+        /// </summary>
         public readonly FlowState From;
 
         /// <summary>切换后的状态（即此刻的 <see cref="IGameFlow.Current"/>）。</summary>

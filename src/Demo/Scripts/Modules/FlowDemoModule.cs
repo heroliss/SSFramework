@@ -79,6 +79,7 @@ namespace Game.Framework.Demo.Modules
             // FlowChangedEvent：loading 界面 / 埋点只订这一个事件，不侵入每个状态。订阅进 Bag 随本章退订。
             Bag.Add(this.RegisterEvent<FlowChangedEvent>(e =>
                 report($"[事件] {e.From?.ToString() ?? "（无）"} → {e.To}")));
+            host.AddSubNote("事件只记录**完整进入成功**的阶段：若从大厅进入战斗的加载途中改点登录，最终只发布「大厅 → 登录」；从未成为 Current 的战斗不是历史节点，来源也不会误报成「无」。");
 
             // ── 转换按钮 ──
             host.AddSectionTitle("流转：GoTo 是唯一动词");
