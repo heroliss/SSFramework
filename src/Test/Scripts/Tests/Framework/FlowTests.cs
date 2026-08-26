@@ -16,8 +16,8 @@ namespace Game.Framework.Test
     /// 验证游戏流程状态机（ADR-0023）：每状态一个子 Context（父链解析 / 整棵撤）、
     /// 串行转换与最新意图胜（在途取消 / 排队顶替 / 忽略 ct 的状态正常进入后再退出）、
     /// 成功事件跳过未完成候选但保留最后已发布来源、Enter 失败无状态、OnExit 异常不阻断、
-    /// 一次性实例守卫、宿主 Dispose 收尾。
-    /// 状态机自身无 Unity 对象，全部用例不依赖场景与帧推进，batchmode 无风险。
+    /// 一次性实例守卫、宿主在 Enter / Exit 期间 Dispose 的任务终态与整棵撤收尾。
+    /// 状态机自身无 Unity 对象；仅迟到任务观察用例等待一帧交付 continuation，其余不依赖场景或帧推进，batchmode 无风险。
     /// </summary>
     public class FlowTests
     {
@@ -161,6 +161,58 @@ namespace Game.Framework.Test
             Assert.IsTrue(probe.Disposed, "半进入状态的子 Context 应整棵撤");
             CollectionAssert.AreEqual(new[] { "enter:A", "enter:B" }, _log); // 半进入不调 OnExit
         }
+
+        [UnityTest]
+        public IEnumerator GoToDuringEnter_CancellationCallbackThrows_StillReturnsTaskAndContinues()
+            => UniTask.ToCoroutine(async () =>
+            {
+                var previousSinks = new List<ILogSink>(Log.Sinks);
+                var previousMinLevel = Log.MinLevel;
+                var sink = new CapturingSink();
+                var enterGate = new UniTaskCompletionSource();
+                var cancellationFailure = new InvalidOperationException("go-to-cancel-callback-boom");
+                var probe = new Probe();
+                bool enterReleased = false;
+
+                try
+                {
+                    Log.ClearSinks();
+                    Log.AddSink(sink);
+                    Log.MinLevel = LogLevel.Trace;
+
+                    var a = State("A",
+                        install: b => b.RegisterOwned(probe, typeof(Probe)),
+                        enter: ct =>
+                        {
+                            ct.Register(() => throw cancellationFailure);
+                            return enterGate.Task; // 故意忽略取消，验证 Cancel 抛错后 flow 仍保留既定等待语义
+                        });
+
+                    var first = _flow.GoTo(a);
+                    UniTask latest = default;
+                    Assert.DoesNotThrow(() => latest = _flow.GoTo(State("B")),
+                        "取消回调异常应进入日志，不能让 GoTo 在已经建立 pending request 后从同步调用点抛出");
+                    Assert.AreEqual(UniTaskStatus.Pending, first.Status);
+                    Assert.AreEqual(UniTaskStatus.Pending, latest.Status);
+
+                    enterReleased = enterGate.TrySetResult();
+                    await latest;
+
+                    Assert.AreEqual(UniTaskStatus.Succeeded, first.Status,
+                        "忽略 token 的 A 按既有契约先完成进入，再由排队的 B 正常退出它");
+                    Assert.IsTrue(probe.Disposed, "取消回调报错不能阻断 A 最终退出时的 scope 清理");
+                    Assert.AreEqual(1, sink.Entries.Count);
+                    Assert.AreEqual("GameFlow", sink.Entries[0].Category);
+                    Assert.AreSame(cancellationFailure, sink.Entries[0].Exception.InnerException);
+                }
+                finally
+                {
+                    if (!enterReleased) enterGate.TrySetResult();
+                    Log.ClearSinks();
+                    foreach (var previousSink in previousSinks) Log.AddSink(previousSink);
+                    Log.MinLevel = previousMinLevel;
+                }
+            });
 
         [Test]
         public void GoToDuringEnter_FinalEventKeepsLastPublishedStateAsFrom()
@@ -409,6 +461,169 @@ namespace Game.Framework.Test
             Assert.IsTrue(probe.Disposed, "在途进入的子 Context 应随宿主 Dispose 撤除");
             CollectionAssert.AreEqual(new[] { "enter:A" }, _log); // 半进入不调 OnExit
         }
+
+        [UnityTest]
+        public IEnumerator HostDispose_DuringExit_CancelsAcceptedTasksAndSweepsExitingScope() => UniTask.ToCoroutine(async () =>
+        {
+            var previousSinks = new List<ILogSink>(Log.Sinks);
+            var previousMinLevel = Log.MinLevel;
+            var sink = new CapturingSink();
+            var exitGate = new UniTaskCompletionSource();
+            var lateFailure = new InvalidOperationException("late-exit-boom");
+            var probe = new Probe();
+            var events = new List<FlowChangedEvent>();
+            bool exitReleased = false;
+
+            try
+            {
+                Log.ClearSinks();
+                Log.AddSink(sink);
+                Log.MinLevel = LogLevel.Trace;
+
+                using var subscription = _host.RegisterEvent<FlowChangedEvent>(e => events.Add(e));
+                var a = State("A",
+                    install: b => b.RegisterOwned(probe, typeof(Probe)),
+                    exit: () => exitGate.Task);
+
+                await _flow.GoTo(a);
+                var active = _flow.GoTo(State("B")); // 卡在 A.OnExit；A 已不再是 Current
+                var pending = _flow.GoTo(State("C")); // 退出期间的最新意图，占据单格 pending
+                Assert.AreEqual(UniTaskStatus.Pending, active.Status);
+                Assert.AreEqual(UniTaskStatus.Pending, pending.Status);
+                Assert.IsTrue(_flow.IsTransitioning);
+
+                _host.Dispose();
+
+                Assert.AreEqual(UniTaskStatus.Canceled, active.Status,
+                    "宿主释放必须让 active GoTo 立即到达取消终态，不能被无 token 的 OnExit 永久拖住");
+                Assert.AreEqual(UniTaskStatus.Canceled, pending.Status,
+                    "尚在单格队列中的最新 GoTo 也必须由 flow owner 立即取消");
+                Assert.IsTrue(probe.Disposed,
+                    "正在退出的状态也仍归 flow 所有，宿主释放必须立即撤掉它的子 Context");
+                Assert.IsFalse(_flow.IsTransitioning, "Dispose 后对外不应继续报告仍在转换");
+
+                exitReleased = exitGate.TrySetException(lateFailure);
+                await UniTask.DelayFrame(1);
+
+                Assert.AreEqual(1, events.Count, "迟到的 OnExit 完成不得再进入 B 或发布新的 FlowChangedEvent");
+                Assert.AreSame(a, events[0].To);
+                CollectionAssert.AreEqual(new[] { "enter:A", "exit:A" }, _log,
+                    "B/C 都不应开始进入，迟到 OnExit 只能结束自己的物理任务");
+                Assert.AreEqual(UniTaskStatus.Canceled, active.Status);
+                Assert.AreEqual(UniTaskStatus.Canceled, pending.Status);
+                Assert.AreEqual(1, sink.Entries.Count,
+                    "宿主已释放后迟到的 OnExit 异常仍应被 owner 观察并进入统一日志，而不是成为无人观察异常");
+                Assert.AreEqual("GameFlow", sink.Entries[0].Category);
+                Assert.AreSame(lateFailure, sink.Entries[0].Exception);
+            }
+            finally
+            {
+                if (!exitReleased) exitGate.TrySetResult();
+                Log.ClearSinks();
+                foreach (var previousSink in previousSinks) Log.AddSink(previousSink);
+                Log.MinLevel = previousMinLevel;
+            }
+        });
+
+        [UnityTest]
+        public IEnumerator HostDispose_ReenteredSynchronouslyFromExit_StillOwnsLateFailure()
+            => UniTask.ToCoroutine(async () =>
+            {
+                var previousSinks = new List<ILogSink>(Log.Sinks);
+                var previousMinLevel = Log.MinLevel;
+                var sink = new CapturingSink();
+                var exitGate = new UniTaskCompletionSource();
+                var lateFailure = new InvalidOperationException("reentrant-late-exit-boom");
+                var probe = new Probe();
+                bool exitReleased = false;
+
+                try
+                {
+                    Log.ClearSinks();
+                    Log.AddSink(sink);
+                    Log.MinLevel = LogLevel.Trace;
+
+                    var a = State("A",
+                        install: b => b.RegisterOwned(probe, typeof(Probe)),
+                        exit: () =>
+                        {
+                            _host.Dispose(); // OnExit 同步前缀重入 Dispose，再返回一个会迟到失败的物理任务
+                            return exitGate.Task;
+                        });
+
+                    await _flow.GoTo(a);
+                    var transition = _flow.GoTo(State("B"));
+
+                    Assert.AreEqual(UniTaskStatus.Canceled, transition.Status);
+                    Assert.IsTrue(probe.Disposed);
+                    Assert.IsFalse(_flow.IsTransitioning);
+
+                    exitReleased = exitGate.TrySetException(lateFailure);
+                    await UniTask.DelayFrame(1);
+
+                    Assert.AreEqual(1, sink.Entries.Count,
+                        "即使 OnExit 在 Attach 建立前同步重入 Dispose，迟到异常仍必须由物理 owner 观察");
+                    Assert.AreEqual("GameFlow", sink.Entries[0].Category);
+                    Assert.AreSame(lateFailure, sink.Entries[0].Exception);
+                }
+                finally
+                {
+                    if (!exitReleased) exitGate.TrySetResult();
+                    Log.ClearSinks();
+                    foreach (var previousSink in previousSinks) Log.AddSink(previousSink);
+                    Log.MinLevel = previousMinLevel;
+                }
+            });
+
+        [UnityTest]
+        public IEnumerator HostDispose_DuringEnter_CancellationCallbackThrows_StillSweepsScope()
+            => UniTask.ToCoroutine(async () =>
+            {
+                var previousSinks = new List<ILogSink>(Log.Sinks);
+                var previousMinLevel = Log.MinLevel;
+                var sink = new CapturingSink();
+                var enterGate = new UniTaskCompletionSource();
+                var cancellationFailure = new InvalidOperationException("dispose-cancel-callback-boom");
+                var probe = new Probe();
+                bool enterReleased = false;
+
+                try
+                {
+                    Log.ClearSinks();
+                    Log.AddSink(sink);
+                    Log.MinLevel = LogLevel.Trace;
+
+                    var a = State("A",
+                        install: b => b.RegisterOwned(probe, typeof(Probe)),
+                        enter: ct =>
+                        {
+                            ct.Register(() => throw cancellationFailure);
+                            return enterGate.Task; // 不响应 token，scope sweep 必须由 Dispose 主动完成
+                        });
+
+                    var transition = _flow.GoTo(a);
+                    _host.Dispose();
+
+                    Assert.AreEqual(UniTaskStatus.Canceled, transition.Status);
+                    Assert.IsTrue(probe.Disposed,
+                        "取消回调抛错后仍必须继续撤半进入状态，不能因 GameFlow.Dispose 已幂等锁死而永久泄漏");
+                    Assert.IsFalse(_flow.IsTransitioning);
+                    Assert.AreEqual(1, sink.Entries.Count);
+                    Assert.AreEqual("GameFlow", sink.Entries[0].Category);
+                    Assert.AreSame(cancellationFailure, sink.Entries[0].Exception.InnerException);
+
+                    enterReleased = enterGate.TrySetResult();
+                    await UniTask.DelayFrame(1); // 让迟到 OnEnter continuation 做幂等收尾，不能产生额外日志
+                    Assert.AreEqual(1, sink.Entries.Count);
+                }
+                finally
+                {
+                    if (!enterReleased) enterGate.TrySetResult();
+                    Log.ClearSinks();
+                    foreach (var previousSink in previousSinks) Log.AddSink(previousSink);
+                    Log.MinLevel = previousMinLevel;
+                }
+            });
 
         // ── 组合：状态内子 flow（作用域树嵌套） ──────────────────────────────
 

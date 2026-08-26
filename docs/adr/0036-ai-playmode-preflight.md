@@ -32,6 +32,6 @@
   PID 精确激活一次的窄 OS Adapter 代替通用坐标操作；它仍属于有可见副作用的 fallback，不能循环保持前台。
 - `Game.Framework.Editor.Tests` 用真实临时场景覆盖成功保存和未命名场景拒绝，并验证“批次中含未命名场景时，有路径的脏场景也保持未保存”。每个用例创建带 GUID 的独占目录，TearDown 只删除明确持有的目录，不会误删用户预先存在的同名资产。
 - `Game.Framework.Editor` 现作为稳定编辑器工具基座；删除它时还需一并删除或改接直接复用其反馈能力的可选 Editor 工具。所有这些程序集都只编译进 Editor，因此 Runtime Framework 与玩家构建不受影响，删除边界以 `docs/framework-module-map.md` 为准。
-- 验收实测：先经菜单预检，再由 MCP 启动全量测试；2026-08-26 当前基线 EditMode 244/244、PlayMode 436/436，且没有再次出现保存弹窗或 0-test 队列卡死。
+- 验收实测：先经菜单预检，再由 MCP 启动全量测试；2026-08-26 当前基线 EditMode 244/244、PlayMode 448/448，且没有再次出现保存弹窗或 0-test 队列卡死。
 - 2026-08-26 补验：保持 Unity 在后台且不执行任何窗口激活，MCP 首次状态仍带 `editor_unfocused`；EditMode
   16/16 与预检后的 PlayMode 14/14 均完成，证明该字段不是启动或持续运行条件。
