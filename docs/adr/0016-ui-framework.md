@@ -38,7 +38,9 @@ Game.Framework.UI        (核心，渲染中立)  IUIUtility / UIUtility 编排 
 
 ### 5. 数据绑定统一走 R3 订阅，不引入 UIToolkit 原生 DataBinding
 
-`UIBindingExtensions`（`Bag.BindText` / `BindEnabled` / `BindVisible` / `SubscribeClick`）内部就是 `Bag.Subscribe`——与 UGUI 订阅 `ReadOnlyReactiveProperty` 完全同一套心智。**保持一套订阅模型**比迁就 UIToolkit 的 binding 系统值钱。
+`UIBindingExtensions`（`Bag.BindText` / `BindEnabled` / `BindVisible` / `SubscribeClick` / `SubscribeClickAsync`）把 Toolkit 的元素事件接进 Bag 所有权——与 UGUI 订阅 `ReadOnlyReactiveProperty` / `UnityEvent` 完全同一套心智。异步点击由 Adapter 交付生命周期 token 并观察未处理异常，但不替业务决定禁按钮、去抖或单飞。**保持一套订阅模型**比迁就 UIToolkit 的 binding 系统值钱。
+
+`SubscribeClickAsync` 留在 Toolkit Adapter，不下沉 Core：它解决的是 `Button.clicked` 的重复接线与异步所有权，删除后业务窗口会重复“解绑 + 生命周期取消 + 异常终点”；Core `DisposableBag` 不应因某个渲染后端增加按钮语义。UGUI 已能经通用 `Bag.Subscribe(UnityEvent, ...)` 接线，待出现同等真实重复再在对应 Adapter 增加对称 Interface。
 
 ### 6. 入口为单个 Mono 组件（镜像 `MonoPoolUtility`）
 
@@ -68,3 +70,5 @@ Game.Framework.UI        (核心，渲染中立)  IUIUtility / UIUtility 编排 
 **2026-08-24 验证补充：**Demo 新增 Destroy / Cache 两个现场对照窗，以稳定实例号和 `OnCreate / OnOpen / OnClose` 计数展示真实生命周期；PlayMode 契约穿过 DemoScene 的 `MonoToolkitUI` Adapter，锁定 Destroy 重开换实例、Cache 重开复用同一实例。这样核心 fake backend 测试与真实 Adapter 证据形成两层验证，也明确 Cache 是“常驻内存与状态管理复杂度换创建速度”，不是默认更优。
 
 **2026-08-26 Adapter 契约补强：**Toolkit 原本会在加载 UXML 前验证 `UIToolkitWindowBase`，UGUI 却只检查最终对象能否转成 `IUIWindow`，使普通 `MonoBehaviour + IUIWindow` 能绕过 `MonoViewBase` 注入与 Bag 所有权。两个 Adapter 现统一在创建层级或加载资源前验证各自窗口基类并 fail-fast；窗口类型、prefab 根组件、节点绑定与生命周期 hook 错误统一进入 `Log` Seam，category、异常和 Unity context 可同时被 Console、文件与测试 sink 消费。`UIRuntimeLoggingTests` 锁定“失败前无层级副作用”和 context 透传。
+
+**2026-08-26 异步交互所有权补强：**Toolkit Adapter 新增 `Bag.SubscribeClickAsync`，把按钮解绑、View 生命周期取消与异常观察收成一个窄而深的接缝；5 项 PlayMode 契约锁定异常日志、Bag 释放取消、单订阅释放、已释放 Bag 不接线，以及物理操作忽略 View token 后仍走到终态并被观察。Outpost 实战验证了两种边界：榜单刷新跟随窗口取消；已启动的扩展包下载由包级物理操作拥有、窗口关闭后继续，但安装标记保存被纳入下载的完成终点。Adapter 刻意不自动实现 single-flight，也不把 UI 按钮语义推进 Core。

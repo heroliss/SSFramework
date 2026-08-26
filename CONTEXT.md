@@ -14,6 +14,10 @@ Demo 章节实例、排序校验与生命周期的唯一 owner。它一次构造
 
 Demo 教学内容与自动化之间的运行时 Seam。`DemoModuleHost` 在真实 Build 中记录定位、步骤、概念、动作、结果与源码引用等语义，`DemoModuleCatalog` 再按 Capability / Concept / Workflow 三种教学形态校验；缺少场景 Adapter 时改查“原因 → 恢复 → 继续学习”的结构化降级闭环。故意失败或带持久/共享副作用的动作使用 Experiment Notice + Experiment Action，在同一小节形成“影响范围 → 预期证据 → 恢复方式 → 可执行动作”的机器可读顺序；预期异常由 Module 本地精确捕获，Host 兜底只表示真实 Demo 缺陷。契约验证实际执行的内容，不扫描源码 token，也不猜测 USS / VisualElement Implementation。
 
+## UI Async Action Binding
+
+`Game.Framework.UI.Toolkit` Adapter 中连接 `Button.clicked` 与 View 生命周期所有权的窄 Interface。`Bag.SubscribeClickAsync` 负责解绑、把取消 token 交给 handler，并把未处理异常送到 `Log` Seam；生命周期取消静默收口。它不决定按钮禁用、去抖、single-flight 或面向玩家的错误呈现。通常异步操作跟随 Bag 取消；若包下载等物理操作必须在 View 消失后走到终态，handler 可明确不透传 View token，但仍由绑定观察完成，且不得向旧 UI 发布。该能力保持在 Toolkit Module，以免 Core `DisposableBag` 获得渲染后端语义。
+
 ## Asset Location Snapshot
 
 `IAssetUtility.GetLocationState` 对某个 package/location 当前清单与本地缓存的同步四态快照：PackageNotReady、Invalid、AvailableLocally、RequiresDownload。它是资源 Module 的高杠杆 Interface，替调用方收口“先守卫初始化，再拼地址有效性与下载需求”的重复编排；具体未就绪原因仍由正交的 `AssetInitState` 表达，YooAsset 的布尔查询与 Reader/Writer 协调保留在 Adapter Implementation 内。

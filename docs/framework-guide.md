@@ -2054,7 +2054,15 @@ Bag.BindText(label, rop, v => $"HP: {v}");   // 文本
 Bag.BindEnabled(button, canClickRop);         // 可交互
 Bag.BindVisible(panel, isOpenRop);            // 显隐
 Bag.SubscribeClick(button, OnClick);          // UI Toolkit Button.clicked
+Bag.SubscribeClickAsync(button, async ct =>   // 异步点击：随 Bag 取消，异常有统一终点
+{
+    await SaveAsync(ct);
+});
 ```
+
+`SubscribeClickAsync` 的职责边界很窄：把 View/订阅生命周期 token 交给 handler，并把未处理异常送进 `Log`（category=`UIBinding`）。生命周期取消不记错误；能预期且需要界面呈现的失败应在 handler 就近捕获。它**不会**自动禁用按钮、去抖或单飞——是否允许并发点击是业务交互策略，调用方需要时自己禁用按钮或加 gate。
+
+默认把 token 继续传给 `Open`、命令、网络或延迟操作。若点击启动的是包下载等物理操作，且窗口关闭后也必须完成，可以明确忽略 View token；绑定仍会观察任务直到终态，但 handler 在窗口关闭后不得再写旧 UI。这个方法留在 `Game.Framework.UI.Toolkit` Adapter，而不是塞进 Core `DisposableBag`：当前重复问题来自 Toolkit 的 `Button.clicked`；UGUI 的 `Button.onClick` 仍用通用 `Bag.Subscribe(UnityEvent, ...)`，只有出现真实、重复的异步所有权需求时才在 UGUI Adapter 增加对称能力。
 
 **刻意不引入** UI Toolkit 原生 DataBinding——保持一套订阅模型对人和 AI 都更省心。复杂绑定先用 R3 操作符组合再 `Bag.Bind(observable, apply)`。
 
@@ -2072,6 +2080,7 @@ Bag.SubscribeClick(button, OnClick);          // UI Toolkit Button.clicked
 - **cover/reveal 按层内计算**：跨层覆盖（Popup 盖 Page）不触发下层 cover，需要时业务自行处理。
 - **UI Toolkit 窗口需无参构造**（框架 `Activator` 实例化）；数据经 `OnOpen(args)`，不走构造函数。
 - **UI Toolkit 窗口 Context 由框架显式注入**（不在 GameObject 父链上）；UGUI 窗口沿父链自动注入（实例化到层根下即可）。
+- **异步 UI 动作必须有 owner**：Toolkit 点击优先 `Bag.SubscribeClickAsync`；同步生命周期 hook 无法 `await` 时必须显式观察异常，不能裸 `.Forget()` / `UniTaskVoid`。
 - 三个 UI asmdef 引用热更内核，已在热更列表（ADR-0008 铁律）。
 
 > **要点回顾**
@@ -2080,7 +2089,7 @@ Bag.SubscribeClick(button, OnClick);          // UI Toolkit Button.clicked
 > - 窗口 = View 的一种：自动注入 / Bag / 读写分离；元数据用 `[UIWindow]` 声明层 / 缓存 / 模态 / 返回键可关性
 > - 过渡动画重写 `OnOpenTransition` / `OnCloseTransition`，框架统一挡输入；返回键挂 `MonoUIBackKeyDriver` 即接通
 > - 核心渲染中立、可单测；换 UGUI ↔ UI Toolkit 业务零改，`IUIBackend` 吸收差异
-> - 数据绑定一套 R3 订阅；活样例见 demo「View · UIToolkit」+「UI 框架 · 窗口/层级」章
+> - 数据绑定一套 R3 订阅；Toolkit 异步点击用 `SubscribeClickAsync` 明确生命周期与异常 owner；活样例见 demo「View · UIToolkit」+「UI 框架 · 窗口/层级」章
 
 ---
 

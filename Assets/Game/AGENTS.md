@@ -56,7 +56,7 @@
 | 资源 `IAssetUtility` | 资源三件套同一 Context；动态借用进 Bag，Inspector 用 `AssetReference<T>`，SO/纯 C# 由持有者绑定。Load 前判初始化/位置状态；package 名用生成常量。 | guide §13 / ADR-0013 |
 | 对象池 `IPoolUtility` | Context 所有权用 `RegisterOwned`；首次工厂/钩子配置生效。Pool 不替实例释放非托管资源，GameObject 池只在主线程使用。 | guide §7 |
 | 配置 `IConfigUtility<TTables>` | 配置是全层只读 Utility；响应式界面订 `State`，启动/流程门禁 `await EnsureReady(token)`，不轮询 `Tables`。调用方取消只退出自己的等待，失败会抛原始异常。改表走 profile/生成菜单，生成目录不手改，`topModule` 不含 `System`。 | guide §16 / ADR-0009 |
-| UI `IUIUtility` | 每个 Context 只挂一个 Toolkit/UGUI 入口；窗口仍是 View。Toolkit 窗口需无参构造，UGUI 窗口不覆写 Awake；并发 Loading 用 `AcquireLoading` 租约。 | guide §17 / ADR-0016/0020/0037 |
+| UI `IUIUtility` | 每个 Context 只挂一个 Toolkit/UGUI 入口；窗口仍是 View。Toolkit 窗口需无参构造，UGUI 窗口不覆写 Awake；Toolkit 异步点击用 `Bag.SubscribeClickAsync` 并透传 token，可预期失败在 handler 呈现；并发 Loading 用 `AcquireLoading` 租约。 | guide §17 / ADR-0016/0020/0037 |
 | 存储 `IStorageUtility` | `[Serializable]` 类整存整取，key 是持久契约；Save 必须 await，Load 无主/备数据返回 null；迁移用数据 `Version`。 | guide §18 / ADR-0021 |
 | 音频 `IAudioUtility` | BGM 单通道编排；一次性 SFX 自动回收，循环 handle 必须 Stop 或进 Bag。跟随对象的 3D 音源直接用 `AudioSource`。 | guide §19 / ADR-0022 |
 | 流程 `IGameFlow` | 只表达宏观阶段，每次进入 new `FlowState`；私有能力放状态子 Context/Bag。转换“串行 + 最新意图胜”；GoTo 必须 await/显式观察，OnEnter 转向交给导航 Adapter 后直接 return。 | guide §20 / ADR-0023 |

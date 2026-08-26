@@ -1,5 +1,8 @@
 using System;
+using System.Threading;
+using Cysharp.Threading.Tasks;
 using Game.Framework.Localization;
+using Game.Framework.Logging;
 using ObservableCollections;
 using R3;
 using UnityEngine.UIElements;
@@ -39,6 +42,69 @@ namespace Game.Framework.UI.Toolkit
         /// </summary>
         public static IDisposable SubscribeClick(this DisposableBag bag, Button button, Action handler)
             => bag.Subscribe(() => button.clicked += handler, () => button.clicked -= handler);
+
+        /// <summary>
+        /// 订阅异步点击：每次点击把一个与本订阅生命周期绑定的 <see cref="CancellationToken"/> 交给
+        /// <paramref name="handler"/>；Bag 或返回的订阅释放时取消所有在途处理，并自动解绑后续点击。
+        /// 生命周期取消静默收口，未处理的其它异常进入统一 <see cref="Log"/> Seam，不会变成无人观察的 UniTask。
+        /// </summary>
+        /// <remarks>
+        /// 本方法只负责生命周期与异常所有权，<b>不</b>擅自禁用按钮、去抖或单飞；是否允许并发点击是业务交互策略，
+        /// 需要单飞时由调用方在 handler 内禁用按钮或使用自己的 gate。可预期且需要界面反馈的失败也应由 handler
+        /// 就近捕获，本方法的日志是未预期失败的最后防线。<br/>
+        /// 若物理操作必须在 View 关闭后继续到终态（如已启动的包下载），handler 可以刻意不把 token 传给 owner；
+        /// 绑定仍会持续观察任务，直到它自行完成。
+        /// </remarks>
+        public static IDisposable SubscribeClickAsync(
+            this DisposableBag bag,
+            Button button,
+            Func<CancellationToken, UniTask> handler)
+        {
+            if (bag == null) throw new ArgumentNullException(nameof(bag));
+            if (button == null) throw new ArgumentNullException(nameof(button));
+            if (handler == null) throw new ArgumentNullException(nameof(handler));
+            if (bag.IsDisposed) return Disposable.Empty;
+
+            var lifetime = CancellationTokenSource.CreateLinkedTokenSource(bag.DisposeToken);
+            Action onClick = () =>
+            {
+                string identity = !string.IsNullOrWhiteSpace(button.name)
+                    ? button.name
+                    : !string.IsNullOrWhiteSpace(button.text) ? button.text : nameof(Button);
+                ObserveClick(handler, lifetime.Token, identity).Forget();
+            };
+
+            button.clicked += onClick;
+            return bag.Add(Disposable.Create(() =>
+            {
+                button.clicked -= onClick;
+                try { lifetime.Cancel(); }
+                catch (Exception e)
+                {
+                    Log.Error(
+                        "An async click cancellation callback failed; the binding will still be released.",
+                        e,
+                        "UIBinding");
+                }
+                finally { lifetime.Dispose(); }
+            }));
+        }
+
+        private static async UniTask ObserveClick(
+            Func<CancellationToken, UniTask> handler,
+            CancellationToken cancellationToken,
+            string buttonIdentity)
+        {
+            try { await handler(cancellationToken); }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+            catch (Exception e)
+            {
+                Log.Error(
+                    $"Async click handler for Button '{buttonIdentity}' failed.",
+                    e,
+                    "UIBinding");
+            }
+        }
 
         /// <summary>
         /// 在任意 <see cref="VisualElement"/> 上注册点击回调（<see cref="ClickEvent"/>），由 Bag 托管自动反注册。
