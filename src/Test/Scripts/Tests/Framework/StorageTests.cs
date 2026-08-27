@@ -161,6 +161,7 @@ namespace Game.Framework.Test
         {
             await _storage.Save("save/slot2", new SaveData());
             await _storage.Save("save/slot1", new SaveData());
+            await _storage.Save("save/slot1", new SaveData()); // 主 + 备份仍只代表一个 key
             await _storage.Save("settings", new SaveData());
 
             var slots = await _storage.ListKeys("save/");
@@ -168,6 +169,31 @@ namespace Game.Framework.Test
 
             var all = await _storage.ListKeys();
             Assert.AreEqual(3, all.Count);
+        });
+
+        [UnityTest]
+        public IEnumerator ListKeys_BackupOnly_IsDiscoverable_AndTempOnlyIsIgnored() => UniTask.ToCoroutine(async () =>
+        {
+            const string recoverableKey = "save/recoverable";
+            await _storage.Save(recoverableKey, new SaveData { Level = 8, Name = "backup-only" });
+
+            string main = MainPath(recoverableKey);
+            File.Move(main, main + ".bak"); // 模拟手动替换在旧主文件移走后中断
+
+            string orphanTemp = MainPath("save/orphan") + ".tmp";
+            Directory.CreateDirectory(Path.GetDirectoryName(orphanTemp));
+            File.WriteAllBytes(orphanTemp, Encoding.UTF8.GetBytes("uncommitted"));
+
+            Assert.IsTrue(_storage.Exists(recoverableKey), "仅备份存在时仍是可恢复存档");
+            var keys = await _storage.ListKeys("save/");
+            CollectionAssert.AreEqual(new[] { recoverableKey }, keys,
+                "槽位列表必须包含仅剩备份的存档，但不能把孤立临时文件当成已提交存档");
+
+            LogAssert.Expect(LogType.Warning, new Regex("主文件不可用，已回退上一版备份"));
+            var loaded = await _storage.Load<SaveData>(recoverableKey);
+            Assert.NotNull(loaded);
+            Assert.AreEqual(8, loaded.Level);
+            Assert.AreEqual("backup-only", loaded.Name);
         });
 
         [Test]

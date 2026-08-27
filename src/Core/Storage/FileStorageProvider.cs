@@ -80,24 +80,44 @@ namespace Game.Framework.Storage
             return await UniTask.RunOnThreadPool<IReadOnlyList<string>>(() =>
             {
                 if (!Directory.Exists(_root)) return Array.Empty<string>();
-                var keys = new List<string>();
-                // 搜索模式 "*.sav" 不会命中 ".sav.bak" / ".sav.tmp"（后缀不同），主文件即 key 的存在证明。
-                foreach (string file in Directory.EnumerateFiles(_root, "*" + FileExtension, SearchOption.AllDirectories))
+                var keys = new HashSet<string>(StringComparer.Ordinal);
+                // 手动替换在「旧主文件移到 .bak、临时文件尚未转正」之间崩溃时，可能只剩可恢复的备份。
+                // 因此主文件与备份都证明 key 存在；.tmp 只是未提交写入，不能单独暴露成存档位。
+                foreach (string file in Directory.EnumerateFiles(_root, "*", SearchOption.AllDirectories))
                 {
-                    // 还原 key：去根前缀 + 去扩展名 + 统一正斜杠（与 Save 时传入的 key 一致）。
-                    string relative = file.Substring(_root.Length).TrimStart('/', '\\');
-                    string key = relative.Substring(0, relative.Length - FileExtension.Length).Replace('\\', '/');
+                    ct.ThrowIfCancellationRequested();
+                    if (!TryGetKey(file, out string key)) continue;
                     if (prefix == null || key.StartsWith(prefix, StringComparison.Ordinal))
                         keys.Add(key);
                 }
-                keys.Sort(StringComparer.Ordinal); // 稳定顺序，槽位列表 UI 不抖动
-                return keys;
+
+                var sortedKeys = new List<string>(keys);
+                sortedKeys.Sort(StringComparer.Ordinal); // 稳定顺序，槽位列表 UI 不抖动
+                return sortedKeys;
             }, cancellationToken: ct);
         }
 
         public void Dispose() { /* 无长期句柄可释放（见类型 remarks） */ }
 
         private string MainPath(string key) => Path.Combine(_root, key + FileExtension);
+
+        private bool TryGetKey(string file, out string key)
+        {
+            string relative = file.Substring(_root.Length).TrimStart('/', '\\');
+            int suffixLength;
+            if (relative.EndsWith(FileExtension + BackupSuffix, StringComparison.Ordinal))
+                suffixLength = FileExtension.Length + BackupSuffix.Length;
+            else if (relative.EndsWith(FileExtension, StringComparison.Ordinal))
+                suffixLength = FileExtension.Length;
+            else
+            {
+                key = null;
+                return false;
+            }
+
+            key = relative.Substring(0, relative.Length - suffixLength).Replace('\\', '/');
+            return key.Length > 0;
+        }
 
         // 原子替换：File.Replace 一步完成「tmp 转正 + 旧主文件变 bak」；个别平台不支持时退化为手动三步——
         // 顺序保证中途崩溃最多丢一层备份，主数据链（tmp 或 main 至少一个完整）不断。

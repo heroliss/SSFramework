@@ -199,6 +199,7 @@ namespace Game.Framework.Demo.Modules
                     ? "没有任何槽位——先点上面「保存到槽位」。"
                     : $"共 {keys.Count} 个槽位：{string.Join("、", keys)}（排序稳定，直接喂存档选择 UI）";
             }), CodeRef.Here("storage.ListKeys(SlotPrefix, ct)", "前缀列举"));
+            host.AddSubNote("`ListKeys` 列的是**已提交槽位**：主文件或备份任一存在都会出现，主备同时存在只算一个；孤立 `.tmp` 是未提交写入，不会误显示。这样即使替换途中中断、只剩 `.bak`，存档选择页仍能让玩家尝试进入并由 `Load` 回退。");
 
             // ── 防损坏演示 ──
             host.AddSectionTitle("防损坏：故意写坏主文件，看备份回退");
