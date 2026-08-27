@@ -32,6 +32,8 @@ Model 持有集合就用 `ObservableList<T>`（如 `RP<T>` 之于单值）；只
 - **放 `Game.Framework.UI`（两后端都引用的共享层）而非内核**：绑定是 UI 关注点，不该给范式无关的内核加 ObservableCollections 依赖（守住「接入 UI，内核零改动」不变量）；放共享层又让 Toolkit / UGUI 两个 `Bag.BindList` 各自只写 ~15 行适配，diff 的脏活（索引管理、每项子作用域、销毁时序）只此一份、只测一次。
 - **每项一个子 `DisposableBag`**：随该项进出列表创建 / 销毁，项内订阅（「这一行血条随 RP 刷新」）挂它，项被移除时自动退订——与 `Bag` 统一生命周期心智一致。子 bag **不挂宿主 bag**（否则列表长期高频增删会让宿主 composite 累积已 dispose 的子 bag，构成泄漏），由引擎自己持有、按项释放、解绑时兜底全清。
 - **Replace = 重造该槽**：子视图视为「元素值的纯函数」，换值即销毁旧行造新行（最稳妥）；就地更新是业务在项内订阅里的事。
+- **失败采用事务初始化 + fail-stop 增量语义**：构造先订阅再种入，任一 factory / attach / Subscribe 失败会撤销订阅、回滚所有已交付行并释放 rowBag；订阅先行也让初始化 callback 同步修改 source 不会落入漏事件窗口，而是被明确判为非法重入。运行期源变化已经提交、外部 UI 回调又不可逆，故任一 create / attach / detach / reorder 失败都终止 binding、尽力清理全部行并写一条带根因的框架 Error，不反向修改 source、不让半损坏镜像继续消费后续索引；清理回调若另行失败则追加清理 Error，不覆盖终止根因。只有 rowBag Dispose 在清理当前行时释放宿主属于正常生命周期结束：同样延迟到最外层事件退栈后收口余行、不启动 Replace / Reset 的后半段 factory，也不记录伪失败；create / attach / detach / reorder 内结束宿主会打断未提交操作，仍按失败报告。R3 observer 不把错误从 `ObservableList.Add/Move` 反抛给写入方，稳定日志是这类 Adapter 缺陷的反馈出口。
+- **Adapter 清理回调必须幂等，所有行回调禁止同步写同源**：attach 可能只执行一半，失败回滚和终止清理都可能把“尚未挂上 / 已摘过一次”的视图交给 detach；两个真实后端都能满足（Toolkit `RemoveFromHierarchy`、UGUI fake-null + 同步 `SetParent(null)`）。factory、挂 / 摘 / 移与 rowBag Dispose 回调只处理当前行，不同步写正在绑定的 source。直接 Dispose 也会隔离每行失败、穷尽清理，并对失败项再尝试一次后才报告首个错误。
 
 ### 3. 两个后端各一个 `Bag.BindList` 适配
 
@@ -50,7 +52,7 @@ Model 持有集合就用 `ObservableList<T>`（如 `RP<T>` 之于单值）；只
 
 - 集合状态有了与单值 `RP<T>` 对称的原语（`ObservableList<T>`）与绑定（`Bag.BindList` ↔ `Bag.BindText`），一套心智覆盖「单值」与「集合」两类响应式状态。
 - 内核零改动、不新增内核依赖；ObservableCollections 只在 UI 层与业务层出现，守住范式无关内核不变量。绑定引擎在 `Game.Framework.UI`（热更列表内），两后端共享。
-- 增量维护逻辑单点、纯 C# 可测（`ReactiveListBindingTests` 用引用式假容器覆盖种入 / 增删移换 / 换值 / Reset / 解绑 + 每项子 bag 释放），不依赖场景与帧推进。
+- 增量维护逻辑单点、纯 C# 可测（`ReactiveListBindingTests` 用引用式假容器覆盖种入 / 增删移换 / 换值 / Reset / 解绑、每项子 bag 释放，以及 seed / create / attach / detach / reorder / Dispose 失败与同步重入），不依赖场景与帧推进；双后端另守无效容器与空 factory 结果的错误 locality。
 - Test 程序集 `overrideReferences:true`，显式补了 `ObservableCollections.dll` + `ObservableCollections.R3.dll` 两条 precompiledReferences；运行时共享 UI asmdef 同样显式声明两者，两个后端按各自直接使用的公开绑定签名声明 `ObservableCollections.dll`，不再把 DLL 名误写进 `references` 或借 Auto Reference 隐藏依赖。
 - 五件套齐：本 ADR / 引擎（`Game.Framework.UI/ReactiveListBinding.cs`）+ 双后端适配 / 测试（`ReactiveListBindingTests`）/ demo「响应式列表 · 集合绑定」章（`Modules/ReactiveListModule.cs`）/ guide §24 + AGENTS #31。
 - ObservableCollections 从「roadmap 候选」变成已融入依赖：Model 显式使用集合类型，`Bag.BindList` 收口增量维护与逐行生命周期 Implementation；不再用“整个库都被隐藏”描述这条依赖。

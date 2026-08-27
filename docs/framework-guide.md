@@ -2663,6 +2663,14 @@ Bag.BindList(contentTransform, this.ExecuteCommand(new GetItemsCommand()), (item
 
 “画面顺序对了”不足以证明增量绑定没有暗中重建整表。Demo「响应式列表 · 集合绑定」章给每个真实行 View 一个稳定 `实例 #N`，并从 item factory 与 rowBag Dispose 两个 Seam 统计创建 / 释放 / 存活数：Move 后实例号只换位置、计数不变；Replace 只释放旧槽并创建一行。对应 EditMode 测试还断言同一个 `VisualElement` 引用被移动、旧 rowBag 在 Replace 时真实释放，因此教学证据与 Implementation 共用同一事实来源。
 
+### 失败与回调边界
+
+`itemFactory`、后端的挂 / 摘 / 移回调，以及 rowBag 中登记的 Dispose 回调，都是**当前行的生命周期 Seam**，不是修改 Model 的通知钩子。它们可以构造、配置、摆放当前行并登记行内订阅/资源，但**不要同步修改正在绑定的同一个 `ObservableList`**；那会在一条增量事件尚未提交到内部索引表时再次进入绑定。框架会明确拒绝这种同步重入并终止本次绑定，而不是排队猜测调用者本意。
+
+绑定建立是一个事务：任一已有行的 factory / attach 失败，框架会撤销订阅、摘除已经交付的行并释放所有已创建的 rowBag，然后把原始异常抛给调用方。factory 若在**返回视图之前**就失败，框架看不到 factory 内部另外创建的外部对象，因此那部分仍由 factory 自己在抛出前清理；传给它的 rowBag 则一定由框架释放。
+
+运行期失败不能安全“回滚后继续”：例如 `source.Add` 已经提交，而 UGUI 的 attach 可能完成 `SetParent` 后才在设置兄弟位时失败；此时反改 Model 会制造新的集合事件，继续订阅又会让后续索引建立在未知容器状态上。`BindList` 选择 **fail-stop**：先停止订阅，再尽力摘除全部行、释放每个 rowBag，并写一条带原始异常的**终止根因**框架 Error；若 detach / rowBag Dispose 在收口时也失败，会另记补充的清理 Error，但不会覆盖根因。R3 的 observer 错误不会从 `ObservableList.Add/Move` 重新抛给集合写入调用点，因此应从稳定日志定位；修复 itemFactory / Adapter 后重建 View 或重新绑定。正常的业务校验失败应发生在 Command / System 中，不要靠列表 factory 抛异常表达。rowBag 的 Dispose 回调若在**清理当前行时**释放宿主 Bag，则属于正常生命周期结束：框架等当前集合事件退栈后清理余行、不启动 Replace / Reset 后半段的新 factory，也不误报成增量失败；在 create / attach / detach / reorder 中结束宿主会打断尚未提交的操作，仍按运行期失败报告。
+
 ### 什么时候别用它
 
 `BindList` 为每项造一个**常驻**子视图，目标是**项数适中**的 UI 列表（背包 / 聊天 / 设置项 / 队伍）。要展示上万项、需要滚动复用（虚拟化）时，用 UI Toolkit 原生 `ListView`——设 `itemsSource` + 变化时 `RefreshItems()`：

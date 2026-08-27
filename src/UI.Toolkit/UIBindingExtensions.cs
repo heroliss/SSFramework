@@ -142,18 +142,33 @@ namespace Game.Framework.UI.Toolkit
         /// <param name="source">响应式源集合（一般是 Model 持有、经只读查询 Command 以 <see cref="IReadOnlyObservableList{T}"/> 暴露）。</param>
         /// <param name="itemFactory">
         /// 为一个元素造子视图；第二参是<b>该行专属</b>的子 <see cref="DisposableBag"/>——行内订阅（如「这一行随 RP 刷新」）挂它，
-        /// 该行离开列表时自动退订。无行内订阅就忽略它。行内可照常 <c>rowBag.BindText(...)</c> / <c>rowBag.SubscribeClick(...)</c>。
+        /// 该行离开列表时自动退订。无行内订阅就忽略它。行内可照常 <c>rowBag.BindText(...)</c> / <c>rowBag.SubscribeClick(...)</c>；
+        /// 不得返回 <c>null</c>，也不要在工厂内同步修改同一个 <paramref name="source"/>。
         /// </param>
-        /// <remarks>目标是项数适中的 UI 列表（背包 / 聊天 / 设置项）。上万项要虚拟化滚动复用用 UI Toolkit 原生 <c>ListView</c>（见 guide §24）。</remarks>
+        /// <remarks>
+        /// 目标是项数适中的 UI 列表（背包 / 聊天 / 设置项）。上万项要虚拟化滚动复用用 UI Toolkit 原生 <c>ListView</c>（见 guide §24）。
+        /// 初始化失败会回滚已建行；增量回调失败会终止本次绑定并清理所有行，避免后续索引在半损坏容器上继续漂移。
+        /// </remarks>
         public static IDisposable BindList<T>(
             this DisposableBag bag, VisualElement container,
             IReadOnlyObservableList<T> source,
             Func<T, DisposableBag, VisualElement> itemFactory)
-            => ReactiveListBinding.Bind(bag, source, itemFactory,
+        {
+            if (container == null)
+                throw new ArgumentNullException(nameof(container), "UI Toolkit BindList 需要一个有效的 VisualElement 容器。");
+            if (itemFactory == null) throw new ArgumentNullException(nameof(itemFactory));
+
+            return ReactiveListBinding.Bind(
+                bag,
+                source,
+                createItem: (value, rowBag) => itemFactory(value, rowBag)
+                    ?? throw new InvalidOperationException(
+                        "UI Toolkit BindList 的 itemFactory 返回了 null；请返回一个有效的 VisualElement。"),
                 attach: (index, view) => container.Insert(index, view),
                 detach: view => view.RemoveFromHierarchy(),
                 // Toolkit 无「移到某兄弟位」直接 API：摘下再插回目标位（其余子元素已在正确相对序）。
                 reorder: (index, view) => { view.RemoveFromHierarchy(); container.Insert(index, view); });
+        }
 
         private static ILocalizationUtility ResolveLocalization(DisposableBag bag)
         {
