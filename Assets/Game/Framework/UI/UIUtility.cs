@@ -43,6 +43,13 @@ namespace Game.Framework.UI
         // Toast / Loading 内置窗口类型表（adapter 入口提供）；null = 未配置，Show* 调用报错提示。
         private readonly UIBuiltinWindows _builtins;
 
+        // ShowToast 的打开请求与自动关闭 owner 都由渲染中立核心持有：两个 adapter 只渲染文本。
+        // request id 让 Close/CloseAll 在异步创建期间也能使旧请求失效；CTS 身份让迟到计时器不能关闭新 Toast。
+        private readonly HashSet<long> _toastRequestIds = new();
+        private long _nextToastRequestId;
+        private long _latestToastCommittedRequestId;
+        private CancellationTokenSource _toastAutoClose;
+
         // AcquireLoading 的并发所有权：集合大小就是占用计数，id 让重复 Dispose 与 CloseAll 后的陈旧句柄安全 no-op。
         private readonly HashSet<int> _loadingHandleIds = new();
         private int _nextLoadingHandleId;
@@ -195,6 +202,8 @@ namespace Game.Framework.UI
 
         public void CloseAll(UILayer layer)
         {
+            // Toast 可能仍在异步创建、尚未入栈；先使创建请求与旧计时器失效，避免清场后幽灵重现。
+            if (IsToastLayer(layer)) InvalidateToastOwners();
             // Loading 可能尚在异步创建、还没进入层栈。先使其 owner/句柄失效，创建续体回来后会发现陈旧并立即关掉。
             if (IsLoadingLayer(layer)) InvalidateLoadingOwners();
 
@@ -232,7 +241,33 @@ namespace Game.Framework.UI
                     category: nameof(UIUtility));
                 return;
             }
-            await OpenCore(_builtins.Toast, new UIToastArgs(text, duration), ct);
+
+            long requestId = AllocateToastRequestId();
+            _toastRequestIds.Add(requestId);
+            try
+            {
+                var window = await OpenCore(_builtins.Toast, new UIToastArgs(text, duration), ct);
+                // Close/CloseAll 可能发生在异步创建途中。被清场的旧请求不能安装计时器；若 backend
+                // 不遵守 token 而迟到建出了窗口，则在没有更新请求/计时 owner 时立刻收口，避免幽灵 Toast。
+                if (!_toastRequestIds.Remove(requestId))
+                {
+                    ReconcileToastVisibility();
+                    return;
+                }
+                if (window == null) return;
+
+                // OpenCore 唤醒同类型等待者时，较新的 Show continuation 可能先于首个创建者恢复。
+                // 只允许调用序号更新的成功请求安装 timer，避免旧请求在最后恢复后把新 duration 覆盖回去。
+                if (requestId <= _latestToastCommittedRequestId) return;
+                _latestToastCommittedRequestId = requestId;
+                StartToastAutoClose(window, duration);
+            }
+            catch
+            {
+                bool wasCurrent = _toastRequestIds.Remove(requestId);
+                if (!wasCurrent) ReconcileToastVisibility();
+                throw;
+            }
         }
 
         public async UniTask<LoadingHandle> AcquireLoading(string text = null, CancellationToken ct = default)
@@ -310,6 +345,7 @@ namespace Game.Framework.UI
         {
             if (_disposed) return;
             _disposed = true;
+            InvalidateToastOwners();
             InvalidateLoadingOwners();
             // 兜底唤醒仍在等「创建中窗口」的 Open 调用（以 null 唤醒，等待者检查 _disposed 后直接返回 null）。
             foreach (var tcs in _creating.Values) tcs.TrySetResult(null);
@@ -324,6 +360,8 @@ namespace Game.Framework.UI
 
         private void CloseType(Type type)
         {
+            // Toast 的计时与创建请求都是核心 owner；显式关闭也必须先让旧 continuation 失效。
+            if (IsToastType(type)) InvalidateToastOwners();
             // Close/CloseAll 是强制清场语义：让所有旧 handle 失效，之后新 Acquire 得到的新 id 不会被旧句柄误关。
             if (IsLoadingType(type)) InvalidateLoadingOwners();
             if (!_open.TryGetValue(type, out var window)) return;
@@ -376,6 +414,87 @@ namespace Game.Framework.UI
             } while (_loadingHandleIds.Contains(_nextLoadingHandleId));
 
             return _nextLoadingHandleId;
+        }
+
+        private long AllocateToastRequestId()
+        {
+            if (_nextToastRequestId == long.MaxValue)
+                throw new InvalidOperationException("Toast 请求编号已耗尽——请重建 UIUtility 实例。");
+            return ++_nextToastRequestId;
+        }
+
+        private bool IsToastType(Type type)
+            => type != null && type == _builtins?.Toast;
+
+        private bool IsToastLayer(UILayer layer)
+            => _builtins?.Toast != null && UIWindowMeta.Of(_builtins.Toast).Layer == layer;
+
+        private void InvalidateToastOwners()
+        {
+            _toastRequestIds.Clear();
+            CancelToastAutoClose();
+        }
+
+        private void ReconcileToastVisibility()
+        {
+            if (_disposed || _toastRequestIds.Count > 0 || _toastAutoClose != null) return;
+            if (_builtins?.Toast != null) CloseType(_builtins.Toast);
+        }
+
+        private void StartToastAutoClose(IUIWindow window, float duration)
+        {
+            // 先成功创建新 owner，再取消旧 owner；若 Context 已无法提供 token，既有 Toast 计时不受影响。
+            var owner = CancellationTokenSource.CreateLinkedTokenSource(_context.CancellationToken);
+            CancelToastAutoClose();
+            _toastAutoClose = owner;
+            RunToastAutoClose(window, duration, owner).Forget();
+        }
+
+        private async UniTaskVoid RunToastAutoClose(
+            IUIWindow window,
+            float duration,
+            CancellationTokenSource owner)
+        {
+            bool shouldClose = false;
+            try
+            {
+                await UniTask.Delay(
+                    TimeSpan.FromSeconds(duration),
+                    ignoreTimeScale: true,
+                    cancellationToken: owner.Token);
+                shouldClose = ReferenceEquals(_toastAutoClose, owner);
+            }
+            catch (OperationCanceledException) { /* 刷新 / 显式关闭 / 清场 / Context Dispose：正常取消 */ }
+            catch (Exception e)
+            {
+                if (ReferenceEquals(_toastAutoClose, owner))
+                {
+                    Log.Error("Toast 自动关闭任务异常停止；框架将关闭当前 Toast，避免提示永久残留。",
+                        e, nameof(UIUtility));
+                    // 日志 sink 可能重入 ShowToast 并安装新 owner；只允许仍在位的失败任务关闭窗口。
+                    shouldClose = ReferenceEquals(_toastAutoClose, owner);
+                }
+            }
+            finally { ReleaseToastAutoClose(owner); }
+
+            if (shouldClose && !_disposed)
+                Close(window);
+        }
+
+        private void CancelToastAutoClose()
+        {
+            var owner = _toastAutoClose;
+            if (owner == null) return;
+            _toastAutoClose = null;
+            try { owner.Cancel(); }
+            finally { owner.Dispose(); }
+        }
+
+        private void ReleaseToastAutoClose(CancellationTokenSource owner)
+        {
+            if (!ReferenceEquals(_toastAutoClose, owner)) return;
+            _toastAutoClose = null;
+            owner.Dispose();
         }
 
         private bool IsLoadingType(Type type)

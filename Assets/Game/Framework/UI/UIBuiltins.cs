@@ -16,7 +16,7 @@ namespace Game.Framework.UI
         public Type Loading;
     }
 
-    /// <summary>Toast 打开参数：文本 + 自动关闭秒数。</summary>
+    /// <summary>Toast 打开参数：adapter 渲染 <see cref="Text"/>；核心 <see cref="UIUtility"/> 消费 <see cref="Duration"/> 并统一持有自动关闭时序。</summary>
     public sealed class UIToastArgs
     {
         public readonly string Text;

@@ -98,7 +98,7 @@ namespace Game.Framework.Demo.Modules
                 CodeRef.Here("ShowToast", "ShowToast 调用"));
             host.AddNote("**预期**：屏幕底部弹半透明文字条，2 秒自动消失、**不拦任何输入**（弹着的时候其它按钮照点）；"
                 + "连点几次是复用同一条（刷新文本、重置计时，刻意不做队列）。`ShowToast/AcquireLoading` 是 `IUIUtility` **一等方法**——"
-                + "业务调用点对后端零感知，内置窗口类型由入口（MonoToolkitUI/MonoUGuiUI）注册。");
+                + "业务调用点对后端零感知，内置窗口类型由入口（MonoToolkitUI/MonoUGuiUI）注册。计时与 Close/CloseAll/Dispose 的竞态由 UI 核心统一收口，两个 adapter 只负责画出各自风格。");
 
             host.AddAsyncActionRow("Acquire Loading（2.5 秒后自动释放）", ShowLoadingThenHide,
                 CodeRef.Here("async UniTask ShowLoadingThenHide", "AcquireLoading 用法"));

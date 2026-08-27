@@ -1,15 +1,10 @@
-using System;
-using System.Threading;
-using Cysharp.Threading.Tasks;
-using Game.Framework.Common;
-using Game.Framework.Internal;
 using UnityEngine;
 using UnityEngine.UI;
 
 namespace Game.Framework.UI.UGui
 {
     /// <summary>
-    /// UGUI 版 Toast 内置窗口（ADR-0020 §4）：底部居中的半透明文字条，自动超时关闭、不拦截任何输入。
+    /// UGUI 版 Toast 内置窗口（ADR-0020 §4）：底部居中的半透明文字条、不拦截任何输入；自动关闭时序由 UI 核心统一持有。
     /// 业务经 <see cref="IUIUtility.ShowToast"/> 使用，不直接 Open 本类型；连续 Toast 复用同一实例（刷新文本、重置计时）。
     /// 纯代码搭建（Asset 留空）、Cache 复用（高频件不反复建）。
     /// </summary>
@@ -17,7 +12,6 @@ namespace Game.Framework.UI.UGui
     public sealed class UGuiToastWindow : UGuiWindowBase
     {
         private Text _text;
-        private CancellationTokenSource _autoClose;
 
         protected override void OnCreated()
         {
@@ -56,22 +50,6 @@ namespace Game.Framework.UI.UGui
         {
             var toast = args as UIToastArgs;
             _text.text = toast?.Text ?? string.Empty;
-
-            // 重开刷新计时；令牌链接 Context（Context 销毁级联取消挂起的 Delay）。
-            _autoClose?.Cancel();
-            _autoClose?.Dispose();
-            _autoClose = CancellationTokenSource.CreateLinkedTokenSource(
-                ((IHasGameContext)this).Context.CancellationToken);
-            AutoClose(toast?.Duration ?? 2f, _autoClose.Token).Forget();
-        }
-
-        protected override void OnClose() => _autoClose?.Cancel();
-
-        private async UniTaskVoid AutoClose(float seconds, CancellationToken ct)
-        {
-            try { await UniTask.Delay(TimeSpan.FromSeconds(seconds), ignoreTimeScale: true, cancellationToken: ct); }
-            catch (OperationCanceledException) { return; }
-            this.GetUtility<IUIUtility>().Close(this);
         }
     }
 

@@ -2034,6 +2034,8 @@ await Connect(ct);                         // 成功、异常、取消离开作�
 
 `ct` 管窗口的异步打开过程：宿主销毁或切换页面时取消，尚未完成创建的 Toast / Loading 不会稍后“幽灵出现”；`LoadingHandle` 则管业务任务对共享窗口的所有权。多个任务重叠 Acquire 时复用同一窗口，任一任务先结束都只释放自己的 lease，最后一个有效 handle 释放后才关闭。句柄实现 `IDisposable`，优先用 `using var`，需要跟随更长宿主生命周期时也可登记进 `DisposableBag`。
 
+Toast 的自动关闭 owner 在渲染中立 `UIUtility`，不在 UGUI / UI Toolkit 窗口里各写一份：连续 Show 会取消旧 timer、只让最新一次关闭；显式 Close、CloseAll 与 Dispose 同时使旧计时和创建请求失效。这样更换后端只换表现，计时竞态与“清场后迟到出现”由同一个核心契约兜住。
+
 旧的 `ShowLoading/HideLoading` 保留为单 owner 兼容入口；有 active handle 时 `HideLoading` 不会越权关窗。新代码不要用它表达并发任务，迁移与 `CloseAll` 的强制清场语义见 ADR-0037。
 
 内置件是无美术资源的默认表现（半透明条 / 旋转指示块）；要品牌化视觉时自写 Top 层窗口替代即可，`ShowToast` / `AcquireLoading` 只是「按注册类型开窗」的便捷入口。Toast 刻意不做队列——需要排队提示的项目自包一层。
