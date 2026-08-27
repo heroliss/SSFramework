@@ -18,9 +18,9 @@ Odin 从 Framework Runtime 解耦后，源码和已编译 Player DLL 已经没�
 - `AssemblyInfo.DeclaredReferences` 只保存 asmdef `references`。
 - `DeclaredPrecompiledReferences` 只保存启用 `overrideReferences` 后生效的 `precompiledReferences`。
 - 校验真实 DLL 元数据引用时，根据目标是否存在于 Player asmdef 编译图选择对应声明集合；DLL 名写进 `references` 不再被当作有效声明。
-- 第一方 Runtime、Demo、业务和可选 Odin Editor Adapter 的直接 DLL 依赖迁到带 `.dll` 后缀的 `precompiledReferences`。所有一方 Player asmdef 统一启用 `overrideReferences:true`，关闭预编译 DLL 的全局 Auto Reference；这样平台条件分支里的新 DLL 依赖若未显式声明，会在目标编译时报错而不会借全局可见性静默通过。全局门禁扫描 `Assets/Game` 的 asmdef，防止重新混用字段；第三方 Package / 插件资产只读，不替上游改写。
+- 第一方 Runtime、Demo、业务和可选 Odin Editor Adapter 的直接 DLL 依赖迁到带 `.dll` 后缀的 `precompiledReferences`。所有一方 Runtime、Editor 与测试 asmdef 统一启用 `overrideReferences:true`，关闭预编译 DLL 的全局 Auto Reference；可删除 Editor Module 另统一 `autoReferenced:false`，避免预定义 `Assembly-CSharp-Editor` 静默形成物理删除阻塞。这样平台分支或编辑器工具中的新 DLL 依赖若未显式声明，会在编译时报错而不会借全局可见性静默通过。全局门禁扫描 `Assets/Game` 的 asmdef，防止重新混用字段；第三方 Package / 插件资产只读，不替上游改写。
 
-这不会修改 NuGet DLL 自身的 PluginImporter Auto Reference（第三方和包外消费程序集仍可按自己的策略选择），但第一方 Player 编译边界已全部主动退出这种全局可见性。发布阶段仍应在干净 UPM 消费工程决定第三方 DLL 的 importer 默认值与迁移策略。
+这不会修改 NuGet DLL 自身的 PluginImporter Auto Reference（第三方和包外消费程序集仍可按自己的策略选择），但第一方编译边界已全部主动退出这种全局可见性。`autoReferenced:false` 不阻止 `[InitializeOnLoad]`、菜单或工具卡加载，只要求项目 Editor 代码在真正消费可选工具类型时显式声明 asmdef 引用。预定义的 `Assembly-CSharp-Editor` 无法声明这种引用；散落在 `Assets/Editor` 的消费者需要迁入自己的 Editor-only asmdef。发布阶段仍应在干净 UPM 消费工程决定第三方 DLL 的 importer 默认值与迁移策略。
 
 ### 2. generation stamp 分别证明热更目标 DLL 与 AOT 输入
 

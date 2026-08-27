@@ -9,6 +9,12 @@ namespace Game.Framework.Editor
         [MenuItem(FrameworkMenuPaths.SceneShortcuts, priority = 61)]
         public static void Open() => GetWindow<SceneShortcutWindow>("SSFramework 场景快捷入口").Show();
 
+        [InitializeOnLoadMethod]
+        private static void RegisterConfiguration() => FrameworkConfigRegistry.Register(new FrameworkConfigDescriptor(
+            "scene-shortcuts", 80, "场景快捷入口", typeof(SceneShortcutProfile), singleton: true,
+            "全工程单例；只在工作台明确创建，初始条目来自 Build Settings 已启用场景；域重载保持只读。",
+            FrameworkMenuPaths.SceneShortcuts));
+
         private Vector2 _scroll;
 
         private void OnEnable() => minSize = new Vector2(320, 380);

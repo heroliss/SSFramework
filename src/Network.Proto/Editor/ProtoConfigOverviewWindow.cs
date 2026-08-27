@@ -17,10 +17,17 @@ namespace Game.Framework.Network.Proto.Editor
         public static void Open() => GetWindow<ProtoConfigOverviewWindow>("Protobuf 生成总览").Show();
 
         [InitializeOnLoadMethod]
-        private static void RegisterTool() => FrameworkToolRegistry.Register(new FrameworkToolDescriptor(
-            "protobuf", FrameworkToolCategory.CodeGeneration, 20,
-            "Protobuf", "管理多套 .proto 源与 C# 输出，检查 protoc 可用性并执行差量生成。",
-            FrameworkMenuPaths.Protobuf));
+        private static void RegisterEditorEntries()
+        {
+            FrameworkToolRegistry.Register(new FrameworkToolDescriptor(
+                "protobuf", FrameworkToolCategory.CodeGeneration, 20,
+                "Protobuf", "管理多套 .proto 源与 C# 输出，检查 protoc 可用性并执行差量生成。",
+                FrameworkMenuPaths.Protobuf));
+            FrameworkConfigRegistry.Register(new FrameworkConfigDescriptor(
+                "protobuf", 40, "网络协议（protoc 生成）", typeof(ProtoConfigProfile), singleton: false,
+                "可按协议域并存多套；每套显式指定 .proto 源目录与独占的 C# 输出目录。",
+                FrameworkMenuPaths.Protobuf));
+        }
 
         private Vector2 _scroll;
 

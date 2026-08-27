@@ -4,6 +4,7 @@ using System.Linq;
 using System.Reflection;
 using NUnit.Framework;
 using UnityEditor;
+using UnityEngine;
 
 namespace Game.Framework.Editor.Tests
 {
@@ -96,6 +97,66 @@ namespace Game.Framework.Editor.Tests
                 !string.IsNullOrWhiteSpace(tool.Title) &&
                 !string.IsNullOrWhiteSpace(tool.Summary) &&
                 tool.MenuPath.StartsWith(FrameworkMenuPaths.Root, StringComparison.Ordinal)));
+        }
+
+        [Test]
+        public void ConfigRegistry_AllowsExactReentryButRejectsInvalidOrConflictingEntries()
+        {
+            string id = "config-contract-test-" + Guid.NewGuid().ToString("N");
+            var first = new FrameworkConfigDescriptor(
+                id, 999, "契约测试配置", typeof(ServiceInstallerProfile), singleton: false,
+                "仅测试 exact reentry。", FrameworkMenuPaths.ServiceInstaller);
+            try
+            {
+                FrameworkConfigRegistry.Register(first);
+                Assert.DoesNotThrow(() => FrameworkConfigRegistry.Register(new FrameworkConfigDescriptor(
+                    id, 999, "契约测试配置", typeof(ServiceInstallerProfile), singleton: false,
+                    "仅测试 exact reentry。", FrameworkMenuPaths.ServiceInstaller)));
+                Assert.Throws<InvalidOperationException>(() => FrameworkConfigRegistry.Register(new FrameworkConfigDescriptor(
+                    id, 999, "冲突配置", typeof(ServiceInstallerProfile), singleton: true,
+                    "不同元数据不得静默覆盖。", FrameworkMenuPaths.ServiceInstaller)));
+                Assert.Throws<ArgumentException>(() => new FrameworkConfigDescriptor(
+                    id + "-invalid", 999, "非法配置", typeof(string), singleton: false,
+                    "普通托管类型不能冒充资产配置。", FrameworkMenuPaths.ServiceInstaller));
+            }
+            finally
+            {
+                FrameworkConfigRegistry.Unregister(id);
+            }
+        }
+
+        [Test]
+        public void ConfigRegistry_HasStableUniqueModuleOwnedMetadata()
+        {
+            var configurations = FrameworkConfigRegistry.Snapshot();
+            Assert.That(configurations, Is.Not.Empty);
+            Assert.That(configurations.Select(configuration => configuration.Id)
+                .Distinct(StringComparer.Ordinal).Count(), Is.EqualTo(configurations.Count));
+            Assert.That(configurations, Is.Ordered.By(nameof(FrameworkConfigDescriptor.Order)));
+            Assert.That(configurations, Has.All.Matches<FrameworkConfigDescriptor>(configuration =>
+                !string.IsNullOrWhiteSpace(configuration.Title) &&
+                typeof(ScriptableObject).IsAssignableFrom(configuration.ProfileType) &&
+                !string.IsNullOrWhiteSpace(configuration.Note) &&
+                configuration.MenuPath.StartsWith(FrameworkMenuPaths.Root, StringComparison.Ordinal) &&
+                (configuration.SecondaryProfileType == null ||
+                 typeof(ScriptableObject).IsAssignableFrom(configuration.SecondaryProfileType))));
+            Assert.That(configurations.Select(configuration => configuration.Id), Does.Contain("service-installer"));
+            Assert.That(configurations.Select(configuration => configuration.Id), Does.Contain("scene-shortcuts"));
+        }
+
+        [Test]
+        public void EditorRegistries_OnlyNavigateToExistingWindowMenus()
+        {
+            var windowPaths = FindExecuteItems()
+                .Where(item => item.method.DeclaringType != null &&
+                               typeof(EditorWindow).IsAssignableFrom(item.method.DeclaringType))
+                .Select(item => item.attribute.menuItem)
+                .ToHashSet(StringComparer.Ordinal);
+
+            Assert.That(FrameworkToolRegistry.Snapshot().Select(item => item.MenuPath),
+                Has.All.Matches<string>(windowPaths.Contains));
+            Assert.That(FrameworkConfigRegistry.Snapshot().Select(item => item.MenuPath),
+                Has.All.Matches<string>(windowPaths.Contains));
         }
 
         private static IEnumerable<(MethodInfo method, MenuItem attribute)> FindExecuteItems()

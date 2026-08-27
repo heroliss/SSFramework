@@ -16,10 +16,17 @@ namespace Game.Framework.Build
         public static void Open() => GetWindow<LubanConfigOverviewWindow>("配置表生成总览").Show();
 
         [InitializeOnLoadMethod]
-        private static void RegisterTool() => FrameworkToolRegistry.Register(new FrameworkToolDescriptor(
-            "luban", FrameworkToolCategory.CodeGeneration, 10,
-            "配置表 (Luban)", "管理多套 Luban 输入与输出，按套或全部生成代码、数据和 manifest。",
-            FrameworkMenuPaths.Luban));
+        private static void RegisterEditorEntries()
+        {
+            FrameworkToolRegistry.Register(new FrameworkToolDescriptor(
+                "luban", FrameworkToolCategory.CodeGeneration, 10,
+                "配置表 (Luban)", "管理多套 Luban 输入与输出，按套或全部生成代码、数据和 manifest。",
+                FrameworkMenuPaths.Luban));
+            FrameworkConfigRegistry.Register(new FrameworkConfigDescriptor(
+                "luban", 30, "配置表（Luban 生成）", typeof(LubanConfigProfile), singleton: false,
+                "可按数据域或构建目标并存多套；每套显式维护 luban.conf 源、代码与数据输出，框架不猜业务路径。",
+                FrameworkMenuPaths.Luban));
+        }
 
         private Vector2 _scroll;
 

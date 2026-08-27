@@ -399,7 +399,7 @@ public class HudView : MonoViewBase
 
 第一次使用构建、代码生成或诊断工具时，从 `SSFramework/工具中心` 开始。顶部菜单只做导航：点击后先进入所属 Module 的工作台，阅读用途、前置条件和影响，再执行按钮；这样不会因误点菜单立刻生成代码、清缓存或启动外部进程。
 
-- `SSFramework/配置中心`：只读汇总各 Module 的 Profile 数量、位置和单例健康状态；缺配置时不暗中创建。
+- `SSFramework/配置中心`：只读汇总各 Module 自注册的 Profile 类型、数量、位置和单例健康状态；缺配置时不暗中创建。删除可选 Module 后对应卡片自然消失，中央窗口不保留程序集名特例。
 - `构建与发布`：资源包与代码热更新的分步流水线。
 - `代码生成`：Luban、Protobuf、服务安装器与 UI 绑定，各自在自己的输入/输出上下文里操作。
 - `开发辅助`：场景快捷入口、常用目录与可选 Odin Adapter；字体字集归在会产出文件的 `代码生成`。
@@ -2888,7 +2888,7 @@ builder.RegisterOwned(new WebSocketUtility(serializer: proto), typeof(IWebSocket
 
 先从最小入口开始：只要 MVCS / Context 时，业务 asmdef 只引用 `Game.Framework`；需要窗口调度再加 `Game.Framework.UI` 与 **UGUI 或 Toolkit 其中一个后端**；只有确实需要混合渲染时才加 Bridge，需要自动字体链、YooAsset Adapter 或 Google.Protobuf 时再加对应 Module。Demo 带 `UNITY_EDITOR` 约束，不进入真实玩家编译图。
 
-这里要区分两种 Unity 声明：另一个 asmdef 生成的程序集放 `references`；NuGet / PluginImporter 提供的预编译 DLL 放带 `.dll` 后缀的 `precompiledReferences`，并启用 `overrideReferences:true`。把 `R3`、`ObservableCollections` 或 `Google.Protobuf` 这类 DLL 名写进 `references` 不会形成有效 DLL 声明，编译成功只说明插件仍开着 Auto Reference。模块审计与 EditMode 门禁会把这种“看似显式、实际全局可见”的配置判为问题。
+这里要区分两种 Unity 声明：另一个 asmdef 生成的程序集放 `references`；NuGet / PluginImporter 提供的预编译 DLL 放带 `.dll` 后缀的 `precompiledReferences`，并启用 `overrideReferences:true`。把 `R3`、`ObservableCollections` 或 `Google.Protobuf` 这类 DLL 名写进 `references` 不会形成有效 DLL 声明，编译成功只说明插件仍开着 Auto Reference。所有一方 Runtime、Editor 与测试 asmdef 都关闭这类全局 DLL 可见性；可删除 Editor Module 还设置 `autoReferenced:false`，使项目 Editor 代码必须显式引用它。若消费脚本仍散落在 `Assets/Editor` 并编进 `Assembly-CSharp-Editor`，预定义程序集无法填写 `references`；应把脚本移入自己的 Editor-only asmdef，再引用所需 Module。模块审计与 EditMode 门禁会把回退判为问题。
 
 但“不在业务 asmdef 的 references”只回答了依赖方向，不能直接回答包体。理解下面五层，遇到“我明明没用，为什么还在包里”就不会猜：
 
@@ -2902,7 +2902,7 @@ builder.RegisterOwned(new WebSocketUtility(serializer: proto), typeof(IWebSocket
 
 #### 先查原因，再决定是否值得拆
 
-打开 `SSFramework/诊断与分析/模块与依赖`。顶部先比较热更 Profile、HybridCLRSettings、Generate stamp 与当前 DLL 中转清单；Module 区优先显示有 linker 根或热更违规的项，每张卡再把当前 DLL 快照消费者与完整 asmdef 图中的删除阻塞者（无论是否进入 Player）分开，并显示源码来自项目 Assets 还是某个 package 版本。常用组合之外，还能展开“任意 Module 入口”查看代码闭包；项目与已安装 Package 的 `link.xml` 都会被扫描，全局第三方和 `Assets/HybridCLRGenerate/link.xml` 单独折叠显示，后者是 Generate 产物，不应手改。所有一方 Player asmdef 已关闭预编译 DLL 的全局 Auto Reference；目标平台条件分支仍以真实 Player/HybridCLR 编译为准。这里的原始 DLL 字节用于找候选，不是最终安装包大小。
+打开 `SSFramework/诊断与分析/模块与依赖`。顶部先比较热更 Profile、HybridCLRSettings、Generate stamp 与当前 DLL 中转清单；Module 区优先显示有 linker 根或热更违规的项，每张卡再把当前 DLL 快照消费者与完整 asmdef 图中的删除阻塞者（无论是否进入 Player）分开，并显示源码来自项目 Assets 还是某个 package 版本。常用组合之外，还能展开“任意 Module 入口”查看代码闭包；项目与已安装 Package 的 `link.xml` 都会被扫描，全局第三方和 `Assets/HybridCLRGenerate/link.xml` 单独折叠显示，后者是 Generate 产物，不应手改。所有一方 asmdef 已关闭预编译 DLL 的全局 Auto Reference，可删除 Editor Module 也不接受预定义程序集隐式引用；目标平台条件分支仍以真实 Player/HybridCLR 编译为准。这里的原始 DLL 字节用于找候选，不是最终安装包大小。
 
 一个容易踩坑的例子：当前可选 Runtime Module 都引用 Core。若 Core 在热更 Profile 中，那么仍参与 Player 编译的 Fonts / Bridge 等 Module 不能被**单独**取消热更，否则它们会变成引用热更 Core 的 AOT 程序集，构建校验会拒绝。这不是配置工具“太严格”，而是 AOT 必须先于热更代码存在的加载边界。
 

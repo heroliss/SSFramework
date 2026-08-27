@@ -7,7 +7,7 @@
 1. `Game.Framework` 是运行时内核，只依赖通用异步/响应式基础库，不依赖付费 Inspector、具体资源、UI 后端、Protobuf 或业务程序集。
 2. 可替换能力采用“Interface 在稳定侧，Implementation 在可删除 Module”的 Seam：例如 `IAssetProvider ← YooAssetProvider`、`IUIBackend ← UGUI/Toolkit Adapter`。
 3. `Game.Framework.Boot` 是 AOT 薄壳，永不引用 `Game.Framework*` 运行时程序集，否则框架无法作为热更新代码加载。
-4. Editor Implementation 与 Runtime 分离；`Game.Framework.Editor` 是轻量、稳定的编辑器工具基座，拥有跨模块反馈、诊断与通用配置体验；重第三方 Editor 依赖仍放进独立 Editor Module。可选 Editor Module 可以单向依赖该基座，基座不得编译期反向引用它们。
+4. Editor Implementation 与 Runtime 分离；`Game.Framework.Editor` 是轻量、稳定的编辑器工具基座，拥有跨模块反馈、诊断与通用配置体验；重第三方 Editor 依赖仍放进独立 Editor Module。可选 Editor Module 可以单向依赖该基座，基座不得编译期反向引用它们；工具与配置卡分别由 Module 向 `FrameworkToolRegistry` / `FrameworkConfigRegistry` 自注册。
 5. 运行时内核和可热更新 Module 保持 `autoReferenced:false`；消费方通过 asmdef 显式声明依赖。
 6. 删除测试：移除一个可选 Module 目录后，只应失去该能力及其直接消费方，不应迫使核心 Module 修改源码。
 7. 外部程序集的直接依赖必须在 asmdef 显式可见，即使插件 DLL 的 auto-reference 已让代码偶然编译通过；否则 UPM 声明、删除测试与 AI 导航都看不到真实代价。
@@ -22,7 +22,7 @@ Editor 反向引用。Adapter 不得随 Framework 分发付费插件本体。详
 
 ## 轻量组合档位与证据口径
 
-菜单 `SSFramework/诊断与分析/模块与依赖` 会读取当前目标平台的 Player 编译图、asmdef、当前已编译 DLL 快照的元数据引用、FrameworkHotUpdateProfile，以及项目 Assets 与全部已注册 Package 中的 `link.xml`。Unity 6000 的 CompilationPipeline `outputPath` 仍可能指向 Editor 变体，所以这份 DLL 闭包用于发现依赖方向和候选，不冒充目标 Player 证明；所有一方 Player asmdef 另以 `overrideReferences:true` 关闭预编译 DLL 的全局 Auto Reference，平台分支中的漏声明会在真实目标编译时失败。`FrameworkModuleSourceCatalog` 同时保留 Unity 可定位的 Asset Path、可供 `System.IO` 读取的 Physical Path、package 名称/版本、安装来源，以及 manifest 的直接/间接关系；最后一项只表示 Package 解析层级，不是代码直接消费者或安全卸载结论。因此源码搬到嵌入式包或 `PackageCache` 后仍使用同一套审计和构建证据。
+菜单 `SSFramework/诊断与分析/模块与依赖` 会读取当前目标平台的 Player 编译图、asmdef、当前已编译 DLL 快照的元数据引用、FrameworkHotUpdateProfile，以及项目 Assets 与全部已注册 Package 中的 `link.xml`。Unity 6000 的 CompilationPipeline `outputPath` 仍可能指向 Editor 变体，所以这份 DLL 闭包用于发现依赖方向和候选，不冒充目标 Player 证明；所有一方 Runtime、Editor 与测试 asmdef 另以 `overrideReferences:true` 关闭预编译 DLL 的全局 Auto Reference，可删除 Editor Module 同时关闭预定义程序集隐式引用。平台分支中的漏声明会在真实目标编译时失败。`FrameworkModuleSourceCatalog` 同时保留 Unity 可定位的 Asset Path、可供 `System.IO` 读取的 Physical Path、package 名称/版本、安装来源，以及 manifest 的直接/间接关系；最后一项只表示 Package 解析层级，不是代码直接消费者或安全卸载结论。因此源码搬到嵌入式包或 `PackageCache` 后仍使用同一套审计和构建证据。
 
 窗口新增只读的“第三方依赖证据目录”：它从一方消费者与 what-if Profile 出发，不把无一方种子的 Package 内部关系枚举成项目依赖；同一 Package 的程序集只显示一组，Assets DLL 保留全部物理变体、Editor 与 BuildTarget 平台集合。每组分开列出当前 Player/Editor/Tests DLL 快照的结构化直接消费者、沿平台相交的外部 AssemblyRef 链回溯到的首个一方引入者、完整一方 asmdef 的删除阻塞，以及 Core/UGUI/Toolkit/任意 Module what-if 档位中的传播与体积影响。Tests 可沿 Editor 边追踪，Editor 快照不会反向冒充 Player 证据。角色看“最初是谁引入”，Profile 看“会传播到哪些组合”，两者不混算；体积按 Profile 独立计量，目录摘要明确显示最高档位，已安装 DLL 则按去重后的物理文件另行说明，不把互斥档位相加，也不伪装成 `0 B` 或玩家包体。`可随单一 Module 评估移除` 只是静态候选，不是 `SafeToRemove`；可归属到 AssemblyName 的证据缺口只收紧相关组，无法归属的全局扫描问题才收紧全部组。目录只提供定位与复制，不调用 Package Manager 安装/卸载，也不按 DLL 名猜 Adapter。详见 ADR-0042。
 
@@ -65,7 +65,7 @@ Editor 反向引用。Adapter 不得随 Framework 分发付费插件本体。详
 | `Game.Framework.UI.Toolkit` | `UI.Toolkit/` | UI Toolkit Window/View Adapter、`VisualElement` 的 `Bag.BindList` Adapter 与 RenderTexture 显示原语。 | 删除后 UGUI 后端与 UI Core 仍可编译。 |
 | `Game.Framework.UI.Bridge` | `UI.Bridge/` | UGUI/相机内容嵌入 Toolkit 的 RenderTexture Adapter。 | 删除后两套独立 UI 后端仍可用。 |
 | `Game.Framework.Boot` | `Boot/` | HybridCLR/YooAsset 热更启动 AOT 薄壳。 | 可在无热更项目删除；不得反向依赖 Framework Runtime。 |
-| `Game.Framework.Editor` | `Editor/` | 稳定且零付费插件依赖的编辑器工具基座：Core 原生 Drawer/Inspector、跨模块非阻塞反馈、诊断窗口、菜单与配置总览；Module Audit 与隔离 Player Build 体积探针共用结构化组合，Source Catalog 统一解析 Assets / Packages / PackageCache。 | 玩家构建不包含。若删除，需一并删除或改接直接依赖它的 Build / Config / Proto / UGUI Editor 工具；所有 Runtime API 与玩家构建仍不受影响。 |
+| `Game.Framework.Editor` | `Editor/` | 稳定且零付费插件依赖的编辑器工具基座：Core 原生 Drawer/Inspector、跨模块非阻塞反馈、诊断窗口、菜单，以及 Module-local 注册的工具/配置 Catalog；Module Audit 与隔离 Player Build 体积探针共用结构化组合，Source Catalog 统一解析 Assets / Packages / PackageCache。 | 玩家构建不包含。若删除，需一并删除或改接直接依赖它的 Build / Config / Proto / UGUI Editor 工具；所有 Runtime API 与玩家构建仍不受影响。 |
 | `Game.Framework.Odin.Editor` | `Odin.Editor/` | 可选专业 Inspector Adapter：仅把原生 fallback 接管且 Odin 允许绘制的具体 Framework Mono 类型临时映射到组合诊断的 OdinEditor；不写 Odin 配置，不含或重分发 Odin。 | 移除 Odin 前先整体删除；Domain Reload 后原生 fallback 接管，Runtime 与资产布局不变。 |
 | `Game.Framework.Editor.Tests` | `Editor/Tests/` | 通用 Editor 工具的 EditMode 契约；覆盖 AI PlayMode 预检的无弹窗保存与未命名场景拒绝。 | 随 Editor Module 删除；不进入玩家构建。 |
 | `Game.Framework.Build.Editor` | `Build/Editor/` | YooAsset/HybridCLR 构建管线与 Profile；复用通用 Editor 反馈，重第三方依赖不反向进入基座。 | 无资源/热更构建需求时可删，不污染通用 Editor。 |

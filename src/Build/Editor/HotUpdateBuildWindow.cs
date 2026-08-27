@@ -11,10 +11,17 @@ namespace Game.Framework.Build
         public static void Open() => GetWindow<HotUpdateBuildWindow>("SSFramework 代码热更新").Show();
 
         [InitializeOnLoadMethod]
-        private static void RegisterTool() => FrameworkToolRegistry.Register(new FrameworkToolDescriptor(
-            "hot-update-build", FrameworkToolCategory.BuildAndRelease, 20,
-            "代码热更新", "维护热更程序集单一真源，按需同步 HybridCLR、生成桥接与裁剪文件、构建并部署代码包。",
-            FrameworkMenuPaths.HotUpdateBuild));
+        private static void RegisterEditorEntries()
+        {
+            FrameworkToolRegistry.Register(new FrameworkToolDescriptor(
+                "hot-update-build", FrameworkToolCategory.BuildAndRelease, 20,
+                "代码热更新", "维护热更程序集单一真源，按需同步 HybridCLR、生成桥接与裁剪文件、构建并部署代码包。",
+                FrameworkMenuPaths.HotUpdateBuild));
+            FrameworkConfigRegistry.Register(new FrameworkConfigDescriptor(
+                "hot-update-build", 60, "热更构建", typeof(FrameworkHotUpdateProfile), singleton: true,
+                "全工程单例；只在工作台明确点击创建，默认候选为内核与 Asset.Yoo，创建后需按项目边界复核。",
+                FrameworkMenuPaths.HotUpdateBuild));
+        }
 
         private Vector2 _scroll;
 

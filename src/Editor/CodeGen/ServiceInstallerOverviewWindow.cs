@@ -17,10 +17,17 @@ namespace Game.Framework.Editor
         public static void Open() => GetWindow<ServiceInstallerOverviewWindow>("服务安装器总览").Show();
 
         [InitializeOnLoadMethod]
-        private static void RegisterTool() => FrameworkToolRegistry.Register(new FrameworkToolDescriptor(
-            "service-installer", FrameworkToolCategory.CodeGeneration, 30,
-            "服务安装器", "按功能域扫描纯 C# 服务并生成显式安装器；装入哪个 Context 仍由业务代码决定。",
-            FrameworkMenuPaths.ServiceInstaller));
+        private static void RegisterEditorEntries()
+        {
+            FrameworkToolRegistry.Register(new FrameworkToolDescriptor(
+                "service-installer", FrameworkToolCategory.CodeGeneration, 30,
+                "服务安装器", "按功能域扫描纯 C# 服务并生成显式安装器；装入哪个 Context 仍由业务代码决定。",
+                FrameworkMenuPaths.ServiceInstaller));
+            FrameworkConfigRegistry.Register(new FrameworkConfigDescriptor(
+                "service-installer", 10, "服务注册（安装器生成）", typeof(ServiceInstallerProfile), singleton: false,
+                "可按子项目、环境或功能域并存多份；无自动创建，由工作台或 Assets/Create 显式建立。",
+                FrameworkMenuPaths.ServiceInstaller));
+        }
 
         private Vector2 _scroll;
 

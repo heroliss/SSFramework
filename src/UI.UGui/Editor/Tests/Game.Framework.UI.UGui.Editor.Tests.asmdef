@@ -4,6 +4,7 @@
     "references": [
         "Game.Framework.UI.UGui.Editor",
         "Game.Framework.UI.UGui",
+        "Game.Framework.Editor",
         "UnityEngine.TestRunner"
     ],
     "includePlatforms": [

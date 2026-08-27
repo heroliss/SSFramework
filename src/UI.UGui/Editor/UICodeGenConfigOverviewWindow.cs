@@ -16,10 +16,18 @@ namespace Game.Framework.UI.UGui.Editor
         public static void Open() => GetWindow<UICodeGenConfigOverviewWindow>("UI 生成配置总览").Show();
 
         [InitializeOnLoadMethod]
-        private static void RegisterTool() => FrameworkToolRegistry.Register(new FrameworkToolDescriptor(
-            "ui-binding", FrameworkToolCategory.CodeGeneration, 40,
-            "UI 绑定", "查看全工程默认、目录级覆盖链和生成落点；Prefab 生成仍保留在有选择上下文的右键菜单。",
-            FrameworkMenuPaths.UIBinding));
+        private static void RegisterEditorEntries()
+        {
+            FrameworkToolRegistry.Register(new FrameworkToolDescriptor(
+                "ui-binding", FrameworkToolCategory.CodeGeneration, 40,
+                "UI 绑定", "查看全工程默认、目录级覆盖链和生成落点；Prefab 生成仍保留在有选择上下文的右键菜单。",
+                FrameworkMenuPaths.UIBinding));
+            FrameworkConfigRegistry.Register(new FrameworkConfigDescriptor(
+                "ui-binding", 20, "UI 绑定（代码生成）", typeof(UICodeGenProfile), singleton: true,
+                "全工程 Profile 提供默认约定；业务命名空间与输出目录需显式填写，目录差异用就近配置逐项覆盖。",
+                FrameworkMenuPaths.UIBinding,
+                secondaryProfileType: typeof(UICodeGenDirConfig), secondaryLabel: "目录级覆盖"));
+        }
 
         private Vector2 _scroll;
 
