@@ -24,7 +24,14 @@ namespace Game.Framework.Editor.Tests
     ""com.unity.entities"": ""1.4.8"",
     ""com.unity.modules.audio"": ""1.0.0"",
     ""com.unity.modules.ui"": ""1.0.0""
-  }
+  },
+  ""scopedRegistries"": [
+    {
+      ""name"": ""example.registry"",
+      ""url"": ""https://packages.example.invalid"",
+      ""scopes"": [""com.example""]
+    }
+  ]
 }";
 
         [Test]
@@ -51,6 +58,29 @@ namespace Game.Framework.Editor.Tests
             Assert.That(plans.SelectMany(plan => plan.Sources)
                     .All(source => System.IO.Directory.Exists(source.PhysicalDirectory)), Is.True,
                 "隔离构建必须拿到 Assets 或 PackageCache 中真实存在的 Module 源码目录。");
+            var core = plans.Single(plan => plan.Key == "core");
+            Assert.That(core.ManifestPackages,
+                Does.Not.Contain("com.cysharp.r3").And.Not.Contain("com.cysharp.unitask"),
+                "Git Package 应冻结已解析源码，不让可变 branch/tag 在不同档位重新解析。 ");
+            Assert.That(core.ManifestFingerprint, Has.Length.EqualTo(64));
+            Assert.That(core.MinimalManifest,
+                Does.Not.Contain("com.cysharp.r3").And.Not.Contain("com.unity.ugui"),
+                "每档应在启动时冻结最小 manifest，后续组合不能重新读取可能已变化的主工程版本。 ");
+            Assert.That(core.CopiedPackages.Select(package => package.PackageName),
+                Does.Contain("nuget-packages").And.Contain("com.cysharp.r3")
+                    .And.Contain("com.cysharp.unitask"),
+                "embedded 与 Git Package 来源必须以已解析内容进入可恢复的 Profile 计划。 ");
+            Assert.That(core.CopiedPackages.All(package => Directory.Exists(package.PhysicalDirectory)), Is.True);
+            Assert.That(core.CopiedPackages.Single(package => package.PackageName == "nuget-packages").PackageId,
+                Is.EqualTo("nuget-packages@1.0.0"),
+                "embedded Package 的 Unity packageId 含本机 file: 路径；报告应使用可移植身份。 ");
+            Assert.That(core.CopiedPackages.Single(package => package.PackageName == "com.cysharp.r3")
+                    .SourceFingerprint,
+                Has.Length.EqualTo(64));
+            Assert.That(plans.Single(plan => plan.Key == "ugui").ManifestPackages,
+                Does.Contain("com.unity.inputsystem").And.Contain("com.unity.ugui"));
+            Assert.That(plans.Single(plan => plan.Key == "toolkit").ManifestPackages,
+                Does.Contain("com.unity.inputsystem").And.Not.Contain("com.unity.ugui"));
         }
 
         [Test]
@@ -70,7 +100,7 @@ namespace Game.Framework.Editor.Tests
         public void MinimalManifest_OnlyAddsPackagesRequiredBySelectedModules()
         {
             string core = FrameworkBuildSizeProbe.CreateMinimalManifest(
-                Manifest, new[] { FrameworkModuleAudit.CoreAssemblyName });
+                Manifest, new[] { "com.cysharp.r3", "com.cysharp.unitask" });
             Assert.That(core, Does.Contain("com.cysharp.r3"));
             Assert.That(core, Does.Contain("com.cysharp.unitask"));
             Assert.That(core, Does.Contain("com.unity.modules.audio"));
@@ -81,16 +111,112 @@ namespace Game.Framework.Editor.Tests
 
             string ugui = FrameworkBuildSizeProbe.CreateMinimalManifest(Manifest, new[]
             {
-                FrameworkModuleAudit.CoreAssemblyName,
-                FrameworkModuleAudit.SharedUiAssemblyName,
-                FrameworkModuleAudit.UGuiAssemblyName,
+                "com.cysharp.r3",
+                "com.cysharp.unitask",
+                "com.unity.inputsystem",
+                "com.unity.ugui",
             });
             Assert.That(ugui, Does.Contain("com.unity.inputsystem"));
             Assert.That(ugui, Does.Contain("com.unity.ugui"));
 
             string yoo = FrameworkBuildSizeProbe.CreateMinimalManifest(
-                Manifest, new[] { "Game.Framework.Asset.Yoo" });
+                Manifest, new[] { "com.tuyoogame.yooasset" });
             Assert.That(yoo, Does.Contain("com.tuyoogame.yooasset\": \"3.0.5"));
+
+            string arbitrary = FrameworkBuildSizeProbe.CreateMinimalManifest(
+                Manifest, new[] { "com.unity.entities" });
+            Assert.That(arbitrary, Does.Contain("com.unity.entities\": \"1.4.8"),
+                "manifest 生成必须消费派生 Package 名，而不是只认识内置 Module 映射。 ");
+            Assert.That(arbitrary, Does.Contain("example.registry"));
+            Assert.That(arbitrary, Does.Contain("https://packages.example.invalid"),
+                "隔离 manifest 应保留主工程 scoped registry，不为某个供应商硬编码 registry。 ");
+        }
+
+        [Test]
+        public void PackagePlan_UsesActualAutoReferencedPackageWithoutNameMapping()
+        {
+            const string framework = FrameworkModuleAudit.CoreAssemblyName;
+            const string dependency = "Arbitrary.AutoReferenced.Runtime";
+            var snapshot = new FrameworkModuleAudit.Snapshot(
+                new Dictionary<string, FrameworkModuleAudit.AssemblyInfo>(StringComparer.Ordinal)
+                {
+                    [framework] = new()
+                    {
+                        Name = framework,
+                        DeclaredReferences = Array.Empty<string>(),
+                        ActualReferences = new[] { dependency, "System.Runtime" },
+                    },
+                    [dependency] = new()
+                    {
+                        Name = dependency,
+                        DeclaredReferences = Array.Empty<string>(),
+                        ActualReferences = Array.Empty<string>(),
+                    },
+                },
+                new Dictionary<string, string>(StringComparer.Ordinal),
+                Array.Empty<string>(),
+                string.Empty,
+                dependencySources: new Dictionary<string, FrameworkModuleAudit.DependencySource>(
+                    StringComparer.Ordinal)
+                {
+                    [dependency] = new()
+                    {
+                        AssemblyName = dependency,
+                        AssetPath = "Packages/com.example.arbitrary/Runtime/Arbitrary.asmdef",
+                        PackageName = "com.example.arbitrary",
+                        PackageVersion = "1.0.0",
+                        PackageId = "com.example.arbitrary@1.0.0",
+                        SourceKind = FrameworkModuleSourceCatalog.SourceKind.RegistryPackage,
+                        IsExternal = true,
+                    },
+                });
+
+            FrameworkBuildSizeProbe.PackageDependencyPlan plan =
+                FrameworkBuildSizeProbe.BuildPackageDependencyPlan(snapshot, new[] { framework });
+
+            Assert.That(plan.ManifestPackages, Is.EqualTo(new[] { "com.example.arbitrary" }),
+                "autoReferenced Package 可被实际 DLL 使用但不出现在 asmdef references；探针必须消费元数据边。 ");
+
+            snapshot.Assemblies[framework].ActualReferences = new[] { "Mystery.External.Runtime" };
+            Assert.That(() => FrameworkBuildSizeProbe.BuildPackageDependencyPlan(
+                    snapshot, new[] { framework }),
+                Throws.TypeOf<InvalidDataException>().With.Message.Contains("外部依赖来源"),
+                "只有明确的 BCL / Unity 平台程序集可无 Package 来源；普通未知 DLL 不能被静默漏掉。 ");
+        }
+
+        [Test]
+        public void FrameworkCompileClosure_IncludesDeclaredOnlyRuntimeModule()
+        {
+            const string core = FrameworkModuleAudit.CoreAssemblyName;
+            const string optional = "Game.Framework.Optional";
+            var snapshot = new FrameworkModuleAudit.Snapshot(
+                new Dictionary<string, FrameworkModuleAudit.AssemblyInfo>(StringComparer.Ordinal)
+                {
+                    [core] = new()
+                    {
+                        Name = core,
+                        DeclaredReferences = new[] { optional },
+                        ActualReferences = Array.Empty<string>(),
+                    },
+                    [optional] = new()
+                    {
+                        Name = optional,
+                        DeclaredReferences = Array.Empty<string>(),
+                        ActualReferences = Array.Empty<string>(),
+                    },
+                },
+                new Dictionary<string, string>(StringComparer.Ordinal),
+                Array.Empty<string>(),
+                string.Empty);
+
+            string[] closure = FrameworkBuildSizeProbe.BuildFrameworkCompileClosure(
+                snapshot, new[] { core }, new[] { core, optional });
+
+            Assert.That(closure, Is.EqualTo(new[] { core, optional }),
+                "asmdef 声明边即使尚未产生 IL 引用，也要求目标 Module 源码存在于隔离编译工程。 ");
+            Assert.That(() => FrameworkBuildSizeProbe.BuildFrameworkCompileClosure(
+                    snapshot, new[] { core }, new[] { core }),
+                Throws.TypeOf<InvalidDataException>().With.Message.Contains("不能把声明边静默当成未使用"));
         }
 
         [Test]
@@ -166,6 +292,100 @@ namespace Game.Framework.Editor.Tests
         }
 
         [Test]
+        public void EmbeddedPackageIdentity_IgnoresRelocationButRejectsCopiedContentDrift()
+        {
+            var recorded = new FrameworkBuildSizeProbe.PackageSourcePlan
+            {
+                PackageName = "nuget-packages",
+                AssetDirectory = "Packages/nuget-packages",
+                PhysicalDirectory = "C:/project/Packages/nuget-packages",
+                PackageVersion = "1.0.0",
+                PackageId = "nuget-packages@1.0.0",
+                SourceFingerprint = "package-hash-1",
+            };
+            var relocated = new FrameworkBuildSizeProbe.PackageSourcePlan
+            {
+                PackageName = recorded.PackageName,
+                AssetDirectory = recorded.AssetDirectory,
+                PhysicalDirectory = "D:/worktree/Packages/nuget-packages",
+                PackageVersion = recorded.PackageVersion,
+                PackageId = recorded.PackageId,
+                SourceFingerprint = recorded.SourceFingerprint,
+            };
+
+            Assert.That(FrameworkBuildSizeProbe.FindPackageSourceIdentityMismatch(
+                new[] { recorded }, new[] { relocated }), Is.Empty);
+
+            relocated.SourceFingerprint = "package-hash-2";
+            Assert.That(FrameworkBuildSizeProbe.FindPackageSourceIdentityMismatch(
+                new[] { recorded }, new[] { relocated }), Does.Contain("复制 Package 源码身份已变化"));
+        }
+
+        [Test]
+        public void StablePackageId_RemovesLocationsFromEveryCopiedPackageSource()
+        {
+            Assert.That(FrameworkBuildSizeProbe.StablePackageIdForReport(
+                    FrameworkModuleSourceCatalog.SourceKind.EmbeddedPackage,
+                    "com.example.embedded", "1.2.3", "com.example.embedded@file:D:/private/package"),
+                Is.EqualTo("com.example.embedded@1.2.3"));
+            Assert.That(FrameworkBuildSizeProbe.StablePackageIdForReport(
+                    FrameworkModuleSourceCatalog.SourceKind.LocalPackage,
+                    "com.example.local", "2.0.0", "com.example.local@file:../local"),
+                Is.EqualTo("com.example.local@2.0.0"));
+            Assert.That(FrameworkBuildSizeProbe.StablePackageIdForReport(
+                    FrameworkModuleSourceCatalog.SourceKind.GitPackage,
+                    "com.example.git", "3.0.0",
+                    "com.example.git@git+https://secret-token@example.invalid/repo#commit"),
+                Is.EqualTo("com.example.git@3.0.0"),
+                "Git 内容已有 SHA-256 证据，报告身份不得保留 URL userinfo 或 token。 ");
+        }
+
+        [Test]
+        public void CopiedPackageSources_IncludeGitLocalTarballAndEmbeddedOnly()
+        {
+            Assert.That(FrameworkBuildSizeProbe.IsCopiedPackageSource(
+                FrameworkModuleSourceCatalog.SourceKind.EmbeddedPackage), Is.True);
+            Assert.That(FrameworkBuildSizeProbe.IsCopiedPackageSource(
+                FrameworkModuleSourceCatalog.SourceKind.LocalPackage), Is.True);
+            Assert.That(FrameworkBuildSizeProbe.IsCopiedPackageSource(
+                FrameworkModuleSourceCatalog.SourceKind.LocalTarballPackage), Is.True);
+            Assert.That(FrameworkBuildSizeProbe.IsCopiedPackageSource(
+                FrameworkModuleSourceCatalog.SourceKind.GitPackage), Is.True);
+            Assert.That(FrameworkBuildSizeProbe.IsCopiedPackageSource(
+                FrameworkModuleSourceCatalog.SourceKind.RegistryPackage), Is.False);
+        }
+
+        [Test]
+        public void CopiedPackage_RejectsWorkspaceRelativeTransitiveDependency()
+        {
+            string root = Path.Combine(
+                Path.GetTempPath(), "SSFrameworkProbeLocalPackage-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(root);
+            try
+            {
+                File.WriteAllText(Path.Combine(root, "package.json"), @"{
+  ""name"": ""com.example.local"",
+  ""version"": ""1.0.0"",
+  ""dependencies"": {
+    ""com.example.sibling"": ""file:../Sibling""
+  }
+}");
+                var location = new FrameworkModuleSourceCatalog.SourceLocation
+                {
+                    PackageName = "com.example.local",
+                    PhysicalPath = root,
+                };
+
+                Assert.That(() => FrameworkBuildSizeProbe.ValidateCopiedPackageDependencies(location),
+                    Throws.TypeOf<InvalidDataException>().With.Message.Contains("本地传递依赖"));
+            }
+            finally
+            {
+                if (Directory.Exists(root)) Directory.Delete(root, true);
+            }
+        }
+
+        [Test]
         public void SourceFingerprint_TracksCopiedContentButIgnoresSkippedEditorFiles()
         {
             string root = Path.Combine(
@@ -198,13 +418,15 @@ namespace Game.Framework.Editor.Tests
         {
             var report = new FrameworkBuildSizeProbe.RunReport
             {
-                FormatVersion = 4,
+                FormatVersion = 5,
                 Profiles = new[]
                 {
                     new FrameworkBuildSizeProbe.ProfileRecord
                     {
                         Key = "removed-module",
                         Sources = Array.Empty<FrameworkBuildSizeProbe.ModuleSourcePlan>(),
+                        ManifestPackages = Array.Empty<string>(),
+                        CopiedPackages = Array.Empty<FrameworkBuildSizeProbe.PackageSourcePlan>(),
                     },
                 },
             };
@@ -214,6 +436,98 @@ namespace Game.Framework.Editor.Tests
                 new Dictionary<string, FrameworkBuildSizeProbe.ProfilePlan>(StringComparer.Ordinal));
 
             Assert.That(drift, Does.Contain("已不在当前 Module 拓扑"));
+        }
+
+        [Test]
+        public void RecoveryDrift_RejectsPreV5ReportWithoutPackageEvidence()
+        {
+            var report = new FrameworkBuildSizeProbe.RunReport { FormatVersion = 4 };
+
+            string drift = FrameworkBuildSizeProbe.FindRecoveryDrift(
+                report,
+                new Dictionary<string, FrameworkBuildSizeProbe.ProfilePlan>(StringComparer.Ordinal));
+
+            Assert.That(drift, Does.Contain("早于 v5"));
+        }
+
+        [Test]
+        public void FutureReport_IsRejectedForRecoveryAndRebuild()
+        {
+            var report = new FrameworkBuildSizeProbe.RunReport
+            {
+                FormatVersion = FrameworkBuildSizeProbe.CurrentReportFormatVersion + 1,
+            };
+
+            string drift = FrameworkBuildSizeProbe.FindRecoveryDrift(
+                report,
+                new Dictionary<string, FrameworkBuildSizeProbe.ProfilePlan>(StringComparer.Ordinal));
+
+            Assert.That(drift, Does.Contain("新于当前工具"));
+            Assert.That(() => FrameworkBuildSizeProbe.EnsureReportCanBeRebuilt(report),
+                Throws.TypeOf<InvalidDataException>().With.Message.Contains("拒绝用旧代码重写"));
+        }
+
+        [Test]
+        public void RecoveryDrift_RejectsManifestAndEmbeddedPackageChanges()
+        {
+            var report = new FrameworkBuildSizeProbe.RunReport
+            {
+                FormatVersion = 5,
+                Profiles = new[]
+                {
+                    new FrameworkBuildSizeProbe.ProfileRecord
+                    {
+                        Key = "core",
+                        Sources = Array.Empty<FrameworkBuildSizeProbe.ModuleSourcePlan>(),
+                        ManifestPackages = new[] { "com.example.old" },
+                        ManifestFingerprint = "same-manifest-hash",
+                        CopiedPackages = new[]
+                        {
+                            new FrameworkBuildSizeProbe.PackageSourcePlan
+                            {
+                                PackageName = "nuget-packages",
+                                AssetDirectory = "Packages/nuget-packages",
+                                PackageId = "nuget-packages@1.0.0",
+                                SourceFingerprint = "old-hash",
+                            },
+                        },
+                    },
+                },
+            };
+            var current = new FrameworkBuildSizeProbe.ProfilePlan
+            {
+                Key = "core",
+                Sources = Array.Empty<FrameworkBuildSizeProbe.ModuleSourcePlan>(),
+                ManifestPackages = new[] { "com.example.new" },
+                ManifestFingerprint = "same-manifest-hash",
+                CopiedPackages = report.Profiles[0].CopiedPackages,
+            };
+            var plans = new Dictionary<string, FrameworkBuildSizeProbe.ProfilePlan>(StringComparer.Ordinal)
+            {
+                [current.Key] = current,
+            };
+
+            Assert.That(FrameworkBuildSizeProbe.FindRecoveryDrift(report, plans),
+                Does.Contain("manifest Package 依赖已变化"));
+
+            current.ManifestPackages = report.Profiles[0].ManifestPackages;
+            current.ManifestFingerprint = "new-manifest-hash";
+            Assert.That(FrameworkBuildSizeProbe.FindRecoveryDrift(report, plans),
+                Does.Contain("冻结 manifest 的版本规格"));
+
+            current.ManifestFingerprint = report.Profiles[0].ManifestFingerprint;
+            current.CopiedPackages = new[]
+            {
+                new FrameworkBuildSizeProbe.PackageSourcePlan
+                {
+                    PackageName = "nuget-packages",
+                    AssetDirectory = "Packages/nuget-packages",
+                    PackageId = "nuget-packages@1.0.0",
+                    SourceFingerprint = "new-hash",
+                },
+            };
+            Assert.That(FrameworkBuildSizeProbe.FindRecoveryDrift(report, plans),
+                Does.Contain("复制 Package 源码身份已变化"));
         }
 
         [Test]
@@ -227,6 +541,30 @@ namespace Game.Framework.Editor.Tests
                 Is.False);
             Assert.That(FrameworkBuildSizeProbe.IsShippingOutputPath("Symbols/GameAssembly.pdb"), Is.False);
             Assert.That(FrameworkBuildSizeProbe.IsShippingOutputPath("Probe.dSYM/Contents/file"), Is.False);
+        }
+
+        [Test]
+        public void OperationalPaths_AreReconstructedLocallyAndExcludedFromSharedJson()
+        {
+            var report = new FrameworkBuildSizeProbe.RunReport
+            {
+                Profiles = new[]
+                {
+                    new FrameworkBuildSizeProbe.ProfileRecord { Key = "core" },
+                },
+            };
+            string runDirectory = Path.Combine(
+                Path.GetTempPath(), "SSFramework-private-run-" + Guid.NewGuid().ToString("N"));
+
+            FrameworkBuildSizeProbe.RestoreOperationalPaths(report, runDirectory);
+
+            Assert.That(report.RunDirectory, Is.EqualTo(Path.GetFullPath(runDirectory)));
+            Assert.That(report.Profiles[0].OutputPath,
+                Is.EqualTo(Path.Combine(Path.GetFullPath(runDirectory), "Output", "core")));
+            string json = JsonUtility.ToJson(report);
+            Assert.That(json, Does.Not.Contain("SSFramework-private-run"));
+            Assert.That(json,
+                Does.Not.Contain("OutputPath").And.Not.Contain("ResultPath").And.Not.Contain("LogPath"));
         }
 
         [Test]
@@ -273,6 +611,7 @@ namespace Game.Framework.Editor.Tests
         {
             var report = new FrameworkBuildSizeProbe.RunReport
             {
+                RunDirectory = "D:/private/build-size-run",
                 UnityVersion = "6000.test",
                 Target = "WebGL",
                 ScriptingBackend = "IL2CPP",
@@ -284,6 +623,22 @@ namespace Game.Framework.Editor.Tests
                     {
                         Key = "core", Title = "只用核心", Status = "成功", OutputBytes = 1024,
                         RawOutputBytes = 4096,
+                        OutputPath = "D:/private/build-size-run/Output/core",
+                        ResultPath = "D:/private/build-size-run/Results/core.json",
+                        LogPath = "D:/private/build-size-run/Logs/core.log",
+                        ManifestPackages = new[] { "com.example.framework" },
+                        ManifestFingerprint = "1122334455667788",
+                        CopiedPackages = new[]
+                        {
+                            new FrameworkBuildSizeProbe.PackageSourcePlan
+                            {
+                                PackageName = "nuget-packages",
+                                AssetDirectory = "Packages/nuget-packages",
+                                PhysicalDirectory = "D:/private/Packages/nuget-packages",
+                                PackageId = "nuget-packages@1.0.0",
+                                SourceFingerprint = "fedcba9876543210",
+                            },
+                        },
                         Sources = new[]
                         {
                             new FrameworkBuildSizeProbe.ModuleSourcePlan
@@ -315,8 +670,15 @@ namespace Game.Framework.Editor.Tests
             Assert.That(markdown, Does.Contain(
                 "Game.Framework ← Packages/com.example.framework/Runtime (com.example.framework@1.2.3)"));
             Assert.That(markdown, Does.Contain("实际复制内容 SHA-256：`abcdef0123456789`"));
+            Assert.That(markdown, Does.Contain("manifest Package：com.example.framework"));
+            Assert.That(markdown, Does.Contain("冻结 manifest SHA-256：`1122334455667788`"));
+            Assert.That(markdown, Does.Contain(
+                "nuget-packages ← Packages/nuget-packages (nuget-packages@1.0.0)"));
+            Assert.That(markdown, Does.Contain("实际复制内容 SHA-256：`fedcba9876543210`"));
             Assert.That(JsonUtility.ToJson(report), Does.Not.Contain("PackageCache"),
                 "可分享 JSON 只记录稳定 Asset/package 身份，不得泄漏机器专属物理缓存路径。");
+            Assert.That(JsonUtility.ToJson(report), Does.Not.Contain("D:/private"),
+                "运行目录、结果路径与复制 Package 物理目录都只属于当前进程，不得写入可分享报告。 ");
         }
 
         [Test]

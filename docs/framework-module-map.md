@@ -28,7 +28,7 @@ Editor 反向引用。Adapter 不得随 Framework 分发付费插件本体。详
 
 窗口还会先只读比较唯一 Profile、HybridCLRSettings、Generate stamp、当前热更加载顺序、AOT 补元数据清单与 DLL 中转目录，再解释当前 Player 编译图发现的每个 Runtime Module、当前 DLL 消费者、完整 asmdef 删除阻塞、热更部署和 linker 根；Module 退出编译图后不会保留一张“未参与”卡片。之后窗口给出 Core-only、Core + UGUI、Core + Toolkit、全部 Runtime Module、Profile 期望热更档位，以及任意 Module 作为入口的 what-if 闭包。`autoReferenced:false` 只关闭 Assembly-CSharp 等预定义程序集的隐式引用，不代表 Module 已退出编译图或会自动从包中消失。空 Profile 不强制 Generate；只有启用场景不依赖 `HotUpdateLauncher` 的直接 AOT composition root 才可省 CodePackage，保留 Launcher 时步骤 3 会产出其 Player 分支需要的空清单包。缺失或重复 Profile 会明确告警。完整闭包、全局 / HybridCLR 生成的 linker 规则和原始报告按需展开。它同时机器执行四条声明 + 当前 DLL 双层删除测试：Core 不反向依赖任意可选 Framework Player Module（含 Boot）、Boot 不接触 Framework Runtime、UGUI 不带 Toolkit/Bridge、Toolkit 不带 UGUI/Bridge。
 
-报告里的大小是链接、AOT、压缩前的原始托管 DLL，只用于发现“一个很小的 Adapter 意外拖入很大的外部依赖”以及比较组合；它不是最终包体承诺。需要真实平台证据时打开 `SSFramework/诊断/真实构建体积证据`：探针在 `Library` 下创建隔离空工程，只复制所选 Runtime Module 和当前版本依赖，再用当前目标平台 / 脚本后端读取 Player BuildReport。所选程序集完整保留，因此结果是可重复的体积上界；详情见 ADR-0038。
+报告里的大小是链接、AOT、压缩前的原始托管 DLL，只用于发现“一个很小的 Adapter 意外拖入很大的外部依赖”以及比较组合；它不是最终包体承诺。需要真实平台证据时打开 `SSFramework/诊断/真实构建体积证据`：探针在 `Library` 下创建隔离空工程，只复制所选 Runtime Module 和当前版本依赖，再用当前目标平台 / 脚本后端读取 Player BuildReport。Package 计划由所选 asmdef 声明、当前 Player DLL 元数据引用与 Source Catalog 派生，不按 Module 名猜依赖；Framework 的 declared-only Module 也进入编译闭包；registry Package 复用主 manifest 版本与 scoped registry，整轮启动时冻结每档 manifest 指纹；Git / embedded / local / tarball Package 从已解析源码根整体复制并记录去敏身份与内容指纹。所选程序集完整保留，因此结果是可重复的体积上界。`nuget-packages` 当前仍是聚合物理边界，探针不会把其中 DLL 假装成可独立卸载模块；详情见 ADR-0038。
 
 ### 五层状态与当前例外
 

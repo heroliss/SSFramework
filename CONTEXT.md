@@ -48,11 +48,11 @@ Framework Module Audit 内部拥有的第三方依赖证据 Module。它以一�
 
 ## Framework Build Size Probe
 
-Framework Module Audit 的真实玩家构建验证 Adapter。它在 `Library` 下创建隔离空工程，只复制某个审计组合的 Runtime Module Implementation 与当前版本依赖，再调用当前目标平台 Player Build；主工程的业务场景、未选 Module、`link.xml` 和 HybridCLR 生成物都不进入证据。所选程序集完整保留，因此结果是确定性的体积上界，不是假装成具体游戏实际用量的包体承诺。
+Framework Module Audit 的真实玩家构建验证 Adapter。它在 `Library` 下创建隔离空工程，只复制某个审计组合的 Runtime Module Implementation 与当前版本依赖，再调用当前目标平台 Player Build；主工程的业务场景、未选 Module、`link.xml` 和 HybridCLR 生成物都不进入证据。实际 DLL 闭包与 asmdef 声明闭包共同决定需要复制、完整保留的 Framework Module，declared-only 依赖不会因当前 IL 未使用而缺席。外部依赖再由 Framework Module Source Catalog 唯一决定 Package 名、安装来源和物理目录：registry Package 复用主工程版本与 scoped registry，并在整轮启动时按档冻结 manifest 文本与指纹；Git / embedded / local / tarball Package 从已解析源码根整体复制，身份去掉本机路径与 Git URL 凭据并记录内容指纹；复制 Package 中的相对 `file:` 传递依赖 fail-fast；Assets 外部依赖或未知显式来源同样 fail-fast，不维护 Module 名称映射。运行目录与结果/日志路径不进入分享 JSON，恢复时由本机 latest-run 指针重建。聚合 `nuget-packages` 仍是一个物理复制边界，不冒充单 DLL 可卸载能力。所选程序集完整保留，因此结果是确定性的体积上界，不是假装成具体游戏实际用量的包体承诺。
 
 ## Framework Module Source Catalog
 
-Editor 侧把 Unity 资产身份还原为物理源码与 Package 所有权的唯一 owner。它接受 `Assets/...`、`Packages/...` 或已解析的绝对路径，统一给出 canonical Asset Path、真实 Physical Path、源码根、package id、安装来源与 manifest 直接/间接关系；后两者只描述 Package 解析事实，不推导代码消费者或可移除性。Module Audit、隔离 Build Size Probe 和源码门禁都通过它读取 asmdef、`link.xml` 与模板。AssetDatabase 已知候选不可读时 fail-fast，不把证据缺失静默解释成没有规则；框架位于 Assets、嵌入包或 registry/Git PackageCache 时共享同一份证据，不各自猜测文件系统布局。Build Size Probe 另对实际复制的 Runtime 文件生成内容指纹，使 Domain Reload 恢复能识别“路径和版本未变、源码已变”的漂移。
+Editor 侧把 Unity 资产身份还原为物理源码与 Package 所有权的唯一 owner。它接受 `Assets/...`、`Packages/...` 或已解析的绝对路径，统一给出 canonical Asset Path、真实 Physical Path、源码根、package id、安装来源与 manifest 直接/间接关系；后两者只描述 Package 解析事实，不推导代码消费者或可移除性。Module Audit、隔离 Build Size Probe 和源码门禁都通过它读取 asmdef、`link.xml` 与模板。AssetDatabase 已知候选不可读时 fail-fast，不把证据缺失静默解释成没有规则；框架位于 Assets、嵌入包或 registry/Git PackageCache 时共享同一份证据，不各自猜测文件系统布局。Build Size Probe 另对实际复制的 Runtime Module 与 Git / embedded / local / tarball Package 生成内容指纹，使 Domain Reload 恢复能识别“路径和版本未变、源码已变”的漂移。
 
 ## Mono Context Initialization Issue Group
 
