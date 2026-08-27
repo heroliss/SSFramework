@@ -53,7 +53,7 @@ public interface IWebSocketUtility : IUtility     // 有状态长连接（一个
 | path/body 参数非法、相对 path 但 BaseUrl 为 null | 抛 `ArgumentException`（代码写错） |
 | Dispose 后调用 | 抛 `ObjectDisposedException` |
 | DNS 失败 / 拒绝连接 / 网络断开 | `NetworkException(ConnectionError)` |
-| 超时（内部 `CancelAfter` 触发） | `NetworkException(Timeout)` |
+| 超时（HTTP Request Owner 的 deadline 先于物理发送完成） | `NetworkException(Timeout)` |
 | 外部 ct 取消 | `OperationCanceledException`（不包装，框架统一约定） |
 | 非 2xx（动词门面） | `NetworkException(HttpError)`，携带 `StatusCode` + `ResponseBody`（截断 ≤4KB） |
 | 响应体 / 推送载荷反序列化失败 | `NetworkException(DeserializeError)`（服务器契约不符） |
@@ -71,7 +71,7 @@ public interface IWebSocketUtility : IUtility     // 有状态长连接（一个
 
 ### 3. 线程模型：公共 API 主线程，后台回调回主线程再触碰框架
 
-- HTTP 默认传输走 UnityWebRequest 引擎异步操作，**全程不下线程池**（这也是 WebGL 兼容的来源）；请求之间天然并行（无共享介质，不需要 Storage 那样的 FIFO）。
+- HTTP 默认传输走 UnityWebRequest 引擎异步操作，**全程不下线程池**（这也是 WebGL 兼容的来源）；自定义 Provider 允许在任意线程完成，Utility 在成功、失败与取消的公共 completion 前切回主线程。请求之间天然并行（无共享介质，不需要 Storage 那样的 FIFO）。
 - WS 接收循环：后台 `ReceiveAsync` → 每条消息 `await UniTask.SwitchToMainThread()` → 主线程解析 envelope + 查注册表 + `SendEvent`。事件系统是 R3 Subject + 字典（无锁、主线程独占），这一跳是铁律，写死在框架里而不是留给业务记住。
 - WS 发送在**每个 Connection Session 内** FIFO 串行（尾任务链，照 `StorageUtility.Enqueue`）：保序 + 规避 `ClientWebSocket` 不允许并发写的限制；新连接有独立队尾，旧连接排队帧醒来后先校验 session identity，不成立即 ConnectionError、绝不调用 provider。
 - 坏消息（烂 JSON / 载荷反序列化失败）：warning + 丢弃当条，接收循环继续——单条脏数据不毒化整条连接。
@@ -103,7 +103,7 @@ IWebSocketUtility ── WebSocketUtility（状态机 / envelope / 推送注册�
 - provider 接口保留 `Async` 后缀（适配层惯例）；门面 API 无后缀。
 - Utility 串行化 Connect 与前一次 Close；只允许 Receive 与 Close 按契约重叠。Provider 每个方法必须在入口 capture 当前物理连接，分片 Receive 全程只用同一 socket，不能因后续重连改读可变字段。
 - `INetworkSerializer` **无 `class` 约束**（与 `IStorageSerializer` 不同）：WS 推送事件是 struct。
-- 超时不归 provider：`HttpUtility` 用 `CancelAfter` 链接进 ct 统一实现，provider 只需尊重 ct。
+- 超时不归 provider：`HttpUtility` 为每次交换创建私有 HTTP Request Owner，把 caller、Utility lifetime 与 deadline 三种取消意图汇入 owner token。deadline 使用不受 `Time.timeScale` 影响的实时时钟；Send-vs-Delay 通过独立 completion signal 竞速，Provider task 永远只有一个 observer，避免在 pending UniTask 上注册多个 continuation。Send 先完成会立即取消并观察 loser deadline，避免响应体被 timer promise 滞留；deadline 先完成则经安全 owner Cancel，不让 `CancelAfter` timer 线程承接第三方回调异常，并等待守约 provider 到物理终态。timeout 在启动 Provider 前验证为有限、可表示的秒数，非法配置 fail-fast，不遗弃已启动请求。
 
 ### 6. 第三方定位（本模块与候选库的边界）
 
@@ -127,7 +127,8 @@ IWebSocketUtility ── WebSocketUtility（状态机 / envelope / 推送注册�
 - Connecting 期的 `Disconnect` 不只是发出取消请求：私有 **Connect Attempt** 的 completion 携带“本次 attempt 提交的 session 或 null”，不从可被 State 同步重试改写的全局字段推断。Disconnect intent 一旦记录，即使 caller token 随后只脱离等待，物理 success-win 也在逻辑发布前 Abort；所有成功、失败、Dispose、State 回调异常都在 finally 完成 outcome，因此 `await Disconnect()` 返回后可以立即再次 Connect，也不会误关回调中新建的 session。
 - Provider 的 `Abort()` 是与优雅 `CloseAsync` 正交的物理重置：立即中止并摘除当前已提交 socket，Provider 之后仍可重连。它用于未发布的 success-win、意外 Close 超时/损坏和 session 最终退场，保证 barrier 放行时旧物理连接不再由可变 Provider 字段持有。
 - .NET `CancellationTokenSource.Cancel()` 会把注册回调异常聚合抛出，即使 token 本身已经成功取消。Connect Attempt、Connection Session 与 Utility lifetime 三层 owner 的主动取消都经同一个隔离点：记录异常并继续 owner cleanup，不能让 Adapter/业务回调截断 provider Dispose、State 终态或 teardown barrier。
-- Dispose：`HttpUtility` 取消所有在途请求；`WebSocketUtility` claim 并停掉当前 Connection Session、释放 provider，不发 ClosedEvent。随 Context 整棵撤。
+- HTTP 每次请求有独立 Request Owner。caller / Utility lifetime token 的回调只调用 owner 的安全 Cancel，因此 Adapter 的坏取消回调不会从外部 `CancellationTokenSource.Cancel()` 或 Utility Dispose 反向逃逸；Dispose 仍会继续释放 Provider。deadline 先赢后仍等待守约 Provider 到物理终态并观察其异常；若这段收尾期间 caller / lifetime 在公共 completion 前取消，scope 已不再需要结果，OCE 明确优先于早先 deadline，避免已销毁页面收到迟到 Timeout。否则 deadline 折叠 Timeout；Provider 在 owner token 未取消时自发 OCE 是 ConnectionError。物理成功结果是提交点，不做迟到的 caller token post-check。
+- Dispose：`HttpUtility` 取消所有在途 Request Owner；`WebSocketUtility` claim 并停掉当前 Connection Session、释放 provider，不发 ClosedEvent。随 Context 整棵撤。
 
 ### 8. 环境实测结论（落地时的两个坑，spike 已验证）
 

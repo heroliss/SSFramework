@@ -2706,7 +2706,7 @@ await ws.Send("say", new SayReq { Text = "hi" });               // 客户端 →
 | 情形 | 表现 |
 |---|---|
 | DNS / 拒连 / 断网 | `NetworkException(ConnectionError)` |
-| 超时（内部计时触发） | `NetworkException(Timeout)`——与外部取消**严格区分** |
+| 超时（HTTP request deadline 先完成） | `NetworkException(Timeout)`——与外部取消**严格区分** |
 | 外部 `ct` 取消 | `OperationCanceledException`（不包装，调用方意图） |
 | `Disconnect` 入口 ct 已取消 | OCE，尚未提交断开；连接保持可用、不发事件 |
 | `Disconnect` 已开始后 ct 取消 | session 仍清理并发 ByUser=true，随后调用方收到 OCE（取消的是优雅握手等待，不是回滚断开意图） |
@@ -2721,7 +2721,17 @@ catch (NetworkException e) when (e.Kind == NetworkErrorKind.HttpError && e.Statu
 { /* 该玩家不存在，走业务分支 */ }
 ```
 
-线程边界框架兜住：**接收循环在后台收帧、每条推送切回主线程后才解析 + `SendEvent`**（事件系统主线程独占），业务永远在主线程收到回调；坏消息 warning + 丢弃当条、不毒化连接。
+线程边界框架兜住：HTTP / WebSocket Provider 都允许在任意线程完成，Utility 会在完成主线程公共调用前恢复 Unity 主线程；WS 接收循环也会在每条推送切回主线程后才解析 + `SendEvent`（事件系统主线程独占）。业务不需要让 HttpClient / BestHTTP Adapter 人工伪造主线程 continuation；坏 WS 消息 warning + 丢弃当条、不毒化连接。
+
+### 为什么 HTTP 也需要 Request Owner
+
+HTTP 对业务是一次 `await`，但一次物理交换同时受到 caller token、Context / Utility 生命周期和内部 deadline 三种取消意图影响。若把三者直接 `CreateLinkedTokenSource + CancelAfter`，第三方 Provider 在取消回调里抛出的异常可能从调用方 `cts.Cancel()` 反向冒出，或无人观察地逃到 timer 线程；Utility Dispose 也可能因此在释放 Provider 前被截断。
+
+`HttpUtility` 因而为每次交换建立私有 Request Owner。caller 与 lifetime token 只调用 owner 的安全 Cancel；deadline 用不受 `Time.timeScale` 影响的实时时钟和显式 **Send-vs-Delay** 竞速。Provider task 只有一个 observer，race signal 与最终 outcome 分开，因此 deadline 先赢后仍能安全等待物理终态；Send 先赢则立即取消 loser deadline，不让 timer promise 继续持有响应体。timeout 会在启动 Provider 前验证，NaN / Infinity / 超出 TimeSpan 范围直接报参数错误，不会先发出一条无人观察的请求。
+
+最终分类还要考虑 waiter 是否仍存在：caller / lifetime 在**公共 completion 前任何时刻**取消都优先返回 OCE——页面或 Context 已销毁时不应再收到迟到 Timeout。scope 仍存活时，deadline → Timeout；Provider 在 owner token 未取消时自发 OCE → ConnectionError，不能伪装成“玩家取消”或“网络超时”。如果物理响应与 caller 取消同时完成，成功可以赢，不做会丢弃有效响应的迟到 token post-check。
+
+这个 owner 是 HTTP Module 的 Implementation，不扩张 `IHttpUtility` Interface。自定义 Provider 的责任仍很小：尊重 token、中止物理请求、取消回调不要抛，并允许在任意线程完成。
 
 ### 为什么内部还有 Connection Session
 
@@ -2735,7 +2745,7 @@ catch (NetworkException e) when (e.Kind == NetworkErrorKind.HttpError && e.Statu
 
 `Disconnect` 在 Connecting 期会取消并**等待 Connect Attempt 的本地 outcome**，不是只发一个取消请求就返回，也不靠全局 State 猜结果；所以同步重试的新 session 不会被旧 Disconnect 误关。caller 后续取消只脱离等待，已提交的物理 success-win 仍会被 Attempt owner Abort，业务看不到短暂 Connected 窗口。第三方 Provider 的所有异步方法都允许在 worker 完成，框架会在更新 State、清 session、发布 Event 以及完成主线程公共调用（包括 worker 发起的 token 取消）前切回主线程。发送 FIFO 也遵守“失败先封 session、再唤醒后帧”：UniTask continuation 可能同步内联，不能给排队帧留下再次触碰坏 socket 的窗口。
 
-还有一个 .NET 细节很容易漏：`CancellationTokenSource.Cancel()` 会在 token 已取消后，把注册回调抛出的异常聚合再抛出来。框架的 Connect / Session / lifetime / Close-timeout owner 都会隔离并记录这类异常；超时采用显式竞速后安全 Cancel，不让 `CancelAfter` 的 timer 线程裸触发回调。State、barrier 与 Provider 释放会继续完成，但自定义 Adapter 仍不应在取消回调里抛异常。
+还有一个 .NET 细节很容易漏：`CancellationTokenSource.Cancel()` 会在 token 已取消后，把注册回调抛出的异常聚合再抛出来。框架的 HTTP Request、Connect / Session / lifetime / Close-timeout owner 都会隔离并记录这类异常；HTTP deadline 与 WS 意外 Close 超时都采用显式竞速后安全 Cancel，不让 `CancelAfter` 的 timer 线程裸触发回调。State、barrier 与 Provider 释放会继续完成，但自定义 Adapter 仍不应在取消回调里抛异常。
 
 ### 重试 / 重连：框架给样板、不做黑盒
 

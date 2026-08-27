@@ -105,6 +105,7 @@ namespace Game.Framework.Demo.Modules
             // ── 扩展点与刻意不做 ──
             host.AddSectionTitle("扩展点与刻意不做");
             host.AddConcept("换传输 = IHttpProvider / IWebSocketProvider", "BestHTTP（WebGL 的 WS / HTTP2 / SignalR）、HttpClient 等实现它，经 utility 构造注入；付费插件做「适配器」不内置。");
+            host.AddConcept("HTTP Request Owner", "每次物理交换独占一个取消 owner：caller、Context 生命周期和 deadline 都只取消它；坏 Provider 回调不会逃到外部 CTS / timer 线程。Provider 可在 worker 完成，Utility 回主线程再完成业务 await。");
             host.AddConcept("换格式 = INetworkSerializer", "Protobuf（跨语言后端 / 既有 proto）、MemoryPack（双端 C#）实现它；等真实后端契约驱动，工具链成本不凭空预付。");
             host.AddConcept("不做自动重试 / 自动重连", "幂等性、重新认证、状态恢复只有业务知道——框架给带生命周期 token 与异常观察的退避样板（guide §25）、不做黑盒。重连 owner = 订 WebSocketClosedEvent(!ByUser) + 循环 Connect；不要用无人观察的 Forget。");
             host.AddConcept("不做 WebGL 的 WS / RPC correlation id / 大文件下载", "WebGL 的 WS 写 JS-bridge provider（接缝已留）；带请求-响应关联的 RPC 是 MagicOnion 领域；大文件下载归资源系统。");
@@ -199,6 +200,8 @@ namespace Game.Framework.Demo.Modules
                 }
                 catch (NetworkException e) { httpLabel.text = $"失败：{e.Kind}"; }
             }, CodeRef.Here("localCts.Token", "外部取消"));
+
+            host.AddSubNote("两个按钮都让 Provider 的 token 取消，但原因不是一回事：realtime deadline 不受 `Time.timeScale` 影响，scope 仍存活时折叠 Timeout；外部 token 表示上层不再需要结果，在公共 await 完成前会优先保持 OCE。框架内部不用裸 `CancelAfter` 驱动 Provider，而由每请求 owner 显式竞速并安全 Cancel；自定义 Provider 仍必须真正中止物理请求，且取消回调不要抛异常。");
         }
 
         private void BuildWebSocketSection(DemoModuleHost host, IDemoGameServer server, IWebSocketUtility ws)
