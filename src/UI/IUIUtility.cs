@@ -56,6 +56,7 @@ namespace Game.Framework.UI
         /// 弹 Toast（Top 层内置件，ADR-0020 §4）：短暂显示 <paramref name="text"/> 后自动关闭，不拦截输入。
         /// 连续调用复用同一窗口（刷新文本、重置计时）。返回的 task 在窗口打开后完成（不含显示时长）；
         /// <paramref name="ct"/> 只管打开过程，调用方生命周期结束时不会留下延迟出现的窗口。
+        /// 自动关闭 owner 由渲染中立核心统一持有；显式 Close / CloseAll / Dispose 会让旧计时与创建请求失效。
         /// </summary>
         UniTask ShowToast(string text, float duration = 2f, CancellationToken ct = default);
 

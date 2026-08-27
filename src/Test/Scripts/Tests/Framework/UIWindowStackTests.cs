@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -253,6 +254,144 @@ namespace Game.Framework.Test
             Assert.AreEqual(1.5f, args.Duration);
             ui.Dispose();
         }
+
+        [UnityTest]
+        public IEnumerator ShowToast_RepeatedCall_OnlyLatestTimerCanClose() => UniTask.ToCoroutine(async () =>
+        {
+            var ui = new UIUtility(_ctx, _backend, new UIBuiltinWindows
+            { Toast = typeof(ToastFake), Loading = typeof(LoadingFake) });
+
+            await ui.ShowToast("first", 0.1f);
+            await UniTask.Delay(TimeSpan.FromSeconds(0.05), DelayType.Realtime);
+            await ui.ShowToast("second", 0.25f);
+
+            await UniTask.Delay(TimeSpan.FromSeconds(0.12), DelayType.Realtime);
+            Assert.IsTrue(ui.IsOpen<ToastFake>(), "较早 Toast 的计时器不得关闭已刷新文本的新 Toast");
+            Assert.AreEqual("second", (ui.Get<ToastFake>().LastArgs as UIToastArgs)?.Text);
+
+            await UniTask.Delay(TimeSpan.FromSeconds(0.2), DelayType.Realtime);
+            Assert.IsFalse(ui.IsOpen<ToastFake>(), "最后一次 Show 的显示时长结束后应自动关闭");
+            ui.Dispose();
+        });
+
+        [UnityTest]
+        public IEnumerator ShowToast_ConcurrentFirstOpen_LatestRequestOwnsTimer() => UniTask.ToCoroutine(async () =>
+        {
+            var backend = new GatedBackend();
+            var ui = new UIUtility(_ctx, backend, new UIBuiltinWindows
+            { Toast = typeof(ToastFake), Loading = typeof(LoadingFake) });
+
+            var first = ui.ShowToast("first", 0.1f);
+            var second = ui.ShowToast("second", 0.35f);
+            Assert.AreEqual(UniTaskStatus.Pending, first.Status);
+            Assert.AreEqual(UniTaskStatus.Pending, second.Status);
+
+            backend.Release();
+            await UniTask.WhenAll(first, second);
+            Assert.AreEqual("second", (ui.Get<ToastFake>().LastArgs as UIToastArgs)?.Text);
+
+            await UniTask.Delay(TimeSpan.FromSeconds(0.18), DelayType.Realtime);
+            Assert.IsTrue(ui.IsOpen<ToastFake>(),
+                "后发等待者可能在首个创建者 finally 内先恢复；旧请求随后返回也不得覆盖新 timer");
+
+            await UniTask.Delay(TimeSpan.FromSeconds(0.25), DelayType.Realtime);
+            Assert.IsFalse(ui.IsOpen<ToastFake>());
+            ui.Dispose();
+        });
+
+        [UnityTest]
+        public IEnumerator ShowToast_CancelledLaterWaiter_DoesNotSuppressEarlierRequest() => UniTask.ToCoroutine(async () =>
+        {
+            var backend = new GatedBackend();
+            var ui = new UIUtility(_ctx, backend, new UIBuiltinWindows
+            { Toast = typeof(ToastFake), Loading = typeof(LoadingFake) });
+            using var laterCts = new CancellationTokenSource();
+
+            var first = ui.ShowToast("first", 0.15f);
+            var cancelledLater = ui.ShowToast("cancelled", 1f, laterCts.Token);
+            laterCts.Cancel();
+            Assert.Throws<OperationCanceledException>(() => cancelledLater.GetAwaiter().GetResult());
+
+            backend.Release();
+            await first;
+            Assert.AreEqual("first", (ui.Get<ToastFake>().LastArgs as UIToastArgs)?.Text);
+
+            await UniTask.Delay(TimeSpan.FromSeconds(0.25), DelayType.Realtime);
+            Assert.IsFalse(ui.IsOpen<ToastFake>(),
+                "后发请求取消不代表较早的有效请求也失去提交 timer 的资格");
+            ui.Dispose();
+        });
+
+        [UnityTest]
+        public IEnumerator ShowToast_ManualClose_CancelsOldTimerBeforeReopen() => UniTask.ToCoroutine(async () =>
+        {
+            var ui = new UIUtility(_ctx, _backend, new UIBuiltinWindows
+            { Toast = typeof(ToastFake), Loading = typeof(LoadingFake) });
+
+            await ui.ShowToast("old", 0.1f);
+            ui.Close<ToastFake>();
+            await ui.ShowToast("new", 0.3f);
+
+            await UniTask.Delay(TimeSpan.FromSeconds(0.15), DelayType.Realtime);
+            Assert.IsTrue(ui.IsOpen<ToastFake>(), "手动关闭前的旧 timer 不得越权关闭重开的 Toast");
+            Assert.AreEqual("new", (ui.Get<ToastFake>().LastArgs as UIToastArgs)?.Text);
+
+            await UniTask.Delay(TimeSpan.FromSeconds(0.2), DelayType.Realtime);
+            Assert.IsFalse(ui.IsOpen<ToastFake>());
+            ui.Dispose();
+        });
+
+        [Test]
+        public void ShowToast_CloseAllDuringNonCooperativeCreation_DoesNotGhost()
+        {
+            var backend = new NonCooperativeGatedBackend();
+            var ui = new UIUtility(_ctx, backend, new UIBuiltinWindows
+            { Toast = typeof(ToastFake), Loading = typeof(LoadingFake) });
+
+            var pending = ui.ShowToast("late", 1f);
+            Assert.AreEqual(UniTaskStatus.Pending, pending.Status);
+            ui.CloseAll(UILayer.Top);
+            backend.Release();
+            pending.GetAwaiter().GetResult();
+
+            Assert.IsFalse(ui.IsOpen<ToastFake>(),
+                "创建期间清场后，即使 backend 不观察 token，迟到窗口也必须立即收口");
+            ui.Dispose();
+        }
+
+        [UnityTest]
+        public IEnumerator ShowToast_PreCancelledRefresh_PreservesExistingTimer() => UniTask.ToCoroutine(async () =>
+        {
+            var ui = new UIUtility(_ctx, _backend, new UIBuiltinWindows
+            { Toast = typeof(ToastFake), Loading = typeof(LoadingFake) });
+            await ui.ShowToast("existing", 0.15f);
+            using var cts = new CancellationTokenSource();
+            cts.Cancel();
+
+            Assert.Throws<OperationCanceledException>(() =>
+                ui.ShowToast("cancelled", 1f, cts.Token).GetAwaiter().GetResult());
+            Assert.AreEqual("existing", (ui.Get<ToastFake>().LastArgs as UIToastArgs)?.Text,
+                "取消的刷新不能改文本或夺走既有计时 owner");
+
+            await UniTask.Delay(TimeSpan.FromSeconds(0.25), DelayType.Realtime);
+            Assert.IsFalse(ui.IsOpen<ToastFake>(), "既有 Toast 仍应按自己的原计时关闭");
+            ui.Dispose();
+        });
+
+        [UnityTest]
+        public IEnumerator ShowToast_Dispose_CancelsTimerWithoutCallingWindowHooks() => UniTask.ToCoroutine(async () =>
+        {
+            var ui = new UIUtility(_ctx, _backend, new UIBuiltinWindows
+            { Toast = typeof(ToastFake), Loading = typeof(LoadingFake) });
+            await ui.ShowToast("teardown", 0.05f);
+            var toast = ui.Get<ToastFake>();
+
+            ui.Dispose();
+            await UniTask.Delay(TimeSpan.FromSeconds(0.15), DelayType.Realtime);
+
+            Assert.IsFalse(toast.Calls.Contains("close"),
+                "UIUtility.Dispose 是纯物理 teardown；取消后的 Toast timer 不得迟到调用 OnClose");
+        });
 
         [Test]
         public void ShowLoading_ThenHide_OpensAndCloses()
