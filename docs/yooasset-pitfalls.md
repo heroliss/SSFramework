@@ -60,7 +60,7 @@ YooAsset 编辑器期默认把下载缓存放 `项目根/yoo`（`YooAssetConfigu
 
 ## 注 4：构建只走我们的构建器，YooAsset 自带窗口仅供查看
 
-因坑 1，YooAsset 自带 Bundle Builder 窗口在本工程对零 shader 的包会崩；且窗口不读我们的构建配置（profile）、输出路径也写死。**正式构建一律走 `SSFramework/资源构建` 菜单 / CI（`FrameworkAssetBuilder`）**，窗口只当查看/调试工具。
+因坑 1，YooAsset 自带 Bundle Builder 窗口在本工程对零 shader 的包会崩；且窗口不读我们的构建配置（profile）、输出路径也写死。**正式构建一律走 `SSFramework/构建与发布/资源构建` 工作台 / CI（`FrameworkAssetBuilder`）**，YooAsset 窗口只当查看/调试工具。
 
 ---
 

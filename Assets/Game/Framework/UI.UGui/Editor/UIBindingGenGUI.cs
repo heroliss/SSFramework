@@ -17,7 +17,14 @@ namespace Game.Framework.UI.UGui.Editor
 
         public static void Draw(UIBindingData data, string assetPath, bool editable)
         {
-            var profile = UICodeGenProfile.Resolve();
+            if (!UICodeGenProfile.TryResolve(out var profile))
+            {
+                EditorGUILayout.HelpBox(
+                    "尚无全工程 UI 生成配置。当前绑定数据仍可查看和编辑，但在明确创建并填写业务程序集的生成目标前，不会生成代码。",
+                    MessageType.Warning);
+                if (GUILayout.Button("打开 UI 绑定工作台")) UICodeGenConfigOverviewWindow.Open();
+                return;
+            }
             string ns = UIBindingUtil.ResolveNamespace(assetPath, data, profile);
             string className = UIBindingUtil.ResolveClassName(assetPath, data, profile);
             string outDir = UIBindingUtil.ResolveOutputDir(assetPath, data, profile);
@@ -58,7 +65,8 @@ namespace Game.Framework.UI.UGui.Editor
             else
                 using (new EditorGUI.DisabledScope(data.Entries.Count == 0))
                     if (GUILayout.Button("生成 / 重新生成代码"))
-                        UIBindingCodeGenerator.GenerateAndLog(assetPath, data, profile);
+                        if (FrameworkEditorOperationGate.EnsureCanStart("UI 绑定代码生成"))
+                            UIBindingCodeGenerator.GenerateAndLog(assetPath, data, profile);
         }
 
         // 覆盖行：普通文本框（目录字段带「…」选择器），留空 = 继承（实际生效值在下方「生效（解析后）」只读区看）。

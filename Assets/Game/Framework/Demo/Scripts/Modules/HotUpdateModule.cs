@@ -5,15 +5,14 @@ namespace Game.Framework.Demo.Modules
 {
     /// <summary>
     /// 进阶·热更机制：讲 HybridCLR 热更的列表驱动设计——热更范围是部署决策不是代码属性、程序集三层、
-    /// 构建菜单分工与迭代边界、Boot 引导流程。编辑器恒走旁路（程序集本就在 AppDomain），
+    /// 构建工作台步骤与迭代边界、Boot 引导流程。编辑器恒走旁路（程序集本就在 AppDomain），
     /// 真实「下载 → Assembly.Load」只在 IL2CPP 真机发生，所以本章以讲解 + 源码跳转为主，
     /// 唯一可现场执行的是构建期校验（真实调用引用图校验器）。
     /// </summary>
     public sealed class HotUpdateModule : DemoModuleBase
     {
-        private const string ValidateMenu = "SSFramework/热更构建/校验热更程序集列表";
-        private const string ProfileMenu = "SSFramework/热更构建/热更配置 (HotUpdate Profile)";
-        private const string ModuleAuditMenu = "SSFramework/诊断/模块裁剪审计";
+        private const string WorkbenchMenu = "SSFramework/构建与发布/代码热更新";
+        private const string ModuleAuditMenu = "SSFramework/诊断与分析/模块与依赖";
 
         public override string Id => "hotupdate";
         public override string Title => "热更 · HybridCLR";
@@ -46,9 +45,9 @@ namespace Game.Framework.Demo.Modules
                 new CodeRef("Assets/Game/Main/GameEntry.cs", "class GameEntry", "入口约定（当前为 IL2CPP 真机框架自检）"));
 
             // ── 构建分工 ──
-            host.AddSectionTitle("构建菜单分工与迭代边界");
+            host.AddSectionTitle("构建工作台分工与迭代边界");
             host.AddTable(
-                new[] { "菜单（SSFramework/热更构建）", "何时执行", "耗时" },
+                new[] { "代码热更新工作台步骤", "何时执行", "耗时" },
                 new[] { "1. 同步热更设置", "改了热更列表后", "秒" },
                 new[] { "2. 生成桥接与裁剪文件（Generate All）", "首次接入 / 升级环境 / 改 AOT、签名、泛型、布局或原生调用边界（stamp 会拦截）", "分钟" },
                 new[] { "3. 构建代码包", "日常每次热更迭代", "几十秒" },
@@ -58,12 +57,10 @@ namespace Game.Framework.Demo.Modules
             host.AddSubNote("不确定自己漏了哪一步时，模块裁剪审计的“热更产物链”会只读比较唯一 Profile → HybridCLRSettings → Generate stamp → 当前热更拓扑 / AOT 补元数据清单 → DLL 中转，并明确建议执行 1 / 2 / 3。绿色只证明结构与所列文件一致，不证明 DLL 已包含最新源码，也不代表步骤 4 的 Deploy / CDN 已完成；空 Profile 不要求 Generate，但若启用场景仍挂着 HotUpdateLauncher，Player 分支仍需要步骤 3 生成空清单代码包。只有改成直接 AOT 启动后 CodePackage 才可省略。");
 
             // ── 可现场执行的部分:构建期校验 ──
-            host.AddSectionTitle("现场可跑：构建期校验（真实调用，与菜单同源）");
+            host.AddSectionTitle("现场可跑：构建期校验（真实调用，与工作台同源）");
             host.AddNote("校验「AOT 不引用热更」（违规逐条指出元凶与修法）并展示自动拓扑排序的加载顺序——这是构建管线在编辑器侧真实存在的部分，与真机无关，可以现场跑。");
-            host.AddActionRow("校验热更程序集列表（弹窗显示结果）", () => RunMenu(ValidateMenu),
+            host.AddActionRow("打开代码热更新工作台（校验 · 配置 · 构建）", () => RunMenu(WorkbenchMenu),
                 new CodeRef("Assets/Game/Framework/Build/Editor/HotUpdateAssemblyGraph.cs", "class HotUpdateAssemblyGraph", "引用图校验 + 拓扑排序"));
-            host.AddActionRow("定位热更配置（FrameworkHotUpdateProfile）", () => RunMenu(ProfileMenu),
-                new CodeRef("Assets/Game/Framework/Build/Editor/FrameworkHotUpdateProfile.cs", "class FrameworkHotUpdateProfile", "热更配置定义"));
             host.AddActionRow("查看热更产物链（只读，不自动修改）", () => RunMenu(ModuleAuditMenu),
                 new CodeRef("Assets/Game/Framework/Build/Editor/FrameworkHotUpdateBuilder.cs", "InspectEvidence(FrameworkHotUpdateProfile profile)", "Profile → Settings → Generate → DLL 中转证据"));
 

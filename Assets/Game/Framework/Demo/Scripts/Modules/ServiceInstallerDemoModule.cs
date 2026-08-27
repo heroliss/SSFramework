@@ -20,7 +20,7 @@ namespace Game.Framework.Demo.Modules
         public override int Order => 46;   // 紧跟「容器」章：先懂注册/解析机制，再看注册样板如何生成掉
         public override DemoTeachingKind TeachingKind => DemoTeachingKind.Workflow;
         public override string Summary =>
-            "纯 C# 服务的 InstallBindings 注册样板可以生成：固定目录放服务类 → 菜单生成一份显式安装器（.g.cs，注册关系 git 可审）→ "
+            "纯 C# 服务的 InstallBindings 注册样板可以生成：固定目录放服务类 → 工作台生成一份显式安装器（.g.cs，注册关系 git 可审）→ "
             + "Context 里一行接线。刻意不做运行时反射扫描（启动零反射、AOT/热更友好）；值绑定实例在 Context 构造时自动完成 [Inject] 注入与附着。";
 
         public override void InstallBindings(ContainerBuilder builder)
@@ -38,7 +38,7 @@ namespace Game.Framework.Demo.Modules
         {
             // ── 定位 ──
             host.AddPositioning("把 InstallBindings 注册样板交给代码生成");
-            host.AddNote("纯 C# 服务的注册样板可以生成掉：固定目录放服务类 → 菜单生成一份**显式**安装器（`.g.cs`，注册关系 git 可审）→ Context 里一行接线。启动零反射、AOT / 热更友好；配套演示构建期值绑定的「注册即注入」（ADR-0019）。");
+            host.AddNote("纯 C# 服务的注册样板可以生成掉：固定目录放服务类 → 工作台生成一份**显式**安装器（`.g.cs`，注册关系 git 可审）→ Context 里一行接线。启动零反射、AOT / 热更友好；配套演示构建期值绑定的「注册即注入」（ADR-0019）。");
 
             // ── 动手试 ──
             host.AddSectionTitle("动手试：生成注册的服务 vs 手写注册的服务");
@@ -59,7 +59,7 @@ namespace Game.Framework.Demo.Modules
             host.AddStep("①", "服务类放固定目录，文件名 = 类名——本章的两个服务就在 `ServiceInstaller/Services/`。",
                 new CodeRef(Dir + "/Services/DemoTimeUtility.cs", "class DemoTimeUtility", "看服务类"));
             host.AddStep("②", "`ServiceInstallerProfile` 资产配「扫描目录 → 输出路径/命名空间」（本章样板在 `ServiceInstaller/` 下），"
-                + "菜单「SSFramework/服务注册/生成服务安装器代码」生成 .g.cs。",
+                + "打开「SSFramework/代码生成/服务安装器」工作台生成 .g.cs。",
                 new CodeRef(Dir + "/Generated/DemoServicesInstaller.g.cs", "public static void Install", "看生成产物"));
             host.AddStep("③", "Context 的 `InstallBindings` 里一行接线调用——测试 Context / 子 Context 想装同一批服务就再调一次。",
                 CodeRef.Here("Generated.DemoServicesInstaller.Install", "本模块的接线"));

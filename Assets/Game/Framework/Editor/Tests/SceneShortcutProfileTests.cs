@@ -63,9 +63,9 @@ namespace Game.Framework.Editor.Tests
                     SceneShortcutMenu.PlaySub, "Shared", "Assets/C/Shared.unity", used).label,
                 Is.EqualTo("Shared (C)"), "普通打开路径不能与已有条目的 Play 子菜单路径重合。");
             Assert.That(SceneShortcutMenu.ResolveUniqueMenuPath(
-                    "", SceneShortcutMenu.BootToggleLabel, "Assets/Scenes/Boot.unity", used).label,
-                Is.EqualTo(SceneShortcutMenu.BootToggleLabel + " (Scenes)"),
-                "动态场景项不能覆盖固定工具菜单。");
+                    "", "▶ 打开并 Play", "Assets/Scenes/Boot.unity", used).label,
+                Is.EqualTo("▶ 打开并 Play (Scenes)"),
+                "普通打开项不能占用“打开并 Play”结构子菜单的路径。");
         }
 
         [Test]
@@ -73,17 +73,21 @@ namespace Game.Framework.Editor.Tests
         {
             var used = SceneShortcutMenu.CreateReservedMenuPaths();
 
+            var first = SceneShortcutMenu.ResolveUniqueMenuPath(
+                string.Empty,
+                "Navigation",
+                "Assets/Scenes/Navigation.unity",
+                used);
             var fixedLeafGroup = SceneShortcutMenu.ResolveUniqueMenuPath(
-                SceneShortcutMenu.EditProfileLabel,
+                first.label,
                 "Child",
                 "Assets/Scenes/Child.unity",
                 used);
-            Assert.That(fixedLeafGroup.group,
-                Is.EqualTo(SceneShortcutMenu.EditProfileLabel + " (场景组)/"));
+            Assert.That(fixedLeafGroup.group, Is.EqualTo("Navigation (场景组)/"));
 
             var slashInDisplayName = SceneShortcutMenu.ResolveUniqueMenuPath(
                 "",
-                SceneShortcutMenu.RefreshLabel + "/Child",
+                "Refresh/Child",
                 "Assets/Scenes/Named.unity",
                 used);
             Assert.That(slashInDisplayName.label, Does.Contain("／"));

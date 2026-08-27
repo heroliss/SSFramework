@@ -86,12 +86,16 @@ namespace Game.Framework.UI.UGui.Editor
         };
 
         /// <summary>全工程 Profile 上该字段的根默认（原始模板）。</summary>
-        internal static string RawFieldValue(UICodeGenProfile profile, GenTargetField field) => field switch
+        internal static string RawFieldValue(UICodeGenProfile profile, GenTargetField field) => profile != null ? field switch
         {
             GenTargetField.Namespace => profile.NamespaceRoot,
             GenTargetField.OutputDir => profile.OutputCodeDir,
             GenTargetField.GeneratedDir => profile.GeneratedCodeDir,
             _ => profile.FileNameTemplate,
+        } : field switch
+        {
+            GenTargetField.FileName => UICodeGenProfile.DefaultFileNameTemplate,
+            _ => string.Empty,
         };
 
         /// <summary>
@@ -326,7 +330,7 @@ namespace Game.Framework.UI.UGui.Editor
         /// <summary>组件类型 → 别名（Profile 映射表，按简单名/全名匹配；未配退回组件 <c>Name</c>）。</summary>
         public static string ComponentAliasOf(Type t, UICodeGenProfile profile)
         {
-            var map = profile.ComponentAliases;
+            var map = UICodeGenProfile.ComponentAliasesOrDefault(profile);
             if (map != null)
                 foreach (var a in map)
                     if (a != null && !string.IsNullOrEmpty(a.Alias) && (a.Component == t.Name || a.Component == t.FullName))
@@ -345,7 +349,7 @@ namespace Game.Framework.UI.UGui.Editor
             string comp = componentType.Name;
             string alias = ComponentAliasOf(componentType, profile);
 
-            bool omit = profile.OmitComponentTokenWhenContained &&
+            bool omit = (profile?.OmitComponentTokenWhenContained ?? UICodeGenProfile.DefaultOmitComponentTokenWhenContained) &&
                 (node.IndexOf(comp, StringComparison.OrdinalIgnoreCase) >= 0 ||
                  node.IndexOf(alias, StringComparison.OrdinalIgnoreCase) >= 0);
 
@@ -353,7 +357,7 @@ namespace Game.Framework.UI.UGui.Editor
             string Cap(string s) => string.IsNullOrEmpty(s) ? s : char.ToUpperInvariant(s[0]) + s.Substring(1);
             string Low(string s) => string.IsNullOrEmpty(s) ? s : char.ToLowerInvariant(s[0]) + s.Substring(1);
 
-            string raw = (profile.FieldNameTemplate ?? "{node}")
+            string raw = (profile?.FieldNameTemplate ?? UICodeGenProfile.DefaultFieldNameTemplate)
                 .Replace("{node}", node)
                 .Replace("{Node}", Cap(node))
                 .Replace("{Component}", Tok(comp))

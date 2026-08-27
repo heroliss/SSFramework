@@ -11,8 +11,8 @@ namespace Game.Framework.Demo.Modules
     /// </summary>
     public sealed class ProjectSetupModule : DemoModuleBase
     {
-        private const string ModuleAuditMenu = "SSFramework/诊断/模块裁剪审计";
-        private const string BuildSizeProbeMenu = "SSFramework/诊断/真实构建体积证据";
+        private const string ModuleAuditMenu = "SSFramework/诊断与分析/模块与依赖";
+        private const string BuildSizeProbeMenu = "SSFramework/诊断与分析/真实构建体积";
 
         public override string Id => "project-setup";
         public override string Title => "接入你的项目";

@@ -134,14 +134,14 @@
 
 ### P1 · Module 裁剪证据与依赖可见性
 
-- 新增 `SSFramework/诊断/模块裁剪审计`：以当前目标平台 Player 编译图确定候选，再读当前已编译 DLL 快照的元数据引用，避免把 auto-reference 的“编译可见”直接误算成代码消费；Unity 6000 可能返回 Editor 变体，故目标平台结论另由显式 DLL 门禁、HybridCLR 目标产物和真实 Player Build 验证。
+- 新增 `SSFramework/诊断与分析/模块与依赖`：以当前目标平台 Player 编译图确定候选，再读当前已编译 DLL 快照的元数据引用，避免把 auto-reference 的“编译可见”直接误算成代码消费；Unity 6000 可能返回 Editor 变体，故目标平台结论另由显式 DLL 门禁、HybridCLR 目标产物和真实 Player Build 验证。
 - 报告 Core-only / Core + UGUI / Core + Toolkit / 全部 Runtime / 当前 HybridCLR 热更档位的原始托管闭包，并机器执行 Core、两个 UI 后端与 Bridge 的删除测试。窗口改为“健康结论 → 关键数字 → 通俗建议 → 常用组合卡片”的渐进披露；完整模块、热更配置、程序集清单和原始报告默认折叠，620px 以下按钮与指标卡纵排且使用内容高度，避免裁剪和重叠。
 - Core、Fonts、Proto、UI 与两个后端的真实外部依赖全部回写 asmdef 显式声明，审计不再发现隐式依赖；ADR-0010/0027、Module 地图、guide §24/§26、Framework AGENTS 与 Demo 接入章同步依赖语义。
 - 原始 DLL 字节明确不等于最终包体；先用它发现值得实测的候选，再以 WebGL/小游戏 Player BuildReport 决定是否拆 `ReactiveListBinding` 或 Core 能力，避免为理论体积制造浅 Module。
 
 ### P1 · 隔离 Player Build 体积证据
 
-- 新增 `SSFramework/诊断/真实构建体积证据`：在 `Library` 下创建隔离空工程，Core / UGUI / Toolkit / 全部四档只复制审计闭包中的 Runtime Module，未选目录、业务场景、HybridCLR 生成物与其 link.xml 不进入结果。
+- 新增 `SSFramework/诊断与分析/真实构建体积`：在 `Library` 下创建隔离空工程，Core / UGUI / Toolkit / 全部四档只复制审计闭包中的 Runtime Module，未选目录、业务场景、HybridCLR 生成物与其 link.xml 不进入结果。
 - 每档依赖清单按所选 Module 从当前 manifest 最小化；当前 BuildTarget / 脚本后端 / stripping 原样使用，不修改主工程设置。隐藏 Unity 子进程顺序构建，可请求“当前完成后停止”，不强杀正在写产物的进程；Profile key、队列状态、PID 与停止原因进入报告，本机运行根由 EditorPrefs 保存，结果路径按运行根与 key 重建，主 Unity Domain Reload / 重启后可重新附着或从结果继续，人工停止与自动证据漂移不会被重载清空或在最终报告中混淆。
 - `report.json`、`report.md`、子进程日志与玩家产物共同保存；窗口显示可发布输出与相对 Core 差值。Unity BackUp / DoNotShip / 调试符号从默认比较中排除，原始 BuildReport 总量仍保留；所选程序集完整保留，明确将结果定义为体积上界，而非具体游戏的包体承诺。
 - Windows IL2CPP 实测完成 Core 80.04 MiB、UGUI 99.80 MiB（+19.75 MiB）、Toolkit 101.90 MiB（+21.86 MiB）的可发布输出上界；同轮原始 BuildReport 为 573.36 MiB / 1.00 GiB / 1.08 GiB，验证了 BackUp / 调试证据不能混进默认比较。矩阵中主动触发 Domain Reload 后可自动续跑。该快照只验证实现，不作为 WebGL 基线。
@@ -206,6 +206,6 @@
 
 - `git diff --check`；新增 C# 经 Unity 编译零错误；PowerShell 经 AST parser。
 - 相关 fixture 定向测试先绿，再跑 EditMode + PlayMode 全量。
-- 改 Demo 时运行 `SSFramework/诊断/校验 Demo 源码跳转锚点`，目录元数据通过自动发现。
+- 改 Demo 时打开 `SSFramework/Demo 教学/维护与校验`，运行 CodeRef 校验；目录元数据通过自动发现。
 - 改公开设计时同步 ADR / guide / Demo / 最近层级 AGENTS；只改实现细节则不要制造文档噪音。
 - 不直接修改第三方库，不手改 `.unity` / `.prefab` YAML。

@@ -5,13 +5,13 @@ namespace Game.Framework.Demo.Modules
 {
     /// <summary>
     /// 核心·框架诊断面板：把「容器里注册了什么、Command 什么时候被谁发过、Context 树长什么样、Bag 存活多少」
-    /// 这些不可见的运行时状态聚合成一个调试器风格窗口（菜单 SSFramework/诊断/框架诊断面板）。
+    /// 这些不可见的运行时状态聚合成一个调试器风格窗口（菜单 SSFramework/诊断与分析/运行时诊断）。
     /// demo 根 Context 已注册 <c>LoggingCommandSystem</c>——本 demo 每个按钮发的 Command 都在流水里留痕，
     /// 打开面板就能对照前面各章观察。ADR-0026。
     /// </summary>
     public sealed class DiagnosticsPanelModule : DemoModuleBase
     {
-        private const string PanelMenu = "SSFramework/诊断/框架诊断面板";
+        private const string PanelMenu = "SSFramework/诊断与分析/运行时诊断";
 
         public override string Id => "diagnostics-panel";
         public override string Title => "框架诊断面板";
@@ -60,7 +60,7 @@ namespace Game.Framework.Demo.Modules
             host.AddSectionTitle("边界");
             host.AddNote("采集仅在 Editor（玩家包连 Development Build 都编译消除、零成本）；真机诊断走「日志」章那套（`Log` + `CaptureUnityLogs` + `FileLogSink` 落盘）。纯 C# `new GameContext(...)` 时顺手设 `DebugName`（诊断专用、业务逻辑不得依赖），树上就不会出现匿名节点——场景 Context 与 Flow 状态子 Context 框架已自动命名。");
 
-            host.AddTip("速记：进 Play → 菜单 SSFramework/诊断/框架诊断面板；Mono 问题先看“根因”而非“影响数”，再分当前 / 历史；Command 流水 = 根 Context 注册 LoggingCommandSystem（demo 已接）；泄漏看趋势线 + 订阅计数 + 树上残影。深度见 framework-guide §23 / ADR-0026。");
+            host.AddTip("速记：进 Play → 菜单 SSFramework/诊断与分析/运行时诊断；Mono 问题先看“根因”而非“影响数”，再分当前 / 历史；Command 流水 = 根 Context 注册 LoggingCommandSystem（demo 已接）；泄漏看趋势线 + 订阅计数 + 树上残影。深度见 framework-guide §23 / ADR-0026。");
         }
 
         private static void RunMenu(string path)

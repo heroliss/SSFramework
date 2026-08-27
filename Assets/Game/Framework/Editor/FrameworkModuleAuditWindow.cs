@@ -22,7 +22,7 @@ namespace Game.Framework.Editor
         private string _rawReport = string.Empty;
 
         /// <summary>打开或聚焦 Module 裁剪审计窗口。</summary>
-        [MenuItem("SSFramework/诊断/模块裁剪审计", priority = 20)]
+        [MenuItem(FrameworkMenuPaths.ModuleAudit, priority = 81)]
         public static void Open() => GetWindow<FrameworkModuleAuditWindow>("模块裁剪审计").Show();
 
         /// <summary>构建可响应窗口宽度的 UI Toolkit 诊断界面。</summary>
@@ -656,8 +656,8 @@ namespace Game.Framework.Editor
                     "在 Unity Project 中选中本 Module 的 UnityLinker 保留规则；需要编辑时再双击打开。"));
             }
             if (status.IsHotUpdateRoot)
-                actions.Add(CreateActionButton("定位热更配置", OpenHotUpdateProfile,
-                    "在单一真源中调整该程序集是否作为热更 DLL 部署。"));
+                actions.Add(CreateActionButton("打开热更工作台", OpenHotUpdateProfile,
+                    "打开代码热更新工作台；可在其中定位配置并调整该程序集是否作为热更 DLL 部署。"));
             actions.Add(CreateActionButton("复制移除清单", () => CopyRemovalChecklist(status),
                 "复制直接消费者、保留原因和安全移除顺序。"));
             card.Add(actions);
@@ -1067,7 +1067,7 @@ namespace Game.Framework.Editor
 
         private static void OpenHotUpdateProfile()
         {
-            if (!EditorApplication.ExecuteMenuItem("SSFramework/热更构建/热更配置 (HotUpdate Profile)"))
+            if (!EditorApplication.ExecuteMenuItem(FrameworkMenuPaths.HotUpdateBuild))
                 Debug.LogWarning("[ModuleAudit] 未安装热更构建 Module，无法定位 FrameworkHotUpdateProfile。");
         }
 

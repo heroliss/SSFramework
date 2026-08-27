@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using NUnit.Framework;
+using UnityEditor;
 using UnityEngine;
 
 namespace Game.Framework.UI.UGui.Editor.Tests
@@ -17,6 +18,50 @@ namespace Game.Framework.UI.UGui.Editor.Tests
                 Assert.That(profile.NamespaceRoot, Is.Empty);
                 Assert.That(profile.OutputCodeDir, Is.Empty);
                 Assert.That(profile.GeneratedCodeDir, Is.Empty);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(profile);
+            }
+        }
+
+        [Test]
+        public void MissingProfile_ReadonlyPreviewUsesNewProfileDefaultsWithoutAssetCreation()
+        {
+            var profile = ScriptableObject.CreateInstance<UICodeGenProfile>();
+            try
+            {
+                var entry = new UIBindingEntry
+                {
+                    Path = "Confirm",
+                    ComponentTypes = { typeof(GameObject).AssemblyQualifiedName },
+                };
+
+                string withProfile = UIBindingUtil.EffectiveFieldName(entry, typeof(GameObject), 1, "Root", profile);
+                string withoutProfile = UIBindingUtil.EffectiveFieldName(entry, typeof(GameObject), 1, "Root", null);
+
+                Assert.That(withoutProfile, Is.EqualTo(withProfile));
+                Assert.That(UIBindingUtil.ResolveClassName("Assets/UI/LoginPanel.prefab", null, null),
+                    Is.EqualTo("LoginPanel"));
+                Assert.That(UIBindingUtil.ResolveNamespace("Assets/UI/LoginPanel.prefab", null, null), Is.Empty);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(profile);
+            }
+        }
+
+        [Test]
+        public void ExistingProfile_BlankFieldTemplate_PreservesLegacyNodeOnlyFallback()
+        {
+            var profile = ScriptableObject.CreateInstance<UICodeGenProfile>();
+            try
+            {
+                var serialized = new SerializedObject(profile);
+                serialized.FindProperty("_fieldNameTemplate").stringValue = " ";
+                serialized.ApplyModifiedPropertiesWithoutUndo();
+
+                Assert.That(profile.FieldNameTemplate, Is.EqualTo("{node}"));
             }
             finally
             {

@@ -106,7 +106,7 @@ Unity 交互式 Editor 还有一类更适合“项目内代码门禁”的固定
 
 Demo 中的故意失败采用另一条可读契约：动作前用 Experiment Notice 明确“影响范围 / 预期证据 / 恢复方式”，随后由 Experiment Action 生成带“教学实验 ·”前缀的机器可读按钮；换到下一小节后不能借用旧提示卡。结果就近解释稳定的 Console 条数与级别。预期异常由章节本地精确捕获；若出现 Host 的 `DemoAction failed`，应视为 Demo 实现遗漏，而不是实验成功。这样人工操作、截图复查和 AI 日志解析能共享同一判定标准。
 
-分钟级 Module 体积矩阵采用同一原则：项目内 `SSFramework/诊断/真实构建体积证据` 把隔离工程、最小依赖、Unity 子进程、BuildReport 解析和 Domain Reload 恢复集中在 `Game.Framework.Editor`，Claude / Codex 不各写一套临时脚本。常见 Core / UGUI / Toolkit 回归还有无窗口的 AI 自动化菜单，避免依赖当前不可用的 MCP `execute_code` 动态编译；Agent 启动一次后只观察 `Library/SSFramework/BuildSizeProbe/<run>/report.json`，主 Unity 重载后按落盘 PID 自动重新附着，不能因工具调用超时盲目重跑。证据口径和刻意不做见 ADR-0038，操作要点见 `docs/unity-mcp-tips.md` §12。
+分钟级 Module 体积矩阵采用同一原则：项目内 `SSFramework/诊断与分析/真实构建体积` 把隔离工程、最小依赖、Unity 子进程、BuildReport 解析和 Domain Reload 恢复集中在 `Game.Framework.Editor`，Claude / Codex 不各写一套临时脚本。常见 Core / UGUI / Toolkit 回归还有无窗口的 AI 自动化菜单，避免依赖当前不可用的 MCP `execute_code` 动态编译；Agent 启动一次后只观察 `Library/SSFramework/BuildSizeProbe/<run>/report.json`，主 Unity 重载后按落盘 PID 自动重新附着，不能因工具调用超时盲目重跑。证据口径和刻意不做见 ADR-0038，操作要点见 `docs/unity-mcp-tips.md` §12。
 
 ### Subagents
 

@@ -31,7 +31,7 @@ namespace Game.Framework.UI.UGui.Editor
             if (_data == null) return rows;
             string prefix = _ancestorPath + "/";
             string rootName = _root != null ? _root.name : string.Empty;
-            var profile = UICodeGenProfile.Resolve();
+            UICodeGenProfile.TryResolve(out var profile);
             foreach (var e in _data.Entries)
                 if (!string.IsNullOrEmpty(e.Path) && e.Path.StartsWith(prefix, StringComparison.Ordinal))
                     rows.Add(UIBindingListView.ToRow(e, e.Path.Substring(prefix.Length), rootName, profile)); // 相对子路径

@@ -50,4 +50,4 @@
 
 - Concept/原理章可跳框架 Seam；Capability 优先跳 demo 自身调用/定义，框架 Interface 至多在定位/注册处留一处完整契约。
 - 同文件用 `CodeRef.Here("锚点")`，跨文件用 `new CodeRef("Assets/...", "锚点")`；锚点选唯一的真实代码片段，不用 `RegisterOwned` 这类泛词。
-- 改完运行 `SSFramework/诊断/校验 Demo 源码跳转锚点`；偏移或失效会 LogError。
+- 改完打开 `SSFramework/Demo 教学/维护与校验`，运行“校验全部 Demo CodeRef”；偏移或失效会 LogError。

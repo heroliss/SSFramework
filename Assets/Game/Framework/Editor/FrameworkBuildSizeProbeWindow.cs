@@ -26,7 +26,7 @@ namespace Game.Framework.Editor
         private Button _stopButton;
 
         /// <summary>打开或聚焦真实构建体积证据窗口。</summary>
-        [MenuItem("SSFramework/诊断/真实构建体积证据", priority = 21)]
+        [MenuItem(FrameworkMenuPaths.BuildSizeProbe, priority = 82)]
         public static void Open() => GetWindow<FrameworkBuildSizeProbeWindow>("真实构建体积证据").Show();
 
         private void OnEnable() => FrameworkBuildSizeProbe.Changed += RefreshState;

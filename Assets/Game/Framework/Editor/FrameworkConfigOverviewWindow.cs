@@ -7,10 +7,10 @@ using UnityEngine;
 namespace Game.Framework.Editor
 {
     /// <summary>
-    /// 「框架配置总览」hub（菜单 <c>SSFramework/配置总览</c>）：把框架各模块的配置 profile 资产聚合到一页——
+    /// 「框架配置中心」hub：把框架各模块的配置 profile 资产聚合到一页——
     /// 每模块一节，列出找到的资产（点路径定位选中）、标注单份 / 多份语义并做健康检查（单例类找到多份黄条警告），
-    /// 并提供跳转到模块专用总览 / 配置入口的按钮。解决「配置资产散落各目录、不知道有哪些 / 在哪」的问题；
-    /// 生成 / 构建等操作不在这里做，仍在各模块子菜单与专用总览里。
+    /// 并提供跳转到模块专用工作台的按钮。解决「配置资产散落各目录、不知道有哪些 / 在哪」的问题；
+    /// 生成 / 构建等操作不在这里做，仍在各 Module 的工作台里。
     /// </summary>
     /// <remarks>
     /// 刻意用「字符串类型名 + <c>FindAssets</c> / <c>Type.GetType</c>」发现资产、菜单路径字符串跳转，
@@ -20,8 +20,8 @@ namespace Game.Framework.Editor
     /// </remarks>
     public sealed class FrameworkConfigOverviewWindow : EditorWindow
     {
-        [MenuItem("SSFramework/配置总览", priority = 0)]
-        public static void Open() => GetWindow<FrameworkConfigOverviewWindow>("框架配置总览").Show();
+        [MenuItem(FrameworkMenuPaths.Configuration, priority = 1)]
+        public static void Open() => GetWindow<FrameworkConfigOverviewWindow>("SSFramework 配置中心").Show();
 
         /// <summary>一节 = 一类配置 profile 的登记信息。</summary>
         private sealed class Section
@@ -46,7 +46,7 @@ namespace Game.Framework.Editor
                 QualifiedType = "Game.Framework.Editor.ServiceInstallerProfile, Game.Framework.Editor",
                 Singleton = false,
                 Note = "可按子项目、环境或功能域并存多份；无自动创建，经 Assets/Create/SSFramework/服务安装器配置 建。",
-                JumpMenu = "SSFramework/服务注册/配置总览", JumpLabel = "打开总览",
+                JumpMenu = FrameworkMenuPaths.ServiceInstaller, JumpLabel = "打开工作台",
             },
             new()
             {
@@ -55,7 +55,7 @@ namespace Game.Framework.Editor
                 QualifiedType = "Game.Framework.UI.UGui.Editor.UICodeGenProfile, Game.Framework.UI.UGui.Editor",
                 Singleton = true,
                 Note = "全工程单例；业务命名空间与输出目录不可推导，首次创建后需填写。目录差异用 UICodeGenDirConfig 就近覆盖。",
-                JumpMenu = "SSFramework/UI 绑定/配置总览", JumpLabel = "打开总览",
+                JumpMenu = FrameworkMenuPaths.UIBinding, JumpLabel = "打开工作台",
                 SubTypeName = "UICodeGenDirConfig", SubLabel = "目录级覆盖",
             },
             new()
@@ -65,7 +65,7 @@ namespace Game.Framework.Editor
                 QualifiedType = "Game.Framework.Build.LubanConfigProfile, Game.Framework.Config.Editor",
                 Singleton = false,
                 Note = "可按数据域或构建目标并存多套（各自维护 luban.conf 源与输出）；路径不可推导，需显式新建。",
-                JumpMenu = "SSFramework/配置表构建/配置总览 (定位 · 打开目录 · 生成)", JumpLabel = "打开总览",
+                JumpMenu = FrameworkMenuPaths.Luban, JumpLabel = "打开工作台",
             },
             new()
             {
@@ -74,7 +74,7 @@ namespace Game.Framework.Editor
                 QualifiedType = "Game.Framework.Network.Proto.Editor.ProtoConfigProfile, Game.Framework.Network.Proto.Editor",
                 Singleton = false,
                 Note = "多套并存（每套一个 .proto 源目录 + 输出目录）；无自动创建，经 Assets/Create/SSFramework/Protobuf 生成配置 或总览窗口新建。",
-                JumpMenu = "SSFramework/Protobuf/配置总览 (定位 · 打开目录 · 生成)", JumpLabel = "打开总览",
+                JumpMenu = FrameworkMenuPaths.Protobuf, JumpLabel = "打开工作台",
             },
             new()
             {
@@ -82,8 +82,8 @@ namespace Game.Framework.Editor
                 TypeName = "FrameworkAssetBuildProfile",
                 QualifiedType = "Game.Framework.Build.FrameworkAssetBuildProfile, Game.Framework.Build.Editor",
                 Singleton = true,
-                Note = "全工程单例（首次使用自动创建，按收集器包列表初始化）。",
-                JumpMenu = "SSFramework/资源构建/构建配置 (Build Profile)", JumpLabel = "打开配置",
+                Note = "全工程单例；只在工作台明确点击创建，按收集器包列表初始化。",
+                JumpMenu = FrameworkMenuPaths.AssetBuild, JumpLabel = "打开工作台",
             },
             new()
             {
@@ -91,8 +91,8 @@ namespace Game.Framework.Editor
                 TypeName = "FrameworkHotUpdateProfile",
                 QualifiedType = "Game.Framework.Build.FrameworkHotUpdateProfile, Game.Framework.Build.Editor",
                 Singleton = true,
-                Note = "全工程单例（首次使用自动创建，默认档位 = 内核 + Asset.Yoo 热更）。",
-                JumpMenu = "SSFramework/热更构建/热更配置 (HotUpdate Profile)", JumpLabel = "打开配置",
+                Note = "全工程单例；只在工作台明确点击创建，默认候选 = 内核 + Asset.Yoo 热更。",
+                JumpMenu = FrameworkMenuPaths.HotUpdateBuild, JumpLabel = "打开工作台",
             },
             new()
             {
@@ -100,8 +100,8 @@ namespace Game.Framework.Editor
                 TypeName = "FontCharsetProfile",
                 QualifiedType = "Game.Framework.Fonts.Editor.FontCharsetProfile, Game.Framework.Fonts.Editor",
                 Singleton = true,
-                Note = "全工程单例（首次使用自动创建）；产出 charset 文件喂 TMP Font Asset Creator 烘焙主字体。",
-                JumpMenu = "SSFramework/字体/常用字集配置 (Charset Profile)", JumpLabel = "打开配置",
+                Note = "全工程单例；只在工作台明确点击创建；产出 charset 文件喂 TMP Font Asset Creator 烘焙主字体。",
+                JumpMenu = FrameworkMenuPaths.FontCharset, JumpLabel = "打开工作台",
             },
             new()
             {
@@ -110,7 +110,7 @@ namespace Game.Framework.Editor
                 QualifiedType = "Game.Framework.Editor.SceneShortcutProfile, Game.Framework.Editor",
                 Singleton = true,
                 Note = "全工程单例（首次打开配置时创建，并导入 Build Settings 已启用场景）；域重载只读，不会隐式写资产。",
-                JumpMenu = "SSFramework/场景/⚙ 编辑场景快捷入口", JumpLabel = "打开配置",
+                JumpMenu = FrameworkMenuPaths.SceneShortcuts, JumpLabel = "打开工作台",
             },
         };
 
@@ -137,7 +137,7 @@ namespace Game.Framework.Editor
             }
             EditorGUILayout.HelpBox(
                 "框架各模块配置 profile 的一页清单：点路径定位选中资产；单例类找到多份会警告。\n" +
-                "生成 / 构建等操作在各模块子菜单与专用总览里，这里只回答「有哪些配置、在哪、健康与否」。",
+                "生成 / 构建等操作在各自工作台里，这里只回答「有哪些配置、在哪、健康与否」。",
                 MessageType.Info);
 
             _scroll = EditorGUILayout.BeginScrollView(_scroll);

@@ -4,8 +4,8 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
+using Game.Framework.Editor;
 using UnityEditor;
-using UnityEngine;
 
 namespace Game.Framework.Network.Proto.Editor
 {
@@ -30,18 +30,28 @@ namespace Game.Framework.Network.Proto.Editor
         /// </summary>
         public static (bool ok, string message) Generate(ProtoConfigProfile profile)
         {
-            string projectRoot = Path.GetDirectoryName(Application.dataPath);
-
+            if (profile == null) return (false, "ProtoConfigProfile 不能为空。");
+            var ownershipProfiles = ProtoConfigProfile.ResolveAll().Concat(new[] { profile }).Distinct().ToArray();
+            var (ownershipOk, ownershipMessage) = ValidateOutputOwnership(ownershipProfiles);
+            if (!ownershipOk) return (false, ownershipMessage);
             if (string.IsNullOrEmpty(profile.ProtoDir) || string.IsNullOrEmpty(profile.OutputCodeDir))
                 return (false, "profile 未配置完整：.proto 源目录与代码输出目录都必填（选中该资产在 Inspector 填写）。");
 
-            string protoc = ResolveProtocPath(projectRoot, profile.ProtocDir);
+            if (!FrameworkProjectPath.TryResolve(
+                    profile.ProtocDir, out _, out string protocRoot, out string protocPathError))
+                return (false, "protoc 目录无效：" + protocPathError);
+            if (!FrameworkProjectPath.TryResolve(
+                    profile.ProtoDir, out _, out string protoDirAbs, out string protoPathError))
+                return (false, ".proto 源目录无效：" + protoPathError);
+            if (!TryResolveOutputDirectory(profile, out string outputAssetPath, out string outDirAbs, out string outputError))
+                return (false, outputError);
+
+            string protoc = ResolveProtocPath(protocRoot, string.Empty);
             if (!File.Exists(protoc))
                 return (false, $"protoc 不存在：{protoc}\n" +
                                "从 https://github.com/protocolbuffers/protobuf/releases 下载对应平台的 protoc，" +
                                "解压出的 bin/protoc 放到该路径。");
 
-            string protoDirAbs = Path.GetFullPath(Path.Combine(projectRoot, profile.ProtoDir));
             if (!Directory.Exists(protoDirAbs))
                 return (false, $".proto 源目录不存在：{protoDirAbs}（检查 profile 的 protoDir）。");
 
@@ -53,7 +63,6 @@ namespace Game.Framework.Network.Proto.Editor
             if (protoFiles.Count == 0)
                 return (false, $".proto 源目录里没有 .proto 文件：{protoDirAbs}");
 
-            string outDirAbs = Path.GetFullPath(Path.Combine(projectRoot, profile.OutputCodeDir));
             string tempDir = Path.GetFullPath(FileUtil.GetUniqueTempPathInProject());
             Directory.CreateDirectory(tempDir);
             try
@@ -84,8 +93,14 @@ namespace Game.Framework.Network.Proto.Editor
                 string syncSummary = SyncGenerated(tempDir, outDirAbs);
                 AssetDatabase.Refresh();
                 return (true, $"生成完成（{protoFiles.Count} 个 .proto：{string.Join(", ", protoFiles)}）。\n" +
-                              $"  代码 → {profile.OutputCodeDir}（{syncSummary}）" +
+                              $"  代码 → {outputAssetPath}（{syncSummary}）" +
                               (log.Length > 0 ? $"\nprotoc 输出：\n{log}" : ""));
+            }
+            catch (Exception exception) when (
+                exception is System.ComponentModel.Win32Exception or IOException or UnauthorizedAccessException or
+                InvalidOperationException)
+            {
+                return (false, "protoc 进程或产物同步未能完成：" + exception.Message);
             }
             finally
             {
@@ -103,6 +118,56 @@ namespace Game.Framework.Network.Proto.Editor
 #else
             return Path.GetFullPath(Path.Combine(projectRoot, protocDir, "linux_x64/protoc"));
 #endif
+        }
+
+        /// <summary>
+        /// 在批量生成写盘前验证每套 profile 对输出目录的独占所有权。每个目录必须是 <c>Assets</c> 的非根子目录，
+        /// 且不同配置之间不得相同或互为父子；失败时不会创建、覆盖或清理任何产物。
+        /// </summary>
+        public static (bool ok, string message) ValidateOutputOwnership(IReadOnlyList<ProtoConfigProfile> profiles)
+        {
+            if (profiles == null || profiles.Count == 0)
+                return (false, "没有可验证的 ProtoConfigProfile。");
+
+            var outputs = new List<(ProtoConfigProfile profile, string assetPath, string absolutePath)>();
+            foreach (ProtoConfigProfile profile in profiles)
+            {
+                if (profile == null) return (false, "配置列表含已删除或空的 ProtoConfigProfile。");
+                if (!TryResolveOutputDirectory(profile, out string assetPath, out string absolutePath, out string error))
+                    return (false, $"【{profile.name}】{error}");
+                outputs.Add((profile, assetPath, absolutePath));
+            }
+
+            for (int i = 0; i < outputs.Count; i++)
+            for (int j = i + 1; j < outputs.Count; j++)
+            {
+                var left = outputs[i];
+                var right = outputs[j];
+                if (!FrameworkProjectPath.DirectoriesOverlap(left.absolutePath, right.absolutePath)) continue;
+                return (false,
+                    $"输出目录所有权冲突：【{left.profile.name}】{left.assetPath} 与" +
+                    $"【{right.profile.name}】{right.assetPath} 相同或互相嵌套。\n" +
+                    "每套配置会递归清理自己目录中本次未生成的 *.g.cs；请为它们分配互不嵌套的独立目录。");
+            }
+
+            return (true, $"{outputs.Count} 套配置各自拥有独立输出目录。");
+        }
+
+        private static bool TryResolveOutputDirectory(
+            ProtoConfigProfile profile,
+            out string assetPath,
+            out string absolutePath,
+            out string error)
+        {
+            if (FrameworkProjectPath.TryResolveAssetsDirectory(
+                    profile.OutputCodeDir, out assetPath, out absolutePath, out string pathError))
+            {
+                error = string.Empty;
+                return true;
+            }
+
+            error = "代码输出目录无效：" + pathError;
+            return false;
         }
 
         private static (int exitCode, string log) Run(ProcessStartInfo psi)

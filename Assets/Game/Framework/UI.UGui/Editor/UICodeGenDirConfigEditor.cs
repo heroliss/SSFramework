@@ -1,3 +1,4 @@
+using Game.Framework.Editor;
 using UnityEditor;
 using UnityEngine;
 
@@ -38,6 +39,7 @@ namespace Game.Framework.UI.UGui.Editor
                     MessageType.Warning);
                 if (GUILayout.Button("创建全工程配置"))
                 {
+                    if (!FrameworkEditorOperationGate.EnsureCanStart("创建 UI 生成配置")) return;
                     UICodeGenProfile created = UICodeGenProfile.Resolve();
                     Selection.activeObject = created;
                     EditorGUIUtility.PingObject(created);

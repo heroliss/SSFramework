@@ -110,7 +110,7 @@ AnkleBreaker Unity MCP 2.39.5 的 `blockedReason: editor_unfocused` 由 job 序�
 
 ## 12. Module 体积矩阵走隔离构建探针
 
-Core / UGUI / Toolkit 的真实体积比较不要在主工程临时改 `link.xml`、HybridCLR 清单或 Build Settings。人工组合用 `SSFramework/诊断/真实构建体积证据`；AI / CI 的常用回归直接执行无窗口菜单 `SSFramework/诊断/AI 自动化/常用档位隔离构建（Core + UGUI + Toolkit）`，只验证内核时用相邻的 Core 菜单。它们都在 `Library/SSFramework/BuildSizeProbe/` 创建无 MCP 插件的最小 Unity 子工程，物理删除未选 Module 后顺序构建。
+Core / UGUI / Toolkit 的真实体积比较不要在主工程临时改 `link.xml`、HybridCLR 清单或 Build Settings。人工组合用 `SSFramework/诊断与分析/真实构建体积`；AI / CI 的常用回归直接执行无窗口菜单 `SSFramework/诊断/AI 自动化/常用档位隔离构建（Core + UGUI + Toolkit）`，只验证内核时用相邻的 Core 菜单。它们都在 `Library/SSFramework/BuildSizeProbe/` 创建无 MCP 插件的最小 Unity 子工程，物理删除未选 Module 后顺序构建。
 
 - 先正常切到想测的 BuildTarget；探针不会替 Agent 静默切平台。
 - 启动后轮询最近一轮 `report.json` 或窗口状态；不要因为单次 MCP 超时重复点击构建。

@@ -37,7 +37,7 @@ namespace Game.Framework.UI.UGui.Editor
             if (data.Entries.Count == 0)
                 EditorGUILayout.LabelField("（暂无绑定。Prefab 编辑模式下选子节点右键标记 / Hierarchy 点「＋」。）");
 
-            var profile = UICodeGenProfile.Resolve();
+            UICodeGenProfile.TryResolve(out var profile);
             // 字段重名提示：算出会撞名的字段名集合，画行时给命中的字段名加 ⚠（与 Hierarchy 徽标口径一致）。
             var duplicates = UIBindingUtil.DuplicateFieldNames(data.Entries, data.name, profile);
             bool compact = UseCompactLayout(EditorGUIUtility.currentViewWidth);

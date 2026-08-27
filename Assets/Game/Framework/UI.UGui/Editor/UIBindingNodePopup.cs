@@ -41,7 +41,7 @@ namespace Game.Framework.UI.UGui.Editor
             var data = _root != null ? _root.GetComponent<UIBindingData>() : null;
             var entry = data != null ? data.Find(_path) : null;
             string rootName = _root != null ? _root.name : string.Empty;
-            var profile = UICodeGenProfile.Resolve();
+            UICodeGenProfile.TryResolve(out var profile);
 
             const float pad = 14f, rightGap = 6f, minW = 300f, maxW = 640f;
             string title = string.IsNullOrEmpty(_path) ? "(根)" : _path;
@@ -90,8 +90,7 @@ namespace Game.Framework.UI.UGui.Editor
         }
 
         /// <summary>
-        /// 只计算节点弹窗的内容请求高度，不解析配置资产。布局测试走这里，避免一次尺寸断言在空工程里
-        /// 因 <see cref="UICodeGenProfile.Resolve"/> 的“缺失则创建”语义意外写入项目。
+        /// 只计算节点弹窗的内容请求高度，不解析配置资产。布局测试走这里，避免尺寸计算与工程配置状态耦合。
         /// </summary>
         internal static float CalculateRequestedHeight(bool editable, int rowCount, float lineHeight)
         {
@@ -154,7 +153,7 @@ namespace Game.Framework.UI.UGui.Editor
             if (_node != null)
             {
                 string rootName = _root != null ? _root.name : string.Empty;
-                var profile = UICodeGenProfile.Resolve();
+                UICodeGenProfile.TryResolve(out var profile);
                 var dups = UIBindingUtil.DuplicateFieldNames(data.Entries, rootName, profile);
                 int typeCount = entry.ComponentTypes.Count;
 
@@ -188,7 +187,7 @@ namespace Game.Framework.UI.UGui.Editor
         private void DrawReadonly(UIBindingEntry entry)
         {
             string rootName = _root != null ? _root.name : string.Empty;
-            var profile = UICodeGenProfile.Resolve();
+            UICodeGenProfile.TryResolve(out var profile);
 
             EditorGUILayout.LabelField("绑定组件 → 字段名：");
             if (entry.ComponentTypes.Count == 0)

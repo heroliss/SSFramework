@@ -1336,7 +1336,7 @@ namespace Game.Framework.Editor.Tests
                 BuildModuleAvailable = true,
             };
             Assert.That(missingProfile.RequiresAttention, Is.True,
-                "Build 菜单会创建默认热更档位；缺少唯一真源不能静默判作纯 AOT。 ");
+                "缺少热更配置这一唯一真源时不能静默判作纯 AOT；配置必须由工作台明确创建。 ");
 
             var pureAot = new FrameworkModuleAudit.HotUpdateDeploymentEvidence
             {

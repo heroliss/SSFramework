@@ -36,7 +36,7 @@ namespace Game.Framework.UI.UGui.Editor
             var data = _root != null ? _root.GetComponent<UIBindingData>() : null;
             if (data == null) return rows;
             string rootName = _root.name;
-            var profile = UICodeGenProfile.Resolve();
+            UICodeGenProfile.TryResolve(out var profile);
             foreach (var e in data.Entries)
                 rows.Add(UIBindingListView.ToRow(e, string.IsNullOrEmpty(e.Path) ? "(根)" : e.Path, rootName, profile)); // 完整相对路径
             return rows;

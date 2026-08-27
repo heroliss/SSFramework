@@ -69,7 +69,7 @@
 ## 模块入口与配置可发现性
 
 - 资源、存储、音频、池等纯 C# Utility 默认按 Interface 注册并由 Context 持有所有权；需要 Inspector 配置时再选 Mono Adapter。
-- 新模块配置 Profile 必须能从 `SSFramework/<模块>/` 菜单到达，并登记到配置总览；不要让生效配置只能靠翻目录猜。
+- 新模块配置 Profile 必须能从 `SSFramework/工具中心` 的 Module 工作台到达，并登记到 `SSFramework/配置中心`；不要让生效配置只能靠翻目录猜。顶层菜单只导航，创建/生成动作放进工作台并说明影响。
 - UGUI 与 UI Toolkit 是 Adapter，实现可替换；核心业务通过 `IUIUtility`/View 约束保持渲染中立。
 
 ## 命名与日志

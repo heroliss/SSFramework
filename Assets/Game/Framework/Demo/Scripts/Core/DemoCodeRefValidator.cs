@@ -15,7 +15,7 @@ namespace Game.Framework.Demo.Core
     /// <see cref="CodeNavigator.ResolveAnchor"/> 规则验证路径与锚点。
     /// </summary>
     /// <remarks>
-    /// 菜单只负责展示结果；源码提取与校验报告都有结构化接口供 EditMode 门禁直接断言，避免“日志显示成功，
+    /// Demo 维护窗口只负责展示结果；源码提取与校验报告都有结构化接口供 EditMode 门禁直接断言，避免“日志显示成功，
     /// 实际却漏扫一种写法”。提取器理解注释/字符串边界、文件内 <c>const string</c> 和字符串拼接，
     /// 覆盖 <c>CodeRef.Here</c>、显式/全限定构造，以及变量、属性和返回表达式中的常见
     /// target-typed <c>new(...)</c>。
@@ -31,7 +31,6 @@ namespace Game.Framework.Demo.Core
             "DemoCodeRefValidator.cs",
         };
 
-        [MenuItem("SSFramework/诊断/校验 Demo 源码跳转锚点", priority = 300)]
         public static void Validate()
         {
             string projectRoot = Directory.GetParent(Application.dataPath)!.FullName;
@@ -137,6 +136,34 @@ namespace Game.Framework.Demo.Core
             CodeNavigator.AnchorVerdict.Ambiguous => "锚点命中多处真实代码（需取更独特片段）",
             _ => verdict.ToString(),
         };
+    }
+
+    /// <summary>只属于可删除 Demo Module 的教学维护入口，不注册进通用 Framework 工具中心。</summary>
+    internal sealed class DemoMaintenanceWindow : EditorWindow
+    {
+        [MenuItem("SSFramework/Demo 教学/维护与校验", priority = 200)]
+        private static void Open() => GetWindow<DemoMaintenanceWindow>("SSFramework Demo 维护").Show();
+
+        private void OnEnable() => minSize = new Vector2(320, 300);
+
+        private void OnGUI()
+        {
+            EditorGUILayout.Space(6);
+            EditorGUILayout.LabelField("Demo 教学维护", EditorStyles.boldLabel);
+            EditorGUILayout.HelpBox(
+                "本窗口只随 Demo Module 存在，不属于通用框架工具。它检查教程中的“查看源码”锚点是否仍能精准命中；同一规则也由 EditMode 测试自动守护。",
+                MessageType.Info);
+
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+            {
+                EditorGUILayout.LabelField("源码跳转锚点", EditorStyles.boldLabel);
+                GUILayout.Label(
+                    "适合在重命名方法、搬动示例代码或修改 CodeRef 后执行。校验只读取 Demo C# 源码，不修改场景、Prefab 或项目设置。",
+                    EditorStyles.wordWrappedMiniLabel);
+                if (GUILayout.Button("校验全部 Demo CodeRef", GUILayout.Height(28)))
+                    DemoCodeRefValidator.Validate();
+            }
+        }
     }
 
     /// <summary>一次项目级 CodeRef 校验的结构化结果。</summary>

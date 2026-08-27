@@ -10,7 +10,7 @@
 
 ### 1. 构建期（codegen）
 
-- 表定义（XML）与数据（JSON / Excel）放各自的 conf 源目录（demo 那套在 `Demo/Configs~/`，`~` 后缀不被 Unity 导入）；Editor 菜单 `SSFramework/配置表构建` 封装 Luban CLI。路径与目标收口在 `LubanConfigProfile`（每套配置一份 SO），生成逻辑在 `LubanCodeGenerator`（均属 `Game.Framework.Config.Editor`）。工程可并存多套 profile（demo + 正式游戏），`ResolveAll()` 返回全部、逐套生成。
+- 表定义（XML）与数据（JSON / Excel）放各自的 conf 源目录（demo 那套在 `Demo/Configs~/`，`~` 后缀不被 Unity 导入）；Editor 工作台 `SSFramework/代码生成/配置表 (Luban)` 封装 Luban CLI。路径与目标收口在 `LubanConfigProfile`（每套配置一份 SO），生成逻辑在 `LubanCodeGenerator`（均属 `Game.Framework.Config.Editor`）。工程可并存多套 profile（demo + 正式游戏），`ResolveAll()` 返回全部、逐套生成。
 - 一次生成产出**三件套**：配置 C# 类（cs-bin）+ 二进制数据（bin → `*.bytes`，落资源收集范围内）+ **表清单**（`LubanTableManifest.g.cs`，CLI 跑完后由管线扫数据目录补写）。
 - 输出格式定 **binary**（紧凑、解析快）；数据源按表选、同项目混搭（表定义的 `input` 决定）——demo 双样例：`item.json`（JSON 文本，git diff 可读、AI 可维护）+ `monster.xlsx`（Excel，策划直接编辑）。
 

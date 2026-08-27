@@ -57,6 +57,6 @@ Model 持有集合就用 `ObservableList<T>`（如 `RP<T>` 之于单值）；只
 - 五件套齐：本 ADR / 引擎（`Game.Framework.UI/ReactiveListBinding.cs`）+ 双后端适配 / 测试（`ReactiveListBindingTests`）/ demo「响应式列表 · 集合绑定」章（`Modules/ReactiveListModule.cs`）/ guide §24 + AGENTS #31。
 - ObservableCollections 从「roadmap 候选」变成已融入依赖：Model 显式使用集合类型，`Bag.BindList` 收口增量维护与逐行生命周期 Implementation；不再用“整个库都被隐藏”描述这条依赖。
 
-**2026-08-25 模块审计补充：**共享引擎当前位于 `Game.Framework.UI`，所以任何窗口框架消费方都会在编译闭包中看到 ObservableCollections，即使没有调用 `BindList`；两个后端 asmdef 也显式声明各自公开签名里的集合类型。该耦合是可见且可测的，不再借 NuGet auto-reference 隐藏。是否进一步拆成可选 Module，须以目标平台 Player BuildReport 证明收益；编辑器 `SSFramework/诊断/模块裁剪审计` 可把任意 Module 作为入口查看真实闭包，再交给隔离构建探针验证体积上界，避免为理论体积提前制造浅 Module。
+**2026-08-25 模块审计补充：**共享引擎当前位于 `Game.Framework.UI`，所以任何窗口框架消费方都会在编译闭包中看到 ObservableCollections，即使没有调用 `BindList`；两个后端 asmdef 也显式声明各自公开签名里的集合类型。该耦合是可见且可测的，不再借 NuGet auto-reference 隐藏。是否进一步拆成可选 Module，须以目标平台 Player BuildReport 证明收益；编辑器 `SSFramework/诊断与分析/模块与依赖` 可把任意 Module 作为入口查看真实闭包，再交给隔离构建探针验证体积上界，避免为理论体积提前制造浅 Module。
 
 **2026-08-24 验证补充：**Demo 为每个真实行 View 增加稳定实例身份，并从 item factory 与 rowBag Dispose 两个 Seam 采集创建 / 释放 / 存活计数；画面可直接观察 Move 复用同一行、Replace 仅重造一槽。EditMode 契约同时断言真实 `VisualElement` 引用、父子层级与 rowBag 释放状态，避免“列表结果正确”掩盖整表重建或逐行生命周期错误。

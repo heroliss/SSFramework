@@ -1,4 +1,5 @@
 using System.Linq;
+using Game.Framework.Editor;
 using UnityEditor;
 using UnityEngine;
 
@@ -11,8 +12,14 @@ namespace Game.Framework.UI.UGui.Editor
     /// </summary>
     public sealed class UICodeGenConfigOverviewWindow : EditorWindow
     {
-        [MenuItem("SSFramework/UI 绑定/配置总览", priority = 21)]
+        [MenuItem(FrameworkMenuPaths.UIBinding, priority = 43)]
         public static void Open() => GetWindow<UICodeGenConfigOverviewWindow>("UI 生成配置总览").Show();
+
+        [InitializeOnLoadMethod]
+        private static void RegisterTool() => FrameworkToolRegistry.Register(new FrameworkToolDescriptor(
+            "ui-binding", FrameworkToolCategory.CodeGeneration, 40,
+            "UI 绑定", "查看全工程默认、目录级覆盖链和生成落点；Prefab 生成仍保留在有选择上下文的右键菜单。",
+            FrameworkMenuPaths.UIBinding));
 
         private Vector2 _scroll;
 
@@ -41,11 +48,28 @@ namespace Game.Framework.UI.UGui.Editor
 
             _scroll = EditorGUILayout.BeginScrollView(_scroll);
 
-            var profile = UICodeGenProfile.Resolve();
             EditorGUILayout.LabelField("全工程默认 (UICodeGenProfile)", EditorStyles.boldLabel);
-            DrawRow(profile, AssetDatabase.GetAssetPath(profile),
-                profile.NamespaceRoot, profile.OutputCodeDir, profile.GeneratedCodeDir, profile.FileNameTemplate,
-                isProfile: true, compact: compact);
+            if (UICodeGenProfile.TryResolve(out var profile))
+            {
+                DrawRow(profile, AssetDatabase.GetAssetPath(profile),
+                    profile.NamespaceRoot, profile.OutputCodeDir, profile.GeneratedCodeDir, profile.FileNameTemplate,
+                    isProfile: true, compact: compact);
+            }
+            else
+            {
+                EditorGUILayout.HelpBox(
+                    "尚无全工程 UI CodeGen Profile。仅打开窗口不会创建资产；点击下方按钮会在项目配置目录创建待填写的空 Profile。",
+                    MessageType.Warning);
+                if (GUILayout.Button("创建 UI 生成配置"))
+                {
+                    if (FrameworkEditorOperationGate.EnsureCanStart("创建 UI 生成配置"))
+                    {
+                        profile = UICodeGenProfile.Resolve();
+                        Selection.activeObject = profile;
+                        EditorGUIUtility.PingObject(profile);
+                    }
+                }
+            }
 
             EditorGUILayout.Space(8);
             var dirConfigs = AssetDatabase.FindAssets("t:" + nameof(UICodeGenDirConfig))

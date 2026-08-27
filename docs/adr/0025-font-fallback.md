@@ -50,8 +50,8 @@ CJK 全量字库体积大（单字体 15~30MB，多语言更甚），全量随�
 
 ### 5. Editor 工具：常用字集生成（`Framework/Fonts/Editor/`）
 
-- `FontCharsetProfile`（单例 profile，首次使用自动创建；按「配置 Profile 约定」进菜单 + 配置总览 hub）：扫描目录 + 文件通配 + 额外字符 + 输出路径。
-- 菜单 `SSFramework/字体/生成常用字集`：扫 `.json` / `.txt` / `.cs`（只取字符串字面量）/ `.xlsx`（读 sharedStrings.xml，Luban 源表直配）→ 去重出码点（正确处理代理对）→ 排序输出 charset 文件 → 喂 TMP Font Asset Creator 烘焙 static atlas（v1 手动烘焙，自动化烘焙观察需求再做）。
+- `FontCharsetProfile`（单例 profile；配置中心只读发现，缺失时由字体字集工作台的明确按钮创建，不在打开窗口时暗中写资产）：扫描目录 + 文件通配 + 额外字符 + 输出路径。
+- 工作台 `SSFramework/代码生成/字体字集`：扫 `.json` / `.txt` / `.cs`（只取字符串字面量）/ `.xlsx`（读 sharedStrings.xml，Luban 源表直配）→ 去重出码点（正确处理代理对）→ 排序输出 charset 文件 → 喂 TMP Font Asset Creator 烘焙 static atlas（v1 手动烘焙，自动化烘焙观察需求再做）。
 
 ### 6. 刻意不做
 
@@ -63,6 +63,6 @@ CJK 全量字库体积大（单字体 15~30MB，多语言更甚），全量随�
 
 ## Consequences
 
-- 业务接入路径：烘焙①主字体（常用字集菜单 → TMP Font Asset Creator）→ 场景挂 `MonoLocaleFonts` 配主字体 + 各 locale 档案 → 换语言由 ADR-0024 的 `SetLocale` 一并驱动，字体零调用。
+- 业务接入路径：烘焙①主字体（字体字集工作台“生成常用字集” → TMP Font Asset Creator）→ 场景挂 `MonoLocaleFonts` 配主字体 + 各 locale 档案 → 换语言由 ADR-0024 的 `SetLocale` 一并驱动，字体零调用。
 - batchmode 无字体渲染可言：测试覆盖「链条写入 / locale 切换驱动 / 未配置降级 / OnDestroy 还原 / OS 候选择取」（运行时创建字体资产在 PlayMode 测试可行，Windows 机器用 Arial 做候选）；渲染效果靠 demo 人工验证。
 - 风险：`fallbackFontAssetTable` 是 Unity 未承诺稳定的运行时可写口（6000.3 实测 OK）；若未来版本收紧，机制退路是「主字体资产预烘焙时就配好 per-locale 链、切 locale 换主字体引用」——配置组件形状不变，业务无感。

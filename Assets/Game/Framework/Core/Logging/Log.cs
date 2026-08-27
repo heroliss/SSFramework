@@ -35,8 +35,8 @@ namespace Game.Framework.Logging
         /// 并存反而制造陷阱：sink 明明写着接收 <c>Trace</c>，日志却因为另一个布尔被挡住，怎么调都不出来。
         /// 收敛成**一个概念（级别）、两个作用域（全局 / 各 sink）**，与 Serilog / MS.Extensions.Logging 的模型一致。<br/>
         /// 顺带获得原来做不到的能力：<c>Log.MinLevel = LogLevel.Warning</c> 可全局压掉 Info 噪音，不必逐个改 sink。<br/>
-        /// 「开 Verbose」= 把它设成 <see cref="LogLevel.Trace"/>（Editor 菜单 <c>SSFramework/诊断/日志级别</c>
-        /// 或诊断面板的下拉；本会话有效）。<see cref="LogLevel.Trace"/> 另有「仅 Editor/Development」的编译期门控。
+        /// 「开 Verbose」= 把它设成 <see cref="LogLevel.Trace"/>（Editor 的“运行时诊断”窗口下拉；本会话有效）。
+        /// <see cref="LogLevel.Trace"/> 另有「仅 Editor/Development」的编译期门控。
         /// </remarks>
         public static LogLevel MinLevel = LogLevel.Info;
 

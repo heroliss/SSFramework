@@ -1,4 +1,5 @@
 using System.IO;
+using Game.Framework.Editor;
 using UnityEditor;
 using UnityEngine;
 
@@ -7,12 +8,19 @@ namespace Game.Framework.Network.Proto.Editor
     /// <summary>
     /// 「Protobuf 生成总览」窗口：把工程内所有 <see cref="ProtoConfigProfile"/> 集中成卡片——每套列出
     /// .proto 源目录（含文件数）、protoc 可用性、代码输出目录，并提供「生成这套 / 打开各目录 / 点名定位资产」。
-    /// 多套并存（正式协议 + 框架测试等）时一眼看清各套落点、按套操作；顶部「生成全部」等同菜单「生成全部」，
+    /// 多套并存（正式协议 + 框架测试等）时一眼看清各套落点、按套操作；顶部「生成全部」是统一人工入口，
     /// 「新建 Profile…」引导创建（本配置无自动创建——默认路径无从捏造）。
     /// </summary>
     public sealed class ProtoConfigOverviewWindow : EditorWindow
     {
+        [MenuItem(FrameworkMenuPaths.Protobuf, priority = 41)]
         public static void Open() => GetWindow<ProtoConfigOverviewWindow>("Protobuf 生成总览").Show();
+
+        [InitializeOnLoadMethod]
+        private static void RegisterTool() => FrameworkToolRegistry.Register(new FrameworkToolDescriptor(
+            "protobuf", FrameworkToolCategory.CodeGeneration, 20,
+            "Protobuf", "管理多套 .proto 源与 C# 输出，检查 protoc 可用性并执行差量生成。",
+            FrameworkMenuPaths.Protobuf));
 
         private Vector2 _scroll;
 
@@ -36,13 +44,17 @@ namespace Game.Framework.Network.Proto.Editor
                 }
             }
             EditorGUILayout.HelpBox(
-                "每套配置 = 一个 Proto Profile（各自的 .proto 源目录 + 生成 C# 输出目录），互不干扰。\n" +
+                "每套配置 = 一个 Proto Profile（.proto 源目录 + 独占的 C# 输出目录）。输出必须位于 Assets 的独立子目录；" +
+                "生成器会递归清理其中本次未产出的 *.g.cs，因此不同配置不能共用或嵌套目录。\n" +
                 "生成消息类型经 GoogleProtobufNetworkSerializer（框架模块 Game.Framework.Network.Proto）接进网络接缝：" +
                 "构造处 RegisterFile(生成的 XxxReflection.Descriptor) 即整文件注册。",
                 MessageType.Info);
 
             var profiles = ProtoConfigProfile.ResolveAll();
             bool playing = EditorApplication.isPlayingOrWillChangePlaymode;
+            var (ownershipOk, ownershipMessage) = profiles.Count == 0
+                ? (false, string.Empty)
+                : ProtoCodeGenerator.ValidateOutputOwnership(profiles);
 
             _scroll = EditorGUILayout.BeginScrollView(_scroll);
             if (position.width < 420f)
@@ -52,7 +64,7 @@ namespace Game.Framework.Network.Proto.Editor
                 {
                     if (GUILayout.Button("新建 Profile…"))
                         CreateProfile();
-                    using (new EditorGUI.DisabledScope(playing || profiles.Count == 0))
+                    using (new EditorGUI.DisabledScope(playing || profiles.Count == 0 || !ownershipOk))
                         if (GUILayout.Button("生成全部"))
                             ProtoBuildMenu.GenerateProfiles(profiles);
                 }
@@ -65,7 +77,7 @@ namespace Game.Framework.Network.Proto.Editor
                     GUILayout.FlexibleSpace();
                     if (GUILayout.Button("新建 Profile…", GUILayout.Width(100)))
                         CreateProfile();
-                    using (new EditorGUI.DisabledScope(playing || profiles.Count == 0))
+                    using (new EditorGUI.DisabledScope(playing || profiles.Count == 0 || !ownershipOk))
                         if (GUILayout.Button("生成全部", GUILayout.Width(90)))
                             ProtoBuildMenu.GenerateProfiles(profiles);
                 }
@@ -75,8 +87,12 @@ namespace Game.Framework.Network.Proto.Editor
 
             if (profiles.Count == 0)
                 EditorGUILayout.HelpBox("还没有 Proto profile——点右上「新建 Profile…」创建，然后在 Inspector 填 .proto 源目录与输出目录。", MessageType.Warning);
+            else if (!ownershipOk)
+                EditorGUILayout.HelpBox("输出目录预检未通过：\n" + ownershipMessage, MessageType.Error);
+            else
+                EditorGUILayout.LabelField("✓ " + ownershipMessage, EditorStyles.miniLabel);
             foreach (var profile in profiles)
-                DrawCard(profile, playing, compact);
+                DrawCard(profile, playing || !ownershipOk, compact);
             EditorGUILayout.EndScrollView();
         }
 
@@ -93,7 +109,8 @@ namespace Game.Framework.Network.Proto.Editor
                     Selection.activeObject = profile;
                 }
 
-                string protoDirFull = string.IsNullOrEmpty(profile.ProtoDir) ? null : Path.GetFullPath(profile.ProtoDir);
+                string protoDirFull = FrameworkProjectPath.TryResolve(
+                    profile.ProtoDir, out _, out string resolvedProtoDir, out _) ? resolvedProtoDir : null;
                 int protoCount = protoDirFull != null && Directory.Exists(protoDirFull)
                     ? Directory.GetFiles(protoDirFull, "*.proto", SearchOption.AllDirectories).Length
                     : 0;
@@ -101,9 +118,14 @@ namespace Game.Framework.Network.Proto.Editor
                     ? "（未配置）"
                     : $"{profile.ProtoDir}（{protoCount} 个 .proto）", compact);
 
-                string protoc = ProtoCodeGenerator.ResolveProtocPath(
-                    Path.GetDirectoryName(Application.dataPath), profile.ProtocDir);
-                DrawValue("protoc", File.Exists(protoc) ? profile.ProtocDir : $"✗ 缺失：{protoc}", compact);
+                bool validProtocDir = FrameworkProjectPath.TryResolve(
+                    profile.ProtocDir, out _, out string resolvedProtocDir, out string protocError);
+                string protoc = validProtocDir
+                    ? ProtoCodeGenerator.ResolveProtocPath(resolvedProtocDir, string.Empty)
+                    : string.Empty;
+                DrawValue("protoc", !validProtocDir
+                    ? "✗ " + protocError
+                    : File.Exists(protoc) ? profile.ProtocDir : $"✗ 缺失：{protoc}", compact);
 
                 DrawValue("代码输出", string.IsNullOrEmpty(profile.OutputCodeDir) ? "（未配置）" : profile.OutputCodeDir, compact);
                 if (!string.IsNullOrEmpty(profile.ExtraArgs))
@@ -149,6 +171,7 @@ namespace Game.Framework.Network.Proto.Editor
 
         private static void CreateProfile()
         {
+            if (!FrameworkEditorOperationGate.EnsureCanStart("创建 Protobuf 配置")) return;
             string path = EditorUtility.SaveFilePanelInProject(
                 "新建 Proto Profile", "ProtoConfigProfile", "asset",
                 "选择保存位置（推荐放协议所属模块的 Editor 目录下）");
@@ -164,7 +187,11 @@ namespace Game.Framework.Network.Proto.Editor
         private static void Reveal(string projectRelative)
         {
             if (string.IsNullOrEmpty(projectRelative)) return;
-            string full = Path.GetFullPath(projectRelative);
+            if (!FrameworkProjectPath.TryResolve(projectRelative, out _, out string full, out string error))
+            {
+                Debug.LogWarning("[Protobuf 生成] 无法定位：" + error);
+                return;
+            }
             if (Directory.Exists(full) || File.Exists(full)) EditorUtility.RevealInFinder(full);
             else Debug.LogWarning($"[Protobuf 生成] 目录不存在（可能尚未生成）：{full}");
         }

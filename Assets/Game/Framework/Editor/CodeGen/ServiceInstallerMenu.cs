@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using UnityEditor;
 using UnityEngine;
@@ -6,46 +8,37 @@ using UnityEngine;
 namespace Game.Framework.Editor
 {
     /// <summary>
-    /// 服务安装器生成的交互外壳：菜单「生成服务安装器代码」逐份生成工程内所有 <see cref="ServiceInstallerProfile"/>；
-    /// 「配置总览」打开 <see cref="ServiceInstallerOverviewWindow"/>，按份定位 / 单独生成都在那；
+    /// 服务安装器生成的动作层：逐份生成工程内所有 <see cref="ServiceInstallerProfile"/>；
+    /// <see cref="ServiceInstallerOverviewWindow"/> 负责按份定位、说明与触发；
     /// profile 资产 Inspector 上另有就地生成按钮（见 <see cref="ServiceInstallerProfileEditor"/>）。
     /// 生成逻辑全在 <see cref="ServiceInstallerGenerator"/>，这里只做定位与结果展示。
     /// </summary>
     public static class ServiceInstallerMenu
     {
-        private const string Root = "SSFramework/服务注册/";
-
-        // priority 跨度 ≥11 让 Unity 在「生成」与「配置总览」间自动插一条分割线（与配置表构建菜单同布局）。
-        [MenuItem(Root + "生成服务安装器代码", priority = 1)]
-        private static void Menu_GenerateAll()
-        {
-            var profiles = ServiceInstallerProfile.ResolveAll();
-            if (profiles.Count == 0)
-            {
-                FrameworkEditorFeedback.Warn(
-                    "服务安装器生成未启动",
-                    "影响：没有生成或修改代码。\n原因：工程里没有 ServiceInstallerProfile 资产。\n" +
-                    "下一步：经 Assets/Create/SSFramework/服务安装器配置 创建一个，配置“扫描目录 → 输出路径 / 命名空间”后重试。");
-                return;
-            }
-            GenerateProfiles(profiles);
-        }
-
-        [MenuItem(Root + "配置总览", priority = 20)]
-        private static void Menu_Overview() => ServiceInstallerOverviewWindow.Open();
-
         /// <summary>
-        /// 逐份生成给定 profile——菜单「生成服务安装器代码」、总览窗口与 Inspector 生成按钮共用入口。
+        /// 逐份生成给定 profile——工作台与 Inspector 的生成按钮共用入口。
         /// 先挡 Play 模式（生成改 .g.cs 会触发重编译、打断运行 / 产生半新半旧状态），再逐份调
         /// <see cref="ServiceInstallerGenerator.Generate"/>，汇总为一条带稳定严重级别的非阻塞结果。
         /// </summary>
         internal static void GenerateProfiles(IReadOnlyList<ServiceInstallerProfile> profiles)
         {
-            if (EditorApplication.isPlayingOrWillChangePlaymode)
+            if (!FrameworkEditorOperationGate.EnsureCanStart("服务安装器生成")) return;
+            if (profiles == null || profiles.Count == 0)
             {
                 FrameworkEditorFeedback.Warn(
-                    "服务安装器生成已阻止",
-                    "影响：没有生成或修改代码。\n原因：Play 模式下改 .g.cs 会触发重编译并打断运行。\n下一步：停止 Play 后重试。");
+                    "服务安装器生成未启动",
+                    "影响：没有生成代码。\n原因：工程里还没有 ServiceInstallerProfile。\n" +
+                    "下一步：打开 SSFramework/代码生成/服务安装器，创建并填写扫描与输出配置后重试。");
+                return;
+            }
+
+            var allProfiles = ServiceInstallerProfile.ResolveAll().Concat(profiles).Distinct().ToArray();
+            var (ownershipOk, ownershipMessage) = ServiceInstallerGenerator.ValidateOutputOwnership(allProfiles);
+            if (!ownershipOk)
+            {
+                FrameworkEditorFeedback.ReportResult(
+                    "服务安装器生成预检", false,
+                    ownershipMessage + "\n影响：所有配置均未开始生成，现有产物保持不变。");
                 return;
             }
 
@@ -53,7 +46,17 @@ namespace Game.Framework.Editor
             var sb = new StringBuilder();
             foreach (var profile in profiles)
             {
-                var (ok, message) = ServiceInstallerGenerator.Generate(profile);
+                bool ok;
+                string message;
+                try
+                {
+                    (ok, message) = ServiceInstallerGenerator.Generate(profile);
+                }
+                catch (Exception exception)
+                {
+                    ok = false;
+                    message = $"发生未预期错误：{exception.GetType().Name}: {exception.Message}";
+                }
                 allOk &= ok;
                 if (sb.Length > 0) sb.AppendLine();
                 if (profiles.Count > 1) sb.Append('【').Append(profile.name).AppendLine("】");

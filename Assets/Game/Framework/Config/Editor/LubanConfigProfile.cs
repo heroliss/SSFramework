@@ -11,9 +11,10 @@ namespace Game.Framework.Build
     /// 生成管线（<see cref="LubanCodeGenerator"/>）只读本资产，不在代码里散落路径常量；
     /// 换项目 / 换目录结构时改 Inspector 即可，不动代码。
     ///
-    /// 路径字段一律相对工程根目录，保证多人协作不受本机绝对路径影响。
-    /// <b>工程可并存多套</b>（例如按数据域或构建目标拆分）：每套指向各自的 luban.conf 源与输出目录、互不干扰；
-    /// <see cref="ResolveAll"/> 返回全部、生成菜单逐套生成。路径无法从框架推导，因此缺失时不自动制造配置。
+    /// 路径字段一律相对工程根目录，保证多人协作不受本机绝对路径影响；代码 / 数据输出还必须位于
+    /// <c>Assets</c> 的非根子目录，生成入口会在创建目录或启动 CLI 前完成边界校验。
+    /// <b>工程可并存多套</b>（例如按数据域或构建目标拆分）：每项代码 / 数据输出必须独占一个与其它项不嵌套的目录；
+    /// <see cref="ResolveAll"/> 返回全部，生成入口先统一验证所有权再逐套生成。路径无法从框架推导，因此缺失时不自动制造配置。
     /// </summary>
     [CreateAssetMenu(fileName = "LubanConfigProfile", menuName = "SSFramework/配置表生成配置 (Luban Profile)")]
     public sealed class LubanConfigProfile : ScriptableObject
@@ -39,10 +40,10 @@ namespace Game.Framework.Build
         [SerializeField] private string _dataTarget = "bin";
 
         [Header("产物输出")]
-        [Tooltip("生成 C# 代码的输出目录（相对工程根目录，生成器会整理该目录，勿手放文件）。")]
+        [Tooltip("生成 C# 代码的输出目录（必须是 Assets 的非根子目录，生成器会整理该目录，勿手放文件）。")]
         [SerializeField] private string _outputCodeDir = "";
 
-        [Tooltip("生成数据文件的输出目录（相对工程根目录）。须在某个 YooAsset 收集器范围内（.bytes 按普通资源收集成 TextAsset 即可，按文件名寻址），数据才打得进资源包。")]
+        [Tooltip("生成数据文件的输出目录（必须是 Assets 的非根子目录）。须在某个 YooAsset 收集器范围内（.bytes 按普通资源收集成 TextAsset 即可，按文件名寻址），数据才打得进资源包。")]
         [SerializeField] private string _outputDataDir = "";
 
         [Tooltip("表清单类（LubanTableManifest.g.cs）的命名空间——通常与 luban.conf 该 target 的 topModule 一致；topModule 为空时可留空，生成到全局命名空间。\n" +
@@ -63,7 +64,7 @@ namespace Game.Framework.Build
         public string ExtraArgs => _extraArgs?.Trim() ?? "";
 
         /// <summary>
-        /// 返回工程内**所有** Luban profile（按资产路径排序，显示稳定）。每套对应一套配置表，生成菜单逐套生成、互不干扰。
+        /// 返回工程内**所有** Luban profile（按资产路径排序，显示稳定）。生成入口会先验证每项输出目录独占，再逐套生成。
         /// 一套都没有时返回空列表；用 Assets/Create 或配置总览的“新建配置”显式创建。
         /// </summary>
         public static IReadOnlyList<LubanConfigProfile> ResolveAll()
@@ -83,6 +84,6 @@ namespace Game.Framework.Build
         /// </summary>
         public static LubanConfigProfile Resolve() => ResolveAll().FirstOrDefault() ??
             throw new System.InvalidOperationException(
-                "工程里没有 LubanConfigProfile。请在 SSFramework/配置表构建/配置总览 中显式新建并填写项目路径。");
+                "工程里没有 LubanConfigProfile。请在 SSFramework/代码生成/配置表 (Luban) 工作台显式新建并填写项目路径。");
     }
 }

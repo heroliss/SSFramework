@@ -21,7 +21,7 @@
 
 | 改哪 | 字段 | 含义 |
 |---|---|---|
-| 构建配置 `FrameworkAssetBuildProfile`（菜单 `SSFramework/资源构建/构建配置`） | `FileOffset` | 构建时每个 bundle 头插入的字节数 |
+| 构建配置 `FrameworkAssetBuildProfile`（工作台 `SSFramework/构建与发布/资源构建`） | `FileOffset` | 构建时每个 bundle 头插入的字节数 |
 | 场景节点 `AssetSystemConfigModel`（Inspector「加密」栏） | `FileOffset` | 运行时跳过的字节数 |
 
 两个值**必须完全相等**：构建插几个字节、运行时就跳几个字节，对不上会读坏**所有** bundle。`0` = 不加密（默认）。
@@ -29,7 +29,7 @@
 
 改完重新构建即生效。验证：加密产物的 hash 会变（YooAsset 对**加密后**的文件算 hash 写清单），首次构建后全量产物都会更新。
 
-> ⚠ 别用 YooAsset 自带的 **Bundle Builder 窗口**构建：本框架统一走菜单 `SSFramework/资源构建`（`FrameworkAssetBuilder`），那个窗口被绕过（SBP-only、对纯资源包会崩、配置也不读我们的 profile）。该窗口靠反射会把 `GameBundleOffsetEncryptor` 列进它的「Bundle Encryptor」下拉，但它用无参构造实例化——本类的无参构造是**空操作 + 警告**（不加密），就是为了「在那里误选也不崩、且不会无声产出未加密包」。要加密请回到我们的菜单 + profile。
+> ⚠ 别用 YooAsset 自带的 **Bundle Builder 窗口**构建：本框架统一走 `SSFramework/构建与发布/资源构建` 工作台（`FrameworkAssetBuilder`），那个窗口被绕过（SBP-only、对纯资源包会崩、配置也不读我们的 profile）。该窗口靠反射会把 `GameBundleOffsetEncryptor` 列进它的「Bundle Encryptor」下拉，但它用无参构造实例化——本类的无参构造是**空操作 + 警告**（不加密），就是为了「在那里误选也不崩、且不会无声产出未加密包」。要加密请回到框架工作台 + profile。
 
 ### 原理 / 落点
 
@@ -159,7 +159,7 @@ YooAsset Bundle Builder 窗口里的这两个开关是**本机构建过程**的�
 
 | 开关 | 作用 | 默认 | 框架怎么用 |
 |---|---|---|---|
-| **Clear Build Cache**（`ClearBuildCacheFiles`） | 清掉 SBP 增量构建缓存后**全量重建** | 关（走增量，更快） | 一次性排障动作：菜单 `SSFramework/资源构建/1b. 全量重建（清构建缓存）`；CI 加 `-clearBuildCache` |
+| **Clear Build Cache**（`ClearBuildCacheFiles`） | 清掉 SBP 增量构建缓存后**全量重建** | 关（走增量，更快） | 一次性排障动作：资源构建工作台“全量重建”；CI 加 `-clearBuildCache` |
 | **Use Asset Dependency DB**（`UseAssetDependencyDB`） | 用资源依赖缓存数据库**加速收集阶段** | 关 | 本机持久偏好：菜单勾选项 `构建用资源依赖数据库 (加速收集)`（存 EditorPrefs，影响菜单两个构建入口）；CI 加 `-useAssetDependencyDB` |
 
 - **为什么 Clear Build Cache 是「菜单动作」不是「持久开关」**：它是「这一次强制全量」，平时应保持增量；做成持久开关容易忘了关、每次都白等全量重建。

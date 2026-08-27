@@ -6,17 +6,29 @@ namespace Game.Framework.Fonts.Editor
 {
     /// <summary>
     /// 常用字集生成配置（ADR-0025 §5）：声明「扫哪些目录、认哪些文件、额外补哪些字、输出到哪」。
-    /// 菜单「SSFramework/字体/生成常用字集」按本配置扫描去重出 charset 文件，
+    /// 工作台「SSFramework/代码生成/字体字集」按本配置扫描去重出 charset 文件，
     /// 喂 TMP Font Asset Creator（Characters from File）烘焙①主字体的 static atlas。
     /// </summary>
     /// <remarks>
-    /// 全工程单例（首次使用自动创建到 <c>Assets/Settings/SSFramework/</c>，项目配置不进框架包——ADR-0011）；
+    /// 全工程单例（只在工作台明确点击创建；默认落到 <c>Assets/Settings/SSFramework/</c>，项目配置不进框架包——ADR-0011）；
     /// 误建多份时 <see cref="Resolve"/> 取按路径排序的第一份并警告。样例与业务文本可以合并扫描——
     /// charset 是并集、多几个字只多几个字形，比维护两份配置省心。
     /// </remarks>
     [CreateAssetMenu(fileName = "FontCharsetProfile", menuName = "SSFramework/字体常用字集配置 (Charset Profile)")]
     public sealed class FontCharsetProfile : ScriptableObject
     {
+        private static FontCharsetProfile _cached;
+        private static bool _cacheInitialized;
+
+        static FontCharsetProfile()
+        {
+            EditorApplication.projectChanged += () =>
+            {
+                _cached = null;
+                _cacheInitialized = false;
+            };
+        }
+
         [Tooltip("要扫描的目录（工程相对路径）。支持 Unity 不导入的 ~ 目录（如 Luban 源表目录 Configs~）。")]
         [SerializeField] private string[] _scanDirs = { "Assets" };
 
@@ -38,22 +50,39 @@ namespace Game.Framework.Fonts.Editor
         public string ExtraChars => _extraChars;
         public string OutputPath => _outputPath;
 
-        /// <summary>定位全工程唯一的配置；不存在则按默认值自动创建（同资源构建 profile 的单例语义）。</summary>
-        public static FontCharsetProfile Resolve()
+        /// <summary>无副作用查找全工程唯一配置；不存在时返回 <c>false</c>。</summary>
+        public static bool TryResolve(out FontCharsetProfile profile)
         {
+            if (_cacheInitialized)
+            {
+                profile = _cached;
+                return profile != null;
+            }
+
             var paths = AssetDatabase.FindAssets("t:" + nameof(FontCharsetProfile))
                 .Select(AssetDatabase.GUIDToAssetPath)
                 .OrderBy(path => path, System.StringComparer.Ordinal)
                 .ToArray();
-            if (paths.Length > 0)
+            if (paths.Length == 0)
             {
-                if (paths.Length > 1)
-                {
-                    Debug.LogWarning("[FontCharset] 找到多个常用字集 profile，仅第一个生效，请删到只剩一个：\n  " +
-                                     string.Join("\n  ", paths));
-                }
-                return AssetDatabase.LoadAssetAtPath<FontCharsetProfile>(paths[0]);
+                _cacheInitialized = true;
+                _cached = null;
+                profile = null;
+                return false;
             }
+            if (paths.Length > 1)
+                Debug.LogWarning("[FontCharset] 找到多个常用字集 profile，仅第一个生效，请删到只剩一个：\n  " +
+                                 string.Join("\n  ", paths));
+            _cached = AssetDatabase.LoadAssetAtPath<FontCharsetProfile>(paths[0]);
+            _cacheInitialized = true;
+            profile = _cached;
+            return profile != null;
+        }
+
+        /// <summary>定位全工程唯一配置；不存在则创建默认资产。此写入 API 只供工作台的明确“创建配置”动作调用。</summary>
+        public static FontCharsetProfile Resolve()
+        {
+            if (TryResolve(out FontCharsetProfile existing)) return existing;
 
             var profile = CreateInstance<FontCharsetProfile>();
             const string root = "Assets/Settings";
@@ -63,7 +92,9 @@ namespace Game.Framework.Fonts.Editor
             string path = dir + "/FontCharsetProfile.asset";
             AssetDatabase.CreateAsset(profile, path);
             AssetDatabase.SaveAssets();
-            Debug.Log($"[FontCharset] 未找到常用字集 profile，已自动创建：{path}");
+            _cached = profile;
+            _cacheInitialized = true;
+            Debug.Log($"[FontCharset] 已按用户请求创建常用字集 profile：{path}");
             return profile;
         }
 

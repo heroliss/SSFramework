@@ -1,4 +1,5 @@
 using System.IO;
+using Game.Framework.Editor;
 using UnityEditor;
 using UnityEngine;
 
@@ -7,11 +8,18 @@ namespace Game.Framework.Build
     /// <summary>
     /// 「配置表生成总览」窗口：把工程内所有 <see cref="LubanConfigProfile"/> 集中成卡片——每套列出 luban.conf 源、目标、
     /// 代码 / 数据输出目录、命名空间，并提供「生成这套 / 打开各目录 / 点名定位资产」。多套按数据域或构建目标并存时
-    /// 一眼看清各套落点、按套操作，省得到处翻文件夹；顶部「生成全部」等同菜单「1. 生成」。
+    /// 一眼看清各套落点、按套操作，省得到处翻文件夹；顶部「生成全部」是本 Module 的统一人工入口。
     /// </summary>
     public sealed class LubanConfigOverviewWindow : EditorWindow
     {
+        [MenuItem(FrameworkMenuPaths.Luban, priority = 40)]
         public static void Open() => GetWindow<LubanConfigOverviewWindow>("配置表生成总览").Show();
+
+        [InitializeOnLoadMethod]
+        private static void RegisterTool() => FrameworkToolRegistry.Register(new FrameworkToolDescriptor(
+            "luban", FrameworkToolCategory.CodeGeneration, 10,
+            "配置表 (Luban)", "管理多套 Luban 输入与输出，按套或全部生成代码、数据和 manifest。",
+            FrameworkMenuPaths.Luban));
 
         private Vector2 _scroll;
 
@@ -37,18 +45,22 @@ namespace Game.Framework.Build
                 }
             }
             EditorGUILayout.HelpBox(
-                "每套配置 = 一个 Luban Profile（各自的 luban.conf 源 + 输出目录 + 命名空间），互不干扰。\n" +
-                "可按数据域、客户端/服务端目标或可选内容拆成多套；每套只描述自己的输入与输出。路径由项目明确填写，框架不会猜测业务目录。",
+                "每套配置 = 一个 Luban Profile（luban.conf 源 + 代码 / 数据输出 + 命名空间）。所有输出必须位于 Assets 的独立子目录，" +
+                "且彼此不能相同或嵌套，避免一套整理目录时覆盖另一套。\n" +
+                "可按数据域、客户端/服务端目标或可选内容拆分；路径由项目明确填写，框架不会猜测业务目录。",
                 MessageType.Info);
 
             var profiles = LubanConfigProfile.ResolveAll();
             bool playing = EditorApplication.isPlayingOrWillChangePlaymode;
+            var (ownershipOk, ownershipMessage) = profiles.Count == 0
+                ? (false, string.Empty)
+                : LubanCodeGenerator.ValidateOutputOwnership(profiles);
 
             _scroll = EditorGUILayout.BeginScrollView(_scroll);
             if (position.width < 380f)
             {
                 EditorGUILayout.LabelField($"共 {profiles.Count} 套", EditorStyles.miniBoldLabel);
-                using (new EditorGUI.DisabledScope(playing))
+                using (new EditorGUI.DisabledScope(playing || profiles.Count == 0 || !ownershipOk))
                     if (GUILayout.Button("生成全部"))
                         LubanBuildMenu.GenerateProfiles(profiles);
             }
@@ -58,7 +70,7 @@ namespace Game.Framework.Build
                 {
                     EditorGUILayout.LabelField($"共 {profiles.Count} 套", EditorStyles.miniBoldLabel);
                     GUILayout.FlexibleSpace();
-                    using (new EditorGUI.DisabledScope(playing))
+                    using (new EditorGUI.DisabledScope(playing || profiles.Count == 0 || !ownershipOk))
                         if (GUILayout.Button("生成全部", GUILayout.Width(90)))
                             LubanBuildMenu.GenerateProfiles(profiles);
                 }
@@ -67,16 +79,21 @@ namespace Game.Framework.Build
                 EditorGUILayout.LabelField("（运行中——停止后可生成）", EditorStyles.miniLabel);
             if (profiles.Count == 0)
                 EditorGUILayout.LabelField("（无配置——点击“新建配置”后填写 conf 与输出目录）", EditorStyles.wordWrappedMiniLabel);
+            else if (!ownershipOk)
+                EditorGUILayout.HelpBox("输出目录预检未通过：\n" + ownershipMessage, MessageType.Error);
+            else
+                EditorGUILayout.LabelField("✓ " + ownershipMessage, EditorStyles.miniLabel);
 
             foreach (var profile in profiles)
-                DrawCard(profile, playing, compact);
+                DrawCard(profile, playing || !ownershipOk, compact);
             EditorGUILayout.EndScrollView();
         }
 
         private static void CreateProfile()
         {
+            if (!FrameworkEditorOperationGate.EnsureCanStart("创建 Luban 配置")) return;
             if (!EditorApplication.ExecuteMenuItem("Assets/Create/SSFramework/配置表生成配置 (Luban Profile)"))
-                Game.Framework.Editor.FrameworkEditorFeedback.Warn(
+                FrameworkEditorFeedback.Warn(
                     "新建 Luban 配置未启动",
                     "影响：没有创建资产。\n下一步：在 Project 窗口使用 Assets/Create/SSFramework/配置表生成配置。");
         }
@@ -146,7 +163,11 @@ namespace Game.Framework.Build
         private static void Reveal(string projectRelative)
         {
             if (string.IsNullOrEmpty(projectRelative)) return;
-            string full = Path.GetFullPath(projectRelative);
+            if (!FrameworkProjectPath.TryResolve(projectRelative, out _, out string full, out string error))
+            {
+                Debug.LogWarning("[配置表构建] 无法定位：" + error);
+                return;
+            }
             if (Directory.Exists(full) || File.Exists(full)) EditorUtility.RevealInFinder(full);
             else Debug.LogWarning($"[配置表构建] 目录不存在（可能尚未生成）：{full}");
         }

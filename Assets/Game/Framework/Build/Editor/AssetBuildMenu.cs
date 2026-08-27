@@ -11,27 +11,25 @@ using Debug = UnityEngine.Debug;
 namespace Game.Framework.Build
 {
     /// <summary>
-    /// 统一资源构建菜单 <c>SSFramework/资源构建/*</c>——构建 / 部署 / 起服务 / 打开目录 / 配置，**步骤刻意拆开**（不捆绑）：
+    /// 资源构建工作台的动作层——构建 / 部署 / 起服务 / 打开目录 / 配置，**步骤刻意拆开**（不捆绑）：
     /// <list type="number">
     ///   <item>构建资源包 —— 跑 SBP，产 YooAsset 原生输出（AssetBuild/Bundles）。</item>
     ///   <item>部署 —— 平铺最新产物到 AssetBuild/Deploy（本地 python 伺服 + CI 上传共用同一目录）。</item>
     ///   <item>启动本地 CDN 服务 —— python 起 HTTP（可限速模拟弱网）伺服 AssetBuild/Deploy。</item>
     /// </list>
-    /// 目录名见 <see cref="AssetBuildLayout"/>；构建/部署逻辑全在 <see cref="FrameworkAssetBuilder"/>（菜单只是交互外壳）；
-    /// 「打哪些包 + 每包参数」读 <see cref="FrameworkAssetBuildProfile"/>。<b>demo 不在菜单里</b>——demo 的本地联调就是「把 profile 喂成样例包，走这同一套流程」。
+    /// 目录名见 <see cref="AssetBuildLayout"/>；构建/部署逻辑全在 <see cref="FrameworkAssetBuilder"/>（本类只是交互外壳）；
+    /// 「打哪些包 + 每包参数」完全读取 <see cref="FrameworkAssetBuildProfile"/>；动作层不猜测业务包名或目录。
     ///
-    /// <para>为什么是编辑器菜单而非运行时按钮：AssetBundle 构建管线（SBP）不能在 Play 模式跑。
+    /// <para>为什么是编辑器工作台而非运行时按钮：AssetBundle 构建管线（SBP）不能在 Play 模式跑。
     /// 「本地起服务」是开发期联调专属，正式发版里这步换成 CI 上传到真实 CDN。</para>
     /// </summary>
     public static class AssetBuildMenu
     {
-        private const string Root = "SSFramework/资源构建/";
-
         // 「构建用资源依赖数据库（加速收集）」的持久开关：本机构建过程的提速旋钮，不进产物、不入库，
         // 所以放 EditorPrefs（每机器一份）而非构建 profile（profile 只放会随产物发布的内容配置）。
         // key 带工程路径限定，避免同机器多工程互相串台。
         private static string UseDependencyDBPrefKey => "SSFramework.AssetBuild.UseAssetDependencyDB." + UnityEngine.Application.dataPath;
-        private static bool UseDependencyDB
+        internal static bool UseDependencyDB
         {
             get => EditorPrefs.GetBool(UseDependencyDBPrefKey, false);
             set => EditorPrefs.SetBool(UseDependencyDBPrefKey, value);
@@ -39,12 +37,11 @@ namespace Game.Framework.Build
 
         // ───────────── 1/2/3：构建 → 部署 → 起服务（拆开） ─────────────
 
-        [MenuItem(Root + "1. 构建资源包", priority = 1)]
-        private static void Menu_Build() => RunBuild(clearBuildCache: false);
+        internal static void Build() => RunBuild(clearBuildCache: false);
 
-        [MenuItem(Root + "1b. 全量重建（清构建缓存）", priority = 1)]
-        private static void Menu_FullRebuild()
+        internal static void FullRebuild()
         {
+            if (!TryGetProfile("资源包全量重建", out var profile)) return;
             if (!EditorUtility.DisplayDialog("全量重建",
                     "将清掉 SBP 增量构建缓存后【全量】重建所有启用的包——比平时慢得多，仅在怀疑增量缓存损坏 / 产物异常时用。继续？",
                     "全量重建", "取消"))
@@ -52,15 +49,20 @@ namespace Game.Framework.Build
                 FrameworkEditorFeedback.Info("资源包全量重建已取消", "没有清理缓存，也没有启动构建。");
                 return;
             }
-            RunBuild(clearBuildCache: true);
+            RunBuild(profile, clearBuildCache: true);
         }
 
         // 构建实操（菜单两个构建入口共用）：依赖数据库开关读 EditorPrefs（本机持久），清缓存按入口决定。
         private static void RunBuild(bool clearBuildCache)
         {
+            if (!TryGetProfile("资源包构建", out var profile)) return;
+            RunBuild(profile, clearBuildCache);
+        }
+
+        private static void RunBuild(FrameworkAssetBuildProfile profile, bool clearBuildCache)
+        {
             if (!FrameworkAssetBuilder.EnsureReadyToBuild()) return;
 
-            var profile = FrameworkAssetBuildProfile.Resolve();
             var packages = profile.EnabledPackageNames.ToList();
             string version = profile.ResolveVersionNow();
 
@@ -70,10 +72,10 @@ namespace Game.Framework.Build
             if (ok) EditorUtility.RevealInFinder(AssetBuildLayout.BundlesRoot);
         }
 
-        [MenuItem(Root + "2. 部署（平铺到 Deploy）", priority = 2)]
-        private static void Menu_Deploy()
+        internal static void Deploy()
         {
-            var profile = FrameworkAssetBuildProfile.Resolve();
+            if (!TryGetProfile("资源包部署", out var profile)) return;
+            if (!FrameworkEditorOperationGate.EnsureCanStart("资源包部署", requireEditMode: false)) return;
             var packages = profile.EnabledPackageNames.ToList();
             string deployDir = AssetBuildLayout.DeployRoot;
 
@@ -82,37 +84,39 @@ namespace Game.Framework.Build
             if (ok) EditorUtility.RevealInFinder(deployDir);
         }
 
-        [MenuItem(Root + "3. 启动本地 CDN 服务", priority = 3)]
-        private static void Menu_StartServer()
+        internal static void StartLocalServer()
         {
-            string msg = StartServer(FrameworkAssetBuildProfile.Resolve());
+            if (!TryGetProfile("启动本地 CDN 服务", out var profile)) return;
+            if (!FrameworkEditorOperationGate.EnsureCanStart("启动本地 CDN 服务", requireEditMode: false)) return;
+            string msg = StartServer(profile);
             FrameworkEditorFeedback.ReportSummary("启动本地 CDN 服务", msg);
         }
 
         // ───────────── 构建配置 ─────────────
 
-        [MenuItem(Root + "构建配置 (Build Profile)", priority = 20)]
-        private static void Menu_SelectProfile()
+        internal static void SelectProfile()
         {
+            if (!FrameworkAssetBuildProfile.TryResolve(out _) &&
+                !FrameworkEditorOperationGate.EnsureCanStart("创建资源构建配置")) return;
             var profile = FrameworkAssetBuildProfile.Resolve();
             Selection.activeObject = profile;
             EditorGUIUtility.PingObject(profile);
         }
 
-        [MenuItem(Root + "同步收集器包列表", priority = 21)]
-        private static void Menu_SyncProfile()
+        internal static void SyncProfile()
         {
-            var profile = FrameworkAssetBuildProfile.Resolve();
+            if (!TryGetProfile("同步资源包列表", out var profile)) return;
+            if (!FrameworkEditorOperationGate.EnsureCanStart("同步资源包列表")) return;
             string summary = profile.SyncFromCollector();
             FrameworkEditorFeedback.ReportSummary("同步资源包列表", summary);
             Selection.activeObject = profile;
             EditorGUIUtility.PingObject(profile);
         }
 
-        [MenuItem(Root + "生成包名常量代码", priority = 22)]
-        private static void Menu_GeneratePackageConstants()
+        internal static void GeneratePackageConstants()
         {
-            var profile = FrameworkAssetBuildProfile.Resolve();
+            if (!TryGetProfile("生成资源包名常量", out var profile)) return;
+            if (!FrameworkEditorOperationGate.EnsureCanStart("生成资源包名常量")) return;
             var (ok, message) = AssetPackageConstantsGenerator.Generate(profile);
             FrameworkEditorFeedback.ReportResult("生成资源包名常量", ok, message);
             if (ok)
@@ -124,32 +128,22 @@ namespace Game.Framework.Build
 
         // 勾选式开关：构建时是否用「资源依赖缓存数据库」加速收集阶段（YooAsset UseAssetDependencyDB）。
         // 本机持久（EditorPrefs），影响上面两个构建入口；勾上提速、产物不变。CI 上用 -useAssetDependencyDB 单独控制（EditorPrefs 不随仓库走）。
-        [MenuItem(Root + "构建用资源依赖数据库 (加速收集)", priority = 23)]
-        private static void Menu_ToggleDependencyDB() => UseDependencyDB = !UseDependencyDB;
-
-        [MenuItem(Root + "构建用资源依赖数据库 (加速收集)", validate = true)]
-        private static bool Menu_ToggleDependencyDB_Validate()
-        {
-            Menu.SetChecked(Root + "构建用资源依赖数据库 (加速收集)", UseDependencyDB);
-            return true;
-        }
+        internal static void SetUseDependencyDB(bool value) => UseDependencyDB = value;
 
         // ───────────── 打开目录（菜单名只写用途，不写死文件夹名） ─────────────
         // Unity 的 [MenuItem] 名是编译期常量、跟不了配置；真实路径运行时由 AssetBuildLayout 解析、在 Reveal 里 log，点开直接看到。
 
-        [MenuItem(Root + "打开目录/构建输出", priority = 40)]
-        private static void Menu_OpenBuildOutput() => Reveal(AssetBuildLayout.BundlesRoot, createIfMissing: true);
+        internal static void OpenBuildOutput() => Reveal(AssetBuildLayout.BundlesRoot,
+            "尚无构建输出。先在工作台执行“构建资源包”。");
 
-        [MenuItem(Root + "打开目录/部署", priority = 41)]
-        private static void Menu_OpenDeploy() => Reveal(AssetBuildLayout.DeployRoot, createIfMissing: true);
+        internal static void OpenDeploy() => Reveal(AssetBuildLayout.DeployRoot,
+            "尚无部署目录。先构建资源包，再执行“部署到本地目录”。");
 
-        [MenuItem(Root + "打开目录/下载缓存", priority = 42)]
-        private static void Menu_OpenDownloaded()
-            => Reveal(AssetBuildLayout.DownloadedRoot, createIfMissing: false,
-                      missingHint: "尚无下载缓存（Host 模式下载资源后才会生成；仅 YooAsset 重定向到此，真机在 persistentDataPath）。");
+        internal static void OpenDownloaded() => Reveal(AssetBuildLayout.DownloadedRoot,
+            "尚无下载缓存（Host 模式下载资源后才会生成；真机默认位于 persistentDataPath）。");
 
-        [MenuItem(Root + "打开目录/内置首包", priority = 43)]
-        private static void Menu_OpenBuiltin() => Reveal(BundleBuilderHelper.GetStreamingAssetsRoot(), createIfMissing: true);
+        internal static void OpenBuiltin() => Reveal(BundleBuilderHelper.GetStreamingAssetsRoot(),
+            "尚无内置首包目录。构建启用了首包拷贝的资源包后才会生成。");
 
         // ───────────── 本地服务（联调专属，生产=CI 上传 CDN）─────────────
 
@@ -160,6 +154,8 @@ namespace Game.Framework.Build
         /// </summary>
         public static string StartServer(FrameworkAssetBuildProfile profile)
         {
+            if (profile == null)
+                return "✗ 缺少资源构建 Profile；请先在资源构建工作台明确创建配置。";
             try
             {
                 string deployDir = AssetBuildLayout.DeployRoot;
@@ -223,17 +219,13 @@ if __name__ == '__main__':
 
         // ───────────── 内部工具 ─────────────
 
-        // 打开目录；createIfMissing=false 且目录不存在时只提示、不建空目录（如运行时才写的下载缓存）。
-        private static void Reveal(string dir, bool createIfMissing, string missingHint = null)
+        // 打开派生产物目录只做只读探测；查看动作不应暗中创建空目录。
+        private static void Reveal(string dir, string missingHint)
         {
             if (!Directory.Exists(dir))
             {
-                if (!createIfMissing)
-                {
-                    Debug.Log("[资源构建] " + (missingHint ?? $"目录不存在：{dir}"));
-                    return;
-                }
-                Directory.CreateDirectory(dir);
+                FrameworkEditorFeedback.Info("目录尚不存在", $"{missingHint}\n解析路径：{dir}");
+                return;
             }
             Debug.Log("[资源构建] 打开目录：" + dir);
             EditorUtility.RevealInFinder(dir);
@@ -254,6 +246,16 @@ if __name__ == '__main__':
             {
                 return false;
             }
+        }
+
+        private static bool TryGetProfile(string operation, out FrameworkAssetBuildProfile profile)
+        {
+            if (FrameworkAssetBuildProfile.TryResolve(out profile)) return true;
+            FrameworkEditorFeedback.Warn(
+                operation + "未启动",
+                "影响：没有创建配置，也没有执行操作。\n原因：工程里还没有资源构建 Profile。\n" +
+                $"下一步：打开“{FrameworkMenuPaths.AssetBuild}”，点击“创建默认构建配置”并复核后重试。");
+            return false;
         }
     }
 }
