@@ -40,7 +40,10 @@ namespace Game.Framework.Storage
         /// <summary>删除 key 的全部数据（主 + 备份 + 残留临时文件）。不存在 = no-op；失败抛异常。</summary>
         UniTask DeleteAsync(string key, CancellationToken ct);
 
-        /// <summary>列出全部已存在的 key（按 <paramref name="prefix"/> 前缀过滤，null = 不过滤）。无内容返回空列表。</summary>
+        /// <summary>
+        /// 列出全部持有已提交数据的 key（主数据或备份任一存在即包含；仅有未提交临时数据不包含），
+        /// 按 <paramref name="prefix"/> 前缀过滤，null = 不过滤。结果去重、顺序稳定，无内容返回空列表。
+        /// </summary>
         UniTask<IReadOnlyList<string>> ListKeysAsync(string prefix, CancellationToken ct);
     }
 }
