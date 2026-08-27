@@ -84,6 +84,14 @@ namespace Game.Framework.Demo.Modules
                 + "这让“增量”不再只是看起来顺序正确，而能直接排除整表重建。行数适中的 UI 列表（背包/设置项/聊天）用它正合适；上万项要虚拟化滚动复用则用 Toolkit 原生 `ListView`。");
             host.AddTip("顶部证据条里的「释放」由每行专属子 bag 的真实 Dispose 回调累计，不是按钮手算。每行末尾的 ✕ 也挂这个 rowBag：行被移除时，行内订阅随之自动退订。"
                 + "同一套写法在 UGUI 侧是 Bag.BindList(Transform, ...)——只换容器类型，绑定心智一致。");
+
+            // ── 失败边界：不把 Adapter 缺陷伪装成仍可继续的列表 ──
+            host.AddSectionTitle("失败时为何停止绑定，而不是自动重试");
+            host.AddConcept("初始化失败",
+                "若某一行的 factory / 挂载失败，`BindList` 会摘除此前已建行并释放所有 rowBag，随后直接抛出根因；调用方拿不到一个半初始化句柄。若 factory 在返回前还创建了其它外部对象，那部分仍由 factory 自己清理。");
+            host.AddConcept("增量失败",
+                "集合的 Add / Move 已经提交，容器回调又可能只执行了一半；框架无法安全反改 Model 或猜测 UI 当前层级。因此它会停止本次订阅、尽力释放所有行，并用一条框架 Error 保留终止根因；清理本身若也失败，会有补充 Error，但不会盖掉根因。修复 factory / Adapter 后重进页面或重新绑定。");
+            host.AddTip("`itemFactory`、挂载、摘除、移动和 rowBag 的 Dispose 回调只负责当前行，不是集合写入钩子：不要在其中同步修改正在绑定的同一个 `ObservableList`，否则会产生嵌套索引事件并被明确拒绝。只有 rowBag 清理当前行时释放宿主 Bag 属于正常结束；框架会等当前事件返回后清理余行，也不会再启动 Replace / Reset 后半段的新 factory。");
         }
 
         // 造一行子视图：稳定实例号 + 文本 + 末尾 ✕。实例证据和点击订阅都挂本行专属 rowBag，

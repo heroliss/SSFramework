@@ -1,8 +1,10 @@
+using System;
 using System.Collections.Generic;
 using Game.Framework.UI.UGui;
 using NUnit.Framework;
 using ObservableCollections;
 using UnityEngine;
+using Object = UnityEngine.Object;
 
 namespace Game.Framework.Test
 {
@@ -101,6 +103,39 @@ namespace Game.Framework.Test
 
             _bag.Dispose(); // 解绑：全部子物体同步摘出容器（随后帧末销毁）
             Assert.AreEqual(0, _root.transform.childCount, "解绑后容器应无子物体");
+        }
+
+        [Test]
+        public void Bind_DestroyedContainer_FailsBeforeDeferredCollectionChange()
+        {
+            var source = new ObservableList<string>();
+            var destroyedContainer = _root.transform;
+            Object.DestroyImmediate(_root);
+            _root = null;
+
+            var error = Assert.Throws<ArgumentNullException>(() =>
+                _bag.BindList(destroyedContainer, source, Row));
+
+            Assert.AreEqual("container", error.ParamName);
+        }
+
+        [Test]
+        public void Bind_FactoryReturnsDestroyedObject_FailsClearlyAndDisposesRowBag()
+        {
+            var source = new ObservableList<string> { "A" };
+            DisposableBag rowBag = null;
+
+            var error = Assert.Throws<InvalidOperationException>(() =>
+                _bag.BindList(_root.transform, source, (_, bag) =>
+                {
+                    rowBag = bag;
+                    var go = new GameObject("already-destroyed");
+                    Object.DestroyImmediate(go);
+                    return go;
+                }));
+
+            StringAssert.Contains("null 或已销毁", error.Message);
+            Assert.IsTrue(rowBag.IsDisposed, "无效 factory 结果对应的行作用域仍归绑定负责释放");
         }
     }
 }
