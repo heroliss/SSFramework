@@ -29,9 +29,9 @@ namespace Game.Framework.Demo.Tests
             var report = DemoCodeRefValidator.ValidateProject(projectRoot);
 
             Assert.IsEmpty(report.Problems, string.Join("\n", report.Problems));
-            Assert.AreEqual(313, report.Total,
+            Assert.AreEqual(312, report.Total,
                 "数量锁既防止已有链接静默退出门禁，也提醒新增构造语法必须同步扩展扫描器。当前基线不含注释/文案示例。 ");
-            Assert.AreEqual(313, report.Precise);
+            Assert.AreEqual(312, report.Precise);
             Assert.AreEqual(0, report.FileTop, "教程链接应尽量指向可解释的具体代码，而不是只打开文件头。 ");
         }
 

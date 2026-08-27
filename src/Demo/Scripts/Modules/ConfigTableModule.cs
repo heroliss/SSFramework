@@ -9,13 +9,13 @@ namespace Game.Framework.Demo.Modules
 {
     /// <summary>
     /// 进阶·配置表：讲 Luban 集成的「构建期生成 / 运行期只读字节」分界。表定义（XML）与数据（JSON / Excel）放 demo 自带的
-    /// Configs~/（~ 后缀 Unity 不导入），菜单跑 CLI 生成 C# 类 + 二进制数据 + 表清单；运行期由一个自加载的配置 Utility
+    /// Configs~/（~ 后缀 Unity 不导入），工作台跑 CLI 生成 C# 类 + 二进制数据 + 表清单；运行期由一个自加载的配置 Utility
     /// 服务按清单预载、构造表根，各层（含 View）直读。数据文件走资源包通道（可热更）。查询按钮真实读 Play 中加载好的表。
     /// </summary>
     public sealed class ConfigTableModule : DemoModuleBase
     {
-        private const string OverviewMenu = "SSFramework/配置表构建/配置总览 (定位 · 打开目录 · 生成)";
-        // demo 自带源目录（构建期输入，~ 后缀 Unity 不导入）——直接打开，不再走「单套」菜单。
+        private const string OverviewMenu = "SSFramework/代码生成/配置表 (Luban)";
+        // demo 自带源目录（构建期输入，~ 后缀 Unity 不导入）——可直接打开；生成与配置管理仍集中在工作台。
         private const string ConfigSourceDir = "Assets/Game/Framework/Demo/Configs~";
 
         // View 侧的轮巡游标（纯展示状态，不属于任何 Model）。
@@ -151,7 +151,7 @@ namespace Game.Framework.Demo.Modules
             // ── 4. 改表工作流 ──
             host.AddSectionTitle("改一张表的完整工作流");
             host.AddStep("①", "改数据：`Demo/Configs~/Datas/item.json`（JSON，diff 可读）或 `monster.xlsx`（Excel/WPS 直接编辑）；改表结构 / 加表：`Demo/Configs~/Defines/demo.xml`。");
-            host.AddStep("②", "菜单「SSFramework/配置表构建/生成全部」或下方「配置总览」里点生成：代码 / 数据 / 清单一次刷新（Play 中会被拒绝，先停）。");
+            host.AddStep("②", "打开「SSFramework/代码生成/配置表 (Luban)」工作台，确认输入与输出后点生成：代码 / 数据 / 清单一次刷新（Play 中会被拒绝，先停）。");
             host.AddStep("③", "重新 Play 查看——配置在启动时一次性加载（只读数据不做运行中增量更新）。");
             host.AddActionRow("打开表定义与数据目录（Demo/Configs~/）", () => OpenConfigSource());
 

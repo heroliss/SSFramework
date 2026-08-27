@@ -11,7 +11,7 @@ namespace Game.Framework.UI.UGui.Editor
     /// <list type="bullet">
     ///   <item>Prefab 编辑模式下 <c>GameObject</c> 右键「标记 / 取消标记 UI 绑定节点」——增删根上 <see cref="UIBindingData"/> 的绑定条目（经 <c>Undo</c>，与原生预制体编辑同感：脏标记、撤销、Ctrl+S 才落盘）。</item>
     ///   <item>Project 里 prefab 右键「生成 UI 绑定代码」（按磁盘已存状态生成）。</item>
-    ///   <item><c>SSFramework/UI 绑定/配置</c>：定位生成配置资产。</item>
+    ///   <item>顶部“UI 绑定”工作台：解释并定位全工程 Profile 与目录级覆盖。</item>
     /// </list>
     /// 多数日常增删改直接在 Hierarchy 行尾徽标 / 「＋」上完成，菜单留作多选批量的快捷方式。
     /// </summary>
@@ -33,7 +33,7 @@ namespace Game.Framework.UI.UGui.Editor
 
             var root = stage.prefabContentsRoot;
             var rootTf = root.transform;
-            var profile = UICodeGenProfile.Resolve();
+            UICodeGenProfile.TryResolve(out var profile);
 
             int group = Undo.GetCurrentGroup();
             var data = UIBindingUtil.GetOrAddData(root);   // 没有就 Undo.AddComponent（可撤销）
@@ -54,7 +54,8 @@ namespace Game.Framework.UI.UGui.Editor
 
                 var entry = data.Find(path);
                 if (entry == null) { entry = new UIBindingEntry { Path = path, Node = go.transform }; data.Entries.Add(entry); }
-                var comp = UIBindingUtil.PickDefaultComponent(go, profile.BuiltinComponentPriority);
+                var comp = UIBindingUtil.PickDefaultComponent(
+                    go, UICodeGenProfile.BuiltinComponentPriorityOrDefault(profile));
                 string id = UIBindingUtil.TypeId(comp.GetType());
                 if (!entry.ComponentTypes.Contains(id)) entry.ComponentTypes.Add(id);
                 marked++;
@@ -126,16 +127,19 @@ namespace Game.Framework.UI.UGui.Editor
         [MenuItem("Assets/SSFramework/生成 UI 绑定代码", false, 30)]
         private static void GenerateForSelectedPrefab()
         {
-            if (EditorApplication.isPlayingOrWillChangePlaymode)
-            {
-                FrameworkEditorFeedback.Warn(
-                    "UI 绑定代码生成已阻止",
-                    "影响：没有生成代码。\n原因：Play 模式下生成会触发重编译并打断运行。\n下一步：停止 Play 后重试。");
-                return;
-            }
+            if (!FrameworkEditorOperationGate.EnsureCanStart("UI 绑定代码生成")) return;
 
             string path = AssetDatabase.GetAssetPath(Selection.activeObject);
-            var (ok, message) = UIBindingCodeGenerator.GenerateFromAsset(path, UICodeGenProfile.Resolve());
+            if (!UICodeGenProfile.TryResolve(out var profile))
+            {
+                FrameworkEditorFeedback.Warn(
+                    "UI 绑定代码生成未启动",
+                    "影响：没有创建配置，也没有生成代码。\n原因：工程里还没有 UICodeGenProfile。\n" +
+                    $"下一步：打开“{FrameworkMenuPaths.UIBinding}”，明确创建并填写业务程序集的生成目标后重试。",
+                    Selection.activeObject);
+                return;
+            }
+            var (ok, message) = UIBindingCodeGenerator.GenerateFromAsset(path, profile);
             FrameworkEditorFeedback.ReportResult("生成 UI 绑定代码", ok, message, Selection.activeObject);
         }
 
@@ -146,14 +150,5 @@ namespace Game.Framework.UI.UGui.Editor
             return !string.IsNullOrEmpty(path) && path.EndsWith(".prefab");
         }
 
-        // ───────────── 顶部菜单 ─────────────
-
-        [MenuItem("SSFramework/UI 绑定/配置 (UI CodeGen Profile)", priority = 20)]
-        private static void PingProfile()
-        {
-            var profile = UICodeGenProfile.Resolve();
-            Selection.activeObject = profile;
-            EditorGUIUtility.PingObject(profile);
-        }
     }
 }

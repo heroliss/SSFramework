@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
+using Game.Framework.Editor;
 using UnityEditor;
 using UnityEngine;
 using Debug = UnityEngine.Debug;
@@ -45,9 +46,22 @@ namespace Game.Framework.Build
                 return (false, "Luban profile 尚未配置完整：" + string.Join("、", missing) +
                                "。请先在配置总览中定位该资产并填写项目实际路径。");
 
-            string projectRoot = Path.GetDirectoryName(Application.dataPath);
-            string toolPath = Path.GetFullPath(Path.Combine(projectRoot, profile.LubanToolPath));
-            string confPath = Path.GetFullPath(Path.Combine(projectRoot, profile.ConfPath));
+            var ownershipProfiles = LubanConfigProfile.ResolveAll().Concat(new[] { profile }).Distinct().ToArray();
+            var (ownershipOk, ownershipMessage) = ValidateOutputOwnership(ownershipProfiles);
+            if (!ownershipOk) return (false, ownershipMessage);
+
+            if (!FrameworkProjectPath.TryResolve(
+                    profile.LubanToolPath, out _, out string toolPath, out string toolError))
+                return (false, "Luban CLI 路径无效：" + toolError);
+            if (!FrameworkProjectPath.TryResolve(
+                    profile.ConfPath, out _, out string confPath, out string confError))
+                return (false, "luban.conf 路径无效：" + confError);
+            if (!FrameworkProjectPath.TryResolveAssetsDirectory(
+                    profile.OutputCodeDir, out string outputCodeAssetPath, out string outputCodeDir, out string codeError))
+                return (false, "代码输出目录无效：" + codeError);
+            if (!FrameworkProjectPath.TryResolveAssetsDirectory(
+                    profile.OutputDataDir, out string outputDataAssetPath, out string outputDataDir, out string dataError))
+                return (false, "数据输出目录无效：" + dataError);
 
             if (!File.Exists(toolPath))
                 return (false, $"Luban CLI 不存在：{toolPath}\n" +
@@ -56,27 +70,75 @@ namespace Game.Framework.Build
             if (!File.Exists(confPath))
                 return (false, $"luban.conf 不存在：{confPath}（检查 Luban profile 的 confPath）。");
 
-            string outputCodeDir = Path.GetFullPath(Path.Combine(projectRoot, profile.OutputCodeDir));
-            string outputDataDir = Path.GetFullPath(Path.Combine(projectRoot, profile.OutputDataDir));
-            Directory.CreateDirectory(outputCodeDir);
-            Directory.CreateDirectory(outputDataDir);
+            try
+            {
+                Directory.CreateDirectory(outputCodeDir);
+                Directory.CreateDirectory(outputDataDir);
 
-            string args =
-                $"-t {profile.Target} -c {profile.CodeTarget} -d {profile.DataTarget} " +
-                $"--conf \"{confPath}\" " +
-                $"-x \"outputCodeDir={outputCodeDir}\" " +
-                $"-x \"outputDataDir={outputDataDir}\"";
-            if (!string.IsNullOrEmpty(profile.ExtraArgs))
-                args += " " + profile.ExtraArgs;
+                string args =
+                    $"-t {profile.Target} -c {profile.CodeTarget} -d {profile.DataTarget} " +
+                    $"--conf \"{confPath}\" " +
+                    $"-x \"outputCodeDir={outputCodeDir}\" " +
+                    $"-x \"outputDataDir={outputDataDir}\"";
+                if (!string.IsNullOrEmpty(profile.ExtraArgs))
+                    args += " " + profile.ExtraArgs;
 
-            var (exitCode, log) = Run(toolPath, args, projectRoot);
-            if (exitCode != 0)
-                return (false, $"Luban 生成失败（exit {exitCode}）。CLI 输出：\n{log}");
+                string projectRoot = Directory.GetParent(Application.dataPath)?.FullName ?? Directory.GetCurrentDirectory();
+                var (exitCode, log) = Run(toolPath, args, projectRoot);
+                if (exitCode != 0)
+                    return (false, $"Luban 生成失败（exit {exitCode}）。CLI 输出：\n{log}");
 
-            string manifestSummary = WriteManifest(outputDataDir, outputCodeDir, profile.ManifestNamespace);
-            AssetDatabase.Refresh();
+                string manifestSummary = WriteManifest(outputDataDir, outputCodeDir, profile.ManifestNamespace);
+                AssetDatabase.Refresh();
 
-            return (true, $"生成完成。\n  代码 → {profile.OutputCodeDir}\n  数据 → {profile.OutputDataDir}\n  {manifestSummary}\n\nCLI 输出：\n{log}");
+                return (true, $"生成完成。\n  代码 → {outputCodeAssetPath}\n  数据 → {outputDataAssetPath}\n  {manifestSummary}\n\nCLI 输出：\n{log}");
+            }
+            catch (Exception exception) when (
+                exception is System.ComponentModel.Win32Exception or IOException or UnauthorizedAccessException or
+                InvalidOperationException)
+            {
+                return (false, "Luban 进程未能完成，未继续生成后续清单：" + exception.Message);
+            }
+        }
+
+        /// <summary>
+        /// 验证所有配置对代码 / 数据输出目录的独占所有权。每个目录都必须是 <c>Assets</c> 的非根子目录，
+        /// 任意两个输出（包括同一 Profile 的代码与数据）不得相同或互为父子；失败不创建目录、不启动 CLI。
+        /// </summary>
+        public static (bool ok, string message) ValidateOutputOwnership(
+            System.Collections.Generic.IReadOnlyList<LubanConfigProfile> profiles)
+        {
+            if (profiles == null || profiles.Count == 0)
+                return (false, "没有可验证的 LubanConfigProfile。");
+
+            var claims = new System.Collections.Generic.List<(
+                LubanConfigProfile profile, string kind, string assetPath, string absolutePath)>();
+            foreach (LubanConfigProfile candidate in profiles)
+            {
+                if (candidate == null) return (false, "配置列表含已删除或空的 LubanConfigProfile。");
+                if (!FrameworkProjectPath.TryResolveAssetsDirectory(
+                        candidate.OutputCodeDir, out string codeAssetPath, out string codeAbsolutePath, out string codeError))
+                    return (false, $"【{candidate.name}】代码输出目录无效：{codeError}");
+                if (!FrameworkProjectPath.TryResolveAssetsDirectory(
+                        candidate.OutputDataDir, out string dataAssetPath, out string dataAbsolutePath, out string dataError))
+                    return (false, $"【{candidate.name}】数据输出目录无效：{dataError}");
+                claims.Add((candidate, "代码", codeAssetPath, codeAbsolutePath));
+                claims.Add((candidate, "数据", dataAssetPath, dataAbsolutePath));
+            }
+
+            for (int i = 0; i < claims.Count; i++)
+            for (int j = i + 1; j < claims.Count; j++)
+            {
+                var left = claims[i];
+                var right = claims[j];
+                if (!FrameworkProjectPath.DirectoriesOverlap(left.absolutePath, right.absolutePath)) continue;
+                return (false,
+                    $"输出目录所有权冲突：【{left.profile.name}】{left.kind} {left.assetPath} 与" +
+                    $"【{right.profile.name}】{right.kind} {right.assetPath} 相同或互相嵌套。\n" +
+                    "Luban 会整理输出目录；请为每项代码 / 数据产物分配互不嵌套的独立目录。");
+            }
+
+            return (true, $"{profiles.Count} 套配置的代码 / 数据输出目录彼此独立。");
         }
 
         private static (int exitCode, string log) Run(string toolPath, string args, string workingDir)

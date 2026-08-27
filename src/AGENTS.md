@@ -9,10 +9,17 @@
 - `Game.Framework.Boot` 是 AOT 薄壳，永不引用任何 `Game.Framework*` Runtime 程序集。
 - Runtime 与 Editor 分离。Drawer/EditorWindow 放 Editor asmdef；重第三方 Editor 依赖建立内聚的独立 Module，避免污染通用 Editor。
 - Core 与热更新 Runtime Module 保持 `autoReferenced:false`。新增/移动程序集时同步 `docs/framework-module-map.md`、热更清单、Demo/Test asmdef，并执行完整测试。
-- Runtime Module 直接使用的外部程序集必须按 Unity 的真实字段显式声明：asmdef 生成的程序集放 `references`；预编译 DLL 放带 `.dll` 后缀的 `precompiledReferences`，并设 `overrideReferences:true`。不得把 DLL 名写进 `references` 冒充声明，也不能依赖插件 `Auto Reference` 恰好让编译通过。改引用后运行 `SSFramework/诊断/模块裁剪审计`；`AllAsmdefs_PutPrecompiledDllsInTheEffectiveField` 同时作为机器门禁。
+- Runtime Module 直接使用的外部程序集必须按 Unity 的真实字段显式声明：asmdef 生成的程序集放 `references`；预编译 DLL 放带 `.dll` 后缀的 `precompiledReferences`，并设 `overrideReferences:true`。不得把 DLL 名写进 `references` 冒充声明，也不能依赖插件 `Auto Reference` 恰好让编译通过。改引用后运行 `SSFramework/诊断与分析/模块与依赖`；`AllAsmdefs_PutPrecompiledDllsInTheEffectiveField` 同时作为机器门禁。
 - 通用 Editor 工具读取 Framework 源码、asmdef、`link.xml` 或模板时，通过 `FrameworkModuleSourceCatalog` 保留稳定 Asset Path 并解析真实 Physical Path；不要把 `Assets/...` 直接交给 `System.IO`，也不要假设源码一定在项目根目录内。该约束让同一 Implementation 可从 `Assets`、嵌入式 Package 或 `PackageCache` 工作。
 - 第三方库不直接修改；依赖行为通过 Adapter 封装，并在边界注释记录版本相关假设与失败语义。
 - Framework 面向使用者的 Editor 工具、默认配置与通用说明必须保持项目无关。可以动态展示扫描当前工程所得的场景、程序集与路径作为证据，但不得把 DemoScene、样例包、业务目录或项目程序集硬编码成默认值、固定分类或必经步骤；具体案例留在对应 Demo、项目配置或明确标记的案例文档中。
+
+## Editor 菜单与工具窗口
+
+- 顶部 `SSFramework/` 人工菜单只打开 `EditorWindow`，不得直接生成、构建、清理、写配置或启动外部进程。操作放到所属 Module 的工作台，按钮旁说明用途、前置条件、影响和失败后的下一步。
+- 三类显式例外：有真实选择上下文的 `Assets/SSFramework` / `GameObject/SSFramework` 操作；供 MCP/CI 调用且由 ADR 锁定路径的 `SSFramework/诊断/AI 自动化/*` 机器 Interface；配置驱动且只做安全导航的 `SSFramework/场景/*` 动态项。新增例外必须扩充 `FrameworkMenuContractTests` 白名单并记录理由；动态项由场景快捷入口测试锁定，因为它们不是可反射的 `[MenuItem]`。
+- 通用工具中心只消费 `FrameworkToolRegistry` 描述符，不反向引用可选 Editor Module。Module 自己登记标题、分类、说明和导航菜单；删除 Module 后卡片应自然消失。
+- 只读窗口和“定位/打开”动作不得暗中创建 Profile、目录或其它资产；缺配置时展示明确的创建按钮。创建资产、生成、构建等入口在按钮禁用之外，还要在动作 Implementation 中调用 `FrameworkEditorOperationGate` 二次校验。
 
 ## 公共 API 与注释
 
@@ -53,7 +60,7 @@
 
 新增 Editor 配置 Profile 必须同时完成：
 
-1. `SSFramework/<模块>/` 菜单可达：单例型定位资产，多份型打开专属总览；
+1. 由所属 Module 的 `SSFramework` 工作台可达：单例型显式创建/定位资产，多份型在专属总览管理；
 2. 在 `FrameworkConfigOverviewWindow.Sections` 登记，使用字符串类型名保持可选 Module 可删除；
 3. 明确数量语义：单例 `Resolve()` 多份时取稳定第一项并 Warning；多份 `ResolveAll()` 按资产路径排序。
 

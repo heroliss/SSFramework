@@ -183,7 +183,7 @@ namespace Game.Framework.Editor
         /// 无窗口状态的 Core 删除测试入口，供 CI / AI 自动化复用与人工快速回归。
         /// 完整组合选择仍使用“真实构建体积证据”窗口。
         /// </summary>
-        [MenuItem("SSFramework/诊断/AI 自动化/Core 隔离构建（Player Build）", priority = 31)]
+        [MenuItem(FrameworkMenuPaths.CoreBuildSizeProbe, priority = 31)]
         private static void StartCoreOnlyFromMenu() => StartFromAutomationMenu(
             "Core 隔离构建",
             "已在 Library/SSFramework/BuildSizeProbe 启动独立 Core Player Build；结果完成后可在“真实构建体积证据”窗口查看。",
@@ -193,7 +193,7 @@ namespace Game.Framework.Editor
         /// 无窗口状态的常用 UI 删除测试入口；把 Core 基线与两个单后端档位置于同一报告，
         /// 既验证可独立编译，也能直接计算相对 Core 的发布输出差值。
         /// </summary>
-        [MenuItem("SSFramework/诊断/AI 自动化/常用档位隔离构建（Core + UGUI + Toolkit）", priority = 32)]
+        [MenuItem(FrameworkMenuPaths.CommonBuildSizeProbe, priority = 32)]
         private static void StartCommonProfilesFromMenu() => StartFromAutomationMenu(
             "常用档位隔离构建",
             "已在 Library/SSFramework/BuildSizeProbe 顺序启动 Core、UGUI、Toolkit 独立 Player Build；主 Unity 可留在后台。",

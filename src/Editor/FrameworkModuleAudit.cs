@@ -2076,7 +2076,7 @@ namespace Game.Framework.Editor
             evidence.ProfileCount = guids.Length;
             if (guids.Length == 0)
             {
-                evidence.Note = "未找到 FrameworkHotUpdateProfile；构建菜单会创建默认热更档位。若目标是纯 AOT，也应创建空 Profile 作为明确的单一真源。";
+                evidence.Note = "未找到 FrameworkHotUpdateProfile；请在代码热更新工作台明确创建。若目标是纯 AOT，也应保留空 Profile 作为明确的单一真源。";
                 return evidence;
             }
             evidence.ProfileAvailable = true;

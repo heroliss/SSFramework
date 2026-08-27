@@ -16,7 +16,7 @@ using UnityEngine.UIElements;
 namespace Game.Framework.Editor
 {
     /// <summary>
-    /// 「框架诊断面板」（菜单 <c>SSFramework/诊断/框架诊断面板</c>）：调试器风格的运行时总览——
+    /// 「运行时诊断」（菜单 <c>SSFramework/诊断与分析/运行时诊断</c>）：调试器风格的运行时总览——
     /// 左侧存活 Context 作用域树（搜索过滤、双击定位场景对象），右侧选中 Context 的明细
     /// （本地注册表 / 事件订阅计数 / 池借出），底部 <see cref="LoggingCommandSystem"/> 命令流水表格
     /// （过滤 / 仅错误 / 复制导出），顶栏全局计数带趋势 sparkline。定位是调试与泄漏排查入口：
@@ -30,7 +30,7 @@ namespace Game.Framework.Editor
     /// </remarks>
     public sealed class FrameworkDiagnosticsWindow : EditorWindow
     {
-        [MenuItem("SSFramework/诊断/框架诊断面板", priority = 0)]
+        [MenuItem(FrameworkMenuPaths.RuntimeDiagnostics, priority = 80)]
         public static void Open() => GetWindow<FrameworkDiagnosticsWindow>("框架诊断").Show();
 
         private const int RefreshMs = 500;
@@ -348,7 +348,7 @@ namespace Game.Framework.Editor
                 style = { unityFontStyleAndWeight = FontStyle.Bold, fontSize = 11, marginRight = 10, color = ColMuted },
             });
 
-            // 全局 MinLevel（总闸门）。与菜单 SSFramework/诊断/日志级别 共用同一个 setter，避免两处各写各的导致漂移。
+            // 全局 MinLevel（总闸门）。会话写入统一经 FrameworkLogMenu，域重载后恢复到运行时字段。
             // 摆在各 sink 的分闸门左边，「总闸门 → 分闸门」的串联关系一眼可见——日志要同时过这两道。
             _loggingGlobalRow.Add(new Label("全局 ≥")
             {
@@ -356,7 +356,7 @@ namespace Game.Framework.Editor
                           "右边每个 sink 还各有一道【分闸门】(MinLevel)——一条日志要【同时】过这两道才到得了那个 sink。\n\n" +
                           "设成 Trace = 俗称的「开 Verbose」（看容器注册 / 解析、资源重试等框架诊断噪音）；\n" +
                           "设成 Warning = 全局压掉 Info 噪音，不必逐个改 sink。\n" +
-                          "与菜单「SSFramework/诊断/日志级别」是同一个东西。",
+                          "只影响本次 Editor 会话；重启 Unity 后恢复 Info。",
                 style = { color = ColMuted, fontSize = 11, marginRight = 3 },
             });
             _minLevelField = new EnumField(Log.MinLevel)

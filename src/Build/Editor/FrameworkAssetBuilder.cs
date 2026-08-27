@@ -13,7 +13,7 @@ using YooAsset.Editor; // 构建管线与收集器：ScriptableBuildParameters /
 namespace Game.Framework.Build
 {
     /// <summary>
-    /// 生产用资源构建实现——**全工程唯一的构建/部署逻辑**：统一构建菜单（<c>SSFramework/资源构建/*</c>，见
+    /// 生产用资源构建实现——**全工程唯一的构建/部署逻辑**：资源构建工作台（见
     /// <c>AssetBuildMenu</c>）和 CI（<see cref="BuildAll"/>）都复用这里，构建逻辑不再有第二份。
     ///
     /// 职责按「构建 / 部署」拆开（目录名见 <see cref="AssetBuildLayout"/>）：
@@ -36,7 +36,7 @@ namespace Game.Framework.Build
     ///       -version 1.2.3 [-output ./AssetBuild/Deploy] [-packages DefaultPackage,DLCPackage]
     /// ]]></code>
     /// <para>有真失败时以非 0 退出码结束（batchmode 下 CI 据此判定失败）。RawFile 包（收集器用 <c>PackRawFile</c>）需另走
-    /// RawFileBuildPipeline、不在本入口范围——构建前逐包预检，命中直接计失败并指路（代码包走热更构建菜单；业务 RawFile 包暂不支持统一构建）。</para>
+    /// RawFileBuildPipeline、不在本入口范围——构建前逐包预检，命中直接计失败并指路（代码包走代码热更新工作台；业务 RawFile 包暂不支持统一构建）。</para>
     /// </summary>
     public static class FrameworkAssetBuilder
     {
@@ -53,7 +53,13 @@ namespace Game.Framework.Build
         // ── CI 入口（-executeMethod 调用）──
         public static void BuildAll()
         {
-            var profile = FrameworkAssetBuildProfile.Resolve();
+            if (!FrameworkAssetBuildProfile.TryResolve(out var profile))
+            {
+                Debug.LogError("[AssetBuilder] 构建未启动：工程里没有 FrameworkAssetBuildProfile。" +
+                               "CI 不会代替项目创建发布配置；请先在资源构建工作台明确创建、复核并提交 Profile。");
+                if (Application.isBatchMode) EditorApplication.Exit(1);
+                return;
+            }
 
             string version = GetArg("-version");
             if (string.IsNullOrEmpty(version))
@@ -100,13 +106,7 @@ namespace Game.Framework.Build
         /// </summary>
         public static bool EnsureReadyToBuild()
         {
-            if (EditorApplication.isPlayingOrWillChangePlaymode)
-            {
-                FrameworkEditorFeedback.Warn(
-                    "资源构建预检已阻止",
-                    "影响：本次构建没有启动。\n原因：AssetBundle 构建管线不能在 Play 模式运行。\n下一步：停止 Play 后重新执行构建菜单。");
-                return false;
-            }
+            if (!FrameworkEditorOperationGate.EnsureCanStart("资源构建预检")) return false;
             // 弹窗让用户保存已修改的场景；用户取消则中止构建。
             bool mayContinue = EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo();
             if (!mayContinue)
@@ -130,6 +130,13 @@ namespace Game.Framework.Build
             {
                 if (packages == null || packages.Count == 0)
                     return (false, "没有可构建的包：profile 未启用任何包，或传入列表为空。");
+                if (!TryNormalizePackageNames(packages, out var normalizedPackages, out string packageError))
+                    return (false, "构建包名预检失败：" + packageError);
+                if (!FrameworkBuildArtifactPath.TryNormalizeSegment(
+                        version, "资源版本号", out string normalizedVersion, out string versionError))
+                    return (false, "构建版本预检失败：" + versionError);
+                packages = normalizedPackages;
+                version = normalizedVersion;
 
                 // 自定义加密与偏移加密互斥：二者都配时以自定义为准、偏移被忽略，提醒去把 FileOffset 置 0 以免误解。
                 if (GameAssetEncryption.CustomBundleEncryptor != null && profile != null && profile.FileOffset > 0)
@@ -143,7 +150,12 @@ namespace Game.Framework.Build
                 var failed = new List<string>();   // 真失败
 
                 // 代码包由热更构建管线（FrameworkHotUpdateBuilder）负责，资源构建按名字识别后排除（见循环内）。
-                string codePackageName = FrameworkHotUpdateProfile.Resolve()?.CodePackageName ?? "CodePackage";
+                string codePackageName = FrameworkHotUpdateProfile.TryResolve(out var hotUpdateProfile)
+                    ? hotUpdateProfile.CodePackageName
+                    : "CodePackage";
+                if (!FrameworkBuildArtifactPath.TryNormalizeSegment(
+                        codePackageName, "热更代码包名", out codePackageName, out string codePackageError))
+                    return (false, "热更配置无效：" + codePackageError);
 
                 foreach (var pkg in packages)
                 {
@@ -162,7 +174,7 @@ namespace Game.Framework.Build
                     // 不依赖人记得去取消勾选（ADR-0017 §5）。
                     if (string.Equals(pkg, codePackageName, StringComparison.Ordinal))
                     {
-                        excluded.Add($"{pkg}（代码包 → 热更构建菜单）");
+                        excluded.Add($"{pkg}（代码包 → 代码热更新工作台）");
                         continue;
                     }
 
@@ -235,6 +247,16 @@ namespace Game.Framework.Build
             {
                 if (packages == null || packages.Count == 0)
                     return (false, "没有可部署的包。");
+                if (!TryNormalizePackageNames(packages, out var normalizedPackages, out string packageError))
+                    return (false, "部署包名预检失败：" + packageError);
+                if (string.IsNullOrWhiteSpace(cdnRoot))
+                    return (false, "部署根目录不能为空。");
+                cdnRoot = Path.GetFullPath(cdnRoot);
+                foreach (string packageName in normalizedPackages)
+                    if (!FrameworkBuildArtifactPath.TryResolveChildDirectory(
+                            cdnRoot, packageName, "资源包名", out _, out string childError))
+                        return (false, "部署目录预检失败：" + childError);
+                packages = normalizedPackages;
 
                 var sb = new StringBuilder();
                 int deployed = 0;
@@ -386,8 +408,12 @@ namespace Game.Framework.Build
             if (copyOption == EBundledCopyOption.None)
                 return (true, null);
 
-            string outputDir = Path.Combine(PackageOutputRoot(packageName), version);
-            string bundledDir = Path.Combine(BundleBuilderHelper.GetStreamingAssetsRoot(), packageName);
+            if (!FrameworkBuildArtifactPath.TryResolveChildDirectory(
+                    PackageOutputRoot(packageName), version, "资源版本号", out string outputDir, out string versionError))
+                return (false, versionError);
+            if (!FrameworkBuildArtifactPath.TryResolveChildDirectory(
+                    BundleBuilderHelper.GetStreamingAssetsRoot(), packageName, "资源包名", out string bundledDir, out string packageError))
+                return (false, packageError);
             if (!Directory.Exists(outputDir))
                 return (false, $"找不到版本输出目录：{outputDir}");
             if (!Directory.Exists(bundledDir))
@@ -489,7 +515,11 @@ namespace Game.Framework.Build
         private static string PackageOutputRoot(string packageName)
         {
             var target = EditorUserBuildSettings.activeBuildTarget;
-            return $"{AssetBuildLayout.BundlesRoot}/{target}/{packageName}";
+            string platformRoot = Path.Combine(AssetBuildLayout.BundlesRoot, target.ToString());
+            if (!FrameworkBuildArtifactPath.TryResolveChildDirectory(
+                    platformRoot, packageName, "资源包名", out string outputRoot, out string error))
+                throw new InvalidOperationException(error);
+            return outputRoot;
         }
 
         // 找某包最近一次构建的版本目录（按修改时间），跳过 YooAsset 的 OutputCache 临时目录。
@@ -506,7 +536,9 @@ namespace Game.Framework.Build
         // 把一个版本目录平铺到「cdnRoot/包名」子目录。只重建本包子目录，不动其它包；CI 把整个 cdnRoot 同步上 CDN 即可。
         private static int FlattenToCdnDir(string versionDir, string cdnRoot, string packageName)
         {
-            string pkgDir = Path.Combine(cdnRoot, packageName);
+            if (!FrameworkBuildArtifactPath.TryResolveChildDirectory(
+                    cdnRoot, packageName, "资源包名", out string pkgDir, out string error))
+                throw new InvalidOperationException(error);
             if (Directory.Exists(pkgDir)) Directory.Delete(pkgDir, true);
             Directory.CreateDirectory(pkgDir);
 
@@ -517,6 +549,36 @@ namespace Game.Framework.Build
                 count++;
             }
             return count;
+        }
+
+        private static bool TryNormalizePackageNames(
+            IReadOnlyList<string> packages,
+            out List<string> normalizedPackages,
+            out string error)
+        {
+            normalizedPackages = new List<string>(packages?.Count ?? 0);
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (packages == null)
+            {
+                error = "包列表不能为空。";
+                return false;
+            }
+
+            for (int i = 0; i < packages.Count; i++)
+            {
+                if (!FrameworkBuildArtifactPath.TryNormalizeSegment(
+                        packages[i], $"第 {i + 1} 个资源包名", out string normalized, out error))
+                    return false;
+                if (!seen.Add(normalized))
+                {
+                    error = $"包名重复或仅大小写不同：{normalized}。不同平台会把它们映射到同一部署目录。";
+                    return false;
+                }
+                normalizedPackages.Add(normalized);
+            }
+
+            error = string.Empty;
+            return true;
         }
 
         // 从 Unity 启动命令行读取 -name value 形式的参数（CI 通过 -executeMethod 后追加）。

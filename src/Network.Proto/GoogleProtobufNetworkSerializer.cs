@@ -15,7 +15,7 @@ namespace Game.Framework.Network
     /// <remarks>
     /// <b>定位</b>：本类住框架增强模块 <c>Game.Framework.Network.Proto</c>——Google.Protobuf 依赖收口在此，
     /// 内核保持第三方零依赖（ports &amp; adapters，同 Asset.Yoo 先例）。配套的 .proto → C# 生成管线在
-    /// 同模块 Editor（菜单 <c>SSFramework/Protobuf</c>，多套 ProtoConfigProfile 按目录配置）。<br/>
+    /// 同模块 Editor（工作台 <c>SSFramework/代码生成/Protobuf</c>，多套 ProtoConfigProfile 按目录配置）。<br/>
     /// <b>wire 兼容</b>：envelope 字段号与内核手写 <see cref="ProtobufNetworkSerializer"/> 一致（逐字节等价）、
     /// 消息体都是标准 protobuf wire 字节——两实现可对讲、可灰度互换，对端只认 .proto 字段号。<br/>
     /// <b>反序列化注册</b>：<see cref="Register{T}"/>（单消息）/ <see cref="RegisterFile"/>（整个 .proto 文件）

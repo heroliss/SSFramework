@@ -1,0 +1,23 @@
+{
+    "name": "Game.Framework.Fonts.Editor.Tests",
+    "rootNamespace": "Game.Framework.Fonts.Editor.Tests",
+    "references": [
+        "Game.Framework.Fonts.Editor",
+        "UnityEngine.TestRunner"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

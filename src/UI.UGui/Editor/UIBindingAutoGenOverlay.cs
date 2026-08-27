@@ -78,8 +78,18 @@ namespace Game.Framework.UI.UGui.Editor
             EditorApplication.delayCall += () =>
             {
                 if (EditorApplication.isPlayingOrWillChangePlaymode || root == null) return;
+                if (!Game.Framework.Editor.FrameworkEditorOperationGate.EnsureCanStart("UI 绑定保存时自动生成")) return;
                 var d = root.GetComponent<UIBindingData>();
-                if (d != null) UIBindingCodeGenerator.GenerateAndLog(assetPath, d, UICodeGenProfile.Resolve());
+                if (d == null) return;
+                if (!UICodeGenProfile.TryResolve(out var profile))
+                {
+                    Game.Framework.Editor.FrameworkEditorFeedback.Warn(
+                        "UI 绑定保存时自动生成已跳过",
+                        "影响：Prefab 已正常保存，但没有创建配置，也没有生成代码。\n原因：工程里还没有 UICodeGenProfile。\n" +
+                        $"下一步：打开“{Game.Framework.Editor.FrameworkMenuPaths.UIBinding}”，明确创建并填写配置；或关闭 Scene 视图里的自动生成开关。");
+                    return;
+                }
+                UIBindingCodeGenerator.GenerateAndLog(assetPath, d, profile);
             };
         }
     }

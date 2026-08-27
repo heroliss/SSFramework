@@ -19,8 +19,7 @@ namespace Game.Framework.Editor
     public static class FrameworkAutomationPreflight
     {
         /// <summary>供 Unity MCP <c>unity_execute_menu_item</c> 调用的稳定菜单路径。</summary>
-        public const string PlayModeTestsMenuPath =
-            "SSFramework/诊断/AI 自动化/PlayMode 测试预检（保存脏场景）";
+        public const string PlayModeTestsMenuPath = FrameworkMenuPaths.PlayModeTestPreflight;
 
         /// <summary>
         /// 保存所有已加载、已有资产路径的脏场景，为随后进入 PlayMode 建立无弹窗前置条件。

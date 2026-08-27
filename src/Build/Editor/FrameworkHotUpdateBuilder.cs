@@ -60,7 +60,7 @@ namespace Game.Framework.Build
 
     /// <summary>
     /// 热更代码构建实现——把「C# 源码改动」变成「CDN 上可下发的代码包」的全部编辑器侧逻辑，
-    /// 菜单（<c>SSFramework/热更构建/*</c>）与将来的 CI 都只调这里。两个入口对应两种频率的工作：
+    /// 代码热更新工作台与 CI 都只调这里。两个入口对应两种频率的工作：
     /// <list type="bullet">
     ///   <item><see cref="Generate"/>：包装 HybridCLR 的 <c>Generate/All</c>（Il2CppDef / link.xml / 裁剪 AOT DLL /
     ///         桥接函数 / AOT 泛型引用）。**慢**（内部跑一次迷你构建产裁剪 DLL）。首次接入、Unity/HybridCLR 升级、
@@ -589,7 +589,12 @@ namespace Game.Framework.Build
             {
                 var sb = new StringBuilder();
                 var target = EditorUserBuildSettings.activeBuildTarget;
-                string packageName = profile.CodePackageName;
+                if (!FrameworkBuildArtifactPath.TryNormalizeSegment(
+                        profile.CodePackageName, "热更代码包名", out string packageName, out string packageError))
+                    return (false, packageError);
+                if (!FrameworkBuildArtifactPath.TryNormalizeSegment(
+                        version, "热更代码版本号", out version, out string versionError))
+                    return (false, versionError);
 
                 // 1. 同步 + 校验：失败即停，不产出与配置不一致的包。
                 string sync = profile.SyncToHybridCLRSettings();
@@ -1410,7 +1415,13 @@ namespace Game.Framework.Build
         // 只保留最近 2 个版本目录（与 FrameworkAssetBuilder.CleanupOldVersions 同思路；代码包不读资源 profile 的保留数）。
         private static void CleanupOldVersions(string packageName, BuildTarget target)
         {
-            string root = $"{AssetBuildLayout.BundlesRoot}/{target}/{packageName}";
+            string platformRoot = Path.Combine(AssetBuildLayout.BundlesRoot, target.ToString());
+            if (!FrameworkBuildArtifactPath.TryResolveChildDirectory(
+                    platformRoot, packageName, "热更代码包名", out string root, out string error))
+            {
+                Debug.LogError("[热更构建] 拒绝清理旧版本：" + error);
+                return;
+            }
             if (!Directory.Exists(root)) return;
 
             var versionDirs = Directory.GetDirectories(root)

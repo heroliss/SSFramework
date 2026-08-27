@@ -47,7 +47,7 @@ roadmap 中期第六项：把散在各组件 Inspector「运行时诊断」折�
 
 `IObjectPool<T>` / `IGameObjectPool` 增加 `CountActive`（Rent/Spawn +1、Return/Despawn -1）——roadmap 要的「占用/空闲」里缺的那半。`GetPoolDiagnostics()` 字符串同步补上（`MonoPoolUtility` Inspector 白得增强）。边界：C# 池不跟踪实例归属（刻意，见 ADR-0007），归还外来实例会让计数漂移——钳到 ≥0 并在文档标注「误用下是近似值」；GameObject 实例被外部 Destroy 不再归还，计数停在借出侧——这本身就是要暴露的信息。
 
-### 6. Editor 窗口 `FrameworkDiagnosticsWindow`（菜单 `SSFramework/诊断/框架诊断面板`）
+### 6. Editor 窗口 `FrameworkDiagnosticsWindow`（菜单 `SSFramework/诊断与分析/运行时诊断`）
 
 **UI Toolkit 实现的调试器风格布局**（TreeView / MultiColumnListView 现成控件，也顺应框架「面向 UI Toolkit」的技术栈方向），全部只读：
 

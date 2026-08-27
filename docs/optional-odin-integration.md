@@ -36,7 +36,7 @@ Editor Adapter 中叠加。
 4. 逐个实际发布的 BuildTargetGroup 清理/核对 `ODIN_INSPECTOR*` scripting define，再刷新编译。插件已经
    删除但 define 残留时，业务侧 `#if ODIN_INSPECTOR` 内的 Sirenix 引用仍会被启用并导致编译失败；define 只是
    环境探测结果，不能替代物理安装与授权边界。
-5. 运行 EditMode、PlayMode 和 `SSFramework/诊断/模块裁剪审计`。Framework 的
+5. 运行 EditMode、PlayMode 和 `SSFramework/诊断与分析/模块与依赖`。Framework 的
    `FrameworkOptionalDependencyTests` 会从 CompilationPipeline 找到 Assets/Packages 中的 Framework 程序集，
    同时检查源码、asmdef 与已编译 DLL 的直接引用，并拒绝扫描数为零的假绿。审计窗口的“第三方依赖证据目录”
    会保留 Odin 随插件分发的 Editor / NoEditor / NoEmitAndNoEditor 同 AssemblyName 物理变体，并用完整

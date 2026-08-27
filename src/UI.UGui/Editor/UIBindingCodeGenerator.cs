@@ -35,7 +35,7 @@ namespace Game.Framework.UI.UGui.Editor
         public static (bool ok, string message) Generate(string prefabPath, UIBindingData data, UICodeGenProfile profile)
         {
             if (profile == null)
-                return (false, "没有 UICodeGenProfile。请先打开 SSFramework/UI 绑定/配置并填写生成目标。");
+                return (false, "没有 UICodeGenProfile。请先打开 SSFramework/代码生成/UI 绑定，创建并填写生成目标。");
             if (string.IsNullOrEmpty(prefabPath) || !prefabPath.EndsWith(".prefab"))
                 return (false, $"不是 prefab：{prefabPath}");
             if (data == null)

@@ -63,11 +63,12 @@ namespace Game.Framework.Odin.Editor
             EditorApplication.delayCall += RegisterDelayed;
         }
 
-        [MenuItem("SSFramework/诊断/可选模块/重新应用 Odin Inspector 适配")]
-        private static void RegisterFromMenu()
+        internal static void RegisterWithFeedback()
         {
             int count = RegisterNow();
-            Debug.Log($"[SSFramework] Odin Inspector 适配已应用到 {count} 个 Framework 组件类型。");
+            FrameworkEditorFeedback.ReportSummary(
+                "Odin Inspector 适配已重新应用",
+                $"当前由适配层接管 {count} 个 Framework 组件类型。此映射只存在于 Editor 内存，不写 Odin 配置或项目资产。");
         }
 
         /// <summary>

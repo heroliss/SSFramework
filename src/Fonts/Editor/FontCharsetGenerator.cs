@@ -4,6 +4,7 @@ using System.IO.Compression;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml;
+using Game.Framework.Editor;
 using UnityEditor;
 using UnityEngine;
 
@@ -28,8 +29,56 @@ namespace Game.Framework.Fonts.Editor
             "@\"(?:[^\"]|\"\")*\"|\"(?:[^\"\\\\\\r\\n]|\\\\.)*\"",
             RegexOptions.Compiled);
 
-        /// <summary>按 profile 生成 charset 文件；返回收进的唯一字符数。产物路径见 <see cref="FontCharsetProfile.OutputPath"/>。</summary>
+        /// <summary>
+        /// 按 profile 生成 charset 文件并返回唯一字符数。路径或文件读取失败时抛
+        /// <see cref="InvalidOperationException"/>；交互入口应优先使用 <see cref="TryGenerate"/> 展示可恢复错误。
+        /// </summary>
         public static int Generate(FontCharsetProfile profile)
+        {
+            var (ok, message, count) = TryGenerate(profile);
+            if (!ok) throw new System.InvalidOperationException(message);
+            return count;
+        }
+
+        /// <summary>
+        /// 尝试生成 charset。扫描目录必须留在工程内，输出文件必须位于 <c>Assets</c> 子目录；失败不抛出常见
+        /// 路径或 IO 异常，而是返回可供工作台展示的原因。成功后已经刷新 AssetDatabase。
+        /// </summary>
+        public static (bool ok, string message, int count) TryGenerate(FontCharsetProfile profile)
+        {
+            if (profile == null) return (false, "Font Charset Profile 不能为空。", 0);
+            if (!FrameworkProjectPath.TryResolveAssetsFile(
+                    profile.OutputPath, ".txt", out string outputAssetPath, out string outputPath, out string pathError))
+                return (false, "字集输出路径无效：" + pathError, 0);
+
+            var scanDirectories = new List<(string configured, string absolute)>();
+            foreach (string configuredDirectory in profile.ScanDirs ?? System.Array.Empty<string>())
+            {
+                if (string.IsNullOrWhiteSpace(configuredDirectory)) continue;
+                if (!FrameworkProjectPath.TryResolve(
+                        configuredDirectory, out _, out string absoluteDirectory, out string scanError))
+                    return (false, "字集扫描目录无效：" + scanError, 0);
+                scanDirectories.Add((configuredDirectory, absoluteDirectory));
+            }
+
+            try
+            {
+                int count = GenerateCore(profile, scanDirectories, outputPath);
+                AssetDatabase.ImportAsset(outputAssetPath);
+                return (true, $"已写入 {count} 个唯一字符：{outputAssetPath}", count);
+            }
+            catch (System.Exception exception) when (
+                exception is System.ArgumentException or IOException or System.UnauthorizedAccessException or
+                InvalidDataException or XmlException)
+            {
+                return (false, $"读取文本源或写入字集失败：{exception.Message}", 0);
+            }
+        }
+
+        private static int GenerateCore(
+            FontCharsetProfile profile,
+            IReadOnlyList<(string configured, string absolute)> scanDirectories,
+            string outputPath)
         {
             var codepoints = new SortedSet<int>();
 
@@ -39,22 +88,21 @@ namespace Game.Framework.Fonts.Editor
 
             AddText(codepoints, profile.ExtraChars);
 
-            int fileCount = 0;
-            foreach (var dir in profile.ScanDirs)
+            foreach (var (configured, absolute) in scanDirectories)
             {
-                if (string.IsNullOrWhiteSpace(dir)) continue;
-                if (!Directory.Exists(dir))
+                if (!Directory.Exists(absolute))
                 {
-                    Debug.LogWarning($"[FontCharset] 扫描目录不存在，跳过：{dir}");
+                    Debug.LogWarning($"[FontCharset] 扫描目录不存在，跳过：{configured}");
                     continue;
                 }
-                foreach (var pattern in profile.FilePatterns)
+                foreach (var pattern in profile.FilePatterns ?? System.Array.Empty<string>())
                 {
                     if (string.IsNullOrWhiteSpace(pattern)) continue;
-                    foreach (var file in Directory.GetFiles(dir, pattern, SearchOption.AllDirectories))
+                    foreach (var file in Directory.GetFiles(absolute, pattern, SearchOption.AllDirectories))
                     {
+                        // 默认输出位于默认扫描根 Assets 内；不排除自己会让已删除字符被旧产物永久带回，字集只能增不能减。
+                        if (FrameworkProjectPath.PathsEqual(file, outputPath)) continue;
                         AddFile(codepoints, file);
-                        fileCount++;
                     }
                 }
             }
@@ -63,14 +111,8 @@ namespace Game.Framework.Fonts.Editor
             foreach (var cp in codepoints)
                 sb.Append(char.ConvertFromUtf32(cp));
 
-            var outputPath = profile.OutputPath;
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
             File.WriteAllText(outputPath, sb.ToString(), new UTF8Encoding(false));
-            AssetDatabase.Refresh();
-
-            Debug.Log($"[FontCharset] 扫描 {fileCount} 个文件，收进 {codepoints.Count} 个唯一字符 → {outputPath}\n" +
-                      "下一步：TMP Font Asset Creator（Window/TextMeshPro/Font Asset Creator）选主字体 ttf，" +
-                      "Character Set 选 Characters from File 引用该文件，烘焙 static atlas。");
             return codepoints.Count;
         }
 

@@ -48,3 +48,4 @@
 | [0040](0040-upm-aware-module-source-catalog.md) | UPM-aware Module Source Catalog：稳定 Asset 身份 + 真实物理源码 + Package 所有权 | Accepted |
 | [0041](0041-module-dependency-integrity.md) | Module 依赖完整性：真实 asmdef/DLL 声明、HybridCLR 元数据拓扑新鲜度与 Adapter-local 默认装配 | Accepted |
 | [0042](0042-external-dependency-evidence-catalog.md) | 第三方依赖证据目录：只读、来源可追溯、与 UPM 正交 | Accepted |
+| [0043](0043-editor-menu-navigation-workbenches.md) | Editor 菜单只导航：副作用操作进入 Module 工作台，自动化与上下文入口显式例外 | Accepted |

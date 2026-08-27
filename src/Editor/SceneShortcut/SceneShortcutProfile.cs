@@ -12,13 +12,25 @@ namespace Game.Framework.Editor
     /// <b>加一个快捷入口 = 往这里加一行，不用改任何代码</b>。以后想加自己项目的场景直接编辑本资产即可。
     /// </summary>
     /// <remarks>
-    /// 全工程单例（用户首次打开配置或切换启动场景开关时，自动创建到通用项目配置目录；项目配置不进框架包——ADR-0011）；
+    /// 全工程单例（只在场景工作台明确点击创建，落到通用项目配置目录；项目配置不进框架包——ADR-0011）；
     /// 误建多份时 <see cref="Resolve"/> 取第一份并警告（同 <c>FontCharsetProfile</c> 等的单例语义）。<br/>
     /// 首次创建会把 Build Settings 中已启用的有效场景作为初始快捷入口，用户可自由增删 / 清空。
     /// 场景存 <see cref="SceneAsset"/> 引用（内部是 GUID），改名 / 移动不断链。
     /// </remarks>
     public sealed class SceneShortcutProfile : ScriptableObject
     {
+        private static SceneShortcutProfile _cached;
+        private static bool _cacheInitialized;
+
+        static SceneShortcutProfile()
+        {
+            EditorApplication.projectChanged += () =>
+            {
+                _cached = null;
+                _cacheInitialized = false;
+            };
+        }
+
         /// <summary>一条场景快捷入口 = 菜单里的一个「打开场景」项。</summary>
         [Serializable]
         public sealed class SceneEntry
@@ -37,14 +49,14 @@ namespace Game.Framework.Editor
         }
 
         [Tooltip("菜单里要显示的场景快捷入口。加一行即多一个菜单项——" +
-                 "改完点「SSFramework/场景/↻ 刷新场景菜单」或触发一次域重载（改任意脚本）即可生效。")]
+                 "改完到 SSFramework/开发辅助/场景快捷入口 点“刷新菜单”，或触发一次域重载即可生效。")]
         [SerializeField] private List<SceneEntry> _entries = new();
 
         [Space(6)]
         [Header("从 Boot 场景启动 Play（贴合本框架 Boot / 热更架构）")]
         [Tooltip("勾选后：从任何场景按 Play 都先跑 Boot 场景（HybridCLR 引导流程）再进——" +
                  "无需每次手动切回 Boot。取消勾选恢复 Unity 默认（从当前场景直接 Play）。\n" +
-                 "也可在菜单 SSFramework/场景/从 Boot 场景启动 Play 里一键切换（带勾选态）。")]
+                 "也可在 SSFramework/开发辅助/场景快捷入口 工作台切换。")]
         [SerializeField] private bool _playFromBootScene;
 
         [Tooltip("Boot 场景资产：上面开关打开时，它就是 Play 的起始场景。")]
@@ -66,19 +78,28 @@ namespace Game.Framework.Editor
         /// <summary>定位全工程唯一配置；不存在返回 <c>null</c>（不创建，供 validate 等只读场景用）。</summary>
         public static SceneShortcutProfile Find()
         {
+            if (_cacheInitialized) return _cached;
+
             var paths = AssetDatabase.FindAssets("t:" + nameof(SceneShortcutProfile))
                 .Select(AssetDatabase.GUIDToAssetPath)
                 .OrderBy(path => path, StringComparer.Ordinal)
                 .ToArray();
-            if (paths.Length == 0) return null;
+            if (paths.Length == 0)
+            {
+                _cacheInitialized = true;
+                _cached = null;
+                return null;
+            }
             // CreateAssetMenu 未开放（单例，不该手建多份）；万一 FindAssets 命中多份仍明确警告，避免「改了不生效」难排查。
             if (paths.Length > 1)
                 Debug.LogWarning("[场景快捷入口] 找到多个配置，仅第一个生效，请删到只剩一个：\n  " +
                                  string.Join("\n  ", paths));
-            return AssetDatabase.LoadAssetAtPath<SceneShortcutProfile>(paths[0]);
+            _cached = AssetDatabase.LoadAssetAtPath<SceneShortcutProfile>(paths[0]);
+            _cacheInitialized = true;
+            return _cached;
         }
 
-        /// <summary>定位配置；不存在则自动创建，并从 Build Settings 导入初始场景（同其它单例 profile 的语义）。</summary>
+        /// <summary>定位配置；不存在则创建并从 Build Settings 导入初始场景。此写入 API 只供工作台明确创建动作调用。</summary>
         public static SceneShortcutProfile Resolve()
         {
             var existing = Find();
@@ -91,7 +112,9 @@ namespace Game.Framework.Editor
             string path = dir + "/SceneShortcutProfile.asset";
             AssetDatabase.CreateAsset(profile, path);
             AssetDatabase.SaveAssets();
-            Debug.Log($"[场景快捷入口] 未找到配置，已自动创建：{path}。" +
+            _cached = profile;
+            _cacheInitialized = true;
+            Debug.Log($"[场景快捷入口] 已按用户请求创建配置：{path}。" +
                       $"从 Build Settings 导入了 {profile.Entries.Count} 个已启用场景；可在 Inspector 自由增删。");
             return profile;
         }

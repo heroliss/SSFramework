@@ -15,6 +15,13 @@ namespace Game.Framework.UI.UGui.Editor
     [CreateAssetMenu(fileName = "UICodeGenProfile", menuName = "SSFramework/UI 绑定生成配置 (UI CodeGen Profile)")]
     public sealed class UICodeGenProfile : ScriptableObject
     {
+        internal const string DefaultFileNameTemplate = "{PrefabName}";
+        internal const string DefaultFieldNameTemplate = "{node}{Component}";
+        internal const bool DefaultOmitComponentTokenWhenContained = true;
+
+        private static readonly IReadOnlyList<string> DefaultBuiltinComponentPriority = CreateDefaultBuiltinComponentPriority();
+        private static readonly IReadOnlyList<ComponentAlias> DefaultComponentAliases = CreateDefaultComponentAliases();
+
         [Tooltip("生成代码的命名空间。支持 {PrefabName} / {DirectoryName} / {ParentDirectoryName}；占位符值会被清洗成合法标识符段。")]
         [SerializeField] private string _namespaceRoot = "";
 
@@ -25,49 +32,27 @@ namespace Game.Framework.UI.UGui.Editor
         [SerializeField] private string _generatedCodeDir = "";
 
         [Tooltip("生成的文件名（= 生成的 partial 类名），不含扩展名。默认 {PrefabName} = prefab 文件名。注意：[UIWindow(Asset=...)] 的加载地址恒 = prefab 文件名，不受本项影响。")]
-        [SerializeField] private string _fileNameTemplate = "{PrefabName}";
+        [SerializeField] private string _fileNameTemplate = DefaultFileNameTemplate;
 
         [Header("默认组件优先级（标记节点时用；自定义脚本恒高于本列表）")]
         [Tooltip("一个节点有多个内置组件时，按本列表从上到下取第一个命中的作为默认绑定组件（按 FullName 或简单名匹配）。\n" +
                  "节点上若有用户自定义脚本，则优先于本列表任何项。要绑多个组件在绑定编辑窗口里加。")]
         [SerializeField]
-        private List<string> _builtinComponentPriority = new()
-        {
-            "UnityEngine.UI.Button",
-            "UnityEngine.UI.Toggle",
-            "UnityEngine.UI.Slider",
-            "UnityEngine.UI.Scrollbar",
-            "UnityEngine.UI.Dropdown",
-            "UnityEngine.UI.InputField",
-            "UnityEngine.UI.ScrollRect",
-            "TMPro.TMP_Dropdown",
-            "TMPro.TMP_InputField",
-            "TMPro.TextMeshProUGUI",
-            "UnityEngine.UI.Text",
-            "UnityEngine.UI.RawImage",
-            "UnityEngine.UI.Image",
-            "UnityEngine.CanvasGroup",
-        };
+        private List<string> _builtinComponentPriority = CreateDefaultBuiltinComponentPriority();
 
         [Header("字段命名（未手动设字段名的条目走此规则）")]
         [Tooltip("字段名模板。占位符：{node} 节点名 / {Node} 首字母大写；{Component} 组件全名(如 Button) / {component} 首字母小写；" +
                  "{alias} 组件别名(见下，如 btn) / {Alias} 首字母大写 / {ALIAS} 全大写。\n" +
                  "例：{node}{Component} → AddButton（后缀）；{alias}_{node} → btn_Add（前缀分组，让节点字段在 this. 补全里聚成一片）。")]
-        [SerializeField] private string _fieldNameTemplate = "{node}{Component}";
+        [SerializeField] private string _fieldNameTemplate = DefaultFieldNameTemplate;
 
         [Tooltip("勾上：节点名已包含组件名/别名(大小写不敏感)时，省略模板里的组件/别名占位符——避免 ScoreText(Text)→ScoreTextText。\n" +
                  "做前缀分组(如 btn_)想保留前缀就取消勾选。")]
-        [SerializeField] private bool _omitComponentTokenWhenContained = true;
+        [SerializeField] private bool _omitComponentTokenWhenContained = DefaultOmitComponentTokenWhenContained;
 
         [Tooltip("组件类型 → 简写别名（供模板 {alias} 用）。按组件简单名或全名匹配；未配的组件 {alias} 退回组件全名。")]
         [SerializeField]
-        private List<ComponentAlias> _componentAliases = new()
-        {
-            new("Button", "btn"), new("Text", "txt"), new("TextMeshProUGUI", "txt"), new("TMP_Text", "txt"),
-            new("Image", "img"), new("RawImage", "rawImg"), new("Toggle", "tgl"), new("Slider", "sld"),
-            new("Scrollbar", "scrollbar"), new("ScrollRect", "scroll"), new("Dropdown", "dd"), new("TMP_Dropdown", "dd"),
-            new("InputField", "input"), new("TMP_InputField", "input"), new("CanvasGroup", "cg"),
-        };
+        private List<ComponentAlias> _componentAliases = CreateDefaultComponentAliases();
 
         [Header("脚本自动挂")]
         [Tooltip("勾上：窗口生成后自动把窗口脚本挂到 prefab 根——缺则挂上、类名改了则把旧脚本换成新的（变体则是把继承的基脚本换成变体脚本）。默认开。\n" +
@@ -78,14 +63,15 @@ namespace Game.Framework.UI.UGui.Editor
         public string OutputCodeDir => _outputCodeDir?.Trim().TrimEnd('/', '\\') ?? "";
         public string GeneratedCodeDir => _generatedCodeDir?.Trim().TrimEnd('/', '\\') ?? "";
         public string NamespaceRoot => _namespaceRoot?.Trim() ?? "";
-        public string FileNameTemplate => string.IsNullOrWhiteSpace(_fileNameTemplate) ? "{PrefabName}" : _fileNameTemplate.Trim();
-        public IReadOnlyList<string> BuiltinComponentPriority => _builtinComponentPriority;
+        public string FileNameTemplate => string.IsNullOrWhiteSpace(_fileNameTemplate) ? DefaultFileNameTemplate : _fileNameTemplate.Trim();
+        public IReadOnlyList<string> BuiltinComponentPriority => _builtinComponentPriority ?? DefaultBuiltinComponentPriority;
+        // 兼容旧 Profile：历史上手动清空模板表示只用节点名；新建 Profile 的序列化默认仍是 {node}{Component}。
         public string FieldNameTemplate => string.IsNullOrWhiteSpace(_fieldNameTemplate) ? "{node}" : _fieldNameTemplate.Trim();
         public bool OmitComponentTokenWhenContained => _omitComponentTokenWhenContained;
-        public IReadOnlyList<ComponentAlias> ComponentAliases => _componentAliases;
+        public IReadOnlyList<ComponentAlias> ComponentAliases => _componentAliases ?? DefaultComponentAliases;
         public bool AutoAssignWindowScript => _autoAssignWindowScript;
 
-        // 解析结果缓存：Resolve 被 GUI（弹窗生成面板）每帧调用，FindAssets 是工程级扫描，逐帧跑会拖慢（拖拽时尤其卡）。
+        // 解析结果缓存：TryResolve 被 GUI（弹窗生成面板）每帧调用，FindAssets 是工程级扫描，逐帧跑会拖慢（拖拽时尤其卡）。
         // 缓存资产引用即可——持的是 ScriptableObject 引用，字段编辑实时反映；资产增删改（新建第二个 Profile / 移动 / 删除）
         // 经 projectChanged 清缓存、下次重解析（与 UICodeGenDirConfig 的失效口径一致，避免「换了 Profile 资产但缓存仍指旧的」）。
         private static UICodeGenProfile _cached;
@@ -128,8 +114,8 @@ namespace Game.Framework.UI.UGui.Editor
         }
 
         /// <summary>
-        /// 解析全工程唯一 Profile；没有时显式创建待配置的空资产。只应由代码生成动作或用户点击创建入口调用，
-        /// 普通 Inspector 重绘使用 <see cref="TryResolve"/>，不得暗中写项目。
+        /// 解析全工程唯一 Profile；没有时显式创建待配置的空资产。只应由用户点击“创建配置”等明确入口调用，
+        /// 普通 Inspector 重绘、绑定编辑和代码生成动作使用 <see cref="TryResolve"/>；缺配置时应解释并引导，不得暗中写项目。
         /// </summary>
         public static UICodeGenProfile Resolve()
         {
@@ -148,6 +134,38 @@ namespace Game.Framework.UI.UGui.Editor
             _cacheInitialized = true;
             return profile;
         }
+
+        internal static IReadOnlyList<string> BuiltinComponentPriorityOrDefault(UICodeGenProfile profile)
+            => profile != null ? profile.BuiltinComponentPriority : DefaultBuiltinComponentPriority;
+
+        internal static IReadOnlyList<ComponentAlias> ComponentAliasesOrDefault(UICodeGenProfile profile)
+            => profile != null ? profile.ComponentAliases : DefaultComponentAliases;
+
+        private static List<string> CreateDefaultBuiltinComponentPriority() => new()
+        {
+            "UnityEngine.UI.Button",
+            "UnityEngine.UI.Toggle",
+            "UnityEngine.UI.Slider",
+            "UnityEngine.UI.Scrollbar",
+            "UnityEngine.UI.Dropdown",
+            "UnityEngine.UI.InputField",
+            "UnityEngine.UI.ScrollRect",
+            "TMPro.TMP_Dropdown",
+            "TMPro.TMP_InputField",
+            "TMPro.TextMeshProUGUI",
+            "UnityEngine.UI.Text",
+            "UnityEngine.UI.RawImage",
+            "UnityEngine.UI.Image",
+            "UnityEngine.CanvasGroup",
+        };
+
+        private static List<ComponentAlias> CreateDefaultComponentAliases() => new()
+        {
+            new("Button", "btn"), new("Text", "txt"), new("TextMeshProUGUI", "txt"), new("TMP_Text", "txt"),
+            new("Image", "img"), new("RawImage", "rawImg"), new("Toggle", "tgl"), new("Slider", "sld"),
+            new("Scrollbar", "scrollbar"), new("ScrollRect", "scroll"), new("Dropdown", "dd"), new("TMP_Dropdown", "dd"),
+            new("InputField", "input"), new("TMP_InputField", "input"), new("CanvasGroup", "cg"),
+        };
     }
 
     /// <summary>组件类型 → 字段名模板里 <c>{alias}</c> 用的简写映射的一条。</summary>

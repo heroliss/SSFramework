@@ -13,7 +13,7 @@ namespace Game.Framework.Editor
     /// 在运行时按配置动态注册，于是「菜单里有哪些场景」由资产说了算、加场景不用改代码。
     /// </summary>
     /// <remarks>
-    /// <b>刷新时机：</b><c>[InitializeOnLoad]</c> 在每次域重载后重建菜单；改了配置后点「↻ 刷新场景菜单」
+    /// <b>刷新时机：</b><c>[InitializeOnLoad]</c> 在每次域重载后重建菜单；改了配置后在场景快捷入口工作台点“刷新菜单”
     /// 或触发一次域重载（改任意脚本）即可刷新。动态项不随域重载持久化，故每次加载都重新注册（不会重复）。<br/>
     /// <b>打开安全性：</b>替换打开前走 <c>SaveCurrentModifiedScenesIfUserWantsTo</c> 保存提示；
     /// Play 模式下先询问退出（退出是异步的，故记下目标、在回到编辑态后再打开），不会静默丢改动。<br/>
@@ -25,10 +25,6 @@ namespace Game.Framework.Editor
     {
         private const string Root = "SSFramework/场景/";
         internal const string PlaySub = "▶ 打开并 Play/";
-        internal const string EditProfileLabel = "⚙ 编辑场景快捷入口";
-        internal const string RefreshLabel = "↻ 刷新场景菜单";
-        internal const string BootToggleLabel = "从 Boot 场景启动 Play";
-        private const string BootToggle = Root + BootToggleLabel;
 
         // 本次注册的所有动态项名，刷新时先逐个移除、再重建（避免残留旧项 / 改名后的孤儿）。
         private static readonly List<string> _registered = new();
@@ -42,41 +38,40 @@ namespace Game.Framework.Editor
             EditorApplication.delayCall += Rebuild;
         }
 
-        // ── 固定菜单项（编译期静态；与动态场景项在同一「场景」子菜单里按 priority 合并）──
+        // ── 工作台动作 ──
 
-        [MenuItem(Root + EditProfileLabel, priority = 500)]
-        private static void EditProfile()
+        internal static void SelectProfile()
         {
+            if (SceneShortcutProfile.Find() == null &&
+                !FrameworkEditorOperationGate.EnsureCanStart("创建场景快捷入口配置")) return;
             var profile = SceneShortcutProfile.Resolve();
             Selection.activeObject = profile;
             EditorGUIUtility.PingObject(profile);
         }
 
-        [MenuItem(Root + RefreshLabel, priority = 501)]
-        private static void RefreshMenu() => Rebuild();
+        internal static void Refresh() => Rebuild();
 
-        [MenuItem(BootToggle, priority = 400)]
-        private static void ToggleBootPlay()
+        internal static void SetPlayFromBoot(bool enabled)
         {
-            var profile = SceneShortcutProfile.Resolve();
-            profile.PlayFromBootScene = !profile.PlayFromBootScene;
+            if (!FrameworkEditorOperationGate.EnsureCanStart("修改 Boot 启动策略", requireEditMode: false)) return;
+            var profile = SceneShortcutProfile.Find();
+            if (profile == null)
+            {
+                FrameworkEditorFeedback.Warn(
+                    "Boot 启动策略未修改",
+                    "影响：当前 Play 起点保持不变。\n原因：场景快捷入口配置不存在。\n" +
+                    $"下一步：打开“{FrameworkMenuPaths.SceneShortcuts}”并明确创建配置后重试。");
+                return;
+            }
+            profile.PlayFromBootScene = enabled;
             EditorUtility.SetDirty(profile);
             AssetDatabase.SaveAssets();
 
             if (profile.PlayFromBootScene && profile.BootScene == null)
                 Debug.LogWarning("[场景快捷入口] 已开启「从 Boot 场景启动 Play」，但配置里没有指定 Boot 场景——" +
-                                 "请在「⚙ 编辑场景快捷入口」里给 Boot Scene 赋值，否则不生效。");
+                                 "请在场景快捷入口工作台定位配置并填写 Boot Scene，否则不生效。");
 
             ApplyPlayFromBoot(profile);
-        }
-
-        [MenuItem(BootToggle, true)]
-        private static bool ToggleBootPlayValidate()
-        {
-            // validate 频繁触发（菜单每次打开），只读不创建，用 Find。
-            var profile = SceneShortcutProfile.Find();
-            Menu.SetChecked(BootToggle, profile != null && profile.PlayFromBootScene);
-            return true;
         }
 
         // ── 动态重建 ──
@@ -85,7 +80,7 @@ namespace Game.Framework.Editor
         {
             if (!MenuBridge.Available)
             {
-                Debug.LogError("[场景快捷入口] 反射内部菜单 API 失败，动态场景菜单不可用（固定项仍在）——" +
+                Debug.LogError("[场景快捷入口] 反射内部菜单 API 失败，动态场景菜单不可用——" +
                                "多半是 Unity 升级后 UnityEditor.Menu 的方法签名变了，请核对 MenuBridge。");
                 return;
             }
@@ -158,12 +153,7 @@ namespace Game.Framework.Editor
             return (group, candidate);
         }
 
-        internal static HashSet<string> CreateReservedMenuPaths() => new(StringComparer.Ordinal)
-        {
-            EditProfileLabel,
-            RefreshLabel,
-            BootToggleLabel,
-        };
+        internal static HashSet<string> CreateReservedMenuPaths() => new(StringComparer.Ordinal);
 
         private static string ResolveSafeMenuGroup(string group, ISet<string> usedMenuPaths)
         {

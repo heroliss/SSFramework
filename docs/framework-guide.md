@@ -395,6 +395,18 @@ public class HudView : MonoViewBase
 
 点击按钮，数据流完整走一圈：Command 调用 System，System 修改 Model 并发出事件，View 响应式更新文本，同时播放受击动画。文本更新和动画播放互相不知道对方——这就是第 1 章"单向数据流"在代码里的具体形状。
 
+### Editor 工具从哪里开始
+
+第一次使用构建、代码生成或诊断工具时，从 `SSFramework/工具中心` 开始。顶部菜单只做导航：点击后先进入所属 Module 的工作台，阅读用途、前置条件和影响，再执行按钮；这样不会因误点菜单立刻生成代码、清缓存或启动外部进程。
+
+- `SSFramework/配置中心`：只读汇总各 Module 的 Profile 数量、位置和单例健康状态；缺配置时不暗中创建。
+- `构建与发布`：资源包与代码热更新的分步流水线。
+- `代码生成`：Luban、Protobuf、服务安装器与 UI 绑定，各自在自己的输入/输出上下文里操作。
+- `开发辅助`：场景快捷入口、常用目录与可选 Odin Adapter；字体字集归在会产出文件的 `代码生成`。
+- `诊断与分析`：运行时状态、Module 依赖/裁剪证据与真实 Player Build 体积。
+
+`Assets/SSFramework`、`GameObject/SSFramework` 保留有选择上下文的操作；`SSFramework/诊断/AI 自动化` 保留给 MCP/CI 的稳定无窗口入口。两者都是有意的例外，不表示普通人工命令应重新回到即时菜单。设计取舍见 ADR-0043。
+
 ---
 
 ## 4. Context（上下文）
@@ -1136,7 +1148,7 @@ ctx.GetUtility<JsonUtility>()   // ❌ 具体类型未注册
 
 ### 服务安装器生成（不手写注册样板）
 
-固定目录放纯 C# 服务的项目可以把 `InstallBindings` 样板交给代码生成：创建 `ServiceInstallerProfile` 资产（`Assets/Create/SSFramework/服务安装器配置`）配「扫描目录 → 输出路径 / 命名空间」，菜单 `SSFramework/服务注册/生成服务安装器代码`（或 profile Inspector 按钮）生成显式安装器：
+固定目录放纯 C# 服务的项目可以把 `InstallBindings` 样板交给代码生成：创建 `ServiceInstallerProfile` 资产（`Assets/Create/SSFramework/服务安装器配置`）配「扫描目录 → 输出路径 / 命名空间」，在 `SSFramework/代码生成/服务安装器` 工作台（或 profile Inspector 按钮）生成显式安装器：
 
 ```csharp
 // 生成产物（.g.cs）：注册关系落在代码里，git diff 可见可审；运行时零反射扫描
@@ -1154,7 +1166,7 @@ protected override void InstallBindings(ContainerBuilder builder)
     => MainServicesInstaller.Install(builder);
 ```
 
-扫描口径：目录下「文件名 = 类名」的顶层非抽象 class、实现恰一个层标记（`IModel` / `ISystem` / `IUtility`）体系、非 `UnityEngine.Object`、有公共无参构造。契约推导与 Mono 路径同口径（具体类型 + 派生自层标记的接口）；`IDisposable` 服务自动用 `RegisterOwned`。不想被扫的类标 `[ExcludeFromInstaller]`（需要懒构造 / 带参构造的服务标上后回落手写）。同一安装器内两个实现撞同一接口契约会在生成期报错。设计取舍见 `docs/adr/0019-service-installer-codegen.md`；活样板（服务目录 + profile + 生成产物 + 一行接线）见 demo「服务注册生成 · 安装器」章。
+扫描口径：目录下「文件名 = 类名」的顶层非抽象 class、实现恰一个层标记（`IModel` / `ISystem` / `IUtility`）体系、非 `UnityEngine.Object`、有公共无参构造。契约推导与 Mono 路径同口径（具体类型 + 派生自层标记的接口）；`IDisposable` 服务自动用 `RegisterOwned`。不想被扫的类标 `[ExcludeFromInstaller]`（需要懒构造 / 带参构造的服务标上后回落手写）。同一安装器内两个实现撞同一接口契约会在生成期报错；所有条目的输出必须是 `Assets` 内唯一的 `.cs` 文件，批量入口会在写盘前拒绝规范化后重复的路径。设计取舍见 `docs/adr/0019-service-installer-codegen.md`；活样板（服务目录 + profile + 生成产物 + 一行接线）见 demo「服务注册生成 · 安装器」章。
 
 ### 运行时动态注册
 
@@ -1428,13 +1440,13 @@ switch (asset.GetLocationState("ui/logo"))
 
 Host 模式默认允许 `Load` 对未缓存 bundle 当场按需下载。大型 DLC 若不想“误 Load 一个资源就自动下载”，在 `AssetSystemConfigModel.Packages` 列表里取消该包的「启用按需下载」：之后本包未缓存资源的 `Load` 直接失败，业务必须先用下载器显式预下载并展示进度。包级策略（自动初始化 / 启用按需下载）都在这一处按包配置。
 
-> **包名别写裸字符串**：菜单 `SSFramework/资源构建/生成包名常量代码` 从收集器的包列表生成常量类；输出路径与命名空间必须在构建 profile 中指向实际业务程序集，框架不猜项目布局。`Initialize` / `Load` 等的 `packageName` 参数用生成的 `AssetPackages.Xxx`——收集器改名 / 删包后重新生成，引用处编译期报错，不用等运行时才发现。
+> **包名别写裸字符串**：`SSFramework/构建与发布/资源构建` 工作台的“生成包名常量”从收集器包列表生成常量类；输出路径与命名空间必须在构建 profile 中指向实际业务程序集，框架不猜项目布局。`Initialize` / `Load` 等的 `packageName` 参数用生成的 `AssetPackages.Xxx`——收集器改名 / 删包后重新生成，引用处编译期报错，不用等运行时才发现。
 
 ### 运营链路：发版与启动更新
 
 版本号 / 清单**只在包初始化时拉取**——框架刻意不提供「运行中重新拉版本」的 API（清单是加载的解析真源，运行中换清单会让已加载内容一半旧版一半新版）。运营节奏因此固定为：
 
-1. **发版**：构建 + 部署（CI 传 `-version`，本地菜单默认时间戳）——本质是覆盖 CDN 上 `<包>.version` 一行文本。bundle 文件名带哈希、新旧版本共存，改回旧值即回滚。
+1. **发版**：构建 + 部署（CI 传 `-version`，本地工作台默认时间戳）——本质是覆盖 CDN 上 `<包>.version` 一行文本。bundle 文件名带哈希、新旧版本共存，改回旧值即回滚。
 2. **启动检查**：客户端下次启动 `Initialize` 自然拉到新版本清单（不抛异常，读 `InitState` 判成败）。
 3. **强更下载**：`CreateAllDownloader()` 统计缺口（`TotalCount == 0` 即已最新）→ 订阅 `Progress` 驱动进度条 → `Download()`；失败或期间发生过清缓存都要**重建下载器**（已下分片走缓存跳过 = 断点续传）。`Download(ct)` 的 token 只取消当前等待者：排队且无人等待可跳过，已经开始的共享物理下载继续到终态。
 4. **回收旧版本**：下载成功后 `ClearCache(Unused)` 清掉不被新清单引用的历史 bundle。
@@ -1680,11 +1692,11 @@ Bag.Subscribe(
 
 ## 15. 热更新（HybridCLR）
 
-改完 C# 代码 → 重打**代码包**（不重出安装包）→ 玩家重启游戏即用新逻辑。底层是 HybridCLR（IL2CPP 下解释执行热更 DLL），框架把它包装成「一个配置列表 + 四个菜单 + 一个引导组件」。设计原理与取舍见 ADR-0008。
+改完 C# 代码 → 重打**代码包**（不重出安装包）→ 玩家重启游戏即用新逻辑。底层是 HybridCLR（IL2CPP 下解释执行热更 DLL），框架把它包装成「一个配置列表 + 四步工作台 + 一个引导组件」。设计原理与取舍见 ADR-0008。
 
 ### 心智模型：热更范围是部署决策，不是代码属性
 
-哪些程序集热更，由**热更列表**（`FrameworkHotUpdateProfile`，菜单 `SSFramework/热更构建/热更配置` 定位）决定——谁在列表里谁热更，按版本可调。因此：
+哪些程序集热更，由**热更列表**（`FrameworkHotUpdateProfile`，在 `SSFramework/构建与发布/代码热更新` 工作台定位）决定——谁在列表里谁热更，按版本可调。因此：
 
 - **目录与程序集按领域命名**（`Game.Main`、`Game.X` 模块、`Game.DLC.Y`），永远不要出现 `Game.HotUpdate` 这种按部署属性起的名字。
 - 框架本体（`Game.Framework`）默认也在列表里（可热修框架 bug）；性能敏感的项目把它移出列表退回 AOT，业务代码零改动。
@@ -1700,13 +1712,13 @@ Bag.Subscribe(
 ### 新增业务程序集接入热更
 
 1. 新建领域目录 + asmdef，**`autoReferenced` 设为 `false`**（必须——否则散落脚本会隐式引用它，构成 AOT→热更违规，校验器会拦）。
-2. `SSFramework/热更构建/热更配置` 把 asmdef 拖进列表。
-3. 执行菜单 `1. 同步热更设置`（校验引用合法性 + 写入 HybridCLRSettings）。
-4. 因为 AOT 程序集集合变了，执行一次 `2. 生成桥接与裁剪文件`（慢，分钟级）。
+2. 打开 `SSFramework/构建与发布/代码热更新`，定位配置并把 asmdef 拖进列表。
+3. 在工作台点 `1. 同步热更设置`（校验引用合法性 + 写入 HybridCLRSettings）。
+4. 因为 AOT 程序集集合变了，在同一工作台执行一次 `2. 生成桥接与裁剪文件`（慢，分钟级）。
 
 ### 构建：日常两步，大改四步
 
-| 菜单 | 何时执行 | 耗时 |
+| 工作台按钮 | 何时执行 | 耗时 |
 |---|---|---|
 | `1. 同步热更设置` | 改了热更列表后 | 秒 |
 | `2. 生成桥接与裁剪文件`（Generate All） | 首次接入 / 升级环境 / 改 AOT、签名、泛型、布局或原生调用边界（stamp 会拦截） | 分钟（内部跑迷你构建） |
@@ -1721,7 +1733,7 @@ Bag.Subscribe(
 
 热更元数据拓扑覆盖 TypeDef / MethodDef / 字段布局、泛型约束与实例、Attribute 构造/命名参数、类型转发、P/Invoke / calli 以及 IL 中的元数据操作数，并保留条目数量；普通算术、分支和常量不参与。AOT 侧无法在日常校验时凭空得到尚未构建的目标 DLL，因此采用更保守但可证明的输入哈希：任一非热更 Player 源文件、asmdef、Player define、编译器选项、response file、Roslyn Analyzer / Source Generator 输入或非 Unity 内置预编译 DLL 变化都要求重新 Generate。Linker 根另行记录依赖图、动态 linker processor 实现，并对 `.unity` / `.prefab` / `.asset` 等序列化根哈希内容；`Assets/HybridCLRGenerate/link.xml` 是输出而非输入，明确排除。自定义 processor 若读取框架不知道的外部配置，配置变化后仍须主动 Generate。这里刻意不读取 `CompilationPipeline.GetAssemblies(Player).outputPath`；Unity 6000 可能仍返回 `Library/ScriptAssemblies` 的 Editor DLL。
 
-想在真正构建前先看当前处于哪一层，打开 `SSFramework/诊断/模块裁剪审计`：顶部“热更产物链”只读比较唯一 FrameworkHotUpdateProfile、HybridCLRSettings、Generate stamp、当前拓扑加载顺序、`AOTGenericReferences.PatchedAOTAssemblyList` 与 `Assets/HotUpdateDlls/hotupdate_manifest.bytes`，分别提示该执行 1、2 还是 3。绿色只代表**清单结构与当前派生输入相符、所列文件存在**，不证明 DLL 内容已经包含最新源码；YooAsset bundle 是否构建、`AssetBuild/Deploy` 是否更新、CDN 是否上传仍属于步骤 3 / 4 与发布流水线。空 Profile 明确选择纯 AOT 时不要求 Generate；若启用的 Player 场景仍依赖 `HotUpdateLauncher`，其 Player 分支仍会读取 manifest，因此必须执行步骤 3 产出空清单 CodePackage。只有启用场景不再使用 Launcher、改由直接 AOT composition root 启动时，DLL 中转才是可选项。缺少 Profile 不会被静默当成纯 AOT，因为构建菜单会创建默认热更档位。
+想在真正构建前先看当前处于哪一层，打开 `SSFramework/诊断与分析/模块与依赖`：顶部“热更产物链”只读比较唯一 FrameworkHotUpdateProfile、HybridCLRSettings、Generate stamp、当前拓扑加载顺序、`AOTGenericReferences.PatchedAOTAssemblyList` 与 `Assets/HotUpdateDlls/hotupdate_manifest.bytes`，分别提示该执行 1、2 还是 3。绿色只代表**清单结构与当前派生输入相符、所列文件存在**，不证明 DLL 内容已经包含最新源码；YooAsset bundle 是否构建、`AssetBuild/Deploy` 是否更新、CDN 是否上传仍属于步骤 3 / 4 与发布流水线。空 Profile 明确选择纯 AOT 时不要求 Generate；若启用的 Player 场景仍依赖 `HotUpdateLauncher`，其 Player 分支仍会读取 manifest，因此必须执行步骤 3 产出空清单 CodePackage。只有启用场景不再使用 Launcher、改由直接 AOT composition root 启动时，DLL 中转才是可选项。缺少 Profile 不会被静默当成纯 AOT；代码热更新工作台会要求用户明确创建配置。
 
 > 只升级 `com.code-philosophy.hybridclr` UPM 包还不完整：本机 `HybridCLRData` 里的 libil2cpp Runtime 也必须经
 > `HybridCLR/Installer...` 更新到同版。框架构建入口会校验两者版本，不一致时在耗时生成/编译前停止。
@@ -1756,7 +1768,7 @@ Object.Destroy(go);                              // 交棒：首场景根 Contex
 
 ### 铁则（违反会在构建期被校验器拦下或真机才爆雷）
 
-- **AOT 不能引用热更**：谁被热更，引用它的程序集必须跟着热更。菜单 1 的校验会逐条指出违规与修法。
+- **AOT 不能引用热更**：谁被热更，引用它的程序集必须跟着热更。工作台第 1 步的校验会逐条指出违规与修法。
 - **热更程序集一律 `autoReferenced:false`**；业务代码必须住 asmdef（不能散落到 Assembly-CSharp）。
 - **随包场景（BootScene）只能挂 Boot 程序集的脚本**——框架热更档位下连 `MonoGlobalContext` 都不能进随包场景；业务场景/prefab 一律走 bundle。
 - 代码包与资源包**彻底分家**：CodePackage 归 Boot 管，业务别碰；资源包照常走 `AssetSystemConfigModel` / `AssetInitSystem`。
@@ -1782,9 +1794,9 @@ Object.Destroy(go);                              // 交棒：首场景根 Contex
 
 ## 16. 配置表（Luban）
 
-表定义（XML）与数据（JSON / Excel）放在一处 conf 源目录；可用 `~` 后缀让 Unity 不导入这类纯构建期输入。菜单跑 Luban CLI 生成**配置 C# 类 + 二进制数据 + 表清单** → 运行期由一个自加载的配置 Utility 服务持表，数据文件随资源包打包与热更。设计原理与取舍见 ADR-0009；源 / 输出目录在模块里怎么摆见 §26「推荐项目结构」。
+表定义（XML）与数据（JSON / Excel）放在一处 conf 源目录；可用 `~` 后缀让 Unity 不导入这类纯构建期输入。工作台跑 Luban CLI 生成**配置 C# 类 + 二进制数据 + 表清单** → 运行期由一个自加载的配置 Utility 服务持表，数据文件随资源包打包与热更。设计原理与取舍见 ADR-0009；源 / 输出目录在模块里怎么摆见 §26「推荐项目结构」。
 
-> **多套并存**：每套配置 = 一个 `LubanConfigProfile`（各自的 conf 源 + 输出目录 + topModule，互不干扰），可按数据域、客户端/服务端目标或可选内容拆分。`ResolveAll()` 返回全部，菜单“生成”逐套执行，多套集中管理用“配置总览”窗口。路径不可从框架推导，因此没有 profile 时只给出明确空状态，不自动创建指向样例目录的假配置。
+> **多套并存**：每套配置 = 一个 `LubanConfigProfile`（各自的 conf 源 + 输出目录 + topModule），可按数据域、客户端/服务端目标或可选内容拆分。所有代码 / 数据输出都必须是 `Assets` 内彼此不相同、不嵌套的独立子目录；工作台在任何目录创建或 CLI 启动前统一预检，保证多套不会互相整理或覆盖。`ResolveAll()` 返回全部，多套集中管理也在同一窗口。路径不可从框架推导，因此没有 profile 时只给出明确空状态，不自动创建指向样例目录的假配置。
 
 ### 心智模型：构建期生成，运行期只是读字节
 
@@ -1850,8 +1862,8 @@ var cachedItem = config.Tables.TbItem.Get(id);
 
 1. Luban CLI 解压到 `Tools/Luban/`（**不入库**，官方 release 可重下；缺 .NET 8 运行时时管线自动 `DOTNET_ROLL_FORWARD=LatestMajor`）。
 2. 建一处 conf 源目录：`luban.conf`（入口）+ `Defines/*.xml`（表定义）+ `Datas/`（数据）。放哪都行（路径填进 profile）；想随某模块一起删 / 抽包就放该模块目录下、用 `~` 后缀避免 Unity 导入。
-3. 在“配置总览”显式新建一个 `LubanConfigProfile`：填 conf 源、输出目录、topModule（见下方铁则）。需要多套时继续新建，各套互不干扰。
-4. 菜单 `SSFramework/配置表构建/生成全部`——逐套产出代码 / 数据 / 清单。
+3. 在“配置总览”显式新建一个 `LubanConfigProfile`：填 conf 源、输出目录、topModule（见下方铁则）。需要多套时继续新建，并为每项代码 / 数据产物分配互不嵌套的独立输出目录。
+4. 打开 `SSFramework/代码生成/配置表 (Luban)` 工作台，点“生成全部”——逐套产出代码 / 数据 / 清单。
 5. 确认数据输出目录在某个 YooAsset 收集器范围内（`.bytes` 按普通资源收集成 TextAsset、按文件名寻址）；demo 复用现成的 `FrameworkDemoGroup` 收集器，真实项目通常加进 DefaultPackage 的收集组。
 6. 写一个一行子类闭合泛型 `class GameConfigUtility : MonoConfigUtilityBase<Tables>`，补上面两个 override（`TableFiles` / `CreateTables`）；挂在 Context 子节点即可（与资源系统同 Context，靠容器父级回退共享 `IAssetUtility`，不必单独再挂一套资源系统）。
 7. 生成代码所在 asmdef 引用 `Luban.Runtime` + `Game.Framework.Config`；若业务程序集热更，它天然在热更侧（数据文件本就随资源包热更）。
@@ -1898,7 +1910,7 @@ Luban 生成的 `Tables` 构造函数是**同步、一次性构造全表**（每
 
 > **要点回顾**
 >
-> - 构建期菜单一键生成「代码 + 数据 + 清单」三件套；运行期只是按清单预载字节、构造一次 `Tables`
+> - 构建期工作台生成「代码 + 数据 + 清单」三件套；运行期只是按清单预载字节、构造一次 `Tables`
 > - 运行期是一个自加载的配置 Utility 服务（不占 Model、不拆 System）：流程 `await EnsureReady(token)`，响应式 UI 订 `State`，已就绪热路径读 `Tables`
 > - 框架 `Game.Framework.Config` 模块后端无关（不引用 Luban）——接触 Luban 的只有项目侧 `CreateTables` 一行
 > - 数据文件走资源包通道：打包 / 下载 / 热更与普通资源同一套机制
@@ -2482,7 +2494,7 @@ CJK 全量字库体积大（单字体 15~30MB），全量随包不现实；砍�
 
 ### ① 主字体怎么来：常用字集生成
 
-菜单 **SSFramework/字体/生成常用字集**（配置见「常用字集配置 (Charset Profile)」，全工程单例、首次自动创建）：扫描配置表（`.xlsx` 读 sharedStrings，Luban 源表直配）、代码字符串字面量（`.cs` 只取字面量，注释不进字集）、文案文件（`.json` / `.txt` 全文），去重出按码点排序的 charset 文件 → TMP Font Asset Creator 选主字体 ttf + **Characters from File** 烘焙 static atlas。常用字随包秒显，生僻字交给 ②③。
+工作台 **SSFramework/代码生成/字体字集**（配置为 Charset Profile，全工程单例；缺失时由显式按钮创建）：扫描配置表（`.xlsx` 读 sharedStrings，Luban 源表直配）、代码字符串字面量（`.cs` 只取字面量，注释不进字集）、文案文件（`.json` / `.txt` 全文），去重出按码点排序的 charset 文件 → TMP Font Asset Creator 选主字体 ttf + **Characters from File** 烘焙 static atlas。常用字随包秒显，生僻字交给 ②③。
 
 ### 双后端的关键差异（实测 Unity 6000.3）
 
@@ -2507,7 +2519,7 @@ CJK 全量字库体积大（单字体 15~30MB），全量随包不现实；砍�
 >
 > - 场景挂 `MonoLocaleFonts`：主字体列表（TMP / Toolkit 两栏）+ 各 locale 档案（②资产 + ③OS 英文族名）
 > - 换语言由 §21 的 `SetLocale` 一并驱动，字体业务零调用；未配置 locale 降级不炸
-> - ① 用「生成常用字集」菜单 + TMP Font Asset Creator 烘焙
+> - ① 在 `SSFramework/代码生成/字体字集` 工作台点“生成常用字集”，再用 TMP Font Asset Creator 烘焙
 > - TMP 缺字真豆腐（②③刚需）；Toolkit 引擎自带 OS 兜底（②管字形归属）
 > - 活样板见 demo「字体 · 多语言字体链」章 / ADR-0025
 
@@ -2515,7 +2527,7 @@ CJK 全量字库体积大（单字体 15~30MB），全量随包不现实；砍�
 
 ## 23. 框架诊断面板
 
-菜单 **`SSFramework/诊断/框架诊断面板`**——把散在各组件 Inspector「运行时诊断」折叠组里的信息聚合成一个调试器风格窗口（UI Toolkit），定位是**调试与泄漏排查入口**：进 Play 后打开，框架运行时状态实时可见（500ms 增量刷新，结构没变只重绑、树的展开与选中不丢）。设计取舍见 ADR-0026。
+菜单 **`SSFramework/诊断与分析/运行时诊断`**——把散在各组件 Inspector「运行时诊断」折叠组里的信息聚合成一个调试器风格窗口（UI Toolkit），定位是**调试与泄漏排查入口**：进 Play 后打开，框架运行时状态实时可见（500ms 增量刷新，结构没变只重绑、树的展开与选中不丢）。设计取舍见 ADR-0026。
 
 ### 界面布局（调试器风格：左树 · 右明细 · 下流水）
 
@@ -2572,7 +2584,7 @@ var ctx = new GameContext(builder.Build()) { DebugName = "MiniGame" };
 
 > **要点回顾**
 >
-> - 菜单 `SSFramework/诊断/框架诊断面板`，进 Play 打开：左树 · 右明细 · 下命令流水，自动刷新
+> - 菜单 `SSFramework/诊断与分析/运行时诊断`，进 Play 打开：左树 · 右明细 · 下命令流水，自动刷新
 > - 泄漏三板斧：Bag / Context sparkline 趋势、事件订阅计数趋势、切走的 Context 是否还在树上
 > - Mono 初始化先看根因数：一个父级失败可影响多层；区分当前 Play 与历史证据，定位“最先失败”
 > - Command 流水 = 根 Context 换注册 `LoggingCommandSystem`（opt-in、零语义变化）；表格可过滤 / 仅错误 / 复制 TSV
@@ -2829,7 +2841,7 @@ builder.RegisterOwned(new HttpUtility(baseUrl, serializer: proto), typeof(IHttpU
 内置实现的定位是「消息不多的自建后端 / dev server」（Outpost 的排行榜是完整落地样例）：消息多到手写吃力、或要 `.proto` 契约共享 / map / oneof / 有符号 / 浮点，换官方 Google.Protobuf——框架已提供**增强模块 `Game.Framework.Network.Proto`** 承接这一档（可选启用，同 `Asset.Yoo` 收口姿势：Google.Protobuf 依赖收口于模块、内核仍零依赖，可整块删/抽 UPM）。接入三步：
 
 1. **加引用 + 装 DLL**：业务 asmdef 引用 `Game.Framework.Network.Proto`；Google.Protobuf 经 NuGetForUnity 装入（模块自带 link.xml 防 IL2CPP 裁剪）。
-2. **配 + 生成**：新建 `ProtoConfigProfile`（`Assets/Create/SSFramework/Protobuf 生成配置`，或总览窗口「新建」）→ Inspector 填 .proto 源目录（放模块下的 `Proto~`，`~` 后缀不被 Unity 导入源文件）与 C# 输出目录 → 菜单 `SSFramework/Protobuf/生成全部`（多套按目录并存、逐套生成；差量同步：内容未变不落盘、陈旧 `*.g.cs` 自动清理）。总览与健康检查在 `SSFramework/Protobuf/配置总览` 及框架配置总览 hub（`SSFramework/配置总览`）。
+2. **配 + 生成**：打开 `SSFramework/代码生成/Protobuf` 工作台，新建 `ProtoConfigProfile` → Inspector 填 .proto 源目录（放模块下的 `Proto~`，`~` 后缀不被 Unity 导入源文件）与 C# 输出目录 → 按套或全部生成（差量同步：内容未变不落盘、陈旧 `*.g.cs` 自动清理）。每套配置必须独占一个位于 `Assets` 内的子目录；相同或父子嵌套目录会在写盘前被拒绝，因为清理边界就是整棵输出目录。跨模块配置健康检查在 `SSFramework/配置中心`。
 3. **装配序列化器**：`RegisterFile` 整文件注册一个 .proto 的全部消息（含嵌套、跳过 map entry，并**递归 `import` 的依赖文件**——多 .proto 拆分时只给顶层 file、依赖自动带上），换真库后业务调用代码零改动：
 
 ```csharp
@@ -2890,7 +2902,7 @@ builder.RegisterOwned(new WebSocketUtility(serializer: proto), typeof(IWebSocket
 
 #### 先查原因，再决定是否值得拆
 
-打开 `SSFramework/诊断/模块裁剪审计`。顶部先比较热更 Profile、HybridCLRSettings、Generate stamp 与当前 DLL 中转清单；Module 区优先显示有 linker 根或热更违规的项，每张卡再把当前 DLL 快照消费者与完整 asmdef 图中的删除阻塞者（无论是否进入 Player）分开，并显示源码来自项目 Assets 还是某个 package 版本。常用组合之外，还能展开“任意 Module 入口”查看代码闭包；项目与已安装 Package 的 `link.xml` 都会被扫描，全局第三方和 `Assets/HybridCLRGenerate/link.xml` 单独折叠显示，后者是 Generate 产物，不应手改。所有一方 Player asmdef 已关闭预编译 DLL 的全局 Auto Reference；目标平台条件分支仍以真实 Player/HybridCLR 编译为准。这里的原始 DLL 字节用于找候选，不是最终安装包大小。
+打开 `SSFramework/诊断与分析/模块与依赖`。顶部先比较热更 Profile、HybridCLRSettings、Generate stamp 与当前 DLL 中转清单；Module 区优先显示有 linker 根或热更违规的项，每张卡再把当前 DLL 快照消费者与完整 asmdef 图中的删除阻塞者（无论是否进入 Player）分开，并显示源码来自项目 Assets 还是某个 package 版本。常用组合之外，还能展开“任意 Module 入口”查看代码闭包；项目与已安装 Package 的 `link.xml` 都会被扫描，全局第三方和 `Assets/HybridCLRGenerate/link.xml` 单独折叠显示，后者是 Generate 产物，不应手改。所有一方 Player asmdef 已关闭预编译 DLL 的全局 Auto Reference；目标平台条件分支仍以真实 Player/HybridCLR 编译为准。这里的原始 DLL 字节用于找候选，不是最终安装包大小。
 
 一个容易踩坑的例子：当前可选 Runtime Module 都引用 Core。若 Core 在热更 Profile 中，那么仍参与 Player 编译的 Fonts / Bridge 等 Module 不能被**单独**取消热更，否则它们会变成引用热更 Core 的 AOT 程序集，构建校验会拒绝。这不是配置工具“太严格”，而是 AOT 必须先于热更代码存在的加载边界。
 
@@ -2906,7 +2918,7 @@ Core 是稳定上游，不作为普通可删除 Module。对强体积约束项�
 
 #### 用真实构建回答“值不值得”
 
-打开 `SSFramework/诊断/真实构建体积证据`。探针在 `Library` 下创建隔离空工程，每档只从 Source Catalog 记录的真实物理目录复制审计闭包中的 Runtime Module；Module 在 `Assets`、嵌入式 Package 或 registry/Git PackageCache 都适用，报告同时记录稳定资产目录、package 身份和实际复制文件的内容指纹。主工程业务场景、未选目录、HybridCLR 生成物和未选 Module 的 `link.xml` 都不会混入。复制前会把当前来源重新与启动时冻结 SHA-256 比较，复制后再验证目的内容；构建期间源码或本地 Package 有写入就终止剩余档位，不能拿旧 SHA 标记新内容。复制目录使用可读职责名加程序集标识，既避免多个 Package 的 `Runtime/` 撞名，也避开“目录与 asmdef 同名”的 Unity 导入歧义；每档切换还会清掉子工程的 `Library` / `Temp` / `obj`。子进程在 Player Build 前核对每个期望程序集存在且包含源码，随后以目标平台 `BuildPipeline` 成功作为真实编译门禁；不拿可能仍指向 Editor DLL 的 `CompilationPipeline.outputPath` 冒充 Player 产物。除 Core / 两套 UI / full 外，“任意 Module 入口”默认折叠且不勾选，可按需验证 Yoo、Proto、Fonts、Bridge 等组合。若 Domain Reload 后档位拓扑、package 或源码内容发生变化，探针会完成已附着的当前子进程后停止，避免一份报告混入两套来源。
+打开 `SSFramework/诊断与分析/真实构建体积`。探针在 `Library` 下创建隔离空工程，每档只从 Source Catalog 记录的真实物理目录复制审计闭包中的 Runtime Module；Module 在 `Assets`、嵌入式 Package 或 registry/Git PackageCache 都适用，报告同时记录稳定资产目录、package 身份和实际复制文件的内容指纹。主工程业务场景、未选目录、HybridCLR 生成物和未选 Module 的 `link.xml` 都不会混入。复制前会把当前来源重新与启动时冻结 SHA-256 比较，复制后再验证目的内容；构建期间源码或本地 Package 有写入就终止剩余档位，不能拿旧 SHA 标记新内容。复制目录使用可读职责名加程序集标识，既避免多个 Package 的 `Runtime/` 撞名，也避开“目录与 asmdef 同名”的 Unity 导入歧义；每档切换还会清掉子工程的 `Library` / `Temp` / `obj`。子进程在 Player Build 前核对每个期望程序集存在且包含源码，随后以目标平台 `BuildPipeline` 成功作为真实编译门禁；不拿可能仍指向 Editor DLL 的 `CompilationPipeline.outputPath` 冒充 Player 产物。除 Core / 两套 UI / full 外，“任意 Module 入口”默认折叠且不勾选，可按需验证 Yoo、Proto、Fonts、Bridge 等组合。若 Domain Reload 后档位拓扑、package 或源码内容发生变化，探针会完成已附着的当前子进程后停止，避免一份报告混入两套来源。
 
 CI / AI 只需做最小删除测试时，可直接执行无窗口菜单 `SSFramework/诊断/AI 自动化/Core 隔离构建（Player Build）`；要回归常用 UI 边界则执行相邻的 `常用档位隔离构建（Core + UGUI + Toolkit）`，三档进入同一报告并可直接比较相对 Core 的差值。两者都不依赖窗口焦点、按钮状态或 MCP `execute_code`。
 
@@ -3044,7 +3056,7 @@ embed.Bind(view);
 
 `Trace` 另有一道**编译期**门控：`[Conditional("UNITY_EDITOR"), Conditional("DEVELOPMENT_BUILD")]`，发布版整个调用（含实参求值）从 IL 中删除。
 
-需要细粒度日志时，把总闸门放行到 `Trace`：`Log.MinLevel = LogLevel.Trace`，或使用 Editor 菜单 `SSFramework/诊断/日志级别 ▸ Trace`，或调整「框架诊断面板」顶部的全局级别下拉（都是本会话有效）。
+需要细粒度日志时，把总闸门放行到 `Trace`：`Log.MinLevel = LogLevel.Trace`，或调整 `SSFramework/诊断与分析/运行时诊断` 顶部的全局级别下拉（本会话有效）。
 
 ### 记录
 
@@ -3094,7 +3106,7 @@ Log.AddSink(new FileLogSink(
 - **每个 sink 自带 `MinLevel`**：让 Console 只留 Warning 以上（`new UnityDebugLogSink { MinLevel = LogLevel.Warning }`），细粒度日志交给文件 sink。
 - **自定义去向**：实现 `ILogSink`（`Log(in LogEntry)` + `MinLevel`）。⚠ 可能被后台线程调用（如网络接收循环记日志），持有可变状态要自行加锁（参考 `FileLogSink`）。
 - **测试静音 / 捕获**：`Log.ClearSinks()` 后装一个收集用的 sink（见 `LoggingTests`）。
-- **查当前状态 / 就地调**：`Log.Sinks`（只读快照，含各自 `MinLevel`）/ `Log.IsCapturingUnityLogs`。sink 是业务在启动期用代码装配的，「日志怎么没落盘」时要能查是**压根没装**还是**被 `MinLevel` 卡掉了**——**「框架诊断面板」**（菜单 `SSFramework/诊断/框架诊断面板`）顶部的**日志**一栏把这些做成可读可改：**全局 `Log.MinLevel` 下拉**、`接管 Unity 日志流` 勾选框、**每个 sink 的 `MinLevel` 下拉**（无 sink 时红字告警）。
+- **查当前状态 / 就地调**：`Log.Sinks`（只读快照，含各自 `MinLevel`）/ `Log.IsCapturingUnityLogs`。sink 是业务在启动期用代码装配的，「日志怎么没落盘」时要能查是**压根没装**还是**被 `MinLevel` 卡掉了**——**「运行时诊断」**（菜单 `SSFramework/诊断与分析/运行时诊断`）顶部的**日志**一栏把这些做成可读可改：**全局 `Log.MinLevel` 下拉**、`接管 Unity 日志流` 勾选框、**每个 sink 的 `MinLevel` 下拉**（无 sink 时红字告警）。
   > 典型用法：想把这次复现的细粒度日志抓进文件 → 把全局 `Log.MinLevel` 与文件 sink 的 `MinLevel` 都调到 `Trace`，复现一遍即可，**不必改代码重进 Play**。面板改动立即生效但**不持久**——下次运行仍由业务启动代码决定。
 - **双击定位靠 `[HideInCallstack]`**：Console 双击日志会跳到**你的调用点**，而不是框架的转发方法——所有「包一层 `Debug.Log`」的门面最常见的死因就是丢了这个。
   > ⚠ Unity 的规则是「从 `Debug.Log` 那帧往外走，**跳过所有标了该特性的帧，停在第一个没标的帧**」，所以**调用链上每一层都得标**（`Log.Info` → `Log.Dispatch` → `UnityDebugLogSink.Log`），**漏一层就前功尽弃**（实测：只标最外层门面时，双击落在 `UnityDebugLogSink.cs`）。给链条加层（新 sink 包装 / 装饰器）时记得标上——`LoggingTests.EntireForwardingChain_IsHiddenFromCallstack` 会守住这条。

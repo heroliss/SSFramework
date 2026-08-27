@@ -24,19 +24,32 @@ namespace Game.Framework.Build
     /// 在同步与构建时经 <see cref="HotUpdateAssemblyGraph"/> 自动校验，违规拦下并指出元凶。
     ///
     /// 这是**项目配置实例**，默认新建到 <c>Assets/Settings/SSFramework/</c>（不在 <c>Framework/</c> 内，ADR-0010/0011）；
-    /// <see cref="Resolve"/> 按类型扫描定位，找不到时按默认档位（内核 + Asset.Yoo 热更，见 ADR-0008 §2）自动创建，找到多个时取第一个并警告。
+    /// <see cref="TryResolve"/> 无副作用定位；工作台明确创建时才调用 <see cref="Resolve"/>，按默认候选（内核 + Asset.Yoo，见 ADR-0008 §2）建资产。
     /// 字段只读暴露：修改只经 Inspector，保证「资产 = 唯一真源」不被代码旁路改写。
     /// </summary>
     [CreateAssetMenu(fileName = "FrameworkHotUpdateProfile", menuName = "SSFramework/热更构建配置 (HotUpdate Profile)")]
     public sealed class FrameworkHotUpdateProfile : ScriptableObject
     {
+        private static FrameworkHotUpdateProfile _cached;
+        private static bool _cacheInitialized;
+
+        static FrameworkHotUpdateProfile()
+        {
+            EditorApplication.projectChanged += () =>
+            {
+                _cached = null;
+                _cacheInitialized = false;
+            };
+        }
+
         [Tooltip("热更程序集（asmdef 引用）。在列表 = 热更（运行时从代码包加载），不在 = AOT（随安装包固化）。\n" +
                  "铁律：谁被热更，引用它的程序集必须也在列表里（AOT 不能引用热更）——同步/构建时自动校验拦截。\n" +
                  "顺序随意：实际加载顺序按 asmdef 引用图拓扑排序自动生成，不需要人排。")]
         [SerializeField] private List<AssemblyDefinitionAsset> _hotUpdateAssemblies = new();
 
         [Tooltip("代码包名：装热更 DLL + AOT 补元数据 DLL + 清单的 YooAsset RawFile 包。\n" +
-                 "归 Boot 引导器管，与业务资源包彻底分家（互不知晓、互不初始化）。")]
+                 "归 Boot 引导器管，与业务资源包彻底分家（互不知晓、互不初始化）。名称需与 YooAsset 收集器一致，" +
+                 "并能作为单一跨平台目录名；不能含空白、路径分隔符或 URL 结构字符。")]
         [SerializeField] private string _codePackageName = "CodePackage";
 
         /// <summary>代码包名（YooAsset RawFile 包）。空白时回退默认名，构建/引导两侧共用。</summary>
@@ -102,25 +115,42 @@ namespace Game.Framework.Build
             return sb.ToString().TrimEnd();
         }
 
+        /// <summary>无副作用查找全工程唯一的热更 profile；不存在时返回 <c>false</c>。</summary>
+        public static bool TryResolve(out FrameworkHotUpdateProfile profile)
+        {
+            if (_cacheInitialized)
+            {
+                profile = _cached;
+                return profile != null;
+            }
+
+            var paths = AssetDatabase.FindAssets("t:" + nameof(FrameworkHotUpdateProfile))
+                .Select(AssetDatabase.GUIDToAssetPath)
+                .OrderBy(path => path, StringComparer.Ordinal)
+                .ToArray();
+            if (paths.Length == 0)
+            {
+                _cacheInitialized = true;
+                _cached = null;
+                profile = null;
+                return false;
+            }
+            if (paths.Length > 1)
+                Debug.LogWarning("[热更构建] 找到多个热更 profile，仅第一个生效，请删到只剩一个：\n  " +
+                                 string.Join("\n  ", paths));
+            _cached = AssetDatabase.LoadAssetAtPath<FrameworkHotUpdateProfile>(paths[0]);
+            _cacheInitialized = true;
+            profile = _cached;
+            return profile != null;
+        }
+
         /// <summary>
         /// 解析全工程唯一的热更 profile：先找已有资产（找到多个 → 取第一个并警告），
         /// 没有就按默认档位（内核 + Asset.Yoo 热更）自动建一个（落在通用项目配置目录）。
         /// </summary>
         public static FrameworkHotUpdateProfile Resolve()
         {
-            var paths = AssetDatabase.FindAssets("t:" + nameof(FrameworkHotUpdateProfile))
-                .Select(AssetDatabase.GUIDToAssetPath)
-                .OrderBy(path => path, StringComparer.Ordinal)
-                .ToArray();
-            if (paths.Length > 0)
-            {
-                if (paths.Length > 1)
-                {
-                    Debug.LogWarning("[热更构建] 找到多个热更 profile，仅第一个生效，请删到只剩一个：\n  " +
-                                     string.Join("\n  ", paths));
-                }
-                return AssetDatabase.LoadAssetAtPath<FrameworkHotUpdateProfile>(paths[0]);
-            }
+            if (TryResolve(out FrameworkHotUpdateProfile existing)) return existing;
 
             var profile = CreateInstance<FrameworkHotUpdateProfile>();
             // 默认档位（ADR-0008 §2）：内核 + YooAsset 适配模块热更；业务程序集出现后由项目自行加进列表。
@@ -131,7 +161,9 @@ namespace Game.Framework.Build
             string path = dir + "/FrameworkHotUpdateProfile.asset";
             AssetDatabase.CreateAsset(profile, path);
             AssetDatabase.SaveAssets();
-            Debug.Log($"[热更构建] 未找到热更 profile，已按默认档位（内核 + Asset.Yoo 热更）自动创建：{path}");
+            _cached = profile;
+            _cacheInitialized = true;
+            Debug.Log($"[热更构建] 已按用户请求创建默认热更 profile（内核 + Asset.Yoo 候选）：{path}");
             return profile;
         }
 

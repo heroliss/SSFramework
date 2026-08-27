@@ -11,7 +11,7 @@ namespace Game.Framework.Test
     /// RegisterFile 整文件注册（含嵌套类型、跳过 map entry）/ 消息往返 / envelope 与内核手写
     /// <see cref="ProtobufNetworkSerializer"/> 逐字节一致且可互解 / 与 <see cref="ProtoWriter"/>/<see cref="ProtoReader"/>
     /// 的 wire 互通 / 失败语义（未注册、重复注册、null）。消息类型来自测试专用契约
-    /// <c>Proto~/framework_net_test.proto</c>（菜单 SSFramework/Protobuf 生成）。纯同步无 Unity 依赖，[Test] 即可。
+    /// <c>Proto~/framework_net_test.proto</c>（工作台 SSFramework/代码生成/Protobuf 生成）。纯同步无 Unity 依赖，[Test] 即可。
     /// </summary>
     public class GoogleProtobufNetworkSerializerTests
     {

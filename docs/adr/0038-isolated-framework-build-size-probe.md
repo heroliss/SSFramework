@@ -19,7 +19,7 @@ Framework Module Audit 已能从 Player 编译图和 DLL 元数据证明 Core、
 
 ### 1. 用隔离空工程执行真实删除测试
 
-菜单 `SSFramework/诊断/真实构建体积证据` 在主工程 `Library/SSFramework/BuildSizeProbe/` 下创建一次性 Unity 工程。每个组合构建前只复制 Framework Module Audit 结构化结果中该档闭包包含的 Runtime Module；`Editor` / `Test(s)` 目录不复制，未选 Module 的源码、资产和 `link.xml` 物理上不存在。
+菜单 `SSFramework/诊断与分析/真实构建体积` 在主工程 `Library/SSFramework/BuildSizeProbe/` 下创建一次性 Unity 工程。每个组合构建前只复制 Framework Module Audit 结构化结果中该档闭包包含的 Runtime Module；`Editor` / `Test(s)` 目录不复制，未选 Module 的源码、资产和 `link.xml` 物理上不存在。
 
 组合及 Module 源目录继续来自 Framework Module Audit，同一份审计结果同时驱动窗口、原始报告和真实构建，不维护第二份“Core / UGUI / Toolkit”清单。实际 DLL 闭包回答当前用了什么；探针再合并 asmdef 声明闭包，保证“只声明、尚未产生 IL 引用”的 Framework Module 仍被复制并完整保留，因为隔离工程编译时已经需要该程序集。这使 Module 变化集中在一个地方，保持 locality。
 

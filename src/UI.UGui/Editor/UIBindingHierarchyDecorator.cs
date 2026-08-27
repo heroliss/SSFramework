@@ -32,8 +32,15 @@ namespace Game.Framework.UI.UGui.Editor
             EditorApplication.hierarchyWindowItemOnGUI += OnItem;
         }
 
-        private static UICodeGenProfile _profile;
-        private static UICodeGenProfile Profile => _profile != null ? _profile : (_profile = UICodeGenProfile.Resolve());
+        // Hierarchy 每帧重绘必须只读：缺配置时使用 Profile 定义的展示默认值，绝不能因为看了一眼层级就创建项目资产。
+        private static UICodeGenProfile Profile
+        {
+            get
+            {
+                UICodeGenProfile.TryResolve(out var profile);
+                return profile;
+            }
+        }
 
         private static void OnItem(int instanceID, Rect rect)
         {
@@ -110,7 +117,7 @@ namespace Game.Framework.UI.UGui.Editor
             if (UIBindingUtil.IsInsideSubView(root, go.transform, out _)) return;
             // 纯布局/空节点（无脚本无内置控件）也允许绑：默认取其 RectTransform/Transform（PickDefaultComponent 的兜底），
             // 用于布局引用 / 显隐容器等；「＋」只在选中节点时出现，噪音很小。GameObject 不自动选，需在面板里手动勾。
-            var def = UIBindingUtil.PickDefaultComponent(go, Profile.BuiltinComponentPriority);
+            var def = UIBindingUtil.PickDefaultComponent(go, UICodeGenProfile.BuiltinComponentPriorityOrDefault(Profile));
             DrawAddButton(rect, rightEdge, root.gameObject, go, path, def, stage);
         }
 

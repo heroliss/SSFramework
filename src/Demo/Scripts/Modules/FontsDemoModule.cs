@@ -133,13 +133,13 @@ namespace Game.Framework.Demo.Modules
                 "（Windows/macOS/Android 各家系统字体不同）。Dispose 还原原始表 + 销毁运行时资产——Editor Play 会话不污染共享字体资产。");
 
             // ── ① 主字体怎么来 ──
-            host.AddSectionTitle("① 主字体怎么来：常用字集菜单 + TMP Font Asset Creator");
-            host.AddNote("菜单 **SSFramework/字体/生成常用字集**：扫配置表（xlsx 读 sharedStrings）/ 代码字符串字面量 / 文案文件，" +
+            host.AddSectionTitle("① 主字体怎么来：字集工作台 + TMP Font Asset Creator");
+            host.AddNote("工作台 **SSFramework/代码生成/字体字集**：扫配置表（xlsx 读 sharedStrings）/ 代码字符串字面量 / 文案文件，" +
                 "去重出 charset 文件 → TMP Font Asset Creator 选主字体 ttf + Characters from File 烘焙 static atlas——" +
                 "常用字随包秒显，生僻字交给 ②③。demo 图省事直接用 Latin 字体当①，正好让缺字效果可见。");
 #if UNITY_EDITOR
             host.AddActionRow("打开常用字集配置（FontCharsetProfile）", () =>
-                UnityEditor.EditorApplication.ExecuteMenuItem("SSFramework/字体/常用字集配置 (Charset Profile)"));
+                UnityEditor.EditorApplication.ExecuteMenuItem("SSFramework/代码生成/字体字集"));
 #endif
 
             // ── 刻意不做 ──
@@ -150,7 +150,7 @@ namespace Game.Framework.Demo.Modules
             host.AddConcept("每文本粒度换字体", "链条挂在主字体上全局生效；个别文本要专属字体直接在 UI 上指定，那不是「兜底」问题。");
 
             host.AddTip("速记：主字体显式列进 MonoLocaleFonts（没列不管理）；每语言一份档案（②补充资产 + ③OS 英文族名候选）；" +
-                "换语言由 SetLocale 一并驱动、业务零调用；①用「生成常用字集」菜单烘焙。TMP 缺字真豆腐（②③刚需）、" +
+                "换语言由 SetLocale 一并驱动、业务零调用；①在字体字集工作台生成 charset 后烘焙。TMP 缺字真豆腐（②③刚需）、" +
                 "Toolkit 引擎自带 OS 兜底（②管字形归属）。深度见 framework-guide 字体章 / ADR-0025。");
         }
 

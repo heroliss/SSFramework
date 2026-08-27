@@ -45,6 +45,10 @@ namespace Game.Framework.Editor
         /// </summary>
         public static (bool ok, string message) Generate(ServiceInstallerProfile profile)
         {
+            if (profile == null) return (false, "ServiceInstallerProfile 不能为空。");
+            var ownershipProfiles = ServiceInstallerProfile.ResolveAll().Concat(new[] { profile }).Distinct().ToArray();
+            var (ownershipOk, ownershipMessage) = ValidateOutputOwnership(ownershipProfiles);
+            if (!ownershipOk) return (false, ownershipMessage);
             if (profile.Installers == null || profile.Installers.Count == 0)
                 return (false, $"profile「{profile.name}」没有任何安装器条目，无可生成。");
 
@@ -60,13 +64,54 @@ namespace Game.Framework.Editor
             return (allOk, sb.ToString());
         }
 
+        /// <summary>
+        /// 在批量写盘前验证所有安装器条目各自拥有唯一的规范化输出文件。两个配置即使通过 <c>..</c> 或不同分隔符
+        /// 指向同一文件也会失败；校验阶段不扫描服务、不创建目录或文件。
+        /// </summary>
+        public static (bool ok, string message) ValidateOutputOwnership(
+            IReadOnlyList<ServiceInstallerProfile> profiles)
+        {
+            if (profiles == null || profiles.Count == 0)
+                return (false, "没有可验证的 ServiceInstallerProfile。");
+
+            var claims = new List<(ServiceInstallerProfile profile, int entryIndex, string assetPath, string absolutePath)>();
+            foreach (ServiceInstallerProfile profile in profiles)
+            {
+                if (profile == null) return (false, "配置列表含已删除或空的 ServiceInstallerProfile。");
+                if (profile.Installers == null) continue;
+                for (int i = 0; i < profile.Installers.Count; i++)
+                {
+                    ServiceInstallerProfile.InstallerEntry entry = profile.Installers[i];
+                    if (entry == null) return (false, $"【{profile.name}】第 {i + 1} 条安装器配置为空。");
+                    if (!FrameworkProjectPath.TryResolveAssetsFile(
+                            entry.OutputPath, ".cs", out string assetPath, out string absolutePath, out string error))
+                        return (false, $"【{profile.name}】第 {i + 1} 条输出路径无效：{error}");
+                    claims.Add((profile, i, assetPath, absolutePath));
+                }
+            }
+
+            for (int i = 0; i < claims.Count; i++)
+            for (int j = i + 1; j < claims.Count; j++)
+            {
+                var left = claims[i];
+                var right = claims[j];
+                if (!FrameworkProjectPath.PathsEqual(left.absolutePath, right.absolutePath)) continue;
+                return (false,
+                    $"安装器输出所有权冲突：【{left.profile.name}】第 {left.entryIndex + 1} 条与" +
+                    $"【{right.profile.name}】第 {right.entryIndex + 1} 条都指向 {left.assetPath}。\n" +
+                    "请为每个条目分配唯一 .g.cs 文件，避免后生成条目静默覆盖前一份。");
+            }
+
+            return (true, $"{claims.Count} 个安装器条目各自拥有唯一输出文件。");
+        }
+
         /// <summary>生成单个安装器条目。</summary>
         public static (bool ok, string message) GenerateEntry(ServiceInstallerProfile.InstallerEntry entry)
         {
-            string path = entry.OutputPath;
-            if (string.IsNullOrEmpty(path) || !path.StartsWith("Assets/", StringComparison.Ordinal) ||
-                !path.EndsWith(".cs", StringComparison.Ordinal))
-                return (false, $"输出路径须以 Assets/ 开头、.cs 结尾：{path}");
+            if (entry == null) return (false, "安装器条目不能为空。");
+            if (!FrameworkProjectPath.TryResolveAssetsFile(
+                    entry.OutputPath, ".cs", out string path, out string abs, out string pathError))
+                return (false, "安装器输出路径无效：" + pathError);
             if (string.IsNullOrWhiteSpace(entry.Namespace))
                 return (false, $"{path}：未配置命名空间。");
 
@@ -115,8 +160,6 @@ namespace Game.Framework.Editor
             string className = SanitizeIdentifier(DeriveClassName(path));
             string content = EmitInstaller(entry.Namespace.Trim(), className, services, folderPaths);
 
-            string projectRoot = Path.GetDirectoryName(Application.dataPath);
-            string abs = Path.Combine(projectRoot!, path);
             bool upToDate = File.Exists(abs) && File.ReadAllText(abs) == content;
             if (!upToDate)
             {
@@ -223,7 +266,7 @@ namespace Game.Framework.Editor
             sb.AppendLine("//     由 ServiceInstallerGenerator 扫描以下目录生成，勿手改；重新生成会覆盖：");
             foreach (string folder in folderPaths)
                 sb.AppendLine($"//         {folder}");
-            sb.AppendLine("//     增删服务类后经菜单 SSFramework/服务注册/生成服务安装器代码 重新生成。");
+            sb.AppendLine("//     增删服务类后到 SSFramework/代码生成/服务安装器 工作台重新生成。");
             sb.AppendLine("// </auto-generated>");
             sb.AppendLine("//------------------------------------------------------------------------------");
             sb.AppendLine();

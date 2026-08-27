@@ -38,7 +38,7 @@ namespace Game.Framework.Build
             _fileOffset = 0;
             UnityEngine.Debug.LogWarning(
                 "[GameBundleOffsetEncryptor] 检测到经 YooAsset 自带 Bundle Builder 窗口实例化（无参构造）——本框架不使用该窗口，" +
-                "本次不会加密。请改用菜单「SSFramework/资源构建」走 FrameworkAssetBuilder，由构建 profile 的 FileOffset 驱动偏移加密。");
+                "本次不会加密。请改用「SSFramework/构建与发布/资源构建」工作台走 FrameworkAssetBuilder，由构建 profile 的 FileOffset 驱动偏移加密。");
         }
 
         public BundleEncryptResult Encrypt(BundleEncryptArgs args)

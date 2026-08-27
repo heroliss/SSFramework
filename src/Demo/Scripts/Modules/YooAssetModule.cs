@@ -86,13 +86,13 @@ namespace Game.Framework.Demo.Modules
 
             // ── 底层流程：Host ──
             host.AddSectionTitle("底层流程 · Host（构建 → 部署 → 服务 → 下载缓存）");
-            host.AddStep("①", "构建：菜单 SSFramework/资源构建/「1. 构建资源包」或 CI 调 `FrameworkAssetBuilder`（都用 SBP）→ bundle 进 `AssetBuild/Bundles/<平台>/`，内置清单写 `StreamingAssets/yoo`。",
+            host.AddStep("①", "构建：打开 SSFramework/构建与发布/资源构建 工作台点“普通增量构建”，或由 CI 调 `FrameworkAssetBuilder`（都用 SBP）→ bundle 进 `AssetBuild/Bundles/<平台>/`，内置清单写 `StreamingAssets/yoo`。",
                 new CodeRef("Assets/Game/Framework/Build/Editor/FrameworkAssetBuilder.cs", "public static (bool ok, string message) Build", "唯一构建实现"));
             host.AddSubNote("打哪些包、每包首包策略 / 内置 shader 包开关，都读构建配置 `FrameworkAssetBuildProfile`（单一配置源）。首包：含指定 tag 的 bundle 拷进 `StreamingAssets` 当首包（多 tag 用分号 `;` 分隔），其余运行时从 CDN 下；样例包用空 tag → 0 内置、只出内置清单，于是全从 CDN 真实下载。",
                 new CodeRef("Assets/Game/Framework/Build/Editor/FrameworkAssetBuildProfile.cs", "class FrameworkAssetBuildProfile", "构建配置（按包）"));
             host.AddStep("②", "部署：产物按「每个包一个子目录」拷到 项目根/`AssetBuild/Deploy`（本地联调）或 CI 上传真实 CDN。`GameRemoteService` 按 {CDN}/{包名}/{文件} 取址。",
                 new CodeRef("Assets/Game/Framework/Asset.Yoo/YooAssetProvider.cs", "class GameRemoteService", "远端取址实现"));
-            host.AddStep("③", "起服务：菜单「3. 启动本地 CDN 服务」= python -m http.server（端口取自构建 profile 的 `LocalServePort`，须与场景 `AssetSystemConfigModel.CdnUrls` 第一条端口一致）；生产里这步换成 CDN 厂商。",
+            host.AddStep("③", "起服务：资源构建工作台的“启动本地 CDN 服务”= python -m http.server（端口取自构建 profile 的 `LocalServePort`，须与场景 `AssetSystemConfigModel.CdnUrls` 第一条端口一致）；生产里这步换成 CDN 厂商。",
                 new CodeRef("Assets/Game/Framework/Build/Editor/AssetBuildMenu.cs", "public static string StartServer(", "本地起服务（仅联调）"));
             host.AddStep("④", "进 Play(`Host`)：先读 `StreamingAssets` 的 `BuiltinCatalog` → 拉远端 `.version` / 对应清单；远端不可用则激活随包内置版本清单 → 缺的非内置 bundle 按需从 CDN 下载并缓存到 项目根/`AssetBuild/Downloaded/<包>`。",
                 new CodeRef("Assets/Game/Framework/Asset.Yoo/YooAssetProvider.cs", "case AssetPlayMode.Host", "Host 初始化实现"));
@@ -121,8 +121,8 @@ namespace Game.Framework.Demo.Modules
 
             // ── 操作：本地联调 vs 生产 ──
             host.AddSectionTitle("操作：本地联调 vs 生产构建");
-            host.AddNote("本地联调（编辑器内测 `Host`）：菜单 SSFramework/资源构建 下依次「1. 构建资源包 → 2. 部署到本地 CDN → 3. 启动本地 CDN 服务」，再把场景 `PlayMode` 切 `Host` 重进 Play。三步拆开、用的就是生产同款构建，只有「本地起服务」是联调专属。",
-                new CodeRef("Assets/Game/Framework/Build/Editor/AssetBuildMenu.cs", "class AssetBuildMenu", "统一构建菜单"));
+            host.AddNote("本地联调（编辑器内测 `Host`）：打开 SSFramework/构建与发布/资源构建 工作台，依次「构建资源包 → 部署到本地目录 → 启动本地 CDN 服务」，再把场景 `PlayMode` 切 `Host` 重进 Play。三步拆开、用的就是生产同款构建，只有「本地起服务」是联调专属。",
+                new CodeRef("Assets/Game/Framework/Build/Editor/AssetBuildWindow.cs", "class AssetBuildWindow", "资源构建工作台"));
             host.AddNote("正式发版：`FrameworkAssetBuilder` 是全工程唯一构建/部署实现，逐包构建 + 整理 CDN 待上传产物，可被 CI 的 `-executeMethod` 调用；上传 CDN 与版本管理交给 CI（见 build-assets.yml）。本地联调与生产用的是同一套构建，不是两套。",
                 new CodeRef("Assets/Game/Framework/Build/Editor/FrameworkAssetBuilder.cs", "class FrameworkAssetBuilder", "生产构建入口"));
         }

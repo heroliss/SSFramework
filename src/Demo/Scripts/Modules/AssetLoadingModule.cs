@@ -66,7 +66,7 @@ namespace Game.Framework.Demo.Modules
                 defaultState = s;
                 stateLabel.text = s == AssetInitState.Failed
                     ? $"默认包初始化失败（运行模式：{asset.CurrentPlayMode}）：Host/Offline 需先构建资源。" +
-                      "请用菜单 SSFramework/资源构建 依次「1 构建资源包 → 2 部署 → 3 启动本地 CDN 服务」后重进 Play，或改回 EditorSimulate（免构建）。底层见「YooAsset · 底层实现」章；失败的正确兜底/重试见下方「初始化失败与重试」。"
+                      "请打开 SSFramework/构建与发布/资源构建 工作台，依次「构建 → 部署 → 启动本地 CDN 服务」后重进 Play，或改回 EditorSimulate（免构建）。底层见「YooAsset · 底层实现」章；失败的正确兜底/重试见下方「初始化失败与重试」。"
                     : $"默认包初始化：{s}　｜　运行模式：{asset.CurrentPlayMode}";
             });
 #if UNITY_EDITOR
@@ -637,7 +637,7 @@ namespace Game.Framework.Demo.Modules
                 crossPreview.style.backgroundImage = StyleKeyword.None;
                 crossLabel.text = "已释放显式包名加载的句柄并清空预览。";
             }, CodeRef.Here("crossBag.Dispose()", "释放本节句柄"));
-            host.AddNote("所有加载方法都有带 `packageName` 的重载；多包项目用它从非默认包加载。本 Demo 当前只登记一个 `FrameworkSamplesPackage`，而且它就是默认包，所以这里诚实地演示的是**显式包名重载**，不是伪造一次跨包：当项目再登记 DLC / 关卡包后，传那个包名就是跨包加载。所有包都登记在 `AssetSystemConfigModel`，`Default Package` 只指定省略包名时落到哪一个；子 `Context` 经 `Container` 父级回退共享父级 `AssetUtility`，不必各挂一套。正式项目的包名建议用菜单 `SSFramework/资源构建/生成包名常量代码` 生成常量；Demo 在框架程序集里引用不到业务生成物，所以保留本地 const。");
+            host.AddNote("所有加载方法都有带 `packageName` 的重载；多包项目用它从非默认包加载。本 Demo 当前只登记一个 `FrameworkSamplesPackage`，而且它就是默认包，所以这里诚实地演示的是**显式包名重载**，不是伪造一次跨包：当项目再登记 DLC / 关卡包后，传那个包名就是跨包加载。所有包都登记在 `AssetSystemConfigModel`，`Default Package` 只指定省略包名时落到哪一个；子 `Context` 经 `Container` 父级回退共享父级 `AssetUtility`，不必各挂一套。正式项目的包名建议在 `SSFramework/构建与发布/资源构建` 工作台生成常量；Demo 在框架程序集里引用不到业务生成物，所以保留本地 const。");
 
             // ── 7. 使用路径 / 注册=生命周期 / 解耦 ──
             host.AddSectionTitle("使用路径");

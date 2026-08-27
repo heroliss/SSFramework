@@ -1,0 +1,23 @@
+{
+    "name": "Game.Framework.Network.Proto.Editor.Tests",
+    "rootNamespace": "Game.Framework.Network.Proto.Editor.Tests",
+    "references": [
+        "Game.Framework.Network.Proto.Editor",
+        "UnityEngine.TestRunner"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

@@ -12,7 +12,7 @@ namespace Game.Framework.Build
 {
     /// <summary>
     /// 资源构建配置（编辑器资产）——「打哪些包 + 每包构建参数」的**单一配置源**：
-    /// 统一构建菜单（<c>SSFramework/资源构建/*</c>）、CI 入口（<see cref="FrameworkAssetBuilder.BuildAll"/>）、
+    /// 资源构建工作台（<c>SSFramework/构建与发布/资源构建</c>）、CI 入口（<see cref="FrameworkAssetBuilder.BuildAll"/>）、
     /// 以及将来的构建窗口都读这一个 profile。
     ///
     /// 这是**项目配置实例**，不是框架代码——资产入库放在项目配置位（默认新建到 <c>Assets/Settings/SSFramework/</c>，不在 <c>Framework/</c> 内，
@@ -25,6 +25,17 @@ namespace Game.Framework.Build
     public sealed class FrameworkAssetBuildProfile : ScriptableObject
     {
         private const string DefaultVersionFormat = "yyyyMMddHHmmss";
+        private static FrameworkAssetBuildProfile _cached;
+        private static bool _cacheInitialized;
+
+        static FrameworkAssetBuildProfile()
+        {
+            EditorApplication.projectChanged += () =>
+            {
+                _cached = null;
+                _cacheInitialized = false;
+            };
+        }
 
         [Tooltip("逐包构建配置。包名需与 YooAsset 收集器（Bundle Collector）里的包一致。")]
         [FormerlySerializedAs("Packages")]
@@ -52,7 +63,7 @@ namespace Game.Framework.Build
         [Min(0)] [SerializeField] private ulong _fileOffset = 0;
 
         [Header("代码生成")]
-        [Tooltip("「生成包名常量代码」的输出文件路径（Assets/ 开头、.cs 结尾）。类名 = 文件名去掉 .g.cs。\n" +
+        [Tooltip("「生成包名常量代码」的输出文件路径（必须位于 Assets 子目录，且以 .cs 结尾）。类名 = 文件名去掉 .g.cs。\n" +
                  "生成的 const string 常量供业务代码替代裸包名字符串——收集器改名/删包后重新生成，引用处编译期报错。\n" +
                  "留空 = 不使用此功能。")]
         [SerializeField] private string _packageConstantsPath = "";
@@ -189,6 +200,35 @@ namespace Game.Framework.Build
             return sb.ToString().TrimEnd();
         }
 
+        /// <summary>无副作用查找全工程唯一的构建 profile；不存在时返回 <c>false</c>。</summary>
+        public static bool TryResolve(out FrameworkAssetBuildProfile profile)
+        {
+            if (_cacheInitialized)
+            {
+                profile = _cached;
+                return profile != null;
+            }
+
+            var paths = AssetDatabase.FindAssets("t:" + nameof(FrameworkAssetBuildProfile))
+                .Select(AssetDatabase.GUIDToAssetPath)
+                .OrderBy(path => path, StringComparer.Ordinal)
+                .ToArray();
+            if (paths.Length == 0)
+            {
+                _cacheInitialized = true;
+                _cached = null;
+                profile = null;
+                return false;
+            }
+            if (paths.Length > 1)
+                Debug.LogWarning("[AssetBuilder] 找到多个构建 profile，仅第一个生效，请删到只剩一个：\n  " +
+                                 string.Join("\n  ", paths));
+            _cached = AssetDatabase.LoadAssetAtPath<FrameworkAssetBuildProfile>(paths[0]);
+            _cacheInitialized = true;
+            profile = _cached;
+            return profile != null;
+        }
+
         /// <summary>
         /// 解析全工程唯一的构建 profile：先找已有资产（找到多个 → 取第一个并警告），
         /// 没有就按收集器的包列表自动建一个默认 profile（落在通用项目配置目录）。
@@ -196,19 +236,7 @@ namespace Game.Framework.Build
         /// </summary>
         public static FrameworkAssetBuildProfile Resolve()
         {
-            var paths = AssetDatabase.FindAssets("t:" + nameof(FrameworkAssetBuildProfile))
-                .Select(AssetDatabase.GUIDToAssetPath)
-                .OrderBy(path => path, StringComparer.Ordinal)
-                .ToArray();
-            if (paths.Length > 0)
-            {
-                if (paths.Length > 1)
-                {
-                    Debug.LogWarning("[AssetBuilder] 找到多个构建 profile，仅第一个生效，请删到只剩一个：\n  " +
-                                     string.Join("\n  ", paths));
-                }
-                return AssetDatabase.LoadAssetAtPath<FrameworkAssetBuildProfile>(paths[0]);
-            }
+            if (TryResolve(out FrameworkAssetBuildProfile existing)) return existing;
 
             var profile = CreateInstance<FrameworkAssetBuildProfile>();
             foreach (var pkg in BundleCollectorSettingData.Setting.Packages)
@@ -221,7 +249,9 @@ namespace Game.Framework.Build
             string path = dir + "/FrameworkAssetBuildProfile.asset";
             AssetDatabase.CreateAsset(profile, path);
             AssetDatabase.SaveAssets();
-            Debug.Log($"[AssetBuilder] 未找到构建 profile，已按收集器包列表自动创建：{path}");
+            _cached = profile;
+            _cacheInitialized = true;
+            Debug.Log($"[AssetBuilder] 已按用户请求创建构建 profile，并按收集器包列表初始化：{path}");
             return profile;
         }
     }
@@ -233,7 +263,7 @@ namespace Game.Framework.Build
     [Serializable]
     public sealed class PackageBuildEntry
     {
-        [Tooltip("资源包名称，需与 YooAsset 收集器里的包一致。")]
+        [Tooltip("资源包名称，需与 YooAsset 收集器里的包一致，并能作为单一跨平台目录名（不能含空白、路径分隔符或 URL 结构字符）。")]
         [FormerlySerializedAs("PackageName")]
         [SerializeField] private string _packageName;
 

@@ -129,7 +129,7 @@ namespace Game.Framework.Demo.Modules
             host.AddActionRow("打开 l10n.xlsx 所在目录（构建期源，~ 目录不导入）", () =>
                 UnityEditor.EditorUtility.RevealInFinder($"{L10NDataDir}/l10n.xlsx"),
                 CodeRef.Here("builder.RegisterOwnedFactory(", "本章的注册代码（工厂解依赖顺序 + 生命周期）"));
-            host.AddSubNote("改表后菜单「SSFramework/配置表构建/生成全部」重新生成即可生效。配置未就绪是 `Unavailable`：可暂用裸 key 占位，但不报缺文案；State 到 Ready 会自动重取。小体量 / 测试用内置 `DictionaryLocalizedTextSource`。");
+            host.AddSubNote("改表后到「SSFramework/代码生成/配置表 (Luban)」工作台重新生成即可生效。配置未就绪是 `Unavailable`：可暂用裸 key 占位，但不报缺文案；State 到 Ready 会自动重取。小体量 / 测试用内置 `DictionaryLocalizedTextSource`。");
 
             // ── 延迟源可观察实验 ──
             host.AddSectionTitle("延迟源：不切语言也会自动刷新");
