@@ -47,6 +47,89 @@ namespace Game.Framework.Editor.Tests
         }
 
         [Test]
+        public void DeclaredReachability_RemainsSeparateFromCurrentDllUsage()
+        {
+            var assemblies = new Dictionary<string, FrameworkModuleAudit.AssemblyInfo>
+            {
+                ["Core"] = new FrameworkModuleAudit.AssemblyInfo
+                {
+                    Name = "Core",
+                    DeclaredReferences = new[] { "Optional" },
+                    ActualReferences = Array.Empty<string>(),
+                },
+                ["Optional"] = new FrameworkModuleAudit.AssemblyInfo
+                {
+                    Name = "Optional",
+                    DeclaredReferences = new[] { "Transitive" },
+                    ActualReferences = Array.Empty<string>(),
+                },
+                ["Transitive"] = new FrameworkModuleAudit.AssemblyInfo { Name = "Transitive" },
+            };
+
+            var declared = FrameworkModuleAudit.ComputeDeclaredReachableAssemblies(
+                assemblies, new[] { "Core" });
+            var actual = FrameworkModuleAudit.ComputeReachableAssemblies(
+                assemblies, new[] { "Core" });
+
+            Assert.That(declared, Is.EquivalentTo(new[] { "Core", "Optional", "Transitive" }));
+            Assert.That(actual, Is.EqualTo(new[] { "Core" }));
+        }
+
+        [Test]
+        public void DependencyBoundaryChecks_CatchAnyOptionalModuleFromCoreOrBoot()
+        {
+            const string missingOptionalName = "Game.Framework.Optional.MissingFromPlayerCatalog";
+            var core = new FrameworkModuleAudit.AssemblyInfo
+            {
+                Name = FrameworkModuleAudit.CoreAssemblyName,
+                DeclaredReferences = new[]
+                {
+                    "Project.DeclaredMediator",
+                    FrameworkModuleAudit.BootAssemblyName,
+                },
+                ActualReferences = Array.Empty<string>(),
+            };
+            var boot = new FrameworkModuleAudit.AssemblyInfo
+            {
+                Name = FrameworkModuleAudit.BootAssemblyName,
+                ActualReferences = new[] { "Project.ActualMediator" },
+            };
+            var snapshot = new FrameworkModuleAudit.Snapshot(
+                new Dictionary<string, FrameworkModuleAudit.AssemblyInfo>
+                {
+                    [core.Name] = core,
+                    [boot.Name] = boot,
+                    ["Project.DeclaredMediator"] = new FrameworkModuleAudit.AssemblyInfo
+                    {
+                        Name = "Project.DeclaredMediator",
+                        DeclaredReferences = new[] { missingOptionalName },
+                    },
+                    ["Project.ActualMediator"] = new FrameworkModuleAudit.AssemblyInfo
+                    {
+                        Name = "Project.ActualMediator",
+                        ActualReferences = new[] { missingOptionalName },
+                    },
+                },
+                new Dictionary<string, string>(),
+                Array.Empty<string>(),
+                "test");
+
+            FrameworkModuleAudit.DeletionCheck[] checks =
+                FrameworkModuleAudit.BuildDependencyBoundaryChecks(snapshot);
+
+            var coreCheck = checks.Single(check => check.Name.StartsWith("Core ", StringComparison.Ordinal));
+            var bootCheck = checks.Single(check => check.Name.StartsWith("Boot ", StringComparison.Ordinal));
+            Assert.That(coreCheck.Passed, Is.False,
+                "声明传递边指向未进入 Player Catalog 的 Framework Module 仍会阻塞物理删除。 ");
+            Assert.That(coreCheck.Explanation, Does.Contain(missingOptionalName));
+            Assert.That(coreCheck.Explanation, Does.Contain(FrameworkModuleAudit.BootAssemblyName),
+                "Core 反向引用可删除的 AOT Boot 也必须由同一通用门禁捕获。 ");
+            Assert.That(bootCheck.Passed, Is.False,
+                "AOT Boot 经当前 DLL 传递闭包接触缺失的 Framework Runtime Module 也必须失败。 ");
+            Assert.That(bootCheck.Explanation, Does.Contain(missingOptionalName));
+        }
+
+        [Test]
         public void UndeclaredReferences_ExposeAutoReferenceCoupling()
         {
             var info = new FrameworkModuleAudit.AssemblyInfo
@@ -1111,6 +1194,7 @@ namespace Game.Framework.Editor.Tests
             var status = FrameworkModuleAudit.BuildModuleStatuses(snapshot, new[] { optional }).Single();
 
             Assert.That(status.DirectConsumers, Is.EqualTo(new[] { "Project.Runtime" }));
+            Assert.That(status.PredefinedAutoReferenceDisabled, Is.True);
             Assert.That(status.FrameworkConsumers, Is.Empty);
             Assert.That(status.ProjectConsumers, Is.EqualTo(new[] { "Project.Runtime" }));
             Assert.That(status.RemovalBlockers, Is.EquivalentTo(new[] { "Project.Runtime", "Sample.Editor.Consumer" }));
@@ -1146,7 +1230,7 @@ namespace Game.Framework.Editor.Tests
             var result = new FrameworkModuleAudit.AuditResult
             {
                 ModuleStatuses = new[] { status },
-                AllRuntimeModulesOptIn = true,
+                AllRuntimeModulesHavePredefinedAutoReferenceDisabled = true,
             };
 
             Assert.That(status.HasHotUpdateViolation, Is.True);
@@ -1333,6 +1417,14 @@ namespace Game.Framework.Editor.Tests
 
             var result = FrameworkModuleAudit.Analyze(snapshot);
             Assert.That(result.IsHealthy, Is.True);
+            Assert.That(result.AllRuntimeModulesHavePredefinedAutoReferenceDisabled, Is.True,
+                "autoReferenced:false 只关闭预定义程序集的隐式引用，字段名称不得继续暗示 Module 已按需部署。 ");
+            Assert.That(result.DeletionChecks.Single(check =>
+                check.Name.StartsWith("Core ", StringComparison.Ordinal)).Passed, Is.True,
+                "Core 门禁必须覆盖全部可选 Runtime Module，而不只 UI 特例。 ");
+            Assert.That(result.DeletionChecks.Single(check =>
+                check.Name.StartsWith("Boot ", StringComparison.Ordinal)).Passed, Is.True,
+                "Boot 必须保持不接触 Framework Runtime 的 AOT 薄壳边界。 ");
             Assert.That(result.DependencyEvidenceIssues, Is.Empty,
                 "第三方依赖扫描不能把 asmdef / Editor DLL / PluginImporter 读取失败静默解释为零消费者。 ");
             Assert.That(result.ExternalDependencies, Is.Not.Empty);
@@ -1360,7 +1452,7 @@ namespace Game.Framework.Editor.Tests
             Assert.That(report, Does.Not.Contain("⚠ 无法定位程序集文件"),
                 "当前轻量档位或热更清单里存在无法解析的程序集时，字节闭包不能算完整。");
             string deletionSection = report.Substring(
-                report.IndexOf("删除检查（当前编译快照的元数据引用闭包）", StringComparison.Ordinal));
+                report.IndexOf("删除检查（asmdef 声明 + 当前 DLL 元数据闭包）", StringComparison.Ordinal));
             Assert.That(deletionSection, Does.Not.Contain("✗ "),
                 "删除检查的文本结论不得只靠测试代码另算后假绿；本地 Generate / 中转证据可在干净 clone 中独立告警。 ");
             Assert.That(report, Does.Contain("Module 当前保留原因"));

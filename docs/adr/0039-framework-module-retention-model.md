@@ -32,13 +32,16 @@ Build Editor Module 额外提供只读派生证据：比较唯一 Profile 与 Hy
 
 每个 Runtime Module 显示：
 
-- Player DLL 的 Framework / 项目真实消费者，以及完整 asmdef 图中的删除阻塞者（无论是否进入 Player）；
+- 已在当前 Player 编译图发现，以及 `autoReferenced` 是否仅关闭了预定义程序集的隐式引用；Module 退出该编译图后不会继续以“未参与”卡片出现，界面也不得把 `autoReferenced:false` 称为“按需启用”“消费方已选择”或“自动裁剪”；
+- 当前已编译 DLL 快照的 Framework / 项目元数据消费者，以及完整 asmdef 图中的删除阻塞者（无论是否进入 Player）；Unity 6000 的 `outputPath` 可能指向 Editor DLL 变体，因此目标 Player 消费边仍由目标平台构建确认；
 - 自身的 Framework 直接依赖；完整闭包在任意 Module what-if 中展开；
 - 是否位于热更 Profile，以及哪些热更依赖造成结构性传播；
 - 指向它、或由它拥有的 `link.xml` 规则；
 - 可复制的安全移除顺序。
 
 常用 Core / UGUI / Toolkit 档位继续保留；同时为任意 Runtime Module 生成 what-if 入口闭包，并把同一组结构化 Profile 交给隔离构建体积探针。what-if 只回答“以它为入口会带上什么”，不是全局开关。
+
+删除边界由同一 Catalog 机器派生：Core 的 asmdef 声明与当前 DLL 元数据闭包都不得包含任意可选 Framework Player Module（包括 Boot）；Boot 若参与 Player 编译，两种闭包都不得接触 Framework Runtime；UGUI / Toolkit 仍额外互相隔离并默认不带 Bridge。检查名称、解释、窗口与文本报告消费同一结构化结果，不在测试中另写一份特例真相。
 
 ### 3. 全局、第三方和生成的 linker 规则只读追踪
 
@@ -71,6 +74,8 @@ asmdef 管**编译依赖边界**，UnityLinker 管**成员裁剪**，HybridCLR P
 ## Consequences
 
 - ✅ 新手能区分“没写引用”“没进热更清单”和“最终没进包”，不再把一个机制的绿灯误当全链路结论。
+- ✅ `autoReferenced:false` 被准确解释为预定义程序集引用规则；所有已存在 Runtime Module 仍参与当前 Player 编译的事实不再被“按需选择”文案遮蔽。
+- ✅ Core / Boot 的删除边界覆盖任意新增 Runtime Module，不必在每次增加 Module 后补一条名称特例。
 - ✅ Module Catalog 从真实构建输入派生，窗口、文本报告、测试与隔离探针共享同一模型，保持 locality。
 - ✅ 任意 Module 都能做闭包与隔离构建 what-if，不再把可拆卸设计局限在 UGUI / Toolkit。
 - ✅ 热更传播被显式说明，避免给出会被 `HotUpdateAssemblyGraph` 拒绝的操作顺序。

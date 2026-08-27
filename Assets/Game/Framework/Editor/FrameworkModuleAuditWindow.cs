@@ -112,7 +112,7 @@ namespace Game.Framework.Editor
             title.style.unityFontStyleAndWeight = FontStyle.Bold;
             header.Add(title);
 
-            var subtitle = Wrap(new Label("先回答“能不能按需选、哪里最值得关注、下一步做什么”；技术明细需要时再展开。"));
+            var subtitle = Wrap(new Label("先回答“依赖声明是否一致、代码为何可能保留、移除前要做什么”；技术明细需要时再展开。"));
             subtitle.style.marginTop = 3;
             subtitle.style.color = MutedTextColor;
             header.Add(subtitle);
@@ -148,7 +148,7 @@ namespace Game.Framework.Editor
                 BuildResult(result);
                 _status.text = result.RequiresAttention
                     ? "检测完成：依赖方向、第三方来源与最终保留原因已分开显示；请先看顶部结论和对应证据目录。"
-                    : "检测完成：当前模块边界健康，且没有发现无条件 Module 保留规则。大小数字不代表最终包体。";
+                    : "检测完成：当前依赖声明一致，且没有发现无条件 Module 保留规则。大小数字不代表最终包体。";
                 _status.messageType = result.RequiresAttention
                     ? HelpBoxMessageType.Warning
                     : HelpBoxMessageType.Info;
@@ -278,12 +278,12 @@ namespace Game.Framework.Editor
             bool clear = !result.RequiresAttention;
             card.style.borderLeftColor = clear ? HealthyColor : WarningColor;
             string titleText = clear
-                ? "✓ 当前模块边界与保留规则健康"
+                ? "✓ 当前依赖声明一致，保留证据可解释"
                 : result.IsHealthy
                     ? result.HasDependencyEvidenceGaps || result.HasUnknownExternalDependencySources
-                        ? "△ 依赖方向健康，但第三方依赖证据需关注"
-                        : "△ 依赖方向健康，但保留 / 派生证据需关注"
-                    : "⚠ 当前模块边界需要关注";
+                        ? "△ 依赖声明一致，但第三方依赖证据需关注"
+                        : "△ 依赖声明一致，但保留 / 派生证据需关注"
+                    : "⚠ 当前依赖或删除边界需要关注";
             var title = Wrap(new Label(titleText));
             title.style.fontSize = 17;
             title.style.unityFontStyleAndWeight = FontStyle.Bold;
@@ -291,7 +291,7 @@ namespace Game.Framework.Editor
             card.Add(title);
 
             var explanation = Wrap(new Label(clear
-                ? "Framework Module 由消费方显式选择；没有发现隐式引用、反向拖入或无条件 Module link.xml 根。"
+                ? "Runtime Module 均关闭预定义程序集的隐式引用；Core / Boot 依赖方向、外部 DLL 声明与已知保留证据没有冲突。"
                 : result.IsHealthy
                     ? result.HasDependencyEvidenceGaps || result.HasUnknownExternalDependencySources
                         ? "asmdef 删除测试通过，但至少一条第三方来源或扫描输入不完整；修复前不会给出绿色移除结论。"
@@ -304,9 +304,9 @@ namespace Game.Framework.Editor
             var metrics = CreateResponsiveRow("module-audit-summary-metrics");
             int implicitCount = result.DependencyIssues.Sum(issue => issue.References.Length);
             int passedChecks = result.DeletionChecks.Count(check => check.Passed);
-            metrics.Add(CreateMetric("运行时模块", result.RuntimeModules.Length.ToString(), "都应由消费方显式选择"));
+            metrics.Add(CreateMetric("运行时模块", result.RuntimeModules.Length.ToString(), "均参与当前 Player 编译图"));
             metrics.Add(CreateMetric("隐式外部引用", implicitCount.ToString(), implicitCount == 0 ? "没有隐藏代价" : "需要补进 asmdef"));
-            metrics.Add(CreateMetric("删除检查", $"{passedChecks}/{result.DeletionChecks.Length}", "核心与两套 UI 后端"));
+            metrics.Add(CreateMetric("删除检查", $"{passedChecks}/{result.DeletionChecks.Length}", "Core、Boot 与两套 UI 后端"));
             metrics.Add(CreateMetric("无条件保留", result.UnconditionalModulePreservations.Length.ToString(),
                 result.HasRetentionWarnings ? "需要理解为何存在" : "未发现 Module 级根"));
             card.Add(metrics);
@@ -605,8 +605,14 @@ namespace Game.Framework.Editor
             card.Add(source);
 
             var metrics = CreateResponsiveRow("module-audit-status-metrics-" + status.Module.Name);
-            metrics.Add(CreateMetric("Player 实际消费", status.DirectConsumers.Length.ToString(),
-                status.DirectConsumers.Length == 0 ? "未发现元数据引用" : "参与运行时保留判断"));
+            metrics.Add(CreateMetric("Player 编译图", "已发现",
+                status.PredefinedAutoReferenceDisabled
+                    ? "autoReferenced:false 仍不等于退出编译图"
+                    : "⚠ 预定义程序集可隐式引用"));
+            metrics.Add(CreateMetric("当前 DLL 快照消费", status.DirectConsumers.Length.ToString(),
+                status.DirectConsumers.Length == 0
+                    ? "未发现元数据引用"
+                    : "可能是 Editor 变体；目标构建再确认"));
             metrics.Add(CreateMetric("删除阻塞", status.RemovalBlockers.Length.ToString(),
                 status.RemovalBlockers.Length == 0 ? "没有 asmdef 声明引用" : "来自完整 asmdef 图"));
             metrics.Add(CreateMetric("Profile 热更", status.IsHotUpdateRoot ? "已列入" : "未列入",
@@ -756,11 +762,11 @@ namespace Game.Framework.Editor
         private VisualElement CreateChecksCard(FrameworkModuleAudit.AuditResult result)
         {
             var card = CreateCard("module-audit-checks");
-            card.Add(CreateCheckRow(result.AllRuntimeModulesOptIn,
-                "运行时模块由消费方显式选择",
-                result.AllRuntimeModulesOptIn
-                    ? "所有 Runtime Module 都是 autoReferenced:false。"
-                    : "有模块仍会被 Unity 自动加入编译可见范围。"));
+            card.Add(CreateCheckRow(result.AllRuntimeModulesHavePredefinedAutoReferenceDisabled,
+                "预定义程序集不会隐式引用 Runtime Module",
+                result.AllRuntimeModulesHavePredefinedAutoReferenceDisabled
+                    ? "所有 Runtime Module 都是 autoReferenced:false；这不会让它们退出 Player 编译图，也不承诺最终自动消失。"
+                    : "有 Runtime Module 开启 autoReferenced；Assembly-CSharp 等预定义程序集可在没有 asmdef 声明的情况下引用它。"));
             card.Add(CreateCheckRow(result.DependencyIssues.Length == 0,
                 "外部依赖都写进 asmdef",
                 result.DependencyIssues.Length == 0
@@ -1028,7 +1034,7 @@ namespace Game.Framework.Editor
         private void CopyRemovalChecklist(FrameworkModuleAudit.ModuleStatus status)
         {
             string text = status.Module.Name + " 移除准备\n" +
-                          "Player 实际消费者：" +
+                          "当前 DLL 快照消费者（可能为 Editor 变体）：" +
                           (status.DirectConsumers.Length == 0
                               ? "（未发现）"
                               : string.Join("、", status.DirectConsumers)) + "\n\n" +

@@ -17,9 +17,10 @@ namespace Game.Framework.Editor
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <see cref="CompilationPipeline.GetAssemblies(AssembliesType)"/> 给出 asmdef 的编译可见图，但
-    /// <c>auto-reference</c> 会把“编译器能看到”放大成“运行时一定依赖”。本审计继续读取 DLL 的
-    /// <see cref="System.Reflection.AssemblyName"/> 引用表，只把真正写进元数据的引用计入闭包，避免误报。
+    /// <see cref="CompilationPipeline.GetAssemblies(AssembliesType)"/> 给出参与当前 Player 编译的程序集；
+    /// <c>autoReferenced:false</c> 只阻止 Assembly-CSharp 等预定义程序集隐式引用该 asmdef，既不让它退出
+    /// 编译图，也不会凭空制造或消除 DLL 元数据引用。本审计分别保留 asmdef 声明闭包与当前 DLL 的
+    /// <see cref="System.Reflection.AssemblyName"/> 引用闭包，避免把任一层冒充最终保留结果。
     /// </para>
     /// <para>
     /// 字节数是链接、AOT、压缩前的原始托管程序集证据，只适合比较 Module 组合，不等于最终安装包增量。
@@ -33,6 +34,7 @@ namespace Game.Framework.Editor
         internal const string UGuiAssemblyName = "Game.Framework.UI.UGui";
         internal const string ToolkitAssemblyName = "Game.Framework.UI.Toolkit";
         internal const string BridgeAssemblyName = "Game.Framework.UI.Bridge";
+        internal const string BootAssemblyName = "Game.Framework.Boot";
 
         private static readonly Dictionary<string, AssemblyReferenceCacheEntry> AssemblyReferenceCache =
             new(StringComparer.OrdinalIgnoreCase);
@@ -63,7 +65,7 @@ namespace Game.Framework.Editor
             internal string[] ActualReferences = Array.Empty<string>();
 
             internal bool IsFrameworkRuntime => IsFrameworkAssembly(Name) &&
-                                                !Name.Equals("Game.Framework.Boot", StringComparison.Ordinal);
+                                                !Name.Equals(BootAssemblyName, StringComparison.Ordinal);
         }
 
         internal sealed class Snapshot
@@ -350,6 +352,7 @@ namespace Game.Framework.Editor
         internal sealed class ModuleStatus
         {
             internal AssemblyInfo Module;
+            internal bool PredefinedAutoReferenceDisabled;
             internal string[] DirectConsumers = Array.Empty<string>();
             internal string[] FrameworkConsumers = Array.Empty<string>();
             internal string[] ProjectConsumers = Array.Empty<string>();
@@ -432,7 +435,7 @@ namespace Game.Framework.Editor
             internal ExternalDependencyEvidence[] ExternalDependencies = Array.Empty<ExternalDependencyEvidence>();
             internal EvidenceIssue[] DependencyEvidenceIssues = Array.Empty<EvidenceIssue>();
             internal string[] Recommendations = Array.Empty<string>();
-            internal bool AllRuntimeModulesOptIn;
+            internal bool AllRuntimeModulesHavePredefinedAutoReferenceDisabled;
 
             internal IEnumerable<AuditProfile> AllProfiles => CommonProfiles
                 .Concat(ModuleProfiles)
@@ -460,7 +463,7 @@ namespace Game.Framework.Editor
                                                HasDependencyEvidenceGaps;
 
             internal bool IsHealthy => DependencyIssues.Length == 0 &&
-                                       AllRuntimeModulesOptIn &&
+                                       AllRuntimeModulesHavePredefinedAutoReferenceDisabled &&
                                        !HasUnresolvedAssemblies &&
                                        !HasHotUpdateViolations &&
                                        DeletionChecks.All(check => check.Passed);
@@ -589,9 +592,6 @@ namespace Game.Framework.Editor
                     snapshot.HotUpdateRoots)
                 : null;
 
-            var coreClosure = ComputeReachableAssemblies(snapshot.Assemblies, new[] { CoreAssemblyName });
-            var uguiClosure = ComputeReachableAssemblies(snapshot.Assemblies, new[] { UGuiAssemblyName });
-            var toolkitClosure = ComputeReachableAssemblies(snapshot.Assemblies, new[] { ToolkitAssemblyName });
             ModuleStatus[] moduleStatuses = BuildModuleStatuses(snapshot, runtimeModules);
             var result = new AuditResult
             {
@@ -622,31 +622,9 @@ namespace Game.Framework.Editor
                 DependencyEvidenceIssues = snapshot.DependencyEvidenceIssues
                     .Where(issue => string.IsNullOrWhiteSpace(issue.SubjectAssemblyName))
                     .ToArray(),
-                AllRuntimeModulesOptIn = runtimeModules.All(module => !module.AutoReferenced),
-                DeletionChecks = new[]
-                {
-                    new DeletionCheck
-                    {
-                        Name = "只用核心时不带 UI",
-                        Explanation = "小项目可以只保留 MVCS / Context，不被窗口框架反向拖住。",
-                        Passed = !coreClosure.Any(name => name.Equals(SharedUiAssemblyName, StringComparison.Ordinal) ||
-                                                                  name.StartsWith(SharedUiAssemblyName + ".", StringComparison.Ordinal)),
-                    },
-                    new DeletionCheck
-                    {
-                        Name = "UGUI 不带 Toolkit / Bridge",
-                        Explanation = "只选 UGUI 时，不会顺带引入另一套 UI 后端或嵌入桥。",
-                        Passed = !uguiClosure.Contains(ToolkitAssemblyName) &&
-                                 !uguiClosure.Contains(BridgeAssemblyName),
-                    },
-                    new DeletionCheck
-                    {
-                        Name = "Toolkit 不带 UGUI / Bridge",
-                        Explanation = "只选 Toolkit 时，不会顺带引入 UGUI 后端或嵌入桥。",
-                        Passed = !toolkitClosure.Contains(UGuiAssemblyName) &&
-                                 !toolkitClosure.Contains(BridgeAssemblyName),
-                    },
-                },
+                AllRuntimeModulesHavePredefinedAutoReferenceDisabled =
+                    runtimeModules.All(module => !module.AutoReferenced),
+                DeletionChecks = BuildDependencyBoundaryChecks(snapshot),
             };
             IEnumerable<AuditProfile> evidenceProfiles = commonProfiles.Concat(moduleProfiles)
                 .Concat(new[] { fullProfile });
@@ -666,9 +644,9 @@ namespace Game.Framework.Editor
             sb.AppendLine("Framework Module 裁剪审计");
             sb.AppendLine("────────────────────────────────────────");
             sb.AppendLine(!result.RequiresAttention
-                ? "结论：当前模块边界健康，没有发现会阻碍按需裁剪的问题。"
+                ? "结论：当前依赖声明一致，未发现已知的 Module 依赖方向或保留证据冲突。"
                 : result.IsHealthy
-                    ? "结论：程序集依赖方向健康，但第三方来源、linker 保留或热更派生状态仍需要理解 / 处理。"
+                    ? "结论：程序集依赖声明一致，但第三方来源、linker 保留或热更派生状态仍需要理解 / 处理。"
                     : "结论：发现需要处理或确认的问题，请先看检查结果。 ");
             sb.AppendLine("说明：这里比较的是编译后的原始 DLL，不是最终包体；真正发布大小仍以目标平台 Player BuildReport 为准。 ");
             sb.AppendLine();
@@ -729,6 +707,112 @@ namespace Game.Framework.Editor
                         pending.Enqueue(reference);
             }
             return result;
+        }
+
+        /// <summary>
+        /// 按 asmdef 的显式程序集边计算声明闭包。它与当前 DLL 元数据闭包保持分离：前者暴露删除阻塞，
+        /// 后者说明当前编译产物真实使用了什么；任一闭包都不能单独代表最终 Player 保留结果。
+        /// </summary>
+        internal static SortedSet<string> ComputeDeclaredReachableAssemblies(
+            IReadOnlyDictionary<string, AssemblyInfo> assemblies,
+            IEnumerable<string> roots)
+        {
+            if (assemblies == null) throw new ArgumentNullException(nameof(assemblies));
+            if (roots == null) throw new ArgumentNullException(nameof(roots));
+
+            var result = new SortedSet<string>(StringComparer.Ordinal);
+            var pending = new Queue<string>(roots.Where(name => !string.IsNullOrWhiteSpace(name)));
+            while (pending.Count > 0)
+            {
+                string name = pending.Dequeue();
+                if (!result.Add(name) || !assemblies.TryGetValue(name, out var info)) continue;
+
+                foreach (string reference in info.DeclaredReferences)
+                    if (!IsPlatformReference(reference))
+                        pending.Enqueue(reference);
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// 从实际 Module Catalog 派生通用删除边界，不维护第二份可选模块注册表。Core 与 Boot 同时检查
+        /// asmdef 声明和当前 DLL 元数据闭包，避免“源码声明错误但暂未使用”或“产物已反向引用但声明漂移”假绿。
+        /// </summary>
+        internal static DeletionCheck[] BuildDependencyBoundaryChecks(Snapshot snapshot)
+        {
+            if (snapshot == null) throw new ArgumentNullException(nameof(snapshot));
+
+            bool IsFrameworkPlayerReference(string name) =>
+                IsFrameworkAssembly(name) &&
+                !IsEditorConstrained(name);
+            bool IsFrameworkRuntimeReference(string name) =>
+                IsFrameworkPlayerReference(name) &&
+                !name.Equals(BootAssemblyName, StringComparison.Ordinal);
+
+            string[] FindFrameworkRuntimeDependencies(string root, Func<string, bool> isCandidate)
+            {
+                if (!snapshot.Assemblies.ContainsKey(root)) return Array.Empty<string>();
+                var actual = ComputeReachableAssemblies(snapshot.Assemblies, new[] { root });
+                var declared = ComputeDeclaredReachableAssemblies(snapshot.Assemblies, new[] { root });
+                return actual.Concat(declared)
+                    .Where(isCandidate)
+                    .Where(name => !name.Equals(root, StringComparison.Ordinal))
+                    .Distinct(StringComparer.Ordinal)
+                    .OrderBy(name => name, StringComparer.Ordinal)
+                    .ToArray();
+            }
+
+            string[] coreLeaks = FindFrameworkRuntimeDependencies(
+                CoreAssemblyName, IsFrameworkPlayerReference);
+            string[] bootLeaks = FindFrameworkRuntimeDependencies(
+                BootAssemblyName, IsFrameworkRuntimeReference);
+            string[] uguiLeaks = FindFrameworkRuntimeDependencies(
+                UGuiAssemblyName,
+                name => name.Equals(ToolkitAssemblyName, StringComparison.Ordinal) ||
+                        name.Equals(BridgeAssemblyName, StringComparison.Ordinal));
+            string[] toolkitLeaks = FindFrameworkRuntimeDependencies(
+                ToolkitAssemblyName,
+                name => name.Equals(UGuiAssemblyName, StringComparison.Ordinal) ||
+                        name.Equals(BridgeAssemblyName, StringComparison.Ordinal));
+
+            return new[]
+            {
+                new DeletionCheck
+                {
+                    Name = "Core 不反向依赖任何可选 Framework Module",
+                    Explanation = coreLeaks.Length == 0
+                        ? "Core 的 asmdef 声明与当前 DLL 元数据闭包都不含可选 Framework Player Module（含 Boot）。"
+                        : "Core 闭包发现可选 Module：" + string.Join("、", coreLeaks) + "。",
+                    Passed = coreLeaks.Length == 0,
+                },
+                new DeletionCheck
+                {
+                    Name = "Boot 不依赖 Framework Runtime",
+                    Explanation = !snapshot.Assemblies.ContainsKey(BootAssemblyName)
+                        ? "Boot 未参与当前 Player 编译图；未安装该热更启动薄壳时无需额外处理。"
+                        : bootLeaks.Length == 0
+                            ? "Boot 的 asmdef 声明与当前 DLL 元数据闭包都不含 Framework Runtime Module。"
+                            : "Boot 闭包发现 Framework Runtime Module：" + string.Join("、", bootLeaks) + "。",
+                    Passed = bootLeaks.Length == 0,
+                },
+                new DeletionCheck
+                {
+                    Name = "UGUI 不带 Toolkit / Bridge",
+                    Explanation = uguiLeaks.Length == 0
+                        ? "UGUI 的声明与当前 DLL 闭包都不会顺带引入另一套 UI 后端或嵌入桥。"
+                        : "UGUI 闭包发现：" + string.Join("、", uguiLeaks) + "。",
+                    Passed = uguiLeaks.Length == 0,
+                },
+                new DeletionCheck
+                {
+                    Name = "Toolkit 不带 UGUI / Bridge",
+                    Explanation = toolkitLeaks.Length == 0
+                        ? "Toolkit 的声明与当前 DLL 闭包都不会顺带引入 UGUI 后端或嵌入桥。"
+                        : "Toolkit 闭包发现：" + string.Join("、", toolkitLeaks) + "。",
+                    Passed = toolkitLeaks.Length == 0,
+                },
+            };
         }
 
         internal static string[] FindUndeclaredDirectReferences(
@@ -814,6 +898,7 @@ namespace Game.Framework.Editor
                     return new ModuleStatus
                     {
                         Module = module,
+                        PredefinedAutoReferenceDisabled = !module.AutoReferenced,
                         DirectConsumers = consumers,
                         FrameworkConsumers = frameworkConsumers,
                         ProjectConsumers = projectConsumers,
@@ -898,11 +983,13 @@ namespace Game.Framework.Editor
                             string.Join("、", hotDependencies) +
                             "。先把本 Module 恢复为热更，或让它退出 Player 编译图 / 把依赖退回 AOT，再执行同步和构建。");
             if (projectConsumers.Count > 0)
-                reasons.Add("项目程序集直接使用本 Module：" + string.Join("、", projectConsumers) +
-                            "。这些是最需要先迁移或删除的真实消费方。");
+                reasons.Add("当前 DLL 快照中，项目程序集直接引用本 Module：" +
+                            string.Join("、", projectConsumers) +
+                            "。该快照可能是 Unity 6000 返回的 Editor DLL 变体，应把它作为优先迁移候选，再由目标平台构建确认。");
             if (frameworkConsumers.Count > 0)
-                reasons.Add("其他 Framework Module 直接依赖它：" + string.Join("、", frameworkConsumers) +
-                            "。只有这些上层 Module 被项目选中时，这条引用链才成为最终 Player 的候选根。");
+                reasons.Add("当前 DLL 快照中，其他 Framework Module 直接引用它：" +
+                            string.Join("、", frameworkConsumers) +
+                            "。只有目标 Player 变体也存在该边，且上层 Module 成为根时，引用链才会影响最终保留。");
             foreach (var rule in targeting.Where(rule => rule.IsUnconditional))
                 reasons.Add($"{rule.Path} 无条件保留本程序集（{rule.Scope}），它本身就是 UnityLinker 根标记。");
             foreach (var rule in targeting.Where(rule => !rule.IsUnconditional))
@@ -1762,15 +1849,18 @@ namespace Game.Framework.Editor
 
         private static void AppendDeletionTests(StringBuilder sb, IReadOnlyCollection<DeletionCheck> checks)
         {
-            sb.AppendLine("删除检查（当前编译快照的元数据引用闭包）");
+            sb.AppendLine("删除检查（asmdef 声明 + 当前 DLL 元数据闭包）");
             sb.AppendLine("────────────────────────────────────────");
             foreach (var check in checks)
-                AppendDeletionResult(sb, check.Name, check.Passed);
-            sb.AppendLine("  注：通过只证明程序集依赖方向成立，不证明最终玩家包已达到体积预算。");
+                AppendDeletionResult(sb, check.Name, check.Explanation, check.Passed);
+            sb.AppendLine("  注：检查同时比较 asmdef 声明与当前 DLL 元数据闭包；通过仍不证明最终玩家包已达到体积预算。");
         }
 
-        private static void AppendDeletionResult(StringBuilder sb, string name, bool passed)
-            => sb.AppendLine($"  {(passed ? "✓" : "✗")} {name}");
+        private static void AppendDeletionResult(StringBuilder sb, string name, string explanation, bool passed)
+        {
+            sb.AppendLine($"  {(passed ? "✓" : "✗")} {name}");
+            if (!string.IsNullOrWhiteSpace(explanation)) sb.AppendLine("    " + explanation);
+        }
 
         private static string[] BuildRecommendations(AuditResult result)
         {
@@ -1781,8 +1871,8 @@ namespace Game.Framework.Editor
                 recommendations.Add("至少一个外部程序集无法映射到 Assets 或已注册 Package；先补全来源证据，不要按名称猜供应商或直接删除。 ");
             if (result.DependencyIssues.Length > 0)
                 recommendations.Add("先把隐式外部引用补进对应 asmdef；否则编辑器能编译，不代表模块真的能独立取舍。");
-            if (!result.AllRuntimeModulesOptIn)
-                recommendations.Add("仍有 Runtime Module 开启 autoReferenced。轻量项目会更难看清是谁把它带进来，建议先改成显式引用。");
+            if (!result.AllRuntimeModulesHavePredefinedAutoReferenceDisabled)
+                recommendations.Add("仍有 Runtime Module 开启 autoReferenced。它会允许 Assembly-CSharp 等预定义程序集在没有 asmdef 声明的情况下引用该 Module；建议关闭后由消费程序集显式声明。这个设置不决定 Module 是否参与 Player 编译或最终保留。 ");
             if (result.HasUnresolvedAssemblies)
                 recommendations.Add("有程序集文件无法定位，本次闭包和字节数不完整；先修编译或热更清单，再比较体积。");
             if (result.DeletionChecks.Any(check => !check.Passed))
@@ -1830,7 +1920,7 @@ namespace Game.Framework.Editor
 
             if (result.IsHealthy)
             {
-                recommendations.Add("当前 asmdef 边界允许业务从“只用核心”开始，再按需增加 Module。注意热更不是独立开关：Core 热更时，仍参与 Player 编译且引用 Core 的 Module 也必须热更；强裁剪要把 Module 退出编译图与 Profile 清理作为同一次结构变更。 ");
+                recommendations.Add("当前 asmdef 依赖方向允许业务从 Core 开始，只声明真正使用的 Module；但源码或 Package 中仍存在的 Runtime Module 会参与 Player 编译，autoReferenced:false 不代表自动移除。Core 热更时，仍参与编译且引用 Core 的 Module 也必须热更；强裁剪要把 Module 退出编译图与 Profile 清理作为同一次结构变更。 ");
 
                 var coreExternal = result.CommonProfiles[0].Footprint.ExternalAssemblies;
                 var uiOnlyLargest = result.CommonProfiles
