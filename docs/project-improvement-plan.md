@@ -142,7 +142,7 @@
 ### P1 · 隔离 Player Build 体积证据
 
 - 新增 `SSFramework/诊断/真实构建体积证据`：在 `Library` 下创建隔离空工程，Core / UGUI / Toolkit / 全部四档只复制审计闭包中的 Runtime Module，未选目录、业务场景、HybridCLR 生成物与其 link.xml 不进入结果。
-- 每档依赖清单按所选 Module 从当前 manifest 最小化；当前 BuildTarget / 脚本后端 / stripping 原样使用，不修改主工程设置。隐藏 Unity 子进程顺序构建，可请求“当前完成后停止”，不强杀正在写产物的进程；PID、队列和结果路径落盘，主 Unity Domain Reload / 重启后可重新附着或从结果继续。
+- 每档依赖清单按所选 Module 从当前 manifest 最小化；当前 BuildTarget / 脚本后端 / stripping 原样使用，不修改主工程设置。隐藏 Unity 子进程顺序构建，可请求“当前完成后停止”，不强杀正在写产物的进程；Profile key、队列状态、PID 与停止原因进入报告，本机运行根由 EditorPrefs 保存，结果路径按运行根与 key 重建，主 Unity Domain Reload / 重启后可重新附着或从结果继续，人工停止与自动证据漂移不会被重载清空或在最终报告中混淆。
 - `report.json`、`report.md`、子进程日志与玩家产物共同保存；窗口显示可发布输出与相对 Core 差值。Unity BackUp / DoNotShip / 调试符号从默认比较中排除，原始 BuildReport 总量仍保留；所选程序集完整保留，明确将结果定义为体积上界，而非具体游戏的包体承诺。
 - Windows IL2CPP 实测完成 Core 80.04 MiB、UGUI 99.80 MiB（+19.75 MiB）、Toolkit 101.90 MiB（+21.86 MiB）的可发布输出上界；同轮原始 BuildReport 为 573.36 MiB / 1.00 GiB / 1.08 GiB，验证了 BackUp / 调试证据不能混进默认比较。矩阵中主动触发 Domain Reload 后可自动续跑。该快照只验证实现，不作为 WebGL 基线。
 - 架构取舍记录于 ADR-0038；模块地图、guide §26 与 Demo 接入章同步“快速托管闭包 → 隔离 Player Build → 正式产品构建”三级证据链。
@@ -151,7 +151,7 @@
 
 - 新增 `FrameworkModuleSourceCatalog`，集中拥有 canonical Unity Asset Path、真实 Physical Path、源码根和 package id 之间的映射；支持 `Assets`、嵌入式 Package、registry/Git `PackageCache` 与绝对物理路径回转，并拒绝目录逃逸。
 - Module Audit 不再把 CompilationPipeline 返回路径直接交给 `System.IO`，会严格读取项目与全部已注册 Package 的 `link.xml`；已登记候选不可读时 fail-fast，窗口显示每个 Module / Package 的源码所有者，定位仍使用稳定 Asset Path。
-- 隔离体积探针从 Catalog 的真实目录复制源码，以程序集名隔离同名 `Runtime/` 叶目录，相同/嵌套源码域则拒绝制造虚假删除证据；JSON / Markdown 不落盘 PackageCache 绝对路径，但会保存过滤 Editor/Test 后实际复制文件的 SHA-256 指纹。Domain Reload 会逐档检查拓扑、package 与内容漂移，已移除档位不再被静默过滤。模板和弹窗门禁按程序集源码域查找，不受无关 Package 同名文件影响。
+- 隔离体积探针从 Catalog 的真实目录复制源码，以程序集名隔离同名 `Runtime/` 叶目录，相同/嵌套源码域则拒绝制造虚假删除证据；JSON / Markdown 不落盘 PackageCache 绝对路径，但会保存过滤 Editor/Test 后实际复制文件的 SHA-256 指纹。Domain Reload 会逐档检查拓扑、package 与内容漂移，已移除档位不再被静默过滤。子进程模板在 run-owned `Inputs/` 中冻结，报告以已编译 Editor DLL、主探针源码和模板的联合指纹识别证据实现；模板和弹窗门禁仍按程序集源码域查找，不受无关 Package 同名文件影响。
 - 架构取舍记录于 ADR-0040；这完成了 UPM 抽包前的工具链路径准备，但没有越权实现安装、卸载、版本解析或第二套 Package Manager。
 
 ### P1 · Odin 可选依赖与原生基线

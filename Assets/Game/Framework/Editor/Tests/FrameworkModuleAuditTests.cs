@@ -1398,6 +1398,13 @@ namespace Game.Framework.Editor.Tests
             var core = FrameworkModuleAudit.ComputeReachableAssemblies(
                 snapshot.Assemblies, new[] { FrameworkModuleAudit.CoreAssemblyName });
             Assert.That(core, Does.Not.Contain(FrameworkModuleAudit.SharedUiAssemblyName));
+            FrameworkModuleAudit.AssemblyInfo sharedUi = snapshot.Assemblies[FrameworkModuleAudit.SharedUiAssemblyName];
+            Assert.That(sharedUi.DeclaredReferences, Does.Not.Contain("Unity.InputSystem"),
+                "物理返回输入属于项目 composition layer，UI Core 的 asmdef 不得重新绑定 Input System。");
+            var sharedUiActualClosure = FrameworkModuleAudit.ComputeReachableAssemblies(
+                snapshot.Assemblies, new[] { FrameworkModuleAudit.SharedUiAssemblyName });
+            Assert.That(sharedUiActualClosure, Does.Not.Contain("Unity.InputSystem"),
+                "当前 UI Core DLL 也不得经隐藏引用把 Input System 带回托管闭包。");
             if (snapshot.Assemblies.ContainsKey(FrameworkModuleAudit.UGuiAssemblyName))
             {
                 var ugui = FrameworkModuleAudit.ComputeReachableAssemblies(

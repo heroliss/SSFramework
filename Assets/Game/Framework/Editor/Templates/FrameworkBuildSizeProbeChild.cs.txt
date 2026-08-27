@@ -5,6 +5,7 @@ using System.Text;
 using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
+using UnityEditor.Compilation;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 
@@ -46,6 +47,7 @@ public static class SSFrameworkBuildProbeChild
     public static void Run()
     {
         string profile = GetArgument("-ssProbeProfile");
+        string[] expectedAssemblies = ParseList(GetArgument("-ssProbeAssemblies"));
         string outputDirectory = GetArgument("-ssProbeOutput");
         string resultPath = GetArgument("-ssProbeResult");
         var record = new ProfileRecord
@@ -53,6 +55,7 @@ public static class SSFrameworkBuildProbeChild
             Key = profile,
             Title = profile,
             Status = "失败",
+            Assemblies = expectedAssemblies,
             OutputPath = outputDirectory,
             ResultPath = resultPath,
         };
@@ -60,6 +63,7 @@ public static class SSFrameworkBuildProbeChild
         try
         {
             ConfigurePlayer();
+            ValidateExpectedAssemblies(expectedAssemblies);
             Directory.CreateDirectory(outputDirectory);
             string scenePath = "Assets/SSFrameworkBuildProbeScene.unity";
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
@@ -161,6 +165,40 @@ public static class SSFrameworkBuildProbeChild
 
     private static bool ParseBool(string value) =>
         bool.TryParse(value, out bool parsed) && parsed;
+
+    private static string[] ParseList(string value) =>
+        (value ?? string.Empty)
+            .Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(item => item.Trim())
+            .Where(item => item.Length > 0)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(item => item, StringComparer.Ordinal)
+            .ToArray();
+
+    private static void ValidateExpectedAssemblies(string[] expectedAssemblies)
+    {
+        if (expectedAssemblies == null || expectedAssemblies.Length == 0)
+            throw new InvalidOperationException("隔离构建没有收到期望 Module 清单，拒绝把空壳 Player 记为成功。");
+
+        var compiled = CompilationPipeline.GetAssemblies(AssembliesType.Player)
+            .ToDictionary(assembly => assembly.name, StringComparer.Ordinal);
+        string[] missing = expectedAssemblies
+            .Where(assembly => !compiled.ContainsKey(assembly))
+            .ToArray();
+        if (missing.Length > 0)
+            throw new InvalidOperationException(
+                "隔离 Player 编译图缺少期望 Module：" + string.Join(", ", missing) +
+                "。拒绝把未实际编译 Framework IL 的空壳 Player 记为成功。");
+
+        string[] withoutSources = expectedAssemblies
+            .Where(name => compiled[name].sourceFiles == null || compiled[name].sourceFiles.Length == 0)
+            .ToArray();
+        if (withoutSources.Length > 0)
+            throw new InvalidOperationException(
+                "隔离 Player 编译图中的期望 Module 没有源码：" + string.Join(", ", withoutSources) +
+                "。拒绝把只有 asmdef 名称的空 Module 记为成功。");
+
+    }
 
     private static long DirectoryBytes(string directory, bool shippingOnly) =>
         Directory.Exists(directory)

@@ -99,7 +99,7 @@ DOTS 是数据/Job/Burst 范式，与引用式 OOP 不同。框架的定位是**
 
 1. **UI 框架补常见刚需**（ADR-0020）：
    - 异步过渡 hook ✅ 已落地：`OnOpenTransition/OnCloseTransition` + 框架全屏挡输入（计数挡板）；逻辑关闭先于表现；CloseAll/销毁直通。
-   - Android Back / Esc ✅ 已落地：`Back()` 升级为 Popup→Window→Page 逐层返回导航（`BackClosable` 拦截、过渡中吞掉、空返回 false）+ `MonoUIBackKeyDriver` 接线组件（新旧输入系统双路径）。
+   - Android Back / Esc ✅ 已落地并收紧边界：`Back()` 升级为 Popup→Window→Page 逐层返回导航（`BackClosable` 拦截、过渡中吞掉、空返回 false）；物理输入留在项目 composition layer，Demo 提供 `DemoInputSystemBackKeyDriver` 样板，UI Core 不依赖输入 Package。
    - 安全区适配 ✅ 已落地：UGUI `UGuiSafeArea`（锚进 Screen.safeArea）/ Toolkit `SafeAreaContainer`（padding 换算，UXML 可摆）——opt-in 内容避让，层根/背景保持全屏出血。
    - Top 层常用件 ✅ 已落地：`ShowToast / AcquireLoading` 为 IUIUtility 一等方法（后端无关），内置窗口类型表由入口注册；Toast 不拦输入自动关，Loading 模态+拦返回键并由引用计数 handle 管并发 owner，两个异步打开入口都可透传调用方生命周期令牌；`ShowLoading / HideLoading` 保留单 owner 兼容语义。
 2. **代码生成收尾** ✅ 已全部落地（UI 节点自动绑定——含目录配置 / 占位符 / 引用为源同步 / 变体遮蔽）：

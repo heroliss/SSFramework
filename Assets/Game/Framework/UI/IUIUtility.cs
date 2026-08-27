@@ -35,7 +35,8 @@ namespace Game.Framework.UI
         /// <summary>
         /// 返回导航（Android Back / Esc 的目标语义，ADR-0020）：按 Popup → Window → Page 从高到低找第一个非空层，
         /// 关闭其栈顶窗口。返回 true = 返回键已被 UI 消费（关了窗、或栈顶 <c>BackClosable=false</c> 拦截、或过渡动画进行中）；
-        /// false = 三层皆空，业务可做「再按一次退出」之类的兜底。输入接线用 <c>MonoUIBackKeyDriver</c>（挂 UI 入口同节点）。
+        /// false = 三层皆空，业务可做「再按一次退出」之类的兜底。物理按键 / Input Action 到本方法的映射由项目输入层负责，
+        /// 避免渲染中立的 UI Module 反向依赖某个输入 Package。
         /// </summary>
         bool Back();
 

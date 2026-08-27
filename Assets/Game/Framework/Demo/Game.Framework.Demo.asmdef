@@ -12,6 +12,7 @@
         "Luban.Runtime",
         "R3.Unity",
         "UniTask",
+        "Unity.InputSystem",
         "Unity.TextMeshPro"
     ],
     "includePlatforms": [],

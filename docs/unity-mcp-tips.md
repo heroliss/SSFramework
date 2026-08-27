@@ -102,7 +102,7 @@ AnkleBreaker Unity MCP 2.39.5 的 `blockedReason: editor_unfocused` 由 job 序�
 
 ## 10. 反射断言生成代码/第三方类型时注意成员形态
 
-`execute_code` 动态编译只引用部分程序集，项目 asmdef（如 `Game.Framework.Build.Editor`）和 YooAsset.Editor 里的类型都要走 `AppDomain.CurrentDomain.GetAssemblies()` 反射拿。常见翻车点：Luban 生成 bean 的成员是 **readonly 字段**（`GetField`），不是属性（`GetProperty` 返回 null → NRE）；元组返回值取 `Item1/Item2` 字段。
+`execute_code` 动态编译不是稳定的项目自动化入口。当前验证过的 MCP 2.39.5 + Unity 6000.3.22f1 组合会在用户代码执行前报 `System.Object / mscorlib` 缺失；重试、切焦点或改反射写法都无效。优先把重复流程做成可测试的项目菜单 / Editor API，再用 `unity_execute_menu_item` 调用。只有最小代码探针已证明该工具可编译时，才用 `AppDomain.CurrentDomain.GetAssemblies()` 反射拿项目 asmdef 或 YooAsset.Editor 类型；Luban 生成 bean 的成员是 **readonly 字段**（`GetField`），元组返回值取 `Item1/Item2` 字段。
 
 ## 11. 改完代码立刻 Play 验证：防「Play 中域重载」毁掉验证现场
 
@@ -110,12 +110,15 @@ AnkleBreaker Unity MCP 2.39.5 的 `blockedReason: editor_unfocused` 由 job 序�
 
 ## 12. Module 体积矩阵走隔离构建探针
 
-Core / UGUI / Toolkit 的真实体积比较不要在主工程临时改 `link.xml`、HybridCLR 清单或 Build Settings。打开 `SSFramework/诊断/真实构建体积证据`，它在 `Library/SSFramework/BuildSizeProbe/` 创建无 MCP 插件的最小 Unity 子工程，物理删除未选 Module 后顺序构建。
+Core / UGUI / Toolkit 的真实体积比较不要在主工程临时改 `link.xml`、HybridCLR 清单或 Build Settings。人工组合用 `SSFramework/诊断/真实构建体积证据`；AI / CI 的常用回归直接执行无窗口菜单 `SSFramework/诊断/AI 自动化/常用档位隔离构建（Core + UGUI + Toolkit）`，只验证内核时用相邻的 Core 菜单。它们都在 `Library/SSFramework/BuildSizeProbe/` 创建无 MCP 插件的最小 Unity 子工程，物理删除未选 Module 后顺序构建。
 
 - 先正常切到想测的 BuildTarget；探针不会替 Agent 静默切平台。
 - 启动后轮询最近一轮 `report.json` 或窗口状态；不要因为单次 MCP 超时重复点击构建。
 - 子 Unity 没有 ab-unity-mcp，不会抢主工程端口；主工程 Domain Reload 后 MCP 端口仍可能改变，按 §1 重新 list + select。
-- PID、队列和结果路径已经落盘；主 Unity 重载 / 重启会自动重新附着子进程，或从已完成的结果继续下一档。
+- Profile key、队列状态、子进程 PID 和“当前完成后停止”的具体原因会写进可分享报告；本机运行根由 EditorPrefs 保存，结果 / 日志 / 输出路径按运行根与 key 重建，不把机器绝对路径写进 JSON。主 Unity 重载 / 重启后据此重新附着子进程，或从已完成的独立结果继续下一档；人工停止与自动证据漂移不会在重载后失效或互相改写。即使重载时 manifest / Package 正在写入、暂时无法重建拓扑，也会把它当作漂移并优先附着已启动 child；PID 已退出但结果已落盘时先消费该结果再停止，不应看到报告永久停在“构建中”或把已完成档误判失败。
+- 每档会同步重建隔离子工程的 `Library` / `Temp` / `obj`，复制目录也刻意不与 asmdef 同名；Profile 切换时主 Editor 可能短暂无响应，这是用缓存速度换独立删除证据，不要重复点击、跨档复用派生状态或把目录改回程序集名。若清理在目标机器上长期达到分钟级，再考虑每档独立 workspace，不先引入第二套调度。
+- 探针启动后不要修改 Framework Runtime 源码或需复制的本地 / Git Package；每档复制前后都会重算冻结指纹，检测到写入会让当前档失败并停止剩余矩阵。子进程模板在运行目录的 `Inputs/` 中冻结；已编译 Editor DLL、主探针源码或模板变化会改变自动证据实现指纹，切档与 Domain Reload 恢复都会拒绝新旧逻辑混写。报告版本仍用于有意改变序列化证据契约或字段语义，不能替代自动内容指纹。
+- 子工程会在 Player Build 前核对期望 Framework 程序集是否出现在编译图且拥有源码，再由目标平台 BuildPipeline 成功证明真实编译；不使用可能仍指向 Editor DLL 的预构建 `outputPath`。出现“缺少期望 Module / 没有源码 / 拒绝空壳 Player”说明输入或 Unity 导入异常，不应降级成 warning。
 - 停止用“当前完成后停止”，不要从任务管理器强杀正在落盘的 Player Build。
 - 默认比较“可发布输出”，不是 Unity 把 BackUp / DoNotShip / PDB 也算进去的 BuildReport 总量。Windows 结果不能外推成 WebGL。
 

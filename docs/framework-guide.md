@@ -2005,7 +2005,22 @@ protected override async UniTask OnCloseTransition(CancellationToken ct)
 
 ### 返回键（Android Back / Esc）
 
-把 `MonoUIBackKeyDriver` 挂在 UI 入口（`MonoUGuiUI` / `MonoToolkitUI`）同一节点即接通：Esc / Android 返回键 → `Back()`。`Back()` 按 **Popup → Window → Page** 从高到低关第一个非空层的栈顶（`Top` / `System` / `Background` 不参与）；返回 `false` 表示三层皆空——业务据此做「再按一次退出」兜底；过渡动画进行中 Back 被吞掉（与挡输入同一语义）。
+`IUIUtility.Back()` 拥有的是**返回导航语义**：按 **Popup → Window → Page** 从高到低关第一个非空层的栈顶（`Top` / `System` / `Background` 不参与）；返回 `false` 表示三层皆空——业务据此做「再按一次退出」兜底；过渡动画进行中 Back 被吞掉（与挡输入同一语义）。
+
+Esc、Android Back 或 Input Action 属于项目输入层。把项目已有的返回动作接到 `Back()` 即可，不要让 UI Core 轮询某个具体输入系统：
+
+```csharp
+// composition root / 输入路由中的回调；ui 可由同节点 GetComponent<IUIUtility>() 或 Context 取得
+private void OnBackPerformed(InputAction.CallbackContext _)
+{
+    if (!ui.Back())
+        TryExitWithConfirmation(); // 可选：空 UI 栈时的项目策略
+}
+```
+
+这样改用旧 Input Manager、输入重绑定或平台 SDK 时，只换这层浅接线，窗口框架、UGUI 与 Toolkit 都不动。DemoScene 挂着 `DemoInputSystemBackKeyDriver`，展示无需 Input Action 资产的最小新 Input System 实现；它在 Demo composition layer，不是 Framework Runtime API。正式项目通常优先复用自己的 Input Action / 输入路由，而不是另起一份逐帧轮询。
+
+从早期版本升级时，旧的 Runtime API `MonoUIBackKeyDriver` 已删除，Demo 样板刻意使用新的脚本 GUID，不会让既有 Scene / Prefab 静默改绑到 Demo 程序集。请在旧组件处显式移除 Missing Script / 旧组件，再把项目已有的 Back Input Action 接到 `IUIUtility.Back()`；只有确实要复制教学实现时才复制 `DemoInputSystemBackKeyDriver` 到项目层。这个迁移是一次有意的依赖边界收紧。
 
 ### Toast / Loading（Top 层内置件）
 
@@ -2085,13 +2100,13 @@ Bag.SubscribeClickAsync(button, async ct =>   // 异步点击：随 Bag 取消�
 - **UI Toolkit 窗口需无参构造**（框架 `Activator` 实例化）；数据经 `OnOpen(args)`，不走构造函数。
 - **UI Toolkit 窗口 Context 由框架显式注入**（不在 GameObject 父链上）；UGUI 窗口沿父链自动注入（实例化到层根下即可）。
 - **异步 UI 动作必须有 owner**：Toolkit 点击优先 `Bag.SubscribeClickAsync`；同步生命周期 hook 无法 `await` 时必须显式观察异常，不能裸 `.Forget()` / `UniTaskVoid`。
-- 三个 UI asmdef 引用热更内核，已在热更列表（ADR-0008 铁律）。
+- 三个 UI asmdef 引用热更内核，已在热更列表（ADR-0008 铁律）；输入 Package 只应由项目 composition layer 按真实方案引用。
 
 > **要点回顾**
 >
 > - 挂一个 `MonoToolkitUI` / `MonoUGuiUI` 注册 `IUIUtility`，`this.GetUtility<IUIUtility>().Open<T>()` 开窗
 > - 窗口 = View 的一种：自动注入 / Bag / 读写分离；元数据用 `[UIWindow]` 声明层 / 缓存 / 模态 / 返回键可关性
-> - 过渡动画重写 `OnOpenTransition` / `OnCloseTransition`，框架统一挡输入；返回键挂 `MonoUIBackKeyDriver` 即接通
+> - 过渡动画重写 `OnOpenTransition` / `OnCloseTransition`，框架统一挡输入；项目把返回 Input Action 映射到 `IUIUtility.Back()`
 > - 核心渲染中立、可单测；换 UGUI ↔ UI Toolkit 业务零改，`IUIBackend` 吸收差异
 > - 数据绑定一套 R3 订阅；Toolkit 异步点击用 `SubscribeClickAsync` 明确生命周期与异常 owner；活样例见 demo「View · UIToolkit」+「UI 框架 · 窗口/层级」章
 
@@ -2878,9 +2893,9 @@ Core 是稳定上游，不作为普通可删除 Module。对强体积约束项�
 
 #### 用真实构建回答“值不值得”
 
-打开 `SSFramework/诊断/真实构建体积证据`。探针在 `Library` 下创建隔离空工程，每档只从 Source Catalog 记录的真实物理目录复制审计闭包中的 Runtime Module；Module 在 `Assets`、嵌入式 Package 或 registry/Git PackageCache 都适用，报告同时记录稳定资产目录、package 身份和实际复制文件的内容指纹。主工程业务场景、未选目录、HybridCLR 生成物和未选 Module 的 `link.xml` 都不会混入。除 Core / 两套 UI / full 外，“任意 Module 入口”默认折叠且不勾选，可按需验证 Yoo、Proto、Fonts、Bridge 等组合。若 Domain Reload 后档位拓扑、package 或源码内容发生变化，探针会完成已附着的当前子进程后停止，避免一份报告混入两套来源。
+打开 `SSFramework/诊断/真实构建体积证据`。探针在 `Library` 下创建隔离空工程，每档只从 Source Catalog 记录的真实物理目录复制审计闭包中的 Runtime Module；Module 在 `Assets`、嵌入式 Package 或 registry/Git PackageCache 都适用，报告同时记录稳定资产目录、package 身份和实际复制文件的内容指纹。主工程业务场景、未选目录、HybridCLR 生成物和未选 Module 的 `link.xml` 都不会混入。复制前会把当前来源重新与启动时冻结 SHA-256 比较，复制后再验证目的内容；构建期间源码或本地 Package 有写入就终止剩余档位，不能拿旧 SHA 标记新内容。复制目录使用可读职责名加程序集标识，既避免多个 Package 的 `Runtime/` 撞名，也避开“目录与 asmdef 同名”的 Unity 导入歧义；每档切换还会清掉子工程的 `Library` / `Temp` / `obj`。子进程在 Player Build 前核对每个期望程序集存在且包含源码，随后以目标平台 `BuildPipeline` 成功作为真实编译门禁；不拿可能仍指向 Editor DLL 的 `CompilationPipeline.outputPath` 冒充 Player 产物。除 Core / 两套 UI / full 外，“任意 Module 入口”默认折叠且不勾选，可按需验证 Yoo、Proto、Fonts、Bridge 等组合。若 Domain Reload 后档位拓扑、package 或源码内容发生变化，探针会完成已附着的当前子进程后停止，避免一份报告混入两套来源。
 
-CI / AI 只需做最小删除测试时，可直接执行无窗口菜单 `SSFramework/诊断/AI 自动化/Core 隔离构建（Player Build）`；它只启动 Core 档并把报告写进同一目录，不依赖窗口焦点或按钮状态。
+CI / AI 只需做最小删除测试时，可直接执行无窗口菜单 `SSFramework/诊断/AI 自动化/Core 隔离构建（Player Build）`；要回归常用 UI 边界则执行相邻的 `常用档位隔离构建（Core + UGUI + Toolkit）`，三档进入同一报告并可直接比较相对 Core 的差值。两者都不依赖窗口焦点、按钮状态或 MCP `execute_code`。
 
 探针沿用当前平台、脚本后端与 stripping，且完整保留所选程序集，因此数字是**可比较的体积上界**：适合在同一环境比较“增加这个 Module 最多带来多少”，不等于具体游戏只使用部分类型后的精确增量，也不能把 Windows 数字外推到 WebGL。默认比较的“可发布输出”排除 Unity 的 BackUp / DoNotShip 中间产物与调试符号；正式产品仍要看包含业务 CodePackage、资源、字体字集和 shader variants 的完整发布构建。
 
