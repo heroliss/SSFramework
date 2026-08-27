@@ -27,10 +27,11 @@ namespace Game.Framework.Editor
     {
         internal const string RunsRoot = "Library/SSFramework/BuildSizeProbe";
         internal const string ChildTemplateFileName = "FrameworkBuildSizeProbeChild.cs.txt";
+        internal const string FrozenInputsDirectoryName = "Inputs";
         internal const string UnityIl2CppPathEnvironmentVariable = "UNITY_IL2CPP_PATH";
 
         private const string LatestRunPreferencePrefix = "SSFramework.BuildSizeProbe.LatestRun.";
-        internal const int CurrentReportFormatVersion = 5;
+        internal const int CurrentReportFormatVersion = 8;
         private static readonly Regex DependencyEntryRegex = new(
             "\\\"(?<id>[^\\\"]+)\\\"\\s*:\\s*\\\"(?<value>(?:\\\\.|[^\\\"])*)\\\"",
             RegexOptions.Compiled);
@@ -38,9 +39,13 @@ namespace Game.Framework.Editor
         private static ActiveRun _activeRun;
         private static Process _childProcess;
         private static ProfilePlan _activeProfile;
-        private static bool _stopAfterCurrent;
 
         internal static event Action Changed;
+
+        private sealed class FrozenInputDriftException : Exception
+        {
+            internal FrozenInputDriftException(string message) : base(message) { }
+        }
 
         [Serializable]
         internal sealed class ModuleSourcePlan
@@ -131,6 +136,8 @@ namespace Game.Framework.Editor
         internal sealed class RunReport
         {
             public int FormatVersion = CurrentReportFormatVersion;
+            public string EvidenceImplementationFingerprint;
+            public string ChildTemplateFingerprint;
             public string CreatedUtc;
             public string CompletedUtc;
             public string UnityVersion;
@@ -139,6 +146,7 @@ namespace Game.Framework.Editor
             public string StrippingLevel;
             public bool DevelopmentBuild;
             public string EvidenceScope;
+            public string StopAfterCurrentReason;
             [NonSerialized]
             public string RunDirectory;
             public ProfileRecord[] Profiles = Array.Empty<ProfileRecord>();
@@ -167,7 +175,8 @@ namespace Game.Framework.Editor
         }
 
         internal static bool IsRunning => _activeRun != null;
-        internal static bool StopAfterCurrentRequested => _stopAfterCurrent;
+        internal static bool StopAfterCurrentRequested =>
+            !string.IsNullOrWhiteSpace(_activeRun?.Report?.StopAfterCurrentReason);
         internal static RunReport CurrentReport => _activeRun?.Report;
 
         /// <summary>
@@ -175,18 +184,31 @@ namespace Game.Framework.Editor
         /// 完整组合选择仍使用“真实构建体积证据”窗口。
         /// </summary>
         [MenuItem("SSFramework/诊断/AI 自动化/Core 隔离构建（Player Build）", priority = 31)]
-        private static void StartCoreOnlyFromMenu()
+        private static void StartCoreOnlyFromMenu() => StartFromAutomationMenu(
+            "Core 隔离构建",
+            "已在 Library/SSFramework/BuildSizeProbe 启动独立 Core Player Build；结果完成后可在“真实构建体积证据”窗口查看。",
+            "core");
+
+        /// <summary>
+        /// 无窗口状态的常用 UI 删除测试入口；把 Core 基线与两个单后端档位置于同一报告，
+        /// 既验证可独立编译，也能直接计算相对 Core 的发布输出差值。
+        /// </summary>
+        [MenuItem("SSFramework/诊断/AI 自动化/常用档位隔离构建（Core + UGUI + Toolkit）", priority = 32)]
+        private static void StartCommonProfilesFromMenu() => StartFromAutomationMenu(
+            "常用档位隔离构建",
+            "已在 Library/SSFramework/BuildSizeProbe 顺序启动 Core、UGUI、Toolkit 独立 Player Build；主 Unity 可留在后台。",
+            "core", "ugui", "toolkit");
+
+        private static void StartFromAutomationMenu(string title, string summary, params string[] profileKeys)
         {
             try
             {
-                Start(new[] { "core" });
-                FrameworkEditorFeedback.ReportSummary(
-                    "Core 隔离构建",
-                    "已在 Library/SSFramework/BuildSizeProbe 启动独立 Player Build；结果完成后可在“真实构建体积证据”窗口查看。");
+                Start(profileKeys);
+                FrameworkEditorFeedback.ReportSummary(title, summary);
             }
             catch (Exception exception)
             {
-                FrameworkEditorFeedback.ReportResult("Core 隔离构建", false, exception.Message);
+                FrameworkEditorFeedback.ReportResult(title, false, exception.Message);
             }
         }
 
@@ -500,7 +522,7 @@ namespace Game.Framework.Editor
                 PackageVersion = location.PackageVersion,
                 PackageId = StablePackageIdForReport(
                     location.Kind, location.PackageName, location.PackageVersion, location.PackageId),
-                SourceFingerprint = ComputeDirectoryFingerprint(location.PhysicalPath, _ => false),
+                SourceFingerprint = ComputeCopiedPackageSourceFingerprint(location.PhysicalPath),
             };
         }
 
@@ -561,10 +583,7 @@ namespace Game.Framework.Editor
             if (BuildPipeline.isBuildingPlayer)
                 throw new InvalidOperationException("当前已有 Player Build 正在运行。");
 
-            var selected = new HashSet<string>(selectedKeys, StringComparer.Ordinal);
-            ProfilePlan[] plans = CreatePlans().Where(plan => selected.Contains(plan.Key)).ToArray();
-            if (plans.Length == 0)
-                throw new InvalidOperationException("至少选择一个构建组合。");
+            ProfilePlan[] plans = SelectRequestedPlans(selectedKeys, CreatePlans());
 
             BuildTarget target = EditorUserBuildSettings.activeBuildTarget;
             BuildTargetGroup group = BuildPipeline.GetBuildTargetGroup(target);
@@ -572,9 +591,13 @@ namespace Game.Framework.Editor
             string runId = DateTime.Now.ToString("yyyyMMdd-HHmmss") + "-" + target;
             string runDirectory = FullPath(Path.Combine(RunsRoot, runId));
             string projectDirectory = Path.Combine(runDirectory, "Project");
+            string childTemplateContent = ReadCurrentChildTemplate();
 
             var report = new RunReport
             {
+                EvidenceImplementationFingerprint =
+                    ComputeEvidenceImplementationFingerprint(childTemplateContent),
+                ChildTemplateFingerprint = ComputeTextFingerprint(childTemplateContent),
                 CreatedUtc = DateTime.UtcNow.ToString("O"),
                 UnityVersion = Application.unityVersion,
                 Target = target.ToString(),
@@ -598,7 +621,7 @@ namespace Game.Framework.Editor
                 }).ToArray(),
             };
 
-            PrepareWorkspace(projectDirectory);
+            PrepareWorkspace(projectDirectory, childTemplateContent);
             _activeRun = new ActiveRun
             {
                 ProjectDirectory = projectDirectory,
@@ -606,19 +629,55 @@ namespace Game.Framework.Editor
                 Pending = new Queue<ProfilePlan>(plans),
                 Report = report,
             };
-            _stopAfterCurrent = false;
             EditorPrefs.SetString(LatestRunPreferencePrefix + HashProjectPath(), runDirectory);
             WriteReports(_activeRun.Report);
             EditorApplication.update += PollChildProcess;
             StartNextProfile();
         }
 
+        /// <summary>
+        /// 将自动化请求解析为当前真实存在的 Profile。请求多档时必须全部可用；物理删除某个 Module 后
+        /// 静默缩成较小矩阵会让 CI / AI 把不完整证据误报为成功。
+        /// </summary>
+        internal static ProfilePlan[] SelectRequestedPlans(
+            IEnumerable<string> selectedKeys,
+            IEnumerable<ProfilePlan> availablePlans)
+        {
+            if (selectedKeys == null) throw new ArgumentNullException(nameof(selectedKeys));
+            if (availablePlans == null) throw new ArgumentNullException(nameof(availablePlans));
+
+            string[] requested = selectedKeys
+                .Where(key => !string.IsNullOrWhiteSpace(key))
+                .Select(key => key.Trim())
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            if (requested.Length == 0)
+                throw new InvalidOperationException("至少选择一个构建组合。");
+
+            ProfilePlan[] available = availablePlans.Where(plan => plan != null).ToArray();
+            var availableKeys = new HashSet<string>(
+                available.Where(plan => !string.IsNullOrWhiteSpace(plan.Key)).Select(plan => plan.Key),
+                StringComparer.Ordinal);
+            string[] missing = requested
+                .Where(key => !availableKeys.Contains(key))
+                .OrderBy(key => key, StringComparer.Ordinal)
+                .ToArray();
+            if (missing.Length > 0)
+                throw new InvalidOperationException(
+                    "请求的隔离构建档位当前不可用：" + string.Join(", ", missing) +
+                    "。对应 Module 可能已物理删除；请改用仍存在的档位或在窗口中重新选择。");
+
+            var selected = new HashSet<string>(requested, StringComparer.Ordinal);
+            return available.Where(plan => selected.Contains(plan.Key)).ToArray();
+        }
+
         internal static void RequestStopAfterCurrent()
         {
             if (!IsRunning) return;
-            _stopAfterCurrent = true;
+            _activeRun.Report.StopAfterCurrentReason =
+                "用户请求：当前组合完成后停止，不再启动后续档位。";
             foreach (var record in _activeRun.Report.Profiles.Where(record => record.Status == "等待"))
-                record.Message = "当前组合结束后停止，不再启动新的 Unity 子进程。";
+                record.Message = _activeRun.Report.StopAfterCurrentReason;
             WriteReports(_activeRun.Report);
             Changed?.Invoke();
         }
@@ -693,20 +752,25 @@ namespace Game.Framework.Editor
                 segment.Equals("Test.meta", StringComparison.OrdinalIgnoreCase));
         }
 
-        private static void PrepareWorkspace(string projectDirectory)
+        private static void PrepareWorkspace(string projectDirectory, string childTemplateContent)
         {
             if (Directory.Exists(projectDirectory))
                 throw new IOException("隔离构建目录已经存在，拒绝覆盖：" + projectDirectory);
+            if (childTemplateContent == null)
+                throw new ArgumentNullException(nameof(childTemplateContent));
 
             Directory.CreateDirectory(Path.Combine(projectDirectory, "Assets", "Editor"));
             Directory.CreateDirectory(Path.Combine(projectDirectory, "Packages"));
             Directory.CreateDirectory(Path.Combine(projectDirectory, "ProjectSettings"));
 
-            string templateSource = ResolveChildTemplate().PhysicalPath;
-            if (!File.Exists(templateSource))
-                throw new FileNotFoundException("找不到隔离构建子进程模板。", templateSource);
-            File.Copy(templateSource,
-                Path.Combine(projectDirectory, "Assets", "Editor", "FrameworkBuildSizeProbeChild.cs"));
+            string frozenTemplate = FrozenChildTemplatePath(projectDirectory);
+            Directory.CreateDirectory(Path.GetDirectoryName(frozenTemplate) ??
+                                      throw new InvalidDataException("无法解析冻结输入目录。"));
+            File.WriteAllText(frozenTemplate, childTemplateContent, new UTF8Encoding(false));
+            File.WriteAllText(
+                Path.Combine(projectDirectory, "Assets", "Editor", "FrameworkBuildSizeProbeChild.cs"),
+                childTemplateContent,
+                new UTF8Encoding(false));
 
             string projectVersion = FullPath("ProjectSettings/ProjectVersion.txt");
             File.Copy(projectVersion, Path.Combine(projectDirectory, "ProjectSettings", "ProjectVersion.txt"));
@@ -715,9 +779,10 @@ namespace Game.Framework.Editor
         private static void StartNextProfile()
         {
             if (_activeRun == null) return;
-            if (_stopAfterCurrent || _activeRun.Pending.Count == 0)
+            string stopReason = _activeRun.Report.StopAfterCurrentReason;
+            if (!string.IsNullOrWhiteSpace(stopReason) || _activeRun.Pending.Count == 0)
             {
-                CompleteRun(_stopAfterCurrent ? "按请求在当前组合完成后停止。" : null);
+                CompleteRun(stopReason);
                 return;
             }
 
@@ -729,7 +794,10 @@ namespace Game.Framework.Editor
 
             try
             {
-                PrepareProfileSources(_activeRun.ProjectDirectory, _activeProfile);
+                PrepareProfileSources(
+                    _activeRun.ProjectDirectory,
+                    _activeProfile,
+                    _activeRun.Report);
                 string outputPath = Path.Combine(_activeRun.RunDirectory, "Output", _activeProfile.Key);
                 string resultPath = Path.Combine(_activeRun.RunDirectory, "Results", _activeProfile.Key + ".json");
                 string logPath = Path.Combine(_activeRun.RunDirectory, "Logs", _activeProfile.Key + ".log");
@@ -757,6 +825,11 @@ namespace Game.Framework.Editor
                 record.Errors = Math.Max(record.Errors, 1);
                 WriteReports(_activeRun.Report);
                 Debug.LogException(ex);
+                if (ex is FrozenInputDriftException)
+                {
+                    CompleteRun(ex.Message);
+                    return;
+                }
                 StartNextProfile();
             }
         }
@@ -778,6 +851,7 @@ namespace Game.Framework.Editor
                 "-buildTarget", run.Report.Target,
                 "-executeMethod", "SSFrameworkBuildProbeChild.Run",
                 "-ssProbeProfile", profile.Key,
+                "-ssProbeAssemblies", string.Join(";", profile.Assemblies ?? Array.Empty<string>()),
                 "-ssProbeOutput", outputPath,
                 "-ssProbeResult", resultPath,
                 "-ssProbeBackend", run.Report.ScriptingBackend,
@@ -866,18 +940,34 @@ namespace Game.Framework.Editor
         private static void CompleteRun(string note)
         {
             if (_activeRun == null) return;
-            foreach (var record in _activeRun.Report.Profiles.Where(record => record.Status == "等待"))
-            {
-                record.Status = "跳过";
-                record.Message = note ?? "未运行。";
-            }
+            CompleteWaitingProfiles(_activeRun.Report, note);
             _activeRun.Report.CompletedUtc = DateTime.UtcNow.ToString("O");
             WriteReports(_activeRun.Report);
             _activeRun = null;
             _activeProfile = null;
-            _stopAfterCurrent = false;
             EditorApplication.update -= PollChildProcess;
             Changed?.Invoke();
+        }
+
+        /// <summary>
+        /// 最终跳过原因优先使用调用点给出的失败说明，其次使用报告中可跨 Domain Reload 恢复的
+        /// “当前完成后停止”原因。不能把自动证据漂移改写成人工停止，也不能在重载后继续队列。
+        /// </summary>
+        internal static void CompleteWaitingProfiles(RunReport report, string note = null)
+        {
+            if (report == null) throw new ArgumentNullException(nameof(report));
+            string reason = !string.IsNullOrWhiteSpace(note)
+                ? note
+                : !string.IsNullOrWhiteSpace(report.StopAfterCurrentReason)
+                    ? report.StopAfterCurrentReason
+                    : "未运行。";
+            foreach (ProfileRecord record in
+                     (report.Profiles ?? Array.Empty<ProfileRecord>())
+                     .Where(record => record != null && record.Status == "等待"))
+            {
+                record.Status = "跳过";
+                record.Message = reason;
+            }
         }
 
         private static void RecoverInterruptedRun()
@@ -893,8 +983,7 @@ namespace Game.Framework.Editor
 
             try
             {
-                var plans = CreatePlans().ToDictionary(plan => plan.Key, StringComparer.Ordinal);
-                string sourceDrift = FindRecoveryDrift(report, plans);
+                string sourceDrift = TryCreateRecoveryPlans(report, CreatePlans, out var plans);
                 foreach (var record in report.Profiles.Where(record => record.Status == "准备"))
                 {
                     record.Status = "等待";
@@ -911,24 +1000,32 @@ namespace Game.Framework.Editor
                     Pending = pending,
                     Report = report,
                 };
-                _stopAfterCurrent = false;
                 EditorApplication.update -= PollChildProcess;
                 EditorApplication.update += PollChildProcess;
 
                 ProfileRecord building = report.Profiles.FirstOrDefault(record => record.Status == "构建中");
                 if (!string.IsNullOrEmpty(sourceDrift))
                 {
+                    string driftStopReason =
+                        "检测到证据输入漂移；当前组合完成后停止：" + sourceDrift;
                     if (building != null && TryAttachUnityProcess(building.ChildProcessId, out _childProcess))
                     {
                         _activeProfile = plans.TryGetValue(building.Key, out ProfilePlan currentPlan)
                             ? currentPlan
                             : new ProfilePlan { Key = building.Key, Title = building.Title };
-                        _stopAfterCurrent = true;
-                        building.Message = "检测到源码身份漂移；已重新附着当前子进程，完成后停止：" + sourceDrift;
+                        report.StopAfterCurrentReason = driftStopReason;
+                        building.Message = "检测到证据输入漂移；已重新附着当前子进程，完成后停止：" + sourceDrift;
                         foreach (ProfileRecord waiting in report.Profiles.Where(record => record.Status == "等待"))
-                            waiting.Message = "检测到源码身份漂移；当前组合完成后跳过，避免混合两套来源。";
+                            waiting.Message = report.StopAfterCurrentReason;
                         WriteReports(report);
                         Changed?.Invoke();
+                        return;
+                    }
+
+                    if (building != null && TryApplyCompletedChildResultDuringDrift(
+                            report, building, driftStopReason))
+                    {
+                        CompleteRun(driftStopReason);
                         return;
                     }
 
@@ -950,7 +1047,6 @@ namespace Game.Framework.Editor
                             invalidPending.Message = sourceDrift;
                         }
                     }
-                    _stopAfterCurrent = true;
                     Debug.LogError("[BuildSizeProbe] " + sourceDrift);
                     CompleteRun(sourceDrift);
                     return;
@@ -997,6 +1093,50 @@ namespace Game.Framework.Editor
             }
         }
 
+        /// <summary>
+        /// 漂移只禁止启动后续档位；已由冻结输入启动并原子落盘的当前 child 结果仍属于本轮证据。
+        /// Domain Reload 恰好发生在 child 退出之后时，应消费结果再停止，不能因 PID 已消失误判失败。
+        /// </summary>
+        internal static bool TryApplyCompletedChildResultDuringDrift(
+            RunReport report,
+            ProfileRecord building,
+            string driftStopReason)
+        {
+            if (report == null) throw new ArgumentNullException(nameof(report));
+            if (building == null || string.IsNullOrWhiteSpace(building.ResultPath) ||
+                !File.Exists(building.ResultPath))
+                return false;
+            building.ChildProcessId = 0;
+            ApplyChildResult(building, building.ExitCode);
+            report.StopAfterCurrentReason = driftStopReason;
+            return true;
+        }
+
+        /// <summary>
+        /// 恢复期间无法重建当前拓扑本身也是输入漂移，而不是放弃 owner 的理由。调用方仍可使用
+        /// 落盘 PID 附着已启动 child，并以占位 Profile 完成它；没有 child 时再明确失败并收口报告。
+        /// </summary>
+        internal static string TryCreateRecoveryPlans(
+            RunReport report,
+            Func<ProfilePlan[]> createPlans,
+            out Dictionary<string, ProfilePlan> plans)
+        {
+            if (createPlans == null) throw new ArgumentNullException(nameof(createPlans));
+            try
+            {
+                plans = (createPlans() ?? Array.Empty<ProfilePlan>())
+                    .Where(plan => plan != null && !string.IsNullOrWhiteSpace(plan.Key))
+                    .ToDictionary(plan => plan.Key, StringComparer.Ordinal);
+                return FindRecoveryDrift(report, plans);
+            }
+            catch (Exception exception)
+            {
+                plans = new Dictionary<string, ProfilePlan>(StringComparer.Ordinal);
+                return "恢复时无法重建当前 Module / Package 拓扑；将完成已启动档位后停止，" +
+                       "拒绝让子进程失去 owner：" + exception.Message;
+            }
+        }
+
         private static bool TryAttachUnityProcess(int processId, out Process process)
         {
             process = null;
@@ -1019,11 +1159,25 @@ namespace Game.Framework.Editor
             }
         }
 
-        private static void PrepareProfileSources(string projectDirectory, ProfilePlan profile)
+        private static void PrepareProfileSources(
+            string projectDirectory,
+            ProfilePlan profile,
+            RunReport report)
         {
-            string childTemplate = ResolveChildTemplate().PhysicalPath;
-            File.Copy(childTemplate,
-                Path.Combine(projectDirectory, "Assets", "Editor", "FrameworkBuildSizeProbeChild.cs"), true);
+            ValidateFrozenEvidenceImplementation(report);
+            ValidateFrozenProfileInputs(profile);
+            ResetDerivedProjectState(projectDirectory);
+
+            string childTemplateContent = ReadFrozenChildTemplate(
+                FrozenChildTemplatePath(projectDirectory),
+                report?.ChildTemplateFingerprint);
+            string childTemplateDestination = Path.Combine(
+                projectDirectory, "Assets", "Editor", "FrameworkBuildSizeProbeChild.cs");
+            File.WriteAllText(childTemplateDestination, childTemplateContent, new UTF8Encoding(false));
+            ValidateFrozenCopy(
+                "子进程模板快照",
+                report?.ChildTemplateFingerprint,
+                () => ComputeTextFingerprint(File.ReadAllText(childTemplateDestination, Encoding.UTF8)));
 
             if (string.IsNullOrWhiteSpace(profile.MinimalManifest))
                 throw new InvalidDataException(
@@ -1045,10 +1199,13 @@ namespace Game.Framework.Editor
                     throw new DirectoryNotFoundException(
                         $"找不到 {package?.PackageName ?? "未知复制 Package"} 的物理源码目录：" +
                         (package?.PhysicalDirectory ?? "（空）"));
-                CopyDirectory(
-                    Path.GetFullPath(package.PhysicalDirectory),
-                    Path.Combine(packagesDirectory, SafeDirectoryName(package.PackageName)),
-                    _ => false);
+                string destination = Path.Combine(
+                    packagesDirectory, SafeDirectoryName(package.PackageName));
+                CopyDirectory(Path.GetFullPath(package.PhysicalDirectory), destination, _ => false);
+                ValidateFrozenCopy(
+                    "复制 Package " + package.PackageName,
+                    package.SourceFingerprint,
+                    () => ComputeCopiedPackageSourceFingerprint(destination));
             }
 
             string frameworkDestination = Path.Combine(projectDirectory, "Assets", "Framework");
@@ -1065,14 +1222,141 @@ namespace Game.Framework.Editor
                 string source = Path.GetFullPath(module.PhysicalDirectory);
                 string destination = Path.Combine(
                     frameworkDestination,
-                    SafeDirectoryName(module.AssemblyName));
+                    ModuleDestinationDirectoryName(module));
                 CopyDirectory(source, destination, ShouldSkipModulePath);
+                ValidateFrozenCopy(
+                    "Module " + module.AssemblyName,
+                    module.SourceFingerprint,
+                    () => ComputeModuleSourceFingerprint(destination));
             }
 
             string rootDirectory = Path.Combine(projectDirectory, "Assets", "ProbeRoot");
             Directory.CreateDirectory(rootDirectory);
             File.WriteAllText(Path.Combine(rootDirectory, "link.xml"), CreateLinkXml(profile.Assemblies),
                 new UTF8Encoding(false));
+        }
+
+        /// <summary>
+        /// 每档复制前重新读取真实来源。计划只冻结身份字符串而不复核内容，会让分钟级矩阵把旧 SHA
+        /// 与构建期间被用户或 Agent 改过的新源码组合到同一报告。
+        /// </summary>
+        internal static string FindFrozenProfileInputDrift(ProfilePlan profile)
+        {
+            if (profile == null) return "构建组合为空，无法验证冻结输入。";
+            foreach (ModuleSourcePlan module in profile.Sources ?? Array.Empty<ModuleSourcePlan>())
+            {
+                if (module == null || string.IsNullOrWhiteSpace(module.PhysicalDirectory) ||
+                    !Directory.Exists(module.PhysicalDirectory))
+                    return $"Module {module?.AssemblyName ?? "未知"} 的冻结源码目录已不存在。";
+                string actual = ComputeModuleSourceFingerprint(module.PhysicalDirectory);
+                if (!string.Equals(actual, module.SourceFingerprint, StringComparison.Ordinal))
+                    return $"Module {module.AssemblyName} 的源码已在本轮启动后变化；" +
+                           $"冻结 SHA-256={module.SourceFingerprint ?? "（空）"}，当前={actual}。";
+            }
+
+            foreach (PackageSourcePlan package in profile.CopiedPackages ?? Array.Empty<PackageSourcePlan>())
+            {
+                if (package == null || string.IsNullOrWhiteSpace(package.PhysicalDirectory) ||
+                    !Directory.Exists(package.PhysicalDirectory))
+                    return $"复制 Package {package?.PackageName ?? "未知"} 的冻结源码目录已不存在。";
+                string actual = ComputeCopiedPackageSourceFingerprint(package.PhysicalDirectory);
+                if (!string.Equals(actual, package.SourceFingerprint, StringComparison.Ordinal))
+                    return $"复制 Package {package.PackageName} 的源码已在本轮启动后变化；" +
+                           $"冻结 SHA-256={package.SourceFingerprint ?? "（空）"}，当前={actual}。";
+            }
+
+            return string.Empty;
+        }
+
+        private static void ValidateFrozenProfileInputs(ProfilePlan profile)
+        {
+            string drift;
+            try
+            {
+                drift = FindFrozenProfileInputDrift(profile);
+            }
+            catch (Exception exception)
+            {
+                throw new FrozenInputDriftException(
+                    "无法重新读取本轮冻结输入，可能正在被外部写入：" + exception.Message);
+            }
+            if (!string.IsNullOrEmpty(drift))
+                throw new FrozenInputDriftException(
+                    drift + " 已拒绝复制并终止剩余档位，避免一份体积矩阵混入多个源码版本。");
+        }
+
+        private static void ValidateFrozenCopy(
+            string label,
+            string expected,
+            Func<string> computeActual)
+        {
+            try
+            {
+                EnsureFrozenFingerprint(label, expected, computeActual());
+            }
+            catch (FrozenInputDriftException)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                throw new FrozenInputDriftException(
+                    $"{label} 复制后无法生成内容指纹，可能在复制过程中发生写入：{exception.Message}");
+            }
+        }
+
+        private static void EnsureFrozenFingerprint(string label, string expected, string actual)
+        {
+            if (string.Equals(expected, actual, StringComparison.Ordinal)) return;
+            throw new FrozenInputDriftException(
+                $"{label} 的实际复制内容与启动时冻结指纹不一致；" +
+                $"冻结 SHA-256={expected ?? "（空）"}，复制后={actual ?? "（空）"}。" +
+                "可能在复制过程中发生写入。");
+        }
+
+        /// <summary>
+        /// 每个 Profile 都从新的 Unity 导入 / 编译状态开始，使物理删除证据不依赖上一档留下的
+        /// AssetDatabase / Bee 缓存如何解释同路径、同时间戳的替换输入。
+        /// 只删除隔离子工程中的派生目录；Assets、Packages、ProjectSettings 与报告 / 输出均保留。
+        /// </summary>
+        internal static void ResetDerivedProjectState(string projectDirectory)
+        {
+            ValidateDerivedProjectWorkspace(projectDirectory);
+            string workspace = Path.GetFullPath(projectDirectory);
+            foreach (string directoryName in new[] { "Library", "Temp", "obj" })
+                DeleteDirectoryInsideWorkspace(Path.Combine(workspace, directoryName), workspace);
+        }
+
+        /// <summary>
+        /// 递归删除前锁定探针专属工作区。仅“目标在调用方传入 workspace 内”不足以保护主工程，
+        /// 因为误把项目根当 workspace 时，主 <c>Library</c> 也会通过该相对检查。
+        /// </summary>
+        internal static void ValidateDerivedProjectWorkspace(string projectDirectory)
+        {
+            if (string.IsNullOrWhiteSpace(projectDirectory))
+                throw new ArgumentException("隔离工程目录不能为空。", nameof(projectDirectory));
+
+            string workspace = Path.GetFullPath(projectDirectory)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            string runsRoot = FullPath(RunsRoot)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            DirectoryInfo runDirectory = Directory.GetParent(workspace);
+            DirectoryInfo parent = runDirectory?.Parent;
+            bool exactRunsParent = parent != null &&
+                                   FrameworkModuleSourceCatalog.IsPhysicalPathInside(parent.FullName, runsRoot) &&
+                                   FrameworkModuleSourceCatalog.IsPhysicalPathInside(runsRoot, parent.FullName);
+            if (!Path.GetFileName(workspace).Equals("Project", StringComparison.OrdinalIgnoreCase) ||
+                runDirectory == null || !exactRunsParent)
+                throw new InvalidOperationException(
+                    "拒绝清理非探针工作区：路径必须严格匹配 Library/SSFramework/BuildSizeProbe/<run>/Project。" +
+                    workspace);
+
+            string projectVersion = Path.Combine(workspace, "ProjectSettings", "ProjectVersion.txt");
+            string childTemplate = Path.Combine(
+                workspace, "Assets", "Editor", "FrameworkBuildSizeProbeChild.cs");
+            if (!File.Exists(projectVersion) || !File.Exists(childTemplate))
+                throw new InvalidOperationException(
+                    "拒绝清理缺少探针标记文件的工作区：" + workspace);
         }
 
         private static void WriteReports(RunReport report)
@@ -1094,6 +1378,10 @@ namespace Game.Framework.Editor
             sb.AppendLine($"- Unity：{report.UnityVersion}");
             sb.AppendLine($"- 目标：{report.Target} / {report.ScriptingBackend} / stripping {report.StrippingLevel}");
             sb.AppendLine($"- 证据口径：{report.EvidenceScope}");
+            if (!string.IsNullOrWhiteSpace(report.EvidenceImplementationFingerprint))
+                sb.AppendLine($"- 证据实现 SHA-256：`{report.EvidenceImplementationFingerprint}`");
+            if (!string.IsNullOrWhiteSpace(report.ChildTemplateFingerprint))
+                sb.AppendLine($"- 子进程模板快照 SHA-256：`{report.ChildTemplateFingerprint}`");
             sb.AppendLine();
             sb.AppendLine("| 组合 | 状态 | 可发布输出 | BuildReport 总量 | 非发布构建证据 | 相对 Core | 用时 |");
             sb.AppendLine("|---|---:|---:|---:|---:|---:|---:|");
@@ -1371,6 +1659,112 @@ namespace Game.Framework.Editor
             FrameworkModuleSourceCatalog.FindUniqueFileInAssemblySource(
                 ChildTemplateFileName, FrameworkModuleAudit.CoreAssemblyName + ".Editor");
 
+        private static string ReadCurrentChildTemplate()
+        {
+            string path = ResolveChildTemplate().PhysicalPath;
+            if (!File.Exists(path))
+                throw new FileNotFoundException("找不到隔离构建子进程模板。", path);
+            return File.ReadAllText(path, Encoding.UTF8);
+        }
+
+        internal static string FrozenChildTemplatePath(string projectDirectory)
+        {
+            if (string.IsNullOrWhiteSpace(projectDirectory))
+                throw new ArgumentException("隔离工程目录不能为空。", nameof(projectDirectory));
+            DirectoryInfo runDirectory = Directory.GetParent(Path.GetFullPath(projectDirectory));
+            if (runDirectory == null)
+                throw new InvalidDataException("无法从隔离工程目录解析运行目录：" + projectDirectory);
+            return Path.Combine(runDirectory.FullName, FrozenInputsDirectoryName, ChildTemplateFileName);
+        }
+
+        internal static string ComputeChildTemplateFingerprint(string childTemplateContent) =>
+            ComputeTextFingerprint(childTemplateContent);
+
+        /// <summary>
+        /// 把实际执行中的 Editor DLL、对应主探针源码与子进程模板绑定为一个证据实现身份。
+        /// 只记录源码会漏掉“文件已写入但 Unity 尚未编译”的窗口，只记录 DLL 又无法识别模板变化。
+        /// </summary>
+        internal static string ComputeEvidenceImplementationFingerprint(string childTemplateContent)
+        {
+            string assemblyPath = typeof(FrameworkBuildSizeProbe).Assembly.Location;
+            if (string.IsNullOrWhiteSpace(assemblyPath) || !File.Exists(assemblyPath))
+                throw new FileNotFoundException("找不到当前已编译的构建探针 Editor 程序集。", assemblyPath);
+            var source = FrameworkModuleSourceCatalog.FindUniqueFileInAssemblySource(
+                nameof(FrameworkBuildSizeProbe) + ".cs",
+                FrameworkModuleAudit.CoreAssemblyName + ".Editor");
+            if (!File.Exists(source.PhysicalPath))
+                throw new FileNotFoundException("找不到构建探针主实现源码。", source.PhysicalPath);
+
+            return ComputeTextFingerprint(string.Join("|",
+                ComputeFileFingerprint(assemblyPath),
+                ComputeFileFingerprint(source.PhysicalPath),
+                ComputeTextFingerprint(childTemplateContent)));
+        }
+
+        internal static string FindFrozenChildTemplateDrift(
+            string frozenTemplatePath,
+            string expectedFingerprint)
+        {
+            if (string.IsNullOrWhiteSpace(expectedFingerprint))
+                return "报告缺少子进程模板 SHA-256，无法验证启动快照。";
+            if (string.IsNullOrWhiteSpace(frozenTemplatePath) || !File.Exists(frozenTemplatePath))
+                return "启动时冻结的子进程模板快照已不存在：" +
+                       (frozenTemplatePath ?? "（空）");
+            string actual = ComputeTextFingerprint(File.ReadAllText(frozenTemplatePath, Encoding.UTF8));
+            return string.Equals(actual, expectedFingerprint, StringComparison.Ordinal)
+                ? string.Empty
+                : $"子进程模板启动快照已变化；冻结 SHA-256={expectedFingerprint}，当前={actual}。";
+        }
+
+        private static string ReadFrozenChildTemplate(
+            string frozenTemplatePath,
+            string expectedFingerprint)
+        {
+            try
+            {
+                string drift = FindFrozenChildTemplateDrift(frozenTemplatePath, expectedFingerprint);
+                if (!string.IsNullOrEmpty(drift))
+                    throw new FrozenInputDriftException(
+                        drift + " 已终止剩余档位，避免一份体积矩阵混入多个子进程实现。 ");
+                return File.ReadAllText(frozenTemplatePath, Encoding.UTF8);
+            }
+            catch (FrozenInputDriftException)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                throw new FrozenInputDriftException(
+                    "无法读取本轮冻结的子进程模板，可能正在被外部写入：" + exception.Message);
+            }
+        }
+
+        private static void ValidateFrozenEvidenceImplementation(RunReport report)
+        {
+            if (report == null)
+                throw new FrozenInputDriftException("当前运行报告为空，无法验证证据实现身份。 ");
+            try
+            {
+                string actual = ComputeEvidenceImplementationFingerprint(ReadCurrentChildTemplate());
+                if (string.Equals(
+                        actual, report.EvidenceImplementationFingerprint, StringComparison.Ordinal))
+                    return;
+                throw new FrozenInputDriftException(
+                    "构建探针的已编译 Editor 实现、主源码或子模板已在本轮启动后变化；" +
+                    $"冻结 SHA-256={report.EvidenceImplementationFingerprint ?? "（空）"}，当前={actual}。" +
+                    " 已终止剩余档位，避免新旧证据逻辑混写。 ");
+            }
+            catch (FrozenInputDriftException)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                throw new FrozenInputDriftException(
+                    "无法重新验证本轮证据实现身份：" + exception.Message);
+            }
+        }
+
         internal static void ValidateDisjointSourceDirectories(
             IEnumerable<ModuleSourcePlan> sourcePlans)
         {
@@ -1412,10 +1806,31 @@ namespace Game.Framework.Editor
             if (report == null) return "恢复报告为空，无法验证 Module 源码身份。";
             if (report.FormatVersion != CurrentReportFormatVersion)
                 return report.FormatVersion < CurrentReportFormatVersion
-                    ? $"报告格式早于 v{CurrentReportFormatVersion}，缺少派生 Package 计划或复制内容指纹，" +
+                    ? $"报告格式早于 v{CurrentReportFormatVersion}，缺少冻结输入前后复核、证据实现快照或 Player 编译图证据契约，" +
                       "拒绝跨 Domain Reload 猜测续跑。"
                     : $"报告格式 v{report.FormatVersion} 新于当前工具支持的 v{CurrentReportFormatVersion}；" +
                       "旧代码不能安全解释未知字段，拒绝续跑。";
+            string currentEvidenceFingerprint;
+            try
+            {
+                currentEvidenceFingerprint =
+                    ComputeEvidenceImplementationFingerprint(ReadCurrentChildTemplate());
+            }
+            catch (Exception exception)
+            {
+                return "无法验证当前构建探针证据实现身份，拒绝续跑：" + exception.Message;
+            }
+            if (string.IsNullOrWhiteSpace(report.EvidenceImplementationFingerprint))
+                return "报告缺少证据实现 SHA-256，拒绝跨 Domain Reload 猜测续跑。";
+            if (string.IsNullOrWhiteSpace(report.ChildTemplateFingerprint))
+                return "报告缺少子进程模板快照 SHA-256，拒绝跨 Domain Reload 猜测续跑。";
+            if (!string.Equals(
+                    report.EvidenceImplementationFingerprint,
+                    currentEvidenceFingerprint,
+                    StringComparison.Ordinal))
+                return "构建探针的已编译 Editor 实现、主源码或子模板已变化；" +
+                       $"原报告 SHA-256 为 {report.EvidenceImplementationFingerprint}，" +
+                       $"当前为 {currentEvidenceFingerprint}。";
             if (currentPlans == null) return "当前 Module 拓扑为空，无法验证恢复报告。";
 
             var recordedKeys = new HashSet<string>(StringComparer.Ordinal);
@@ -1487,6 +1902,24 @@ namespace Game.Framework.Editor
         internal static string ComputeModuleSourceFingerprint(string sourceDirectory)
             => ComputeDirectoryFingerprint(sourceDirectory, ShouldSkipModulePath);
 
+        internal static string ComputeCopiedPackageSourceFingerprint(string sourceDirectory)
+            => ComputeDirectoryFingerprint(sourceDirectory, _ => false);
+
+        private static string ComputeFileFingerprint(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+                throw new FileNotFoundException("无法为不存在的文件生成内容指纹。", path);
+            using SHA256 sha256 = SHA256.Create();
+            using var input = new FileStream(
+                ExtendedLengthPath(path),
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+            return BitConverter.ToString(sha256.ComputeHash(input))
+                .Replace("-", string.Empty)
+                .ToLowerInvariant();
+        }
+
         private static string ComputeTextFingerprint(string value)
         {
             using SHA256 sha256 = SHA256.Create();
@@ -1524,7 +1957,11 @@ namespace Game.Framework.Editor
                 foreach (string file in files)
                 {
                     string relativePath = RelativePath(root, file).Replace('\\', '/');
-                    using FileStream input = File.OpenRead(file);
+                    using var input = new FileStream(
+                        ExtendedLengthPath(file),
+                        FileMode.Open,
+                        FileAccess.Read,
+                        FileShare.ReadWrite | FileShare.Delete);
                     writer.Write(relativePath);
                     writer.Write(input.Length);
                     writer.Flush();
@@ -1537,6 +1974,21 @@ namespace Game.Framework.Editor
             return BitConverter.ToString(sha256.Hash ?? Array.Empty<byte>())
                 .Replace("-", string.Empty)
                 .ToLowerInvariant();
+        }
+
+        /// <summary>
+        /// Unity Editor 的部分 .NET 文件流入口在 Windows 仍受传统 MAX_PATH 影响，而 Package
+        /// 复制目标会比主工程来源多出较长的 run id。目录枚举可能成功、随后打开同一文件却失败，
+        /// 因此只在实际 IO 边界添加 Win32 extended-length 前缀，报告和相对路径保持可读。
+        /// </summary>
+        internal static string ExtendedLengthPath(string path)
+        {
+            string full = Path.GetFullPath(path);
+            if (Path.DirectorySeparatorChar != '\\' || full.StartsWith(@"\\?\", StringComparison.Ordinal))
+                return full;
+            if (full.StartsWith(@"\\", StringComparison.Ordinal))
+                return @"\\?\UNC\" + full.Substring(2);
+            return @"\\?\" + full;
         }
 
         private static string SourceOwner(ModuleSourcePlan source)
@@ -1564,6 +2016,34 @@ namespace Game.Framework.Editor
             string candidate = string.IsNullOrWhiteSpace(value) ? "Module" : value.Trim();
             foreach (char invalid in Path.GetInvalidFileNameChars())
                 candidate = candidate.Replace(invalid, '_');
+            return candidate;
+        }
+
+        /// <summary>
+        /// 为隔离工程生成可读、稳定且不会与程序集同名的源码目录。Unity 6000.3 在目录名与其中
+        /// <c>.asmdef</c> 同名时可能把该定义误交给 <c>DefaultImporter</c>，形成没有真实 Module IL 的空壳构建。
+        /// 源目录职责名保留可读性，程序集名负责消除不同 Package 都使用 <c>Runtime</c> 等叶目录时的碰撞。
+        /// </summary>
+        internal static string ModuleDestinationDirectoryName(ModuleSourcePlan module)
+        {
+            if (module == null) throw new ArgumentNullException(nameof(module));
+            string normalizedAssetDirectory = NormalizeAssetPath(module.AssetDirectory);
+            string sourceLeaf = Path.GetFileName(normalizedAssetDirectory);
+            string assemblyName = string.IsNullOrWhiteSpace(module.AssemblyName)
+                ? "Module"
+                : module.AssemblyName.Trim();
+            string assemblyIdentity = Regex.Replace(
+                SafeDirectoryName(assemblyName), "[^A-Za-z0-9_-]", "_");
+            string identityHash = ComputeTextFingerprint(assemblyName).Substring(0, 12);
+            string candidate = SafeDirectoryName(sourceLeaf) + "__" + assemblyIdentity + "__" + identityHash;
+            if (string.IsNullOrWhiteSpace(module.PhysicalDirectory) ||
+                !Directory.Exists(module.PhysicalDirectory)) return candidate;
+
+            var asmdefFileNames = new HashSet<string>(
+                Directory.GetFiles(module.PhysicalDirectory, "*.asmdef", SearchOption.TopDirectoryOnly)
+                    .Select(Path.GetFileNameWithoutExtension),
+                StringComparer.OrdinalIgnoreCase);
+            while (asmdefFileNames.Contains(candidate)) candidate += "__source";
             return candidate;
         }
 

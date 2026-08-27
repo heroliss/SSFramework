@@ -34,6 +34,18 @@ namespace Game.Framework.Editor.Tests
   ]
 }";
 
+        private static void StampCurrentEvidence(FrameworkBuildSizeProbe.RunReport report)
+        {
+            var template = FrameworkModuleSourceCatalog.FindUniqueFileInAssemblySource(
+                FrameworkBuildSizeProbe.ChildTemplateFileName,
+                FrameworkModuleAudit.CoreAssemblyName + ".Editor");
+            string content = File.ReadAllText(template.PhysicalPath);
+            report.ChildTemplateFingerprint =
+                FrameworkBuildSizeProbe.ComputeChildTemplateFingerprint(content);
+            report.EvidenceImplementationFingerprint =
+                FrameworkBuildSizeProbe.ComputeEvidenceImplementationFingerprint(content);
+        }
+
         [Test]
         public void Plans_ReuseAuditProfilesAndRuntimeClosures()
         {
@@ -78,9 +90,10 @@ namespace Game.Framework.Editor.Tests
                     .SourceFingerprint,
                 Has.Length.EqualTo(64));
             Assert.That(plans.Single(plan => plan.Key == "ugui").ManifestPackages,
-                Does.Contain("com.unity.inputsystem").And.Contain("com.unity.ugui"));
+                Does.Not.Contain("com.unity.inputsystem").And.Contain("com.unity.ugui"),
+                "UI Core 不应因项目返回键接线被迫安装 Input System。");
             Assert.That(plans.Single(plan => plan.Key == "toolkit").ManifestPackages,
-                Does.Contain("com.unity.inputsystem").And.Not.Contain("com.unity.ugui"));
+                Does.Not.Contain("com.unity.inputsystem").And.Not.Contain("com.unity.ugui"));
         }
 
         [Test]
@@ -227,6 +240,231 @@ namespace Game.Framework.Editor.Tests
             Assert.That(FrameworkBuildSizeProbe.ShouldSkipModulePath("Editor.meta"), Is.True);
             Assert.That(FrameworkBuildSizeProbe.ShouldSkipModulePath("Runtime/Foo.cs"), Is.False);
             Assert.That(FrameworkBuildSizeProbe.ShouldSkipModulePath("Contest/Foo.cs"), Is.False);
+        }
+
+        [Test]
+        public void ModuleDestination_CombinesReadableSourceRoleWithStableAssemblyIdentity()
+        {
+            var core = new FrameworkBuildSizeProbe.ModuleSourcePlan
+            {
+                AssemblyName = "Game.Framework",
+                AssetDirectory = "Assets/Game/Framework/Core",
+            };
+            var firstRuntime = new FrameworkBuildSizeProbe.ModuleSourcePlan
+            {
+                AssemblyName = "Game.Framework.Feature.One",
+                AssetDirectory = "Packages/com.example.one/Runtime",
+            };
+            var secondRuntime = new FrameworkBuildSizeProbe.ModuleSourcePlan
+            {
+                AssemblyName = "Game_Framework_Feature_One",
+                AssetDirectory = "Packages/com.example.two/Runtime",
+            };
+
+            string coreDestination = FrameworkBuildSizeProbe.ModuleDestinationDirectoryName(core);
+            Assert.That(coreDestination, Does.StartWith("Core__Game_Framework__"));
+            Assert.That(coreDestination, Is.EqualTo(
+                    FrameworkBuildSizeProbe.ModuleDestinationDirectoryName(core)),
+                "同一 Module 的复制目录必须跨重载稳定。 ");
+            Assert.That(coreDestination,
+                Is.Not.EqualTo(core.AssemblyName),
+                "目录与其中 asmdef 同名会让部分 Unity 6000.3 导入路径产生空壳构建。 ");
+            Assert.That(FrameworkBuildSizeProbe.ModuleDestinationDirectoryName(firstRuntime),
+                Is.Not.EqualTo(FrameworkBuildSizeProbe.ModuleDestinationDirectoryName(secondRuntime)),
+                "不同 Package 常共享 Runtime 叶目录；可读 slug 即使碰撞，稳定身份哈希仍必须区分目标。 ");
+        }
+
+        [Test]
+        public void ModuleDestination_AvoidsTheActualAsmdefFileNameEvenWhenItDiffersFromAssemblyName()
+        {
+            string root = Path.Combine(
+                Path.GetTempPath(), "SSFrameworkProbeAsmdefCollision-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(root);
+            try
+            {
+                var module = new FrameworkBuildSizeProbe.ModuleSourcePlan
+                {
+                    AssemblyName = "Game.Framework.Custom",
+                    AssetDirectory = "Packages/com.example.custom/Runtime",
+                };
+                string originalCandidate = FrameworkBuildSizeProbe.ModuleDestinationDirectoryName(module);
+                File.WriteAllText(Path.Combine(root, originalCandidate + ".asmdef"), "{}");
+                module.PhysicalDirectory = root;
+
+                Assert.That(FrameworkBuildSizeProbe.ModuleDestinationDirectoryName(module),
+                    Is.EqualTo(originalCandidate + "__source"),
+                    "Unity 允许 asmdef 文件名不同于 assembly name，目标目录仍不得与真实 asmdef 同名。 ");
+            }
+            finally
+            {
+                if (Directory.Exists(root)) Directory.Delete(root, true);
+            }
+        }
+
+        [Test]
+        public void ChildTemplate_RejectsBuildsMissingExpectedPlayerAssemblies()
+        {
+            var template = FrameworkModuleSourceCatalog.FindUniqueFileInAssemblySource(
+                FrameworkBuildSizeProbe.ChildTemplateFileName,
+                FrameworkModuleAudit.CoreAssemblyName + ".Editor");
+            string source = File.ReadAllText(template.PhysicalPath);
+
+            Assert.That(source, Does.Contain("-ssProbeAssemblies"));
+            Assert.That(source, Does.Contain("CompilationPipeline.GetAssemblies(AssembliesType.Player)"));
+            Assert.That(source, Does.Contain("ValidateExpectedAssemblies(expectedAssemblies)"));
+            Assert.That(source, Does.Contain("拒绝把未实际编译 Framework IL 的空壳 Player 记为成功"));
+            Assert.That(source, Does.Contain(".Where(assembly => !compiled.ContainsKey(assembly))"));
+            Assert.That(source, Does.Contain("sourceFiles.Length == 0"));
+            Assert.That(source.IndexOf("ValidateExpectedAssemblies(expectedAssemblies);", StringComparison.Ordinal),
+                Is.LessThan(source.IndexOf("BuildPipeline.BuildPlayer", StringComparison.Ordinal)),
+                "期望程序集门禁必须发生在 Player Build 之前。 ");
+        }
+
+        [Test]
+        public void EvidenceImplementationFingerprint_BindsCompiledEditorSourceAndChildTemplate()
+        {
+            string first = FrameworkBuildSizeProbe.ComputeEvidenceImplementationFingerprint(
+                "child-template-v1");
+            string second = FrameworkBuildSizeProbe.ComputeEvidenceImplementationFingerprint(
+                "child-template-v2");
+
+            Assert.That(first, Has.Length.EqualTo(64));
+            Assert.That(second, Has.Length.EqualTo(64));
+            Assert.That(second, Is.Not.EqualTo(first),
+                "子模板变化必须改变整套证据实现身份，不能只依赖手工提升报告版本。 ");
+        }
+
+        [Test]
+        public void FrozenChildTemplateSnapshot_IsAddressedOutsideProjectAndRejectsTampering()
+        {
+            string runRoot = Path.Combine(
+                Path.GetTempPath(), "SSFrameworkProbeChildSnapshot-" + Guid.NewGuid().ToString("N"));
+            string project = Path.Combine(runRoot, "Project");
+            string frozen = FrameworkBuildSizeProbe.FrozenChildTemplatePath(project);
+            try
+            {
+                Assert.That(frozen, Is.EqualTo(Path.Combine(
+                    runRoot,
+                    FrameworkBuildSizeProbe.FrozenInputsDirectoryName,
+                    FrameworkBuildSizeProbe.ChildTemplateFileName)));
+                Directory.CreateDirectory(Path.GetDirectoryName(frozen)!);
+                File.WriteAllText(frozen, "child-template-v1");
+                string expected = FrameworkBuildSizeProbe.ComputeChildTemplateFingerprint(
+                    "child-template-v1");
+
+                Assert.That(FrameworkBuildSizeProbe.FindFrozenChildTemplateDrift(frozen, expected),
+                    Is.Empty);
+                File.WriteAllText(frozen, "child-template-v2");
+                Assert.That(FrameworkBuildSizeProbe.FindFrozenChildTemplateDrift(frozen, expected),
+                    Does.Contain("启动快照已变化"));
+            }
+            finally
+            {
+                if (Directory.Exists(runRoot)) Directory.Delete(runRoot, true);
+            }
+        }
+
+        [Test]
+        public void ProfilePreparation_ReadsRunOwnedChildTemplateInsteadOfLiveEditorSource()
+        {
+            var source = FrameworkModuleSourceCatalog.FindUniqueFileInAssemblySource(
+                nameof(FrameworkBuildSizeProbe) + ".cs",
+                FrameworkModuleAudit.CoreAssemblyName + ".Editor");
+            string implementation = File.ReadAllText(source.PhysicalPath);
+            int start = implementation.IndexOf(
+                "private static void PrepareProfileSources(", StringComparison.Ordinal);
+            Assert.That(start, Is.GreaterThanOrEqualTo(0));
+            int end = implementation.IndexOf(
+                "internal static string FindFrozenProfileInputDrift", start, StringComparison.Ordinal);
+            Assert.That(end, Is.GreaterThan(start));
+            string method = implementation.Substring(start, end - start);
+
+            Assert.That(method, Does.Contain("FrozenChildTemplatePath(projectDirectory)"));
+            Assert.That(method, Does.Contain("ReadFrozenChildTemplate("));
+            Assert.That(method, Does.Not.Contain("ResolveChildTemplate()"),
+                "每档不得回到主工程读取可能已变化的 live 模板。 ");
+        }
+
+        [Test]
+        public void ProfileSwitch_DeletesDerivedUnityStateButKeepsFrozenInputs()
+        {
+            string runsRoot = Path.GetFullPath(Path.Combine(
+                Application.dataPath, "..", FrameworkBuildSizeProbe.RunsRoot));
+            string runRoot = Path.Combine(
+                runsRoot, "Test-ProfileReset-" + Guid.NewGuid().ToString("N"));
+            string root = Path.Combine(runRoot, "Project");
+            try
+            {
+                string asset = Path.Combine(root, "Assets", "Framework", "Runtime.cs");
+                string childTemplate = Path.Combine(
+                    root, "Assets", "Editor", "FrameworkBuildSizeProbeChild.cs");
+                string manifest = Path.Combine(root, "Packages", "manifest.json");
+                string projectVersion = Path.Combine(root, "ProjectSettings", "ProjectVersion.txt");
+                string staleAssembly = Path.Combine(root, "Library", "ScriptAssemblies", "Game.Framework.dll");
+                string staleTemp = Path.Combine(root, "Temp", "UnityLockfile");
+                string staleObj = Path.Combine(root, "obj", "cache.bin");
+                foreach (string path in new[]
+                         {
+                             asset, childTemplate, manifest, projectVersion,
+                             staleAssembly, staleTemp, staleObj,
+                         })
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                    File.WriteAllText(path, "fixture");
+                }
+
+                FrameworkBuildSizeProbe.ResetDerivedProjectState(root);
+
+                Assert.That(Directory.Exists(Path.Combine(root, "Library")), Is.False);
+                Assert.That(Directory.Exists(Path.Combine(root, "Temp")), Is.False);
+                Assert.That(Directory.Exists(Path.Combine(root, "obj")), Is.False);
+                Assert.That(File.Exists(asset), Is.True, "冻结的 Module 输入不能随派生缓存一起删除。");
+                Assert.That(File.Exists(manifest), Is.True, "冻结的 Package 计划不能随派生缓存一起删除。");
+            }
+            finally
+            {
+                if (Directory.Exists(runRoot)) Directory.Delete(runRoot, true);
+            }
+        }
+
+        [Test]
+        public void ProfileSwitch_RejectsNonProbeWorkspaceBeforeDeletingAnything()
+        {
+            string root = Path.Combine(
+                Path.GetTempPath(), "SSFrameworkProbeUnsafeReset-" + Guid.NewGuid().ToString("N"));
+            string sentinel = Path.Combine(root, "Library", "keep.bin");
+            Directory.CreateDirectory(Path.GetDirectoryName(sentinel)!);
+            File.WriteAllText(sentinel, "must-survive");
+            try
+            {
+                Assert.That(() => FrameworkBuildSizeProbe.ResetDerivedProjectState(root),
+                    Throws.TypeOf<InvalidOperationException>().With.Message.Contains("拒绝清理非探针工作区"));
+                Assert.That(File.Exists(sentinel), Is.True,
+                    "路径身份检查必须发生在任何递归删除之前。 ");
+            }
+            finally
+            {
+                if (Directory.Exists(root)) Directory.Delete(root, true);
+            }
+        }
+
+        [Test]
+        public void RequestedProfiles_FailWhenAnyRequestedModuleProfileIsUnavailable()
+        {
+            var available = new[]
+            {
+                new FrameworkBuildSizeProbe.ProfilePlan { Key = "core" },
+                new FrameworkBuildSizeProbe.ProfilePlan { Key = "ugui" },
+            };
+
+            var exception = Assert.Throws<InvalidOperationException>(() =>
+                FrameworkBuildSizeProbe.SelectRequestedPlans(
+                    new[] { "core", "ugui", "toolkit" }, available));
+            Assert.That(exception?.Message, Does.Contain("toolkit").And.Contain("物理删除"));
+            Assert.That(FrameworkBuildSizeProbe.SelectRequestedPlans(
+                    new[] { "ugui", "core", "core" }, available).Select(plan => plan.Key),
+                Is.EqualTo(new[] { "core", "ugui" }),
+                "成功路径沿稳定 Profile 拓扑排序，重复请求不应重复构建。 ");
         }
 
         [Test]
@@ -414,11 +652,95 @@ namespace Game.Framework.Editor.Tests
         }
 
         [Test]
+        public void SourceFingerprint_CanOpenWindowsPackageFilesBeyondLegacyMaxPath()
+        {
+            if (Path.DirectorySeparatorChar != '\\') Assert.Ignore("Windows MAX_PATH regression only.");
+            string root = Path.Combine(
+                Path.GetTempPath(), "SSFrameworkProbeLongPath-" + Guid.NewGuid().ToString("N"));
+            string directory = root;
+            while (Path.Combine(directory, "package.targets.meta").Length <= 270)
+                directory = Path.Combine(directory, "buildTransitive0123456789");
+            string file = Path.Combine(directory, "package.targets.meta");
+            try
+            {
+                Directory.CreateDirectory(FrameworkBuildSizeProbe.ExtendedLengthPath(directory));
+                File.WriteAllText(
+                    FrameworkBuildSizeProbe.ExtendedLengthPath(file),
+                    "long-path-fixture");
+
+                Assert.That(
+                    FrameworkBuildSizeProbe.ComputeCopiedPackageSourceFingerprint(root),
+                    Has.Length.EqualTo(64),
+                    "目录枚举成功后，文件流也必须用 extended-length 路径打开。 ");
+            }
+            finally
+            {
+                if (Directory.Exists(root)) Directory.Delete(root, true);
+            }
+        }
+
+        [Test]
+        public void FrozenProfileInputDrift_DetectsModuleAndCopiedPackageWritesBetweenProfiles()
+        {
+            string root = Path.Combine(
+                Path.GetTempPath(), "SSFrameworkProbeFrozenInputs-" + Guid.NewGuid().ToString("N"));
+            string moduleRoot = Path.Combine(root, "Module");
+            string packageRoot = Path.Combine(root, "Package");
+            Directory.CreateDirectory(moduleRoot);
+            Directory.CreateDirectory(packageRoot);
+            string moduleFile = Path.Combine(moduleRoot, "Runtime.cs");
+            string packageFile = Path.Combine(packageRoot, "package.json");
+            File.WriteAllText(moduleFile, "module-v1");
+            File.WriteAllText(packageFile, "package-v1");
+            try
+            {
+                var profile = new FrameworkBuildSizeProbe.ProfilePlan
+                {
+                    Key = "fixture",
+                    Sources = new[]
+                    {
+                        new FrameworkBuildSizeProbe.ModuleSourcePlan
+                        {
+                            AssemblyName = "Game.Framework.Fixture",
+                            PhysicalDirectory = moduleRoot,
+                            SourceFingerprint = FrameworkBuildSizeProbe.ComputeModuleSourceFingerprint(moduleRoot),
+                        },
+                    },
+                    CopiedPackages = new[]
+                    {
+                        new FrameworkBuildSizeProbe.PackageSourcePlan
+                        {
+                            PackageName = "com.example.fixture",
+                            PhysicalDirectory = packageRoot,
+                            SourceFingerprint =
+                                FrameworkBuildSizeProbe.ComputeCopiedPackageSourceFingerprint(packageRoot),
+                        },
+                    },
+                };
+
+                Assert.That(FrameworkBuildSizeProbe.FindFrozenProfileInputDrift(profile), Is.Empty);
+                File.WriteAllText(packageFile, "package-v2");
+                Assert.That(FrameworkBuildSizeProbe.FindFrozenProfileInputDrift(profile),
+                    Does.Contain("复制 Package com.example.fixture").And.Contain("本轮启动后变化"));
+
+                profile.CopiedPackages[0].SourceFingerprint =
+                    FrameworkBuildSizeProbe.ComputeCopiedPackageSourceFingerprint(packageRoot);
+                File.WriteAllText(moduleFile, "module-v2");
+                Assert.That(FrameworkBuildSizeProbe.FindFrozenProfileInputDrift(profile),
+                    Does.Contain("Module Game.Framework.Fixture").And.Contain("本轮启动后变化"));
+            }
+            finally
+            {
+                if (Directory.Exists(root)) Directory.Delete(root, true);
+            }
+        }
+
+        [Test]
         public void RecoveryDrift_RejectsProfileRemovedFromCurrentModuleTopology()
         {
             var report = new FrameworkBuildSizeProbe.RunReport
             {
-                FormatVersion = 5,
+                FormatVersion = FrameworkBuildSizeProbe.CurrentReportFormatVersion,
                 Profiles = new[]
                 {
                     new FrameworkBuildSizeProbe.ProfileRecord
@@ -430,6 +752,7 @@ namespace Game.Framework.Editor.Tests
                     },
                 },
             };
+            StampCurrentEvidence(report);
 
             string drift = FrameworkBuildSizeProbe.FindRecoveryDrift(
                 report,
@@ -439,15 +762,128 @@ namespace Game.Framework.Editor.Tests
         }
 
         [Test]
-        public void RecoveryDrift_RejectsPreV5ReportWithoutPackageEvidence()
+        public void RecoveryDrift_RejectsPreV8EvidenceContract()
         {
-            var report = new FrameworkBuildSizeProbe.RunReport { FormatVersion = 4 };
+            var report = new FrameworkBuildSizeProbe.RunReport
+            {
+                FormatVersion = FrameworkBuildSizeProbe.CurrentReportFormatVersion - 1,
+            };
 
             string drift = FrameworkBuildSizeProbe.FindRecoveryDrift(
                 report,
                 new Dictionary<string, FrameworkBuildSizeProbe.ProfilePlan>(StringComparer.Ordinal));
 
-            Assert.That(drift, Does.Contain("早于 v5"));
+            Assert.That(drift,
+                Does.Contain("早于 v8").And.Contain("冻结输入前后复核")
+                    .And.Contain("证据实现快照").And.Contain("Player 编译图证据契约"));
+        }
+
+        [Test]
+        public void StopAfterCurrentReason_SurvivesReloadAndExplainsSkippedProfiles()
+        {
+            const string driftReason =
+                "检测到证据输入漂移；当前组合完成后停止：子进程模板已变化。";
+            var report = new FrameworkBuildSizeProbe.RunReport
+            {
+                StopAfterCurrentReason = driftReason,
+                Profiles = new[]
+                {
+                    new FrameworkBuildSizeProbe.ProfileRecord
+                    {
+                        Key = "core", Status = "成功", Message = "child result replaced building message",
+                    },
+                    new FrameworkBuildSizeProbe.ProfileRecord
+                    {
+                        Key = "ugui", Status = "等待", Message = "temporary recovery message",
+                    },
+                },
+            };
+
+            var restored = JsonUtility.FromJson<FrameworkBuildSizeProbe.RunReport>(
+                JsonUtility.ToJson(report));
+            FrameworkBuildSizeProbe.CompleteWaitingProfiles(restored);
+
+            Assert.That(restored.StopAfterCurrentReason, Is.EqualTo(driftReason),
+                "停止原因必须是可恢复报告状态，不能只存在于 Domain Reload 会清空的 static bool。 ");
+            Assert.That(restored.Profiles[0].Message,
+                Is.EqualTo("child result replaced building message"),
+                "已完成档位仍保留真实 child 结果。 ");
+            Assert.That(restored.Profiles[1].Status, Is.EqualTo("跳过"));
+            Assert.That(restored.Profiles[1].Message, Is.EqualTo(driftReason),
+                "自动证据漂移不能在最终报告中被改写为用户请求停止。 ");
+        }
+
+        [Test]
+        public void RecoveryTopologyFailure_BecomesDriftInsteadOfOrphaningRunningChild()
+        {
+            var report = new FrameworkBuildSizeProbe.RunReport();
+
+            string drift = FrameworkBuildSizeProbe.TryCreateRecoveryPlans(
+                report,
+                () => throw new IOException("package manifest is being rewritten"),
+                out Dictionary<string, FrameworkBuildSizeProbe.ProfilePlan> plans);
+
+            Assert.That(plans, Is.Empty);
+            Assert.That(drift,
+                Does.Contain("无法重建当前 Module / Package 拓扑")
+                    .And.Contain("完成已启动档位后停止")
+                    .And.Contain("拒绝让子进程失去 owner")
+                    .And.Contain("package manifest is being rewritten"));
+        }
+
+        [Test]
+        public void DriftRecovery_ConsumesFinishedChildResultBeforeStoppingPendingProfiles()
+        {
+            string root = Path.Combine(
+                Path.GetTempPath(), "SSFrameworkProbeFinishedDrift-" + Guid.NewGuid().ToString("N"));
+            string resultPath = Path.Combine(root, "core.json");
+            Directory.CreateDirectory(root);
+            try
+            {
+                var childResult = new FrameworkBuildSizeProbe.ProfileRecord
+                {
+                    Key = "core",
+                    Status = "成功",
+                    Message = "冻结输入构建完成。",
+                    BuildReportBytes = 1024,
+                    OutputBytes = 512,
+                    Errors = 0,
+                    Warnings = 0,
+                };
+                File.WriteAllText(resultPath, JsonUtility.ToJson(childResult));
+                var building = new FrameworkBuildSizeProbe.ProfileRecord
+                {
+                    Key = "core",
+                    Status = "构建中",
+                    ResultPath = resultPath,
+                    ChildProcessId = 12345,
+                };
+                var waiting = new FrameworkBuildSizeProbe.ProfileRecord
+                {
+                    Key = "ugui", Status = "等待",
+                };
+                var report = new FrameworkBuildSizeProbe.RunReport
+                {
+                    Profiles = new[] { building, waiting },
+                };
+                const string driftStopReason =
+                    "检测到证据输入漂移；当前组合完成后停止：template changed";
+
+                Assert.That(FrameworkBuildSizeProbe.TryApplyCompletedChildResultDuringDrift(
+                    report, building, driftStopReason), Is.True);
+                FrameworkBuildSizeProbe.CompleteWaitingProfiles(report);
+
+                Assert.That(building.Status, Is.EqualTo("成功"));
+                Assert.That(building.Message, Is.EqualTo("冻结输入构建完成。"));
+                Assert.That(building.ChildProcessId, Is.Zero);
+                Assert.That(report.StopAfterCurrentReason, Is.EqualTo(driftStopReason));
+                Assert.That(waiting.Status, Is.EqualTo("跳过"));
+                Assert.That(waiting.Message, Is.EqualTo(driftStopReason));
+            }
+            finally
+            {
+                if (Directory.Exists(root)) Directory.Delete(root, true);
+            }
         }
 
         [Test]
@@ -472,7 +908,7 @@ namespace Game.Framework.Editor.Tests
         {
             var report = new FrameworkBuildSizeProbe.RunReport
             {
-                FormatVersion = 5,
+                FormatVersion = FrameworkBuildSizeProbe.CurrentReportFormatVersion,
                 Profiles = new[]
                 {
                     new FrameworkBuildSizeProbe.ProfileRecord
@@ -494,6 +930,7 @@ namespace Game.Framework.Editor.Tests
                     },
                 },
             };
+            StampCurrentEvidence(report);
             var current = new FrameworkBuildSizeProbe.ProfilePlan
             {
                 Key = "core",

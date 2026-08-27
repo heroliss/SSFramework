@@ -11,6 +11,8 @@ using Game.Framework.UI.Toolkit;
 using NUnit.Framework;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.LowLevel;
 using UnityEngine.SceneManagement;
 using UnityEngine.TestTools;
 using UnityEngine.UIElements;
@@ -118,6 +120,69 @@ namespace Game.Framework.Demo.PlayMode.Tests
             finally
             {
                 if (assets != null) assets.gameObject.SetActive(wasActive);
+            }
+        }
+
+        [Test]
+        public void InputSystemBackWiring_LivesBesideTheUiEntryInDemoComposition()
+        {
+            var ui = FindDemoObject<MonoToolkitUI>();
+            var driver = FindDemoObject<DemoInputSystemBackKeyDriver>();
+
+            Assert.IsNotNull(ui, "真实 DemoScene 必须有 Toolkit UI 入口。");
+            Assert.IsNotNull(driver,
+                "Demo 的 Input System 返回键样板丢失；同时检查场景是否出现 Missing Script。");
+            Assert.AreSame(ui.gameObject, driver.gameObject,
+                "样板通过同节点解析 IUIUtility；移动组件后必须保持 composition 接线关系。");
+        }
+
+        [UnityTest]
+        public IEnumerator InputSystemBackWiring_EscapeClosesTheRealTopWindow()
+        {
+            var ui = FindDemoObject<MonoToolkitUI>();
+            Assert.IsNotNull(ui);
+            ui.CloseAll();
+            DemoCachedPolicyWindow window = null;
+            yield return UniTask.ToCoroutine(async () => window = await ui.Open<DemoCachedPolicyWindow>());
+            Assert.IsNotNull(window);
+
+            Keyboard keyboard = InputSystem.AddDevice<Keyboard>();
+            try
+            {
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.Escape));
+                yield return null;
+
+                Assert.AreEqual(1, window.EvidenceCloseCalls,
+                    "合成 Esc 应穿过 Demo input composition，调用真实 IUIUtility.Back() 关闭栈顶窗口。 ");
+            }
+            finally
+            {
+                if (keyboard != null && keyboard.added)
+                    InputSystem.RemoveDevice(keyboard);
+                ui.CloseAll();
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator InputSystemBackWiring_MissingUiEntryLogsOnceAndDisablesItself()
+        {
+            var host = new GameObject("Back Driver Missing UI Test");
+            var driver = host.AddComponent<DemoInputSystemBackKeyDriver>();
+            Keyboard keyboard = InputSystem.AddDevice<Keyboard>();
+            try
+            {
+                LogAssert.Expect(LogType.Error,
+                    new System.Text.RegularExpressions.Regex("同节点上没有 UI 入口.*自动停用"));
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.Escape));
+                yield return null;
+
+                Assert.IsFalse(driver.enabled, "配置错误只报告一次并停用，不能每帧刷 Console。 ");
+            }
+            finally
+            {
+                if (keyboard != null && keyboard.added)
+                    InputSystem.RemoveDevice(keyboard);
+                Object.Destroy(host);
             }
         }
 

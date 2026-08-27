@@ -3,8 +3,7 @@
     "rootNamespace": "Game.Framework.UI",
     "references": [
         "Game.Framework",
-        "UniTask",
-        "Unity.InputSystem"
+        "UniTask"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

@@ -58,7 +58,7 @@ Editor 反向引用。Adapter 不得随 Framework 分发付费插件本体。详
 | `Game.Framework.Fonts.Editor` | `Fonts/Editor/` | 常用字集扫描与生成。 | 可独立删除，不影响运行时字体链。 |
 | `Game.Framework.Network.Proto` | `Network.Proto/` | Google.Protobuf Adapter，把生成的 `IMessage` 接到内核网络 Seam。 | 删除后 JSON 与内核手写 Protobuf 仍可用。 |
 | `Game.Framework.Network.Proto.Editor` | `Network.Proto/Editor/` | protoc Profile、代码生成与总览入口；复用通用 Editor 反馈。 | 可与 Proto Runtime 一起删除，Core 不改。 |
-| `Game.Framework.UI` | `UI/` | 渲染中立窗口编排、层级/栈/模态/过渡及后端 Interface；当前也承载 ObservableCollections 增量列表引擎，因此该第三方依赖会随 UI Core 进入托管闭包。 | 删除后失去窗口框架与列表绑定引擎，但 Core MVCS 仍可用。 |
+| `Game.Framework.UI` | `UI/` | 渲染中立窗口编排、层级/栈/模态/过渡及后端 Interface；当前也承载 ObservableCollections 增量列表引擎，因此该第三方依赖会随 UI Core 进入托管闭包。物理返回输入由项目 composition layer 接到 `IUIUtility.Back()`，本 Module 不依赖输入 Package。 | 删除后失去窗口框架与列表绑定引擎，但 Core MVCS 仍可用。 |
 | `Game.Framework.UI.UGui` | `UI.UGui/` | UGUI Window/View Adapter，含 `Transform → GameObject` 的 `Bag.BindList` Adapter。 | 删除后 Toolkit 后端与 UI Core 仍可编译。 |
 | `Game.Framework.UI.UGui.Editor` | `UI.UGui/Editor/` | UGUI 节点绑定生成等 Editor 工具；复用通用 Editor 反馈。 | 可独立删除，不影响 UGUI Runtime 手写接线。 |
 | `Game.Framework.UI.UGui.Editor.Tests` | `UI.UGui/Editor/Tests/` | UGUI 绑定 Inspector、Popup 与 Overlay 的 EditMode 布局/偏好契约。 | 随 UGUI Editor Module 删除；不进入玩家构建。 |
@@ -69,7 +69,7 @@ Editor 反向引用。Adapter 不得随 Framework 分发付费插件本体。详
 | `Game.Framework.Odin.Editor` | `Odin.Editor/` | 可选专业 Inspector Adapter：仅把原生 fallback 接管且 Odin 允许绘制的具体 Framework Mono 类型临时映射到组合诊断的 OdinEditor；不写 Odin 配置，不含或重分发 Odin。 | 移除 Odin 前先整体删除；Domain Reload 后原生 fallback 接管，Runtime 与资产布局不变。 |
 | `Game.Framework.Editor.Tests` | `Editor/Tests/` | 通用 Editor 工具的 EditMode 契约；覆盖 AI PlayMode 预检的无弹窗保存与未命名场景拒绝。 | 随 Editor Module 删除；不进入玩家构建。 |
 | `Game.Framework.Build.Editor` | `Build/Editor/` | YooAsset/HybridCLR 构建管线与 Profile；复用通用 Editor 反馈，重第三方依赖不反向进入基座。 | 无资源/热更构建需求时可删，不污染通用 Editor。 |
-| `Game.Framework.Demo` | `Demo/` | 32 个可运行教学章节，是所有 Module 的消费方与集成样板；Catalog 集中拥有章节 Adapter、生命周期与 Host 教学语义校验。 | 可整体删除；`UNITY_EDITOR` define 保证不进玩家包。 |
+| `Game.Framework.Demo` | `Demo/` | 32 个可运行教学章节，是所有 Module 的消费方与集成样板；Catalog 集中拥有章节 Adapter、生命周期与 Host 教学语义校验。包含 Input System → `IUIUtility.Back()` 等项目 composition 样板，但这些不是 Framework Runtime API。 | 可整体删除；`UNITY_EDITOR` define 保证不进玩家包。 |
 | `Game.Framework.Demo.Tests` | `Demo/Tests/` | Demo 专属 EditMode 门禁：章节生命周期/回滚、教学形态与结构化降级契约、内嵌服务器、关键示例行为及全部 CodeRef 防腐。 | 随 Demo 一起删除；不让 Demo 专属依赖反向进入通用 Test Module。 |
 | `Game.Framework.Demo.PlayMode.Tests` | `Demo/Tests/PlayMode/` | 加载真实 DemoScene，穿过 Context、Catalog 与 Shell 逐章 Build 32 个 Adapter，并验证真实缺依赖降级页。 | 随 Demo 一起删除；不进入玩家构建，也不把场景集成依赖塞回纯 EditMode 门禁。 |
 | `Game.Framework.Test` | `Test/Scripts/` | Framework PlayMode/EditMode 契约和回归测试；`Test/Res/SuspendedSceneProbe` 是无业务 Awake 的 Yoo 场景激活门 fixture。 | 产品运行不依赖；开发/CI 不应删除。 |

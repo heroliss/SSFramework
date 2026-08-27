@@ -1,6 +1,6 @@
 # ADR-0020：UI 刚需补齐 —— 异步过渡 + Back 键 + 安全区 + Top 层常用件
 
-**Status:** Accepted（四项全部实现，2026-07-03；Loading 的并发所有权由 ADR-0037 深化）
+**Status:** Accepted（四项全部实现，2026-07-03；Loading 的并发所有权由 ADR-0037 深化；输入接线边界于 2026-08-27 收紧）
 
 ## Context
 
@@ -38,7 +38,7 @@ UniTask OnCloseTransition(CancellationToken ct);  // 出场动画：OnClose 之�
 - **`CloseAll` / `Dispose` 不播过渡**：批量关闭多用于场景切换，要的是立刻干净，不是 N 个出场动画。
 - 缓存复用的重开**播**入场过渡（用户看到的是「打开」）；已打开置顶刷新**不播**（本就在屏上）。
 
-### 2. Back / Esc：`Back()` 升级为逐层返回导航 + `BackClosable` opt-out + 驱动组件
+### 2. Back / Esc：`Back()` 拥有导航语义，物理输入留在项目 composition layer
 
 - **`Back()` 语义升级**（`void` → `bool`）：按 **Popup → Window → Page** 从高到低找第一个非空层，检查栈顶窗口：
   - `BackClosable`（默认 true）→ 关闭它，返回 `true`；
@@ -47,8 +47,13 @@ UniTask OnCloseTransition(CancellationToken ct);  // 出场动画：OnClose 之�
   - `Top` / `System` 不参与（Toast/系统提示不是导航单元）、`Background` 不参与（底景）。
   - **过渡进行中 `Back()` 直接吞掉**（返回 `true` 不动作）——与「动画期间挡输入」同一语义，键盘路径不绕过挡板。
 - **`[UIWindow(BackClosable = false)]`** 进窗口元数据。
-- **驱动 = `MonoUIBackKeyDriver`**（核心 UI asmdef，渲染中立）：挂在 UI 入口（`MonoUGuiUI` / `MonoToolkitUI`）同一节点，Update 检测 Esc（Android 硬件返回键在 Unity 即 Escape）→ 调同节点 `IUIUtility.Back()`。做成独立组件而非内置进入口：要不要接返回键是项目决策（挂上即启用），两个入口也不必各写一份。
-- **输入系统兼容**：代码 `#if ENABLE_INPUT_SYSTEM`（新输入 `Keyboard.current`）/ `#else`（旧 `Input.GetKeyDown`）双路径；asmdef 引用 `Unity.InputSystem`。复用到未装 Input System 包的项目时删这条引用即可（组件自动走旧输入分支）。
+- **UI Core 到此为止**：它提供稳定的 `IUIUtility.Back()`，不轮询键盘、不引用 Input System，也不猜项目使用 Input Action、旧 Input Manager、平台 SDK 还是统一输入路由。
+- **物理输入由 composition layer 显式接线**：输入回调取得同节点 / Context 的 `IUIUtility` 后调用 `Back()`；`false` 时是否退出、二次确认或交给玩法仍由项目决定。这样替换输入方案只改项目边缘，窗口调度与两个渲染后端都不变。
+- Demo 提供 `DemoInputSystemBackKeyDriver` 活样板：用新 Input System 检测 Esc（Android 硬件返回键在 Unity 中同样表现为 Escape）并调用 `Back()`。它位于 `Game.Framework.Demo`，是教学用 composition 代码，不是 Framework Runtime Module。
+
+> **边界深化（2026-08-27）**：初版曾把双路径 `MonoUIBackKeyDriver` 放进 `Game.Framework.UI`，并让 asmdef 无条件引用 `Unity.InputSystem`。`#if ENABLE_INPUT_SYSTEM` 只能裁 C# 分支，不能让缺少 Package 的 asmdef 引用自动消失；所谓“未安装时删引用即可”也会在启用新输入分支时使类型不可见。这既不是真正可选依赖，也把单个浅胶水抬成了 Core 成本。删除测试显示唯一真实消费者是 Demo，故保留深导航 Interface、把物理输入 Implementation 下沉，而不为一个 50 行实现新建假想 Adapter Module。
+
+> **升级边界**：`MonoUIBackKeyDriver` 是已删除的 Runtime API；新的 Demo 样板使用独立脚本 GUID，不复用旧序列化身份。既有项目应显式移除旧组件，并从自己的 Input Action / 平台输入路由调用 `IUIUtility.Back()`；若仍需要逐帧 Esc 样板，再自行复制 Demo Implementation。宁可让旧场景暴露清晰迁移点，也不让公共 Runtime 组件静默变成 Demo-only 类型。
 
 ### 3. 安全区：opt-in 内容避让组件，层根保持全屏
 
@@ -67,9 +72,10 @@ UniTask OnCloseTransition(CancellationToken ct);  // 出场动画：OnClose 之�
 
 - ✅ 「动画期间挡输入」由框架一处保障，业务窗口只写动画本身（重写两个 hook），不用自己管防连点。
 - ✅ 同步路径零变化：不用过渡的窗口行为与从前逐帧一致；既有 12 个窗口栈测试不改一行仍绿。
-- ✅ 返回键语义符合手游直觉（先弹窗后页面），且可被强引导窗口拦截；接入 = 挂一个组件。
+- ✅ 返回键语义符合手游直觉（先弹窗后页面），且可被强引导窗口拦截；项目只需把自己的返回 Input Action 映射到 `Back()`。
+- ✅ `Game.Framework.UI` 不再引用 `Unity.InputSystem`；只用 UI Core 或任一渲染后端的项目不会因教学接线被迫安装输入 Package。
 - ⚠ **逻辑关闭先于表现**：出场动画期间 `IsOpen<T>()` 已是 false、重开同类型会新建实例——动画中的旧实例只是视觉残影。依赖「关完才算关」的业务应改在 `OnClose` 里做收尾。
 - ⚠ 过渡动画自己要响应传入的 ct（Context 销毁时取消）；不响应也只是白播几帧，物理对象已由 Teardown 拆除。
 - ⚠ `Back()` 返回值从无到有（`void`→`bool`）：纯源码级变更，既有调用方不接返回值照常编译。
-- ⚠ 核心 UI asmdef 新增 `Unity.InputSystem` 引用；未装该包的复用项目删引用即可（`#if` 已把代码门住）。
+- ⚠ 输入接线不是 Framework Runtime 自动安装项；复制 Demo 样板或在项目既有输入路由里调用 `Back()`，不要在 UI Core 里重新轮询平台按键。
 - §3 / §4 的实现跟进在 roadmap「UI 刚需补齐」项下追踪。

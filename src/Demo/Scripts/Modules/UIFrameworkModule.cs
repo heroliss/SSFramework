@@ -114,15 +114,19 @@ namespace Game.Framework.Demo.Modules
                 backResult.text = consumed
                     ? "Back() → true：返回键被 UI 消费（关了栈顶、被 BackClosable 拦截、或过渡中被吞）"
                     : "Back() → false：Popup/Window/Page 三层皆空——业务可做「再按一次退出」兜底";
-            }, CodeRef.Here("MonoUIBackKeyDriver", "接线组件"));
+            }, CodeRef.Here("this.GetUtility<IUIUtility>().Back()", "返回导航语义"));
             host.AddNote("**预期**：先开几个窗口再点——按 **Popup → Window → Page** 从高到低关第一个非空层的栈顶（弹窗优先于浮窗、浮窗优先于页面）。"
-                + "真机/键盘接线：把 `MonoUIBackKeyDriver` 挂在 UI 入口同节点即通（**本场景已挂**，Play 中直接按 **Esc** 试）。");
+                + "真机/键盘接线属于项目输入层：本 Demo 用 `DemoInputSystemBackKeyDriver` 把新 Input System 的 Esc / Android Back 映射到 `Back()`，"
+                + "不让 UI Core 绑定某个输入 Package（**本场景已挂**，Play 中直接按 **Esc** 试）。");
 #if UNITY_EDITOR
-            host.AddActionRow("选中返回键接线组件 MonoUIBackKeyDriver（挂在 UI 入口同节点）", () =>
+            host.AddActionRow("选中 Demo 的 Input System 返回键接线样板", () =>
             {
-                var drv = UnityEngine.Object.FindFirstObjectByType<MonoUIBackKeyDriver>();
+                var drv = UnityEngine.Object.FindFirstObjectByType<DemoInputSystemBackKeyDriver>();
                 if (drv != null) DemoEditorNav.PingSceneObject(drv.gameObject);
-            });
+            }, new CodeRef(
+                "Assets/Game/Framework/Demo/Scripts/Modules/Support/DemoInputSystemBackKeyDriver.cs",
+                "class DemoInputSystemBackKeyDriver",
+                "项目输入 → UI Back 的 composition 样板"));
 #endif
 
             host.AddNote("**安全区**（刘海/挖孔屏）：UGUI 内容根挂 `UGuiSafeArea`、Toolkit 内容放进 `SafeAreaContainer`（UXML 可摆）——"
