@@ -17,9 +17,11 @@ namespace Game.Framework.Network
     ///         状态码语义归上层，传输层不做判断。</item>
     ///   <item>传输失败（DNS / 拒连 / 网络断）→ 抛 <see cref="NetworkException"/>（ConnectionError）。</item>
     ///   <item>ct 取消 → 中止在途请求并抛 <see cref="OperationCanceledException"/>。
-    ///         超时不归 provider——utility 已把超时计时链进 ct，实现只需尊重取消。</item>
+    ///         超时不归 provider——utility 的 request owner 会取消该 token；实现不得在取消回调中抛异常。
+    ///         Utility 会隔离违规回调，避免其逃逸到调用方 CTS / timer 线程，但 Adapter 仍须让物理请求尽快到终态。</item>
     ///   <item>headers 已由编排层合并去重（无同名项，默认头与每请求头的覆盖在上游完成），实现照列表逐个设置即可。</item>
-    ///   <item>主线程调用、主线程回返（回调后要触碰框架的调用链依赖这一点）。</item>
+    ///   <item>通常从主线程调用；实现允许在任意线程完成。Utility 会在完成公共调用前恢复 Unity 主线程，
+    ///         自定义 HttpClient / BestHTTP Adapter 不需要伪造主线程 continuation。</item>
     /// </list>
     /// </remarks>
     public interface IHttpProvider : IDisposable

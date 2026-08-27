@@ -23,10 +23,12 @@ namespace Game.Framework.Network
     /// <b>注册：</b><c>builder.RegisterOwned(new HttpUtility("https://api.xxx.com"), typeof(IHttpUtility))</c>——
     /// 随 Context Dispose 取消所有在途请求。环境切换（dev / prod）= 注册时传不同 baseUrl（构造定死，运行期不可变）。<br/>
     /// <b>线程：</b>公共 API 主线程调用（框架统一契约）；默认传输走 UnityWebRequest 引擎异步、全程不下线程池
-    /// （WebGL 兼容的来源），完成后回主线程返回。请求之间天然并行（无共享介质，不像存储需要 FIFO）。<br/>
+    /// （WebGL 兼容的来源）。自定义 provider 可以在任意线程完成，Utility 会在成功、失败或取消完成公共调用前
+    /// 恢复 Unity 主线程。请求之间天然并行（无共享介质，不像存储需要 FIFO）。<br/>
     /// <b>失败语义</b>（ADR-0028 §2）：
     /// <list type="bullet">
-    ///   <item>DNS / 拒连 / 网络断 → <see cref="NetworkException"/>（ConnectionError）；超时 →（Timeout）。</item>
+    ///   <item>DNS / 拒连 / 网络断，或 provider 在 owner token 未取消时自发 OCE →
+    ///         <see cref="NetworkException"/>（ConnectionError）；deadline 触发 →（Timeout）。</item>
     ///   <item>外部 ct 取消 → <see cref="OperationCanceledException"/>（不包装，框架统一约定）。</item>
     ///   <item>动词方法非 2xx → <see cref="NetworkException"/>（HttpError，带 StatusCode + ResponseBody）；
     ///         预期 404 用 <c>catch ... when</c> 过滤，框架不折叠成 null。</item>

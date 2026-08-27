@@ -2,10 +2,12 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using Game.Framework.Network;
 using NUnit.Framework;
+using UnityEngine;
 using UnityEngine.TestTools;
 using HttpUtility = Game.Framework.Network.HttpUtility;
 
@@ -13,7 +15,8 @@ namespace Game.Framework.Test
 {
     /// <summary>
     /// 验证 HTTP 门面（ADR-0028）单元路径：经 FakeHttpProvider（接缝第二实现兼测试桩）覆盖
-    /// URL 拼接 / 头合并 / 失败分级（HttpError / Timeout / DeserializeError vs 外部 OCE）/ 逃生舱宽容语义 / Dispose。
+    /// URL 拼接 / 头合并 / 失败分级（HttpError / Timeout / DeserializeError vs 外部 OCE）/ 任意线程完成 /
+    /// request owner 取消隔离 / 逃生舱宽容语义 / Dispose。
     /// </summary>
     public class HttpTests
     {
@@ -39,25 +42,54 @@ namespace Game.Framework.Test
             public List<KeyValuePair<string, string>> LastHeaders;
             public Func<CancellationToken, UniTask<HttpResponse>> Handler;
             public bool Disposed;
+            public bool CancelWithoutToken;
+            public bool CompleteOnThreadPool;
+            public bool ThrowOnCancellation;
+            public int SendCount;
+            public int DisposeCount;
 
-            public UniTask<HttpResponse> SendAsync(string url, string method, byte[] body, string contentType,
+            public async UniTask<HttpResponse> SendAsync(string url, string method, byte[] body, string contentType,
                 IReadOnlyList<KeyValuePair<string, string>> headers, CancellationToken ct)
             {
+                SendCount++;
                 LastUrl = url;
                 LastMethod = method;
                 LastBody = body;
                 LastContentType = contentType;
                 LastHeaders = headers == null ? null : new List<KeyValuePair<string, string>>(headers);
-                return Handler != null ? Handler(ct) : UniTask.FromResult(Json(200, null));
+                if (ThrowOnCancellation)
+                    ct.Register(() => throw new InvalidOperationException("fake HTTP cancellation callback"));
+                if (CancelWithoutToken)
+                    throw new OperationCanceledException("fake provider canceled without owner token");
+
+                HttpResponse response = Handler != null
+                    ? await Handler(ct)
+                    : Json(200, null);
+                if (CompleteOnThreadPool) await UniTask.SwitchToThreadPool();
+                return response;
             }
 
-            public void Dispose() => Disposed = true;
+            public void Dispose()
+            {
+                Disposed = true;
+                DisposeCount++;
+            }
 
             public static HttpResponse Json(int status, string json) => new HttpResponse
             {
                 StatusCode = status,
                 Body = json == null ? Array.Empty<byte>() : Encoding.UTF8.GetBytes(json),
             };
+        }
+
+        /// <summary>覆盖 Adapter 在返回 UniTask 之前直接抛错的边界；async Fake 无法产生这种同步行为。</summary>
+        private sealed class SynchronousThrowHttpProvider : IHttpProvider
+        {
+            public UniTask<HttpResponse> SendAsync(string url, string method, byte[] body, string contentType,
+                IReadOnlyList<KeyValuePair<string, string>> headers, CancellationToken ct) =>
+                throw new InvalidOperationException("fake synchronous provider failure");
+
+            public void Dispose() { }
         }
 
         private FakeHttpProvider _fake;
@@ -206,6 +238,234 @@ namespace Game.Framework.Test
         });
 
         [UnityTest]
+        public IEnumerator InternalTimeout_ThrowingCancellationCallback_IsolatedAndStillTimesOut() => UniTask.ToCoroutine(async () =>
+        {
+            _fake.ThrowOnCancellation = true;
+            _fake.Handler = ct => UniTask.Never<HttpResponse>(ct);
+            LogAssert.Expect(LogType.Warning, new Regex(@"HTTP 清理将继续"));
+
+            using var shortTimeout = new HttpUtility(
+                "https://api.test", _fake, defaultTimeoutSeconds: 0.03f);
+            try
+            {
+                await shortTimeout.Get<LoginResp>("api/slow");
+                Assert.Fail("deadline 应稳定折叠为 Timeout，不能让坏回调逃逸到 timer 线程");
+            }
+            catch (NetworkException e)
+            {
+                Assert.AreEqual(NetworkErrorKind.Timeout, e.Kind);
+            }
+        });
+
+        [UnityTest]
+        public IEnumerator InternalTimeout_AsynchronousProviderCancellation_WaitsForPhysicalTerminal() => UniTask.ToCoroutine(async () =>
+        {
+            bool physicalTerminal = false;
+            _fake.Handler = async ct =>
+            {
+                while (!ct.IsCancellationRequested) await UniTask.Yield();
+                await UniTask.Delay(TimeSpan.FromMilliseconds(40), ignoreTimeScale: true);
+                physicalTerminal = true;
+                throw new OperationCanceledException(ct);
+            };
+
+            using var shortTimeout = new HttpUtility(
+                "https://api.test", _fake, defaultTimeoutSeconds: 0.01f);
+            try
+            {
+                await shortTimeout.Get<LoginResp>("api/slow");
+                Assert.Fail("deadline 应折叠为 Timeout");
+            }
+            catch (NetworkException e)
+            {
+                Assert.AreEqual(NetworkErrorKind.Timeout, e.Kind);
+            }
+
+            Assert.IsTrue(physicalTerminal,
+                "公共调用返回前必须观察 Provider 的异步取消终态，不能在 pending UniTask 上二次 await 后提前退场");
+        });
+
+        [UnityTest]
+        public IEnumerator InternalTimeout_UsesRealtimeWhileGameTimeIsPaused() => UniTask.ToCoroutine(async () =>
+        {
+            float previousTimeScale = Time.timeScale;
+            Time.timeScale = 0f;
+            _fake.Handler = ct => UniTask.Never<HttpResponse>(ct);
+            try
+            {
+                using var shortTimeout = new HttpUtility(
+                    "https://api.test", _fake, defaultTimeoutSeconds: 0.02f);
+                try
+                {
+                    await shortTimeout.Get<LoginResp>("api/slow");
+                    Assert.Fail("游戏暂停不能暂停真实网络 deadline");
+                }
+                catch (NetworkException e)
+                {
+                    Assert.AreEqual(NetworkErrorKind.Timeout, e.Kind);
+                }
+            }
+            finally
+            {
+                Time.timeScale = previousTimeScale;
+            }
+        });
+
+        [UnityTest]
+        public IEnumerator CallerCancellationBeforePublicCompletion_OverridesEarlierDeadline() => UniTask.ToCoroutine(async () =>
+        {
+            bool physicalTerminal = false;
+            _fake.Handler = async providerToken =>
+            {
+                while (!providerToken.IsCancellationRequested) await UniTask.Yield();
+                await UniTask.Delay(TimeSpan.FromMilliseconds(60), ignoreTimeScale: true);
+                physicalTerminal = true;
+                throw new OperationCanceledException(providerToken);
+            };
+
+            using var caller = new CancellationTokenSource();
+            using var shortTimeout = new HttpUtility(
+                "https://api.test", _fake, defaultTimeoutSeconds: 0.01f);
+            UniTask<LoginResp> request = shortTimeout.Get<LoginResp>("api/slow", caller.Token);
+            await UniTask.Delay(TimeSpan.FromMilliseconds(25), ignoreTimeScale: true);
+            caller.Cancel();
+
+            try
+            {
+                await request;
+                Assert.Fail("公共 completion 前 caller 已取消，应保持 OCE");
+            }
+            catch (OperationCanceledException) { }
+
+            Assert.IsTrue(physicalTerminal, "caller 取消仍须等 Provider 走到物理终态再释放 request owner");
+        });
+
+        [UnityTest]
+        public IEnumerator InvalidTimeout_IsRejectedBeforeStartingPhysicalSend() => UniTask.ToCoroutine(async () =>
+        {
+            Assert.Throws<ArgumentOutOfRangeException>(() =>
+                new HttpUtility("https://api.test", new FakeHttpProvider(), defaultTimeoutSeconds: float.NaN));
+
+            try
+            {
+                await _http.Send(new HttpRequest
+                {
+                    Path = "api/x",
+                    TimeoutSeconds = float.MaxValue,
+                });
+                Assert.Fail("超出 TimeSpan 的 timeout 应 fail-fast");
+            }
+            catch (ArgumentOutOfRangeException) { }
+
+            Assert.AreEqual(0, _fake.SendCount,
+                "timeout 必须在调用 Provider 前完成验证，不能留下无人观察的物理请求");
+        });
+
+        [UnityTest]
+        public IEnumerator ProviderSelfCancellation_WithoutOwnerIntent_IsConnectionError() => UniTask.ToCoroutine(async () =>
+        {
+            _fake.CancelWithoutToken = true;
+            try
+            {
+                await _http.Get<LoginResp>("api/x");
+                Assert.Fail("provider 自发 OCE 不能冒充外部取消或内部超时");
+            }
+            catch (NetworkException e)
+            {
+                Assert.AreEqual(NetworkErrorKind.ConnectionError, e.Kind);
+            }
+        });
+
+        [UnityTest]
+        public IEnumerator ProviderWorkerCompletion_PublicApiReturnsToMainThread() => UniTask.ToCoroutine(async () =>
+        {
+            int mainThread = Thread.CurrentThread.ManagedThreadId;
+            _fake.CompleteOnThreadPool = true;
+            _fake.Handler = _ => UniTask.FromResult(FakeHttpProvider.Json(200, "{\"Token\":\"ok\"}"));
+
+            LoginResp response = await _http.Get<LoginResp>("api/x");
+
+            Assert.AreEqual("ok", response.Token);
+            Assert.AreEqual(mainThread, Thread.CurrentThread.ManagedThreadId,
+                "自定义 HttpClient/BestHTTP Adapter 在 worker 完成时，公共调用仍应恢复 Unity 主线程");
+        });
+
+        [UnityTest]
+        public IEnumerator ProviderWorkerFailure_IsWrappedAndReturnsToMainThread() => UniTask.ToCoroutine(async () =>
+        {
+            int mainThread = Thread.CurrentThread.ManagedThreadId;
+            _fake.Handler = async _ =>
+            {
+                await UniTask.SwitchToThreadPool();
+                throw new InvalidOperationException("fake worker transport failure");
+            };
+
+            try
+            {
+                await _http.Get<LoginResp>("api/x");
+                Assert.Fail("Adapter 未按契约包装的传输异常应由 Utility 收口");
+            }
+            catch (NetworkException e)
+            {
+                Assert.AreEqual(NetworkErrorKind.ConnectionError, e.Kind);
+                Assert.AreEqual(mainThread, Thread.CurrentThread.ManagedThreadId);
+            }
+        });
+
+        [UnityTest]
+        public IEnumerator ProviderSynchronousThrow_IsWrappedWithoutAbandoningOwners() => UniTask.ToCoroutine(async () =>
+        {
+            using var http = new HttpUtility("https://api.test", new SynchronousThrowHttpProvider());
+            try
+            {
+                await http.Get<LoginResp>("api/x");
+                Assert.Fail("Provider 返回 UniTask 前同步抛错也应由 Utility 收口");
+            }
+            catch (NetworkException e)
+            {
+                Assert.AreEqual(NetworkErrorKind.ConnectionError, e.Kind);
+            }
+        });
+
+        [UnityTest]
+        public IEnumerator ProviderNullResponse_IsConnectionError() => UniTask.ToCoroutine(async () =>
+        {
+            _fake.Handler = _ => UniTask.FromResult<HttpResponse>(null);
+            try
+            {
+                await _http.Get<LoginResp>("api/x");
+                Assert.Fail("null response 破坏 Provider 契约，应作为 ConnectionError 暴露");
+            }
+            catch (NetworkException e)
+            {
+                Assert.AreEqual(NetworkErrorKind.ConnectionError, e.Kind);
+            }
+        });
+
+        [UnityTest]
+        public IEnumerator WorkerCallerCancellation_ThrowingProviderCallback_StillReturnsMainThreadOCE() => UniTask.ToCoroutine(async () =>
+        {
+            int mainThread = Thread.CurrentThread.ManagedThreadId;
+            _fake.ThrowOnCancellation = true;
+            _fake.Handler = ct => UniTask.Never<HttpResponse>(ct);
+            using var cts = new CancellationTokenSource();
+            LogAssert.Expect(LogType.Warning, new Regex(@"HTTP 清理将继续"));
+
+            UniTask<LoginResp> request = _http.Get<LoginResp>("api/slow", cts.Token);
+            CancelOnThreadPool(cts).Forget();
+            try
+            {
+                await request;
+                Assert.Fail("外部取消应保持 OCE");
+            }
+            catch (OperationCanceledException)
+            {
+                Assert.AreEqual(mainThread, Thread.CurrentThread.ManagedThreadId,
+                    "worker 取消不能把公共 continuation 留在 worker");
+            }
+        });
+
+        [UnityTest]
         public IEnumerator ProviderConnectionError_PropagatesUnchanged() => UniTask.ToCoroutine(async () =>
         {
             // 传输层失败（DNS/拒连/断网）由 provider 判定并抛 NetworkException(ConnectionError)，门面原样上抛、不吞不改 Kind。
@@ -260,6 +520,52 @@ namespace Game.Framework.Test
         });
 
         [UnityTest]
+        public IEnumerator Dispose_ThrowingCancellationCallback_DoesNotTruncateCleanup() => UniTask.ToCoroutine(async () =>
+        {
+            _fake.ThrowOnCancellation = true;
+            _fake.Handler = ct => UniTask.Never<HttpResponse>(ct);
+            UniTask<LoginResp> request = _http.Get<LoginResp>("api/slow");
+            LogAssert.Expect(LogType.Warning, new Regex(@"HTTP 清理将继续"));
+
+            Assert.DoesNotThrow(() => _http.Dispose(),
+                "Adapter 的坏取消回调不能截断 provider Dispose");
+            try
+            {
+                await request;
+                Assert.Fail("宿主 Dispose 后在途请求应收到 OCE");
+            }
+            catch (OperationCanceledException) { }
+
+            Assert.AreEqual(1, _fake.DisposeCount);
+        });
+
+        [UnityTest]
+        public IEnumerator Dispose_AsynchronousProviderCancellation_IsObservedToPhysicalTerminal() => UniTask.ToCoroutine(async () =>
+        {
+            bool physicalTerminal = false;
+            _fake.Handler = async ct =>
+            {
+                while (!ct.IsCancellationRequested) await UniTask.Yield();
+                await UniTask.Delay(TimeSpan.FromMilliseconds(40), ignoreTimeScale: true);
+                physicalTerminal = true;
+                throw new ObjectDisposedException("fake request transport");
+            };
+            UniTask<LoginResp> request = _http.Get<LoginResp>("api/slow");
+
+            _http.Dispose();
+            try
+            {
+                await request;
+                Assert.Fail("Utility Dispose 应保持 OCE，即使 Adapter 用 ODE 表达取消");
+            }
+            catch (OperationCanceledException) { }
+
+            Assert.IsTrue(physicalTerminal,
+                "请求 await 必须观察异步 Provider 物理终态，不能因 Utility Dispose 提前释放 RequestOwner");
+            Assert.AreEqual(1, _fake.DisposeCount);
+        });
+
+        [UnityTest]
         public IEnumerator Post_NullBody_ThrowsArgumentNull() => UniTask.ToCoroutine(async () =>
         {
             try
@@ -269,6 +575,12 @@ namespace Game.Framework.Test
             }
             catch (ArgumentNullException) { /* 预期 */ }
         });
+
+        private static async UniTask CancelOnThreadPool(CancellationTokenSource cts)
+        {
+            await UniTask.SwitchToThreadPool();
+            cts.Cancel();
+        }
     }
 
     /// <summary>

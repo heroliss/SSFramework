@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using Cysharp.Threading.Tasks;
+using Game.Framework.Logging;
 
 namespace Game.Framework.Network
 {
@@ -12,8 +13,9 @@ namespace Game.Framework.Network
     /// <remarks>
     /// <b>注册：</b><c>builder.RegisterOwned(new HttpUtility(baseUrl), typeof(IHttpUtility))</c>（推荐，随 Context
     /// Dispose 取消在途请求）；全局唯一、不关心释放用 <c>RegisterValue</c>。不依赖 Context，可被父子 Context 共享。<br/>
-    /// <b>超时实现</b>：每请求 linked CTS = 外部 ct + 生命周期 ct + <c>CancelAfter</c> 计时，provider 只需尊重取消；
-    /// 触发后按「外部 ct 是否已取消」区分——是 → 原样抛 OCE（调用方意图），否 → 折叠为 Timeout（网络环境问题）。<br/>
+    /// <b>超时实现</b>：每个请求有独立 owner；外部 ct、生命周期与 deadline 只向该 owner 发出取消意图，
+    /// provider 只需尊重 owner token。deadline 使用显式 Send-vs-Delay 竞速后安全取消，不让
+    /// <c>CancelAfter</c> 的 timer 线程直接承接第三方取消回调异常。<br/>
     /// <b>Dispose 后不可再用</b>（抛 <see cref="ObjectDisposedException"/>）；Dispose 取消所有在途请求（在 await 处收到 OCE）。
     /// </remarks>
     public sealed class HttpUtility : IHttpUtility, IDisposable
@@ -27,15 +29,105 @@ namespace Game.Framework.Network
         private readonly CancellationTokenSource _lifetimeCts = new();
         private bool _disposed;
 
+        /// <summary>
+        /// 一次 HTTP 交换的私有 owner。调用方 / Utility 生命周期 / deadline 都只取消本 owner，
+        /// 取消回调异常在这里隔离，不能反向逃逸到外部 CTS 或 timer 线程并截断清理。
+        /// </summary>
+        private sealed class RequestOwner : IDisposable
+        {
+            private readonly CancellationTokenSource _cts = new();
+            private readonly string _label;
+            private readonly object _gate = new();
+            private CancellationTokenRegistration _callerRegistration;
+            private CancellationTokenRegistration _lifetimeRegistration;
+            private int _timedOut;
+            private int _cancelDepth;
+            private bool _disposeRequested;
+            private bool _cleanupClaimed;
+
+            public CancellationToken Token { get; }
+            public bool TimedOut => Volatile.Read(ref _timedOut) != 0;
+
+            public RequestOwner(CancellationToken callerToken, CancellationToken lifetimeToken, string label)
+            {
+                _label = label;
+                Token = _cts.Token;
+                _callerRegistration = callerToken.Register(CancelFromCaller);
+                _lifetimeRegistration = lifetimeToken.Register(CancelFromLifetime);
+            }
+
+            public void RequestTimeout()
+            {
+                Interlocked.Exchange(ref _timedOut, 1);
+                Cancel($"{_label} deadline");
+            }
+
+            public void Dispose()
+            {
+                bool cleanup;
+                lock (_gate)
+                {
+                    if (_disposeRequested) return;
+                    _disposeRequested = true;
+                    cleanup = TryClaimCleanupLocked();
+                }
+                if (cleanup) Cleanup();
+            }
+
+            private void CancelFromCaller() => Cancel($"{_label} caller owner");
+            private void CancelFromLifetime() => Cancel($"{_label} lifetime owner");
+
+            private void Cancel(string label)
+            {
+                lock (_gate)
+                {
+                    if (_cleanupClaimed) return;
+                    _cancelDepth++;
+                }
+
+                try
+                {
+                    CancelOwnerSafely(_cts, label);
+                }
+                finally
+                {
+                    bool cleanup;
+                    lock (_gate)
+                    {
+                        _cancelDepth--;
+                        cleanup = TryClaimCleanupLocked();
+                    }
+                    if (cleanup) Cleanup();
+                }
+            }
+
+            private bool TryClaimCleanupLocked()
+            {
+                if (_cleanupClaimed || !_disposeRequested || _cancelDepth != 0) return false;
+                _cleanupClaimed = true;
+                return true;
+            }
+
+            private void Cleanup()
+            {
+                // Provider 取消可能同步内联完成整个 await 链；等 Cancel 完整退栈后再 Dispose CTS，
+                // 避免在 CancellationTokenSource.Cancel 正遍历回调时释放同一个 owner。
+                _callerRegistration.Dispose();
+                _lifetimeRegistration.Dispose();
+                _cts.Dispose();
+            }
+        }
+
         public string BaseUrl { get; }
 
         /// <param name="baseUrl">基地址（尾部 / 自动去除）；null = 所有 path 必须是绝对 URL。</param>
         /// <param name="provider">传输实现；null = 默认 <see cref="UnityWebRequestHttpProvider"/>。</param>
         /// <param name="serializer">序列化格式；null = 默认 <see cref="JsonUtilityNetworkSerializer"/>。</param>
-        /// <param name="defaultTimeoutSeconds">默认超时秒数（&lt;=0 = 不限时，一般只在调试用）。单次覆盖走 <see cref="Send"/>。</param>
+        /// <param name="defaultTimeoutSeconds">默认超时秒数（有限值；&lt;=0 = 不限时，一般只在调试用）。单次覆盖走 <see cref="Send"/>。</param>
         public HttpUtility(string baseUrl = null, IHttpProvider provider = null,
             INetworkSerializer serializer = null, float defaultTimeoutSeconds = 10f)
         {
+            ValidateTimeout(defaultTimeoutSeconds, nameof(defaultTimeoutSeconds));
             BaseUrl = string.IsNullOrEmpty(baseUrl) ? null : baseUrl.TrimEnd('/');
             _provider = provider ?? new UnityWebRequestHttpProvider();
             _serializer = serializer ?? new JsonUtilityNetworkSerializer();
@@ -84,9 +176,15 @@ namespace Game.Framework.Network
         {
             if (_disposed) return;
             _disposed = true;
-            _lifetimeCts.Cancel();
-            _lifetimeCts.Dispose();
-            _provider.Dispose();
+            CancelOwnerSafely(_lifetimeCts, "HTTP utility lifetime owner");
+            try
+            {
+                _provider.Dispose();
+            }
+            finally
+            {
+                _lifetimeCts.Dispose();
+            }
         }
 
         // ── 编排核心 ─────────────────────────────────────────────────────────
@@ -111,20 +209,150 @@ namespace Game.Framework.Network
             var headers = MergeHeaders(extraHeaders);
 
             float timeout = timeoutOverride ?? _defaultTimeoutSeconds;
-            using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _lifetimeCts.Token);
-            if (timeout > 0) linked.CancelAfter(TimeSpan.FromSeconds(timeout));
+            TimeSpan? deadline = CreateDeadline(timeout,
+                timeoutOverride.HasValue ? nameof(HttpRequest.TimeoutSeconds) : "defaultTimeoutSeconds");
+            using var owner = new RequestOwner(ct, _lifetimeCts.Token, $"{method} {url}");
 
             try
             {
-                return await _provider.SendAsync(url, method, body, contentType, headers, linked.Token);
+                UniTask<HttpResponse> providerTask = _provider
+                    .SendAsync(url, method, body, contentType, headers, owner.Token);
+                var outcome = new UniTaskCompletionSource<HttpResponse>();
+                var physicalCompletion = new UniTaskCompletionSource();
+                ObserveProviderSend(providerTask, outcome, physicalCompletion).Forget(e =>
+                    Log.Error("HTTP provider outcome observer failed.", e, "HttpUtility"));
+
+                CancellationTokenSource deadlineCts = null;
+                HttpResponse response;
+                try
+                {
+                    if (deadline.HasValue)
+                    {
+                        deadlineCts = new CancellationTokenSource();
+                        UniTask deadlineTask = UniTask.Delay(
+                            deadline.Value,
+                            ignoreTimeScale: true,
+                            cancellationToken: deadlineCts.Token);
+                        int winner = await UniTask.WhenAny(physicalCompletion.Task, deadlineTask);
+                        if (winner == 0)
+                        {
+                            // 及时撤掉 loser：否则每个快速响应都会让 deadline continuation 与 Body 多活到完整超时。
+                            CancelOwnerSafely(deadlineCts, $"{method} {url} deadline timer owner");
+                        }
+                        else
+                        {
+                            owner.RequestTimeout();
+                        }
+                    }
+
+                    // Provider 任务只有 observer 一个 awaiter；race signal 与 outcome 是两个独立 TCS，
+                    // deadline 先赢后也不会在 pending UniTask 上注册第二个 continuation。
+                    response = await outcome.Task;
+                }
+                finally
+                {
+                    if (deadlineCts != null)
+                    {
+                        CancelOwnerSafely(deadlineCts, $"{method} {url} deadline timer owner");
+                        deadlineCts.Dispose();
+                    }
+                }
+
+                // Adapter 可以在任意线程完成；主线程公共 API 的 continuation 不应继承 Adapter 的完成线程。
+                await UniTask.SwitchToMainThread();
+                if (owner.TimedOut)
+                    throw CreateTimeoutException(timeout, method, url);
+                return response ?? throw new NetworkException(NetworkErrorKind.ConnectionError,
+                    $"HTTP provider 返回了 null response：{method} {url}");
             }
-            catch (OperationCanceledException e)
+            catch (Exception e)
             {
-                // 三个取消源同 token，靠源头回溯区分：外部取消 / Dispose → 是调用方（或宿主销毁）意图，原样抛；
-                // 都不是 → 只剩 CancelAfter 计时，折叠为 Timeout（网络环境问题，业务可提示重试）。
-                if (ct.IsCancellationRequested || _lifetimeCts.IsCancellationRequested) throw;
-                throw new NetworkException(NetworkErrorKind.Timeout,
-                    $"请求超时（{timeout:0.#}s）：{method} {url}", inner: e);
+                await UniTask.SwitchToMainThread();
+
+                // 意图优先于 Adapter 的具体异常形态：有些传输在被取消/Dispose 时会抛 ODE 或 socket error。
+                if (ct.IsCancellationRequested || _disposed)
+                {
+                    if (e is OperationCanceledException) throw;
+                    throw new OperationCanceledException(
+                        $"HTTP 请求已取消：{method} {url}", e,
+                        ct.IsCancellationRequested ? ct : owner.Token);
+                }
+
+                if (owner.TimedOut)
+                {
+                    if (e is NetworkException { Kind: NetworkErrorKind.Timeout }) throw;
+                    throw CreateTimeoutException(timeout, method, url, e);
+                }
+
+                // Provider 在 owner token 未取消时自发 OCE 不是外部取消，也绝不能冒充 timeout。
+                if (e is OperationCanceledException)
+                    throw new NetworkException(NetworkErrorKind.ConnectionError,
+                        $"HTTP provider 在 token 未取消时终止了请求：{method} {url}", inner: e);
+                if (e is NetworkException) throw;
+                throw new NetworkException(NetworkErrorKind.ConnectionError,
+                    $"HTTP provider 发送失败：{method} {url}（{e.GetType().Name}: {e.Message}）", inner: e);
+            }
+        }
+
+        private static async UniTask ObserveProviderSend(
+            UniTask<HttpResponse> providerTask,
+            UniTaskCompletionSource<HttpResponse> outcome,
+            UniTaskCompletionSource physicalCompletion)
+        {
+            try
+            {
+                outcome.TrySetResult(await providerTask);
+            }
+            catch (Exception e)
+            {
+                // 结果由 SendCore 在主线程统一分类；observer 自身永不把 Provider 异常变成 fire-and-forget。
+                outcome.TrySetException(e);
+            }
+            finally
+            {
+                physicalCompletion.TrySetResult();
+            }
+        }
+
+        private static void ValidateTimeout(float timeout, string paramName) =>
+            _ = CreateDeadline(timeout, paramName);
+
+        private static TimeSpan? CreateDeadline(float timeout, string paramName)
+        {
+            if (float.IsNaN(timeout) || float.IsInfinity(timeout))
+                throw new ArgumentOutOfRangeException(paramName, timeout, "HTTP timeout 必须是有限秒数；<= 0 表示不限时。");
+            if (timeout <= 0) return null;
+
+            try
+            {
+                return TimeSpan.FromSeconds(timeout);
+            }
+            catch (OverflowException e)
+            {
+                throw new ArgumentOutOfRangeException(paramName, timeout,
+                    $"HTTP timeout 超出 TimeSpan 可表示范围：{e.Message}");
+            }
+        }
+
+        private static NetworkException CreateTimeoutException(
+            float timeout, string method, string url, Exception inner = null) =>
+            new(NetworkErrorKind.Timeout,
+                $"请求超时（{timeout:0.#}s）：{method} {url}", inner: inner);
+
+        private static void CancelOwnerSafely(CancellationTokenSource owner, string label)
+        {
+            try
+            {
+                owner.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Dispose 与迟到的外部取消并发时，owner 已经完成；无需重复清理。
+            }
+            catch (Exception e)
+            {
+                // CancellationTokenSource 已完成取消，只是某个注册回调抛了异常；记录后继续释放其它 owner。
+                Log.Warning($"{label} 的取消回调抛出异常，HTTP 清理将继续：{e}", "HttpUtility");
             }
         }
 

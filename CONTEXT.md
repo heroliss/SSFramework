@@ -26,6 +26,10 @@ Demo 教学内容与自动化之间的运行时 Seam。`DemoModuleHost` 在真�
 
 `IConfigUtility<TTables>` 对一次自加载尝试的稳定就绪契约。响应式消费者订阅 `State`，命令式流程 `await EnsureReady(token)` 直接得到同一份 `Tables` 或原始失败；已证明 Ready 的同步热路径才直接读 `Tables`。调用方取消只脱离自己的 waiter，组件与 Context 共同拥有物理加载并在销毁时取消；失败后不隐式重试。该 Interface 把终态编排、根异常保存和共享所有权藏在 Config Module 内，业务不再复制 `WaitUntil(Ready or Failed)`。
 
+## HTTP Request Owner
+
+`HttpUtility` 内一次物理 HTTP 交换的私有 owner：独占传给 Provider 的取消 token，并把 caller、Utility lifetime 与 realtime deadline 三种取消意图汇入该 token。外部 token 只触发 owner 的安全 Cancel，第三方取消回调异常不会逃逸到调用方 `CancellationTokenSource.Cancel()` 或 timer 线程；deadline 用独立 completion signal 与物理 outcome 显式竞速，不在 pending UniTask 上并发多 await，也不使用裸 `CancelAfter`。Provider 成功、失败或取消可在任意线程完成，但公共调用回到 Unity 主线程再交还业务。caller / lifetime 在公共 completion 前取消保持 OCE并优先于 deadline；scope 仍存活时 deadline 折叠 Timeout，Provider 在 owner token 未取消时自发 OCE 属 ConnectionError。
+
 ## WebSocket Connection Session
 
 `WebSocketUtility` 内一次成功连接的私有 owner：独占该代接收 token、发送 token、FIFO 队尾、终态 claim 与 teardown barrier。公开 `State=Disconnected` 只表达业务不可用，不保证旧 socket 的每个 Receive continuation 已物理返回；后续 Connect 等旧 Close 与发送 owner 清场后再建立新 session，迟到 Receive 靠物理 socket 快照与 session identity 隔离。只有 current session 能发布一次 `WebSocketClosedEvent`，排队旧帧不得写入新连接；接收或发送传输失败都会终结 current session。该概念保持在 Network Module Implementation，不扩张业务 Interface，也不等同于框架 Context / scope。

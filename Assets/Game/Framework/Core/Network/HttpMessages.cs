@@ -25,7 +25,7 @@ namespace Game.Framework.Network
         /// <summary>附加请求头，叠加在 <see cref="IHttpUtility.SetHeader"/> 默认头之上（同名覆盖）；null = 无附加。</summary>
         public Dictionary<string, string> Headers;
 
-        /// <summary>本次请求的超时秒数；null = 用 utility 的默认超时。</summary>
+        /// <summary>本次请求的有限超时秒数；null = 用 utility 默认值，&lt;=0 = 不限时；NaN / Infinity / 超出 TimeSpan 范围会在发送前 fail-fast。</summary>
         public float? TimeoutSeconds;
     }
 
