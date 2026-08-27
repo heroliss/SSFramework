@@ -59,7 +59,11 @@ public interface IWebSocketUtility : IUtility     // 有状态长连接（一个
 | 响应体 / 推送载荷反序列化失败 | `NetworkException(DeserializeError)`（服务器契约不符） |
 | 2xx 空响应体 | 返回 `null`（唯一的 null 语义） |
 | 未连接时 WS `Send` / 发送中途 socket 断掉 | `NetworkException(ConnectionError)`（传输层原始异常不外泄给业务） |
+| WS 帧排队期间所属连接被 Disconnect / 替换 | `NetworkException(ConnectionError)`；旧帧绝不转发到新连接 |
 | Connecting 中调用 WS `Disconnect` | 取消在途 `Connect`（其 await 收到 OCE）、不发 ClosedEvent |
+| 已连接时 `Disconnect(ct)` 的入口 ct 已取消 | OCE；尚未提交断开，不改 State、不发 ClosedEvent |
+| `Disconnect` 已提交后 ct 才取消 | session 仍清理并发一次 ByUser=true；调用方最终原样收到 OCE |
+| `ReceiveAsync` 抛 OCE，但 session token 未取消 | 按意外断线处理；不能静默留下假 Connected |
 | 未注册的推送 type | Editor/Dev 一次性 warning + 丢弃（照 Localization 缺 key 先例），不毒化接收循环 |
 
 - **非 2xx 不折叠成 null**：REST 状态码语义因服务器而异，隐藏状态码丢信息。预期 404 的业务 `catch (NetworkException e) when (e.Kind == NetworkErrorKind.HttpError && e.StatusCode == 404)`。
@@ -69,7 +73,7 @@ public interface IWebSocketUtility : IUtility     // 有状态长连接（一个
 
 - HTTP 默认传输走 UnityWebRequest 引擎异步操作，**全程不下线程池**（这也是 WebGL 兼容的来源）；请求之间天然并行（无共享介质，不需要 Storage 那样的 FIFO）。
 - WS 接收循环：后台 `ReceiveAsync` → 每条消息 `await UniTask.SwitchToMainThread()` → 主线程解析 envelope + 查注册表 + `SendEvent`。事件系统是 R3 Subject + 字典（无锁、主线程独占），这一跳是铁律，写死在框架里而不是留给业务记住。
-- WS 发送内部 FIFO 串行（尾任务链，照 `StorageUtility.Enqueue`）：保序 + 规避 `ClientWebSocket` 不允许并发写的限制。
+- WS 发送在**每个 Connection Session 内** FIFO 串行（尾任务链，照 `StorageUtility.Enqueue`）：保序 + 规避 `ClientWebSocket` 不允许并发写的限制；新连接有独立队尾，旧连接排队帧醒来后先校验 session identity，不成立即 ConnectionError、绝不调用 provider。
 - 坏消息（烂 JSON / 载荷反序列化失败）：warning + 丢弃当条，接收循环继续——单条脏数据不毒化整条连接。
 
 ### 4. WS wire 协议：JSON envelope `{type, payload}`，payload 二次编码
@@ -83,7 +87,7 @@ public interface IWebSocketUtility : IUtility     // 有状态长连接（一个
 - **2026-07 修订（Outpost M4 驱动）**：字符串二次编码对二进制格式是破坏性的（Protobuf 字节过 `UTF8.GetString` 不保真）。新增可选接缝 `IWebSocketEnvelopeSerializer : INetworkSerializer`——序列化器实现它即整体接管 envelope 编解码与帧类型（payload 全程 `byte[]`、`UseBinaryFrames` 决定发二进制帧；`IWebSocketProvider.SendAsync` 相应加 `binary` 参数）。不实现的序列化器走原 JSON 兼容路径（wire 字节不变，零迁移）。envelope 的线上形态由格式自定（如 Protobuf 的 `{string type=1; bytes payload=2}`），框架不再规定嵌套编码方式。
 - 推送事件类型约定：`[Serializable] struct + 公共字段`（`JsonUtility` 只认字段，**record 位置参数是属性、反序列化不出来**）。框架自产事件（如 `WebSocketClosedEvent`）不经反序列化、本无此约束，但内核程序集无 `IsExternalInit` polyfill、位置参数 record 的 init 访问器编译不过，故照 `FlowChangedEvent` 先例用 `readonly struct` + 显式字段。
 - **2026-07 修订（Outpost proto 生产化驱动）**：`RegisterPush<TEvent>` 约束从 `struct, IEvent` 放宽为 `IEvent`——`struct` 是绑死默认 `JsonUtility` 的（它只反序列化 struct 字段），把二进制序列化器的 **class 消息挡在外**（Google.Protobuf 生成的 `IMessage` 是 class）。放宽后：struct 事件空 payload 仍取 `default(TEvent)`（零值合法），**引用类型事件空 payload 无默认实例可造 → 丢弃告警**（引用类型推送必须带 payload）。这是「换真 protobuf 库时才现形」的接缝内屈——JSON 单实现期约束设过紧、切二进制库时才暴露。
-- 连接关闭统一发 `WebSocketClosedEvent(ByUser, Reason)`：用户主动 `Disconnect` 与意外断开都发，业务重连逻辑过滤 `!ByUser`。
+- 连接关闭统一发 `WebSocketClosedEvent(ByUser, Reason)`：每个成功 Connection Session 至多一次；用户主动 `Disconnect` 与意外断开都发，业务重连逻辑过滤 `!ByUser`。Context `Dispose` 是整棵拆除，不再向同步拆除的订阅者发关闭事件。
 
 ### 5. 双接缝：传输 provider × 序列化 serializer，默认实现零依赖留内核
 
@@ -97,6 +101,7 @@ IWebSocketUtility ── WebSocketUtility（状态机 / envelope / 推送注册�
 
 - 全部住内核 `Core/Network/`：UnityWebRequest 是引擎一等模块（与 `JsonUtility` / `AudioSource` 在 Core 同级），`ClientWebSocket` / `HttpListener` 是 BCL——零第三方依赖、asmdef 零改动。
 - provider 接口保留 `Async` 后缀（适配层惯例）；门面 API 无后缀。
+- Utility 串行化 Connect 与前一次 Close；只允许 Receive 与 Close 按契约重叠。Provider 每个方法必须在入口 capture 当前物理连接，分片 Receive 全程只用同一 socket，不能因后续重连改读可变字段。
 - `INetworkSerializer` **无 `class` 约束**（与 `IStorageSerializer` 不同）：WS 推送事件是 struct。
 - 超时不归 provider：`HttpUtility` 用 `CancelAfter` 链接进 ct 统一实现，provider 只需尊重 ct。
 
@@ -112,7 +117,17 @@ IWebSocketUtility ── WebSocketUtility（状态机 / envelope / 推送注册�
 
 - `builder.RegisterOwned(new HttpUtility("https://api.xxx.com"), typeof(IHttpUtility))`——环境切换（dev/prod）= 注册时传不同 baseUrl，构造定死、运行期不可变。
 - `WebSocketUtility` 实现 `IHasGameContext`（`SendEvent` 所需），`RegisterOwned` 注册即注入时由 `AttachTo` 回填 Context（照 `GameFlow` 姿势）；脱离容器 new 后未 Attach 就 `Connect` 抛。
-- Dispose：`HttpUtility` 取消所有在途请求；`WebSocketUtility` 停收发循环 + 关闭连接。随 Context 整棵撤。
+- 每次成功 Connect 建立一个私有 **Connection Session**：它是该代接收 token、发送 token、发送 FIFO 与 exactly-once 终态 claim 的唯一 owner。是否仍有全局发布权按对象 identity 判断，generation 只用于诊断；迟到的旧 Receive / Send continuation 只能结束自己。发送传输失败与接收失败同样终结 current session，避免只等 Receive 报错而留下假 Connected。
+- `Disconnect` 把“逻辑已断开”和“旧 Close / Send owner 已清场”分开：先建一个永不 fault 的 teardown barrier，再置公开 State=Disconnected；Connect 可立即表达重连意图，但会等待 barrier 后重新校验。它不直接 await 上一个公共 Disconnect task，避免把旧调用者的 OCE 传播给新调用者。barrier 不承诺违规 Adapter 中忽略取消的旧 Receive 已物理返回；正确性由“方法入口固定物理 socket + session identity”共同保证。
+- 主动断开先取消本代发送并等 FIFO 退场，再 best-effort 发 Close，最后取消接收；关闭期间远端 Close / 接收异常因 session 已 claim 不会重复发事件。意外断开也进入 best-effort Close 收尾，再清 owner、发布 ClosedEvent；事件回调可以安全表达重连。所有响应式 State 发布前先安装/摘除对应 owner，旧 Connect 的 finally 只按 identity 清自己，允许订阅者同步取消或重试而不丢 owner。
+- OCE 按 token 所有权分类：caller / lifetime / session token 已取消时原样保留或由其 owner 静默收口；provider 在 token 未取消时自发 OCE 属于传输失败。Connect 折叠为 `ConnectionError`，Close 按 best-effort 握手失败记录，Receive / Send 形成意外断线终态。
+- `ConnectAsync` 成功返回是物理 ownership 的提交点：普通 caller 取消与完成竞态允许成功赢，Utility 不再用第二次 token post-check 把已经发布的 socket 变成无 owner 资源；但若 Connecting-Disconnect intent 已先成立，Utility 会在发布 Connected / 启动 ReceiveLoop 前调用 Provider `Abort()`，物理成功以 OCE 收口且从未形成公开 session。默认 Adapter 同时跟踪 `_connecting` 与 `_ws`，Dispose 能中止尚未完成的实例；如果生命周期取消令底层表现为 ODE / socket error，Utility 仍按已取消的 connect owner 转为 OCE。
+- 意外断线没有调用方提供的 Close token，best-effort Close 因而使用内部 1 秒上限；守约 Adapter 必须尊重 token。实现用显式 `Close vs Delay` 竞速后由 owner 安全 Cancel，而非 `CancelAfter` 在 timer 线程裸取消，确保坏回调异常也能被隔离。超时后仍清 session、发布一次 ClosedEvent 并放行 barrier，避免重连永久被一个损坏 socket 的关闭握手扣住。
+- Provider 的 Connect / Send / Receive / Close 均允许在任意线程完成；Utility 每次跨 Adapter await 后在写 RP、session owner、Framework Event 或完成主线程公共调用前显式切回主线程，线程边界不转嫁给第三方 Adapter。发送 FIFO 的失败终态还必须先 claim + 取消 session、再释放当前帧 gate：UniTask continuation 可能同步内联，顺序反过来会让排队后帧趁缝再次写 socket。
+- Connecting 期的 `Disconnect` 不只是发出取消请求：私有 **Connect Attempt** 的 completion 携带“本次 attempt 提交的 session 或 null”，不从可被 State 同步重试改写的全局字段推断。Disconnect intent 一旦记录，即使 caller token 随后只脱离等待，物理 success-win 也在逻辑发布前 Abort；所有成功、失败、Dispose、State 回调异常都在 finally 完成 outcome，因此 `await Disconnect()` 返回后可以立即再次 Connect，也不会误关回调中新建的 session。
+- Provider 的 `Abort()` 是与优雅 `CloseAsync` 正交的物理重置：立即中止并摘除当前已提交 socket，Provider 之后仍可重连。它用于未发布的 success-win、意外 Close 超时/损坏和 session 最终退场，保证 barrier 放行时旧物理连接不再由可变 Provider 字段持有。
+- .NET `CancellationTokenSource.Cancel()` 会把注册回调异常聚合抛出，即使 token 本身已经成功取消。Connect Attempt、Connection Session 与 Utility lifetime 三层 owner 的主动取消都经同一个隔离点：记录异常并继续 owner cleanup，不能让 Adapter/业务回调截断 provider Dispose、State 终态或 teardown barrier。
+- Dispose：`HttpUtility` 取消所有在途请求；`WebSocketUtility` claim 并停掉当前 Connection Session、释放 provider，不发 ClosedEvent。随 Context 整棵撤。
 
 ### 8. 环境实测结论（落地时的两个坑，spike 已验证）
 
@@ -139,3 +154,4 @@ IWebSocketUtility ── WebSocketUtility（状态机 / envelope / 推送注册�
 - envelope 二次编码有每条消息一次额外字符串分配的代价——推送频率在「游戏服务器广播」量级（每秒个位数条）时无感知；高频实时同步（帧同步/状态同步）本就不该走这套（见刻意不做的 RPC/私有协议条目）。
 - 不做自动重试/重连意味着业务必须自己写这两段样板（guide 提供）——换来的是重试边界、认证时序完全显式，没有框架黑盒行为可猜。
 - WS 每实例一条连接：多连接 = 多注册（不同 contract key 或子 Context），连接归属清晰、随作用域自动清理。
+- WS 的公开三态刻意不增加 `Disconnecting`：业务只关心逻辑可用性，旧 Close / Send owner 的短暂清场由内部 teardown barrier 隐藏；代价是 `State=Disconnected` 后立刻调用 Connect 可能异步等待上一代收尾。守约 Adapter 的 Connect / Close 不会并发，忽略取消的迟到 Receive 则因入口 socket 快照与 session identity 无权触碰新会话。

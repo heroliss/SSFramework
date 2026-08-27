@@ -1277,10 +1277,14 @@ public class IconView : MonoViewBase
     {
         base.Awake();            // _iconRef 在这里完成自动绑定（加载器 + 宿主销毁信号）
         _image = GetComponent<Image>();
-        LoadIcon().Forget();     // Awake 保持同步；异步加载拆成 UniTaskVoid
+        LoadIcon().Forget(ex =>
+        {
+            if (ex is OperationCanceledException && Bag.IsDisposed) return;
+            Log.Error("Icon loading failed.", ex, nameof(IconView));
+        }); // Awake 保持同步；异步 task 有明确 owner 与错误观察点
     }
 
-    private async UniTaskVoid LoadIcon()
+    private async UniTask LoadIcon()
     {
         var icon = await _iconRef.Get();   // 宿主销毁自动取消，无需手动传 token
         if (icon != null) _image.sprite = icon;
@@ -1288,7 +1292,7 @@ public class IconView : MonoViewBase
 }
 ```
 
-> 不要写 `async void Awake()`：能编译能跑，但异常会逃出 Unity 生命周期无从捕获、也无法被取消令牌管住。固定姿势是 Awake 同步、异步逻辑拆成 `async UniTaskVoid` 方法 `.Forget()`（UniTaskVoid 的异常会走 UniTask 的统一异常处理）。
+> 不要写 `async void Awake()`，也不要用 `UniTaskVoid + 裸 Forget()`：两者都让调用点失去明确的错误观察。固定姿势是 Awake 同步、异步逻辑返回 `UniTask`；同步生命周期无法 await 时，用带异常回调的 `Forget`，只静默宿主销毁引起的预期 OCE，其他失败进入 `Log`。
 
 动态路径加载（在 MonoXxxBase 子类里）：
 
@@ -2694,8 +2698,8 @@ await ws.Send("say", new SayReq { Text = "hi" });               // 客户端 →
 |---|---|
 | `State` | `ReadOnlyReactiveProperty<NetworkConnectionState>`（Disconnected/Connecting/Connected） |
 | `RegisterPush<TEvent>(type)` | 推送 type → 框架事件映射；重复注册抛 |
-| `Connect(url)` / `Disconnect()` | 建连（已连时抛）/ 优雅关闭（未连 = no-op；连接中 = 取消在途 Connect、不发关闭事件） |
-| `Send<T>(type, payload)` / `Send(type)` | 发消息（内部 FIFO 保序）；未连接、或发送中途连接断掉，均抛 `NetworkException(ConnectionError)` |
+| `Connect(url)` / `Disconnect()` | 建连（已连时抛；上一代正在 Close 时内部等待）/ 优雅关闭（未连 = no-op；连接中 = 取消在途 Connect、不发关闭事件） |
+| `Send<T>(type, payload)` / `Send(type)` | 发消息（每个连接代际内 FIFO 保序）；未连接、发送中途断掉、或旧帧排队时连接已替换，均抛 `NetworkException(ConnectionError)` |
 
 ### 失败语义（单一 `NetworkException` + `Kind` 分级）
 
@@ -2704,6 +2708,8 @@ await ws.Send("say", new SayReq { Text = "hi" });               // 客户端 →
 | DNS / 拒连 / 断网 | `NetworkException(ConnectionError)` |
 | 超时（内部计时触发） | `NetworkException(Timeout)`——与外部取消**严格区分** |
 | 外部 `ct` 取消 | `OperationCanceledException`（不包装，调用方意图） |
+| `Disconnect` 入口 ct 已取消 | OCE，尚未提交断开；连接保持可用、不发事件 |
+| `Disconnect` 已开始后 ct 取消 | session 仍清理并发 ByUser=true，随后调用方收到 OCE（取消的是优雅握手等待，不是回滚断开意图） |
 | 非 2xx（动词门面） | `NetworkException(HttpError)`，带 `StatusCode` + `ResponseBody` |
 | 响应体 / 推送载荷反序列化失败 | `NetworkException(DeserializeError)` |
 
@@ -2716,6 +2722,20 @@ catch (NetworkException e) when (e.Kind == NetworkErrorKind.HttpError && e.Statu
 ```
 
 线程边界框架兜住：**接收循环在后台收帧、每条推送切回主线程后才解析 + `SendEvent`**（事件系统主线程独占），业务永远在主线程收到回调；坏消息 warning + 丢弃当条、不毒化连接。
+
+### 为什么内部还有 Connection Session
+
+公开 `State` 只有 Disconnected / Connecting / Connected，表达的是“业务现在能不能使用连接”，不是底层 socket 的每一个握手阶段。主动断开时，State 会先变 Disconnected；框架会等旧发送队列与 Close owner 清场后再建新连接，但不声称第三方 Adapter 中忽略取消的旧 Receive 已经物理返回。如果只用一个全局 CTS / FIFO，新 Connect 就可能被旧 Disconnect 迟到取消，旧排队帧甚至会发进新 socket。
+
+`WebSocketUtility` 因而为**每次成功连接**建立一个私有 Connection Session：这一代独占接收 token、发送 token、FIFO 队尾和一次终态发布权。每个 Provider 方法还必须在入口固定当时的物理 socket；两层隔离让旧 Receive 即使迟到，也只能结束旧 session。`Connect` 遇到上一代仍在 Close / 清发送 owner 时会等待一个永不带错的 teardown barrier，业务不需要认识额外的 Disconnecting 状态。
+
+每个成功 session 至多收到一次 `WebSocketClosedEvent`：主动 `Disconnect` 是 `ByUser=true`，对端关闭 / 收发异常（包括 provider 在 token 未取消时自发 OCE）是 `false`；发送失败会主动结束 session，不会等挂起的 Receive 碰巧再报错。Context `Dispose` 属于整棵拆除，不发事件。推荐从 ClosedEvent 启动业务重连；State 的同步回调即使表达取消/重试也不会丢 owner，但 ClosedEvent 更直接表达“本代已经终结”。
+
+两个取消边界容易误判。第一，Provider 的 `ConnectAsync` **成功返回就是物理 ownership 提交点**；普通 caller 取消若恰好与完成竞态，允许成功赢，不能在成功后再检查 token、把已经打开的 socket 丢成无 owner 资源。但 Connecting-Disconnect intent 若已先成立，框架会在发布 Connected / 启动收发前 `Abort()` 这个物理 success-win，以 OCE 收口且不发事件。第二，意外断线没有业务 caller token，框架给 best-effort Close 一个内部 1 秒上限；坏连接即使关不干净，也不能永久扣住 ClosedEvent 和后续重连。自定义 Provider 必须尊重传入 token，并实现可重连的立即 `Abort()`。
+
+`Disconnect` 在 Connecting 期会取消并**等待 Connect Attempt 的本地 outcome**，不是只发一个取消请求就返回，也不靠全局 State 猜结果；所以同步重试的新 session 不会被旧 Disconnect 误关。caller 后续取消只脱离等待，已提交的物理 success-win 仍会被 Attempt owner Abort，业务看不到短暂 Connected 窗口。第三方 Provider 的所有异步方法都允许在 worker 完成，框架会在更新 State、清 session、发布 Event 以及完成主线程公共调用（包括 worker 发起的 token 取消）前切回主线程。发送 FIFO 也遵守“失败先封 session、再唤醒后帧”：UniTask continuation 可能同步内联，不能给排队帧留下再次触碰坏 socket 的窗口。
+
+还有一个 .NET 细节很容易漏：`CancellationTokenSource.Cancel()` 会在 token 已取消后，把注册回调抛出的异常聚合再抛出来。框架的 Connect / Session / lifetime / Close-timeout owner 都会隔离并记录这类异常；超时采用显式竞速后安全 Cancel，不让 `CancelAfter` 的 timer 线程裸触发回调。State、barrier 与 Provider 释放会继续完成，但自定义 Adapter 仍不应在取消回调里抛异常。
 
 ### 重试 / 重连：框架给样板、不做黑盒
 
@@ -2730,8 +2750,16 @@ for (int attempt = 0; ; attempt++)
     { await UniTask.Delay(TimeSpan.FromSeconds(1 << attempt), cancellationToken: ct); } // 1s,2s,4s
 }
 
-// WS 断线自动重连（订关闭事件，过滤非用户主动的断开）
-Bag.Subscribe<WebSocketClosedEvent>(e => { if (!e.ByUser) ReconnectWithBackoff().Forget(); });
+// WS 断线自动重连：订关闭事件、过滤主动断开，并让重连 owner 跟随当前 Bag。
+Bag.Subscribe<WebSocketClosedEvent>(e =>
+{
+    if (e.ByUser) return;
+    ReconnectWithBackoff(Bag.DisposeToken).Forget(ex =>
+    {
+        if (ex is OperationCanceledException && Bag.IsDisposed) return; // 生命周期正常结束
+        Log.Error("WebSocket reconnect loop failed.", ex, "Network");  // 非取消异常必须被观察
+    });
+});
 ```
 
 ### 换序列化器：内置 Protobuf 实现 / 接入真库
@@ -2788,7 +2816,7 @@ builder.RegisterOwned(new WebSocketUtility(serializer: proto), typeof(IWebSocket
 >
 > - 请求-响应 = `await Get/Post`（非 2xx 抛 `NetworkException`，查 `Kind`/`StatusCode`）；`Send` 逃生舱不抛、自己看状态码
 > - 服务器推送 = `RegisterPush<TEvent>(type)` 映射 + `Bag.Subscribe<TEvent>` 消费；推送事件用 `[Serializable] struct + 公共字段`
-> - 超时（`Timeout`）与外部取消（`OCE`）严格区分；后台推送切主线程后才扇出，业务永在主线程收到
+> - 超时（`Timeout`）与外部取消（`OCE`）严格区分；每次成功 WS 连接有独立 session，旧收发不会穿越到新连接
 > - 重试 / 重连业务自己写（框架给样板）；换传输 / 换格式两个接缝，构造注入、业务零改动
 
 ---

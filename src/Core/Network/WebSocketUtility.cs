@@ -19,17 +19,22 @@ namespace Game.Framework.Network
     /// <remarks>
     /// <b>Context 回填</b>：实现 <see cref="IHasGameContext"/>，<c>RegisterOwned</c> 注册即注入时 <c>AttachTo</c>
     /// 反射回写 <see cref="_context"/>（照 GameFlow 姿势）——<see cref="Send{T}"/> 转事件需要它。<br/>
+    /// <b>Connection Session</b>：每次成功 Connect 建立一个内部代际 owner，独占接收 token、发送 token 与 FIFO 队尾；
+    /// 只有仍是 current 的 session 能发布终态。旧接收 continuation 迟到只结束自己，旧排队帧以 ConnectionError 收口，
+    /// 不会触碰新连接。<br/>
     /// <b>接收循环线程模型</b>：后台 <c>ReceiveAsync</c> → 每条消息 <c>SwitchToMainThread</c> → 解析 envelope +
-    /// 查注册表 + <c>SendEvent</c>（事件系统主线程独占的铁律）。坏消息 warning + 丢弃当条、不毒化循环。<br/>
-    /// <b>关闭顺序</b>：<see cref="Disconnect"/> 先置 Disconnected（关闭事件去重：循环里的意外断开处理见状态
-    /// 已变便不重复发 <see cref="WebSocketClosedEvent"/>），再发 Close 帧，最后才停循环——若先取消循环，
-    /// 挂起的 ReceiveAsync 被取消会直接中止底层连接，Close 帧发不出去。Connecting 期间调 Disconnect
-    /// 则取消在途 Connect（其 await 收到 OCE），不发 ClosedEvent。<br/>
+    /// 查注册表 + <c>SendEvent</c>（事件系统主线程独占的铁律）。坏消息 warning + 丢弃当条、不毒化循环；
+    /// 只有 session token 已取消的 OCE 才静默，provider 自发 OCE 也是可观察的意外断线。<br/>
+    /// <b>关闭顺序</b>：<see cref="Disconnect"/> 先 claim 当前 session、建立 teardown barrier、置 Disconnected 并停止本代发送；
+    /// 等发送退场后发 Close 帧，最后才停接收。后续 Connect 只等永远成功的内部 barrier，不继承前一个调用者的 OCE；
+    /// Connecting 期间调 Disconnect 则取消在途 Connect（其 await 收到 OCE），不发 ClosedEvent。<br/>
     /// <b>Dispose</b>：取消循环 + 关闭连接 + 释放 provider，随宿主 Context 整棵撤；此路径不发 ClosedEvent
     /// （整个 Context 在拆，订阅者也在拆）。
     /// </remarks>
     public sealed class WebSocketUtility : IWebSocketUtility, IHasGameContext, IDisposable
     {
+        private static readonly TimeSpan UnexpectedCloseTimeout = TimeSpan.FromSeconds(1);
+
         // 默认（JSON）envelope wire 格式：payload 是「载荷的 JSON 文本」二次编码（ADR-0028 §4）。JsonUtility 需要公共字段。
         // 序列化器实现 IWebSocketEnvelopeSerializer 时不走此类型——envelope 编解码整体交给序列化器（payload 保持 byte[]）。
         [Serializable]
@@ -37,6 +42,89 @@ namespace Game.Framework.Network
         {
             public string type;
             public string payload;
+        }
+
+        /// <summary>
+        /// 一次成功连接的内部 owner。接收取消、发送取消与 FIFO 队尾都归当前代际，避免旧连接的迟到 continuation
+        /// 触碰新连接。Generation 只用于诊断；是否仍有发布权以对象引用相等为准。
+        /// </summary>
+        private sealed class ConnectionSession : IDisposable
+        {
+            private readonly CancellationTokenSource _receiveCts;
+            private readonly CancellationTokenSource _sendCts;
+            private int _disposed;
+            private int _terminalClaimed;
+
+            public readonly long Generation;
+            public readonly CancellationToken ReceiveToken;
+            public readonly CancellationToken SendToken;
+            public bool IsClosing { get; private set; }
+            public UniTask SendTail = UniTask.CompletedTask;
+
+            public ConnectionSession(long generation, CancellationToken lifetimeToken)
+            {
+                Generation = generation;
+                _receiveCts = CancellationTokenSource.CreateLinkedTokenSource(lifetimeToken);
+                _sendCts = CancellationTokenSource.CreateLinkedTokenSource(lifetimeToken);
+                ReceiveToken = _receiveCts.Token;
+                SendToken = _sendCts.Token;
+            }
+
+            /// <summary>停止接受本代新发送，并取消已经排队/在途的发送；接收保留到 Close 帧尝试完成。</summary>
+            public void BeginClosing()
+            {
+                if (IsClosing) return;
+                IsClosing = true;
+                CancelOwnerSafely(_sendCts, $"WebSocket 会话 #{Generation} 的发送 owner");
+            }
+
+            public void CancelAll()
+            {
+                CancelOwnerSafely(_sendCts, $"WebSocket 会话 #{Generation} 的发送 owner");
+                CancelOwnerSafely(_receiveCts, $"WebSocket 会话 #{Generation} 的接收 owner");
+            }
+
+            public bool TryClaimTerminal()
+                => Interlocked.CompareExchange(ref _terminalClaimed, 1, 0) == 0;
+
+            public void Dispose()
+            {
+                if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+                _sendCts.Dispose();
+                _receiveCts.Dispose();
+            }
+        }
+
+        /// <summary>一次在途 Connect 的本地 owner 与结果。Completion 只返回本次尝试提交的 session，不读全局 State。</summary>
+        private sealed class ConnectAttempt : IDisposable
+        {
+            private readonly CancellationTokenSource _cts;
+            private int _disconnectRequested;
+            private int _disposed;
+
+            public readonly CancellationToken Token;
+            public readonly UniTaskCompletionSource<ConnectionSession> Completion = new();
+            public bool IsDisconnectRequested => Volatile.Read(ref _disconnectRequested) != 0;
+
+            public ConnectAttempt(CancellationToken callerToken, CancellationToken lifetimeToken)
+            {
+                _cts = CancellationTokenSource.CreateLinkedTokenSource(callerToken, lifetimeToken);
+                Token = _cts.Token;
+            }
+
+            public void RequestDisconnect()
+            {
+                if (Interlocked.Exchange(ref _disconnectRequested, 1) != 0) return;
+                CancelOwnerSafely(_cts, "WebSocket Connect owner");
+            }
+
+            public void Complete(ConnectionSession session) => Completion.TrySetResult(session);
+
+            public void Dispose()
+            {
+                if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+                _cts.Dispose();
+            }
         }
 
         private readonly IWebSocketProvider _provider;
@@ -47,9 +135,10 @@ namespace Game.Framework.Network
         private readonly CancellationTokenSource _lifetimeCts = new();
 
         private GameContext _context; // RegisterOwned 注册即注入时由 AttachTo 回填
-        private CancellationTokenSource _connectCts; // 在途 Connect 专用（让 Connecting 期的 Disconnect 能取消它）；Connect 的 finally 负责回收
-        private CancellationTokenSource _loopCts;
-        private UniTask _sendTail = UniTask.CompletedTask; // 发送 FIFO 队尾（主线程独占，无锁）
+        private ConnectAttempt _connectAttempt;
+        private ConnectionSession _activeSession;
+        private UniTask _disconnectBarrier = UniTask.CompletedTask; // 只等待旧 Close/Send owner 清场；永远成功，不泄露其调用者取消
+        private long _nextSessionGeneration;
         private bool _disposed;
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
@@ -117,98 +206,211 @@ namespace Game.Framework.Network
             try { uri = new Uri(url); }
             catch (Exception e) { throw new ArgumentException($"url '{url}' 格式非法：{e.Message}", nameof(url)); }
 
-            _state.Value = NetworkConnectionState.Connecting;
-            var connectCts = CancellationTokenSource.CreateLinkedTokenSource(ct, _lifetimeCts.Token);
-            _connectCts = connectCts; // 存进字段：Connecting 期间的 Disconnect 靠它取消在途连接
+            // Disconnect 已把公开 State 置为 Disconnected 时，底层 Close 可能仍在退场。只等内部成功 barrier，
+            // 不 await 上一个调用者的公共 Disconnect task（否则它的 OCE 会错误传给无关的 Connect）。
             try
             {
-                await _provider.ConnectAsync(uri, connectCts.Token);
+                await WaitForDisconnectBarrier(ct);
             }
-            catch (OperationCanceledException)
+            catch
             {
-                if (!_disposed) _state.Value = NetworkConnectionState.Disconnected; // 宿主已 Dispose 时 _state 已释放，不能再写
-                throw; // 外部取消 / 宿主释放 / Disconnect 取消：原样抛，不包装
+                // caller/lifetime token 可能从 worker 取消 barrier waiter；公共主线程 API 的异常 continuation 仍回主线程。
+                await UniTask.SwitchToMainThread();
+                throw;
             }
-            catch (Exception e)
+            ThrowIfDisposed();
+            if (_state.Value != NetworkConnectionState.Disconnected || _activeSession != null)
+                throw new InvalidOperationException($"[WebSocketUtility] 当前状态 {_state.Value}，不能重复 Connect——先 Disconnect。旧连接仍在收尾时 Connect 会自动等待。");
+
+            var attempt = new ConnectAttempt(ct, _lifetimeCts.Token);
+            ConnectionSession committedSession = null;
+            // owner 必须先于响应式状态发布：State 订阅者可能在 Connecting 回调里同步 Disconnect。
+            _connectAttempt = attempt;
+            try
             {
-                if (!_disposed) _state.Value = NetworkConnectionState.Disconnected;
-                throw new NetworkException(NetworkErrorKind.ConnectionError, $"WebSocket 连接失败：{url}（{e.Message}）", inner: e);
+                try
+                {
+                    _state.Value = NetworkConnectionState.Connecting;
+                    await _provider.ConnectAsync(uri, attempt.Token);
+                    await UniTask.SwitchToMainThread();
+                    // Provider 成功返回就是物理连接 ownership 的提交点。取消若与成功竞态，允许成功赢；
+                    // 再做 post-check 会制造“provider 已发布 socket、utility 却不建 session”的无 owner 缝隙。
+                }
+                catch (OperationCanceledException e)
+                {
+                    await UniTask.SwitchToMainThread();
+                    bool ownerCanceled = attempt.Token.IsCancellationRequested;
+                    // 先按 identity 摘除旧 owner，再发布 Disconnected：订阅者同步发起的新 Connect 不会被旧 finally 清掉。
+                    ClearConnectOwner(attempt);
+                    if (!_disposed) _state.Value = NetworkConnectionState.Disconnected;
+
+                    if (ownerCanceled)
+                        throw; // caller / lifetime / Disconnect 取消：原样保留 OCE
+
+                    throw new NetworkException(NetworkErrorKind.ConnectionError,
+                        $"WebSocket 连接被传输层意外取消：{url}（{e.Message}）", inner: e);
+                }
+                catch (Exception e)
+                {
+                    await UniTask.SwitchToMainThread();
+                    bool ownerCanceled = attempt.Token.IsCancellationRequested;
+                    ClearConnectOwner(attempt);
+                    if (!_disposed) _state.Value = NetworkConnectionState.Disconnected;
+                    if (ownerCanceled)
+                        throw new OperationCanceledException("WebSocket 建连随调用方或宿主生命周期取消。", e, attempt.Token);
+                    throw new NetworkException(NetworkErrorKind.ConnectionError, $"WebSocket 连接失败：{url}（{e.Message}）", inner: e);
+                }
+
+                // provider 若违规忽略 Dispose 取消并迟到成功，也不能把已结束的宿主重新写成 Connected。
+                if (_disposed)
+                    throw new ObjectDisposedException(nameof(WebSocketUtility), "WebSocket 在连接完成前已随 Context 释放。");
+
+                if (attempt.IsDisconnectRequested)
+                {
+                    // Disconnect 意图早于逻辑提交：即使物理成功赢得取消竞态，也不能短暂发布 Connected、允许 Send/Push。
+                    // Abort 是 Provider 的可重连物理重置，不等 Close 握手，也不产生 ClosedEvent（本 session 从未公开成立）。
+                    AbortProviderSafely("Connecting 期取消在物理成功后收尾");
+                    ClearConnectOwner(attempt);
+                    _state.Value = NetworkConnectionState.Disconnected;
+                    throw new OperationCanceledException("WebSocket 在逻辑提交前被 Disconnect 取消。", attempt.Token);
+                }
+
+                var session = new ConnectionSession(++_nextSessionGeneration, _lifetimeCts.Token);
+                committedSession = session; // completion 的本地 outcome；必须先于任何 State 同步重入写入
+                _activeSession = session;
+                _state.Value = NetworkConnectionState.Connected;
+                ReceiveLoop(session).Forget(e => Log.Error(
+                    $"WebSocket 接收会话 #{session.Generation} 越过统一终态边界抛出异常。",
+                    e, nameof(WebSocketUtility)));
             }
             finally
             {
-                _connectCts = null;
-                connectCts.Dispose();
+                ClearConnectOwner(attempt);
+                // 所有成功、失败、Dispose 与 State 回调异常路径都必须放行本 attempt 的 waiter。
+                attempt.Complete(committedSession);
+                attempt.Dispose();
             }
-
-            _state.Value = NetworkConnectionState.Connected;
-            _loopCts?.Dispose(); // 上一条连接意外断开时循环自行退出、CTS 留到此刻回收——不回收会随重连次数累积对 _lifetimeCts 的注册
-            _loopCts = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCts.Token);
-            ReceiveLoop(_loopCts.Token).Forget();
         }
 
         public async UniTask Disconnect(CancellationToken ct = default)
         {
-            if (_disposed || _state.Value == NetworkConnectionState.Disconnected) return; // 未连接 = no-op
+            if (_disposed || _state.Value == NetworkConnectionState.Disconnected) return; // 未连接 / 已在关闭 = no-op
+            ct.ThrowIfCancellationRequested(); // 尚未提交断开意图：入口取消不改变连接
 
             if (_state.Value == NetworkConnectionState.Connecting)
             {
-                // 取消在途 Connect（其 await 收到 OCE、状态由 Connect 的 catch 回滚）；从未连接成功，不发 ClosedEvent。
-                _connectCts?.Cancel();
+                ConnectAttempt attempt = _connectAttempt;
+                if (attempt == null) return;
+
+                // cleanup 不继承 caller ct：意图一经提交，即使 caller 随后取消，也要继续观察本 attempt 的本地 outcome。
+                // 外层 Attach 只让调用方脱离等待；底层清理由此 task 持续拥有。
+                UniTask cleanup = CancelConnectAttemptAndCommittedSession(attempt);
+                try
+                {
+                    await cleanup.AttachExternalCancellation(ct);
+                }
+                finally
+                {
+                    await UniTask.SwitchToMainThread();
+                }
                 return;
             }
 
-            // 先置 Disconnected：接收循环随后无论因收到 Close ack 还是被取消退出，都不再重复发 ClosedEvent（去重）。
+            ConnectionSession session = _activeSession;
+            if (session == null || session.IsClosing || !session.TryClaimTerminal()) return;
+
+            // barrier 必须先于 State 更新建立：State 订阅若同步发起 Connect，会等待本次 provider Close 退场，
+            // 不会与旧 socket 的关闭握手交叠。公开状态立即变 Disconnected，同时 session 仍占位阻止重入误判。
+            var teardownGate = new UniTaskCompletionSource();
+            _disconnectBarrier = teardownGate.Task.Preserve();
+            session.BeginClosing();
             _state.Value = NetworkConnectionState.Disconnected;
 
             try
             {
-                // 先发 Close 帧、后停循环——若先取消循环，挂起的 ReceiveAsync 被取消会直接中止（abort）底层连接，
-                // Close 帧根本发不出去，对端只能看到异常断开。「优雅关闭」对这个顺序敏感。
                 using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _lifetimeCts.Token);
+
+                // SendToken 已取消：在途/排队发送会沿各自 task 以 ConnectionError 收口。等本代 FIFO 物理退场后再发 Close，
+                // 避免 ClientWebSocket 的「单时刻只允许一个 send」约束与 CloseOutputAsync 冲突。
+                await session.SendTail.AttachExternalCancellation(linked.Token);
+
+                // 先发 Close 帧、后停接收——若先取消 ReceiveAsync，ClientWebSocket 会 abort 底层连接，
+                // Close 帧根本发不出去，对端只能看到异常断开。「优雅关闭」对这个顺序敏感。
                 await _provider.CloseAsync(linked.Token);
+                await UniTask.SwitchToMainThread();
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested || _disposed || session.ReceiveToken.IsCancellationRequested)
+            {
+                await UniTask.SwitchToMainThread();
+                throw; // 调用者 / 宿主取消只终止优雅握手等待；逻辑断开与 session 清理由 finally 保证
+            }
+            catch (OperationCanceledException e)
+            {
+                await UniTask.SwitchToMainThread();
+                // linked token 未取消时，OCE 来自 provider 自身：这是关闭握手失败，不是调用方取消。
+                Log.Warning($"关闭握手被传输层意外取消（{e.Message}），连接已按断开处理。", "WebSocketUtility");
             }
             catch (Exception e)
             {
+                await UniTask.SwitchToMainThread();
                 // 关闭握手失败无关紧要（对端可能已走）——记一条不抛，Disconnect 的语义是「尽力优雅关」
                 Log.Warning($"关闭握手未完成（{e.GetType().Name}: {e.Message}），连接已按断开处理。", "WebSocketUtility");
             }
+            finally
+            {
+                await UniTask.SwitchToMainThread();
+                if (ReferenceEquals(_activeSession, session))
+                    _activeSession = null;
+                AbortProviderSafely("主动断开 session 收尾");
+                session.CancelAll();
+                session.Dispose();
 
-            // Close 帧已发出（或已尽力），不等对端 ack：取消并回收循环 CTS。
-            _loopCts?.Cancel();
-            _loopCts?.Dispose();
-            _loopCts = null;
-
-            _context?.SendEvent(new WebSocketClosedEvent(byUser: true, reason: "用户主动断开"));
+                // ClosedEvent 先于 barrier 放行：业务从官方事件发起的重连会排在旧会话事件之后，不会看到
+                // 「新连接已 Connected，随后却收到旧连接关闭事件」的时序倒挂。
+                try
+                {
+                    if (!_disposed)
+                        _context?.SendEvent(new WebSocketClosedEvent(byUser: true, reason: "用户主动断开"));
+                }
+                finally
+                {
+                    _disconnectBarrier = UniTask.CompletedTask;
+                    teardownGate.TrySetResult();
+                }
+            }
         }
 
         public UniTask Send<T>(string type, T payload, CancellationToken ct = default) where T : class
         {
-            EnsureConnected();
+            ConnectionSession session = EnsureConnected();
             if (payload == null) throw new ArgumentNullException(nameof(payload), "无载荷消息用 Send(type) 重载。");
-            return SendEnvelope(type, _serializer.Serialize(payload), ct);
+            return SendEnvelope(type, _serializer.Serialize(payload), session, ct);
         }
 
         public UniTask Send(string type, CancellationToken ct = default)
         {
-            EnsureConnected();
-            return SendEnvelope(type, Array.Empty<byte>(), ct);
+            ConnectionSession session = EnsureConnected();
+            return SendEnvelope(type, Array.Empty<byte>(), session, ct);
         }
 
         public void Dispose()
         {
             if (_disposed) return;
             _disposed = true;
-            _lifetimeCts.Cancel();
-            _loopCts?.Cancel();
+            ConnectionSession session = _activeSession;
+            _activeSession = null;
+            session?.TryClaimTerminal();
+            CancelOwnerSafely(_lifetimeCts, "WebSocket Utility lifetime owner");
+            session?.CancelAll();
+            session?.Dispose();
             _lifetimeCts.Dispose();
-            _loopCts?.Dispose();
             _provider.Dispose();
             _state.Dispose();
         }
 
         // ── 内部 ─────────────────────────────────────────────────────────────
 
-        private UniTask SendEnvelope(string type, byte[] payloadBytes, CancellationToken ct)
+        private UniTask SendEnvelope(string type, byte[] payloadBytes, ConnectionSession session, CancellationToken ct)
         {
             if (string.IsNullOrEmpty(type)) throw new ArgumentException("type 不能为空。", nameof(type));
             // envelope 序列化器接管时 payload 保持 byte[]；兼容路径按既有 JSON wire 格式把 payload 转为文本二次编码
@@ -220,66 +422,163 @@ namespace Game.Framework.Network
                     type = type,
                     payload = payloadBytes.Length == 0 ? string.Empty : Encoding.UTF8.GetString(payloadBytes),
                 });
-            return EnqueueSend(frame, ct);
+            return EnqueueSend(frame, session, ct);
         }
 
-        // 发送 FIFO 尾链（照 StorageUtility）：单 socket 不允许并发写，逐个发；哨兵 finally 必然完成，异常只传各自调用方。
-        private async UniTask EnqueueSend(byte[] frame, CancellationToken ct)
+        // FIFO 队尾属于连接 session 而非整个 utility：新连接不等待旧代队列，排队旧帧也绝不会写进新 socket。
+        private async UniTask EnqueueSend(byte[] frame, ConnectionSession session, CancellationToken ct)
         {
-            UniTask prev = _sendTail;
+            UniTask prev = session.SendTail;
             var gate = new UniTaskCompletionSource();
-            _sendTail = gate.Task;
+            session.SendTail = gate.Task;
             // linked CTS 在排队等待前创建：若等待期间宿主 Dispose，之后再取 _lifetimeCts.Token 会抛 ODE 而非约定的取消。
-            using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _lifetimeCts.Token);
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _lifetimeCts.Token, session.SendToken);
+            NetworkException transportFailure = null;
+            string terminalReason = null;
+            bool providerInvoked = false;
+            UniTaskCompletionSource teardownGate = null;
             try
             {
-                await prev; // 前一条的哨兵必然完成（finally 保证），这里永不抛
-                linked.Token.ThrowIfCancellationRequested(); // 排队期间被取消 / 宿主释放：不再碰 socket
                 try
                 {
+                    await prev; // 前一条的哨兵必然完成（finally 保证），这里永不抛
+                    linked.Token.ThrowIfCancellationRequested(); // 排队期间被取消 / 宿主释放：不再碰 socket
+                    if (!ReferenceEquals(_activeSession, session) || session.IsClosing ||
+                        _state.Value != NetworkConnectionState.Connected)
+                    {
+                        throw new NetworkException(NetworkErrorKind.ConnectionError,
+                            $"WebSocket 发送所属的连接会话 #{session.Generation} 已结束，旧帧不会转发到新连接。");
+                    }
+
+                    providerInvoked = true;
                     await _provider.SendAsync(frame, _envelopeSerializer?.UseBinaryFrames ?? false, linked.Token);
                 }
-                catch (OperationCanceledException) { throw; } // 取消原样抛（调用方意图 / 宿主释放）
+                catch (OperationCanceledException) when (ct.IsCancellationRequested || _disposed)
+                {
+                    throw; // 调用方意图 / 宿主释放：OCE 原样保留
+                }
+                catch (OperationCanceledException e)
+                {
+                    // session 被 Disconnect 关闭，或 provider 在 token 未取消时自发 OCE：对这个 Send 都是连接失效，
+                    // 不能把内部 owner 的取消伪装成调用方取消。排队期与物理发送期统一在这里收口。
+                    transportFailure = new NetworkException(NetworkErrorKind.ConnectionError,
+                        $"WebSocket 发送失败：连接会话 #{session.Generation} 已结束或传输被意外取消。", inner: e);
+                    if (!session.SendToken.IsCancellationRequested)
+                        terminalReason = "WebSocket 发送被传输层意外取消";
+                }
+                catch (NetworkException e) when (providerInvoked)
+                {
+                    // Adapter 也允许直接使用框架的 NetworkException；只要异常来自物理 Send，就同样终结 current session。
+                    transportFailure = e;
+                    terminalReason = string.IsNullOrWhiteSpace(e.Message) ? "WebSocket 发送异常结束" : e.Message;
+                }
+                catch (NetworkException)
+                {
+                    throw;
+                }
                 catch (Exception e)
                 {
                     // 发送中途 socket 断掉（EnsureConnected 只挡得住「调用时未连接」）：折叠为 ConnectionError，
-                    // 不让 WebSocketException 之类传输层原始异常泄给业务；连接失效由接收循环兜底发 ClosedEvent。
-                    throw new NetworkException(NetworkErrorKind.ConnectionError, $"WebSocket 发送失败：{e.Message}", inner: e);
+                    // 不让 WebSocketException 之类传输层原始异常泄给业务；发送本身也必须终结 session，不能依赖接收恰好随后失败。
+                    transportFailure = new NetworkException(NetworkErrorKind.ConnectionError, $"WebSocket 发送失败：{e.Message}", inner: e);
+                    terminalReason = string.IsNullOrWhiteSpace(e.Message) ? "WebSocket 发送异常结束" : e.Message;
+                }
+
+                if (transportFailure != null && terminalReason != null)
+                {
+                    // 必须先 claim + 取消本代队列，再释放本帧 gate。UniTask continuation 可能同步内联；顺序反过来时，
+                    // 下一帧会在本帧调用 Complete 前仍看到 Connected，并错误地再次碰 provider。
+                    await UniTask.SwitchToMainThread();
+                    teardownGate = TryBeginUnexpectedSession(session);
                 }
             }
-            finally { gate.TrySetResult(); }
+            finally
+            {
+                // Provider 可在 worker 完成；FIFO continuation 与公共 API 完成统一回主线程。
+                await UniTask.SwitchToMainThread();
+                gate.TrySetResult();
+            }
+
+            if (transportFailure == null) return;
+            if (teardownGate != null)
+                await FinishUnexpectedSession(session, terminalReason, teardownGate);
+            throw transportFailure;
         }
 
-        private async UniTaskVoid ReceiveLoop(CancellationToken loopCt)
+        private async UniTask ReceiveLoop(ConnectionSession session)
         {
-            while (!loopCt.IsCancellationRequested)
+            string lostReason = null;
+            Exception terminalError = null;
+            bool infrastructureFailure = false;
+
+            try
             {
-                byte[] message = null;
-                string lostReason = null;
-                try
+                while (!session.ReceiveToken.IsCancellationRequested)
                 {
-                    message = await _provider.ReceiveAsync(loopCt);
-                    if (message == null) lostReason = "服务器关闭了连接"; // 对端正常关闭
-                }
-                catch (OperationCanceledException)
-                {
-                    return; // Disconnect / Dispose 取消：静默退出，关闭事件由 Disconnect 负责发
-                }
-                catch (Exception e)
-                {
-                    lostReason = e.Message; // 异常断开
-                }
+                    byte[] message;
+                    try
+                    {
+                        message = await _provider.ReceiveAsync(session.ReceiveToken);
+                    }
+                    catch (OperationCanceledException) when (session.ReceiveToken.IsCancellationRequested)
+                    {
+                        return; // Disconnect / Dispose 的 owner 取消：静默退出，终态由 owner 负责
+                    }
+                    catch (OperationCanceledException e)
+                    {
+                        terminalError = e;
+                        lostReason = "WebSocket 接收被传输层意外取消";
+                        break;
+                    }
+                    catch (Exception e)
+                    {
+                        terminalError = e;
+                        lostReason = string.IsNullOrWhiteSpace(e.Message) ? "WebSocket 接收异常结束" : e.Message;
+                        break;
+                    }
 
-                await UniTask.SwitchToMainThread(); // 之后一切触碰框架（RP / SendEvent）都在主线程
-                if (loopCt.IsCancellationRequested) return;
+                    await UniTask.SwitchToMainThread(); // 之后一切触碰框架（RP / SendEvent）都在主线程
+                    if (session.ReceiveToken.IsCancellationRequested ||
+                        !ReferenceEquals(_activeSession, session) || session.IsClosing)
+                        return;
 
-                if (lostReason != null)
-                {
-                    OnConnectionLost(lostReason);
-                    return;
+                    if (message == null)
+                    {
+                        lostReason = "服务器关闭了连接";
+                        break;
+                    }
+
+                    Dispatch(message);
                 }
-                Dispatch(message);
             }
+            catch (OperationCanceledException) when (session.ReceiveToken.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception e)
+            {
+                terminalError = e;
+                infrastructureFailure = true;
+                lostReason = "WebSocket 接收循环内部异常";
+            }
+
+            if (lostReason == null || session.ReceiveToken.IsCancellationRequested) return;
+
+            await UniTask.SwitchToMainThread();
+            if (_disposed || session.ReceiveToken.IsCancellationRequested ||
+                !ReferenceEquals(_activeSession, session) || session.IsClosing)
+                return;
+
+            if (terminalError != null)
+            {
+                if (infrastructureFailure)
+                    Log.Error($"{lostReason}（会话 #{session.Generation}）。", terminalError, nameof(WebSocketUtility));
+                else
+                    Log.Warning($"{lostReason}（会话 #{session.Generation}，{terminalError.GetType().Name}: {terminalError.Message}）。",
+                        nameof(WebSocketUtility));
+            }
+
+            await CompleteUnexpectedSession(session, lostReason);
         }
 
         // 主线程：解析 envelope → 查注册表 → 交给对应闭包（内部再反序列化 payload 并 SendEvent）。
@@ -318,20 +617,145 @@ namespace Game.Framework.Network
             handler(payload);
         }
 
-        // 意外断开（对端关闭 / 收发异常）——主线程调用。Disconnect 已把状态置 Disconnected 时不重复发事件。
-        private void OnConnectionLost(string reason)
+        // 意外断开（对端关闭 / 收发异常）——只允许当前 session claim 一次终态；统一尝试关闭物理连接后再放行重连。
+        private async UniTask CompleteUnexpectedSession(ConnectionSession session, string reason)
         {
-            if (_state.Value == NetworkConnectionState.Disconnected) return;
-            _state.Value = NetworkConnectionState.Disconnected;
-            _context?.SendEvent(new WebSocketClosedEvent(byUser: false, reason: reason));
+            await UniTask.SwitchToMainThread();
+            UniTaskCompletionSource teardownGate = TryBeginUnexpectedSession(session);
+            if (teardownGate == null) return;
+            await FinishUnexpectedSession(session, reason, teardownGate);
         }
 
-        private void EnsureConnected()
+        /// <summary>主线程：抢占终态并在任何 FIFO continuation 被唤醒前撤销本代发送资格。</summary>
+        private UniTaskCompletionSource TryBeginUnexpectedSession(ConnectionSession session)
+        {
+            if (_disposed || !ReferenceEquals(_activeSession, session) || !session.TryClaimTerminal()) return null;
+
+            // barrier 必须先于 State 发布。State / ClosedEvent 的同步回调都可以表达重连，但会等本次 Close/Send owner 清场。
+            var teardownGate = new UniTaskCompletionSource();
+            _disconnectBarrier = teardownGate.Task.Preserve();
+            session.BeginClosing();
+            _state.Value = NetworkConnectionState.Disconnected;
+            return teardownGate;
+        }
+
+        private async UniTask FinishUnexpectedSession(
+            ConnectionSession session,
+            string reason,
+            UniTaskCompletionSource teardownGate)
+        {
+            try
+            {
+                // Begin 已取消所有排队帧；当前失败帧释放 gate 后，FIFO 会依次以 ConnectionError 收口，最后再碰 Close。
+                await session.SendTail;
+                using var closeCts = CancellationTokenSource.CreateLinkedTokenSource(session.ReceiveToken);
+                UniTask closeTask = _provider.CloseAsync(closeCts.Token).Preserve();
+                int winner = await UniTask.WhenAny(closeTask, UniTask.Delay(UnexpectedCloseTimeout));
+                if (winner != 0)
+                {
+                    // 不用 CTS.CancelAfter：timer 线程触发时，Adapter 的坏取消回调异常会越过本 owner 的 try/catch。
+                    // 显式竞速后由框架 owner 安全取消，再观察 Close task 到终态。
+                    CancelOwnerSafely(closeCts, $"WebSocket 会话 #{session.Generation} 的意外 Close timeout owner");
+                }
+                await closeTask;
+            }
+            catch (OperationCanceledException) when (_disposed || session.ReceiveToken.IsCancellationRequested)
+            {
+                // 宿主拆除已经接管清理，不再对外发布终态。
+            }
+            catch (Exception e)
+            {
+                await UniTask.SwitchToMainThread();
+                Log.Warning($"意外断线后的关闭收尾未完成（{e.GetType().Name}: {e.Message}）。", nameof(WebSocketUtility));
+            }
+            finally
+            {
+                await UniTask.SwitchToMainThread();
+                if (ReferenceEquals(_activeSession, session))
+                    _activeSession = null;
+                AbortProviderSafely("意外断线 session 收尾");
+                session.CancelAll();
+                session.Dispose();
+
+                try
+                {
+                    if (!_disposed)
+                        _context?.SendEvent(new WebSocketClosedEvent(byUser: false, reason: reason));
+                }
+                finally
+                {
+                    _disconnectBarrier = UniTask.CompletedTask;
+                    teardownGate.TrySetResult();
+                }
+            }
+        }
+
+        private ConnectionSession EnsureConnected()
         {
             ThrowIfDisposed();
-            if (_state.Value != NetworkConnectionState.Connected)
+            ConnectionSession session = _activeSession;
+            if (_state.Value != NetworkConnectionState.Connected || session == null || session.IsClosing)
                 throw new NetworkException(NetworkErrorKind.ConnectionError,
                     $"WebSocket 未连接（当前 {_state.Value}），无法发送——先 await Connect(url)。");
+            return session;
+        }
+
+        private async UniTask WaitForDisconnectBarrier(CancellationToken ct)
+        {
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _lifetimeCts.Token);
+            linked.Token.ThrowIfCancellationRequested();
+            UniTask barrier = _disconnectBarrier;
+            await barrier.AttachExternalCancellation(linked.Token);
+        }
+
+        private async UniTask CancelConnectAttemptAndCommittedSession(ConnectAttempt attempt)
+        {
+            attempt.RequestDisconnect();
+            ConnectionSession committedSession = await attempt.Completion.Task;
+            await UniTask.SwitchToMainThread();
+
+            // outcome 属于本 attempt，不能用全局 State 推断；旧失败回调中新建的 session 与这里无关。
+            if (_disposed || committedSession == null || !ReferenceEquals(_activeSession, committedSession)) return;
+            try
+            {
+                await Disconnect(CancellationToken.None);
+            }
+            catch (OperationCanceledException) when (_disposed)
+            {
+                // Context Dispose 已接管清理。
+            }
+            catch (Exception e)
+            {
+                // caller 可能已经取消并脱离，后台 cleanup 不能留下未观察异常；Disconnect 的传输失败本就 best-effort。
+                Log.Error("Connecting 期已提交的断开意图在清理成功竞态 session 时异常。", e, nameof(WebSocketUtility));
+            }
+        }
+
+        private void ClearConnectOwner(ConnectAttempt attempt)
+        {
+            if (ReferenceEquals(_connectAttempt, attempt)) _connectAttempt = null;
+        }
+
+        private static void CancelOwnerSafely(CancellationTokenSource cts, string owner)
+        {
+            if (cts == null) return;
+            try { cts.Cancel(); }
+            catch (ObjectDisposedException) { /* 迟到 owner 的幂等收尾 */ }
+            catch (Exception e)
+            {
+                // CancellationToken 回调异常会从 Cancel 聚合抛出；取消已成立，不能让业务回调破坏框架 owner 清理。
+                Log.Warning($"{owner} 的取消回调抛出 {e.GetType().Name}，已隔离并继续清理（{e.Message}）。", nameof(WebSocketUtility));
+            }
+        }
+
+        private void AbortProviderSafely(string reason)
+        {
+            try { _provider.Abort(); }
+            catch (Exception e)
+            {
+                Log.Warning($"{reason}时 Provider Abort 失败，已继续逻辑清理（{e.GetType().Name}: {e.Message}）。",
+                    nameof(WebSocketUtility));
+            }
         }
 
         private void ThrowIfDisposed()
