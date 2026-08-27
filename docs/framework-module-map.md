@@ -26,7 +26,7 @@ Editor 反向引用。Adapter 不得随 Framework 分发付费插件本体。详
 
 窗口新增只读的“第三方依赖证据目录”：它从一方消费者与 what-if Profile 出发，不把无一方种子的 Package 内部关系枚举成项目依赖；同一 Package 的程序集只显示一组，Assets DLL 保留全部物理变体、Editor 与 BuildTarget 平台集合。每组分开列出当前 Player/Editor/Tests DLL 快照的结构化直接消费者、沿平台相交的外部 AssemblyRef 链回溯到的首个一方引入者、完整一方 asmdef 的删除阻塞，以及 Core/UGUI/Toolkit/任意 Module what-if 档位中的传播与体积影响。Tests 可沿 Editor 边追踪，Editor 快照不会反向冒充 Player 证据。角色看“最初是谁引入”，Profile 看“会传播到哪些组合”，两者不混算；体积按 Profile 独立计量，目录摘要明确显示最高档位，已安装 DLL 则按去重后的物理文件另行说明，不把互斥档位相加，也不伪装成 `0 B` 或玩家包体。`可随单一 Module 评估移除` 只是静态候选，不是 `SafeToRemove`；可归属到 AssemblyName 的证据缺口只收紧相关组，无法归属的全局扫描问题才收紧全部组。目录只提供定位与复制，不调用 Package Manager 安装/卸载，也不按 DLL 名猜 Adapter。详见 ADR-0042。
 
-窗口还会先只读比较唯一 Profile、HybridCLRSettings、Generate stamp、当前热更加载顺序、AOT 补元数据清单与 DLL 中转目录，再解释每个 Runtime Module 的项目 / Framework 消费者、热更依赖传播和 linker 根；之后给出 Core-only、Core + UGUI、Core + Toolkit、全部 Runtime Module、Profile 期望热更档位，以及任意 Module 作为入口的 what-if 闭包。空 Profile 不强制 Generate；只有启用场景不依赖 `HotUpdateLauncher` 的直接 AOT composition root 才可省 CodePackage，保留 Launcher 时步骤 3 会产出其 Player 分支需要的空清单包。缺失或重复 Profile 会明确告警。完整闭包、全局 / HybridCLR 生成的 linker 规则和原始报告按需展开。它同时机器执行三条删除测试：Core 不带 UI、UGUI 不带 Toolkit/Bridge、Toolkit 不带 UGUI/Bridge。
+窗口还会先只读比较唯一 Profile、HybridCLRSettings、Generate stamp、当前热更加载顺序、AOT 补元数据清单与 DLL 中转目录，再解释当前 Player 编译图发现的每个 Runtime Module、当前 DLL 消费者、完整 asmdef 删除阻塞、热更部署和 linker 根；Module 退出编译图后不会保留一张“未参与”卡片。之后窗口给出 Core-only、Core + UGUI、Core + Toolkit、全部 Runtime Module、Profile 期望热更档位，以及任意 Module 作为入口的 what-if 闭包。`autoReferenced:false` 只关闭 Assembly-CSharp 等预定义程序集的隐式引用，不代表 Module 已退出编译图或会自动从包中消失。空 Profile 不强制 Generate；只有启用场景不依赖 `HotUpdateLauncher` 的直接 AOT composition root 才可省 CodePackage，保留 Launcher 时步骤 3 会产出其 Player 分支需要的空清单包。缺失或重复 Profile 会明确告警。完整闭包、全局 / HybridCLR 生成的 linker 规则和原始报告按需展开。它同时机器执行四条声明 + 当前 DLL 双层删除测试：Core 不反向依赖任意可选 Framework Player Module（含 Boot）、Boot 不接触 Framework Runtime、UGUI 不带 Toolkit/Bridge、Toolkit 不带 UGUI/Bridge。
 
 报告里的大小是链接、AOT、压缩前的原始托管 DLL，只用于发现“一个很小的 Adapter 意外拖入很大的外部依赖”以及比较组合；它不是最终包体承诺。需要真实平台证据时打开 `SSFramework/诊断/真实构建体积证据`：探针在 `Library` 下创建隔离空工程，只复制所选 Runtime Module 和当前版本依赖，再用当前目标平台 / 脚本后端读取 Player BuildReport。所选程序集完整保留，因此结果是可重复的体积上界；详情见 ADR-0038。
 
@@ -81,6 +81,6 @@ Editor 反向引用。Adapter 不得随 Framework 分发付费插件本体。详
 - 新增第三方库时，先放入 Adapter Module；不要为了“以后也许替换”把每个类都拆成一对 Interface/Implementation。
 - 新增付费 Editor 插件集成时，原生基线必须先成立；Adapter 只依赖用户已安装的插件，不复制插件本体，并补“删除 Adapter 后仍可编辑/编译”的门禁。
 - 修改 asmdef 引用后，运行完整 Unity 测试，并检查 Boot、Core、两个 UI 后端与可选 Module 的依赖方向。
-- 运行 `SSFramework/诊断/模块裁剪审计`；隐式外部引用和第三方证据缺口应为 0，三条删除测试应通过，并逐项解释新 Module 的项目消费者、第三方依赖、热更传播与 linker 根。报告变大只作为调查信号，不以原始 DLL 字节直接宣称最终包体回归。
+- 运行 `SSFramework/诊断/模块裁剪审计`；隐式外部引用和第三方证据缺口应为 0，四条删除测试应通过，并逐项解释新 Module 的 Player 编译、项目消费者、第三方依赖、热更部署与 linker 根。报告变大只作为调查信号，不以原始 DLL 字节直接宣称最终包体回归。
 - 对包体敏感的结构决策再运行 `SSFramework/诊断/真实构建体积证据`；先切到目标平台，比较同环境下相对 Core 的体积上界，不跨平台外推。
 - 本文与实际 `.asmdef` 不一致时，以 `.asmdef` 为准并立即修正文档。
