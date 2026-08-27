@@ -2211,7 +2211,7 @@ clip 经资源系统 `Bag.Load<AudioClip>(location)` 取到再传入——加载
 
 | 成员 | 说明 |
 |---|---|
-| `PlayMusic(clip, fade, loop, volume)` | 音乐单通道：切换自动交叉淡变；同 clip 在播 = no-op；`volume` 用于曲目间响度对齐 |
+| `PlayMusic(clip, fade, loop, volume)` | 音乐单通道：切换自动交叉淡变；同 clip 在播 = no-op；`loop=false` 自然结束后自动清空并回收；`volume` 用于曲目间响度对齐 |
 | `StopMusic(fade)` / `CurrentMusic` | 停止（淡出）当前音乐 / 查询在播 clip（无音乐为 null） |
 | `PlaySfx(clip, volume, pitch, loop, group)` | 池化音效：一次性丢弃返回值；循环持 `AudioHandle` 停 |
 | `PlaySfxAt(clip, position, …, minDistance, maxDistance)` | 一次性 3D 位置音效（爆炸 / 命中——发声体可先销毁，声音播完）。⚠ `minDistance` 默认 1 是第一人称尺度：固定俯视 / 远机位要调到「监听器到战场的典型距离」量级，否则全被距离衰减压哑 |
@@ -2224,6 +2224,7 @@ clip 经资源系统 `Bag.Load<AudioClip>(location)` 取到再传入——加载
 ### 池化与生命周期
 
 - AudioSource 挂在 DontDestroyOnLoad 的 `[Game.Framework Audio]` 节点下复用（`ObjectPool<T>` 原语），高频音效不产生 Instantiate/Destroy 抖动；一次性音效播完由中央驱动自动回收（全局暂停 `AudioListener.pause` 期间不误回收）。
+- BGM 默认循环；片头 / 结算曲等一次性音乐传 `loop: false`，自然结束后 `CurrentMusic` 变为 null，voice 与 clip 引用自动释放，不需要按时长手动 Stop。
 - 淡入淡出走 **unscaled 时间**：游戏暂停（timeScale = 0）时切 BGM 照常过渡；`fadeSeconds = 0` = 立即切。
 - 失败语义**宽容**（学池，不学存储）：clip 为 null 抛参数异常；Dispose 后调用 = Editor/Dev LogError + 安全 no-op（丢一声音效不致命）；同时发声数不设上限（Unity 自带 voice 虚拟化）。
 

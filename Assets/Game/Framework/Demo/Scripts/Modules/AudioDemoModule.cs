@@ -89,6 +89,7 @@ namespace Game.Framework.Demo.Modules
             host.AddActionRow("停止音乐（StopMusic，淡出 1s）", () => audio.StopMusic(1f),
                 CodeRef.Here("audio.StopMusic(1f)", "停止音乐"));
             host.AddNote("单通道语义：同时只有一首 BGM，`PlayMusic` 就是「切到这首」——业务不用管上一首是谁、有没有在播。**同 clip 在播时重复调用是 no-op**（幂等）：连点两次「播放音乐 A」不会重头再来，场景重入直接调即可。交叉期活动声音数会短暂 +1（旧的在独立淡出），淡出完自动回收。淡变走 unscaled 时间——游戏暂停（timeScale = 0）时切 BGM 照常过渡。");
+            host.AddSubNote("默认 `loop: true` 适合 BGM；片头、结算曲等只播一次的音乐传 `loop: false`，自然结束后会自动清空 `CurrentMusic`、归还 AudioSource 并释放 clip 引用，不需要估算时长再手动 `StopMusic`。");
 
             // ── 音效 ──
             host.AddSectionTitle("音效：池化 AudioSource，一次性自动回收、循环用 handle 停");

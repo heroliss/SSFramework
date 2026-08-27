@@ -34,6 +34,7 @@ namespace Game.Framework.Audio
 
         /// <summary>
         /// 播放音乐（全局单通道）：已有音乐在播则交叉淡入淡出切换；同 clip 在播时 = no-op（幂等，场景重入直接调）。
+        /// <paramref name="loop"/> 为 false 时，曲目自然结束后自动回收并让 <see cref="CurrentMusic"/> 变为 null。
         /// <paramref name="volume"/> 是本曲的基础音量（乘在 Music 组音量之上，用于曲目间响度对齐）。
         /// </summary>
         void PlayMusic(AudioClip clip, float fadeSeconds = 0.5f, bool loop = true, float volume = 1f);

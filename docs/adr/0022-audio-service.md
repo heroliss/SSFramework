@@ -38,7 +38,7 @@ public interface IAudioUtility : IUtility
 }
 ```
 
-- **音乐是单通道语义**，不走 handle：`PlayMusic` 切换、`StopMusic` 停止，同 clip 在播时重复调用 = no-op（幂等，场景重入直接调不用先查状态）。绝大多数游戏 BGM 就是「同时只有一首」，双 BGM 叠加是罕见需求（用 loop 音效 + 自定义组即可组合出来）。
+- **音乐是单通道语义**，不走 handle：`PlayMusic` 切换、`StopMusic` 停止，同 clip 在播时重复调用 = no-op（幂等，场景重入直接调不用先查状态）。默认 `loop=true`；片头 / 结算曲传 `loop=false` 时，自然结束会清空 `CurrentMusic`、归还 voice 并释放 clip 引用。绝大多数游戏 BGM 就是「同时只有一首」，双 BGM 叠加是罕见需求（用 loop 音效 + 自定义组即可组合出来）。
 - **音效返回 `AudioHandle`**（`readonly struct`，零分配）：一次性音效可直接丢弃返回值（fire-and-forget）；循环音效（环境声 / 引擎声）持 handle 调 `Stop(fadeSeconds)`。**handle 实现 `IDisposable`**（Dispose = 立即停），可进 `DisposableBag`——循环音效随宿主 View/Context 销毁自动停，与框架生命周期心智统一。
 - **handle 陈旧安全**：音效播完 / 被停后 handle 自动失效，之后的 `Stop` / `IsPlaying` 是安全 no-op / false（voice 复用靠自增 id 区分，旧 handle 不会误停新声音）；`default(AudioHandle)` 同样安全。
 - **组是开放字符串，框架只预置 `AudioGroups.Music` / `AudioGroups.Sfx` 两个常量**：业务加 "Voice" / "Ambience" 就是自己定义常量（与存储 key 同一「常量管理字符串契约」姿势）。组不需要预注册，未设置过音量的组默认 1。
@@ -67,6 +67,7 @@ public interface IAudioUtility : IUtility
 ### 5. 淡入淡出：per-voice UniTask 驱动，unscaled 时间
 
 - 音乐切换 = 旧 voice 独立淡出后归还 + 新 voice 独立淡入——没有「双源 ping-pong」状态机，快速连切时每个旧 voice 各自完成淡出，互不打断。
+- 每次淡变持有独立 owner；完成、被新淡变接管或 voice 归还时只清理自己的 owner，且 continuation 每次恢复都重新验明身份，避免迟到任务修改或归还已经复用的 voice。淡入完成即释放 owner；若非循环短曲先自然结束，中央驱动会优先归还并取消尚未完成的淡入。
 - 用 `Time.unscaledDeltaTime` 推进：游戏暂停（timeScale = 0）时音乐淡变照常工作（暂停菜单切 BGM 是常见场景）。
 - `fadeSeconds = 0` = 立即切换/停止（测试与「不要过渡」场景都需要确定性路径）。
 
@@ -110,3 +111,8 @@ public interface IAudioUtility : IUtility
 - 淡变任务和中央 voice 回收驱动的非取消异常通过 `Game.Framework.Logging.Log` 记录，保留原始 exception；可用的 `AudioSource` 或音频根节点作为 Unity context，便于 Console 定位，也让文件/遥测 sink 获得同一证据。
 - Dispose 后误用仍只在 Editor/Development 报错并宽容 no-op；迁移日志入口不改变发布版行为。category 固定为 `AudioUtility`，默认 Console 前缀保持不变。
 - 没有为此增加新的 Audio provider 或公共 Interface。`IAudioUtility` 已是足够深的 Seam；诊断只属于现有 Implementation 的生命周期职责。
+
+## 2026-08-27 修订（Voice owner 终态闭环）
+
+- `PlayMusic(loop:false)` 自然结束后由中央驱动归还 voice，使 `CurrentMusic`、活动计数和 clip 引用恢复空闲终态；循环音乐仍只由 `PlayMusic` / `StopMusic` 显式切换。
+- 淡变 CTS 改为显式 owner：成功完成也会释放，仅当前 owner 能清理自己的槽；旧任务迟到恢复不会误伤接管它的新淡变。淡出异常仍归还已经交出所有权的 voice，避免旧声音永久滞留。

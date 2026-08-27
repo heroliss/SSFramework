@@ -35,8 +35,8 @@ namespace Game.Framework.Audio
             public string Group;
             public float BaseVolume;                   // 单次播放的基础音量（PlaySfx/PlayMusic 的 volume 参数）
             public float FadeScale = 1f;               // 淡入淡出系数 0..1，由淡变任务驱动
-            public bool IsMusic;                       // 音乐通道 voice 由 PlayMusic/StopMusic 显式管理，驱动循环不自动回收
-            public CancellationTokenSource FadeCts;    // 当前淡变任务的取消源；新淡变接管 / 归还时取消
+            public bool IsMusic;                       // 音乐通道 voice；循环曲目显式停止，非循环曲目自然结束后由驱动回收
+            public CancellationTokenSource FadeCts;    // 当前淡变任务的 owner；完成 / 接管 / 归还时清空并释放
         }
 
         private readonly ObjectPool<Voice> _pool;
@@ -314,42 +314,69 @@ namespace Game.Framework.Audio
         private void StartFade(Voice v, float from, float to, float seconds, bool thenReturn)
         {
             CancelFade(v); // 新淡变接管：旧任务（若在跑）取消，FadeScale 从 from 重新推进
-            v.FadeCts = new CancellationTokenSource();
-            RunFade(v, from, to, seconds, thenReturn, v.FadeCts.Token).Forget();
+            var owner = new CancellationTokenSource();
+            v.FadeCts = owner;
+            RunFade(v, from, to, seconds, thenReturn, owner).Forget();
         }
 
-        private async UniTaskVoid RunFade(Voice v, float from, float to, float seconds, bool thenReturn, CancellationToken ct)
+        private async UniTaskVoid RunFade(
+            Voice v,
+            float from,
+            float to,
+            float seconds,
+            bool thenReturn,
+            CancellationTokenSource owner)
         {
             try
             {
+                CancellationToken ct = owner.Token;
                 float elapsed = 0f;
                 while (elapsed < seconds)
                 {
                     await UniTask.Yield(PlayerLoopTiming.Update, ct);
+                    // Cancel 可能发生在本次 Yield 已完成、continuation 已排队之后；恢复时重新确认 owner，
+                    // 防止旧任务给已被新淡变接管、甚至已经回池复用的 voice 写状态。
+                    if (!ReferenceEquals(v.FadeCts, owner)) return;
                     elapsed += Time.unscaledDeltaTime;
                     v.FadeScale = Mathf.Lerp(from, to, Mathf.Clamp01(elapsed / seconds));
                     ApplyVolume(v);
                 }
-                if (thenReturn)
+                if (thenReturn && ReferenceEquals(v.FadeCts, owner))
                     ReturnVoice(v);
             }
             catch (OperationCanceledException) { /* 新淡变接管或 voice 已归还：正常取消 */ }
             catch (Exception e)
             {
+                if (!ReferenceEquals(v.FadeCts, owner)) return;
                 Log.Error(
                     "Audio fade task stopped unexpectedly.",
                     e,
                     nameof(AudioUtility),
                     v.Source);
+                // 淡出代表调用方已经交出该 voice 的所有权；异常时也不能让旧声音和 clip 永久滞留。
+                // 日志 sink 也可能重入音频 API，归还前再验一次 owner。
+                if (thenReturn && ReferenceEquals(v.FadeCts, owner))
+                    ReturnVoice(v);
             }
+            finally { ReleaseFadeOwner(v, owner); }
+        }
+
+        // 旧淡变的 continuation 可能晚于新淡变恢复；只允许当前 owner 清自己的槽，不能误释放接管者。
+        private static void ReleaseFadeOwner(Voice v, CancellationTokenSource owner)
+        {
+            if (!ReferenceEquals(v.FadeCts, owner)) return;
+            v.FadeCts = null;
+            owner.Dispose();
         }
 
         private static void CancelFade(Voice v)
         {
-            if (v.FadeCts == null) return;
-            v.FadeCts.Cancel();
-            v.FadeCts.Dispose();
+            var owner = v.FadeCts;
+            if (owner == null) return;
+            // 先摘 owner 再 Cancel：取消回调即使同步恢复，也只会看到“已交出”，不会与这里重复清理。
             v.FadeCts = null;
+            try { owner.Cancel(); }
+            finally { owner.Dispose(); }
         }
 
         // ── 音量应用 ──────────────────────────────────────────────────────────
@@ -367,7 +394,7 @@ namespace Game.Framework.Audio
                 ApplyVolume(_active[i]);
         }
 
-        // ── 中央驱动：自动回收播完的一次性音效 ─────────────────────────────────
+        // ── 中央驱动：自动回收播完的一次性声音 ─────────────────────────────────
         // 有活动 voice 时每帧扫一遍（数量级 <32，成本可忽略），无活动自动停跑、下次播放再启动。
 
         private void EnsureDriver()
@@ -395,8 +422,15 @@ namespace Game.Framework.Audio
                             _active.RemoveAt(i);
                             continue;
                         }
-                        if (v.IsMusic) continue;              // 音乐由 PlayMusic/StopMusic 显式管理
-                        if (v.FadeCts != null) continue;      // 淡出中的由淡变任务归还
+                        // 非循环音乐的播放终态优先于淡入：短曲可能在淡入尚未结束时就自然播完，
+                        // 此时已经没有可淡的声音，应立即归还并取消 owner，不能继续钉住 clip 到淡入时长结束。
+                        if (v.IsMusic && !v.Source.loop && !v.Source.isPlaying && !AudioListener.pause)
+                        {
+                            ReturnVoice(v);
+                            continue;
+                        }
+                        if (v.FadeCts != null) continue;      // 其余淡变仍由任务持有；淡出完成会自行归还
+                        if (v.IsMusic && v.Source.loop) continue; // 循环音乐只由 PlayMusic/StopMusic 显式切换
                         // AudioListener.pause 是全局暂停：暂停中的声音不是播完，不能回收。
                         if (!v.Source.isPlaying && !AudioListener.pause)
                             ReturnVoice(v);
