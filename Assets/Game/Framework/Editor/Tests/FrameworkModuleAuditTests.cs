@@ -1471,18 +1471,8 @@ namespace Game.Framework.Editor.Tests
         }
 
         [Test]
-        public void AllAsmdefs_PutPrecompiledDllsInTheEffectiveField()
+        public void AllFirstPartyAsmdefs_DisableGlobalPrecompiledAutoReference()
         {
-            var firstPartyPlayerAssemblies = new HashSet<string>(
-                UnityEditor.Compilation.CompilationPipeline
-                    .GetAssemblies(UnityEditor.Compilation.AssembliesType.Player)
-                    .Where(assembly => assembly.sourceFiles.Any(path =>
-                               path.Replace('\\', '/').StartsWith("Assets/Game/", StringComparison.Ordinal)) ||
-                           assembly.name.Equals(FrameworkModuleAudit.CoreAssemblyName, StringComparison.Ordinal) ||
-                           assembly.name.StartsWith(
-                               FrameworkModuleAudit.CoreAssemblyName + ".", StringComparison.Ordinal))
-                    .Select(assembly => assembly.name),
-                StringComparer.Ordinal);
             var asmdefNames = new HashSet<string>(
                 AssetDatabase.GetAllAssetPaths()
                     .Where(path => path.EndsWith(".asmdef", StringComparison.OrdinalIgnoreCase))
@@ -1515,9 +1505,8 @@ namespace Game.Framework.Editor.Tests
                                   declaration.name.StartsWith(
                                       FrameworkModuleAudit.CoreAssemblyName + ".", StringComparison.Ordinal);
                 if (!firstParty) continue;
-                if (firstPartyPlayerAssemblies.Contains(declaration.name) &&
-                    !declaration.overrideReferences)
-                    issues.Add($"{path}: 一方 Player asmdef 必须用 overrideReferences=true 关闭预编译 DLL 的全局 Auto Reference");
+                if (!declaration.overrideReferences)
+                    issues.Add($"{path}: 一方 asmdef 必须用 overrideReferences=true 关闭预编译 DLL 的全局 Auto Reference");
                 string[] misplaced = (declaration.references ?? Array.Empty<string>())
                     .Where(reference => FrameworkModuleAudit.IsPrecompiledAssemblyReference(
                         reference, asmdefNames, dllNames))
@@ -1538,8 +1527,45 @@ namespace Game.Framework.Editor.Tests
             }
 
             Assert.That(issues, Is.Empty,
-                "一方 Player asmdef 必须关闭预编译 DLL 的全局 Auto Reference；需要的 DLL 放进带后缀的 precompiledReferences。\n" +
+                "一方 Runtime、Editor 与测试 asmdef 都必须关闭预编译 DLL 的全局 Auto Reference；" +
+                "需要的 DLL 放进带后缀的 precompiledReferences。\n" +
                 string.Join("\n", issues));
+        }
+
+        [Test]
+        public void OptionalEditorAsmdefs_DisablePredefinedAssemblyAutoReference()
+        {
+            var issues = new List<string>();
+            foreach (string path in AssetDatabase.GetAllAssetPaths()
+                         .Where(path => path.StartsWith("Assets/Game/Framework/", StringComparison.Ordinal) &&
+                                        path.EndsWith(".asmdef", StringComparison.OrdinalIgnoreCase)))
+            {
+                var declaration = ReadAsmdefDeclaration(path);
+                if (declaration == null ||
+                    declaration.name == "Game.Framework.Editor" ||
+                    !(declaration.includePlatforms ?? Array.Empty<string>())
+                    .Contains("Editor", StringComparer.OrdinalIgnoreCase))
+                    continue;
+                if (declaration.autoReferenced)
+                    issues.Add($"{path}: 可删除 Editor asmdef 必须设置 autoReferenced=false；" +
+                               "业务 Editor 程序集需要使用时应显式声明 references");
+            }
+
+            Assert.That(issues, Is.Empty,
+                "可删除 Editor Module 不应让 Assembly-CSharp-Editor 获得隐式引用；" +
+                "InitializeOnLoad 与菜单加载不依赖 autoReferenced=true。\n" + string.Join("\n", issues));
+        }
+
+        [Test]
+        public void AsmdefDeclaration_MissingAutoReferencedUsesUnityDefaultTrue()
+        {
+            var omitted = JsonUtility.FromJson<AsmdefDeclaration>("{\"name\":\"MissingField\"}");
+            var explicitFalse = JsonUtility.FromJson<AsmdefDeclaration>(
+                "{\"name\":\"ExplicitFalse\",\"autoReferenced\":false}");
+
+            Assert.That(omitted.autoReferenced, Is.True,
+                "Unity 对省略 autoReferenced 的 asmdef 按 true 处理，门禁 DTO 必须采用同一默认值，不能假绿。 ");
+            Assert.That(explicitFalse.autoReferenced, Is.False);
         }
 
         [Test]
@@ -1735,6 +1761,8 @@ namespace Game.Framework.Editor.Tests
             public string[] references;
             public string[] precompiledReferences;
             public bool overrideReferences;
+            public string[] includePlatforms;
+            public bool autoReferenced = true;
         }
 
         private static AsmdefDeclaration ReadAsmdefDeclaration(string assetPath)

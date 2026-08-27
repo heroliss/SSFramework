@@ -12,10 +12,17 @@ namespace Game.Framework.Fonts.Editor
         public static void Open() => GetWindow<FontCharsetWindow>("SSFramework 字体字集").Show();
 
         [InitializeOnLoadMethod]
-        private static void RegisterTool() => FrameworkToolRegistry.Register(new FrameworkToolDescriptor(
-            "font-charset", FrameworkToolCategory.CodeGeneration, 50,
-            "字体字集", "扫描项目文本生成去重字符文件，再交给 TMP Font Asset Creator 烘焙静态字体图集。",
-            FrameworkMenuPaths.FontCharset));
+        private static void RegisterEditorEntries()
+        {
+            FrameworkToolRegistry.Register(new FrameworkToolDescriptor(
+                "font-charset", FrameworkToolCategory.CodeGeneration, 50,
+                "字体字集", "扫描项目文本生成去重字符文件，再交给 TMP Font Asset Creator 烘焙静态字体图集。",
+                FrameworkMenuPaths.FontCharset));
+            FrameworkConfigRegistry.Register(new FrameworkConfigDescriptor(
+                "font-charset", 70, "字体（常用字集生成）", typeof(FontCharsetProfile), singleton: true,
+                "全工程单例；只在工作台明确点击创建；输出字符文件供 TMP Font Asset Creator 烘焙静态字体图集。",
+                FrameworkMenuPaths.FontCharset));
+        }
 
         private Vector2 _scroll;
 

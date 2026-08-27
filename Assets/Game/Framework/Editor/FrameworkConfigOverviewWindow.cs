@@ -8,115 +8,28 @@ namespace Game.Framework.Editor
 {
     /// <summary>
     /// 「框架配置中心」hub：把框架各模块的配置 profile 资产聚合到一页——
-    /// 每模块一节，列出找到的资产（点路径定位选中）、标注单份 / 多份语义并做健康检查（单例类找到多份黄条警告），
+    /// 每类配置一节，列出找到的资产（点路径定位选中）、标注单份 / 多份语义并做健康检查（单例类找到多份黄条警告），
     /// 并提供跳转到模块专用工作台的按钮。解决「配置资产散落各目录、不知道有哪些 / 在哪」的问题；
     /// 生成 / 构建等操作不在这里做，仍在各 Module 的工作台里。
     /// </summary>
     /// <remarks>
-    /// 刻意用「字符串类型名 + <c>FindAssets</c> / <c>Type.GetType</c>」发现资产、菜单路径字符串跳转，
-    /// 不编译期引用各模块 editor 程序集：本窗口在通用编辑器程序集（Game.Framework.Editor），反向引用
-    /// Build.Editor / Config.Editor / UI.UGui.Editor 会破坏「模块整块可删」的程序集边界。
-    /// 模块删除 → 类型不存在 → 对应节自动隐藏。代价：新增配置类型 / 改菜单路径要同步 <see cref="Sections"/> 表。
+    /// 各 Editor Module 通过 <see cref="FrameworkConfigRegistry"/> 登记自己拥有的配置类型、数量语义与工作台；
+    /// 本窗口不编译期引用可选 Module，也不维护程序集限定类型名。删除 Module 后注册自然消失，新增 Profile 只改所属 Module。
     /// </remarks>
     public sealed class FrameworkConfigOverviewWindow : EditorWindow
     {
         [MenuItem(FrameworkMenuPaths.Configuration, priority = 1)]
         public static void Open() => GetWindow<FrameworkConfigOverviewWindow>("SSFramework 配置中心").Show();
 
-        /// <summary>一节 = 一类配置 profile 的登记信息。</summary>
-        private sealed class Section
-        {
-            public string Title;         // 节标题：模块 + 配置用途
-            public string TypeName;      // AssetDatabase.FindAssets("t:...") 用短类型名
-            public string QualifiedType; // 「命名空间.类型, 程序集」——判断模块是否还在工程里
-            public bool Singleton;       // true = 全工程应恰一份（多份 → 警告）
-            public string Note;          // 单/多份语义与创建方式，一句话
-            public string JumpMenu;      // 模块专用总览 / 配置菜单路径
-            public string JumpLabel;
-            public string SubTypeName;   // 附属配置类型（可空，如 UI 目录级覆盖）
-            public string SubLabel;
-        }
-
-        private static readonly Section[] Sections =
-        {
-            new()
-            {
-                Title = "服务注册（安装器生成）",
-                TypeName = "ServiceInstallerProfile",
-                QualifiedType = "Game.Framework.Editor.ServiceInstallerProfile, Game.Framework.Editor",
-                Singleton = false,
-                Note = "可按子项目、环境或功能域并存多份；无自动创建，经 Assets/Create/SSFramework/服务安装器配置 建。",
-                JumpMenu = FrameworkMenuPaths.ServiceInstaller, JumpLabel = "打开工作台",
-            },
-            new()
-            {
-                Title = "UI 绑定（代码生成）",
-                TypeName = "UICodeGenProfile",
-                QualifiedType = "Game.Framework.UI.UGui.Editor.UICodeGenProfile, Game.Framework.UI.UGui.Editor",
-                Singleton = true,
-                Note = "全工程单例；业务命名空间与输出目录不可推导，首次创建后需填写。目录差异用 UICodeGenDirConfig 就近覆盖。",
-                JumpMenu = FrameworkMenuPaths.UIBinding, JumpLabel = "打开工作台",
-                SubTypeName = "UICodeGenDirConfig", SubLabel = "目录级覆盖",
-            },
-            new()
-            {
-                Title = "配置表（Luban 生成）",
-                TypeName = "LubanConfigProfile",
-                QualifiedType = "Game.Framework.Build.LubanConfigProfile, Game.Framework.Config.Editor",
-                Singleton = false,
-                Note = "可按数据域或构建目标并存多套（各自维护 luban.conf 源与输出）；路径不可推导，需显式新建。",
-                JumpMenu = FrameworkMenuPaths.Luban, JumpLabel = "打开工作台",
-            },
-            new()
-            {
-                Title = "网络协议（protoc 生成）",
-                TypeName = "ProtoConfigProfile",
-                QualifiedType = "Game.Framework.Network.Proto.Editor.ProtoConfigProfile, Game.Framework.Network.Proto.Editor",
-                Singleton = false,
-                Note = "多套并存（每套一个 .proto 源目录 + 输出目录）；无自动创建，经 Assets/Create/SSFramework/Protobuf 生成配置 或总览窗口新建。",
-                JumpMenu = FrameworkMenuPaths.Protobuf, JumpLabel = "打开工作台",
-            },
-            new()
-            {
-                Title = "资源构建",
-                TypeName = "FrameworkAssetBuildProfile",
-                QualifiedType = "Game.Framework.Build.FrameworkAssetBuildProfile, Game.Framework.Build.Editor",
-                Singleton = true,
-                Note = "全工程单例；只在工作台明确点击创建，按收集器包列表初始化。",
-                JumpMenu = FrameworkMenuPaths.AssetBuild, JumpLabel = "打开工作台",
-            },
-            new()
-            {
-                Title = "热更构建",
-                TypeName = "FrameworkHotUpdateProfile",
-                QualifiedType = "Game.Framework.Build.FrameworkHotUpdateProfile, Game.Framework.Build.Editor",
-                Singleton = true,
-                Note = "全工程单例；只在工作台明确点击创建，默认候选 = 内核 + Asset.Yoo 热更。",
-                JumpMenu = FrameworkMenuPaths.HotUpdateBuild, JumpLabel = "打开工作台",
-            },
-            new()
-            {
-                Title = "字体（常用字集生成）",
-                TypeName = "FontCharsetProfile",
-                QualifiedType = "Game.Framework.Fonts.Editor.FontCharsetProfile, Game.Framework.Fonts.Editor",
-                Singleton = true,
-                Note = "全工程单例；只在工作台明确点击创建；产出 charset 文件喂 TMP Font Asset Creator 烘焙主字体。",
-                JumpMenu = FrameworkMenuPaths.FontCharset, JumpLabel = "打开工作台",
-            },
-            new()
-            {
-                Title = "场景快捷入口",
-                TypeName = "SceneShortcutProfile",
-                QualifiedType = "Game.Framework.Editor.SceneShortcutProfile, Game.Framework.Editor",
-                Singleton = true,
-                Note = "全工程单例（首次打开配置时创建，并导入 Build Settings 已启用场景）；域重载只读，不会隐式写资产。",
-                JumpMenu = FrameworkMenuPaths.SceneShortcuts, JumpLabel = "打开工作台",
-            },
-        };
-
         private Vector2 _scroll;
 
-        private void OnEnable() => minSize = new Vector2(280, 320);
+        private void OnEnable()
+        {
+            minSize = new Vector2(280, 320);
+            FrameworkConfigRegistry.Changed += Repaint;
+        }
+
+        private void OnDisable() => FrameworkConfigRegistry.Changed -= Repaint;
 
         private void OnGUI()
         {
@@ -141,17 +54,19 @@ namespace Game.Framework.Editor
                 MessageType.Info);
 
             _scroll = EditorGUILayout.BeginScrollView(_scroll);
-            foreach (var section in Sections)
+            var configurations = FrameworkConfigRegistry.Snapshot();
+            if (configurations.Count == 0)
+                EditorGUILayout.HelpBox(
+                    "当前没有已登记的配置 Module。若工程本应包含配置工具，请先检查 Console 编译错误。",
+                    MessageType.Warning);
+            foreach (var section in configurations)
                 DrawSection(section, compact);
             EditorGUILayout.EndScrollView();
         }
 
-        private static void DrawSection(Section section, bool compact)
+        private static void DrawSection(FrameworkConfigDescriptor section, bool compact)
         {
-            // 模块（含其 editor 程序集）被整块删除时类型不存在——整节隐藏，不显示误导性的「0 份」。
-            if (Type.GetType(section.QualifiedType) == null) return;
-
-            var paths = FindPaths(section.TypeName);
+            var paths = FindPaths(section.ProfileType);
             using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
             {
                 if (compact)
@@ -177,10 +92,10 @@ namespace Game.Framework.Editor
                 foreach (string path in paths)
                     DrawAssetRow(path);
 
-                if (section.SubTypeName != null)
+                if (section.SecondaryProfileType != null)
                 {
-                    var subPaths = FindPaths(section.SubTypeName);
-                    EditorGUILayout.LabelField($"{section.SubLabel}（{subPaths.Count}）", EditorStyles.miniBoldLabel);
+                    var subPaths = FindPaths(section.SecondaryProfileType);
+                    EditorGUILayout.LabelField($"{section.SecondaryLabel}（{subPaths.Count}）", EditorStyles.miniBoldLabel);
                     foreach (string path in subPaths)
                         DrawAssetRow(path);
                 }
@@ -188,18 +103,22 @@ namespace Game.Framework.Editor
             EditorGUILayout.Space(4);
         }
 
-        private static void DrawJumpButton(Section section, bool expand)
+        private static void DrawJumpButton(FrameworkConfigDescriptor section, bool expand)
         {
             bool clicked = expand
-                ? GUI.Button(EditorGUILayout.GetControlRect(false, EditorGUIUtility.singleLineHeight), section.JumpLabel)
-                : GUILayout.Button(section.JumpLabel, GUILayout.Width(90));
-            if (clicked && !EditorApplication.ExecuteMenuItem(section.JumpMenu))
-                Debug.LogWarning($"[配置总览] 菜单不存在（改名了？请同步节表）：{section.JumpMenu}");
+                ? GUI.Button(EditorGUILayout.GetControlRect(false, EditorGUIUtility.singleLineHeight), section.MenuLabel)
+                : GUILayout.Button(section.MenuLabel, GUILayout.Width(90));
+            if (clicked && !EditorApplication.ExecuteMenuItem(section.MenuPath))
+                FrameworkEditorFeedback.Warn(
+                    "配置工作台入口失效",
+                    $"影响：没有打开“{section.Title}”工作台。\n原因：找不到菜单 {section.MenuPath}。\n" +
+                    "下一步：确认所属可选 Module 已安装，并检查 Console 编译错误。");
         }
 
-        private static List<string> FindPaths(string typeName) =>
-            AssetDatabase.FindAssets("t:" + typeName)
+        private static List<string> FindPaths(Type profileType) =>
+            AssetDatabase.FindAssets("t:" + profileType.Name)
                 .Select(AssetDatabase.GUIDToAssetPath)
+                .Where(path => AssetDatabase.LoadAssetAtPath(path, profileType) != null)
                 .OrderBy(p => p, StringComparer.Ordinal)
                 .ToList();
 

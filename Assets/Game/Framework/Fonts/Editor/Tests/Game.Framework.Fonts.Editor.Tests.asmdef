@@ -3,6 +3,7 @@
     "rootNamespace": "Game.Framework.Fonts.Editor.Tests",
     "references": [
         "Game.Framework.Fonts.Editor",
+        "Game.Framework.Editor",
         "UnityEngine.TestRunner"
     ],
     "includePlatforms": [

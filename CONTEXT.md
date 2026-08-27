@@ -58,6 +58,10 @@ Framework Module Audit 的真实玩家构建验证 Adapter。它在 `Library` �
 
 Editor 侧把 Unity 资产身份还原为物理源码与 Package 所有权的唯一 owner。它接受 `Assets/...`、`Packages/...` 或已解析的绝对路径，统一给出 canonical Asset Path、真实 Physical Path、源码根、package id、安装来源与 manifest 直接/间接关系；后两者只描述 Package 解析事实，不推导代码消费者或可移除性。Module Audit、隔离 Build Size Probe 和源码门禁都通过它读取 asmdef、`link.xml` 与模板。AssetDatabase 已知候选不可读时 fail-fast，不把证据缺失静默解释成没有规则；框架位于 Assets、嵌入包或 registry/Git PackageCache 时共享同一份证据，不各自猜测文件系统布局。Build Size Probe 另对实际复制的 Runtime Module 与 Git / embedded / local / tarball Package 生成内容指纹，使 Domain Reload 恢复能识别“路径和版本未变、源码已变”的漂移。
 
+## Framework Editor Catalog
+
+通用工具中心与配置中心使用的 Editor-only 导航 Catalog。可选 Module 分别通过 `FrameworkToolRegistry` 和 `FrameworkConfigRegistry` 登记自己的标题、说明、工作台路径，以及 Profile 的真实类型和数量语义；中央窗口只消费稳定快照，不维护可选程序集限定类型名，也不复制生成、构建或配置 Implementation。删除 Module 后，其注册随域重载自然消失；相同 id 的不同元数据 fail-fast，避免后加载 Adapter 静默覆盖卡片。这个 Seam 只负责发现与导航，不创建资产、不执行副作用，也不代替 Unity Package Manager。
+
 ## Mono Context Initialization Issue Group
 
 Editor 诊断窗口把逐宿主初始化快照还原出的维护单元：有异常时，只有共享同一最深异常对象且存在实际 Mono 父子链的宿主才属于同一根因组；无异常的 `Uninitialized/Initializing` 父子链是“时序提醒”，不计入根因。它区分最先失败 / 最上游未就绪、受影响链和当前 Play / 历史证据，只用于解释与定位，不制造可用 `GameContext`，也不进入玩家运行时 Interface。

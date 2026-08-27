@@ -3,6 +3,7 @@
     "rootNamespace": "Game.Framework.Network.Proto.Editor.Tests",
     "references": [
         "Game.Framework.Network.Proto.Editor",
+        "Game.Framework.Editor",
         "UnityEngine.TestRunner"
     ],
     "includePlatforms": [

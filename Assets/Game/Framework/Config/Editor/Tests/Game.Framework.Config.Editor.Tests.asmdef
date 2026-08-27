@@ -3,6 +3,7 @@
     "rootNamespace": "Game.Framework.Config.Editor.Tests",
     "references": [
         "Game.Framework.Config.Editor",
+        "Game.Framework.Editor",
         "UnityEngine.TestRunner"
     ],
     "includePlatforms": [

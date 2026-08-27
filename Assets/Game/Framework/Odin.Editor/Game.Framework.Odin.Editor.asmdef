@@ -16,7 +16,7 @@
         "Sirenix.Utilities.dll",
         "Sirenix.Utilities.Editor.dll"
     ],
-    "autoReferenced": true,
+    "autoReferenced": false,
     "defineConstraints": [
         "ODIN_INSPECTOR"
     ],

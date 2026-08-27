@@ -14,7 +14,7 @@
 1. 人工顶部 `SSFramework/` 菜单只打开 `EditorWindow`。会写项目、生成代码、构建、清理、部署或启动外部进程的动作，进入所属 Module 的工作台按钮。
 2. 工作台必须在按钮附近解释用途、前置条件、主要影响和失败后的下一步；按钮禁用只改善体验，动作 Implementation 仍调用 `FrameworkEditorOperationGate` 二次检查。
 3. `FrameworkToolsWindow` 是意图导航 hub，不复制 Module 的业务逻辑。可选 Editor Module 通过 `FrameworkToolRegistry` 登记描述符；删除整个 Module 后，其卡片自然消失。
-4. `FrameworkConfigOverviewWindow` 保持只读配置发现 hub。只读/导航路径使用 `TryResolve`，缺配置时显示显式“创建”按钮；查看目录不创建空目录。
+4. `FrameworkConfigOverviewWindow` 保持只读配置发现 hub。拥有 Profile 的 Module 通过 `FrameworkConfigRegistry` 登记真实资产类型、单例/多份语义、附属配置与工作台路径；中央窗口不维护可选程序集限定类型名。只读/导航路径使用 `TryResolve`，缺配置时显示显式“创建”按钮；查看目录不创建空目录。
 5. 保留两类例外：
    - `Assets/SSFramework`、`GameObject/SSFramework` 等拥有真实选择上下文的操作；
    - `SSFramework/诊断/AI 自动化/*` 下由 ADR 锁定路径、供 MCP/CI 使用的稳定机器 Interface。

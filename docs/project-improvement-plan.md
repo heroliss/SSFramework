@@ -18,12 +18,12 @@
 | 维度 | 当前事实 |
 |---|---|
 | Unity | 6000.3.22f1 |
-| Framework Module | 26 个 asmdef Module（含测试与可选 Odin Editor Adapter）；依赖与删除测试见 `framework-module-map.md` |
+| Framework Module | 29 个 asmdef Module（含测试与可选 Odin Editor Adapter）；依赖与删除测试见 `framework-module-map.md` |
 | Demo | 32 个自动发现章节；Catalog 集中拥有 Adapter 生命周期，并按 Capability / Concept / Workflow 校验真实 Build 教学语义 |
 | 教程 | `framework-guide.md` 28 章 |
-| ADR | 0001–0042；0040 为 UPM-aware 源码目录，0041/0042 补齐 Module 与外部依赖证据 |
-| 测试 | PlayMode 448 + EditMode 244，全绿；交互式 MCP 后台运行且 PlayMode 先预检，命令行入口默认 EditMode + PlayMode |
-| Demo CodeRef | 311 处可打开源码跳转全部精准命中；注释、文案与外部文档路径不计入源码构造点 |
+| ADR | 0001–0043；0040 为 UPM-aware 源码目录，0041/0042 补齐依赖证据，0043 收口 Editor 菜单与工作台 |
+| 测试 | PlayMode 525 + EditMode 330，全绿；交互式 MCP 后台运行且 PlayMode 先预检，命令行入口默认 EditMode + PlayMode |
+| Demo CodeRef | 313 处可打开源码跳转全部精准命中；注释、文案与外部文档路径不计入源码构造点 |
 | AI 常驻规则预算 | 最深 AGENTS 链 29.88 KiB，低于 Codex 默认 32 KiB 项目指令上限；新增常驻规则前需继续评估外移空间 |
 
 ## 已完成的高优先级闭环
@@ -61,7 +61,7 @@
 - Demo 外壳新增“本组 / 全部”进度与章节底部上一步/下一步导航；入门/核心提示顺读，能力/进阶明确可按需跳转，实际按钮切章与滚动复位已验证。
 - `DemoModuleHost` 在真实 Build 中记录教学语义，Catalog 按能力/概念/工作流分别检查定位、解释结构、交互或步骤；源码注释、死代码和早退不再能靠 token 数量假绿。
 - 场景依赖缺失统一用结构化降级页说明“为什么不可用 → 如何恢复 → 接下来怎么学”，并强制提供接线源码；UGUI、UI 框架、多 Context 与字体的顶层早退已迁移。
-- 新建独立 Demo PlayMode Module，在真实 DemoScene 中穿过 Context、Catalog 与 Shell 逐章 Build 32 个 Adapter，并用真实 UGUI/UI 框架章节覆盖降级路径；当前 CodeRef 防腐覆盖 311 处精准源码构造。
+- 新建独立 Demo PlayMode Module，在真实 DemoScene 中穿过 Context、Catalog 与 Shell 逐章 Build 32 个 Adapter，并用真实 UGUI/UI 框架章节覆盖降级路径；当前 CodeRef 防腐覆盖 313 处精准源码构造。
 - 重写入门地图，并为 Counter / Model / Command / System / Event 补上选择标准、代价、生命周期与反例；8 个过长章节摘要完成收束，实际 Game View 已检查首屏、对照表和 System 深度说明。
 - Demo 实战发现 `IShopSystem` 泄漏 `ICommandContext`：改成窄业务接口 `TryBuyPotion()`，WalletModel 由 Implementation 注入，并用购买不变量测试锁定。
 - 修正框架层术语漂移：简单原子 Command 可直接写 Model，System 承载可复用/多步规则；Utility 可持有基础设施状态但不持有业务状态。源码 XML doc、README、guide、roadmap 与 ADR-0001 已同步。
@@ -180,7 +180,8 @@
 
 ### P1 · Module 依赖证据完整性
 
-- Module Audit 不再把 asmdef `references` 与 `precompiledReferences` 合并成一类：前者只匹配 asmdef 程序集，后者只在 `overrideReferences:true` 时匹配预编译 DLL。Framework、Demo、业务与可选 Odin Adapter 的直接 DLL 依赖已经迁移到真实字段；全工程一方 asmdef 门禁阻止重新依赖插件 Auto Reference。
+- Module Audit 不再把 asmdef `references` 与 `precompiledReferences` 合并成一类：前者只匹配 asmdef 程序集，后者只在 `overrideReferences:true` 时匹配预编译 DLL。Framework、Demo、业务与可选 Odin Adapter 的直接 DLL 依赖已经迁移到真实字段；所有一方 Runtime、Editor 与测试 asmdef 均退出插件 Auto Reference，可删除 Editor Module 同时关闭预定义程序集隐式引用，并由门禁阻止回退。
+- 工具中心与配置中心都改为 Module-local 注册：前者登记工作台导航，后者登记真实 Profile 类型、单例/多份语义和附属配置。中央窗口不再维护可选程序集字符串表，删除 Module 后两类卡片随域重载自然消失。
 - HybridCLR Generate stamp 升级为 v4：热更侧读取 HybridCLR 针对目标平台编译的 DLL 元数据拓扑（定义、布局、签名、泛型、Attribute、P/Invoke / calli 与元数据操作数），AOT 侧哈希非热更 Player 源文件、asmdef、defines 与非 Unity 内置预编译 DLL；另记录 source `link.xml`、启用场景、Resources / Preloaded 资产和序列化依赖组成的 Player linker 根，避免误用 `Library/ScriptAssemblies` 的 Editor 变体或漏掉“代码未变、裁剪根已变”。普通热更算术、分支和常量变化不失效；AOT / linker 输入或会改变 MethodBridge 的结构变化要求重新 Generate。重新生成的 AOT / linker / CodePackage 清单已移除 Sirenix。
 - Generate 的迷你 Player Build 会原地清空启用了 `Clear Dynamic Data On Build` 的 TMP / TextCore 源字体。构建器现在按序列化标记通用发现资产，Generate 前保存字节，无论 Generate 成败都逐文件尝试恢复；若生成与恢复同时失败则聚合两边异常，避免自动化流程污染项目工作树或遮蔽根因，不硬编码 Demo 路径。
 - 默认资源装配从 Core 的 Yoo 程序集限定字符串迁移到 Adapter Assembly 注册。Core 只拥有 `DefaultAssetProviderAttribute` 与严格的零/一/多注册校验；删除 Yoo 后可安装另一个 Adapter，无需修改 Core。取舍与门禁见 ADR-0041。

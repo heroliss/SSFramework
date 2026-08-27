@@ -29,7 +29,7 @@ demo 里现有两处「UGUI 嵌在 Toolkit」其实都是**伪嵌入**——`Dem
 
 `MonoUGuiEmbed`：给一个 UGUI 面板 prefab，自建一台**隔离层**透明背景相机 + `ScreenSpaceCamera` Canvas（`worldCamera` 指向该相机），把面板渲进 RT，`Bind` 到 `RenderTextureElement` 显示；纹理尺寸随元素布局自动同步；托管 `CanvasScaler` 以 Toolkit 内容框为稳定逻辑分辨率，让 RT 尺寸只控制采样清晰度、不会触发低像素重新排版；`EveryFrame` / `OnDemand` 两档刷新；解绑 / 销毁释放。
 
-- 模块 `references` = `Game.Framework.UI.Toolkit` + **引擎 UGUI**（`UnityEngine.UI`，`overrideReferences:false` 自动可见）——它桥的是**原生 UGUI → Toolkit**，不耦合框架的 `UI.UGui` 模块，故不引用它。`autoReferenced:false`、可整块删除，同 `Game.Framework.Network.Proto` / `Game.Framework.Asset.Yoo` 先例（第三方 / 后端特化接缝单独开 asmdef 隔离）。
+- 模块显式 `references` = `Game.Framework` + `Game.Framework.UI` + `Game.Framework.UI.Toolkit`，并以 `overrideReferences:true` 退出预编译 DLL 的全局 Auto Reference；`UnityEngine.UI` 由已安装的 `com.unity.ugui` 提供，引擎引用保持 `noEngineReferences:false`。它桥的是**原生 UGUI → Toolkit**，不耦合框架的 `UI.UGui` Module，故不引用它。`autoReferenced:false`、可整块删除，同 `Game.Framework.Network.Proto` / `Game.Framework.Asset.Yoo` 先例（第三方 / 后端特化接缝单独开 asmdef 隔离）。
 - **隔离层**：托管 Canvas + 内容置于一个专用 layer（demo 用 `UGuiEmbed`），专用相机只拍此层、主相机剔除此层——否则嵌入内容会同时漏进游戏画面。这是接入方要在工程 Tags & Layers 预留的一步。
 
 ### 4. 输入穿透：v1 只读、v2 加指针（受控场景可解，见文末增补）

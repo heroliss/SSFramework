@@ -14,10 +14,17 @@ namespace Game.Framework.Build
         public static void Open() => GetWindow<AssetBuildWindow>("SSFramework 资源构建").Show();
 
         [InitializeOnLoadMethod]
-        private static void RegisterTool() => FrameworkToolRegistry.Register(new FrameworkToolDescriptor(
-            "asset-build", FrameworkToolCategory.BuildAndRelease, 10,
-            "资源构建与本地 CDN", "分步构建 YooAsset 资源包、部署待发布目录并启动本地 HTTP 服务；不会把三步暗中捆成一键流程。",
-            FrameworkMenuPaths.AssetBuild));
+        private static void RegisterEditorEntries()
+        {
+            FrameworkToolRegistry.Register(new FrameworkToolDescriptor(
+                "asset-build", FrameworkToolCategory.BuildAndRelease, 10,
+                "资源构建与本地 CDN", "分步构建 YooAsset 资源包、部署待发布目录并启动本地 HTTP 服务；不会把三步暗中捆成一键流程。",
+                FrameworkMenuPaths.AssetBuild));
+            FrameworkConfigRegistry.Register(new FrameworkConfigDescriptor(
+                "asset-build", 50, "资源构建", typeof(FrameworkAssetBuildProfile), singleton: true,
+                "全工程单例；只在工作台明确点击创建，按 YooAsset Collector 的包列表初始化。",
+                FrameworkMenuPaths.AssetBuild));
+        }
 
         private Vector2 _scroll;
 

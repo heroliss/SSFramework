@@ -13,6 +13,7 @@ namespace Game.Framework.Demo.Modules
     {
         private const string ModuleAuditMenu = "SSFramework/诊断与分析/模块与依赖";
         private const string BuildSizeProbeMenu = "SSFramework/诊断与分析/真实构建体积";
+        private const string ConfigCenterMenu = "SSFramework/配置中心";
 
         public override string Id => "project-setup";
         public override string Title => "接入你的项目";
@@ -62,6 +63,16 @@ namespace Game.Framework.Demo.Modules
                 new[] { "目标平台 Build", "IL2CPP、引擎模块、压缩后的结果", "能从 Windows 外推到 WebGL" });
             host.AddSubNote("一个关键例外：当前可选 Runtime Module 都引用 Core。若 Core 热更，只要某个 Module 仍参与 Player 编译，它就不能被单独留在 AOT；否则会形成 `AOT → 热更` 引用，校验器会拒绝。",
                 new CodeRef("Assets/Game/Framework/Build/Editor/HotUpdateAssemblyGraph.cs", "class HotUpdateAssemblyGraph", "热更传播约束 · AOT 不引用热更"));
+
+            // ── Editor 工具装配 ──
+            host.AddSectionTitle("编辑器工具也跟着 Module 走");
+            host.AddNote("配置中心不是一张写死全部 Profile 类型的中央名单：每个可选 Editor Module 只登记自己拥有的配置卡片。删除 Module 并完成域重载后，对应注册和卡片会一起消失；新增配置也只改所属 Module。");
+            host.AddConcept("为什么让 Module 自己登记", "中央窗口只依赖一个很窄的 Registry Seam，不反向引用 Build、Fonts、Proto、UGUI 等可选实现。这样既保留统一入口，也避免为了显示一张卡片把可选程序集重新耦合回 Core；代价是每个新配置类型都要写一条本地注册，并由契约测试检查 id、顺序和菜单入口。");
+#if UNITY_EDITOR
+            host.AddActionRow("打开配置中心（观察已安装 Module 的卡片）",
+                () => RunMenu(ConfigCenterMenu),
+                new CodeRef("Assets/Game/Framework/Editor/FrameworkConfigRegistry.cs", "public static class FrameworkConfigRegistry", "FrameworkConfigRegistry · Module 自注册 Seam"));
+#endif
 
             // ── 裁剪工作流 ──
             host.AddSectionTitle("小体积 / Web：先查原因，再做结构裁剪");
