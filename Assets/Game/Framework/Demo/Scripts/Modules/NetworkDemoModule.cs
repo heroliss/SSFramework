@@ -106,7 +106,7 @@ namespace Game.Framework.Demo.Modules
             host.AddSectionTitle("扩展点与刻意不做");
             host.AddConcept("换传输 = IHttpProvider / IWebSocketProvider", "BestHTTP（WebGL 的 WS / HTTP2 / SignalR）、HttpClient 等实现它，经 utility 构造注入；付费插件做「适配器」不内置。");
             host.AddConcept("换格式 = INetworkSerializer", "Protobuf（跨语言后端 / 既有 proto）、MemoryPack（双端 C#）实现它；等真实后端契约驱动，工具链成本不凭空预付。");
-            host.AddConcept("不做自动重试 / 自动重连", "幂等性、重新认证、状态恢复只有业务知道——框架给退避样板（guide §25）、不做黑盒。重连 = 订 WebSocketClosedEvent(!ByUser) + 循环 Connect。");
+            host.AddConcept("不做自动重试 / 自动重连", "幂等性、重新认证、状态恢复只有业务知道——框架给带生命周期 token 与异常观察的退避样板（guide §25）、不做黑盒。重连 owner = 订 WebSocketClosedEvent(!ByUser) + 循环 Connect；不要用无人观察的 Forget。");
             host.AddConcept("不做 WebGL 的 WS / RPC correlation id / 大文件下载", "WebGL 的 WS 写 JS-bridge provider（接缝已留）；带请求-响应关联的 RPC 是 MagicOnion 领域；大文件下载归资源系统。");
 
             host.AddTip("速记：请求-响应用 await Get/Post（非 2xx 抛 NetworkException，查 Kind/StatusCode）；推送用 RegisterPush 映射 + Bag.Subscribe 消费；连接状态订 ws.State；断开订 WebSocketClosedEvent。深度见 framework-guide 网络章 / ADR-0028。");
@@ -248,6 +248,16 @@ namespace Game.Framework.Demo.Modules
             {
                 await ws.Disconnect(ct);
             }, CodeRef.Here("ws.Disconnect(ct)", "断开"));
+
+            host.AddConcept("一次 Connect = 一个内部 Connection Session",
+                "每次成功连接独占接收 token、发送 token、FIFO 队尾和一次关闭事件发布权。旧连接的接收异常或排队帧即使迟到，也只能结束旧 session，不会覆盖新 State 或写进新 socket；这是框架藏在门面后的并发正确性。");
+            host.AddSubNote("`State=Disconnected` 表示业务已不可再用，不等于违规 Adapter 中忽略取消的旧 Receive 已经物理返回。若此时立刻 Connect，框架会等待旧发送与 Close owner 清场；每个 Provider 方法还会固定入口 socket，所以迟到接收无权碰新 session。不额外暴露 Disconnecting，换来更小的业务状态机。每个成功 session 至多一个 ClosedEvent；Context Dispose 是整棵拆除，不发事件。",
+                new CodeRef("Assets/Game/Framework/Core/Network/IWebSocketUtility.cs", "public interface IWebSocketUtility", "连接门面契约"));
+            host.AddSubNote("取消边界：Disconnect 入口 token 已取消 = 不提交断开；关闭开始后才取消 = session 仍清理并发 `ByUser:true`，调用方随后收到 OCE。取消的是优雅握手等待，不是把已经发生的断开倒回去。");
+            host.AddSubNote("传输层在 token 未取消时自己抛 OCE，不算业务取消：Connect 按 ConnectionError，Close 只算 best-effort 握手失败，Receive / Send 则结束 current session 并发 `ByUser:false`。尤其发送失败不能只等接收循环以后也出错，否则 UI 可能永久看到假 Connected。");
+            host.AddSubNote("并发边界再深一层：Provider 的 Connect 成功返回就是物理 ownership 提交点，普通 caller 取消与完成同时发生时允许成功赢，避免留下无人拥有的 socket；但 Connecting-Disconnect 已先成立时会在发布 Connected 前 Abort，业务看不到短暂可收发窗口。意外断线后的 Close 没有 caller token，所以框架内部限时 1 秒，坏握手不能永久挡住 ClosedEvent 与重连。自定义 Provider 必须尊重 token，并实现可重连的立即 Abort。");
+            host.AddSubNote("Connecting 时 await Disconnect 会等旧 Connect Attempt 的本地 outcome，返回后可以立即重连，也不会误关 State 回调中新建的 session；caller 取消只脱离等待，Attempt owner 仍会处理物理 success-win。Provider 可以从任意线程完成，caller token 也可能从 worker 取消，但框架在更新 State、发布 Event 和完成主线程 API 前会切回主线程；发送首帧失败也会先封住 session、再唤醒排队后帧。");
+            host.AddSubNote("实现 Provider 时不要在 CancellationToken 回调里抛异常。.NET 会在 token 已经取消后，把回调异常从 Cancel() 聚合抛出；框架会记录并隔离它，继续完成 session、barrier 与 provider 释放，但异常仍说明 Adapter 自己的取消回调写错了。");
 
             host.AddSubNote("推送事件类型是 `[Serializable] struct + 公共字段`（`ServerTickEvent { public int count; }`）——JsonUtility 只认字段，别用 record 位置参数（那是属性、反序列化不出来）。映射用 `RegisterPush<TEvent>(\"type\")`，本章在 InstallBindings 里配好。",
                 CodeRef.Here("ws.RegisterPush<ServerTickEvent>", "推送映射"));

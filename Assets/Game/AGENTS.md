@@ -62,7 +62,7 @@
 | 流程 `IGameFlow` | 只表达宏观阶段，每次进入 new `FlowState`；私有能力放状态子 Context/Bag。转换“串行 + 最新意图胜”；GoTo 必须 await/显式观察，OnEnter 转向交给导航 Adapter 后直接 return。OnExit 只做优雅告别，可靠清理必须进 Bag/子 Context。 | guide §20 / ADR-0023 |
 | 本地化 `ILocalizationUtility` | 文本订 `TextRevision`，字体/按语言资源只订 `Locale`。Source 用 `Unavailable/Missing/Found` 区分加载中与真缺失；仅真缺 key 警告。 | guide §21 / ADR-0024 |
 | 字体 `MonoLocaleFonts` | 根 Context 一份组件接管主字体 fallback；TMP/Toolkit 分开配置，同一主字体不能重复接管。 | guide §22 / ADR-0025 |
-| 网络 `IHttpUtility/IWebSocketUtility` | HTTP 返回 UniTask，WS 推送转 Framework Event；失败抛 `NetworkException`，外部取消保持 OCE；重试/重连写在业务层。 | guide §25 / ADR-0028 |
+| 网络 `IHttpUtility/IWebSocketUtility` | HTTP 返回 UniTask，WS 推送转 Framework Event；失败抛 `NetworkException`，外部取消保持 OCE，provider 在 token 未取消时自发 OCE 不冒充外部取消。每次成功 WS 连接至多一个 ClosedEvent，收/发传输失败都终结 current session；优先从事件启动重连，并让重连 task 跟随 Bag token、显式观察异常。 | guide §25 / ADR-0028 |
 | UI 嵌入 `UI.Bridge` | 需要随 Toolkit 裁剪/滚动才用 RenderTexture；顶层覆盖优先 overlay。隔离 layer 并从主相机排除。 | guide §27 / ADR-0033 |
 | 日志 `Log` | 新代码不用裸 `Debug.Log`；Trace 插值无副作用。玩家追踪在启动时配置 File sink 并 `CaptureUnityLogs()`。 | guide §28 / ADR-0034 |
 

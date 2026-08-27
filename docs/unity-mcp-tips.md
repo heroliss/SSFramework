@@ -98,7 +98,7 @@ AnkleBreaker Unity MCP 2.39.5 的 `blockedReason: editor_unfocused` 由 job 序�
 
 用 Additive 场景隔离用户现场时，也不要清空启动场景的全部根节点：Unity Test Framework 的 `Code-based tests runner` 本身就是根节点，销毁后业务帧仍会走，但测试协程再也不会恢复。只撤项目自己的 Composition Root（如 `MonoGameContextBase`），并在 TearDown 卸载测试加载的场景。
 
-动态 TextCore / TMP 字体会在 Editor 测试中把新 glyph 与 atlas 缓存延迟写回源资产，单个 fixture TearDown 后清理仍可能被迟到写回覆盖。Demo EditMode / PlayMode TestRun 守卫会快照两份动态字体，整轮回到稳定 EditMode 后恢复，并持续确认原字节不再变化后才消费快照；Domain Reload / Editor 重启也能从 `Library` 续恢复。新增会触发动态字体的测试时沿用同一事务边界，不要在结束后笼统调用 `ClearFontAssetData`，它可能误删资产原有的 feature / atlas 基线。
+动态 TextCore / TMP 字体会在 Editor 测试中把新 glyph 与 atlas 缓存延迟写回源资产，单个 fixture TearDown 后清理仍可能被迟到写回覆盖。PlayMode Runner 还会先加载当前场景再进入筛选后的 fixture，所以即使只跑 Framework 测试，也可能触发 DemoScene 字体写回；PlayMode TestRun 守卫必须覆盖整轮、不能按测试类名前缀过滤。守卫会快照两份动态字体，整轮回到稳定 EditMode 后恢复，并持续确认原字节不再变化后才消费快照；Domain Reload / Editor 重启也能从 `Library` 续恢复。新增会触发动态字体的测试时沿用同一事务边界，不要在结束后笼统调用 `ClearFontAssetData`，它可能误删资产原有的 feature / atlas 基线。
 
 ## 10. 反射断言生成代码/第三方类型时注意成员形态
 

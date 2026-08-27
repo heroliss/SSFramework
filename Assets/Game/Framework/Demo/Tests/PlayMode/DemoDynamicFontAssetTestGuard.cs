@@ -12,11 +12,12 @@ using UnityEngine.TestRunner;
 namespace Game.Framework.Demo.PlayMode.Tests
 {
     /// <summary>
-    /// 把 Demo 动态字体在 Editor 测试中产生的 glyph / atlas 持久化限制在一次测试事务内。
+    /// 把当前场景中的 Demo 动态字体在任意 PlayMode TestRun 产生的 glyph / atlas 持久化限制在一次测试事务内。
     /// </summary>
     /// <remarks>
-    /// TextCore 的资源更新可能晚于单个 fixture TearDown，甚至在后续用例才落盘，所以恢复边界必须是
-    /// 整轮 TestRun 回到稳定 EditMode 之后。字节快照能保留测试前未提交的资产调整；
+    /// PlayMode Runner 会先加载当前场景，再进入筛选后的 fixture；因此 Framework 测试也可能触发 DemoScene 字体写回。
+    /// TextCore 的资源更新又可能晚于单个 fixture TearDown，甚至在后续用例才落盘，所以恢复边界必须是
+    /// 整轮 TestRun 回到稳定 EditMode 之后，不能按测试类名前缀过滤。字节快照能保留测试前未提交的资产调整；
     /// <c>ClearFontAssetData</c> 会误删源资产原有的 feature / atlas 基线，不能替代本守卫。
     /// </remarks>
     internal sealed class DemoDynamicFontAssetTestGuard : ITestRunCallback
@@ -30,12 +31,6 @@ namespace Game.Framework.Demo.PlayMode.Tests
         {
             "Assets/Game/Framework/Demo/Res/Fonts/DemoLatin SDF.asset",
             "Assets/Game/Framework/Demo/Res/Fonts/DemoNotoSansSC SDF.asset",
-        };
-
-        private static readonly string[] GuardedTestPrefixes =
-        {
-            "Game.Framework.Demo.Tests.",
-            "Game.Framework.Demo.PlayMode.Tests.",
         };
 
         private static double _editorReadySince = -1d;
@@ -59,7 +54,9 @@ namespace Game.Framework.Demo.PlayMode.Tests
 
         public void RunStarted(ITest testsToRun)
         {
-            if (!ContainsGuardedDemoTest(testsToRun)) return;
+            // PlayMode Runner 会先加载当前场景，再进入被筛选的 fixture；即使只跑 Framework 测试，
+            // DemoScene 中已加载的动态字体也可能在测试结束后迟到写回。因此快照边界必须是整轮
+            // PlayMode TestRun，不能再按测试 FullName 判断“是否属于 Demo”。
             CaptureSnapshot();
         }
 
@@ -68,15 +65,6 @@ namespace Game.Framework.Demo.PlayMode.Tests
         public void TestStarted(ITest test) { }
 
         public void TestFinished(ITestResult result) { }
-
-        private static bool ContainsGuardedDemoTest(ITest test)
-        {
-            if (test == null) return false;
-            if (GuardedTestPrefixes.Any(prefix =>
-                    test.FullName?.StartsWith(prefix, StringComparison.Ordinal) == true))
-                return true;
-            return test.Tests != null && test.Tests.Any(ContainsGuardedDemoTest);
-        }
 
         private static void CaptureSnapshot()
         {

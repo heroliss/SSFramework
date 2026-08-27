@@ -26,6 +26,14 @@ Demo 教学内容与自动化之间的运行时 Seam。`DemoModuleHost` 在真�
 
 `IConfigUtility<TTables>` 对一次自加载尝试的稳定就绪契约。响应式消费者订阅 `State`，命令式流程 `await EnsureReady(token)` 直接得到同一份 `Tables` 或原始失败；已证明 Ready 的同步热路径才直接读 `Tables`。调用方取消只脱离自己的 waiter，组件与 Context 共同拥有物理加载并在销毁时取消；失败后不隐式重试。该 Interface 把终态编排、根异常保存和共享所有权藏在 Config Module 内，业务不再复制 `WaitUntil(Ready or Failed)`。
 
+## WebSocket Connection Session
+
+`WebSocketUtility` 内一次成功连接的私有 owner：独占该代接收 token、发送 token、FIFO 队尾、终态 claim 与 teardown barrier。公开 `State=Disconnected` 只表达业务不可用，不保证旧 socket 的每个 Receive continuation 已物理返回；后续 Connect 等旧 Close 与发送 owner 清场后再建立新 session，迟到 Receive 靠物理 socket 快照与 session identity 隔离。只有 current session 能发布一次 `WebSocketClosedEvent`，排队旧帧不得写入新连接；接收或发送传输失败都会终结 current session。该概念保持在 Network Module Implementation，不扩张业务 Interface，也不等同于框架 Context / scope。
+
+## WebSocket Connect Attempt
+
+`WebSocketUtility` 内一次在途建连的临时 owner：持有 linked cancellation token、Disconnect intent，以及只属于本 attempt 的 completion outcome（提交的 Connection Session 或 null）。Connecting 期 Disconnect 等的是这个本地 outcome；caller 取消只脱离等待，Attempt owner 仍会在逻辑发布前 Abort 物理 success-win。它不从可被响应式 State 同步重试改写的全局状态猜结果，因此旧 attempt 不会误关新 session；所有成功、失败与 Dispose 路径都必须在 finally 完成 outcome。
+
 ## Framework Module Audit
 
 编辑器侧的 Module Catalog、删除计划与体积证据入口。它以当前目标平台的 Player 编译图确定候选 Module，再读 asmdef、当前已编译 DLL 快照的元数据引用、FrameworkHotUpdateProfile，以及项目 Assets 与已注册 Packages 的全部 `link.xml`，把“源码存在、参与编译、当前 DLL 快照消费、全 asmdef 删除阻塞、linker 根、热更完整 DLL 部署、最终 Player 证据”保持正交；并经只读反射接缝比较可删除 Build Editor Module 所拥有的 HybridCLRSettings、Generate stamp、当前热更拓扑 / AOT 补元数据清单与 DLL 中转 manifest。它不把当前 Editor 中可得的 DLL 变体冒充目标平台 Player，也不把文件存在冒充 DLL 内容相对源码新鲜或已部署，并区分空 Profile 的显式纯 AOT 与缺失 / 重复 Profile。它报告常用组合与任意 Module 入口闭包，并解释受热更依赖传播约束的安全移除事务；不提供含糊的 `SetEnabled(bool)`，也不接管 UPM 安装/版本管理。原始 DLL 字节只用于组合对比，最终包体仍以目标平台 Player BuildReport 为准。
