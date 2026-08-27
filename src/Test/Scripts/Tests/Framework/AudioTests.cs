@@ -15,7 +15,7 @@ namespace Game.Framework.Test
     /// 验证音频服务（ADR-0022）：三级音量数学与即时生效、音乐单通道切换/交叉淡变、
     /// 音效句柄陈旧安全、AudioSource 池化复用、Dispose 宽容语义。
     /// 断言尽量不依赖音频 DSP 推进（音量是同步写字段、句柄基于活动列表）；
-    /// 仅「播完自动回收 / 循环持续」两例需要真实播放，batchmode（CI 无音频设备）下 Ignore。
+    /// 仅「播完自动回收 / 循环持续 / 暂停保持 / owner 交接」六例需要真实播放，batchmode（CI 无音频设备）下 Ignore。
     /// </summary>
     public class AudioTests
     {
@@ -222,6 +222,81 @@ namespace Game.Framework.Test
                 Assert.AreEqual(0, _audio.ActiveVoiceCount);
             });
         }
+
+        [UnityTest]
+        public IEnumerator NonLoopMusic_AfterFadeInAndPlayback_AutoRecycles() => UniTask.ToCoroutine(async () =>
+        {
+            if (Application.isBatchMode) Assert.Ignore("batchmode 无音频设备，播放推进不可靠——编辑器内跑本用例");
+
+            // clip 只有 0.1s，淡入故意更长：自然终态必须优先，不能等整个淡入 owner 到期才释放。
+            _audio.PlayMusic(_clipA, fadeSeconds: 0.6f, loop: false);
+            Assert.AreSame(_clipA, _audio.CurrentMusic);
+            Assert.AreEqual(1, _audio.ActiveVoiceCount);
+
+            await UniTask.Delay(TimeSpan.FromSeconds(0.3), DelayType.Realtime);
+
+            Assert.IsNull(_audio.CurrentMusic, "非循环音乐自然结束后，CurrentMusic 应回到 null");
+            Assert.AreEqual(0, _audio.ActiveVoiceCount, "自然结束的音乐 voice 应归还池并释放 clip 引用");
+        });
+
+        [UnityTest]
+        public IEnumerator LoopMusic_OutlivesClipLength_UntilExplicitlyStopped()
+        {
+            if (Application.isBatchMode) Assert.Ignore("batchmode 无音频设备，播放推进不可靠——编辑器内跑本用例");
+            return UniTask.ToCoroutine(async () =>
+            {
+                _audio.PlayMusic(_clipA, fadeSeconds: 0f, loop: true);
+
+                await UniTask.Delay(TimeSpan.FromSeconds(0.4), DelayType.Realtime);
+
+                Assert.AreSame(_clipA, _audio.CurrentMusic, "循环音乐越过 clip 长度后仍应由显式 owner 持有");
+                Assert.AreEqual(1, _audio.ActiveVoiceCount);
+                _audio.StopMusic(0f);
+                Assert.IsNull(_audio.CurrentMusic);
+            });
+        }
+
+        [UnityTest]
+        public IEnumerator PausedNonLoopMusic_IsNotMistakenForFinished()
+        {
+            if (Application.isBatchMode) Assert.Ignore("batchmode 无音频设备，播放推进不可靠——编辑器内跑本用例");
+            return UniTask.ToCoroutine(async () =>
+            {
+                AudioListener.pause = true;
+                _audio.PlayMusic(_clipA, fadeSeconds: 0f, loop: false);
+
+                await UniTask.Delay(TimeSpan.FromSeconds(0.25), DelayType.Realtime);
+
+                Assert.AreSame(_clipA, _audio.CurrentMusic, "全局暂停期间不能把暂停中的音乐误判为播完");
+                Assert.AreEqual(1, _audio.ActiveVoiceCount);
+
+                AudioListener.pause = false;
+                await UniTask.Delay(TimeSpan.FromSeconds(0.5), DelayType.Realtime);
+                Assert.IsNull(_audio.CurrentMusic);
+                Assert.AreEqual(0, _audio.ActiveVoiceCount);
+            });
+        }
+
+        [UnityTest]
+        public IEnumerator CancelledFadeContinuation_CannotTouchReusedVoice() => UniTask.ToCoroutine(async () =>
+        {
+            if (Application.isBatchMode) Assert.Ignore("batchmode 无音频设备，播放推进不可靠——编辑器内跑本用例");
+
+            var stale = _audio.PlaySfx(_clipA, volume: 0.2f, loop: true);
+            stale.Stop(0.2f); // owner A 开始淡出
+            stale.Stop(0f);   // 立即归还，取消 owner A
+
+            var current = _audio.PlaySfx(_clipB, volume: 0.8f, loop: true); // 复用同一个 Voice
+            var source = FindVoiceSources()[0];
+            Assert.AreEqual(0.8f, source.volume, 1e-4f);
+
+            await UniTask.Delay(TimeSpan.FromSeconds(0.3), DelayType.Realtime);
+
+            Assert.IsTrue(current.IsPlaying, "旧淡变迟到恢复不得归还复用后的新播放");
+            Assert.AreEqual(1, _audio.ActiveVoiceCount);
+            Assert.AreEqual(0.8f, source.volume, 1e-4f, "旧淡变迟到恢复不得覆盖新播放的音量");
+            current.Stop();
+        });
 
         [UnityTest]
         public IEnumerator LoopSfx_OutlivesClipLength_UntilStopped()
