@@ -21,13 +21,22 @@ Framework Module Audit 已能从 Player 编译图和 DLL 元数据证明 Core、
 
 菜单 `SSFramework/诊断/真实构建体积证据` 在主工程 `Library/SSFramework/BuildSizeProbe/` 下创建一次性 Unity 工程。每个组合构建前只复制 Framework Module Audit 结构化结果中该档闭包包含的 Runtime Module；`Editor` / `Test(s)` 目录不复制，未选 Module 的源码、资产和 `link.xml` 物理上不存在。
 
-组合及 Module 源目录继续来自 Framework Module Audit，同一份审计结果同时驱动窗口、原始报告和真实构建，不维护第二份“Core / UGUI / Toolkit”清单。这使 Module 变化集中在一个地方，保持 locality。
+组合及 Module 源目录继续来自 Framework Module Audit，同一份审计结果同时驱动窗口、原始报告和真实构建，不维护第二份“Core / UGUI / Toolkit”清单。实际 DLL 闭包回答当前用了什么；探针再合并 asmdef 声明闭包，保证“只声明、尚未产生 IL 引用”的 Framework Module 仍被复制并完整保留，因为隔离工程编译时已经需要该程序集。这使 Module 变化集中在一个地方，保持 locality。
 
-Module 源码不假设位于 `Assets/Game/Framework`。审计先经 `FrameworkModuleSourceCatalog` 把 `Assets/...`、`Packages/...` 或 PackageCache 绝对路径还原为“稳定 Asset 身份 + 真实物理目录 + package id”，探针从物理目录复制，并在 JSON / Markdown 证据中只保留可分享的资产来源与实际复制内容指纹。复制到隔离工程时以程序集名作为目标目录，避免不同 Package 都使用 `Runtime/` 叶目录而互相覆盖；若两个 asmdef 源目录相同或互相嵌套则 fail-fast，因为目录复制无法诚实表达删除组合。Domain Reload 恢复会逐一校验报告档位、package 身份与内容指纹，漂移时完成已启动档位后停止。详见 ADR-0040。
+Module 源码不假设位于 `Assets/Game/Framework`。审计先经 `FrameworkModuleSourceCatalog` 把 `Assets/...`、`Packages/...` 或 PackageCache 绝对路径还原为“稳定 Asset 身份 + 真实物理目录 + package id”，探针从物理目录复制，并在 JSON / Markdown 证据中只保留可分享的资产来源与实际复制内容指纹。运行目录、输出、结果与日志路径不进入 JSON，而由本机 EditorPrefs 指向最新运行目录，并在读取时按稳定 Profile key 重建。复制到隔离工程时以程序集名作为目标目录，避免不同 Package 都使用 `Runtime/` 叶目录而互相覆盖；若两个 asmdef 源目录相同或互相嵌套则 fail-fast，因为目录复制无法诚实表达删除组合。Domain Reload 恢复会逐一校验报告格式、档位、package 身份与内容指纹；旧格式缺证据、未来格式含未知字段时都拒绝续跑，漂移时完成已启动档位后停止。旧工具也拒绝重写未来格式，避免保留版本号却丢失未知字段。详见 ADR-0040。
 
 ### 2. 依赖版本来自当前工程，但按组合最小化
 
-隔离工程复用当前 `Packages/manifest.json` 中的 R3、UniTask、Input System、UGUI / TMP、YooAsset 版本以及内置 Unity Module 版本；当前 NuGet 嵌入包从主工程复制。Framework 原生基线不依赖 Odin，探针也不复制付费插件。每个组合单独生成最小 manifest，例如 Core 不安装 Input System / UGUI，Toolkit 不因另一档需要 UGUI 而被污染。
+隔离工程不再维护“Module 名 → Package 名”的第二张映射表。每个组合从所选 Framework asmdef 的声明边与当前 Player DLL 元数据边收集直接外部依赖，再由 `FrameworkModuleSourceCatalog` 判定它属于 registry / Git / local / tarball / embedded / built-in / Assets 中的哪种来源：
+
+- registry Package 只按稳定 Package 名进入该组合的最小 manifest，版本规格直接复用主工程 `Packages/manifest.json`；主工程已有的 `scopedRegistries` 原样保留，不为某个供应商写死 registry；整轮启动时即冻结各档 manifest 与 SHA-256，后续档位不会因主工程中途改版本而混入另一套依赖；
+- Git、embedded、local directory 与 local tarball Package 都从 Source Catalog 的已解析源码根按 Package 整体复制；这既冻结 Git branch / tag 已解析到的实际内容，也避免主工程相对 `file:` spec 搬到隔离工程后改指向。报告只写可移植的“包名@版本”与实际复制内容 SHA-256，Unity packageId 中的本机 `file:` 路径、Git URL userinfo 或 token 不落盘，同一轮多个组合共享一次指纹计算；
+- `com.unity.modules.*` 仍作为同 Unity 版本的固定引擎背景统一保留；没有可安装来源的 BCL / Unity 平台程序集不被误当 Package；
+- Framework 若实际接触项目 `Assets` 中的外部程序集，或显式依赖无法还原来源，探针在启动子进程前 fail-fast，不把业务代码 / DLL 静默夹进框架体积证据。
+
+外部 Package 自身的 registry / built-in 传递依赖继续由它的 `package.json` 解析，探针不把主工程 `packages-lock.json` 中的偶然传递版本提升为根依赖。若复制 Package 的 `package.json` 仍含相对工作区的 `file:` 传递依赖，探针 fail-fast，不修改第三方 manifest 或猜目标目录；维护者应先把该依赖改成 registry 版本或独立 embedded Package。Framework 原生基线不依赖 Odin，探针也不复制付费插件。每个组合因此只携带它直接需要的 Package，例如 Core 不安装 Input System / UGUI，Toolkit 不因另一档需要 UGUI 而被污染。
+
+当前 `Packages/nuget-packages` 是一个聚合 embedded Package；只要组合需要其中任一预编译 DLL，探针就复制整个物理 Package。这能证明“当前可安装边界下的真实组合体积”，不能证明各 NuGet DLL 已达到最小安装闭包。若以后要独立拆卸某个 NuGet 依赖，应先把它拆成独立 Package / Adapter seam，再由同一依赖计划自然得到更细的证据，不在探针里按 DLL 名伪造虚拟 Package。
 
 探针不联网选择“更新版本”，也不修改第三方库。若主工程缺少选中 Module 声明的依赖，构建前 fail-fast，而不是默默换一个版本继续。
 
@@ -45,7 +54,7 @@ Module 源码不假设位于 `Assets/Game/Framework`。审计先经 `FrameworkMo
 
 构建由隐藏的 Unity 子进程顺序执行，共用同一个隔离工程 Library 以复用导入与 IL2CPP 缓存。每档结束后主进程才替换 Module 目录并启动下一档，避免两个进程同时写同一工程。停止操作采用“当前完成后停止”，不强杀正在落盘的 Player Build。
 
-当前档位、子进程 PID、待运行队列和结果路径持续写入 `report.json`。主 Unity 发生 Domain Reload 或重启后会重新附着仍在运行的 Unity 子进程；子进程已退出则从独立结果文件恢复，再继续下一档。恢复找不到进程和结果时明确标失败，不用空数据假装成功。
+当前档位、Profile key、子进程 PID 与待运行队列持续写入 `report.json`；运行目录由本机 EditorPrefs 保存，输出 / 结果 / 日志路径在读取时按 Profile key 重建，不进入分享 JSON。主 Unity 发生 Domain Reload 或重启后会重新附着仍在运行的 Unity 子进程；子进程已退出则从独立结果文件恢复，再继续下一档。恢复找不到进程和结果时明确标失败，不用空数据假装成功。
 
 ### 5. JSON、Markdown、日志和产物共同构成证据
 
@@ -82,9 +91,11 @@ Unity Windows IL2CPP 会把 `*_BackUpThisFolder_ButDontShipItWithYourGame` 的 C
 - ✅ 主工程 Domain Reload / 重启不会让仍在工作的子构建失去 owner；进度能从落盘状态恢复。
 - ✅ JSON + Markdown 同时服务 CI、issue 与人工阅读；窗口只负责选择与反馈，Implementation 保持 locality。
 - ✅ 源码位于 Assets、嵌入式 Package 或 registry/Git PackageCache 时复用同一探针 Implementation；报告能追溯每个 Module 的 package 版本。
+- ✅ Module 与 Package 依赖计划共用 asmdef / 当前 DLL / Source Catalog 证据；新增可选 Module 不必再同步修改体积探针中的名称映射。
 - ⚠ 第一次创建隔离工程要重新导入包，IL2CPP / WebGL 多档构建可能耗时较长并占用 `Library` 磁盘。
 - ⚠ `preserve="all"` 是体积上界，不应把 Windows 结果外推为 WebGL，也不应宣称等于具体游戏最终包体。
 - ⚠ 当前只证明代码 Module 与引擎/第三方依赖；业务资源包、字体字集、shader variants 与 HybridCLR CodePackage 仍应由真实产品构建单独度量。
+- ⚠ 聚合 embedded Package 是当前最小物理复制边界；其中未使用的 DLL 是否能被 linker 裁剪由真实构建回答，探针不把它包装成可单独卸载的模块。
 
 ## Alternatives considered
 

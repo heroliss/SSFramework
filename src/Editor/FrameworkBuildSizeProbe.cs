@@ -30,12 +30,7 @@ namespace Game.Framework.Editor
         internal const string UnityIl2CppPathEnvironmentVariable = "UNITY_IL2CPP_PATH";
 
         private const string LatestRunPreferencePrefix = "SSFramework.BuildSizeProbe.LatestRun.";
-        private static readonly string[] AlwaysRequiredPackages =
-        {
-            "com.cysharp.r3",
-            "com.cysharp.unitask",
-        };
-
+        internal const int CurrentReportFormatVersion = 5;
         private static readonly Regex DependencyEntryRegex = new(
             "\\\"(?<id>[^\\\"]+)\\\"\\s*:\\s*\\\"(?<value>(?:\\\\.|[^\\\"])*)\\\"",
             RegexOptions.Compiled);
@@ -61,6 +56,24 @@ namespace Game.Framework.Editor
         }
 
         [Serializable]
+        internal sealed class PackageSourcePlan
+        {
+            public string PackageName;
+            public string AssetDirectory;
+            [NonSerialized]
+            public string PhysicalDirectory;
+            public string PackageVersion;
+            public string PackageId;
+            public string SourceFingerprint;
+        }
+
+        internal sealed class PackageDependencyPlan
+        {
+            internal string[] ManifestPackages = Array.Empty<string>();
+            internal PackageSourcePlan[] CopiedPackages = Array.Empty<PackageSourcePlan>();
+        }
+
+        [Serializable]
         internal sealed class ProfilePlan
         {
             public string Key;
@@ -69,6 +82,11 @@ namespace Game.Framework.Editor
             public string[] RootAssemblies = Array.Empty<string>();
             public string[] Assemblies = Array.Empty<string>();
             public ModuleSourcePlan[] Sources = Array.Empty<ModuleSourcePlan>();
+            public string[] ManifestPackages = Array.Empty<string>();
+            public string ManifestFingerprint;
+            [NonSerialized]
+            public string MinimalManifest;
+            public PackageSourcePlan[] CopiedPackages = Array.Empty<PackageSourcePlan>();
             public bool IsAdvanced;
         }
 
@@ -89,8 +107,14 @@ namespace Game.Framework.Editor
             public string Message;
             public string[] Assemblies = Array.Empty<string>();
             public ModuleSourcePlan[] Sources = Array.Empty<ModuleSourcePlan>();
+            public string[] ManifestPackages = Array.Empty<string>();
+            public string ManifestFingerprint;
+            public PackageSourcePlan[] CopiedPackages = Array.Empty<PackageSourcePlan>();
+            [NonSerialized]
             public string OutputPath;
+            [NonSerialized]
             public string ResultPath;
+            [NonSerialized]
             public string LogPath;
             public long BuildReportBytes;
             public long RawOutputBytes;
@@ -106,7 +130,7 @@ namespace Game.Framework.Editor
         [Serializable]
         internal sealed class RunReport
         {
-            public int FormatVersion = 4;
+            public int FormatVersion = CurrentReportFormatVersion;
             public string CreatedUtc;
             public string CompletedUtc;
             public string UnityVersion;
@@ -115,6 +139,7 @@ namespace Game.Framework.Editor
             public string StrippingLevel;
             public bool DevelopmentBuild;
             public string EvidenceScope;
+            [NonSerialized]
             public string RunDirectory;
             public ProfileRecord[] Profiles = Array.Empty<ProfileRecord>();
         }
@@ -176,12 +201,31 @@ namespace Game.Framework.Editor
             try
             {
                 var report = JsonUtility.FromJson<RunReport>(File.ReadAllText(path, Encoding.UTF8));
+                RestoreOperationalPaths(report, directory);
                 NormalizeShippingEvidence(report);
                 return report;
             }
             catch
             {
                 return null;
+            }
+        }
+
+        /// <summary>
+        /// 运行目录由本机 EditorPrefs 定位，不写进可分享报告；恢复时按稳定 Profile key 重建。
+        /// </summary>
+        internal static void RestoreOperationalPaths(RunReport report, string runDirectory)
+        {
+            if (report == null) throw new ArgumentNullException(nameof(report));
+            if (string.IsNullOrWhiteSpace(runDirectory))
+                throw new ArgumentException("体积探针运行目录为空。", nameof(runDirectory));
+            report.RunDirectory = Path.GetFullPath(runDirectory);
+            foreach (ProfileRecord record in report.Profiles ?? Array.Empty<ProfileRecord>())
+            {
+                if (record == null || string.IsNullOrWhiteSpace(record.Key)) continue;
+                record.OutputPath = Path.Combine(report.RunDirectory, "Output", record.Key);
+                record.ResultPath = Path.Combine(report.RunDirectory, "Results", record.Key + ".json");
+                record.LogPath = Path.Combine(report.RunDirectory, "Logs", record.Key + ".log");
             }
         }
 
@@ -196,14 +240,26 @@ namespace Game.Framework.Editor
         {
             RunReport report = LoadLatestReport();
             if (report == null) return;
-            report.FormatVersion = 4;
+            EnsureReportCanBeRebuilt(report);
             WriteReports(report);
             Changed?.Invoke();
         }
 
+        internal static void EnsureReportCanBeRebuilt(RunReport report)
+        {
+            if (report == null) throw new ArgumentNullException(nameof(report));
+            if (report.FormatVersion > CurrentReportFormatVersion)
+                throw new InvalidDataException(
+                    $"报告格式 v{report.FormatVersion} 新于当前工具支持的 v{CurrentReportFormatVersion}；" +
+                    "拒绝用旧代码重写并丢失未知字段。请切回生成该报告的版本。 ");
+        }
+
         internal static ProfilePlan[] CreatePlans()
         {
-            var result = FrameworkModuleAudit.Analyze(FrameworkModuleAudit.Capture());
+            FrameworkModuleAudit.Snapshot snapshot = FrameworkModuleAudit.Capture();
+            var result = FrameworkModuleAudit.Analyze(snapshot);
+            var copiedSourceCache = new Dictionary<string, PackageSourcePlan>(StringComparer.Ordinal);
+            string sourceManifest = File.ReadAllText(FullPath("Packages/manifest.json"), Encoding.UTF8);
             var profiles = result.CommonProfiles
                 .Select(profile => (profile, advanced: false))
                 .Concat(new[] { (profile: result.FullProfile, advanced: false) })
@@ -217,7 +273,8 @@ namespace Game.Framework.Editor
                     PhysicalDirectory = module.SourceDirectory,
                     PackageName = module.PackageName,
                     PackageVersion = module.PackageVersion,
-                    PackageId = module.PackageId,
+                    PackageId = StablePackageIdForReport(
+                        module.SourceKind, module.PackageName, module.PackageVersion, module.PackageId),
                     SourceFingerprint = ComputeModuleSourceFingerprint(module.SourceDirectory),
                 })
                 .ToDictionary(source => source.AssemblyName, StringComparer.Ordinal);
@@ -225,10 +282,12 @@ namespace Game.Framework.Editor
             return profiles.Select(item =>
             {
                 FrameworkModuleAudit.AuditProfile profile = item.profile;
-                string[] assemblies = profile.Footprint.FrameworkAssemblies
-                    .Where(runtimeByName.ContainsKey)
-                    .OrderBy(name => name, StringComparer.Ordinal)
-                    .ToArray();
+                string[] assemblies = BuildFrameworkCompileClosure(
+                    snapshot, profile.Footprint.FrameworkAssemblies, runtimeByName.Keys);
+                PackageDependencyPlan dependencies = BuildPackageDependencyPlan(
+                    snapshot, assemblies, copiedSourceCache);
+                string minimalManifest = CreateMinimalManifest(
+                    sourceManifest, dependencies.ManifestPackages);
                 return new ProfilePlan
                 {
                     Key = profile.Key,
@@ -237,9 +296,258 @@ namespace Game.Framework.Editor
                     RootAssemblies = profile.Roots,
                     Assemblies = assemblies,
                     Sources = assemblies.Select(name => sourceByName[name]).ToArray(),
+                    ManifestPackages = dependencies.ManifestPackages,
+                    ManifestFingerprint = ComputeTextFingerprint(minimalManifest),
+                    MinimalManifest = minimalManifest,
+                    CopiedPackages = dependencies.CopiedPackages,
                     IsAdvanced = item.advanced,
                 };
             }).ToArray();
+        }
+
+        /// <summary>
+        /// 实际 DLL 闭包决定“当前用了什么”，asmdef 声明闭包决定“隔离工程至少要安装什么才能编译”。
+        /// 探针复制两者并完整保留，避免 declared-only Module 因当前 IL 未发出 AssemblyRef 而缺席。
+        /// </summary>
+        internal static string[] BuildFrameworkCompileClosure(
+            FrameworkModuleAudit.Snapshot snapshot,
+            IEnumerable<string> actualFrameworkAssemblies,
+            IEnumerable<string> availableRuntimeAssemblies)
+        {
+            if (snapshot == null) throw new ArgumentNullException(nameof(snapshot));
+            if (actualFrameworkAssemblies == null)
+                throw new ArgumentNullException(nameof(actualFrameworkAssemblies));
+            if (availableRuntimeAssemblies == null)
+                throw new ArgumentNullException(nameof(availableRuntimeAssemblies));
+
+            var available = new HashSet<string>(availableRuntimeAssemblies, StringComparer.Ordinal);
+            var selected = new SortedSet<string>(StringComparer.Ordinal);
+            var pending = new Queue<string>();
+            foreach (string root in actualFrameworkAssemblies
+                         .Where(name => !string.IsNullOrWhiteSpace(name))
+                         .Distinct(StringComparer.Ordinal)
+                         .OrderBy(name => name, StringComparer.Ordinal))
+            {
+                if (!available.Contains(root))
+                    throw new InvalidDataException($"体积档位包含不可用的 Framework Runtime Module：{root}。");
+                if (selected.Add(root)) pending.Enqueue(root);
+            }
+
+            while (pending.Count > 0)
+            {
+                string assemblyName = pending.Dequeue();
+                if (!snapshot.Assemblies.TryGetValue(
+                        assemblyName, out FrameworkModuleAudit.AssemblyInfo assembly))
+                    throw new InvalidDataException($"找不到 Framework Runtime Module {assemblyName} 的编译快照。");
+                foreach (string reference in assembly.DeclaredReferences
+                             .Where(IsFrameworkAssemblyName)
+                             .Distinct(StringComparer.Ordinal)
+                             .OrderBy(name => name, StringComparer.Ordinal))
+                {
+                    if (!available.Contains(reference))
+                        throw new InvalidDataException(
+                            $"{assemblyName} 显式声明了不可用或非 Runtime 的 Framework Module {reference}；" +
+                            "隔离构建不能把声明边静默当成未使用。");
+                    if (selected.Add(reference)) pending.Enqueue(reference);
+                }
+            }
+
+            return selected.ToArray();
+        }
+
+        private static bool IsFrameworkAssemblyName(string name) =>
+            !string.IsNullOrWhiteSpace(name) &&
+            (name.Equals(FrameworkModuleAudit.CoreAssemblyName, StringComparison.Ordinal) ||
+             name.StartsWith(FrameworkModuleAudit.CoreAssemblyName + ".", StringComparison.Ordinal));
+
+        /// <summary>
+        /// 从所选 Framework asmdef 的声明闭包派生隔离工程依赖。Package 名与安装形态只由
+        /// <see cref="FrameworkModuleSourceCatalog"/> 证据决定，不再按 Module 名维护映射表。
+        /// </summary>
+        internal static PackageDependencyPlan BuildPackageDependencyPlan(
+            FrameworkModuleAudit.Snapshot snapshot,
+            IEnumerable<string> selectedAssemblies)
+            => BuildPackageDependencyPlan(
+                snapshot, selectedAssemblies,
+                new Dictionary<string, PackageSourcePlan>(StringComparer.Ordinal));
+
+        private static PackageDependencyPlan BuildPackageDependencyPlan(
+            FrameworkModuleAudit.Snapshot snapshot,
+            IEnumerable<string> selectedAssemblies,
+            IDictionary<string, PackageSourcePlan> copiedSourceCache)
+        {
+            if (snapshot == null) throw new ArgumentNullException(nameof(snapshot));
+            if (selectedAssemblies == null) throw new ArgumentNullException(nameof(selectedAssemblies));
+            if (copiedSourceCache == null) throw new ArgumentNullException(nameof(copiedSourceCache));
+
+            var selected = new HashSet<string>(
+                selectedAssemblies.Where(name => !string.IsNullOrWhiteSpace(name)), StringComparer.Ordinal);
+            var manifestPackages = new SortedSet<string>(StringComparer.Ordinal);
+            var copiedPackages = new SortedDictionary<string, PackageSourcePlan>(StringComparer.Ordinal);
+            var visited = new HashSet<string>(StringComparer.Ordinal);
+            var pending = new Queue<string>(selected.OrderBy(name => name, StringComparer.Ordinal));
+
+            while (pending.Count > 0)
+            {
+                string assemblyName = pending.Dequeue();
+                if (!visited.Add(assemblyName) ||
+                    !snapshot.Assemblies.TryGetValue(assemblyName, out FrameworkModuleAudit.AssemblyInfo assembly))
+                    continue;
+
+                var declared = new HashSet<string>(assembly.DeclaredReferences
+                    .Concat(assembly.DeclaredPrecompiledReferences), StringComparer.Ordinal);
+                foreach (string reference in declared
+                             .Concat(assembly.ActualReferences)
+                             .Where(name => !string.IsNullOrWhiteSpace(name))
+                             .Distinct(StringComparer.Ordinal)
+                             .OrderBy(name => name, StringComparer.Ordinal))
+                {
+                    if (selected.Contains(reference))
+                    {
+                        pending.Enqueue(reference);
+                        continue;
+                    }
+
+                    if (!snapshot.DependencySources.TryGetValue(
+                            reference, out FrameworkModuleAudit.DependencySource source) ||
+                        !source.IsKnown)
+                    {
+                        // 当前 DLL 元数据还会包含 BCL / Unity 平台程序集；它们没有可安装 Package 来源。
+                        // 普通未知外部 DLL（含显式声明）不能静默跳过，否则隔离工程会在子进程里才暴露缺包。
+                        if (declared.Contains(reference) ||
+                            !FrameworkModuleAudit.IsPlatformReference(snapshot, reference))
+                            throw new InvalidDataException(
+                                $"无法从 Source Catalog 解析 {assemblyName} → {reference} 的外部依赖来源；" +
+                                "隔离构建拒绝按程序集名猜 Package。");
+                        continue;
+                    }
+
+                    if (IsCopiedPackageSource(source.SourceKind))
+                    {
+                        if (string.IsNullOrWhiteSpace(source.PackageName))
+                            throw new InvalidDataException($"需复制的 Package 依赖 {reference} 缺少 Package 名称。");
+                        if (!copiedPackages.ContainsKey(source.PackageName))
+                        {
+                            if (!copiedSourceCache.TryGetValue(
+                                    source.PackageName, out PackageSourcePlan packagePlan))
+                            {
+                                packagePlan = CreateCopiedPackageSourcePlan(source);
+                                copiedSourceCache.Add(source.PackageName, packagePlan);
+                            }
+                            copiedPackages.Add(source.PackageName, packagePlan);
+                        }
+                        continue;
+                    }
+
+                    switch (source.SourceKind)
+                    {
+                        case FrameworkModuleSourceCatalog.SourceKind.BuiltInPackage:
+                            // com.unity.modules.* 是隔离工程固定引擎背景；UGUI 等随 Editor 分发但仍需
+                            // manifest 选择的 built-in Package，继续按 Source Catalog 给出的 Package 名记录。
+                            if (!string.IsNullOrWhiteSpace(source.PackageName) &&
+                                !source.PackageName.StartsWith("com.unity.modules.", StringComparison.Ordinal))
+                                manifestPackages.Add(source.PackageName);
+                            break;
+                        case FrameworkModuleSourceCatalog.SourceKind.RegistryPackage:
+                            if (string.IsNullOrWhiteSpace(source.PackageName))
+                                throw new InvalidDataException($"Package 依赖 {reference} 缺少 Package 名称。");
+                            manifestPackages.Add(source.PackageName);
+                            break;
+                        case FrameworkModuleSourceCatalog.SourceKind.ProjectAssets:
+                            throw new InvalidDataException(
+                                $"{assemblyName} 依赖项目 Assets 中的 {reference}；当前隔离探针只复制所选 Framework Module " +
+                                "与 Package 来源，不能把项目代码 / DLL 静默夹进框架体积证据。请先将该依赖归入 Module 或 Package。");
+                        default:
+                            if (!declared.Contains(reference) &&
+                                FrameworkModuleAudit.IsPlatformReference(snapshot, reference))
+                                break;
+                            throw new InvalidDataException(
+                                $"{assemblyName} → {reference} 的来源类型为 {source.SourceKind}，无法生成可恢复的隔离依赖计划。");
+                    }
+
+                    // 外部 Package 的传递依赖由其 package.json 负责；这里仅记录 Framework Module
+                    // 直接接触的 Package，避免把主工程 packages-lock 中的偶然传递版本升级成根 manifest 依赖。
+                }
+            }
+
+            return new PackageDependencyPlan
+            {
+                ManifestPackages = manifestPackages.ToArray(),
+                CopiedPackages = copiedPackages.Values.ToArray(),
+            };
+        }
+
+        internal static bool IsCopiedPackageSource(FrameworkModuleSourceCatalog.SourceKind sourceKind) =>
+            sourceKind is FrameworkModuleSourceCatalog.SourceKind.EmbeddedPackage or
+                FrameworkModuleSourceCatalog.SourceKind.LocalPackage or
+                FrameworkModuleSourceCatalog.SourceKind.LocalTarballPackage or
+                FrameworkModuleSourceCatalog.SourceKind.GitPackage;
+
+        private static PackageSourcePlan CreateCopiedPackageSourcePlan(
+            FrameworkModuleAudit.DependencySource source)
+        {
+            FrameworkModuleSourceCatalog.SourceLocation location =
+                FrameworkModuleSourceCatalog.Resolve("Packages/" + source.PackageName);
+            if (!Directory.Exists(location.PhysicalPath))
+                throw new DirectoryNotFoundException(
+                    $"找不到需复制 Package {source.PackageName} 的物理目录：{location.PhysicalPath}");
+            ValidateCopiedPackageDependencies(location);
+            return new PackageSourcePlan
+            {
+                PackageName = source.PackageName,
+                AssetDirectory = location.AssetPath,
+                PhysicalDirectory = location.PhysicalPath,
+                PackageVersion = location.PackageVersion,
+                PackageId = StablePackageIdForReport(
+                    location.Kind, location.PackageName, location.PackageVersion, location.PackageId),
+                SourceFingerprint = ComputeDirectoryFingerprint(location.PhysicalPath, _ => false),
+            };
+        }
+
+        internal static void ValidateCopiedPackageDependencies(
+            FrameworkModuleSourceCatalog.SourceLocation location)
+        {
+            string packageJson = Path.Combine(location.PhysicalPath, "package.json");
+            if (!File.Exists(packageJson))
+                throw new FileNotFoundException(
+                    $"需复制 Package {location.PackageName} 缺少 package.json。", packageJson);
+            Dictionary<string, string> dependencies = ReadDependencyEntries(
+                File.ReadAllText(packageJson, Encoding.UTF8), requireDependencies: false);
+            string[] localDependencies = dependencies
+                .Where(pair => pair.Value.StartsWith("file:", StringComparison.OrdinalIgnoreCase))
+                .Select(pair => pair.Key + " = " + pair.Value)
+                .OrderBy(value => value, StringComparer.Ordinal)
+                .ToArray();
+            if (localDependencies.Length > 0)
+                throw new InvalidDataException(
+                    $"需复制 Package {location.PackageName} 的 package.json 含相对工作区的本地传递依赖：" +
+                    string.Join(", ", localDependencies) + "。当前探针不重写第三方 package.json；" +
+                    "请先把该依赖改为 registry 版本或独立 embedded Package，再生成可恢复体积证据。");
+        }
+
+        /// <summary>
+        /// copied Package 的 Unity packageId 可能含本机路径、Git URL userinfo 或 token，不适合作为
+        /// 可分享身份；报告只保留包名与版本，精确内容另由 SHA-256 负责。Registry 继续使用 manifest 指纹。
+        /// </summary>
+        internal static string StablePackageIdForReport(
+            FrameworkModuleSourceCatalog.SourceKind sourceKind,
+            string packageName,
+            string packageVersion,
+            string packageId)
+        {
+            if (string.IsNullOrWhiteSpace(packageName)) return string.Empty;
+            if (sourceKind is FrameworkModuleSourceCatalog.SourceKind.EmbeddedPackage or
+                FrameworkModuleSourceCatalog.SourceKind.LocalPackage or
+                FrameworkModuleSourceCatalog.SourceKind.LocalTarballPackage or
+                FrameworkModuleSourceCatalog.SourceKind.GitPackage)
+                return packageName + (string.IsNullOrWhiteSpace(packageVersion)
+                    ? string.Empty
+                    : "@" + packageVersion);
+            return string.IsNullOrWhiteSpace(packageId)
+                ? packageName + (string.IsNullOrWhiteSpace(packageVersion)
+                    ? string.Empty
+                    : "@" + packageVersion)
+                : packageId;
         }
 
         internal static void Start(IEnumerable<string> selectedKeys)
@@ -284,6 +592,9 @@ namespace Game.Framework.Editor
                     Message = "等待前序组合完成。",
                     Assemblies = plan.Assemblies,
                     Sources = plan.Sources,
+                    ManifestPackages = plan.ManifestPackages,
+                    ManifestFingerprint = plan.ManifestFingerprint,
+                    CopiedPackages = plan.CopiedPackages,
                 }).ToArray(),
             };
 
@@ -331,21 +642,15 @@ namespace Game.Framework.Editor
             return sb.ToString();
         }
 
-        internal static string CreateMinimalManifest(string sourceManifest, IEnumerable<string> assemblies)
+        internal static string CreateMinimalManifest(
+            string sourceManifest,
+            IEnumerable<string> requiredPackageNames)
         {
             if (sourceManifest == null) throw new ArgumentNullException(nameof(sourceManifest));
-            if (assemblies == null) throw new ArgumentNullException(nameof(assemblies));
+            if (requiredPackageNames == null) throw new ArgumentNullException(nameof(requiredPackageNames));
 
-            var assemblySet = new HashSet<string>(assemblies, StringComparer.Ordinal);
-            var required = new HashSet<string>(AlwaysRequiredPackages, StringComparer.Ordinal);
-            if (assemblySet.Contains(FrameworkModuleAudit.SharedUiAssemblyName))
-                required.Add("com.unity.inputsystem");
-            if (assemblySet.Contains(FrameworkModuleAudit.UGuiAssemblyName) ||
-                assemblySet.Contains(FrameworkModuleAudit.BridgeAssemblyName) ||
-                assemblySet.Contains("Game.Framework.Fonts"))
-                required.Add("com.unity.ugui");
-            if (assemblySet.Contains("Game.Framework.Asset.Yoo"))
-                required.Add("com.tuyoogame.yooasset");
+            var required = new HashSet<string>(
+                requiredPackageNames.Where(name => !string.IsNullOrWhiteSpace(name)), StringComparer.Ordinal);
 
             var dependencies = ReadDependencyEntries(sourceManifest);
             foreach (string module in dependencies.Keys.Where(id => id.StartsWith("com.unity.modules.", StringComparison.Ordinal)))
@@ -366,14 +671,10 @@ namespace Game.Framework.Editor
                 sb.Append("    \"").Append(ordered[i]).Append("\": \"")
                     .Append(dependencies[ordered[i]]).Append('"').AppendLine(suffix);
             }
-            sb.AppendLine("  },");
-            sb.AppendLine("  \"scopedRegistries\": [");
-            sb.AppendLine("    {");
-            sb.AppendLine("      \"name\": \"package.openupm.com\",");
-            sb.AppendLine("      \"url\": \"https://package.openupm.com\",");
-            sb.AppendLine("      \"scopes\": [\"com.tuyoogame.yooasset\"]");
-            sb.AppendLine("    }");
-            sb.AppendLine("  ]");
+            string scopedRegistries = ExtractJsonArrayProperty(sourceManifest, "scopedRegistries");
+            sb.AppendLine(scopedRegistries.Length > 0 ? "  }," : "  }");
+            if (scopedRegistries.Length > 0)
+                sb.Append("  \"scopedRegistries\": ").AppendLine(scopedRegistries);
             sb.AppendLine("}");
             return sb.ToString();
         }
@@ -400,11 +701,6 @@ namespace Game.Framework.Editor
             Directory.CreateDirectory(Path.Combine(projectDirectory, "Assets", "Editor"));
             Directory.CreateDirectory(Path.Combine(projectDirectory, "Packages"));
             Directory.CreateDirectory(Path.Combine(projectDirectory, "ProjectSettings"));
-
-            CopyDirectory(
-                FrameworkModuleSourceCatalog.Resolve("Packages/nuget-packages").PhysicalPath,
-                Path.Combine(projectDirectory, "Packages", "nuget-packages"),
-                _ => false);
 
             string templateSource = ResolveChildTemplate().PhysicalPath;
             if (!File.Exists(templateSource))
@@ -729,11 +1025,31 @@ namespace Game.Framework.Editor
             File.Copy(childTemplate,
                 Path.Combine(projectDirectory, "Assets", "Editor", "FrameworkBuildSizeProbeChild.cs"), true);
 
-            string sourceManifest = File.ReadAllText(FullPath("Packages/manifest.json"), Encoding.UTF8);
+            if (string.IsNullOrWhiteSpace(profile.MinimalManifest))
+                throw new InvalidDataException(
+                    $"构建组合 {profile.Key} 缺少启动时冻结的最小 manifest，拒绝在运行中重新猜依赖版本。");
             File.WriteAllText(
                 Path.Combine(projectDirectory, "Packages", "manifest.json"),
-                CreateMinimalManifest(sourceManifest, profile.Assemblies),
+                profile.MinimalManifest,
                 new UTF8Encoding(false));
+
+            string packagesDirectory = Path.Combine(projectDirectory, "Packages");
+            foreach (string directory in Directory.GetDirectories(packagesDirectory))
+                DeleteDirectoryInsideWorkspace(directory, projectDirectory);
+            string packageLock = Path.Combine(packagesDirectory, "packages-lock.json");
+            if (File.Exists(packageLock)) File.Delete(packageLock);
+            foreach (PackageSourcePlan package in profile.CopiedPackages ?? Array.Empty<PackageSourcePlan>())
+            {
+                if (package == null || string.IsNullOrWhiteSpace(package.PhysicalDirectory) ||
+                    !Directory.Exists(package.PhysicalDirectory))
+                    throw new DirectoryNotFoundException(
+                        $"找不到 {package?.PackageName ?? "未知复制 Package"} 的物理源码目录：" +
+                        (package?.PhysicalDirectory ?? "（空）"));
+                CopyDirectory(
+                    Path.GetFullPath(package.PhysicalDirectory),
+                    Path.Combine(packagesDirectory, SafeDirectoryName(package.PackageName)),
+                    _ => false);
+            }
 
             string frameworkDestination = Path.Combine(projectDirectory, "Assets", "Framework");
             DeleteDirectoryInsideWorkspace(frameworkDestination, projectDirectory);
@@ -819,6 +1135,20 @@ namespace Game.Framework.Editor
                             sb.AppendLine($"  - 实际复制内容 SHA-256：`{source.SourceFingerprint}`");
                     }
                 }
+                if (record.ManifestPackages?.Length > 0)
+                    sb.AppendLine("\nmanifest Package：" + string.Join(", ", record.ManifestPackages));
+                if (!string.IsNullOrWhiteSpace(record.ManifestFingerprint))
+                    sb.AppendLine($"- 冻结 manifest SHA-256：`{record.ManifestFingerprint}`");
+                if (record.CopiedPackages?.Length > 0)
+                {
+                    sb.AppendLine("\n复制 Package 证据：");
+                    foreach (PackageSourcePlan package in record.CopiedPackages)
+                    {
+                        sb.AppendLine($"- {package.PackageName} ← {package.AssetDirectory} ({PackageSourceOwner(package)})");
+                        if (!string.IsNullOrWhiteSpace(package.SourceFingerprint))
+                            sb.AppendLine($"  - 实际复制内容 SHA-256：`{package.SourceFingerprint}`");
+                    }
+                }
                 if (record.LargestFiles?.Length > 0)
                 {
                     sb.AppendLine("\n较大的输出文件：");
@@ -892,10 +1222,16 @@ namespace Game.Framework.Editor
                 }).ToArray();
         }
 
-        private static Dictionary<string, string> ReadDependencyEntries(string manifest)
+        private static Dictionary<string, string> ReadDependencyEntries(
+            string manifest,
+            bool requireDependencies = true)
         {
             int dependencies = manifest.IndexOf("\"dependencies\"", StringComparison.Ordinal);
-            if (dependencies < 0) throw new InvalidDataException("Packages/manifest.json 缺少 dependencies。");
+            if (dependencies < 0)
+            {
+                if (!requireDependencies) return new Dictionary<string, string>(StringComparer.Ordinal);
+                throw new InvalidDataException("Packages/manifest.json 缺少 dependencies。");
+            }
             int openBrace = manifest.IndexOf('{', dependencies);
             int closeBrace = manifest.IndexOf('}', openBrace + 1);
             if (openBrace < 0 || closeBrace < 0)
@@ -905,6 +1241,42 @@ namespace Game.Framework.Editor
                 match => match.Groups["id"].Value,
                 match => match.Groups["value"].Value,
                 StringComparer.Ordinal);
+        }
+
+        private static string ExtractJsonArrayProperty(string json, string propertyName)
+        {
+            if (string.IsNullOrWhiteSpace(json) || string.IsNullOrWhiteSpace(propertyName)) return string.Empty;
+            int property = json.IndexOf("\"" + propertyName + "\"", StringComparison.Ordinal);
+            if (property < 0) return string.Empty;
+            int colon = json.IndexOf(':', property + propertyName.Length + 2);
+            int open = colon < 0 ? -1 : json.IndexOf('[', colon + 1);
+            if (open < 0) throw new InvalidDataException($"Packages/manifest.json 的 {propertyName} 不是数组。");
+
+            int depth = 0;
+            bool inString = false;
+            bool escaped = false;
+            for (int i = open; i < json.Length; i++)
+            {
+                char c = json[i];
+                if (inString)
+                {
+                    if (escaped) escaped = false;
+                    else if (c == '\\') escaped = true;
+                    else if (c == '"') inString = false;
+                    continue;
+                }
+
+                if (c == '"')
+                {
+                    inString = true;
+                    continue;
+                }
+                if (c == '[') depth++;
+                else if (c == ']' && --depth == 0)
+                    return json.Substring(open, i - open + 1);
+            }
+
+            throw new InvalidDataException($"Packages/manifest.json 的 {propertyName} 数组没有闭合。");
         }
 
         private static void CopyDirectory(string source, string destination, Func<string, bool> skip)
@@ -1038,8 +1410,12 @@ namespace Game.Framework.Editor
             IReadOnlyDictionary<string, ProfilePlan> currentPlans)
         {
             if (report == null) return "恢复报告为空，无法验证 Module 源码身份。";
-            if (report.FormatVersion < 4)
-                return "报告格式早于 v4，缺少实际复制内容的指纹，拒绝跨 Domain Reload 猜测续跑。";
+            if (report.FormatVersion != CurrentReportFormatVersion)
+                return report.FormatVersion < CurrentReportFormatVersion
+                    ? $"报告格式早于 v{CurrentReportFormatVersion}，缺少派生 Package 计划或复制内容指纹，" +
+                      "拒绝跨 Domain Reload 猜测续跑。"
+                    : $"报告格式 v{report.FormatVersion} 新于当前工具支持的 v{CurrentReportFormatVersion}；" +
+                      "旧代码不能安全解释未知字段，拒绝续跑。";
             if (currentPlans == null) return "当前 Module 拓扑为空，无法验证恢复报告。";
 
             var recordedKeys = new HashSet<string>(StringComparer.Ordinal);
@@ -1053,6 +1429,21 @@ namespace Game.Framework.Editor
                     return $"构建组合 {record.Key} 已不在当前 Module 拓扑中，拒绝静默跳过。";
 
                 string mismatch = FindSourceIdentityMismatch(record.Sources, current.Sources);
+                if (!string.IsNullOrEmpty(mismatch)) return $"构建组合 {record.Key}：{mismatch}";
+                string[] recordedManifest = (record.ManifestPackages ?? Array.Empty<string>())
+                    .OrderBy(name => name, StringComparer.Ordinal).ToArray();
+                string[] currentManifest = (current.ManifestPackages ?? Array.Empty<string>())
+                    .OrderBy(name => name, StringComparer.Ordinal).ToArray();
+                if (!recordedManifest.SequenceEqual(currentManifest, StringComparer.Ordinal))
+                    return $"构建组合 {record.Key}：manifest Package 依赖已变化；原报告为 [" +
+                           string.Join(", ", recordedManifest) + "]，当前为 [" +
+                           string.Join(", ", currentManifest) + "]。";
+                if (!string.Equals(
+                        record.ManifestFingerprint, current.ManifestFingerprint, StringComparison.Ordinal))
+                    return $"构建组合 {record.Key}：冻结 manifest 的版本规格、内置 Module 或 registry 已变化；" +
+                           $"原报告 SHA-256 为 {record.ManifestFingerprint ?? "（空）"}，" +
+                           $"当前为 {current.ManifestFingerprint ?? "（空）"}。";
+                mismatch = FindPackageSourceIdentityMismatch(record.CopiedPackages, current.CopiedPackages);
                 if (!string.IsNullOrEmpty(mismatch)) return $"构建组合 {record.Key}：{mismatch}";
             }
 
@@ -1070,11 +1461,49 @@ namespace Game.Framework.Editor
             .OrderBy(value => value, StringComparer.Ordinal)
             .ToArray();
 
+        internal static string FindPackageSourceIdentityMismatch(
+            IEnumerable<PackageSourcePlan> recorded,
+            IEnumerable<PackageSourcePlan> current)
+        {
+            string[] oldKeys = PackageSourceIdentityKeys(recorded);
+            string[] currentKeys = PackageSourceIdentityKeys(current);
+            return oldKeys.SequenceEqual(currentKeys, StringComparer.Ordinal)
+                ? string.Empty
+                : "复制 Package 源码身份已变化；原报告为 [" + string.Join(", ", oldKeys) +
+                  "]，当前为 [" + string.Join(", ", currentKeys) + "]。";
+        }
+
+        private static string[] PackageSourceIdentityKeys(IEnumerable<PackageSourcePlan> sources) =>
+            (sources ?? Array.Empty<PackageSourcePlan>())
+            .Where(source => source != null)
+            .Select(source => string.Join("|",
+                source.PackageName ?? string.Empty,
+                NormalizeAssetPath(source.AssetDirectory),
+                PackageSourceOwner(source),
+                source.SourceFingerprint ?? string.Empty))
+            .OrderBy(value => value, StringComparer.Ordinal)
+            .ToArray();
+
         internal static string ComputeModuleSourceFingerprint(string sourceDirectory)
+            => ComputeDirectoryFingerprint(sourceDirectory, ShouldSkipModulePath);
+
+        private static string ComputeTextFingerprint(string value)
+        {
+            using SHA256 sha256 = SHA256.Create();
+            byte[] bytes = Encoding.UTF8.GetBytes(value ?? string.Empty);
+            return BitConverter.ToString(sha256.ComputeHash(bytes))
+                .Replace("-", string.Empty)
+                .ToLowerInvariant();
+        }
+
+        private static string ComputeDirectoryFingerprint(
+            string sourceDirectory,
+            Func<string, bool> skip)
         {
             if (string.IsNullOrWhiteSpace(sourceDirectory) || !Directory.Exists(sourceDirectory))
-                throw new DirectoryNotFoundException("无法为不存在的 Module 源码目录生成内容指纹：" +
+                throw new DirectoryNotFoundException("无法为不存在的源码目录生成内容指纹：" +
                                                      (sourceDirectory ?? "（空）"));
+            if (skip == null) throw new ArgumentNullException(nameof(skip));
 
             string root = Path.GetFullPath(sourceDirectory);
             string[] files = Directory.GetFiles(root, "*", SearchOption.AllDirectories)
@@ -1083,7 +1512,7 @@ namespace Game.Framework.Editor
                     PhysicalPath = path,
                     RelativePath = RelativePath(root, path).Replace('\\', '/'),
                 })
-                .Where(file => !ShouldSkipModulePath(file.RelativePath))
+                .Where(file => !skip(file.RelativePath))
                 .OrderBy(file => file.RelativePath, StringComparer.Ordinal)
                 .Select(file => file.PhysicalPath)
                 .ToArray();
@@ -1115,6 +1544,16 @@ namespace Game.Framework.Editor
             if (source == null || string.IsNullOrWhiteSpace(source.PackageName)) return "Assets";
             if (!string.IsNullOrWhiteSpace(source.PackageId)) return source.PackageId;
             return source.PackageName +
+                   (string.IsNullOrWhiteSpace(source.PackageVersion)
+                       ? string.Empty
+                       : "@" + source.PackageVersion);
+        }
+
+        private static string PackageSourceOwner(PackageSourcePlan source)
+        {
+            if (source == null) return "Embedded";
+            if (!string.IsNullOrWhiteSpace(source.PackageId)) return source.PackageId;
+            return (source.PackageName ?? "Embedded") +
                    (string.IsNullOrWhiteSpace(source.PackageVersion)
                        ? string.Empty
                        : "@" + source.PackageVersion);

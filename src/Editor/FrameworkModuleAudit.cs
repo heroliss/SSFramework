@@ -2839,7 +2839,7 @@ namespace Game.Framework.Editor
                    name.StartsWith("UnityEditor.", StringComparison.Ordinal);
         }
 
-        private static bool IsPlatformReference(Snapshot snapshot, string name)
+        internal static bool IsPlatformReference(Snapshot snapshot, string name)
         {
             if (string.IsNullOrEmpty(name)) return true;
             // UnityEngine/UnityEditor 模块由 asmdef 的引擎引用语义提供，不通过 references / precompiledReferences
