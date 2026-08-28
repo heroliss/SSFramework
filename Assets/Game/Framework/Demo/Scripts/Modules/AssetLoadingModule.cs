@@ -600,7 +600,13 @@ namespace Game.Framework.Demo.Modules
                 progressBar.title = string.Empty;
                 progressLabel.text = $"已按地址「{LogoAddress}」清缓存 ✓——点名清这个资源所在的 bundle；注意是 bundle 粒度，同 bundle 的邻居会被连带清。下载器已重置，重测请重新「创建下载器」。";
             }), CodeRef.Here("asset.ClearCacheByLocations(new[] { LogoAddress }, CancellationToken.None)", "按地址清缓存"));
-            host.AddNote("下载器有三种范围：`CreateTagDownloader(tags)` 按 tag（某关卡 / DLC 整批）、`CreateAllDownloader()` 全部尚未缓存的 bundle（整包预下）、`CreateLocationDownloader(locations)` 按地址点名（含依赖）——都订阅 `Progress`（R3 状态流）驱动进度条、`Download()` 启动。`ClearCache` 清本地已下载缓存（`All` 全清 / `Unused` 清旧版本），按 tag 清用 `ClearCacheByTags`、按地址清用 `ClearCacheByLocations`，与下载器三种范围一一对应。单文件下载失败由下载器自带按 `AssetSystemConfigModel.FailedTryAgain`（默认 3）重试，业务不必手写重试循环；但**整体最终失败**（重试耗尽 / 持续断网）时 `Download()` 会**抛**——和 init 失败同属「抛」那套，要 `try/catch`（见「开始下载」按钮）。重试靠**重建下载器**再下：已下分片已缓存会被跳过，即断点续传。");
+            host.AddTable(
+                new[] { "操作范围", "下载入口", "缓存清理入口", "典型用途" },
+                new[] { "按标签（tag）", "`CreateTagDownloader(...)`", "`ClearCacheByTags(...)`", "关卡 / DLC 整批管理" },
+                new[] { "全部内容", "`CreateAllDownloader()`", "`ClearCache(All / Unused)`", "整包预下载 / 回收旧版本" },
+                new[] { "按地址", "`CreateLocationDownloader(...)`", "`ClearCacheByLocations(...)`", "点名资源及其依赖" });
+            host.AddNote("三类下载器都订阅 `Progress`（R3 状态流）来驱动进度条，再由 `Download()` 启动物理下载。");
+            host.AddSubNote("单文件失败会按 `AssetSystemConfigModel.FailedTryAgain`（默认 3）自动重试，业务不必手写内层循环；重试耗尽或持续断网导致**整体最终失败**时，`Download()` 才会抛异常。此时先 `try/catch` 给出可恢复提示，再**重建下载器**重试；已完成分片会从缓存跳过，相当于断点续传。");
             host.AddSubNote("下载器是「创建那一刻的待下载快照」，不是「下载时去看缺什么补什么」：清缓存并不会更新已建好的下载器，得重新 `CreateTagDownloader` 才会按最新缓存重新统计。所以「清缓存 → 重建下载器 → 开始下载」是固定顺序。`GetLocationState` / `Create*Downloader` 又是同步快照：同包维护正在运行或已排队时会立即提示维护后重试，不会卡住 Unity 主线程，也不会越过维护读中间态。");
             host.AddSubNote("取消还有一条容易漏掉的边界：YooAsset 的下载 / 清理一旦开始就不能安全强停，调用者令牌只让当前等待者离开，进程级 package owner 仍观察到真实终态；无人接收的成功 handle 会释放，后台失败会进日志。因此本 demo 在**提交清理前**响应切章取消；提交后用 `CancellationToken.None` 保持本组业务闸门直到物理清理结束，再检查章节令牌且不更新旧 UI。若产品真要“停止网络流量”，需要另设计显式 Stop/终止契约，不能把等待 OCE 当成底层已停。");
             host.AddSubNote("`ClearCacheByTags` 多 tag 是并集（命中任意一个就清）；`ClearCacheByLocations` 与 tag 清一样都是 bundle 粒度——按地址清会连带同 bundle 的其他资源，想精确隔离要在打包时让该资源独占 bundle。");

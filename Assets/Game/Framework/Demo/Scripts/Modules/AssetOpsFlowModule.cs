@@ -152,7 +152,11 @@ namespace Game.Framework.Demo.Modules
                 }
             }, CodeRef.Here("RunUpdateFlow(asset, packages", "按钮就是在跑活样板"));
 
-            host.AddNote("流程四步全是「资源加载」章讲过的原子 API，按序组合而已：① `Initialize`（拉版本+清单，失败不抛、读 `InitState` 判成败）→ ② `CreateAllDownloader` 统计缺口（`TotalCount==0` 即已最新）→ ③ `Download` + 订阅 `Progress` 驱动进度条，失败**重建下载器**重试（断点续传）→ ④ `ClearCache(Unused)` 回收不被新清单引用的旧版本 bundle。真实项目在 ② 之后弹「发现更新 X MB」的流量确认框、在整体失败后弹「重试 / 退出」。");
+            host.AddStep("①", "`Initialize` 拉取版本与清单；普通失败不抛异常，通过 `InitState` 判断是否就绪。");
+            host.AddStep("②", "`CreateAllDownloader` 统计当前缓存缺口；`TotalCount == 0` 表示已经是最新版本。");
+            host.AddStep("③", "订阅 `Progress` 驱动进度条，再执行 `Download`；整体失败时重建下载器重试，已完成分片会从缓存跳过。");
+            host.AddStep("④", "下载成功后执行 `ClearCache(Unused)`，回收不再被新清单引用的旧版本 bundle。");
+            host.AddSubNote("这四步只是把「资源加载」章的原子接口编排成启动流程。真实项目通常在第 ② 步后弹出“发现更新 X MB”的流量确认框，整体失败后提供“重试 / 退出”；用户拒绝下载或选择退出时，应明确结束启动流程。");
             host.AddSubNote("真实项目按需筛选进启动流程的包：启动必需的包（默认包 / 首场景包）走本流程强更；DLC / 大副本这类「按需下载」的包**不进**启动流程——进入对应玩法时再 `Initialize` + tag 下载器拉取（配合包级「自动初始化 / 按需下载」开关，见「资源加载」章）。");
 
             // ── 修复客户端：清空缓存全量重下 ──
