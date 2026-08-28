@@ -22,6 +22,9 @@ namespace Game.Framework.UI
     {
         private readonly IGameContext _context;
         private readonly IUIBackend _backend;
+        // Toast 的时间推进是唯一的外部时钟依赖。生产走实时 PlayerLoop；内部构造注入只供确定性测试，
+        // 避免 Unity Editor 后台节流把“owner 是否正确”误测成“某一墙钟区间是否恰好得到更新帧”。
+        private readonly Func<TimeSpan, CancellationToken, UniTask> _toastDelay;
 
         // 当前打开（可见）的窗口：类型 → 实例。
         private readonly Dictionary<Type, IUIWindow> _open = new();
@@ -60,10 +63,20 @@ namespace Game.Framework.UI
         private int _legacyLoadingPending;
 
         public UIUtility(IGameContext context, IUIBackend backend, UIBuiltinWindows builtins = null)
+            : this(context, backend, builtins, DelayToastRealtime)
+        {
+        }
+
+        internal UIUtility(
+            IGameContext context,
+            IUIBackend backend,
+            UIBuiltinWindows builtins,
+            Func<TimeSpan, CancellationToken, UniTask> toastDelay)
         {
             _context = context ?? throw new ArgumentNullException(nameof(context));
             _backend = backend ?? throw new ArgumentNullException(nameof(backend));
             _builtins = builtins;
+            _toastDelay = toastDelay ?? throw new ArgumentNullException(nameof(toastDelay));
         }
 
         public UniTask<T> Open<T>(CancellationToken ct = default) where T : class, IUIWindow
@@ -458,10 +471,7 @@ namespace Game.Framework.UI
             bool shouldClose = false;
             try
             {
-                await UniTask.Delay(
-                    TimeSpan.FromSeconds(duration),
-                    ignoreTimeScale: true,
-                    cancellationToken: owner.Token);
+                await _toastDelay(TimeSpan.FromSeconds(duration), owner.Token);
                 shouldClose = ReferenceEquals(_toastAutoClose, owner);
             }
             catch (OperationCanceledException) { /* 刷新 / 显式关闭 / 清场 / Context Dispose：正常取消 */ }
@@ -496,6 +506,9 @@ namespace Game.Framework.UI
             _toastAutoClose = null;
             owner.Dispose();
         }
+
+        private static UniTask DelayToastRealtime(TimeSpan duration, CancellationToken ct)
+            => UniTask.Delay(duration, ignoreTimeScale: true, cancellationToken: ct);
 
         private bool IsLoadingType(Type type)
             => type != null && type == _builtins?.Loading;
