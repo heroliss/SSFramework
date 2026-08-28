@@ -2746,7 +2746,7 @@ await ws.Send("say", new SayReq { Text = "hi" });               // 客户端 →
 |---|---|
 | `State` | `ReadOnlyReactiveProperty<NetworkConnectionState>`（Disconnected/Connecting/Connected） |
 | `RegisterPush<TEvent>(type)` | 推送 type → 框架事件映射；重复注册抛 |
-| `Connect(url)` / `Disconnect()` | 建连（已连时抛；上一代正在 Close 时内部等待）/ 优雅关闭（未连 = no-op；连接中 = 取消在途 Connect、不发关闭事件） |
+| `Connect(url)` / `Disconnect()` | 以带 host、无 userinfo / fragment 的绝对 `ws://` / `wss://` 地址建连（已连时抛；上一代正在 Close 时内部等待）/ 优雅关闭（未连 = no-op；连接中 = 取消在途 Connect、不发关闭事件） |
 | `Send<T>(type, payload)` / `Send(type)` | 发消息（每个连接代际内 FIFO 保序）；未连接、发送中途断掉、或旧帧排队时连接已替换，均抛 `NetworkException(ConnectionError)` |
 
 ### 失败语义（单一 `NetworkException` + `Kind` 分级）
@@ -2758,6 +2758,7 @@ await ws.Send("say", new SayReq { Text = "hi" });               // 客户端 →
 | 外部 `ct` 取消 | `OperationCanceledException`（不包装，调用方意图） |
 | `Disconnect` 入口 ct 已取消 | OCE，尚未提交断开；连接保持可用、不发事件 |
 | `Disconnect` 已开始后 ct 取消 | session 仍清理并发 ByUser=true，随后调用方收到 OCE（取消的是优雅握手等待，不是回滚断开意图） |
+| WS caller / Context 已取消，Adapter 却抛 ODE / socket error | 仍按 owner 意图返回 OCE；Adapter 原异常保留为 inner |
 | 非 2xx（动词门面） | `NetworkException(HttpError)`，带 `StatusCode` + `ResponseBody` |
 | 响应体 / 推送载荷反序列化失败 | `NetworkException(DeserializeError)` |
 
@@ -2787,9 +2788,9 @@ HTTP 对业务是一次 `await`，但一次物理交换同时受到 caller token
 
 `WebSocketUtility` 因而为**每次成功连接**建立一个私有 Connection Session：这一代独占接收 token、发送 token、FIFO 队尾和一次终态发布权。每个 Provider 方法还必须在入口固定当时的物理 socket；两层隔离让旧 Receive 即使迟到，也只能结束旧 session。`Connect` 遇到上一代仍在 Close / 清发送 owner 时会等待一个永不带错的 teardown barrier，业务不需要认识额外的 Disconnecting 状态。
 
-每个成功 session 至多收到一次 `WebSocketClosedEvent`：主动 `Disconnect` 是 `ByUser=true`，对端关闭 / 收发异常（包括 provider 在 token 未取消时自发 OCE）是 `false`；发送失败会主动结束 session，不会等挂起的 Receive 碰巧再报错。Context `Dispose` 属于整棵拆除，不发事件。推荐从 ClosedEvent 启动业务重连；State 的同步回调即使表达取消/重试也不会丢 owner，但 ClosedEvent 更直接表达“本代已经终结”。
+每个成功 session 至多收到一次 `WebSocketClosedEvent`：主动 `Disconnect` 是 `ByUser=true`，对端关闭 / 收发异常（包括 Provider 在 token 未取消时自发 OCE）是 `false`；发送失败会主动结束 session，不会等挂起的 Receive 碰巧再报错。Context `Dispose` 属于整棵拆除，不发事件。推荐从 ClosedEvent 启动业务重连；State 的同步回调即使表达取消/重试也不会丢 owner，但 ClosedEvent 更直接表达“本代已经终结”。`Reason` 只是框架拥有的稳定摘要，适合展示和诊断，不是业务枚举：重连只判断 `ByUser`，平台 / Adapter 的原始异常从结构化日志或调用异常的 inner 查看。
 
-两个取消边界容易误判。第一，Provider 的 `ConnectAsync` **成功返回就是物理 ownership 提交点**；普通 caller 取消若恰好与完成竞态，允许成功赢，不能在成功后再检查 token、把已经打开的 socket 丢成无 owner 资源。但 Connecting-Disconnect intent 若已先成立，框架会在发布 Connected / 启动收发前 `Abort()` 这个物理 success-win，以 OCE 收口且不发事件。第二，意外断线没有业务 caller token，框架给 best-effort Close 一个内部 1 秒上限；坏连接即使关不干净，也不能永久扣住 ClosedEvent 和后续重连。自定义 Provider 必须尊重传入 token，并实现可重连的立即 `Abort()`。
+两个取消边界容易误判。第一，Provider 的 `ConnectAsync` **成功返回就是物理 ownership 提交点**；普通 caller 取消若恰好与完成竞态，允许成功赢，不能在成功后再检查 token、把已经打开的 socket 丢成无 owner 资源。但 Connecting-Disconnect intent 若已先成立，框架会在发布 Connected / 启动收发前 `Abort()` 这个物理 success-win，以 OCE 收口且不发事件。Send / Disconnect 也按 owner 意图分类：caller 或 Context 已取消时，即使坏 Adapter 以 ODE / socket error 退场，外层仍得到 OCE，原异常只作为 inner 留证。第二，意外断线没有业务 caller token，框架给 best-effort Close 一个内部 1 秒上限；坏连接即使关不干净，也不能永久扣住 ClosedEvent 和后续重连。自定义 Provider 必须尊重传入 token，并实现可重连的立即 `Abort()`。
 
 `Disconnect` 在 Connecting 期会取消并**等待 Connect Attempt 的本地 outcome**，不是只发一个取消请求就返回，也不靠全局 State 猜结果；所以同步重试的新 session 不会被旧 Disconnect 误关。caller 后续取消只脱离等待，已提交的物理 success-win 仍会被 Attempt owner Abort，业务看不到短暂 Connected 窗口。第三方 Provider 的所有异步方法都允许在 worker 完成，框架会在更新 State、清 session、发布 Event 以及完成主线程公共调用（包括 worker 发起的 token 取消）前切回主线程。发送 FIFO 也遵守“失败先封 session、再唤醒后帧”：UniTask continuation 可能同步内联，不能给排队帧留下再次触碰坏 socket 的窗口。
 
