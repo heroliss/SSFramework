@@ -170,7 +170,7 @@ namespace Game.Framework.Editor
             card.Add(CreateCardTitle("本轮构建环境"));
             card.Add(Wrap(new Label($"{Application.unityVersion} · {target} · " +
                                     $"{PlayerSettings.GetScriptingBackend(named)} · " +
-                                    $"Stripping {PlayerSettings.GetManagedStrippingLevel(named)}")));
+                                    $"代码裁剪等级（Stripping）{PlayerSettings.GetManagedStrippingLevel(named)}")));
             var hint = Wrap(new Label("探针不自动切换平台；想测 WebGL，请先正常切到 WebGL，再从这里构建。"));
             hint.style.color = MutedTextColor;
             hint.style.marginTop = 3;
@@ -201,7 +201,7 @@ namespace Game.Framework.Editor
             description.style.color = MutedTextColor;
             description.style.marginTop = 3;
             card.Add(description);
-            card.Add(Wrap(new Label($"{plan.Assemblies.Length} 个 Framework Module")));
+            card.Add(Wrap(new Label($"{plan.Assemblies.Length} 个框架模块（Framework Module）")));
 
             _profileToggles.Add(plan.Key, toggle);
             _profileCards.Add(card);
@@ -290,7 +290,7 @@ namespace Game.Framework.Editor
                         : (delta > 0 ? "+" : string.Empty) + FrameworkBuildSizeProbe.FormatBytes(delta) + " 相对 Core";
                     card.Add(Wrap(new Label(
                         $"可发布输出 {FrameworkBuildSizeProbe.FormatBytes(record.OutputBytes)} · " +
-                        $"BuildReport 总量 {FrameworkBuildSizeProbe.FormatBytes(record.BuildReportBytes)} · {deltaText} · " +
+                        $"构建报告（BuildReport）总量 {FrameworkBuildSizeProbe.FormatBytes(record.BuildReportBytes)} · {deltaText} · " +
                         $"{record.DurationSeconds:F1}s")));
                 }
                 var message = Wrap(new Label(record.Message ?? string.Empty));

@@ -1292,7 +1292,7 @@ public class IconView : MonoViewBase
         LoadIcon().Forget(ex =>
         {
             if (ex is OperationCanceledException && Bag.IsDisposed) return;
-            Log.Error("Icon loading failed.", ex, nameof(IconView));
+            Log.Error("图标加载失败。", ex, nameof(IconView));
         }); // Awake 保持同步；异步 task 有明确 owner 与错误观察点
     }
 
@@ -2368,7 +2368,7 @@ private static async UniTask Observe(IGameFlow flow, FlowState next)
 {
     try { await flow.GoTo(next); }
     catch (OperationCanceledException) { } // 被更新意图顶替 / 宿主释放：正常收口
-    catch (Exception e) { Log.Error($"Failed to enter '{next}'.", e, "GameFlow"); }
+    catch (Exception e) { Log.Error($"进入流程状态“{next}”失败。", e, "GameFlow"); }
 }
 ```
 
@@ -2815,7 +2815,7 @@ Bag.Subscribe<WebSocketClosedEvent>(e =>
     ReconnectWithBackoff(Bag.DisposeToken).Forget(ex =>
     {
         if (ex is OperationCanceledException && Bag.IsDisposed) return; // 生命周期正常结束
-        Log.Error("WebSocket reconnect loop failed.", ex, "Network");  // 非取消异常必须被观察
+        Log.Error("WebSocket 重连循环异常结束。", ex, "Network");  // 非取消异常必须被观察
     });
 });
 ```

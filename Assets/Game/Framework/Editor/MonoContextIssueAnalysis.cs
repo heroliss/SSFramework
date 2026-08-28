@@ -156,6 +156,17 @@ namespace Game.Framework.Editor
             ? "当前 Play：正在影响本次运行"
             : "历史证据：来自上次运行，当前没有在执行";
 
+        /// <summary>面向使用者显示中文状态，同时保留真实枚举成员名，便于检索代码和日志。</summary>
+        internal static string StateLabel(MonoContextDiagnosticState state) => state switch
+        {
+            MonoContextDiagnosticState.Uninitialized => "未初始化（Uninitialized）",
+            MonoContextDiagnosticState.Initializing => "初始化中（Initializing）",
+            MonoContextDiagnosticState.Ready => "就绪（Ready）",
+            MonoContextDiagnosticState.Failed => "失败（Failed）",
+            MonoContextDiagnosticState.Disposed => "已释放（Disposed）",
+            _ => state.ToString(),
+        };
+
         internal static string BuildCopyReport(Group group, bool editorIsPlaying)
         {
             var report = new StringBuilder(512);
@@ -176,7 +187,7 @@ namespace Game.Framework.Editor
             foreach (Candidate candidate in group.Affected)
             {
                 report.Append("- ").Append(candidate.Path)
-                    .Append(" [").Append(candidate.Snapshot.State).Append("]")
+                    .Append(" [").Append(StateLabel(candidate.Snapshot.State)).Append("]")
                     .Append("；父级：").AppendLine(DescribeParent(candidate.Snapshot.ResolvedParent));
             }
 

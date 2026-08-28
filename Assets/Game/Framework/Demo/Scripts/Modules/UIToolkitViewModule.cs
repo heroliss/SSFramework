@@ -139,7 +139,7 @@ namespace Game.Framework.Demo.Modules
             Root.Add(closeBtn);
 
             // 只读：订阅查询 Command 返回的状态流（订阅即得当前值）。与 UGUI 章共用 MonoScoreModel。
-            Bag.BindText(score, this.ExecuteCommand(new GetMonoScoreCommand()), v => $"Score: {v}");
+            Bag.BindText(score, this.ExecuteCommand(new GetMonoScoreCommand()), v => $"分数：{v}");
             // 只写：所有外发动作只能 ExecuteCommand（View 拿不到 GetModel / SendEvent 权限，编译期挡住）。
             Bag.SubscribeClick(addBtn, () => this.ExecuteCommand(new RaiseMonoScoreCommand()));
             // 异步点击：关闭卡片会 Dispose Bag → ct 取消，等待后的 Command 不会迟到执行；

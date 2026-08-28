@@ -21,19 +21,23 @@ namespace Game.Framework.Network.Proto.Editor
         [Header("protoc 工具")]
         [Tooltip("protoc 所在根目录（相对工程根目录），按编辑器平台取 <目录>/windows_x64/protoc.exe、macosx_x64/protoc、linux_x64/protoc。\n" +
                  "仓库自带 Windows x64；其余平台从 https://github.com/protocolbuffers/protobuf/releases 下载，解压出的 bin/protoc 放入对应子目录。")]
+        [InspectorName("protoc 工具目录")]
         [SerializeField] private string _protocDir = "Tools/Protoc";
 
         [Header(".proto 源")]
         [Tooltip(".proto 源目录（相对工程根目录，含子目录全收）。推荐放业务模块下的 Proto~（~ 后缀 Unity 不导入源文件）。\n" +
                  "该目录同时作为 protoc 的 --proto_path：.proto 之间的 import 以此为根。")]
+        [InspectorName(".proto 源目录")]
         [SerializeField] private string _protoDir = "";
 
         [Header("产物输出")]
         [Tooltip("生成 C#（*.g.cs）的输出目录。必须是 Assets 下由本 Profile 独占的子目录，不能与其它 Profile 相同或嵌套。\n" +
                  "目录里的 *.g.cs 由生成器接管：.proto 改名 / 删除后遗留的陈旧 *.g.cs 会被自动清理，勿手放同后缀文件。")]
+        [InspectorName("代码输出目录")]
         [SerializeField] private string _outputCodeDir = "";
 
         [Tooltip("附加 protoc 参数（按空格切分逐个传入，如 --csharp_opt=internal_access 或额外 --proto_path=...）。一般留空。")]
+        [InspectorName("附加 protoc 参数")]
         [SerializeField] private string _extraArgs = "";
 
         public string ProtocDir => _protocDir.Trim().TrimEnd('/', '\\');

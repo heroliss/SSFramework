@@ -52,7 +52,7 @@ namespace Game.Framework.Editor
                 },
             };
             _actions.Add(CreateActionButton("重新检测", Refresh, "重新读取当前 Player 编译图、asmdef 与当前 DLL 快照。"));
-            _actions.Add(CreateActionButton("复制完整报告", CopyReport, "复制可粘贴到 issue 或评审中的纯文本报告。"));
+            _actions.Add(CreateActionButton("复制完整报告", CopyReport, "复制可粘贴到问题单（issue）或评审中的纯文本报告。"));
             _actions.Add(CreateActionButton("打开模块地图", () => OpenFile("docs/framework-module-map.md"),
                 "查看各程序集的职责、依赖方向与删除标准。"));
             _actions.Add(CreateActionButton("真实构建对比", FrameworkBuildSizeProbeWindow.Open,
@@ -241,7 +241,7 @@ namespace Game.Framework.Editor
                 style = { marginTop = 5 },
             };
             arbitraryModules.Add(CreateInfoLabel(
-                "这不是全局启用开关，而是 what-if：假设业务只从某个 Module 进入，会自动带上哪些 Framework 与外部依赖。"));
+                "这不是全局启用开关，而是假设分析（what-if）：假设业务只从某个 Module 进入，会自动带上哪些 Framework 与外部依赖。"));
             foreach (var profile in result.ModuleProfiles)
                 arbitraryModules.Add(CreateProfileCard(profile, result.ExternalDependencies));
             advanced.Add(arbitraryModules);
@@ -257,7 +257,7 @@ namespace Game.Framework.Editor
                 value = false,
                 style = { marginTop = 10 },
             };
-            raw.Add(CreateInfoLabel("这里保留适合排查和粘贴到 issue 的完整文本。日常判断通常不需要展开。"));
+            raw.Add(CreateInfoLabel("这里保留适合排查和粘贴到问题单（issue）的完整文本。日常判断通常不需要展开。"));
             var rawText = Wrap(new Label(_rawReport));
             rawText.name = "module-audit-raw-report";
             rawText.style.fontSize = 11;
@@ -337,12 +337,12 @@ namespace Game.Framework.Editor
             if (evidence.ProfileAvailable && evidence.InspectionAvailable)
             {
                 var metrics = CreateResponsiveRow("module-audit-hot-update-metrics");
-                metrics.Add(CreateMetric("Profile", evidence.ProfileAssemblies.Length.ToString(),
+                metrics.Add(CreateMetric("热更配置（Profile）", evidence.ProfileAssemblies.Length.ToString(),
                     "期望热更程序集"));
-                metrics.Add(CreateMetric("HybridCLRSettings",
+                metrics.Add(CreateMetric("HybridCLR 设置",
                     evidence.SettingsAvailable && evidence.SettingsMatch ? "一致" : "漂移",
                     evidence.SettingsAvailable ? "同步输入" : "无法读取"));
-                metrics.Add(CreateMetric("Generate",
+                metrics.Add(CreateMetric("生成产物（Generate）",
                     !evidence.GenerationRequired ? "不需要" : evidence.GenerationFresh ? "新鲜" : "过期",
                     "AOT / 桥接生成环境"));
                 string stagingValue = !evidence.StagingRequired && !evidence.StagedManifestExists
@@ -388,7 +388,7 @@ namespace Game.Framework.Editor
                     () => LocatePath("Assets/HotUpdateDlls/hotupdate_manifest.bytes"),
                     "在 Unity Project 中选中最近一次代码包构建写入的本地清单；即使损坏也保留此排查入口。"));
             actions.Add(CreateActionButton("复制派生证据", () => CopyHotUpdateEvidence(evidence),
-                "复制 Profile、Settings、Generate 与 DLL 中转状态，便于 issue / AI 排查。"));
+                "复制 Profile、Settings、Generate 与 DLL 中转状态，便于问题单（issue）/ AI 排查。"));
             card.Add(actions);
             _content.Add(card);
         }
@@ -398,7 +398,7 @@ namespace Game.Framework.Editor
             AddSectionTitle("第三方依赖 · 从哪来、谁在用、如何取舍");
             var summary = CreateCard("module-audit-external-summary");
             summary.Add(CreateInfoLabel(
-                "这里按真实 Package 或单个 Assets DLL 聚合，只读解释安装来源、当前 DLL 快照、完整 asmdef 声明和 what-if 档位。它不会安装、卸载或替代 Unity Package Manager。"));
+                "这里按真实 Package 或单个 Assets DLL 聚合，只读解释安装来源、当前 DLL 快照、完整 asmdef 声明和假设分析（what-if）档位。它不会安装、卸载或替代 Unity Package Manager。"));
             var metrics = CreateResponsiveRow("module-audit-external-metrics");
             metrics.Add(CreateMetric("依赖组", result.ExternalDependencies.Length.ToString(),
                 "同一 Package 的程序集合并显示"));

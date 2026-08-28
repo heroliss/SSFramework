@@ -383,7 +383,7 @@ namespace Game.Framework.Editor
             _loggingSeparator = new Label("·") { style = { color = ColMuted, marginRight = 8 } };
             _loggingSinkRow.Add(_loggingSeparator);
 
-            _loggingSinkRow.Add(new Label("Sink")
+            _loggingSinkRow.Add(new Label("输出端（Sink）")
             {
                 tooltip = "当前装配的日志去向（Log.Sinks）。右侧下拉 = 该 sink 的 MinLevel，低于它的日志不投递给它。\n" +
                           "改了立即生效（不持久）——想临时把细粒度日志抓进文件，把文件 sink 调到 Trace 再把总闸门放行到 Trace 即可，\n" +
@@ -789,7 +789,7 @@ namespace Game.Framework.Editor
                 name = "diagnostics-command-search-row",
                 style = { display = DisplayStyle.None },
             };
-            _commandToolbarPrimary.Add(new Label("Command 流水")
+            _commandToolbarPrimary.Add(new Label("命令（Command）流水")
             {
                 style = { alignSelf = Align.Center, unityFontStyleAndWeight = FontStyle.Bold, fontSize = 11, marginLeft = 4, marginRight = 8 },
             });
@@ -847,7 +847,7 @@ namespace Game.Framework.Editor
                 l.style.color = e.IsAsync ? ColAsync : ColMuted;
             });
             _commandColumn = MakeColumn("命令", 200, true, (l, e) => l.text = e.CommandType);
-            _contextColumn = MakeColumn("Context", 130, false, (l, e) => l.text = e.ContextName);
+            _contextColumn = MakeColumn("上下文（Context）", 130, false, (l, e) => l.text = e.ContextName);
             _durationColumn = MakeColumn("耗时", 78, false, (l, e) =>
             {
                 l.text = $"{e.DurationMs:F2}ms";
@@ -907,7 +907,7 @@ namespace Game.Framework.Editor
 
         private void CopyCommandsTsv()
         {
-            var sb = new StringBuilder("时间\t帧\t模式\t命令\tContext\t耗时ms\t状态\n");
+            var sb = new StringBuilder("时间\t帧\t模式\t命令\t上下文\t耗时ms\t状态\n");
             foreach (var e in _cmdRows)
                 sb.Append(FormatClock(e.StartTime)).Append('\t').Append(e.Frame).Append('\t')
                   .Append(e.IsAsync ? "异步" : "同步").Append('\t').Append(e.CommandType).Append('\t')
@@ -1209,7 +1209,7 @@ namespace Game.Framework.Editor
                 _monoIssuePanel.Add(new HelpBox(
                     $"{MonoContextIssueAnalysis.EvidenceLabel(editorIsPlaying)}\n" +
                     $"{(group.IsTimingConcern ? "时序提醒" : "首要根因")}：{cause}\n" +
-                    $"{originLabel}：{origin.Path}  [{origin.Snapshot.State}]\n" +
+                    $"{originLabel}：{origin.Path}  [{MonoContextIssueAnalysis.StateLabel(origin.Snapshot.State)}]\n" +
                     $"受影响：{group.Affected.Count} 个 Context",
                     editorIsPlaying && group.RootCause != null
                         ? HelpBoxMessageType.Error
@@ -1241,7 +1241,7 @@ namespace Game.Framework.Editor
                 foreach (MonoContextIssueAnalysis.Candidate candidate in group.Affected)
                 {
                     affected.Add(new Label(
-                        $"• {candidate.Path}  [{candidate.Snapshot.State}]\n" +
+                        $"• {candidate.Path}  [{MonoContextIssueAnalysis.StateLabel(candidate.Snapshot.State)}]\n" +
                         $"  父级：{MonoContextIssueAnalysis.DescribeParent(candidate.Snapshot.ResolvedParent)}")
                     {
                         style = { whiteSpace = WhiteSpace.Normal, color = ColMuted, marginBottom = 2 },

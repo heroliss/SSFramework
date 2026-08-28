@@ -22,7 +22,7 @@
 | Demo | 32 个自动发现章节；Catalog 集中拥有 Adapter 生命周期，并按 Capability / Concept / Workflow 校验真实 Build 教学语义 |
 | 教程 | `framework-guide.md` 28 章 |
 | ADR | 0001–0045；0040 为 UPM-aware 源码目录，0041/0042 补齐依赖证据，0043 收口 Editor 菜单与工作台，0044 固化 Unity CLI 工程外 Adapter 边界，0045 拆分资源与 HybridCLR 构建依赖 |
-| 测试 | PlayMode 525 + EditMode 336，共 861 项全绿；交互式 MCP 后台运行且 PlayMode 先预检，命令行入口默认 EditMode + PlayMode |
+| 测试 | PlayMode 525 + EditMode 356，共 881 项全绿；交互式 MCP 后台运行且 PlayMode 先预检，命令行入口默认 EditMode + PlayMode |
 | Demo CodeRef | 314 处可打开源码跳转；完整门禁通过后以精准命中为基线，注释、文案与外部文档路径不计入源码构造点 |
 | AI 常驻规则预算 | 最深 AGENTS 链 30.48 KiB，低于 Codex 默认 32 KiB 项目指令上限；本轮已压缩 Demo 教程式规则，新增常驻规则前仍须优先外移可测试/可按需加载内容 |
 
@@ -205,6 +205,17 @@
 - 资源 Profile 成为普通 AssetBundle 选择的唯一真源；CodePackage 显式关闭“参与构建”。任何误启用或由 CLI 点名的 RawFile 包都会在写产物前失败并给出中文修复步骤，不再靠另一个可删除 Module 的 Profile 或默认名称静默跳过。
 - 热更新侧继续复用资源侧的版本格式、部署、构建前预检与安全产物路径，没有为目录对称再抽浅 Common 程序集。通用 Module Audit 的证据字段和文案同步改为“HybridCLR 热更新构建 Module”，避免与仍可存在的资源构建混淆；取舍见 ADR-0045。
 
+### P1 · Unity 6.3 / Odin 4 Editor 兼容基线
+
+- Hierarchy 装饰器迁移到 Unity 6.3 的 `EntityIdToObject`、`GetEntityId` 与 `Selection.entityIds`，不再只替换 API 名而继续在内部传递旧 Instance ID；真实选中与取消选择契约由 EditMode 测试锁定。
+- Odin 适配器改用公开的 `InspectorTypeDrawingConfig.GetDefaultEditorType(type)` 判断具体 Editor 所有权，不复制 Odin 的程序集分类规则；删除旧 `AssemblyTypeFlags` / `GetAssemblyTypeFlag` 调用后，Unity 编译恢复 0 错误、0 警告。
+
+### P1 · 中文优先的 Inspector 与诊断反馈
+
+- 高频配置 Profile 和资源运行模式增加 `InspectorName`：界面显示中文，序列化字段名、枚举成员与已有资产保持不变；关键代码值放在括号中，仍可按英文标识检索源码和第三方文档。
+- `MonoContext` 状态由同一格式化入口显示“未初始化（Uninitialized）”等中文优先标签，诊断、Inspector 和复制报告不再各写一套；资源引用 Drawer 与模块/体积工具同步收敛用户可见术语。
+- Demo 的分数、重置、缓存策略等现场文案和 guide 日志示例改为中文优先；缓存策略示例同时移除以显示字符串判断行为的脆弱逻辑。测试锁定高频标签与全部诊断状态，完整基线为 EditMode 356 + PlayMode 525。
+
 ## 下一批候选（按杠杆排序）
 
 | 优先级 | 候选 | 证据 / 完成标准 |
@@ -212,7 +223,7 @@
 | P1 | 日志调用面继续收敛 | ADR-0034 已 Accepted；Fonts、UI、Asset/Yoo、Audio 与 Config Runtime 已收敛；AOT Boot 已确认必须保留原生日志。继续按 Module 审查其余历史裸 `Debug.*`，保留 Logging Implementation、第三方内部日志和 Editor 工具；测试守住消息、context、异常和双击定位语义。 |
 | P1 | 公共 API 注释审计 | 优先生命周期、取消、异常、所有权与 Adapter 接缝；删除复述代码或记录历史的注释。以“调用者能否仅靠悬浮提示正确释放/取消”为完成标准。 |
 | P1 | CI Runner 与发布真正接线 | 资源构建 workflow 已复用 ProjectVersion + Unity CLI / Direct Adapter；下一步是在真实自建 Runner 验证授权、Android/iOS/WebGL Module、缓存与 CDN 上传凭据，并把一次成功 artifact 固化为基线。 |
-| P1 | 中文友好性收口 | 根协作规则已要求中文提交和用户可见中文；下一步优先收敛 Console 纯英文错误、Inspector 主标签与诊断状态展示，保留类型、参数和第三方原始错误供检索，不引入过度的运行时多语言系统。 |
+| P1 | 中文友好性继续收口 | 高频 Inspector 主标签、资源模式、诊断状态、工具术语和 Demo 现场文案首批已完成；下一步按 Module 审计 Console 纯英文错误与剩余低频 Profile，保留类型、参数和第三方原始错误供检索，不引入过度的运行时多语言系统。 |
 | P2 | 大文件按职责复查 | `DiagnosticsWindow`、`YooAssetProvider`、`AssetUtility` 等只在发现两个独立变化轴或测试 Seam 时拆；单纯行数不是理由。 |
 | P2 | WebGL / 小游戏固定 Runner 基线 | 隔离探针已能在当前目标平台生成真实 Player BuildReport 上界；下一步等确定发布平台与 CI Runner 后保存同环境 artifact / 阈值，避免把本机 Windows 数字当 WebGL 基线。 |
 | P1 | UPM 分发依赖标准化与干净消费矩阵 | 当前体积探针把源码复制到临时工程的 `Assets`，尚未证明真实 UPM 安装/移除。下一步先确定 Core / Yoo / UI 等发布 Package 拓扑和 Git、embedded NuGet 依赖来源，再以工程外临时 Unity 项目验证 core → add Yoo → remove Yoo（保留 Library）的编译与 Player Build，不在框架内复制第二套 Package Manager。 |

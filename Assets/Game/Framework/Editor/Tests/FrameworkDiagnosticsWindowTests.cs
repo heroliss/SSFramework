@@ -13,6 +13,19 @@ namespace Game.Framework.Editor.Tests
     /// <summary>锁定诊断面板的状态分类与响应式信息优先级，避免修 UI 时悄悄改变诊断语义。</summary>
     public sealed class FrameworkDiagnosticsWindowTests
     {
+        [TestCase(0, "未初始化（Uninitialized）")]
+        [TestCase(1, "初始化中（Initializing）")]
+        [TestCase(2, "就绪（Ready）")]
+        [TestCase(3, "失败（Failed）")]
+        [TestCase(4, "已释放（Disposed）")]
+        public void MonoContextStateLabel_IsChineseFirstAndKeepsCodeValue(
+            int stateValue,
+            string expected)
+        {
+            var state = (MonoContextDiagnosticState)stateValue;
+            Assert.That(MonoContextIssueAnalysis.StateLabel(state), Is.EqualTo(expected));
+        }
+
         [TestCase(0f, 0)]
         [TestCase(639.99f, 0)]
         [TestCase(640f, 1)]

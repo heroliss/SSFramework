@@ -23,9 +23,10 @@ namespace Game.Framework
 
         [Header("基础配置")]
         [Tooltip("全部资源包列表：每个包 = 名字 + 包级策略（是否启动自动初始化 / 是否启用按需下载）。\n" +
-                 "默认包也在这里（用下面 Default Package 指定哪个是默认），与其它包同构、无特例。\n" +
+                 "默认包也在这里（用下面“默认资源包”指定哪个是默认），与其它包同构、无特例。\n" +
                  "DLC 等包通常设「不自动初始化」，进副本时再由业务 Initialize 触发。\n" +
                  "⚠ 一个既没开自动初始化、也没被 Initialize 触发过的包，Load 它会直接报错（不是无限等待）。")]
+        [InspectorName("资源包列表（Packages）")]
         [FormerlySerializedAs("_extraPackages")]
         [SerializeField] private List<AssetPackageConfig> _packages = new() { new AssetPackageConfig(DefaultPackage) };
 
@@ -35,6 +36,7 @@ namespace Game.Framework
 #if UNITY_EDITOR
         [DefaultAssetPackageName]
 #endif
+        [InspectorName("默认资源包")]
         [FormerlySerializedAs("PackageName")]
         [SerializeField] private string _defaultPackageName = DefaultPackage;
 
@@ -44,6 +46,7 @@ namespace Game.Framework
                  "Host = 内置首包（StreamingAssets）+ 远端 CDN，缺的按需下载并缓存；\n" +
                  "Web = 纯远端 HTTP，不落地缓存。\n" +
                  "只在编辑器 Play 生效——玩家包用下面的「玩家包运行模式」（模拟模式是编辑器专属能力，进不了包）。")]
+        [InspectorName("编辑器运行模式")]
         [FormerlySerializedAs("PlayMode")]
         [SerializeField] private AssetPlayMode _playMode = AssetPlayMode.EditorSimulate;
 
@@ -52,6 +55,7 @@ namespace Game.Framework
                  "Host = 内置首包 + 远端 CDN，缺的按需下载并缓存（资源热更的常规形态）；\n" +
                  "Web = 纯远端 HTTP（WebGL 构建会强制此模式）。\n" +
                  "⚠ 不能选 EditorSimulate——模拟模式依赖 AssetDatabase，只存在于编辑器（选了会在启动校验时报错）。")]
+        [InspectorName("玩家包运行模式")]
         [SerializeField] private AssetPlayMode _playerPlayMode = AssetPlayMode.Offline;
 
         [Header("CDN 配置")]
@@ -59,14 +63,17 @@ namespace Game.Framework
                  "以 / 结尾或不结尾都行，provider 内部自动规范化、并按包名追加子目录（最终 = 地址/包名/文件）。\n" +
                  "初始化会逐条尝试，全部失败才算失败；备用项必须是与主地址等价的可用镜像（否则只是徒增一次失败尝试）。\n" +
                  "本地联调：填 http://127.0.0.1:<端口>/（端口须等于构建 profile 的 LocalServePort，默认 8080；服务伺服 AssetBuild/Deploy 根目录，无 /CDN/ 之类前缀）。留空表示未配置远端。")]
+        [InspectorName("CDN 地址列表")]
         [SerializeField] private List<string> _cdnUrls = new() { DefaultLocalCdnUrl };
 
         [Header("下载器配置")]
         [Tooltip("同时下载的最大文件数。值越大并发越高，但占用带宽和系统资源也越多。建议 4-16。")]
+        [InspectorName("最大并发下载数")]
         [FormerlySerializedAs("DownloadingMaxNumber")]
         [Min(1)] [SerializeField] private int _downloadingMaxNumber = 10;
 
         [Tooltip("单个文件下载失败后的重试次数。设为 0 则失败立即放弃。")]
+        [InspectorName("失败重试次数")]
         [FormerlySerializedAs("FailedTryAgain")]
         [Min(0)] [SerializeField] private int _failedTryAgain = 3;
 
@@ -74,6 +81,7 @@ namespace Game.Framework
         [Tooltip("AssetBundle 文件头偏移加密：运行时加载时跳过的字节数。\n" +
                  "⚠ 必须与构建配置 FrameworkAssetBuildProfile.FileOffset【完全一致】——构建插几个字节、这里就跳几个字节，对不上会读坏所有 bundle。\n" +
                  "0 = 不加密。偏移是弱加密（仅防扫魔数）；内容加密（XOR/AES）经 GameAssetDecryption 接入，见 docs/asset-encryption.md。")]
+        [InspectorName("文件头偏移字节数")]
         [FormerlySerializedAs("FileOffset")]
         [Min(0)] [SerializeField] private ulong _fileOffset = 0;
 
@@ -193,7 +201,7 @@ namespace Game.Framework
         public string GetConfigError()
         {
             if (!string.IsNullOrWhiteSpace(_defaultPackageName) && FindPackage(_defaultPackageName) == null)
-                return $"默认包 '{_defaultPackageName}' 不在资源包列表中——请在列表里加一条同名包，或清空 Default Package Name" +
+                return $"默认包 '{_defaultPackageName}' 不在资源包列表中——请在列表里加一条同名包，或清空“默认资源包”" +
                        "（清空 = 无默认包，加载须用带 packageName 的重载）。";
             if (_playerPlayMode == AssetPlayMode.EditorSimulate)
                 return "玩家包运行模式不能是 EditorSimulate（模拟模式只存在于编辑器）——单机包选 Offline，资源热更选 Host。";
@@ -222,17 +230,20 @@ namespace Game.Framework
 #if UNITY_EDITOR
         [BuildAssetPackageName]
 #endif
+        [InspectorName("资源包名")]
         [SerializeField] private string _name;
 
         [Tooltip("进 Play 是否自动初始化本包（拉版本 / 清单，Host 会联网）。\n" +
                  "开（默认）= 启动即初始化；关 = 启动不初始化，需业务在合适时机显式调 IAssetUtility.Initialize(\"包名\") 触发。\n" +
                  "关用于：大型 DLC 包进副本再 init、或隐私同意 / 选区 / 流量确认后再联网拉清单——\n" +
                  "把全部要联网的包都设为关 = 启动前不发生任何网络连接（合规启动）。")]
+        [InspectorName("启动时自动初始化")]
         [SerializeField] private bool _autoInitialize = true;
 
         [Tooltip("启用「按需下载」（默认勾选）：Load 本包内尚未缓存的资源时，当场从远端按需下载（保持底层库默认行为）。\n" +
                  "取消勾选 = Load 未缓存资源直接失败（不自动下载），强制业务先显式跑下载器（带进度 UI）再加载——\n" +
                  "用于大型 DLC 包，避免误 Load 一个资源就拖下整批。仅 Host 模式有意义。")]
+        [InspectorName("允许按需下载")]
         [SerializeField] private bool _enableOnDemandDownload = true;
 
         public AssetPackageConfig() { }

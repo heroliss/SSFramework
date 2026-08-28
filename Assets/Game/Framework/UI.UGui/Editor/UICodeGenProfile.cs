@@ -23,20 +23,25 @@ namespace Game.Framework.UI.UGui.Editor
         private static readonly IReadOnlyList<ComponentAlias> DefaultComponentAliases = CreateDefaultComponentAliases();
 
         [Tooltip("生成代码的命名空间。支持 {PrefabName} / {DirectoryName} / {ParentDirectoryName}；占位符值会被清洗成合法标识符段。")]
+        [InspectorName("生成代码命名空间")]
         [SerializeField] private string _namespaceRoot = "";
 
         [Tooltip("手写窗口逻辑 <Name>.cs 的输出目录（工程相对 Assets 路径，须在目标业务程序集范围内）。仅在文件不存在时创建一次。")]
+        [InspectorName("手写逻辑输出目录")]
         [SerializeField] private string _outputCodeDir = "";
 
         [Tooltip("生成的节点绑定 <Name>.nodes.g.cs 的输出目录（每次覆盖）。须与逻辑代码在同一业务程序集内（partial 才链得上）。")]
+        [InspectorName("节点绑定输出目录")]
         [SerializeField] private string _generatedCodeDir = "";
 
         [Tooltip("生成的文件名（= 生成的 partial 类名），不含扩展名。默认 {PrefabName} = prefab 文件名。注意：[UIWindow(Asset=...)] 的加载地址恒 = prefab 文件名，不受本项影响。")]
+        [InspectorName("文件名 / 类名模板")]
         [SerializeField] private string _fileNameTemplate = DefaultFileNameTemplate;
 
         [Header("默认组件优先级（标记节点时用；自定义脚本恒高于本列表）")]
         [Tooltip("一个节点有多个内置组件时，按本列表从上到下取第一个命中的作为默认绑定组件（按 FullName 或简单名匹配）。\n" +
                  "节点上若有用户自定义脚本，则优先于本列表任何项。要绑多个组件在绑定编辑窗口里加。")]
+        [InspectorName("内置组件优先级")]
         [SerializeField]
         private List<string> _builtinComponentPriority = CreateDefaultBuiltinComponentPriority();
 
@@ -44,19 +49,23 @@ namespace Game.Framework.UI.UGui.Editor
         [Tooltip("字段名模板。占位符：{node} 节点名 / {Node} 首字母大写；{Component} 组件全名(如 Button) / {component} 首字母小写；" +
                  "{alias} 组件别名(见下，如 btn) / {Alias} 首字母大写 / {ALIAS} 全大写。\n" +
                  "例：{node}{Component} → AddButton（后缀）；{alias}_{node} → btn_Add（前缀分组，让节点字段在 this. 补全里聚成一片）。")]
+        [InspectorName("字段名模板")]
         [SerializeField] private string _fieldNameTemplate = DefaultFieldNameTemplate;
 
         [Tooltip("勾上：节点名已包含组件名/别名(大小写不敏感)时，省略模板里的组件/别名占位符——避免 ScoreText(Text)→ScoreTextText。\n" +
                  "做前缀分组(如 btn_)想保留前缀就取消勾选。")]
+        [InspectorName("名称已包含组件时省略后缀")]
         [SerializeField] private bool _omitComponentTokenWhenContained = DefaultOmitComponentTokenWhenContained;
 
         [Tooltip("组件类型 → 简写别名（供模板 {alias} 用）。按组件简单名或全名匹配；未配的组件 {alias} 退回组件全名。")]
+        [InspectorName("组件别名")]
         [SerializeField]
         private List<ComponentAlias> _componentAliases = CreateDefaultComponentAliases();
 
         [Header("脚本自动挂")]
         [Tooltip("勾上：窗口生成后自动把窗口脚本挂到 prefab 根——缺则挂上、类名改了则把旧脚本换成新的（变体则是把继承的基脚本换成变体脚本）。默认开。\n" +
                  "首次生成时窗口类还没编译完，会提示「编译后再次生成即自动挂」；类已存在时即自动挂。该 prefab 正在编辑模式打开时会跳过、避免冲突。")]
+        [InspectorName("自动挂载窗口脚本")]
         [FormerlySerializedAs("_autoAssignVariantScript")]
         [SerializeField] private bool _autoAssignWindowScript = true;
 
@@ -173,8 +182,10 @@ namespace Game.Framework.UI.UGui.Editor
     public sealed class ComponentAlias
     {
         [Tooltip("组件简单名(如 Button)或全名(如 UnityEngine.UI.Button)。")]
+        [InspectorName("组件类型")]
         public string Component;
         [Tooltip("生成字段名里 {alias} 用的简写(如 btn)。")]
+        [InspectorName("简写别名")]
         public string Alias;
 
         public ComponentAlias() { }

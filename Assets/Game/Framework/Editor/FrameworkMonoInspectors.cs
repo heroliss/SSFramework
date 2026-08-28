@@ -96,7 +96,7 @@ namespace Game.Framework.Editor
         private static void DrawContextHost(MonoGameContextBase host)
         {
             MonoContextDiagnosticSnapshot snapshot = host.DiagnosticSnapshot;
-            EditorGUILayout.LabelField("初始化状态", snapshot.State.ToString());
+            EditorGUILayout.LabelField("初始化状态", MonoContextIssueAnalysis.StateLabel(snapshot.State));
             DrawContextValue("解析到的父级", snapshot.ResolvedParent);
 
             if (snapshot.Failure != null)

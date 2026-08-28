@@ -18,15 +18,19 @@ namespace Game.Framework.UI.UGui.Editor
     public sealed class UICodeGenDirConfig : ScriptableObject
     {
         [Tooltip("覆盖本目录（及子目录）下 prefab 的生成命名空间。支持 {PrefabName}/{DirectoryName}/{ParentDirectoryName} 占位符。")]
+        [InspectorName("命名空间覆盖")]
         [SerializeField] private string _namespaceOverride;
 
         [Tooltip("覆盖手写逻辑 <Name>.cs 的输出目录（工程相对 Assets 路径）。")]
+        [InspectorName("手写逻辑目录覆盖")]
         [SerializeField] private string _outputDirOverride;
 
         [Tooltip("覆盖生成的 <Name>.nodes.g.cs 的输出目录（工程相对 Assets 路径）。")]
+        [InspectorName("节点绑定目录覆盖")]
         [SerializeField] private string _generatedDirOverride;
 
         [Tooltip("覆盖生成文件名 / 类名模板（= 生成的类名，含占位符，不含扩展名）。")]
+        [InspectorName("文件名 / 类名模板覆盖")]
         [SerializeField] private string _fileNameOverride;
 
         /// <summary>本配置设定的命名空间（trim 后；未设则 <c>null</c>）。</summary>

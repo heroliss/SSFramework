@@ -1,3 +1,5 @@
+using UnityEngine;
+
 namespace Game.Framework
 {
     /// <summary>
@@ -9,15 +11,19 @@ namespace Game.Framework
     public enum AssetPlayMode
     {
         /// <summary>编辑器内模拟模式：不打包，直接走 AssetDatabase 或等价机制。</summary>
+        [InspectorName("编辑器模拟（EditorSimulate）")]
         EditorSimulate,
 
         /// <summary>离线模式：只用内置（buildin）文件系统，不访问远端 CDN。</summary>
+        [InspectorName("离线（Offline）")]
         Offline,
 
         /// <summary>主机模式：先查内置，缺失/过期时从 CDN 候选列表拉取并缓存。</summary>
+        [InspectorName("主机模式（Host）")]
         Host,
 
         /// <summary>WebGL/Web 模式：通过 HTTP 远端文件系统访问资源，不写入本地缓存。</summary>
+        [InspectorName("网页远端（Web）")]
         Web,
     }
 }

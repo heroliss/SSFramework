@@ -28,7 +28,7 @@ namespace Game.Framework.Demo.Modules
             var close = UGuiKit.Btn(card, "关闭", -60);
 
             // 只读订阅查询 Command（与 Toolkit 窗口、UGUI/UIToolkit View 章共用同一份 MonoScoreModel）。
-            Bag.Subscribe(this.ExecuteCommand(new GetMonoScoreCommand()), v => score.text = $"Score: {v}");
+            Bag.Subscribe(this.ExecuteCommand(new GetMonoScoreCommand()), v => score.text = $"分数：{v}");
             // 只写经 ExecuteCommand。
             Bag.Subscribe(add.onClick, () => this.ExecuteCommand(new RaiseMonoScoreCommand()));
             // 关闭：经本窗口所属 Context 的 IUIUtility 关掉自己。
