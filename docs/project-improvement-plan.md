@@ -22,7 +22,7 @@
 | Demo | 32 个自动发现章节；Catalog 集中拥有 Adapter 生命周期，并按 Capability / Concept / Workflow 校验真实 Build 教学语义 |
 | 教程 | `framework-guide.md` 28 章 |
 | ADR | 0001–0045；0040 为 UPM-aware 源码目录，0041/0042 补齐依赖证据，0043 收口 Editor 菜单与工作台，0044 固化 Unity CLI 工程外 Adapter 边界，0045 拆分资源与 HybridCLR 构建依赖 |
-| 测试 | PlayMode 525 + EditMode 356，共 881 项全绿；交互式 MCP 后台运行且 PlayMode 先预检，命令行入口默认 EditMode + PlayMode |
+| 测试 | PlayMode 525 + EditMode 363，共 888 项全绿；交互式 MCP 后台运行且 PlayMode 先预检，命令行入口默认 EditMode + PlayMode |
 | Demo CodeRef | 314 处可打开源码跳转；完整门禁通过后以精准命中为基线，注释、文案与外部文档路径不计入源码构造点 |
 | AI 常驻规则预算 | 最深 AGENTS 链 30.48 KiB，低于 Codex 默认 32 KiB 项目指令上限；本轮已压缩 Demo 教程式规则，新增常驻规则前仍须优先外移可测试/可按需加载内容 |
 
@@ -214,7 +214,8 @@
 
 - 高频配置 Profile 和资源运行模式增加 `InspectorName`：界面显示中文，序列化字段名、枚举成员与已有资产保持不变；关键代码值放在括号中，仍可按英文标识检索源码和第三方文档。
 - `MonoContext` 状态由同一格式化入口显示“未初始化（Uninitialized）”等中文优先标签，诊断、Inspector 和复制报告不再各写一套；资源引用 Drawer 与模块/体积工具同步收敛用户可见术语。
-- Demo 的分数、重置、缓存策略等现场文案和 guide 日志示例改为中文优先；缓存策略示例同时移除以显示字符串判断行为的脆弱逻辑。测试锁定高频标签与全部诊断状态，完整基线为 EditMode 356 + PlayMode 525。
+- Demo 的分数、重置、缓存策略等现场文案和 guide 日志示例改为中文优先；缓存策略示例同时移除以显示字符串判断行为的脆弱逻辑。测试锁定高频标签与全部诊断状态，完整基线为 EditMode 363 + PlayMode 525。
+- 服务安装器与 `MonoGameContextBase` 补齐中文 Inspector 主标签；场景快捷入口、Protobuf 与字体字集工作台不再裸露 `Entries / Profile / Charset`，需要映射到 Unity、TMP 或框架 API 的 `Boot Scene / Play / Character Set` 等术语以中文释义加英文原名呈现。
 - 资源 Core、配置服务与 YooAsset Adapter 的启动、空输入、清单失配、加载/清缓存/下载失败、缓存世代和后台所有权消息改为中文说明；`Provider`、`TableFiles`、`location/tag`、类型/API 名及 YooAsset 原始错误仍原样保留。精确日志测试改为锁“中文动作 + 动态标识 + 原始异常对象”，不把整句标点当脆弱契约。
 
 ## 下一批候选（按杠杆排序）

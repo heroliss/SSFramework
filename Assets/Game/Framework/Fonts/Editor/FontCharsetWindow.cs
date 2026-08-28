@@ -34,7 +34,7 @@ namespace Game.Framework.Fonts.Editor
             EditorGUILayout.Space(6);
             EditorGUILayout.LabelField("字体字集生成", EditorStyles.boldLabel);
             EditorGUILayout.HelpBox(
-                "字集生成只负责回答“哪些字符需要进静态图集”，不会自动修改 TMP Font Asset。这样保留字体、图集尺寸、Padding 与 Render Mode 的人工质量决策。",
+                "字集生成只负责回答“哪些字符需要进静态图集”，不会自动修改 TMP Font Asset。这样可保留字体、图集尺寸、内边距（Padding）与渲染模式（Render Mode）的人工质量决策。",
                 MessageType.Info);
 
             _scroll = EditorGUILayout.BeginScrollView(_scroll);
@@ -44,7 +44,7 @@ namespace Game.Framework.Fonts.Editor
                 if (!FontCharsetProfile.TryResolve(out var profile))
                 {
                     EditorGUILayout.HelpBox(
-                        "尚无 Charset Profile。点击创建会写入一个默认扫描 Assets、包含 ASCII 的项目配置资产。",
+                        "尚无常用字集配置（Charset Profile）。点击创建会写入一个默认扫描 Assets、包含 ASCII 的项目配置资产。",
                         MessageType.Warning);
                     if (GUILayout.Button("创建默认字集配置")) FontCharsetMenu.LocateProfile();
                 }
@@ -82,7 +82,7 @@ namespace Game.Framework.Fonts.Editor
             {
                 EditorGUILayout.LabelField("下一步：烘焙 TMP 静态图集", EditorStyles.boldLabel);
                 GUILayout.Label(
-                    "打开 Window/TextMeshPro/Font Asset Creator，选择字体源；Character Set 选 Characters from File，并引用上面的输出文件。烘焙后仍应在目标分辨率检查缺字、图集占用和 fallback 链。",
+                    "打开 Window/TextMeshPro/Font Asset Creator 并选择字体源；在 Character Set（字符集）中选择 Characters from File（从文件读取字符），再引用上面的输出文件。烘焙后仍应在目标分辨率检查缺字、图集占用和 fallback 链。",
                     EditorStyles.wordWrappedMiniLabel);
             }
             EditorGUILayout.EndScrollView();

@@ -9,7 +9,7 @@ namespace Game.Framework.Network.Proto.Editor
     /// 「Protobuf 生成总览」窗口：把工程内所有 <see cref="ProtoConfigProfile"/> 集中成卡片——每套列出
     /// .proto 源目录（含文件数）、protoc 可用性、代码输出目录，并提供「生成这套 / 打开各目录 / 点名定位资产」。
     /// 多套并存（正式协议 + 框架测试等）时一眼看清各套落点、按套操作；顶部「生成全部」是统一人工入口，
-    /// 「新建 Profile…」引导创建（本配置无自动创建——默认路径无从捏造）。
+    /// 「新建 Protobuf 配置…」引导创建（本配置无自动创建——默认路径无从捏造）。
     /// </summary>
     public sealed class ProtoConfigOverviewWindow : EditorWindow
     {
@@ -51,7 +51,7 @@ namespace Game.Framework.Network.Proto.Editor
                 }
             }
             EditorGUILayout.HelpBox(
-                "每套配置 = 一个 Proto Profile（.proto 源目录 + 独占的 C# 输出目录）。输出必须位于 Assets 的独立子目录；" +
+                "每套 Protobuf 配置包含一个 .proto 源目录和一个独占的 C# 输出目录。输出必须位于 Assets 的独立子目录；" +
                 "生成器会递归清理其中本次未产出的 *.g.cs，因此不同配置不能共用或嵌套目录。\n" +
                 "生成消息类型经 GoogleProtobufNetworkSerializer（框架模块 Game.Framework.Network.Proto）接进网络接缝：" +
                 "构造处 RegisterFile(生成的 XxxReflection.Descriptor) 即整文件注册。",
@@ -69,7 +69,7 @@ namespace Game.Framework.Network.Proto.Editor
                 EditorGUILayout.LabelField($"共 {profiles.Count} 套", EditorStyles.miniBoldLabel);
                 using (new EditorGUILayout.HorizontalScope())
                 {
-                    if (GUILayout.Button("新建 Profile…"))
+                    if (GUILayout.Button("新建 Protobuf 配置…"))
                         CreateProfile();
                     using (new EditorGUI.DisabledScope(playing || profiles.Count == 0 || !ownershipOk))
                         if (GUILayout.Button("生成全部"))
@@ -82,7 +82,7 @@ namespace Game.Framework.Network.Proto.Editor
                 {
                     EditorGUILayout.LabelField($"共 {profiles.Count} 套", EditorStyles.miniBoldLabel);
                     GUILayout.FlexibleSpace();
-                    if (GUILayout.Button("新建 Profile…", GUILayout.Width(100)))
+                    if (GUILayout.Button("新建 Protobuf 配置…", GUILayout.Width(150)))
                         CreateProfile();
                     using (new EditorGUI.DisabledScope(playing || profiles.Count == 0 || !ownershipOk))
                         if (GUILayout.Button("生成全部", GUILayout.Width(90)))
@@ -93,7 +93,7 @@ namespace Game.Framework.Network.Proto.Editor
                 EditorGUILayout.LabelField("（运行中——停止后可生成）", EditorStyles.miniLabel);
 
             if (profiles.Count == 0)
-                EditorGUILayout.HelpBox("还没有 Proto profile——点右上「新建 Profile…」创建，然后在 Inspector 填 .proto 源目录与输出目录。", MessageType.Warning);
+                EditorGUILayout.HelpBox("还没有 Protobuf 配置——点右上“新建 Protobuf 配置…”创建，然后在 Inspector 填写 .proto 源目录与输出目录。", MessageType.Warning);
             else if (!ownershipOk)
                 EditorGUILayout.HelpBox("输出目录预检未通过：\n" + ownershipMessage, MessageType.Error);
             else
@@ -180,7 +180,7 @@ namespace Game.Framework.Network.Proto.Editor
         {
             if (!FrameworkEditorOperationGate.EnsureCanStart("创建 Protobuf 配置")) return;
             string path = EditorUtility.SaveFilePanelInProject(
-                "新建 Proto Profile", "ProtoConfigProfile", "asset",
+                "新建 Protobuf 配置", "ProtoConfigProfile", "asset",
                 "选择保存位置（推荐放协议所属模块的 Editor 目录下）");
             if (string.IsNullOrEmpty(path)) return;
             var profile = CreateInstance<ProtoConfigProfile>();

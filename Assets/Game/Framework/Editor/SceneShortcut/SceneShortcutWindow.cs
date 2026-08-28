@@ -57,17 +57,17 @@ namespace Game.Framework.Editor
                         if (GUILayout.Button("刷新动态场景菜单")) SceneShortcutMenu.Refresh();
                     }
                 }
-                GUILayout.Label("修改 Entries 后需刷新；脚本域重载也会自动重建。空场景槽位会被忽略，重名会按父目录稳定消歧。",
+                GUILayout.Label("修改场景快捷入口列表后需刷新；脚本域重载也会自动重建。空场景槽位会被忽略，重名会按父目录稳定消歧。",
                     EditorStyles.wordWrappedMiniLabel);
             }
 
             using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
             {
-                EditorGUILayout.LabelField("Play 起始场景", EditorStyles.boldLabel);
+                EditorGUILayout.LabelField("运行（Play）起始场景", EditorStyles.boldLabel);
                 GUILayout.Label(
                     profile.BootScene == null
-                        ? "尚未配置 Boot Scene；开启后也不会生效。"
-                        : $"Boot Scene：{AssetDatabase.GetAssetPath(profile.BootScene)}",
+                        ? "尚未配置启动场景（Boot Scene）；开启后也不会生效。"
+                        : $"启动场景（Boot Scene）：{AssetDatabase.GetAssetPath(profile.BootScene)}",
                     EditorStyles.wordWrappedMiniLabel);
                 bool enabled = EditorGUILayout.ToggleLeft(
                     new GUIContent("从 Boot 场景启动 Play", "设置 EditorSceneManager.playModeStartScene；关闭后恢复 Unity 默认从当前场景启动。"),

@@ -59,7 +59,7 @@ namespace Game.Framework.Context
     /// <remarks>
     /// <b>谁该用：</b>所有"作用域 = 一段游戏过程"的 Context 节点——大厅、关卡、Boss 战、UI 子模块等。
     /// 项目级唯一根 Context 用 <see cref="MonoGlobalContext"/>（自动管理 <see cref="GameContext.Main"/>）。<br/>
-    /// <b>层级关系：</b>Inspector 留空 <c>Parent Context</c> + 开启 <c>Inherit From Parent</c> 时，
+    /// <b>层级关系：</b>Inspector 留空<c>父级上下文（Parent Context）</c>并开启<c>自动查找父级上下文</c>时，
     /// 沿 Transform 父链找最近的 <see cref="MonoGameContextBase"/> 作为父级；
     /// 显式赋值则跳过自动查找。子级解析未命中时自动回退父级。<br/>
     /// <b>执行顺序：</b><c>DefaultExecutionOrder(-1000)</c>。子 Context 与父 Context 同序，
@@ -77,8 +77,8 @@ namespace Game.Framework.Context
     {
         [SerializeField]
         [LockInPlayMode]
-        [InspectorName("Parent Context")]
-        [Tooltip("显式指定父级场景 Context。留空时根据 Inherit From Parent 自动向 Transform 父级查找。")]
+        [InspectorName("父级上下文（Parent Context）")]
+        [Tooltip("显式指定父级场景 Context。留空且开启“自动查找父级上下文”时，会沿 Transform 父级查找。")]
         private MonoGameContextBase _parentContextHost;
 
         /// <summary>
@@ -89,11 +89,13 @@ namespace Game.Framework.Context
 
         [SerializeField]
         [LockInPlayMode]
+        [InspectorName("自动查找父级上下文")]
         [Tooltip("是否自动向上查找 Transform 层级中的父级上下文。关闭时不会自动查找，但显式设置的 Parent Context 仍然生效。")]
         protected bool _inheritFromParent = true;
 
         [SerializeField]
         [LockInPlayMode]
+        [InspectorName("回退到全局主上下文（GameContext.Main）")]
         [Tooltip("是否在本地和父级解析不到时回退到全局静态主上下文（GameContext.Main）。")]
         protected bool _inheritFromGlobal = true;
 

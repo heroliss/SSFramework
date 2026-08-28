@@ -19,7 +19,7 @@ namespace Game.Framework.Build
     [CreateAssetMenu(fileName = "LubanConfigProfile", menuName = "SSFramework/配置表生成配置 (Luban Profile)")]
     public sealed class LubanConfigProfile : ScriptableObject
     {
-        [Header("Luban CLI")]
+        [Header("Luban 命令行工具（CLI）")]
         [Tooltip("Luban CLI 可执行文件（相对工程根目录）。\n" +
                  "工具不入库（体积大且可重下）：从 https://github.com/focus-creative-games/luban 的 release 解压到该路径。\n" +
                  "需要 .NET 运行时；缺 .NET 8 时管线会带 DOTNET_ROLL_FORWARD=LatestMajor 用更高版本运行。")]

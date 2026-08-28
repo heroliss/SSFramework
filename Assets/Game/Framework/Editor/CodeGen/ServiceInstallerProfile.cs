@@ -17,7 +17,7 @@ namespace Game.Framework.Editor
     /// <c>SSFramework/代码生成/服务安装器</c> 工作台可按份或全部生成，
     /// 或本资产 Inspector 的生成按钮。</para>
     /// </summary>
-    [CreateAssetMenu(fileName = "ServiceInstallerProfile", menuName = "SSFramework/服务安装器配置 (Service Installer Profile)")]
+    [CreateAssetMenu(fileName = "ServiceInstallerProfile", menuName = "SSFramework/服务安装器配置（Service Installer Profile）")]
     public sealed class ServiceInstallerProfile : ScriptableObject
     {
         /// <summary>一个安装器条目：N 个扫描目录 → 1 个生成的安装器类。</summary>
@@ -25,16 +25,20 @@ namespace Game.Framework.Editor
         public sealed class InstallerEntry
         {
             [Tooltip("扫描目录（文件夹资产，含子目录）。目录下「文件名 = 类名」的纯 C# 服务类（实现 IModel / ISystem / IUtility 派生接口）会被收进本安装器。")]
+            [InspectorName("扫描目录")]
             public List<UnityEditor.DefaultAsset> ScanFolders = new();
 
             [Tooltip("安装器输出路径：必须位于 Assets 子目录，且以 .cs 结尾（建议 .g.cs）。类名 = 文件名去掉 .g.cs 后缀。新条目留空，需按目标业务程序集明确填写。")]
+            [InspectorName("输出文件路径")]
             public string OutputPath = "";
 
             [Tooltip("安装器的命名空间。")]
+            [InspectorName("命名空间")]
             public string Namespace = "";
         }
 
         [Tooltip("安装器条目列表。每条独立生成、独立报错，并必须使用唯一输出文件。")]
+        [InspectorName("服务安装器条目")]
         public List<InstallerEntry> Installers = new();
 
         /// <summary>
