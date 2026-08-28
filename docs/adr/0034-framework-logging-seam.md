@@ -91,6 +91,8 @@ roadmap「Cysharp 生态候选」里 **ZLogger**（零分配结构化日志）�
 
 **⑥ 补齐两处实用信息**：`LogEntry.Context`（`UnityEngine.Object`——点 Console 高亮定位场景物体，Unity 独有的实用能力）；`LogEntry.StackTrace`（`Error` 且无异常时自动补抓——落盘的 error 若既无异常又无栈，事后只剩一句话、无从定位）。`FileLogSink` 每次开档写**会话头**（设备 / 系统 / 版本 / 时间）：日志追加叠加，没有分隔就分不清哪段是哪次运行、玩家用的什么机器。
 
+`LogEntry.Exception` **不只属于 Error**：能降级、丢弃坏输入或继续清理的失败仍是 Warning，但同样需要把原始异常交给文件 / 遥测 sink，不能提前压成 `Exception.Message`。这类少数场景走现有 `Log.Write(LogLevel.Warning, ..., exception: e)`，不为对称性再加一个可能与 `Warning(message, category)` 产生 `null` 重载歧义的便利方法。默认 `UnityDebugLogSink` 把异常附在同一条 Warning 后，既保留详情又不额外制造 Error；Error 仍单独调用 `Debug.LogException` 保持 Unity 原生异常定位。
+
 **⑥.5 `Verbose` 布尔被级别体系吸收 → 收敛成全局 `Log.MinLevel`（默认 `Info`）。**
 
 `Verbose` 是 sink/`MinLevel` 体系（阶段 A）**出现之前**就有的老开关，级别体系落地后它其实已经被吸收了，只是没人回头清理——两者**同构**：

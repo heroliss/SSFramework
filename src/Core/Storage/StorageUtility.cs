@@ -146,7 +146,11 @@ namespace Game.Framework.Storage
             }
             catch (Exception e)
             {
-                Log.Warning($"'{key}' {label}反序列化失败（{e.GetType().Name}: {e.Message}）。", "StorageUtility");
+                Log.Write(
+                    LogLevel.Warning,
+                    $"'{key}' {label}反序列化失败，已按不可用处理。",
+                    category: nameof(StorageUtility),
+                    exception: e);
                 return null;
             }
         }

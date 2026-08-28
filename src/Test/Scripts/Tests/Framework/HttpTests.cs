@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using Cysharp.Threading.Tasks;
+using Game.Framework.Logging;
 using Game.Framework.Network;
 using NUnit.Framework;
 using UnityEngine;
@@ -20,6 +21,13 @@ namespace Game.Framework.Test
     /// </summary>
     public class HttpTests
     {
+        private sealed class CapturingLogSink : ILogSink
+        {
+            public LogLevel MinLevel => LogLevel.Warning;
+            public readonly List<LogEntry> Entries = new();
+            public void Log(in LogEntry entry) => Entries.Add(entry);
+        }
+
         [Serializable]
         private class LoginReq
         {
@@ -243,17 +251,31 @@ namespace Game.Framework.Test
             _fake.ThrowOnCancellation = true;
             _fake.Handler = ct => UniTask.Never<HttpResponse>(ct);
             LogAssert.Expect(LogType.Warning, new Regex(@"HTTP 清理将继续"));
-
-            using var shortTimeout = new HttpUtility(
-                "https://api.test", _fake, defaultTimeoutSeconds: 0.03f);
+            var sink = new CapturingLogSink();
+            Log.AddSink(sink);
             try
             {
-                await shortTimeout.Get<LoginResp>("api/slow");
-                Assert.Fail("deadline 应稳定折叠为 Timeout，不能让坏回调逃逸到 timer 线程");
+                using var shortTimeout = new HttpUtility(
+                    "https://api.test", _fake, defaultTimeoutSeconds: 0.03f);
+                try
+                {
+                    await shortTimeout.Get<LoginResp>("api/slow");
+                    Assert.Fail("deadline 应稳定折叠为 Timeout，不能让坏回调逃逸到 timer 线程");
+                }
+                catch (NetworkException e)
+                {
+                    Assert.AreEqual(NetworkErrorKind.Timeout, e.Kind);
+                }
+
+                LogEntry cancellationEntry = sink.Entries.Find(entry =>
+                    entry.Category == nameof(HttpUtility) && entry.Message.Contains("HTTP 清理将继续"));
+                Assert.IsNotNull(cancellationEntry.Exception,
+                    "取消回调异常必须保留在 LogEntry.Exception，不能压平成脆弱的 message 文本");
+                StringAssert.Contains("fake HTTP cancellation callback", cancellationEntry.Exception.ToString());
             }
-            catch (NetworkException e)
+            finally
             {
-                Assert.AreEqual(NetworkErrorKind.Timeout, e.Kind);
+                Log.RemoveSink(sink);
             }
         });
 

@@ -281,6 +281,45 @@ namespace Game.Framework.Test
             Assert.AreEqual("Net", sink.Entries[0].Category);
         }
 
+        /// <summary>
+        /// 可恢复失败仍应保留原始异常供文件 / 遥测 sink 消费；默认 Unity sink 则把它附在同一条 Warning 中，
+        /// 不能悄悄丢失，也不能额外抬成一条 Error。
+        /// </summary>
+        [Test]
+        public void WarningWithException_IsStructuredAndVisibleInUnityConsole()
+        {
+            var captured = new CapturingSink();
+            Log.AddSink(new UnityDebugLogSink());
+            Log.AddSink(captured);
+            Log.CaptureUnityLogs(true);
+
+            InvalidOperationException ex;
+            try
+            {
+                throw new InvalidOperationException("warning boom");
+            }
+            catch (InvalidOperationException caught)
+            {
+                ex = caught;
+            }
+            LogAssert.Expect(LogType.Warning,
+                new Regex(@"\[Net\] 可恢复失败，已回退。\s+System\.InvalidOperationException: warning boom"));
+
+            Log.Write(
+                LogLevel.Warning,
+                "可恢复失败，已回退。",
+                category: "Net",
+                exception: ex);
+
+            Assert.AreEqual(1, captured.Entries.Count,
+                "Unity Console sink 的 Warning 不能被日志桥接回灌成第二条记录");
+            Assert.AreEqual(LogLevel.Warning, captured.Entries[0].Level);
+            Assert.AreEqual("Net", captured.Entries[0].Category);
+            Assert.AreSame(ex, captured.Entries[0].Exception,
+                "Warning 不能把异常压平成 message，否则结构化 sink 无法可靠分类和保留堆栈");
+            StringAssert.Contains(nameof(WarningWithException_IsStructuredAndVisibleInUnityConsole), ex.StackTrace);
+        }
+
         [Test]
         public void Error_WithoutException_AutoCapturesStackTrace()
         {

@@ -59,7 +59,7 @@ namespace Game.Framework.Network
             public void RequestTimeout()
             {
                 Interlocked.Exchange(ref _timedOut, 1);
-                Cancel($"{_label} deadline");
+                Cancel($"{_label} 超时 owner");
             }
 
             public void Dispose()
@@ -74,8 +74,8 @@ namespace Game.Framework.Network
                 if (cleanup) Cleanup();
             }
 
-            private void CancelFromCaller() => Cancel($"{_label} caller owner");
-            private void CancelFromLifetime() => Cancel($"{_label} lifetime owner");
+            private void CancelFromCaller() => Cancel($"{_label} 调用方 owner");
+            private void CancelFromLifetime() => Cancel($"{_label} 生命周期 owner");
 
             private void Cancel(string label)
             {
@@ -176,7 +176,7 @@ namespace Game.Framework.Network
         {
             if (_disposed) return;
             _disposed = true;
-            CancelOwnerSafely(_lifetimeCts, "HTTP utility lifetime owner");
+            CancelOwnerSafely(_lifetimeCts, "HTTP 工具生命周期 owner");
             try
             {
                 _provider.Dispose();
@@ -220,7 +220,7 @@ namespace Game.Framework.Network
                 var outcome = new UniTaskCompletionSource<HttpResponse>();
                 var physicalCompletion = new UniTaskCompletionSource();
                 ObserveProviderSend(providerTask, outcome, physicalCompletion).Forget(e =>
-                    Log.Error("HTTP provider outcome observer failed.", e, "HttpUtility"));
+                    Log.Error("HTTP Provider 结果观察器异常，请求终态可能未正常传播。", e, nameof(HttpUtility)));
 
                 CancellationTokenSource deadlineCts = null;
                 HttpResponse response;
@@ -237,7 +237,7 @@ namespace Game.Framework.Network
                         if (winner == 0)
                         {
                             // 及时撤掉 loser：否则每个快速响应都会让 deadline continuation 与 Body 多活到完整超时。
-                            CancelOwnerSafely(deadlineCts, $"{method} {url} deadline timer owner");
+                            CancelOwnerSafely(deadlineCts, $"{method} {url} 超时计时器 owner");
                         }
                         else
                         {
@@ -253,7 +253,7 @@ namespace Game.Framework.Network
                 {
                     if (deadlineCts != null)
                     {
-                        CancelOwnerSafely(deadlineCts, $"{method} {url} deadline timer owner");
+                        CancelOwnerSafely(deadlineCts, $"{method} {url} 超时计时器 owner");
                         deadlineCts.Dispose();
                     }
                 }
@@ -352,7 +352,11 @@ namespace Game.Framework.Network
             catch (Exception e)
             {
                 // CancellationTokenSource 已完成取消，只是某个注册回调抛了异常；记录后继续释放其它 owner。
-                Log.Warning($"{label} 的取消回调抛出异常，HTTP 清理将继续：{e}", "HttpUtility");
+                Log.Write(
+                    LogLevel.Warning,
+                    $"{label} 的取消回调抛出异常，已隔离；HTTP 清理将继续。",
+                    category: nameof(HttpUtility),
+                    exception: e);
             }
         }
 
