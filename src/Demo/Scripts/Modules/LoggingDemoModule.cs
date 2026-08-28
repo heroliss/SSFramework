@@ -21,11 +21,11 @@ namespace Game.Framework.Demo.Modules
     public sealed class LoggingDemoModule : DemoModuleBase
     {
         public override string Id => "logging";
-        public override string Title => "日志 · 分级 + 可插拔 sink";
+        public override string Title => "日志 · 分级与接收器";
         public override string Category => "能力";
         public override int Order => 35;   // 排在「本地存储(30)」「音频(40)」之间，归到基础设施类 Utility
         public override string Summary =>
-            "Log 提供统一分级门面，将记录广播到 Console、文件或遥测 sink；全局与 sink 两级过滤，Trace 未启用时不构造消息。" +
+            "Log 提供统一分级门面，将记录广播到 Console、文件或遥测日志接收器（sink）；全局与接收器两级过滤，Trace 未启用时不构造消息。" +
             "它还能接管 Unity/第三方日志并零依赖落盘，设计权衡见 ADR-0034。";
 
         // 本章发出的日志统一打这个 category，便于和框架内部日志区分（也演示 category 的用法）。
@@ -72,25 +72,25 @@ namespace Game.Framework.Demo.Modules
             var captured = new List<string>(); // 捕获面板的行缓冲（只留最近若干行）
 
             // ── 定位 ──
-            host.AddPositioning("统一门面 + 广播到可插拔 sink");
+            host.AddPositioning("统一门面 + 广播到可插拔日志接收器（sink）");
             host.AddNote("框架和业务**共用同一个入口** `Log`：分级记录（`Trace` / `Info` / `Warning` / `Error`），再**广播**给一组可插拔 `ILogSink`（Console / 文件 / 遥测…）。价值是「日志有一层可替换的接缝」——按级别 / 来源过滤、落文件捞日志、测试期捕获断言、重定向遥测，全在这一层着力，而不是把 `Debug.Log` 散落一地、事后无从拦截。",
                 new CodeRef("Assets/Game/Framework/Core/Logging/Log.cs", "public static class Log", "日志门面"));
             host.AddSubNote("为什么是**静态**门面而非 DI 服务：日志要在**任何地方**可用，包括身处 DI 之下、没有 `Context` 的内核基础设施（`Container` / 构造期）——它们不能反向依赖容器去取 logger。所以门面静态、出厂即用（默认装一个转 `Debug.Log` 的 `UnityDebugLogSink`，Console 观感 / 双击定位 / 堆栈全不变）。");
             host.AddSubNote("**双击定位**能保住，靠的是门面方法上的 `[HideInCallstack]`：没有它，Console 里双击任何一条日志都会跳进框架的转发方法、而不是你真正的调用点——这是所有「包一层 Debug.Log」的门面最常见的死因。");
 
             // ── 分级门面 ──
-            host.AddSectionTitle("分级门面：Info / Warning / Error（看 Unity Console）");
-            var levelLabel = host.AddValueDisplay("点下面按钮 → 看 Unity Console：门面把日志转给默认 sink，观感 / 定位与裸 Debug.Log 完全一致。");
+            host.AddSectionTitle("分级门面：信息 / 警告 / 错误（Info / Warning / Error）");
+            var levelLabel = host.AddValueDisplay("点下面按钮 → 看 Unity Console：门面把日志转给默认接收器，观感 / 定位与裸 Debug.Log 完全一致。");
             levelLabel.style.whiteSpace = WhiteSpace.Normal;
-            host.AddActionRow("Info", () =>
+            host.AddActionRow("发信息日志（Info）", () =>
             {
                 Log.Info("玩家进入战斗", DemoCategory);
-                levelLabel.text = "已发一条 Info（Console 里是普通 Log）。第二参 category 可选——给结构化 sink 分组 / 过滤用。";
+                levelLabel.text = "已发一条信息日志（Info，Console 里是普通 Log）。第二参 category 可选——给结构化接收器分组 / 过滤用。";
             }, CodeRef.Here("Log.Info(\"玩家进入战斗\"", "Info"));
-            host.AddActionRow("Warning", () =>
+            host.AddActionRow("发警告日志（Warning）", () =>
             {
                 Log.Warning("配置缺省，回退默认值", DemoCategory);
-                levelLabel.text = "已发一条 Warning（Console 里是黄色警告）。";
+                levelLabel.text = "已发一条警告日志（Warning，Console 里是黄色警告）。";
             }, CodeRef.Here("Log.Warning(\"配置缺省", "Warning"));
             host.AddExperimentNotice(
                 "只写日志，不让游戏流程失败；会向当前所有满足级别的 sink 广播。",
