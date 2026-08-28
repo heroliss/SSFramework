@@ -182,8 +182,8 @@ namespace Game.Framework.Logging
             => Dispatch(LogLevel.Error, message, category, exception, null, context, false, null);
 
         /// <summary>
-        /// 通用入口：可带结构化字段（供 JSON / 遥测等结构化 sink 消费，文本 sink 忽略）。
-        /// 便利方法覆盖 99% 场景，要结构化时走这里，不必换 API。
+        /// 通用入口：可带结构化字段与任意级别的原始异常（供文件 / JSON / 遥测等 sink 消费）。
+        /// 便利方法覆盖 99% 场景；可恢复失败需要保留异常但仍维持 Warning 语义，或需要结构化字段时走这里。
         /// </summary>
         [HideInCallstack]
         public static void Write(

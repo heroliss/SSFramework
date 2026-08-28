@@ -7,8 +7,10 @@ namespace Game.Framework.Logging
     /// 保留 Console 观感、双击定位源码行、stack trace。<see cref="Log"/> 出厂即装配一个。
     /// </summary>
     /// <remarks>
-    /// <see cref="LogLevel.Trace"/> 的「仅 Editor/Development + Verbose」门控在门面层完成（发布版根本到不了这里），
+    /// <see cref="LogLevel.Trace"/> 的「仅 Editor/Development + <see cref="Log.MinLevel"/>」门控在门面层完成（发布版根本到不了这里），
     /// 本 sink 收到什么就转发什么——因此「把 <c>Debug.Log</c> 迁移到接缝」对 Console 输出零行为变化。<br/>
+    /// 携带异常的 Warning 会把异常附在同一条警告正文后；既保留详情，又不会用 <c>Debug.LogException</c>
+    /// 额外制造一条 Error。Error 的异常仍单独走 <c>Debug.LogException</c>，保留 Unity 原生堆栈定位。<br/>
     /// <see cref="MinLevel"/> 可调（如设为 <see cref="LogLevel.Warning"/> 让 Console 只留警告以上，细粒度交给文件 sink）。<br/>
     /// <b>双击定位</b>靠门面方法上的 <c>[HideInCallstack]</c> 保住：没有它，Console 双击会跳进框架的转发方法而不是真正的调用点。
     /// </remarks>
@@ -37,6 +39,11 @@ namespace Game.Framework.Logging
                 switch (entry.Level)
                 {
                     case LogLevel.Warning:
+                        // Warning 也可能携带「已降级并继续」的原始异常。仍保持单条 Warning，避免用
+                        // Debug.LogException 把可恢复失败抬成额外 Error；同时不能只打印正文而让异常在
+                        // 默认 Console sink 中消失。文件 / 遥测 sink 则可直接消费结构化 Exception。
+                        if (entry.Exception != null)
+                            text += System.Environment.NewLine + entry.Exception;
                         Debug.LogWarning(text, entry.Context);
                         break;
                     case LogLevel.Error:

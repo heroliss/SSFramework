@@ -6,6 +6,7 @@ using System.Threading;
 using Cysharp.Threading.Tasks;
 using Game.Framework.Context;
 using Game.Framework.Event;
+using Game.Framework.Logging;
 using Game.Framework.Network;
 using NUnit.Framework;
 using R3;
@@ -22,6 +23,13 @@ namespace Game.Framework.Test
     /// </summary>
     public class WebSocketTests
     {
+        private sealed class CapturingLogSink : ILogSink
+        {
+            public LogLevel MinLevel => LogLevel.Warning;
+            public readonly List<LogEntry> Entries = new();
+            public void Log(in LogEntry entry) => Entries.Add(entry);
+        }
+
         [Serializable]
         private struct ChatPush : IEvent
         {
@@ -395,8 +403,22 @@ namespace Game.Framework.Test
             await UniTask.DelayFrame(1);
 
             LogAssert.Expect(LogType.Warning, new System.Text.RegularExpressions.Regex("无法解析的 envelope"));
-            _fake.InjectMessage(Encoding.UTF8.GetBytes("not-json-at-all###")); // 坏 envelope
-            await UniTask.DelayFrame(2);
+            var sink = new CapturingLogSink();
+            Log.AddSink(sink);
+            try
+            {
+                _fake.InjectMessage(Encoding.UTF8.GetBytes("not-json-at-all###")); // 坏 envelope
+                await UniTask.DelayFrame(2);
+            }
+            finally
+            {
+                Log.RemoveSink(sink);
+            }
+
+            LogEntry malformedEntry = sink.Entries.Find(entry =>
+                entry.Category == nameof(WebSocketUtility) && entry.Message.Contains("无法解析的 envelope"));
+            Assert.IsNotNull(malformedEntry.Exception,
+                "坏 envelope 的原始异常必须留在结构化日志中，不能只保留平台相关的文本摘要");
 
             // 坏消息后循环仍活：紧接一条正常消息应正常送达
             _fake.InjectMessage(Envelope("chat", JsonUtility.ToJson(new ChatPush { Text = "ok", UserId = 1 })));

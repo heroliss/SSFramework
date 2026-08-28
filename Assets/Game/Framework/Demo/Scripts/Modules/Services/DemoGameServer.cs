@@ -95,12 +95,12 @@ namespace Game.Framework.Demo.Modules.Services
             if (wasRunning)
             {
                 try { _cts.Cancel(); }
-                catch (Exception e) { Log.Error("Cancellation callback threw while stopping the demo server; listeners will still be closed.", e, "DemoServer"); }
+                catch (Exception e) { Log.Error("停止 Demo 服务器时取消回调抛出异常；仍将继续关闭监听器。", e, "DemoServer"); }
             }
             try { if (_http.IsListening) _http.Stop(); }
-            catch (Exception e) { Log.Error("HTTP listener threw while stopping; WebSocket cleanup will continue.", e, "DemoServer"); }
+            catch (Exception e) { Log.Error("停止 HTTP 监听器时发生异常；仍将继续清理 WebSocket。", e, "DemoServer"); }
             try { _wsListener.Stop(); }
-            catch (Exception e) { Log.Error("WebSocket listener threw while stopping; active clients will still be closed.", e, "DemoServer"); }
+            catch (Exception e) { Log.Error("停止 WebSocket 监听器时发生异常；仍将继续关闭活动客户端。", e, "DemoServer"); }
 
             // 停监听只挡新连接；已建立的 WS 连接的读循环阻塞在 ReadAsync 上（Mono 的 NetworkStream 不响应 ct），
             // 主动关 socket 才能让它退出——客户端侧立刻收到意外断开（WebSocketClosedEvent ByUser:false），也是演示的一部分。

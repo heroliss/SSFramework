@@ -115,7 +115,7 @@ namespace Game.Framework.Network
             public void RequestDisconnect()
             {
                 if (Interlocked.Exchange(ref _disconnectRequested, 1) != 0) return;
-                CancelOwnerSafely(_cts, "WebSocket Connect owner");
+                CancelOwnerSafely(_cts, "WebSocket 连接 owner");
             }
 
             public void Complete(ConnectionSession session) => Completion.TrySetResult(session);
@@ -179,7 +179,11 @@ namespace Game.Framework.Network
                     }
                     catch (Exception e)
                     {
-                        Log.Warning($"推送 '{type}' 载荷无法反序列化为 {typeof(TEvent).Name}，已丢弃（{e.GetType().Name}: {e.Message}）。", "WebSocketUtility");
+                        Log.Write(
+                            LogLevel.Warning,
+                            $"推送 '{type}' 载荷无法反序列化为 {typeof(TEvent).Name}，已丢弃。",
+                            category: nameof(WebSocketUtility),
+                            exception: e);
                         return;
                     }
                 }
@@ -348,13 +352,21 @@ namespace Game.Framework.Network
             {
                 await UniTask.SwitchToMainThread();
                 // linked token 未取消时，OCE 来自 provider 自身：这是关闭握手失败，不是调用方取消。
-                Log.Warning($"关闭握手被传输层意外取消（{e.Message}），连接已按断开处理。", "WebSocketUtility");
+                Log.Write(
+                    LogLevel.Warning,
+                    "关闭握手被传输层意外取消，连接已按断开处理。",
+                    category: nameof(WebSocketUtility),
+                    exception: e);
             }
             catch (Exception e)
             {
                 await UniTask.SwitchToMainThread();
                 // 关闭握手失败无关紧要（对端可能已走）——记一条不抛，Disconnect 的语义是「尽力优雅关」
-                Log.Warning($"关闭握手未完成（{e.GetType().Name}: {e.Message}），连接已按断开处理。", "WebSocketUtility");
+                Log.Write(
+                    LogLevel.Warning,
+                    "关闭握手未完成，连接已按断开处理。",
+                    category: nameof(WebSocketUtility),
+                    exception: e);
             }
             finally
             {
@@ -400,7 +412,7 @@ namespace Game.Framework.Network
             ConnectionSession session = _activeSession;
             _activeSession = null;
             session?.TryClaimTerminal();
-            CancelOwnerSafely(_lifetimeCts, "WebSocket Utility lifetime owner");
+            CancelOwnerSafely(_lifetimeCts, "WebSocket 工具生命周期 owner");
             session?.CancelAll();
             session?.Dispose();
             _lifetimeCts.Dispose();
@@ -574,8 +586,11 @@ namespace Game.Framework.Network
                 if (infrastructureFailure)
                     Log.Error($"{lostReason}（会话 #{session.Generation}）。", terminalError, nameof(WebSocketUtility));
                 else
-                    Log.Warning($"{lostReason}（会话 #{session.Generation}，{terminalError.GetType().Name}: {terminalError.Message}）。",
-                        nameof(WebSocketUtility));
+                    Log.Write(
+                        LogLevel.Warning,
+                        $"{lostReason}（会话 #{session.Generation}）。",
+                        category: nameof(WebSocketUtility),
+                        exception: terminalError);
             }
 
             await CompleteUnexpectedSession(session, lostReason);
@@ -601,7 +616,11 @@ namespace Game.Framework.Network
             }
             catch (Exception e)
             {
-                Log.Warning($"收到无法解析的 envelope，已丢弃（{e.GetType().Name}: {e.Message}）。", "WebSocketUtility");
+                Log.Write(
+                    LogLevel.Warning,
+                    "收到无法解析的 envelope，已丢弃。",
+                    category: nameof(WebSocketUtility),
+                    exception: e);
                 return;
             }
             if (string.IsNullOrEmpty(type))
@@ -655,7 +674,7 @@ namespace Game.Framework.Network
                 {
                     // 不用 CTS.CancelAfter：timer 线程触发时，Adapter 的坏取消回调异常会越过本 owner 的 try/catch。
                     // 显式竞速后由框架 owner 安全取消，再观察 Close task 到终态。
-                    CancelOwnerSafely(closeCts, $"WebSocket 会话 #{session.Generation} 的意外 Close timeout owner");
+                    CancelOwnerSafely(closeCts, $"WebSocket 会话 #{session.Generation} 的意外 Close 超时 owner");
                 }
                 await closeTask;
             }
@@ -666,7 +685,11 @@ namespace Game.Framework.Network
             catch (Exception e)
             {
                 await UniTask.SwitchToMainThread();
-                Log.Warning($"意外断线后的关闭收尾未完成（{e.GetType().Name}: {e.Message}）。", nameof(WebSocketUtility));
+                Log.Write(
+                    LogLevel.Warning,
+                    "意外断线后的关闭收尾未完成，已继续释放本次会话。",
+                    category: nameof(WebSocketUtility),
+                    exception: e);
             }
             finally
             {
@@ -744,7 +767,11 @@ namespace Game.Framework.Network
             catch (Exception e)
             {
                 // CancellationToken 回调异常会从 Cancel 聚合抛出；取消已成立，不能让业务回调破坏框架 owner 清理。
-                Log.Warning($"{owner} 的取消回调抛出 {e.GetType().Name}，已隔离并继续清理（{e.Message}）。", nameof(WebSocketUtility));
+                Log.Write(
+                    LogLevel.Warning,
+                    $"{owner} 的取消回调抛出异常，已隔离并继续清理。",
+                    category: nameof(WebSocketUtility),
+                    exception: e);
             }
         }
 
@@ -753,8 +780,11 @@ namespace Game.Framework.Network
             try { _provider.Abort(); }
             catch (Exception e)
             {
-                Log.Warning($"{reason}时 Provider Abort 失败，已继续逻辑清理（{e.GetType().Name}: {e.Message}）。",
-                    nameof(WebSocketUtility));
+                Log.Write(
+                    LogLevel.Warning,
+                    $"{reason}时 Provider Abort 失败，已继续逻辑清理。",
+                    category: nameof(WebSocketUtility),
+                    exception: e);
             }
         }
 

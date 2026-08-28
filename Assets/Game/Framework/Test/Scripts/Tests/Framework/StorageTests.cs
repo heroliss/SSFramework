@@ -5,6 +5,7 @@ using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
 using Cysharp.Threading.Tasks;
+using Game.Framework.Logging;
 using Game.Framework.Storage;
 using NUnit.Framework;
 using UnityEngine;
@@ -18,6 +19,13 @@ namespace Game.Framework.Test
     /// </summary>
     public class StorageTests
     {
+        private sealed class CapturingLogSink : ILogSink
+        {
+            public LogLevel MinLevel => LogLevel.Warning;
+            public readonly List<LogEntry> Entries = new();
+            public void Log(in LogEntry entry) => Entries.Add(entry);
+        }
+
         [Serializable]
         private class SaveData
         {
@@ -107,10 +115,24 @@ namespace Game.Framework.Test
             LogAssert.Expect(LogType.Warning, new Regex("主文件反序列化失败"));
             LogAssert.Expect(LogType.Warning, new Regex("回退上一版备份"));
 
-            var loaded = await _storage.Load<SaveData>(key);
+            var sink = new CapturingLogSink();
+            Log.AddSink(sink);
+            SaveData loaded;
+            try
+            {
+                loaded = await _storage.Load<SaveData>(key);
+            }
+            finally
+            {
+                Log.RemoveSink(sink);
+            }
             Assert.NotNull(loaded);
             Assert.AreEqual(1, loaded.Level);
             Assert.AreEqual("v1", loaded.Name);
+            LogEntry parseFailure = sink.Entries.Find(entry =>
+                entry.Category == nameof(StorageUtility) && entry.Message.Contains("主文件反序列化失败"));
+            Assert.IsNotNull(parseFailure.Exception,
+                "损坏存档的反序列化异常必须保留在 LogEntry.Exception，不能只留易变的文本摘要");
 
             // 只 Save 一次虽然会重建主文件，却会把原来的坏主文件推进 .bak；连续保存两次，
             // 再次损坏主文件后仍能从备份读回，才证明主文件与备份都已恢复健康。

@@ -23,7 +23,10 @@ namespace Game.Framework.Logging
         /// <summary>正文。</summary>
         public readonly string Message;
 
-        /// <summary>关联异常（可空，通常伴随 <see cref="LogLevel.Error"/>）。</summary>
+        /// <summary>
+        /// 关联异常（可空）。可恢复失败通常配合 <see cref="LogLevel.Warning"/>，终止当前操作的失败通常配合
+        /// <see cref="LogLevel.Error"/>；sink 应保留异常类型、消息与堆栈，不能只消费 <see cref="Message"/>。
+        /// </summary>
         public readonly Exception Exception;
 
         /// <summary>UTC 时间戳（构造时刻）。</summary>

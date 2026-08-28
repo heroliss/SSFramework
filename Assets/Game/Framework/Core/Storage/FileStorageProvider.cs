@@ -134,7 +134,11 @@ namespace Game.Framework.Storage
             }
             catch (Exception e) when (e is PlatformNotSupportedException || e is IOException)
             {
-                Log.Warning($"File.Replace 不可用（{e.GetType().Name}），退化为手动替换：{main}", "FileStorageProvider");
+                Log.Write(
+                    LogLevel.Warning,
+                    $"File.Replace 不可用，已退化为手动替换：{main}",
+                    category: nameof(FileStorageProvider),
+                    exception: e);
                 if (File.Exists(bak)) File.Delete(bak);
                 File.Move(main, bak);
                 File.Move(tmp, main);
@@ -152,7 +156,11 @@ namespace Game.Framework.Storage
                 catch (Exception e) when (e is IOException || e is UnauthorizedAccessException)
                 {
                     // 读失败按「不可用」处理（返回 null 由上层走备份回退），但打日志留痕——IO 错误不该无声。
-                    Log.Warning($"读文件失败 {path}：{e.Message}", "FileStorageProvider");
+                    Log.Write(
+                        LogLevel.Warning,
+                        $"读取文件失败，已按不可用处理：{path}",
+                        category: nameof(FileStorageProvider),
+                        exception: e);
                     return null;
                 }
             }, cancellationToken: ct);
