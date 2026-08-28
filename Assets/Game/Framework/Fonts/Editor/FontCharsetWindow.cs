@@ -58,14 +58,20 @@ namespace Game.Framework.Fonts.Editor
                     GUILayout.Label($"扫描目录：{string.Join(", ", profile.ScanDirs ?? System.Array.Empty<string>())}", EditorStyles.wordWrappedMiniLabel);
                     GUILayout.Label($"文件类型：{string.Join(", ", profile.FilePatterns ?? System.Array.Empty<string>())}", EditorStyles.wordWrappedMiniLabel);
                     GUILayout.Label($"输出：{profile.OutputPath}", EditorStyles.wordWrappedMiniLabel);
-                    bool validOutput = FrameworkProjectPath.TryResolveAssetsFile(
-                        profile.OutputPath, ".txt", out _, out string outputAbsolutePath, out string outputError);
-                    if (!validOutput)
-                        EditorGUILayout.HelpBox("输出路径无效：" + outputError, MessageType.Error);
+                    FontCharsetGenerator.GenerationPrerequisiteReport prerequisites =
+                        FontCharsetGenerator.InspectGenerationPrerequisites(profile);
+                    if (!prerequisites.CanGenerate)
+                        EditorGUILayout.HelpBox(
+                            "当前配置不能生成：\n" + prerequisites.Message,
+                            MessageType.Error);
+                    else if (prerequisites.HasWarnings)
+                        EditorGUILayout.HelpBox(
+                            "可以生成，但请留意：\n" + prerequisites.Message,
+                            MessageType.Warning);
                     if (compact)
                     {
                         if (GUILayout.Button("定位配置")) FontCharsetMenu.LocateProfile();
-                        using (new EditorGUI.DisabledScope(!canWrite || !validOutput))
+                        using (new EditorGUI.DisabledScope(!canWrite || !prerequisites.CanGenerate))
                             if (GUILayout.Button("生成常用字集", GUILayout.Height(28))) FontCharsetMenu.GenerateCharset();
                     }
                     else
@@ -73,15 +79,16 @@ namespace Game.Framework.Fonts.Editor
                         using (new EditorGUILayout.HorizontalScope())
                         {
                             if (GUILayout.Button("定位配置")) FontCharsetMenu.LocateProfile();
-                            using (new EditorGUI.DisabledScope(!canWrite || !validOutput))
+                            using (new EditorGUI.DisabledScope(!canWrite || !prerequisites.CanGenerate))
                                 if (GUILayout.Button("生成常用字集", GUILayout.Height(28))) FontCharsetMenu.GenerateCharset();
                         }
                     }
 
-                    bool outputExists = validOutput && File.Exists(outputAbsolutePath);
+                    bool outputExists = !string.IsNullOrEmpty(prerequisites.OutputAbsolutePath) &&
+                                        File.Exists(prerequisites.OutputAbsolutePath);
                     using (new EditorGUI.DisabledScope(!outputExists))
                         if (GUILayout.Button(outputExists ? "定位已生成字集" : "尚未生成字集"))
-                            EditorUtility.RevealInFinder(outputAbsolutePath);
+                            EditorUtility.RevealInFinder(prerequisites.OutputAbsolutePath);
                 }
             }
 

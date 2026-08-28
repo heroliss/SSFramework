@@ -1,4 +1,5 @@
 using System.IO;
+using System.Linq;
 using Game.Framework.Editor;
 using UnityEditor;
 using UnityEngine;
@@ -8,7 +9,7 @@ namespace Game.Framework.Build
     /// <summary>
     /// 「配置表生成总览」窗口：把工程内所有 <see cref="LubanConfigProfile"/> 集中成卡片——每套列出 luban.conf 源、目标、
     /// 代码 / 数据输出目录、命名空间，并提供「生成这套 / 打开各目录 / 点名定位资产」。多套按数据域或构建目标并存时
-    /// 一眼看清各套落点、按套操作，省得到处翻文件夹；顶部「生成全部」是本 Module 的统一人工入口。
+    /// 一眼看清各套落点、按套操作，省得到处翻文件夹；顶部批量按钮只提交当前已就绪配置。
     /// </summary>
     public sealed class LubanConfigOverviewWindow : EditorWindow
     {
@@ -38,7 +39,7 @@ namespace Game.Framework.Build
             bool canWrite = FrameworkEditorOperationGate.CanStart(
                 requireEditMode: true, out string operationReason);
             EditorGUILayout.Space(4);
-            if (position.width < 380f)
+            if (compact)
             {
                 EditorGUILayout.LabelField("配置表生成 · 总览", EditorStyles.boldLabel);
                 using (new EditorGUI.DisabledScope(!canWrite))
@@ -67,36 +68,79 @@ namespace Game.Framework.Build
             var (ownershipOk, ownershipMessage) = profiles.Count == 0
                 ? (false, string.Empty)
                 : LubanCodeGenerator.ValidateOutputOwnership(profiles);
+            var prerequisites = profiles.ToDictionary(
+                profile => profile,
+                LubanCodeGenerator.InspectGenerationPrerequisites);
+            var readyProfiles = profiles
+                .Where(profile => prerequisites[profile].CanGenerate)
+                .ToArray();
+            int readyCount = readyProfiles.Length;
+            bool canGenerateAny = canWrite && ownershipOk && readyCount > 0;
 
             _scroll = EditorGUILayout.BeginScrollView(_scroll);
-            if (position.width < 380f)
+            if (compact)
             {
-                EditorGUILayout.LabelField($"共 {profiles.Count} 套", EditorStyles.miniBoldLabel);
-                using (new EditorGUI.DisabledScope(!canWrite || profiles.Count == 0 || !ownershipOk))
-                    if (GUILayout.Button("生成全部"))
-                        LubanBuildMenu.GenerateProfiles(profiles);
+                EditorGUILayout.LabelField(
+                    FormatCountSummary(profiles.Count, ownershipOk, readyCount),
+                    EditorStyles.miniBoldLabel);
+                using (new EditorGUI.DisabledScope(!canGenerateAny))
+                    if (GUILayout.Button(FormatBatchButtonLabel(profiles.Count, ownershipOk, readyCount)))
+                        LubanBuildMenu.GenerateProfiles(readyProfiles);
             }
             else
             {
                 using (new EditorGUILayout.HorizontalScope())
                 {
-                    EditorGUILayout.LabelField($"共 {profiles.Count} 套", EditorStyles.miniBoldLabel);
+                    EditorGUILayout.LabelField(
+                        FormatCountSummary(profiles.Count, ownershipOk, readyCount),
+                        EditorStyles.miniBoldLabel);
                     GUILayout.FlexibleSpace();
-                    using (new EditorGUI.DisabledScope(!canWrite || profiles.Count == 0 || !ownershipOk))
-                        if (GUILayout.Button("生成全部", GUILayout.Width(90)))
-                            LubanBuildMenu.GenerateProfiles(profiles);
+                    using (new EditorGUI.DisabledScope(!canGenerateAny))
+                        if (GUILayout.Button(
+                                FormatBatchButtonLabel(profiles.Count, ownershipOk, readyCount),
+                                GUILayout.MinWidth(90)))
+                            LubanBuildMenu.GenerateProfiles(readyProfiles);
                 }
             }
             if (profiles.Count == 0)
                 EditorGUILayout.LabelField("（无配置——点击“新建配置”后填写 conf 与输出目录）", EditorStyles.wordWrappedMiniLabel);
             else if (!ownershipOk)
                 EditorGUILayout.HelpBox("输出目录预检未通过：\n" + ownershipMessage, MessageType.Error);
+            else if (readyCount == 0)
+                EditorGUILayout.HelpBox(
+                    "当前没有可生成的配置；请按卡片提示补齐 CLI、luban.conf 与输出字段。",
+                    MessageType.Warning);
             else
                 EditorGUILayout.LabelField("✓ " + ownershipMessage, EditorStyles.miniLabel);
 
             foreach (var profile in profiles)
-                DrawCard(profile, !canWrite || !ownershipOk, compact);
+                DrawCard(
+                    profile,
+                    prerequisites[profile],
+                    canWrite && ownershipOk && prerequisites[profile].CanGenerate,
+                    compact);
             EditorGUILayout.EndScrollView();
+        }
+
+        internal static string FormatCountSummary(int profileCount, bool ownershipOk, int readyCount)
+        {
+            if (profileCount <= 0) return "共 0 套";
+            return ownershipOk
+                ? $"共 {profileCount} 套 · 可生成 {readyCount} 套"
+                : $"共 {profileCount} 套 · 输出预检失败，已暂停";
+        }
+
+        internal static string FormatBatchButtonLabel(
+            int profileCount,
+            bool ownershipOk,
+            int readyCount)
+        {
+            if (profileCount <= 0) return "生成全部";
+            if (!ownershipOk) return "输出冲突，已暂停";
+            if (readyCount <= 0) return "暂无可生成配置";
+            return readyCount > 0 && readyCount < profileCount
+                ? $"生成可用配置（{readyCount}/{profileCount}）"
+                : "生成全部";
         }
 
         private static void CreateProfile()
@@ -109,7 +153,11 @@ namespace Game.Framework.Build
         }
 
         // 一套配置一张卡片：资产名（点击定位选中）+ 源 / 目标 / 输出 / 命名空间 + 响应式操作区。
-        private static void DrawCard(LubanConfigProfile profile, bool writeBlocked, bool compact)
+        private static void DrawCard(
+            LubanConfigProfile profile,
+            LubanCodeGenerator.GenerationPrerequisiteReport prerequisites,
+            bool canGenerate,
+            bool compact)
         {
             using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
             {
@@ -120,17 +168,23 @@ namespace Game.Framework.Build
                     EditorGUIUtility.PingObject(profile);
                     Selection.activeObject = profile;
                 }
+                DrawValue("Luban CLI", profile.LubanToolPath, compact);
                 DrawValue("源 (luban.conf)", profile.ConfPath, compact);
                 DrawValue("目标", $"{profile.Target} · {profile.CodeTarget} / {profile.DataTarget}", compact);
                 DrawValue("代码输出", profile.OutputCodeDir, compact);
                 DrawValue("数据输出", profile.OutputDataDir, compact);
                 DrawValue("命名空间", profile.ManifestNamespace, compact);
 
+                if (!prerequisites.CanGenerate)
+                    EditorGUILayout.HelpBox(
+                        "当前配置不能生成：\n" + prerequisites.Message,
+                        MessageType.Warning);
+
                 if (compact)
                 {
                     using (new EditorGUILayout.HorizontalScope())
                     {
-                        using (new EditorGUI.DisabledScope(writeBlocked))
+                        using (new EditorGUI.DisabledScope(!canGenerate))
                             if (GUILayout.Button("生成这套"))
                                 LubanBuildMenu.GenerateProfiles(new[] { profile });
                         if (GUILayout.Button("源目录")) Reveal(Path.GetDirectoryName(profile.ConfPath));
@@ -145,7 +199,7 @@ namespace Game.Framework.Build
                 {
                     using (new EditorGUILayout.HorizontalScope())
                     {
-                        using (new EditorGUI.DisabledScope(writeBlocked))
+                        using (new EditorGUI.DisabledScope(!canGenerate))
                             if (GUILayout.Button("生成这套"))
                                 LubanBuildMenu.GenerateProfiles(new[] { profile });
                         if (GUILayout.Button("源目录")) Reveal(Path.GetDirectoryName(profile.ConfPath));

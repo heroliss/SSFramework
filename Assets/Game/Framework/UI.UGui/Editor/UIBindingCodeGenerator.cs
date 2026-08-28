@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using Game.Framework.Editor;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -53,10 +54,29 @@ namespace Game.Framework.UI.UGui.Editor
             if (missingTargets.Count > 0)
                 return (false, "UI 生成目标尚未配置完整：" + string.Join("、", missingTargets) +
                                "。请在全工程 Profile、目录配置或当前 prefab 覆盖中明确填写。");
-            if (!TryResolveProjectAssetDirectory(outputDir, out string outDirAbs) ||
-                !TryResolveProjectAssetDirectory(generatedDir, out string genDirAbs))
-                return (false, "UI 逻辑目录与生成目录必须是 Assets/ 下的项目相对路径，避免把代码写到工程外或 Package 源码中。" +
-                               $"\n逻辑目录：{outputDir}\n生成目录：{generatedDir}");
+            if (!FrameworkCSharpSyntax.TryValidateNamespace(ns.Trim(), out string namespaceError))
+                return (false, "UI 生成命名空间无效：" + namespaceError);
+            bool outputDirectoryOk = FrameworkProjectPath.TryResolveAssetsDirectory(
+                outputDir,
+                out string normalizedOutputDir,
+                out string outDirAbs,
+                out string outputDirectoryError);
+            bool generatedDirectoryOk = FrameworkProjectPath.TryResolveAssetsDirectory(
+                generatedDir,
+                out string normalizedGeneratedDir,
+                out string genDirAbs,
+                out string generatedDirectoryError);
+            if (!outputDirectoryOk || !generatedDirectoryOk)
+            {
+                var pathErrors = new List<string>();
+                if (!outputDirectoryOk) pathErrors.Add("逻辑目录：" + outputDirectoryError);
+                if (!generatedDirectoryOk) pathErrors.Add("生成目录：" + generatedDirectoryError);
+                return (false,
+                    "UI 逻辑目录与生成目录无效；两者都必须是 Assets 下的独立项目相对路径：\n" +
+                    string.Join("\n", pathErrors));
+            }
+            outputDir = normalizedOutputDir;
+            generatedDir = normalizedGeneratedDir;
 
             string className = UIBindingUtil.ResolveClassName(prefabPath, data, profile); // 文件名模板 + 占位符 → 类名 / 文件名
             string location = Path.GetFileNameWithoutExtension(prefabPath); // AddressByFileName：[UIWindow(Asset)] 恒 = prefab 文件名，与类名无关
@@ -183,42 +203,6 @@ namespace Game.Framework.UI.UGui.Editor
                 : $"逻辑文件已存在，未覆盖：{outputDir}/{className}.cs";
             string warnNote = warnings.Count > 0 ? "\n  ⚠ " + string.Join("\n  ⚠ ", warnings) : string.Empty;
             return (true, $"生成完成：{className}（{kind}，命名空间 {ns}）\n  绑定 → {generatedDir}/{className}.nodes.g.cs（已覆盖）\n  {logicNote}{swapNote}{warnNote}");
-        }
-
-        /// <summary>
-        /// 把 <c>Assets/...</c> 目录解析为绝对路径，并确认规范化后的结果仍位于当前项目 Assets 内。
-        /// 单看字符串前缀无法拦截 <c>Assets/../../Outside</c>，必须在任何建目录或写文件前完成此检查。
-        /// </summary>
-        internal static bool TryResolveProjectAssetDirectory(string relativePath, out string absolutePath)
-        {
-            absolutePath = string.Empty;
-            if (string.IsNullOrWhiteSpace(relativePath)) return false;
-
-            string normalized = relativePath.Trim().Replace('\\', '/');
-            if (!normalized.StartsWith("Assets/", StringComparison.Ordinal)) return false;
-
-            try
-            {
-                string assetsRoot = Path.GetFullPath(Application.dataPath)
-                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                string projectRoot = Directory.GetParent(assetsRoot)!.FullName;
-                string candidate = Path.GetFullPath(Path.Combine(projectRoot, normalized))
-                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                string assetsPrefix = assetsRoot + Path.DirectorySeparatorChar;
-                var comparison = Path.DirectorySeparatorChar == '\\'
-                    ? StringComparison.OrdinalIgnoreCase
-                    : StringComparison.Ordinal;
-                if (!candidate.StartsWith(assetsPrefix, comparison)) return false;
-
-                absolutePath = candidate;
-                return true;
-            }
-            catch (Exception exception) when (exception is ArgumentException ||
-                                              exception is NotSupportedException ||
-                                              exception is PathTooLongException)
-            {
-                return false;
-            }
         }
 
         // 把生成的窗口脚本挂到 prefab 根：移除根上任何「非目标」的窗口脚本（变体继承的基脚本 / 改名前的旧脚本），加目标脚本。

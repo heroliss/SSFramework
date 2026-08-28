@@ -19,13 +19,13 @@ namespace Game.Framework.Fonts.Editor
             }
             if (!FrameworkEditorOperationGate.EnsureCanStart("字体字集生成")) return;
             var (ok, message, _) = FontCharsetGenerator.TryGenerate(profile);
-            FrameworkEditorFeedback.ReportResult(
-                "字体字集生成",
-                ok,
-                message + (ok
-                    ? "\n下一步：在 TMP Font Asset Creator 选择 Characters from File 烘焙静态图集。"
-                    : "\n影响：没有得到可用的新字集；请修正配置后重试。"),
-                profile);
+            string details = message + (ok
+                ? "\n下一步：在 TMP Font Asset Creator 选择 Characters from File 烘焙静态图集。"
+                : "\n影响：没有得到可用的新字集；请修正配置后重试。");
+            if (ok)
+                FrameworkEditorFeedback.ReportSummary("字体字集生成", details, profile);
+            else
+                FrameworkEditorFeedback.ReportResult("字体字集生成", false, details, profile);
         }
 
         internal static void LocateProfile()

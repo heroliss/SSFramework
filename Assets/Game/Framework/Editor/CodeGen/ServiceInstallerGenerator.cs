@@ -185,6 +185,8 @@ namespace Game.Framework.Editor
                 return (false, $"{prefix}输出路径无效：{outputError}");
             if (string.IsNullOrWhiteSpace(entry.Namespace))
                 return (false, $"{prefix}（{outputPath}）未配置命名空间。");
+            if (!FrameworkCSharpSyntax.TryValidateNamespace(entry.Namespace.Trim(), out string namespaceError))
+                return (false, $"{prefix}（{outputPath}）命名空间无效：{namespaceError}");
 
             bool hasValidFolder = (entry.ScanFolders ?? new List<DefaultAsset>())
                 .Where(folder => folder != null)
@@ -248,6 +250,8 @@ namespace Game.Framework.Editor
                 return (false, "安装器输出路径无效：" + pathError);
             if (string.IsNullOrWhiteSpace(entry.Namespace))
                 return (false, $"{path}：未配置命名空间。");
+            if (!FrameworkCSharpSyntax.TryValidateNamespace(entry.Namespace.Trim(), out string namespaceError))
+                return (false, $"{path}：命名空间无效：{namespaceError}");
 
             var folderPaths = (entry.ScanFolders ?? new List<DefaultAsset>())
                 .Where(f => f != null)
@@ -291,7 +295,7 @@ namespace Game.Framework.Editor
                 return (false, $"{path}：重复契约，生成中止（对其一标 [ExcludeFromInstaller] 手写注册，或拆分扫描目录）：\n  " +
                                string.Join("\n  ", conflicts));
 
-            string className = SanitizeIdentifier(DeriveClassName(path));
+            string className = FrameworkCSharpSyntax.SanitizeIdentifier(DeriveClassName(path));
             string content = EmitInstaller(entry.Namespace.Trim(), className, services, folderPaths);
 
             bool upToDate = File.Exists(abs) && File.ReadAllText(abs) == content;
@@ -440,17 +444,6 @@ namespace Game.Framework.Editor
             if (file.EndsWith(".g.cs", StringComparison.OrdinalIgnoreCase)) return file[..^5];
             if (file.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)) return file[..^3];
             return file;
-        }
-
-        // 文件名 → 合法 C# 标识符：非法字符换 '_'、数字开头补 '_'。类名极少撞关键字，不做关键字表。
-        private static string SanitizeIdentifier(string name)
-        {
-            var sb = new StringBuilder(name.Length);
-            foreach (char c in name)
-                sb.Append(char.IsLetterOrDigit(c) || c == '_' ? c : '_');
-            if (sb.Length == 0 || char.IsDigit(sb[0]))
-                sb.Insert(0, '_');
-            return sb.ToString();
         }
 
         private static Assembly FindAssembly(string name)

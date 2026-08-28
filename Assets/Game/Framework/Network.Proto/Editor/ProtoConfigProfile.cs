@@ -12,7 +12,8 @@ namespace Game.Framework.Network.Proto.Editor
     ///
     /// 路径字段一律相对工程根目录，保证多人协作不受本机绝对路径影响。
     /// <b>工程可并存多套</b>（正式协议一套 + 框架测试一套等）：每套必须独占一个位于 <c>Assets</c> 内、
-    /// 且与其它配置不嵌套的输出目录；<see cref="ResolveAll"/> 返回全部，生成入口会先统一验证所有权再逐套生成。
+    /// 且与其它配置不嵌套的输出目录；<see cref="ResolveAll"/> 返回全部。生成入口会先比较所有已经成立的安全输出声明，
+    /// 再按 Profile 就绪状态逐套生成；空白新配置不声明所有权，也不会冻结其它可用配置。
     /// 无自动创建（默认路径无从捏造）：经 <c>Assets/Create/SSFramework/Protobuf 生成配置</c> 或「配置总览」窗口新建。
     /// </summary>
     [CreateAssetMenu(fileName = "ProtoConfigProfile", menuName = "SSFramework/Protobuf 生成配置 (Proto Profile)")]
@@ -40,10 +41,10 @@ namespace Game.Framework.Network.Proto.Editor
         [InspectorName("附加 protoc 参数")]
         [SerializeField] private string _extraArgs = "";
 
-        public string ProtocDir => _protocDir.Trim().TrimEnd('/', '\\');
-        public string ProtoDir => _protoDir.Trim().TrimEnd('/', '\\');
-        public string OutputCodeDir => _outputCodeDir.Trim().TrimEnd('/', '\\');
-        public string ExtraArgs => _extraArgs.Trim();
+        public string ProtocDir => _protocDir?.Trim().TrimEnd('/', '\\') ?? "";
+        public string ProtoDir => _protoDir?.Trim().TrimEnd('/', '\\') ?? "";
+        public string OutputCodeDir => _outputCodeDir?.Trim().TrimEnd('/', '\\') ?? "";
+        public string ExtraArgs => _extraArgs?.Trim() ?? "";
 
         /// <summary>
         /// 返回工程内**所有** Proto profile（按资产路径排序，显示稳定）。每套对应一套 .proto 契约，

@@ -57,6 +57,61 @@ namespace Game.Framework.Editor.Tests
         }
 
         [Test]
+        public void OutputKind_RejectsDirectoryPathOccupiedByFileAndFilePathOccupiedByDirectory()
+        {
+            string fileAssetPath = "Assets/FrameworkPathKindFile_" + Guid.NewGuid().ToString("N");
+            string directoryAssetPath = "Assets/FrameworkPathKindDirectory_" + Guid.NewGuid().ToString("N") + ".txt";
+            string fileAbsolutePath = Path.GetFullPath(fileAssetPath);
+            string directoryAbsolutePath = Path.GetFullPath(directoryAssetPath);
+            try
+            {
+                File.WriteAllText(fileAbsolutePath, "occupied");
+                Directory.CreateDirectory(directoryAbsolutePath);
+
+                Assert.That(FrameworkProjectPath.TryResolveAssetsDirectory(
+                    fileAssetPath, out _, out _, out string directoryError), Is.False);
+                Assert.That(directoryError, Does.Contain("目标当前是普通文件"));
+
+                Assert.That(FrameworkProjectPath.TryResolveAssetsFile(
+                    directoryAssetPath, ".txt", out _, out _, out string fileError), Is.False);
+                Assert.That(fileError, Does.Contain("目标当前是目录"));
+            }
+            finally
+            {
+                if (File.Exists(fileAbsolutePath)) File.Delete(fileAbsolutePath);
+                if (Directory.Exists(directoryAbsolutePath)) Directory.Delete(directoryAbsolutePath, true);
+                if (File.Exists(fileAbsolutePath + ".meta")) File.Delete(fileAbsolutePath + ".meta");
+                if (File.Exists(directoryAbsolutePath + ".meta")) File.Delete(directoryAbsolutePath + ".meta");
+            }
+        }
+
+        [Test]
+        public void Outputs_RejectParentPathOccupiedByFile()
+        {
+            string ancestorAssetPath = "Assets/FrameworkPathAncestor_" + Guid.NewGuid().ToString("N");
+            string ancestorAbsolutePath = Path.GetFullPath(ancestorAssetPath);
+            try
+            {
+                File.WriteAllText(ancestorAbsolutePath, "occupied");
+
+                Assert.That(FrameworkProjectPath.TryResolveAssetsDirectory(
+                    ancestorAssetPath + "/Generated",
+                    out _, out _, out string directoryError), Is.False);
+                Assert.That(directoryError, Does.Contain("父级已被普通文件占用").And.Contain(ancestorAssetPath));
+
+                Assert.That(FrameworkProjectPath.TryResolveAssetsFile(
+                    ancestorAssetPath + "/Generated/Output.txt", ".txt",
+                    out _, out _, out string fileError), Is.False);
+                Assert.That(fileError, Does.Contain("父级已被普通文件占用").And.Contain(ancestorAssetPath));
+            }
+            finally
+            {
+                if (File.Exists(ancestorAbsolutePath)) File.Delete(ancestorAbsolutePath);
+                if (File.Exists(ancestorAbsolutePath + ".meta")) File.Delete(ancestorAbsolutePath + ".meta");
+            }
+        }
+
+        [Test]
         public void DirectoryOwnership_DetectsSameAndNestedPathsOnly()
         {
             string assets = Application.dataPath;

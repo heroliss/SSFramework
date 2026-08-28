@@ -22,7 +22,7 @@
 | Demo | 32 个自动发现章节；Catalog 集中拥有 Adapter 生命周期，并按 Capability / Concept / Workflow 校验真实 Build 教学语义 |
 | 教程 | `framework-guide.md` 28 章 |
 | ADR | 0001–0045；0040 为 UPM-aware 源码目录，0041/0042 补齐依赖证据，0043 收口 Editor 菜单与工作台，0044 固化 Unity CLI 工程外 Adapter 边界，0045 拆分资源与 HybridCLR 构建依赖 |
-| 测试 | PlayMode 545 + EditMode 412，共 957 项全绿；交互式 MCP 后台运行且 PlayMode 先预检，命令行入口默认 EditMode + PlayMode |
+| 测试 | PlayMode 545 + EditMode 471，共 1016 项全绿；交互式 MCP 后台运行且 PlayMode 先预检，命令行入口默认 EditMode + PlayMode |
 | Demo CodeRef | 315 处可打开源码跳转；完整门禁通过后以精准命中为基线，注释、文案与外部文档路径不计入源码构造点 |
 | AI 常驻规则预算 | 最深 AGENTS 链 30.48 KiB，低于 Codex 默认 32 KiB 项目指令上限；本轮已压缩 Demo 教程式规则，新增常驻规则前仍须优先外移可测试/可按需加载内容 |
 
@@ -232,6 +232,7 @@
 - 资源构建、HybridCLR、Luban、Protobuf、服务安装器与字体字集工作台都在点击前使用同一 Gate 并显示完整原因，Generator / Builder 动作层继续二次门禁竞态；刷新、定位、打开目录和 HotUpdate 只读校验保持可用。
 - Core 测试只拥有 evaluator 与 Service Installer；五个可删除 Editor Module 在各自测试程序集内锁定接入，不把可选窗口类型或源码路径反向写进 Core。真实 Utility 窗口已用 Unity MCP `PrintWindow` 在 280–320px 复查，资源、Proto、Installer 与 HotUpdate 的纵排、长文换行和 Play 状态双按钮原因均无横向裁切。审查补出的“业务原因被 Gate 覆盖 / 无 Profile 次按钮空提示”由 HybridCLR 模块内纯 evaluator 锁定；本轮业务前置检查最终定向 29/29、完整 EditMode 412/412、PlayMode 545/545，共 957/957 通过。
 - 第一批 owner Module 业务前置检查已落地：资源工作台把“构建 / 部署 / 伺服已有 Deploy”按真实依赖分别判定，零启用包不会误伤本地服务器；动作层在保存脏场景、确认全量重建或触碰 SBP 前再次拒绝无效请求。服务安装器把输出路径安全与全局所有权作为整批写入门禁，把命名空间、扫描目录与扫描失败保留为逐条结果；总览和 Inspector 会显示可生成条目数，坏条目不再隐藏好条目，也不会到点击后才暴露跨 Profile 冲突。
+- 第二批 owner Module 已把 Luban、Protobuf 与字体字集的廉价前置条件前移：Luban 一次报告 CLI / conf 缺项，Protobuf 一次报告当前平台 protoc / 源目录并递归统计输入，两个批量入口只提交已就绪 Profile；输出所有权只比较已成立的安全声明，空白新 Profile 不再冻结其它配置，但未就绪 Profile 的有效声明仍能阻止冲突。字体把工程边界错误与“目录暂不存在、可能空字集”的可恢复警告分开，并拒绝能逃逸扫描根的文件模式。窗口与 Generator 共用 Module 内只读报告，GUI 不预跑外部进程、解析器或完整生成，也没有为表面相似抽中央泛型工作台。共享 `FrameworkProjectPath` 进一步拒绝被普通文件占用的目标/父级，UGUI 删除重复路径实现；四个真实生成器复用 `FrameworkCSharpSyntax`，集中命名空间验证与关键字安全标识符清洗。最终定向 107/107、完整 EditMode 471/471、PlayMode 545/545，共 1016/1016 通过。
 
 ### P1 · UI 必需窗口与 Flow 错误边界
 
@@ -256,7 +257,11 @@
 | P2 | 大文件按职责复查 | `DiagnosticsWindow`、`YooAssetProvider`、`AssetUtility` 等只在发现两个独立变化轴或测试 Seam 时拆；单纯行数不是理由。 |
 | P2 | WebGL / 小游戏固定 Runner 基线 | 隔离探针已能在当前目标平台生成真实 Player BuildReport 上界；下一步等确定发布平台与 CI Runner 后保存同环境 artifact / 阈值，避免把本机 Windows 数字当 WebGL 基线。 |
 | P1 | UPM 分发依赖标准化与干净消费矩阵 | 当前体积探针把源码复制到临时工程的 `Assets`，尚未证明真实 UPM 安装/移除。下一步先确定 Core / Yoo / UI 等发布 Package 拓扑和 Git、embedded NuGet 依赖来源，再以工程外临时 Unity 项目验证 core → add Yoo → remove Yoo（保留 Library）的编译与 Player Build，不在框架内复制第二套 Package Manager。 |
-| P2 | Editor Module 业务前置条件前移 | 资源构建与服务安装器已完成第一批：动作独立依赖、部分条目语义、全局输出所有权和 Implementation 复验都有契约测试。下一步只在 Luban / Protobuf / 字体等 owner Module 内前移廉价确定的 CLI、源文件、字集或输出配置；进程、解析、反射扫描与构建结果不做昂贵 GUI 预跑，也不抽泛型工作台。 |
+| P1 | 跨代码生成器输出 claim catalog | 当前 Luban / Protobuf / 服务安装器各自在 owner Module 内证明同类 Profile 的输出独占，但不知道其它可选生成器；若 Protobuf 输出树包住 Luban 或安装器的 `.g.cs`，递归陈旧清理仍可能误删。先定义目录 / 文件 / 后缀清理粒度的中立 claim，由可选 Module 自注册、Core 只比较规范路径且不硬编码类型；删除 Module 后声明自然消失，并以跨 Module 删除与冲突测试证明。完成前文档要求不同生成器使用互不嵌套的顶层目录。 |
+| P1 | Luban 暂存发布事务 | 当前 CLI 直接写正式代码 / 数据目录，进程失败时可能留下半新半旧产物；专题设计 staging → 产物校验 → 差量发布与失败回滚，并验证清单始终与同一代代码/数据一起提交。不要仅因 Proto 已用临时目录就抽一个忽略两者清理语义差异的通用管线。 |
+| P2 | 代码生成工作台快照缓存 | Protobuf 卡片当前在每次 OnGUI 时递归统计 `.proto`；先用大目录量化 Layout/Repaint 开销，再把快照失效收敛到显式刷新、`projectChanged` 与 Profile 变化，保证窗口不因缓存隐藏刚发生的输入变更。 |
+| P2 | 生成路径物理边界验证 | `Path.GetFullPath` 已证明词法工程边界与父级对象类型，但 Assets 内 junction / symlink 仍可能把物理写入导向工程外。先明确 Unity、Windows junction 与 macOS/Linux symlink 的支持策略和可移植测试，再决定拒绝、解析 realpath 或只警告；不能用不完整检查冒充安全承诺。 |
+| P2 | 字体输入语义与扫描成本量化 | 重叠目录/模式可能重复读取同一文件，JSON/C# 中的 `\uXXXX` 也不等同于已提取真实字形。先用真实本地化数据统计缺字与扫描成本，再决定是否引入文件去重、格式解码 Adapter 或明确维持“源码字面字符”语义。 |
 | P2 | Editor Profile 发现 Module | 8 处以上重复了精确类型扫描、稳定排序、多份诊断、缓存与 `projectChanged` 失效。先补移动/删除资产后的缓存失效、多份稳定顺序和无隐式创建测试，再评估内部 discovery/catalog Interface；各可选 Module 继续拥有默认值与业务校验，不抽泛型工作台。 |
 | P2 | Asset 维护 operation / 更新 session | Demo 已有两处为区分 caller waiter 与物理维护 owner 而手拼 gate、`CancellationToken.None` 和章节 token；Demo 与 Outpost 也出现 Initialize → Ready → 快照下载轮廓。启动流程已直接锁定「waiter 在物理清理终态前仍为 Pending」、「页面取消不发迟到 UI，但物理失败仍保留原异常」及「非取消的旧缓存回收失败只降级为 Warning」；出现第三个生产调用方后再决定是否形成有状态 session，避免把业务重试/确认策略塞回 Core。 |
 | P2 | Demo 服务器物理任务 owner | `Stop` 已拥有逻辑取消、监听器与 socket，但 accept/handler/tick task 仍 fire-and-forget，Dispose 未等待物理终态。先用内部 task registry、统一异常观察和 CTS token 快照覆盖 Domain Reload / in-flight slow HTTP / WS handler 竞态；只有真实调用方需要等待时才扩 `IDemoGameServer`。 |

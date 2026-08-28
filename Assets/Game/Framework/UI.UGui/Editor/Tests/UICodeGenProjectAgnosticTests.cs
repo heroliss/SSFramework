@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using Game.Framework.Editor;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
@@ -102,6 +103,44 @@ namespace Game.Framework.UI.UGui.Editor.Tests
         }
 
         [Test]
+        public void ResolveNames_WithReservedKeywords_ProducesLegalIdentifiers()
+        {
+            var profile = ScriptableObject.CreateInstance<UICodeGenProfile>();
+            var root = new GameObject("BindingRoot");
+            try
+            {
+                var data = root.AddComponent<UIBindingData>();
+                data.NamespaceOverride = "class.event";
+                data.FileNameOverride = "class";
+                var entry = new UIBindingEntry
+                {
+                    Node = root.transform,
+                    Path = string.Empty,
+                    FieldName = "namespace",
+                    ComponentTypes = { typeof(GameObject).AssemblyQualifiedName },
+                };
+
+                string resolvedNamespace = UIBindingUtil.ResolveNamespace(
+                    "Assets/DoesNotNeedToExist/BindingRoot.prefab", data, profile);
+
+                Assert.That(resolvedNamespace, Is.EqualTo("_class._event"));
+                Assert.That(UIBindingUtil.ResolveClassName(
+                    "Assets/DoesNotNeedToExist/BindingRoot.prefab", data, profile), Is.EqualTo("_class"));
+                Assert.That(UIBindingUtil.EffectiveFieldName(
+                    entry, typeof(GameObject), 1, root.name, profile), Is.EqualTo("_namespace"));
+                Assert.That(
+                    FrameworkCSharpSyntax.TryValidateNamespace(resolvedNamespace, out string error),
+                    Is.True,
+                    error);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+                UnityEngine.Object.DestroyImmediate(profile);
+            }
+        }
+
+        [Test]
         public void Generate_WithTraversalTarget_RejectsPathWithoutCreatingExternalDirectory()
         {
             var profile = ScriptableObject.CreateInstance<UICodeGenProfile>();
@@ -129,7 +168,7 @@ namespace Game.Framework.UI.UGui.Editor.Tests
                     profile);
 
                 Assert.That(result.ok, Is.False);
-                Assert.That(result.message, Does.Contain("必须是 Assets/ 下"));
+                Assert.That(result.message, Does.Contain("目录无效").And.Contain("路径越过了工程根目录"));
                 Assert.That(Directory.Exists(escapedAbsolutePath), Is.False,
                     "非法路径必须在创建目录或写文件前被拒绝。");
             }
@@ -137,6 +176,49 @@ namespace Game.Framework.UI.UGui.Editor.Tests
             {
                 UnityEngine.Object.DestroyImmediate(root);
                 UnityEngine.Object.DestroyImmediate(profile);
+            }
+        }
+
+        [Test]
+        public void Generate_WithOutputAncestorOccupiedByFile_FailsBeforeWriting()
+        {
+            var profile = ScriptableObject.CreateInstance<UICodeGenProfile>();
+            var root = new GameObject("BindingRoot");
+            string blockingAssetPath =
+                "Assets/UIBindingAncestorFile_" + Guid.NewGuid().ToString("N");
+            string projectRoot = Directory.GetParent(Application.dataPath)!.FullName;
+            string blockingAbsolutePath = Path.GetFullPath(Path.Combine(projectRoot, blockingAssetPath));
+            try
+            {
+                File.WriteAllText(blockingAbsolutePath, "occupied");
+                var data = root.AddComponent<UIBindingData>();
+                data.NamespaceOverride = "Tests.Generated";
+                data.OutputDirOverride = blockingAssetPath + "/Logic";
+                data.GeneratedDirOverride = blockingAssetPath + "/Generated";
+                data.Entries.Add(new UIBindingEntry
+                {
+                    Node = root.transform,
+                    Path = string.Empty,
+                    ComponentTypes = { typeof(GameObject).AssemblyQualifiedName },
+                });
+
+                var result = UIBindingCodeGenerator.Generate(
+                    "Assets/DoesNotNeedToExist/BindingRoot.prefab",
+                    data,
+                    profile);
+
+                Assert.That(result.ok, Is.False);
+                Assert.That(result.message,
+                    Does.Contain("父级已被普通文件占用").And.Contain(blockingAssetPath));
+                Assert.That(Directory.Exists(blockingAbsolutePath + "/Logic"), Is.False);
+                Assert.That(Directory.Exists(blockingAbsolutePath + "/Generated"), Is.False);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+                UnityEngine.Object.DestroyImmediate(profile);
+                if (File.Exists(blockingAbsolutePath)) File.Delete(blockingAbsolutePath);
+                if (File.Exists(blockingAbsolutePath + ".meta")) File.Delete(blockingAbsolutePath + ".meta");
             }
         }
 

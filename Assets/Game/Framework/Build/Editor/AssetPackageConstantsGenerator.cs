@@ -23,18 +23,6 @@ namespace Game.Framework.Build
     {
         private static readonly UTF8Encoding Utf8NoBom = new(false);
 
-        // C# 保留关键字（不含 var/async 等上下文关键字——它们可作标识符）。包名撞上时常量名前缀 '_'（常量值不变）。
-        private static readonly HashSet<string> CSharpKeywords = new()
-        {
-            "abstract", "as", "base", "bool", "break", "byte", "case", "catch", "char", "checked", "class", "const",
-            "continue", "decimal", "default", "delegate", "do", "double", "else", "enum", "event", "explicit",
-            "extern", "false", "finally", "fixed", "float", "for", "foreach", "goto", "if", "implicit", "in", "int",
-            "interface", "internal", "is", "lock", "long", "namespace", "new", "null", "object", "operator", "out",
-            "override", "params", "private", "protected", "public", "readonly", "ref", "return", "sbyte", "sealed",
-            "short", "sizeof", "stackalloc", "static", "string", "struct", "switch", "this", "throw", "true", "try",
-            "typeof", "uint", "ulong", "unchecked", "unsafe", "ushort", "using", "virtual", "void", "volatile", "while",
-        };
-
         /// <summary>
         /// 按 profile 配置生成（或刷新）包名常量文件。返回 (是否成功, 人类可读摘要)——
         /// 交互外壳（菜单 / Inspector 按钮）拿摘要展示，本方法不弹窗。
@@ -51,6 +39,8 @@ namespace Game.Framework.Build
             string ns = profile.PackageConstantsNamespace;
             if (string.IsNullOrEmpty(ns))
                 return (false, "构建 profile 未配置「包名常量命名空间」。");
+            if (!FrameworkCSharpSyntax.TryValidateNamespace(ns, out string namespaceError))
+                return (false, "包名常量命名空间无效：" + namespaceError);
 
             var packages = BundleCollectorSettingData.Setting.Packages
                 .Where(p => p != null && !string.IsNullOrWhiteSpace(p.PackageName))
@@ -59,7 +49,7 @@ namespace Game.Framework.Build
             if (packages.Count == 0)
                 return (false, "收集器（AssetBundleCollector）里没有任何包，无可生成。");
 
-            string className = SanitizeIdentifier(DeriveClassName(path));
+            string className = FrameworkCSharpSyntax.SanitizeIdentifier(DeriveClassName(path));
 
             // 逐包出常量；清洗后同名的重复项跳过并警告（常量值仍是收集器原文，只有常量【名】需要合法化）。
             var usedIdentifiers = new HashSet<string> { className };
@@ -68,7 +58,7 @@ namespace Game.Framework.Build
             int emitted = 0;
             foreach (var (name, desc) in packages)
             {
-                string id = SanitizeIdentifier(name);
+                string id = FrameworkCSharpSyntax.SanitizeIdentifier(name);
                 if (!usedIdentifiers.Add(id))
                 {
                     skipped.Add($"{name}（清洗后与已有常量重名：{id}）");
@@ -121,18 +111,6 @@ namespace Game.Framework.Build
             if (file.EndsWith(".g.cs", StringComparison.OrdinalIgnoreCase)) return file[..^5];
             if (file.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)) return file[..^3];
             return file;
-        }
-
-        // 包名 → 合法 C# 标识符：非法字符换 '_'、数字开头补 '_'、撞保留关键字补 '_'。只改常量名，常量值保持收集器原文。
-        private static string SanitizeIdentifier(string name)
-        {
-            var sb = new StringBuilder(name.Length);
-            foreach (char c in name)
-                sb.Append(char.IsLetterOrDigit(c) || c == '_' ? c : '_');
-            if (sb.Length == 0 || char.IsDigit(sb[0]))
-                sb.Insert(0, '_');
-            string id = sb.ToString();
-            return CSharpKeywords.Contains(id) ? "_" + id : id;
         }
 
         private static string EscapeString(string s) => s.Replace("\\", "\\\\").Replace("\"", "\\\"");
