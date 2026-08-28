@@ -5,6 +5,7 @@ using Cysharp.Threading.Tasks;
 using Game.Framework;
 using Game.Framework.Common;
 using Game.Framework.Demo.Core;
+using Game.Framework.Logging;
 using R3;
 using UnityEngine.UIElements;
 
@@ -155,8 +156,9 @@ namespace Game.Framework.Demo.Modules
             host.AddStep("①", "`Initialize` 拉取版本与清单；普通失败不抛异常，通过 `InitState` 判断是否就绪。");
             host.AddStep("②", "`CreateAllDownloader` 统计当前缓存缺口；`TotalCount == 0` 表示已经是最新版本。");
             host.AddStep("③", "订阅 `Progress` 驱动进度条，再执行 `Download`；整体失败时重建下载器重试，已完成分片会从缓存跳过。");
-            host.AddStep("④", "下载成功后执行 `ClearCache(Unused)`，回收不再被新清单引用的旧版本 bundle。");
-            host.AddSubNote("这四步只是把「资源加载」章的原子接口编排成启动流程。真实项目通常在第 ② 步后弹出“发现更新 X MB”的流量确认框，整体失败后提供“重试 / 退出”；用户拒绝下载或选择退出时，应明确结束启动流程。");
+            host.AddStep("④", "确认包已是最新后尽力执行 `ClearCache(Unused)`：成功就回收旧 bundle，非取消失败只记 Warning 并继续进游戏。");
+            host.AddSubNote("为什么非取消的清理失败不等于更新失败？此时新清单和新 bundle 已经可用，未删掉的只是不再引用的旧缓存，影响磁盘空间而非本次游戏内容。因此启动流程保留原始异常供排查，但不让可恢复的收尾清理挡住玩家；Context 销毁等生命周期取消仍保持取消异常（`OperationCanceledException`）。");
+            host.AddSubNote("这四步只是把「资源加载」章的原子接口编排成启动流程。真实项目通常在第 ② 步后弹出“发现更新 X MB”的流量确认框，检查或下载失败后提供“重试 / 退出”；用户拒绝下载或选择退出时，应明确结束启动流程。");
             host.AddSubNote("真实项目按需筛选进启动流程的包：启动必需的包（默认包 / 首场景包）走本流程强更；DLC / 大副本这类「按需下载」的包**不进**启动流程——进入对应玩法时再 `Initialize` + tag 下载器拉取（配合包级「自动初始化 / 按需下载」开关，见「资源加载」章）。");
 
             // ── 修复客户端：清空缓存全量重下 ──
@@ -186,7 +188,7 @@ namespace Game.Framework.Demo.Modules
                     repairLabel.text = $"已清空 {cleared} 个就绪包的下载缓存 ✓（Host 下对应地址重新成为 RequiresDownload）。现在点上方「运行启动更新流程」= 全量重下——这就是「修复资源 / 新装机首下」的完整路径。";
                 }
             }, CodeRef.Here("asset.ClearCache(pkg, AssetCacheClearMode.All, CancellationToken.None)", "全清缓存"));
-            host.AddNote("资源损坏（玩家手机存储出错 / 下载残缺）的标准恢复路径就是这两步：`ClearCache(All)` 删掉本地全部已下载 bundle → 重跑启动更新流程全量重下。设置页的「修复客户端」按钮背后就是它。`EditorSimulate` / `Offline` 下没有下载缓存，全清是 no-op。");
+            host.AddNote("资源损坏（玩家手机存储出错 / 下载残缺）的标准恢复路径是 `ClearCache(All)` 删掉全部已下载 bundle，再重跑启动更新流程全量重下。全清是用户主动要求的核心动作，失败必须保留异常并让按钮可重试，不能像旧缓存收尾那样降级。");
             host.AddSubNote("两条流程会改同一批包与缓存，必须共享一把互斥闸门；而且闸门要比一次 UI Build 活得久，避免界面重建后旧取消尚未收尾、新流程已经开跑。真实启动器通常把它建模成显式流程状态并统一置灰操作区。");
 
 #if UNITY_EDITOR
@@ -219,7 +221,8 @@ namespace Game.Framework.Demo.Modules
         //
         // 入参都是业务侧现成的东西：资源入口 utility、要强更的包名列表（启动必需包，DLC 不进来）、
         // 日志与进度回调（接你的启动器 UI）、取消令牌（来自启动器 View / Context 生命周期）。
-        // 返回 true = 全部包就绪且已最新，可以进游戏；false = 有包失败（弹「检查网络后重试 / 退出」，重试 = 再调一遍）。
+        // 返回 true = 全部包就绪且已最新，可以进游戏；false = 有包的检查或下载失败
+        // （弹「检查网络后重试 / 退出」，重试 = 再调一遍）。旧缓存回收失败只是可恢复的收尾清理警告，不改变结果。
         private static async UniTask<bool> RunUpdateFlow(
             IAssetUtility asset,
             IReadOnlyList<string> packages,
@@ -279,15 +282,65 @@ namespace Game.Framework.Demo.Modules
                     continue;
                 }
 
-                // ④ 回收旧版本：清掉「不被当前清单引用」的历史 bundle（发过几次版本后才有内容，无残留时是 no-op）。
-                //    放在下载成功之后：确认新版本可用了才丢旧的。
-                // 维护调用的 waiter token 取消后会提前返回，但物理清理仍继续；启动器状态机必须等到真正结束才放行下一流程。
-                ct.ThrowIfCancellationRequested();
-                await asset.ClearCache(pkg, AssetCacheClearMode.Unused, CancellationToken.None);
-                ct.ThrowIfCancellationRequested();
-                log($"[{pkg}] ④ 旧版本缓存已回收 ✓");
+                // ④ 回收旧版本：清掉「不被当前清单引用」的历史 bundle（无残留时是 no-op）。
+                //    此时新内容已可用；旧缓存只做尽力收尾，非取消失败记 Warning 但不挡启动。
+                await ReclaimUnusedCache(
+                    pkg,
+                    () => asset.ClearCache(pkg, AssetCacheClearMode.Unused, CancellationToken.None),
+                    log,
+                    ct);
             }
             return allOk;
+        }
+
+        /// <summary>
+        /// 等待不可由页面中断的物理清理到终态，然后再按调用方生命周期决定是否发布结果。
+        /// 新内容已可用时，旧缓存回收的非取消失败只降级为保留原始异常的 Warning。
+        /// </summary>
+        internal static async UniTask ReclaimUnusedCache(
+            string packageName,
+            Func<UniTask> clearPhysicalCache,
+            Action<string> report,
+            CancellationToken callerToken)
+        {
+            if (clearPhysicalCache == null) throw new ArgumentNullException(nameof(clearPhysicalCache));
+            if (report == null) throw new ArgumentNullException(nameof(report));
+
+            callerToken.ThrowIfCancellationRequested();
+            Exception cleanupFailure = null;
+            try
+            {
+                // 调用点把 ClearCache 的 waiter token 固定为 None：页面取消不让 waiter 提前脱离，
+                // 真正的物理 owner 仍由 AssetUtility / Context 生命周期管理。
+                await clearPhysicalCache();
+            }
+            catch (OperationCanceledException)
+            {
+                // 物理 owner（AssetUtility / Context）取消不是可恢复的「旧文件没删掉」，保持 OCE 不降级。
+                throw;
+            }
+            catch (Exception e)
+            {
+                cleanupFailure = e;
+            }
+
+            if (cleanupFailure == null)
+            {
+                // 调用点传的 None 是 waiter token，物理 owner 仍是 AssetUtility。waiter 不提前脱离，
+                // 让页面的 gate 一直覆盖物理收尾；到终态后再检查页面 token，不发布迟到 UI。
+                callerToken.ThrowIfCancellationRequested();
+                report($"[{packageName}] ④ 旧版本缓存已回收 ✓");
+                return;
+            }
+
+            // 物理失败不能因页面同时取消而消失：先记全局诊断，再决定是否还能向当前页面发布降级结果。
+            Log.Write(
+                LogLevel.Warning,
+                $"资源包“{packageName}”回收旧版本缓存失败；新内容已可用，请稍后重试清理。",
+                category: nameof(AssetOpsFlowModule),
+                exception: cleanupFailure);
+            callerToken.ThrowIfCancellationRequested();
+            report($"[{packageName}] ④ ⚠ 新内容已可用，但旧版本缓存回收失败；本次继续进入游戏，稍后可重试清理。");
         }
     }
 }
