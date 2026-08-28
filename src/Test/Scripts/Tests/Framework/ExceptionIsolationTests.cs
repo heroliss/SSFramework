@@ -97,7 +97,7 @@ namespace Game.Framework.Test
                 () => throw new InvalidOperationException("cancel-boom"));
 
             LogAssert.Expect(LogType.Error,
-                new Regex(@"\[GameContext\] A cancellation callback threw during Context disposal"));
+                new Regex(@"\[GameContext\].*取消回调.*继续释放"));
             LogAssert.Expect(LogType.Exception,
                 new Regex(@"InvalidOperationException: cancel-boom"));
 
@@ -185,7 +185,8 @@ namespace Game.Framework.Test
         {
             // InjectionPlan 解析不到时是 Debug.LogWarning（不抛）：
             // Command 仍会 Execute，业务自行处理 null。
-            LogAssert.Expect(LogType.Warning, new Regex(@"\[Inject\] Cannot resolve"));
+            LogAssert.Expect(LogType.Warning,
+                new Regex(@"\[Inject\].*无法为字段.*CommandWithMissingDep\.Missing.*TestSystem"));
             Assert.DoesNotThrow(
                 () => _ctx.ExecuteCommand(new CommandWithMissingDep()),
                 "Inject 失败应当输出 Warning 后继续执行 Command，由业务自己处理 null");

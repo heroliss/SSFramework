@@ -23,8 +23,8 @@ namespace Game.Framework.Internal
         {
             if (Thread.CurrentThread.ManagedThreadId != s_mainThreadId)
                 Log.Error(
-                    "Not thread-safe; must be accessed from the Unity main thread " +
-                    "(await UniTask.SwitchToMainThread() first).",
+                    "此 API 非线程安全，必须从 Unity 主线程访问；" +
+                    "请先 await UniTask.SwitchToMainThread()。",
                     category: who);
         }
     }

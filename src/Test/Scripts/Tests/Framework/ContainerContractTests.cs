@@ -284,7 +284,7 @@ namespace Game.Framework.Test
             builder.RegisterOwned(new OrderedDisposable(log, "C"), typeof(OrderedDisposable));
 
             LogAssert.Expect(LogType.Error,
-                new Regex(@"\[ContainerBuilder\] An owned service threw during disposal"));
+                new Regex(@"\[ContainerBuilder\].*托管服务.*释放期间.*其余服务.*继续释放"));
             LogAssert.Expect(LogType.Exception,
                 new Regex(@"InvalidOperationException: owned-dispose-boom"));
             Assert.DoesNotThrow(builder.Dispose);
@@ -371,8 +371,10 @@ namespace Game.Framework.Test
             var error = Assert.Throws<ArgumentException>(
                 () => builder.RegisterValue(new ModelA(), typeof(SystemA)));
 
-            StringAssert.Contains("not assignable", error.Message,
+            StringAssert.Contains("不能赋给契约", error.Message,
                 "错误应在注册边界暴露，而不是拖到后续 Resolve/强转位置");
+            StringAssert.Contains(nameof(ModelA), error.Message);
+            StringAssert.Contains(nameof(SystemA), error.Message);
         }
 
         [Test]
@@ -384,7 +386,9 @@ namespace Game.Framework.Test
 
             var error = Assert.Throws<InvalidOperationException>(() => container.Resolve(typeof(SystemA)));
 
-            StringAssert.Contains("not assignable", error.Message);
+            StringAssert.Contains("不能赋给契约", error.Message);
+            StringAssert.Contains(nameof(ModelA), error.Message);
+            StringAssert.Contains(nameof(SystemA), error.Message);
         }
 
         [Test]
@@ -410,8 +414,9 @@ namespace Game.Framework.Test
 
             var error = Assert.Throws<InvalidOperationException>(() => container.Resolve(typeof(ModelA)));
 
-            StringAssert.Contains("Circular factory resolution", error.Message,
+            StringAssert.Contains("工厂循环解析", error.Message,
                 "循环依赖应在工厂边界给出可诊断错误，而不是递归到栈溢出");
+            StringAssert.Contains(nameof(ModelA), error.Message);
         }
 
         [Test]
@@ -480,7 +485,8 @@ namespace Game.Framework.Test
 
             var error = Assert.Throws<InvalidOperationException>(() => ctx.Resolve(typeof(ModelA)));
 
-            StringAssert.Contains("non-IDisposable", error.Message);
+            StringAssert.Contains("未实现 IDisposable", error.Message);
+            StringAssert.Contains(nameof(ModelA), error.Message);
         }
 
         [Test]

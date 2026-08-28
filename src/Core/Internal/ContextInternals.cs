@@ -19,7 +19,7 @@ namespace Game.Framework.Internal
                 MonoGameContextBase mc => mc.Container,
                 null => throw new ArgumentNullException(nameof(ctx)),
                 _ => throw new InvalidOperationException(
-                    $"[ContextInternals] Unknown IGameContext implementation: {ctx.GetType().Name}"),
+                    $"[ContextInternals] 未知的 IGameContext 实现：{ctx.GetType().Name}"),
             };
         }
     }

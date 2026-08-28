@@ -24,7 +24,7 @@ namespace Game.Framework.Internal
             {
                 // 最近的 Context 已失败或正处于销毁阶段时必须在此止步。回退 Main 会把本应属于该作用域的
                 // Mono 层悄悄注册到全局，继续 Attach 则只会把一个根初始化错误扩散成一串 NRE。
-                Log.Trace($"[{typeof(TLayer).Name}] '{self.name}': nearest Context is unavailable; attachment skipped.");
+                Log.Trace($"[{typeof(TLayer).Name}] '{self.name}'：最近的 Context 不可用，已跳过挂接。");
                 return null;
             }
 
@@ -45,7 +45,7 @@ namespace Game.Framework.Internal
             if (contextProvider == null) return null;
             if (contextProvider.IsDisposed)
             {
-                Log.Trace($"[View] '{self.name}': nearest Context is unavailable; injection skipped.");
+                Log.Trace($"[View] '{self.name}'：最近的 Context 不可用，已跳过注入。");
                 return null;
             }
 
@@ -62,16 +62,16 @@ namespace Game.Framework.Internal
 
             if (contextProvider == null && GameContext.Main != null)
             {
-                Log.Trace($"[{roleLabel}] '{self.name}': no parent context, falling back to GameContext.Main.");
+                Log.Trace($"[{roleLabel}] '{self.name}'：未找到父级 Context，回退到 GameContext.Main。");
                 contextProvider = GameContext.Main;
             }
 
             if (contextProvider == null)
             {
                 Log.Error(
-                    $"No IGameContext found for '{self.name}'. " +
-                    "Set _targetContext in Inspector, ensure a parent MonoGameContextBase exists, " +
-                    "or initialize a MonoGlobalContext before this Awake.",
+                    $"未找到 '{self.name}' 可用的 IGameContext。" +
+                    "请在 Inspector 设置 _targetContext、确保父级存在 MonoGameContextBase，" +
+                    "或在本组件 Awake 前初始化 MonoGlobalContext。",
                     category: roleLabel,
                     context: self);
             }

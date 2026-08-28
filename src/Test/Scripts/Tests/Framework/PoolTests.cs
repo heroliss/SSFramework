@@ -181,13 +181,13 @@ namespace Game.Framework.Test
             using var bag = ctx.CreateBag();
 
             // 外来实例：不是本 bag 借出的
-            LogAssert.Expect(LogType.Error, new Regex("not leased by this bag"));
+            LogAssert.Expect(LogType.Error, new Regex("并非由此 Bag 租出"));
             bag.Return(new Widget());
 
             // 重复归还：第二次已不在登记表，忽略且不触达池
             var a = bag.Rent<Widget>();
             bag.Return(a);
-            LogAssert.Expect(LogType.Error, new Regex("not leased by this bag"));
+            LogAssert.Expect(LogType.Error, new Regex("并非由此 Bag 租出"));
             bag.Return(a);
             Assert.AreEqual(1, a.ReturnCount, "重复 Return 不应真正归还第二次");
             Assert.AreEqual(1, pool.CountInactive);
@@ -246,7 +246,7 @@ namespace Game.Framework.Test
             util.Dispose();
 
             // Dispose 后再取池：_pools 已清，返回新空池；Editor/Dev 下伴随一条 use-after-dispose 诊断
-            LogAssert.Expect(LogType.Error, new Regex("after Dispose"));
+            LogAssert.Expect(LogType.Error, new Regex("Dispose 后被调用"));
             var fresh = util.GetPool<Widget>();
             Assert.AreNotSame(pool, fresh, "Dispose 应清 _pools，再取是新池实例");
             Assert.AreEqual(0, fresh.CountInactive, "Dispose 后再取应是空池");

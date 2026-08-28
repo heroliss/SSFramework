@@ -109,7 +109,7 @@ namespace Game.Framework.Context
             if (factory == null) throw new ArgumentNullException(nameof(factory));
             ValidateContracts(contracts);
             if (resolution != Resolution.Lazy && resolution != Resolution.Eager)
-                throw new ArgumentOutOfRangeException(nameof(resolution), resolution, "Unknown factory resolution mode.");
+                throw new ArgumentOutOfRangeException(nameof(resolution), resolution, "未知的工厂解析模式。");
 
             // params 数组来自调用方，注册后可能被复用/修改；拷贝后再捕获，保证工厂契约稳定。
             var registeredContracts = (Type[])contracts.Clone();
@@ -190,10 +190,10 @@ namespace Game.Framework.Context
         private static void ValidateContracts(Type[] contracts)
         {
             if (contracts == null || contracts.Length == 0)
-                throw new ArgumentException("At least one contract type required", nameof(contracts));
+                throw new ArgumentException("至少需要一个契约类型。", nameof(contracts));
             for (int i = 0; i < contracts.Length; i++)
                 if (contracts[i] == null)
-                    throw new ArgumentException($"Contract type at index {i} is null", nameof(contracts));
+                    throw new ArgumentException($"索引 {i} 处的契约类型为 null。", nameof(contracts));
         }
 
         private static void ValidateValueInstance(object instance, Type[] contracts)
@@ -201,7 +201,7 @@ namespace Game.Framework.Context
             for (int i = 0; i < contracts.Length; i++)
                 if (!contracts[i].IsInstanceOfType(instance))
                     throw new ArgumentException(
-                        $"[ContainerBuilder] Value '{instance.GetType().Name}' is not assignable to contract '{contracts[i].Name}'.",
+                        $"[ContainerBuilder] 值 '{instance.GetType().Name}' 不能赋给契约 '{contracts[i].Name}'。",
                         nameof(contracts));
         }
 
@@ -221,10 +221,10 @@ namespace Game.Framework.Context
         {
             if (_disposed)
                 throw new ObjectDisposedException(nameof(ContainerBuilder),
-                    "[ContainerBuilder] Builder has been disposed and cannot accept registrations or Build().");
+                    "[ContainerBuilder] Builder 已释放，不能再接受注册或调用 Build()。");
             if (_built)
                 throw new InvalidOperationException(
-                    "[ContainerBuilder] Builder has already been consumed by Build(). Create a new builder for additional registrations.");
+                    "[ContainerBuilder] Builder 已被 Build() 消费；如需继续注册，请创建新的 Builder。");
         }
     }
 }

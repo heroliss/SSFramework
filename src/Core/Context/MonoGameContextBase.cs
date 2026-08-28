@@ -163,15 +163,15 @@ namespace Game.Framework.Context
             if (_state == InitializationState.Ready) return;
             if (_state == InitializationState.Initializing)
                 throw new InvalidOperationException(
-                    $"[MonoGameContext] Circular Context initialization detected at '{name}'. " +
-                    "Check explicit Parent Context assignments for a cycle.");
+                    $"[MonoGameContext] 在 '{name}' 检测到 Context 循环初始化；" +
+                    "请检查显式 Parent Context 是否形成循环引用。");
             if (_state == InitializationState.Failed)
                 throw new InvalidOperationException(
-                    $"[MonoGameContext] '{name}' previously failed to initialize and will not retry side-effecting bindings.",
+                    $"[MonoGameContext] '{name}' 此前初始化失败，不会重试可能产生副作用的绑定。",
                     _initializationException);
             if (_state == InitializationState.Disposed)
                 throw new ObjectDisposedException(nameof(MonoGameContextBase),
-                    $"[MonoGameContext] '{name}' has already been destroyed.");
+                    $"[MonoGameContext] '{name}' 已被销毁。");
 
             _state = InitializationState.Initializing;
             try
@@ -212,7 +212,7 @@ namespace Game.Framework.Context
                 catch (Exception cleanupException)
                 {
                     Log.Error(
-                        $"'{name}': cleanup after Context initialization failure also threw; the original failure is preserved.",
+                        $"'{name}'：Context 初始化失败后的清理也抛出了异常；将保留原始失败信息。",
                         cleanupException,
                         "Context",
                         this);
@@ -222,8 +222,8 @@ namespace Game.Framework.Context
                 _state = InitializationState.Failed;
 
                 throw new InvalidOperationException(
-                    $"[MonoGameContext] '{name}' failed to initialize. All acquired resources were rolled back; " +
-                    "fix the inner exception before using this Context.",
+                    $"[MonoGameContext] '{name}' 初始化失败，已回滚全部已获取资源；" +
+                    "请先修复内部异常，再使用此 Context。",
                     e);
             }
         }
@@ -253,7 +253,7 @@ namespace Game.Framework.Context
                 if (ReferenceEquals(explicitParent, this))
                 {
                     Log.Error(
-                        $"'{name}': Parent Context is set to self; ignoring.",
+                        $"'{name}'：Parent Context 指向自身，已忽略该设置。",
                         category: "Context",
                         context: this);
                     return;
@@ -271,8 +271,8 @@ namespace Game.Framework.Context
                 if (++depth > MaxParentSearchDepth)
                 {
                     Log.Error(
-                        $"'{name}': Parent Context search exceeded depth {MaxParentSearchDepth}. " +
-                        "Hierarchy too deep or unexpected cycle; explicitly set Parent Context to fix.",
+                        $"'{name}'：Parent Context 查找深度超过 {MaxParentSearchDepth}。" +
+                        "层级可能过深或存在意外循环；请显式设置 Parent Context。",
                         category: "Context",
                         context: this);
                     return;
@@ -296,14 +296,14 @@ namespace Game.Framework.Context
 
             if (_state == InitializationState.Failed)
                 throw new InvalidOperationException(
-                    $"[MonoGameContext] '{name}' is unavailable because initialization failed. " +
-                    "Inspect the inner exception for the root cause.",
+                    $"[MonoGameContext] '{name}' 因初始化失败而不可用；" +
+                    "请查看内部异常以定位根因。",
                     _initializationException);
             if (_state == InitializationState.Disposed)
                 throw new ObjectDisposedException(nameof(MonoGameContextBase),
-                    $"[MonoGameContext] '{name}' has been destroyed.");
+                    $"[MonoGameContext] '{name}' 已被销毁。");
             throw new InvalidOperationException(
-                $"[MonoGameContext] '{name}' has not completed initialization and cannot be used yet.");
+                $"[MonoGameContext] '{name}' 尚未完成初始化，暂时不能使用。");
         }
 
         public void Inject(object obj) => RequireContext().Inject(obj);

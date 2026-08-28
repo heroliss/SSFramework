@@ -181,8 +181,8 @@ namespace Game.Framework.Test
             var orphanGo = new GameObject("Orphan");
             orphanGo.transform.SetParent(_root.transform);
 
-            // 期望框架输出 [IModel] No IGameContext found... 之类的 error
-            LogAssert.Expect(LogType.Error, new Regex(@"No IGameContext found"));
+            // 期望框架输出 [IModel] 未找到可用 IGameContext 之类的错误
+            LogAssert.Expect(LogType.Error, new Regex(@"未找到.*IGameContext"));
             orphanGo.AddComponent<TestMonoModel>();
             await UniTask.Yield();
 
@@ -387,7 +387,7 @@ namespace Game.Framework.Test
 
                 var error = Assert.Throws<InvalidOperationException>(
                     () => failed.Resolve(typeof(DisposeProbe)));
-                StringAssert.Contains("initialization failed", error.Message);
+                StringAssert.Contains("初始化失败", error.Message);
                 StringAssert.Contains("install-boom", error.ToString(), "重复调用仍应保留原始根因，而不是 NRE");
 
                 // 最近父 Context 已知失败时，Mono 层必须停在该边界；不得偷偷回退 Main，也不得再抛 NRE。

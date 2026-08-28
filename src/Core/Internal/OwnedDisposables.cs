@@ -18,7 +18,7 @@ namespace Game.Framework.Internal
         {
             if (_disposed)
                 throw new ObjectDisposedException(nameof(OwnedDisposables),
-                    "Cannot add owned resources after the ownership scope has been disposed.");
+                    "所有权作用域已释放，不能再添加托管资源。");
             if (item == null) throw new ArgumentNullException(nameof(item));
 
             for (int i = 0; i < _items.Count; i++)
@@ -38,7 +38,7 @@ namespace Game.Framework.Internal
                 catch (Exception e)
                 {
                     Log.Error(
-                        "An owned service threw during disposal; remaining services will still be released.",
+                        "托管服务在释放期间抛出异常；其余服务仍会继续释放。",
                         e,
                         category);
                 }

@@ -39,8 +39,8 @@ namespace Game.Framework.Pool
             // 几乎必然是误用。一次性检查（仅建池时），指路 GameObject 池。
             if (typeof(UnityEngine.Object).IsAssignableFrom(typeof(T)))
                 Log.Error(
-                    $"{typeof(T).Name} is a UnityEngine.Object — this C# object pool " +
-                    "won't Instantiate/activate it. Use the GameObject pool instead (Bag.Spawn / IPoolUtility.Spawn).",
+                    $"类型 '{typeof(T).Name}' 是 UnityEngine.Object，C# 对象池不会实例化或激活它。" +
+                    "请改用 GameObject 池（Bag.Spawn / IPoolUtility.Spawn）。",
                     category: $"ObjectPool<{typeof(T).Name}>");
 #endif
             _factory = factory ?? throw new ArgumentNullException(nameof(factory));
@@ -76,8 +76,7 @@ namespace Game.Framework.Pool
             if (!_active.Remove(instance))
             {
                 Log.Error(
-                    "Returning an instance that wasn't rented from this pool " +
-                    "(double-return or foreign instance). Ignored.",
+                    "正在归还未从此池租出的实例（可能是重复归还或外来实例），已忽略。",
                     category: $"ObjectPool<{typeof(T).Name}>");
                 return;
             }

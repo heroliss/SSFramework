@@ -109,7 +109,7 @@ namespace Game.Framework.Pool
                 // 无标记 = 非池化对象，无法安全入池：Release 也忽略（避免污染池），Editor/Dev 额外报错。
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
                 Log.Error(
-                    $"Despawning a non-pooled GameObject '{instance.name}'. Ignored.",
+                    $"正在归还非池化 GameObject '{instance.name}'，已忽略。",
                     category: $"GameObjectPool({_prefab.name})");
 #endif
                 return;
@@ -120,7 +120,7 @@ namespace Game.Framework.Pool
             {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
                 Log.Error(
-                    $"Despawning '{instance.name}' that belongs to a different pool. Ignored.",
+                    $"实例 '{instance.name}' 属于其他池，已拒绝归还。",
                     category: $"GameObjectPool({_prefab.name})");
 #endif
                 return;
@@ -129,7 +129,7 @@ namespace Game.Framework.Pool
             {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
                 Log.Error(
-                    $"Double-despawn of '{instance.name}'. Ignored.",
+                    $"检测到实例 '{instance.name}' 被重复归还，已忽略。",
                     category: $"GameObjectPool({_prefab.name})");
 #endif
                 return;

@@ -40,18 +40,18 @@ namespace Game.Framework.Internal
                 if (existing is UnityEngine.Object uObj && uObj == null)
                 {
                     container.ReplaceOverride(contractType, instance);
-                    Log.Trace($"[Container] REPLACE {contractType.Name}: {label} (old destroyed)");
+                    Log.Trace($"[Container] 替换 {contractType.Name}：{label}（旧实例已销毁）");
                     return;
                 }
 
                 throw new InvalidOperationException(
-                    $"[Container] Duplicate registration for '{contractType.Name}': " +
-                    $"'{label}' conflicts with already registered '{existing.GetType().Name}'");
+                    $"[Container] 契约 '{contractType.Name}' 重复注册：" +
+                    $"'{label}' 与已注册的 '{existing.GetType().Name}' 冲突。");
             }
 
             container.ReplaceOverride(contractType, instance);
             // 容器每注册一次就走这里：插值处理器让 Verbose 关时连字符串都不拼（旧的 LogVerbose(string) 是先拼好再丢弃）。
-            Log.Trace($"[Container] REGISTER {contractType.Name}: {label}");
+            Log.Trace($"[Container] 注册 {contractType.Name}：{label}");
         }
     }
 }

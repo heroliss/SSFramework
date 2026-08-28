@@ -49,7 +49,7 @@ namespace Game.Framework.Internal
             if (_hasInstance) return _instance;
             if (_isCreating)
                 throw new InvalidOperationException(
-                    $"[ContainerBuilder] Circular factory resolution detected for '{ContractNames()}'.");
+                    $"[ContainerBuilder] 检测到契约 '{ContractNames()}' 的工厂循环解析。");
 
             _isCreating = true;
             try
@@ -57,15 +57,15 @@ namespace Game.Framework.Internal
                 var instance = _factory(container);
                 if (instance == null)
                     throw new InvalidOperationException(
-                        $"[ContainerBuilder] Factory for '{ContractNames()}' returned null.");
+                        $"[ContainerBuilder] 契约 '{ContractNames()}' 的工厂返回了 null。");
                 ValidateFactoryInstance(instance);
 
                 if (_ownsResult)
                 {
                     if (instance is not IDisposable disposable)
                         throw new InvalidOperationException(
-                            $"[ContainerBuilder] Owned factory for '{ContractNames()}' returned " +
-                            $"non-IDisposable '{instance.GetType().Name}'.");
+                            $"[ContainerBuilder] 契约 '{ContractNames()}' 的托管工厂返回了 " +
+                            $"未实现 IDisposable 的类型 '{instance.GetType().Name}'。");
                     container.Own(disposable);
                 }
 
@@ -85,7 +85,7 @@ namespace Game.Framework.Internal
             for (int i = 0; i < _contracts.Length; i++)
                 if (!_contracts[i].IsInstanceOfType(instance))
                     throw new InvalidOperationException(
-                        $"[ContainerBuilder] Factory result '{instance.GetType().Name}' is not assignable to contract '{_contracts[i].Name}'.");
+                        $"[ContainerBuilder] 工厂结果 '{instance.GetType().Name}' 不能赋给契约 '{_contracts[i].Name}'。");
         }
 
         private string ContractNames()
