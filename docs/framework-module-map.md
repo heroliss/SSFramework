@@ -53,11 +53,14 @@ Editor 反向引用。Adapter 不得随 Framework 分发付费插件本体。详
 | `Game.Framework.Asset.Yoo.Tests` | `Asset.Yoo/Tests/Editor/` | Yoo package 进程级 Reader/Writer、取消、缓存世代、同步快照与后台终态的纯 EditMode 契约。 | 随 Yoo Adapter 删除；不进入玩家构建，也不让通用 Core Test 反向依赖可选 Adapter。 |
 | `Game.Framework.Config` | `Config/` | 配置运行时编排与 `IConfigUtility<TTables>`；不依赖 Luban。 | 删除后失去配置表 Module，Core 不改。 |
 | `Game.Framework.Config.Editor` | `Config/Editor/` | Luban CLI/Profile/生成与配置总览入口；复用通用 Editor 反馈。 | 可与 Config 一起删除；不向 Runtime 泄漏 Editor 依赖。 |
+| `Game.Framework.Config.Editor.Tests` | `Config/Editor/Tests/` | Luban 配置注册、输出目录所有权与重叠写入拒绝契约。 | 随 Config Editor Module 删除；不进入玩家构建。 |
 | `Game.Framework.Config.Tests` | `Config/Tests/` | 配置就绪、根失败、取消所有权与清单边界的 PlayMode 契约；使用可控资源 Provider，不依赖 Luban/YooAsset。 | 随 Config 一起删除；不让通用 Core Test 反向依赖可选 Config Module。 |
 | `Game.Framework.Fonts` | `Fonts/` | TMP/Toolkit 多语言 fallback 链；TMP 依赖收口。 | 删除后仅失去自动字体链，本地化 Interface 仍可用。 |
 | `Game.Framework.Fonts.Editor` | `Fonts/Editor/` | 常用字集扫描与生成。 | 可独立删除，不影响运行时字体链。 |
+| `Game.Framework.Fonts.Editor.Tests` | `Fonts/Editor/Tests/` | 字集生成与 Fonts 工具/配置注册契约。 | 随 Fonts Editor Module 删除；不进入玩家构建。 |
 | `Game.Framework.Network.Proto` | `Network.Proto/` | Google.Protobuf Adapter，把生成的 `IMessage` 接到内核网络 Seam。 | 删除后 JSON 与内核手写 Protobuf 仍可用。 |
 | `Game.Framework.Network.Proto.Editor` | `Network.Proto/Editor/` | protoc Profile、代码生成与总览入口；复用通用 Editor 反馈。 | 可与 Proto Runtime 一起删除，Core 不改。 |
+| `Game.Framework.Network.Proto.Editor.Tests` | `Network.Proto/Editor/Tests/` | Protobuf 配置注册、输出目录所有权与重叠写入拒绝契约。 | 随 Proto Editor Module 删除；不进入玩家构建。 |
 | `Game.Framework.UI` | `UI/` | 渲染中立窗口编排、层级/栈/模态/过渡及后端 Interface；当前也承载 ObservableCollections 增量列表引擎，因此该第三方依赖会随 UI Core 进入托管闭包。物理返回输入由项目 composition layer 接到 `IUIUtility.Back()`，本 Module 不依赖输入 Package。 | 删除后失去窗口框架与列表绑定引擎，但 Core MVCS 仍可用。 |
 | `Game.Framework.UI.UGui` | `UI.UGui/` | UGUI Window/View Adapter，含 `Transform → GameObject` 的 `Bag.BindList` Adapter。 | 删除后 Toolkit 后端与 UI Core 仍可编译。 |
 | `Game.Framework.UI.UGui.Editor` | `UI.UGui/Editor/` | UGUI 节点绑定生成等 Editor 工具；复用通用 Editor 反馈。 | 可独立删除，不影响 UGUI Runtime 手写接线。 |
@@ -68,7 +71,10 @@ Editor 反向引用。Adapter 不得随 Framework 分发付费插件本体。详
 | `Game.Framework.Editor` | `Editor/` | 稳定且零付费插件依赖的编辑器工具基座：Core 原生 Drawer/Inspector、跨模块非阻塞反馈、诊断窗口、菜单，以及 Module-local 注册的工具/配置 Catalog；Module Audit 与隔离 Player Build 体积探针共用结构化组合，Source Catalog 统一解析 Assets / Packages / PackageCache。 | 玩家构建不包含。若删除，需一并删除或改接直接依赖它的 Build / Config / Proto / UGUI Editor 工具；所有 Runtime API 与玩家构建仍不受影响。 |
 | `Game.Framework.Odin.Editor` | `Odin.Editor/` | 可选专业 Inspector Adapter：仅把原生 fallback 接管且 Odin 允许绘制的具体 Framework Mono 类型临时映射到组合诊断的 OdinEditor；不写 Odin 配置，不含或重分发 Odin。 | 移除 Odin 前先整体删除；Domain Reload 后原生 fallback 接管，Runtime 与资产布局不变。 |
 | `Game.Framework.Editor.Tests` | `Editor/Tests/` | 通用 Editor 工具的 EditMode 契约；覆盖 AI PlayMode 预检的无弹窗保存与未命名场景拒绝。 | 随 Editor Module 删除；不进入玩家构建。 |
-| `Game.Framework.Build.Editor` | `Build/Editor/` | YooAsset/HybridCLR 构建管线与 Profile；复用通用 Editor 反馈，重第三方依赖不反向进入基座。 | 无资源/热更构建需求时可删，不污染通用 Editor。 |
+| `Game.Framework.Build.Editor` | `Build/Editor/` | YooAsset 普通 AssetBundle 的 Profile、SBP 构建、部署、本地 CDN、加密接入与产物路径安全；保留既有程序集名以兼容 Profile 与 CI，但不引用 Boot、HybridCLR 或 dnlib。 | 无资源构建需求时可删；删除下游热更新构建后仍能独立编译与使用。 |
+| `Game.Framework.Build.Editor.Tests` | `Build/Editor/Tests/` | 资源构建工具/配置注册、可移植产物路径和“零热更工具链引用”的删除契约。 | 随资源构建 Module 删除；不进入玩家构建。 |
+| `Game.Framework.Build.HybridCLR.Editor` | `Build/HybridCLR/Editor/` | HybridCLR 热更 Profile、程序集图、Generate 新鲜度、目标 DLL 与 YooAsset RawFile CodePackage；单向复用资源构建侧的版本、部署、预检和路径安全。 | 删除后失去代码热更新构建与配置卡；普通资源构建不改源码，项目可连同 Boot、HybridCLR/dnlib 评估移除。 |
+| `Game.Framework.Build.HybridCLR.Editor.Tests` | `Build/HybridCLR/Editor/Tests/` | 热更新证据、元数据拓扑、代码包 Collector、目录注册与 Profile 程序集迁移兼容契约。 | 随热更新构建 Module 删除；资源构建测试不引用热更新工具链。 |
 | `Game.Framework.Demo` | `Demo/` | 32 个可运行教学章节，是所有 Module 的消费方与集成样板；Catalog 集中拥有章节 Adapter、生命周期与 Host 教学语义校验。包含 Input System → `IUIUtility.Back()` 等项目 composition 样板，但这些不是 Framework Runtime API。 | 可整体删除；`UNITY_EDITOR` define 保证不进玩家包。 |
 | `Game.Framework.Demo.Tests` | `Demo/Tests/` | Demo 专属 EditMode 门禁：章节生命周期/回滚、教学形态与结构化降级契约、内嵌服务器、关键示例行为及全部 CodeRef 防腐。 | 随 Demo 一起删除；不让 Demo 专属依赖反向进入通用 Test Module。 |
 | `Game.Framework.Demo.PlayMode.Tests` | `Demo/Tests/PlayMode/` | 加载真实 DemoScene，穿过 Context、Catalog 与 Shell 逐章 Build 32 个 Adapter，并验证真实缺依赖降级页。 | 随 Demo 一起删除；不进入玩家构建，也不把场景集成依赖塞回纯 EditMode 门禁。 |

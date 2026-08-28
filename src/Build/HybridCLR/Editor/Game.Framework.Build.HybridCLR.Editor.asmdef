@@ -1,11 +1,14 @@
 {
-    "name": "Game.Framework.Build.Editor",
+    "name": "Game.Framework.Build.HybridCLR.Editor",
     "rootNamespace": "Game.Framework.Build",
     "references": [
         "Game.Framework",
         "Game.Framework.Editor",
+        "Game.Framework.Boot",
+        "Game.Framework.Build.Editor",
         "YooAsset",
-        "YooAsset.Editor"
+        "YooAsset.Editor",
+        "HybridCLR.Editor"
     ],
     "includePlatforms": [
         "Editor"
@@ -13,7 +16,9 @@
     "excludePlatforms": [],
     "allowUnsafeCode": false,
     "overrideReferences": true,
-    "precompiledReferences": [],
+    "precompiledReferences": [
+        "dnlib.dll"
+    ],
     "autoReferenced": false,
     "defineConstraints": [],
     "versionDefines": [],

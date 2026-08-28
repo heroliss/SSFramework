@@ -45,11 +45,13 @@ namespace Game.Framework.Build
         [Tooltip("热更程序集（asmdef 引用）。在列表 = 热更（运行时从代码包加载），不在 = AOT（随安装包固化）。\n" +
                  "铁律：谁被热更，引用它的程序集必须也在列表里（AOT 不能引用热更）——同步/构建时自动校验拦截。\n" +
                  "顺序随意：实际加载顺序按 asmdef 引用图拓扑排序自动生成，不需要人排。")]
+        [InspectorName("热更新程序集（asmdef）")]
         [SerializeField] private List<AssemblyDefinitionAsset> _hotUpdateAssemblies = new();
 
         [Tooltip("代码包名：装热更 DLL + AOT 补元数据 DLL + 清单的 YooAsset RawFile 包。\n" +
                  "归 Boot 引导器管，与业务资源包彻底分家（互不知晓、互不初始化）。名称需与 YooAsset 收集器一致，" +
                  "并能作为单一跨平台目录名；不能含空白、路径分隔符或 URL 结构字符。")]
+        [InspectorName("热更新代码包名")]
         [SerializeField] private string _codePackageName = "CodePackage";
 
         /// <summary>代码包名（YooAsset RawFile 包）。空白时回退默认名，构建/引导两侧共用。</summary>

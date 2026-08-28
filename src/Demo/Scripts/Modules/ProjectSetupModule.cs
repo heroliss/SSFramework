@@ -62,7 +62,7 @@ namespace Game.Framework.Demo.Modules
                 new[] { "linker / 热更根", "link.xml 是否保留；Profile 是否部署完整 DLL", "已经完成同步和 Generate" },
                 new[] { "目标平台 Build", "IL2CPP、引擎模块、压缩后的结果", "能从 Windows 外推到 WebGL" });
             host.AddSubNote("一个关键例外：当前可选 Runtime Module 都引用 Core。若 Core 热更，只要某个 Module 仍参与 Player 编译，它就不能被单独留在 AOT；否则会形成 `AOT → 热更` 引用，校验器会拒绝。",
-                new CodeRef("Assets/Game/Framework/Build/Editor/HotUpdateAssemblyGraph.cs", "class HotUpdateAssemblyGraph", "热更传播约束 · AOT 不引用热更"));
+                new CodeRef("Assets/Game/Framework/Build/HybridCLR/Editor/HotUpdateAssemblyGraph.cs", "class HotUpdateAssemblyGraph", "热更传播约束 · AOT 不引用热更"));
 
             // ── Editor 工具装配 ──
             host.AddSectionTitle("编辑器工具也跟着 Module 走");

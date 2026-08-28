@@ -38,47 +38,57 @@ namespace Game.Framework.Build
         }
 
         [Tooltip("逐包构建配置。包名需与 YooAsset 收集器（Bundle Collector）里的包一致。")]
+        [InspectorName("资源包列表（Packages）")]
         [FormerlySerializedAs("Packages")]
         [SerializeField] private List<PackageBuildEntry> _packages = new();
 
         [Header("构建")]
         [Tooltip("默认版本号格式（DateTime.ToString 格式串）。CI 用 -version 显式覆盖以保证可追溯。\n格式串非法时构建不中断：自动回退默认格式并报错提示修正。")]
+        [InspectorName("版本号格式")]
         [FormerlySerializedAs("VersionFormat")]
         [SerializeField] private string _versionFormat = DefaultVersionFormat;
 
         [Tooltip("Bundles 每个包保留最近几个版本——更旧的版本目录构建后自动删，省空间。要回滚/对比可调大。")]
+        [InspectorName("每个包保留的版本数量")]
         [FormerlySerializedAs("BundleVersionsToKeep")]
         [Min(1)] [SerializeField] private int _bundleVersionsToKeep = 2;
 
         [Tooltip("Bundle 压缩方式（对所有包生效）。\nLZ4 = 体积 / 加载速度平衡（默认，推荐）；LZMA = 最小体积但解压慢、首次加载卡；Uncompressed = 加载最快、体积最大。")]
+        [InspectorName("Bundle 压缩方式")]
         [SerializeField] private ECompressOption _compression = ECompressOption.LZ4;
 
         [Tooltip("Bundle 文件名风格（对所有包生效）。\nHashName = 纯哈希名（默认，天然防缓存碰撞）；其余见 YooAsset EFileNameStyle。")]
+        [InspectorName("Bundle 文件名风格")]
         [SerializeField] private EFileNameStyle _fileNameStyle = EFileNameStyle.HashName;
 
         [Header("加密")]
         [Tooltip("AssetBundle 文件头偏移加密：>0 时构建在每个 bundle 头前插入该字节数，挡住直接用 AB 提取工具打开（弱加密，仅防扫魔数）。0 = 不加密。\n" +
                  "⚠ 必须与场景 AssetSystemConfigModel.FileOffset【完全一致】——构建插几个字节、运行时就跳几个字节，对不上会读坏所有 bundle。\n" +
                  "要真正的内容加密（XOR / AES 等）见 docs/asset-encryption.md：需自定义构建侧 IBundleEncryptor + 运行时侧解密器，本字段不适用。")]
+        [InspectorName("文件头偏移字节数")]
         [Min(0)] [SerializeField] private ulong _fileOffset = 0;
 
         [Header("代码生成")]
         [Tooltip("「生成包名常量代码」的输出文件路径（必须位于 Assets 子目录，且以 .cs 结尾）。类名 = 文件名去掉 .g.cs。\n" +
                  "生成的 const string 常量供业务代码替代裸包名字符串——收集器改名/删包后重新生成，引用处编译期报错。\n" +
                  "留空 = 不使用此功能。")]
+        [InspectorName("包名常量输出路径")]
         [SerializeField] private string _packageConstantsPath = "";
 
         [Tooltip("包名常量类所在的命名空间（业务层命名空间）。启用代码生成时需与输出程序集一并明确填写。")]
+        [InspectorName("包名常量命名空间")]
         [SerializeField] private string _packageConstantsNamespace = "";
 
         [Header("本地联调（不入库，仅本机测 Host）")]
         [Tooltip("本地 CDN 服务端口（python http 服务，伺服 AssetBuild/Deploy）。⚠ 必须与场景 AssetSystemConfigModel.CdnUrls 第一条（主）的端口一致，Host 才能下到东西。")]
+        [InspectorName("本地 CDN 端口")]
         [FormerlySerializedAs("LocalServePort")]
         [Min(1)] [SerializeField] private int _localServePort = 8080;
 
         [Tooltip("本地 CDN 服务限速（KB/s，模拟弱网测下载/进度 UI）。0 = 不限速。\n" +
                  "注意：限速是【每连接】的；实际总带宽 ≈ 该值 × 并发数（AssetSystemConfigModel.DownloadingMaxNumber）。\n" +
                  "想精确模拟把并发设 1。改了限速要先关掉已开的服务再重启才生效。")]
+        [InspectorName("本地 CDN 每连接限速（KB/s）")]
         [FormerlySerializedAs("LocalServeThrottleKBps")]
         [Min(0)] [SerializeField] private int _localServeThrottleKBps = 0;
 
@@ -264,20 +274,24 @@ namespace Game.Framework.Build
     public sealed class PackageBuildEntry
     {
         [Tooltip("资源包名称，需与 YooAsset 收集器里的包一致，并能作为单一跨平台目录名（不能含空白、路径分隔符或 URL 结构字符）。")]
+        [InspectorName("资源包名")]
         [FormerlySerializedAs("PackageName")]
         [SerializeField] private string _packageName;
 
         [Tooltip("是否参与「构建资源包」。关掉则该包不被构建（保留配置备用）。")]
+        [InspectorName("参与构建")]
         [FormerlySerializedAs("BuildEnabled")]
         [SerializeField] private bool _buildEnabled = true;
 
         [Tooltip("首包策略：哪些 bundle 随安装包进 StreamingAssets。\n" +
                  "ClearAndCopyByTags = 清空后按 Tags 拷贝（最常用）；其余见 YooAsset EBundledCopyOption。")]
+        [InspectorName("首包拷贝策略")]
         [FormerlySerializedAs("BuiltinCopy")]
         [SerializeField] private EBundledCopyOption _builtinCopy = EBundledCopyOption.ClearAndCopyByTags;
 
         [Tooltip("首包 tag（多 tag 用分号 ; 分隔，YooAsset 内部按 ; 切）。\n" +
                  "留空 = 不内置任何 bundle、只出内置清单（全部运行时从 CDN 下）。")]
+        [InspectorName("首包标签（Tags）")]
         [FormerlySerializedAs("BuiltinTags")]
         [SerializeField] private string _builtinTags = "";
 
@@ -285,6 +299,7 @@ namespace Game.Framework.Build
                  "⚠ 重要：包里若【没有任何】引用内置 shader 的资产（如纯 Sprite / 纯数据包），必须【关】——\n" +
                  "否则 SBP 的 obsolete 任务 CreateBuiltInShadersBundle 取空 layout 会崩（IBundleExplictObjectLayout was not available）。\n" +
                  "真实有材质/UI/模型的包【开】：内置 shader 正确去重。这是 YooAsset 仍用 obsolete 任务的已知坑，详见 FrameworkAssetBuilder 注释。")]
+        [InspectorName("生成 Unity 内置 Shader 包")]
         [FormerlySerializedAs("GenerateBuiltinShaderBundle")]
         [SerializeField] private bool _generateBuiltinShaderBundle = true;
 
