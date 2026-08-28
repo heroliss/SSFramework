@@ -70,7 +70,7 @@ namespace Game.Framework.UI.Toolkit
         {
             if (context == null) throw new ArgumentNullException(nameof(context));
             if (_context != null) throw new InvalidOperationException(
-                $"[{GetType().Name}] already bound to a context; bind must happen once.");
+                $"[{GetType().Name}] 已绑定 Context，不能重复绑定；每个 UI Toolkit View 实例只能绑定一次。");
 
             _context = context;
             Root = root ?? new VisualElement();

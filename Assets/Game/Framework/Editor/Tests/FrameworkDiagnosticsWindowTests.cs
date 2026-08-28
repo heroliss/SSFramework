@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using Game.Framework.Context;
 using Game.Framework.Internal;
+using Game.Framework.Systems;
 using NUnit.Framework;
 using UnityEditor.UIElements;
 using UnityEngine;
@@ -117,6 +118,8 @@ namespace Game.Framework.Editor.Tests
                 var split = root.Q<TwoPaneSplitView>("diagnostics-context-split");
                 var table = root.Q<MultiColumnListView>("diagnostics-command-table");
                 var search = root.Q<ToolbarSearchField>("diagnostics-tree-search");
+                var commandHint = root.Q<HelpBox>("diagnostics-command-hint");
+                var mode = FrameworkDiagnosticsWindow.ResolveLayoutMode(width);
 
                 Assert.That(split, Is.Not.Null);
                 Assert.That(split.orientation, Is.EqualTo(expectedOrientation));
@@ -124,11 +127,29 @@ namespace Game.Framework.Editor.Tests
                 Assert.That(table.columns.Count(column => column.visible), Is.EqualTo(expectedVisibleColumns));
                 Assert.That(search, Is.Not.Null);
                 Assert.That(search.parent.name, Is.EqualTo(expectedSearchParent));
+                Assert.That(commandHint, Is.Not.Null);
+                Assert.That(commandHint.text, Is.EqualTo(
+                    FrameworkDiagnosticsWindow.ResolveCommandHint(mode)));
             }
             finally
             {
                 Object.DestroyImmediate(window);
             }
+        }
+
+        [Test]
+        public void CompactCommandHint_PreservesNextStepWithoutRenderingLongCodeBlock()
+        {
+            string compact = FrameworkDiagnosticsWindow.ResolveCommandHint(
+                FrameworkDiagnosticsWindow.LayoutMode.Compact);
+            string full = FrameworkDiagnosticsWindow.ResolveCommandHint(
+                FrameworkDiagnosticsWindow.LayoutMode.Medium);
+
+            Assert.That(compact, Does.Contain("显式接入"));
+            Assert.That(compact, Does.Contain(nameof(LoggingCommandSystem)));
+            Assert.That(compact, Does.Not.Contain("builder.RegisterValue"));
+            Assert.That(full, Does.Contain("builder.RegisterValue"));
+            Assert.That(full, Does.Contain(nameof(LoggingCommandSystem)));
         }
 
         [Test]

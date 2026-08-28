@@ -405,7 +405,7 @@ namespace Game.Framework.Test
                 Assert.AreEqual(LogLevel.Error, sink.Entries[0].Level);
                 Assert.AreEqual("GameFlow", sink.Entries[0].Category);
                 StringAssert.Contains(nameof(TestState), sink.Entries[0].Message);
-                StringAssert.Contains("continues", sink.Entries[0].Message);
+                StringAssert.Contains("流程清理将继续", sink.Entries[0].Message);
                 Assert.AreEqual("exit-boom", sink.Entries[0].Exception.Message);
             }
             finally
@@ -610,6 +610,8 @@ namespace Game.Framework.Test
                     Assert.IsFalse(_flow.IsTransitioning);
                     Assert.AreEqual(1, sink.Entries.Count);
                     Assert.AreEqual("GameFlow", sink.Entries[0].Category);
+                    StringAssert.Contains("取消回调执行失败", sink.Entries[0].Message);
+                    StringAssert.Contains("作用域清理将继续", sink.Entries[0].Message);
                     Assert.AreSame(cancellationFailure, sink.Entries[0].Exception.InnerException);
 
                     enterReleased = enterGate.TrySetResult();

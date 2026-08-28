@@ -349,7 +349,7 @@ namespace Game.Framework.Audio
             {
                 if (!ReferenceEquals(v.FadeCts, owner)) return;
                 Log.Error(
-                    "Audio fade task stopped unexpectedly.",
+                    "音量淡变任务意外停止。",
                     e,
                     nameof(AudioUtility),
                     v.Source);
@@ -441,7 +441,7 @@ namespace Game.Framework.Audio
             catch (Exception e)
             {
                 Log.Error(
-                    "Audio voice recycling driver stopped unexpectedly.",
+                    "音频 Voice 回收驱动意外停止。",
                     e,
                     nameof(AudioUtility),
                     _root);
@@ -472,7 +472,7 @@ namespace Game.Framework.Audio
             if (!_disposed) return false;
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             Log.Error(
-                $"'{op}' called after Dispose——音频服务已释放，检查是否持有了过期的 IAudioUtility 引用。",
+                $"音频服务已释放，不能再调用 '{op}'；请检查是否持有了过期的 IAudioUtility 引用。",
                 category: nameof(AudioUtility));
 #endif
             return true;

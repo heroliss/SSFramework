@@ -207,7 +207,7 @@ namespace Game.Framework.Flow
             catch (Exception e)
             {
                 Log.Error(
-                    $"FlowState '{state.GetType().Name}' OnExit failed; flow cleanup continues and its scope is still released.",
+                    $"FlowState '{state.GetType().Name}' 的 OnExit 执行失败；流程清理将继续，并仍会释放该状态作用域。",
                     e,
                     "GameFlow");
             }
@@ -222,7 +222,7 @@ namespace Game.Framework.Flow
             catch (Exception e)
             {
                 Log.Error(
-                    "An OnEnter cancellation callback failed; flow cancellation and scope cleanup continue.",
+                    "OnEnter 的取消回调执行失败；流程取消与作用域清理将继续。",
                     e,
                     "GameFlow");
             }
