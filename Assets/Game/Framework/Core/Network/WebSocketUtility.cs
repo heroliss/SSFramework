@@ -34,6 +34,10 @@ namespace Game.Framework.Network
     public sealed class WebSocketUtility : IWebSocketUtility, IHasGameContext, IDisposable
     {
         private static readonly TimeSpan UnexpectedCloseTimeout = TimeSpan.FromSeconds(1);
+        private const string SendUnexpectedCancellationReason = "WebSocket 发送被传输层意外取消";
+        private const string SendFailureReason = "WebSocket 发送异常结束";
+        private const string ReceiveUnexpectedCancellationReason = "WebSocket 接收被传输层意外取消";
+        private const string ReceiveFailureReason = "WebSocket 接收异常结束";
 
         // 默认（JSON）envelope wire 格式：payload 是「载荷的 JSON 文本」二次编码（ADR-0028 §4）。JsonUtility 需要公共字段。
         // 序列化器实现 IWebSocketEnvelopeSerializer 时不走此类型——envelope 编解码整体交给序列化器（payload 保持 byte[]）。
@@ -206,9 +210,22 @@ namespace Game.Framework.Network
             if (_state.Value != NetworkConnectionState.Disconnected)
                 throw new InvalidOperationException($"[WebSocketUtility] 当前状态 {_state.Value}，不能重复 Connect——先 Disconnect。");
 
-            Uri uri;
-            try { uri = new Uri(url); }
-            catch (Exception e) { throw new ArgumentException($"url '{url}' 格式非法：{e.Message}", nameof(url)); }
+            if (!Uri.TryCreate(url, UriKind.Absolute, out Uri uri))
+                throw new ArgumentException(
+                    $"WebSocket url 必须是绝对地址（ws:// 或 wss://）：'{url}'。", nameof(url));
+            if (!string.Equals(uri.Scheme, "ws", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(uri.Scheme, "wss", StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException(
+                    $"WebSocket url 只支持 ws:// 或 wss://，当前 scheme 为 '{uri.Scheme}'：'{url}'。", nameof(url));
+            if (string.IsNullOrWhiteSpace(uri.Host))
+                throw new ArgumentException(
+                    $"WebSocket url 必须包含服务器 host（ws:// 或 wss://）：'{url}'。", nameof(url));
+            if (!string.IsNullOrEmpty(uri.UserInfo))
+                throw new ArgumentException(
+                    $"WebSocket url 不支持 userinfo，请通过协议约定传递认证信息：'{url}'。", nameof(url));
+            if (!string.IsNullOrEmpty(uri.Fragment))
+                throw new ArgumentException(
+                    $"WebSocket url 不支持 fragment（#...）：'{url}'。", nameof(url));
 
             // Disconnect 已把公开 State 置为 Disconnected 时，底层 Close 可能仍在退场。只等内部成功 barrier，
             // 不 await 上一个调用者的公共 Disconnect task（否则它的 OCE 会错误传给无关的 Connect）。
@@ -358,6 +375,16 @@ namespace Game.Framework.Network
                     category: nameof(WebSocketUtility),
                     exception: e);
             }
+            catch (Exception e) when (ct.IsCancellationRequested || _disposed || session.ReceiveToken.IsCancellationRequested)
+            {
+                await UniTask.SwitchToMainThread();
+                // 某些 Adapter 在 token 取消 / Dispose 竞态里会抛 ODE、socket error 等非 OCE。
+                // 分类以 owner 意图为准，不能把调用方或宿主取消伪装成 best-effort 传输失败。
+                throw new OperationCanceledException(
+                    "WebSocket 断开随调用方或宿主生命周期取消。",
+                    e,
+                    ct.IsCancellationRequested ? ct : session.ReceiveToken);
+            }
             catch (Exception e)
             {
                 await UniTask.SwitchToMainThread();
@@ -416,8 +443,15 @@ namespace Game.Framework.Network
             session?.CancelAll();
             session?.Dispose();
             _lifetimeCts.Dispose();
-            _provider.Dispose();
-            _state.Dispose();
+            try
+            {
+                _provider.Dispose();
+            }
+            finally
+            {
+                // Provider 释放失败仍应交给 Context owner 记录，但不能截断响应式 State 自身的释放。
+                _state.Dispose();
+            }
         }
 
         // ── 内部 ─────────────────────────────────────────────────────────────
@@ -469,6 +503,14 @@ namespace Game.Framework.Network
                 {
                     throw; // 调用方意图 / 宿主释放：OCE 原样保留
                 }
+                catch (Exception e) when (ct.IsCancellationRequested || _disposed)
+                {
+                    // Adapter 可能在取消 / Dispose 后用 ODE、socket error 等形态退场；owner 意图优先于异常外形。
+                    throw new OperationCanceledException(
+                        "WebSocket 发送随调用方或宿主生命周期取消。",
+                        e,
+                        ct.IsCancellationRequested ? ct : linked.Token);
+                }
                 catch (OperationCanceledException e)
                 {
                     // session 被 Disconnect 关闭，或 provider 在 token 未取消时自发 OCE：对这个 Send 都是连接失效，
@@ -476,13 +518,17 @@ namespace Game.Framework.Network
                     transportFailure = new NetworkException(NetworkErrorKind.ConnectionError,
                         $"WebSocket 发送失败：连接会话 #{session.Generation} 已结束或传输被意外取消。", inner: e);
                     if (!session.SendToken.IsCancellationRequested)
-                        terminalReason = "WebSocket 发送被传输层意外取消";
+                        terminalReason = SendUnexpectedCancellationReason;
                 }
                 catch (NetworkException e) when (providerInvoked)
                 {
-                    // Adapter 也允许直接使用框架的 NetworkException；只要异常来自物理 Send，就同样终结 current session。
-                    transportFailure = e;
-                    terminalReason = string.IsNullOrWhiteSpace(e.Message) ? "WebSocket 发送异常结束" : e.Message;
+                    // Adapter 可以主动使用框架异常形态，但其 message 仍属于接缝外实现细节；
+                    // Utility 重新建立稳定的公共错误正文，并把完整 Adapter 异常保留为 inner。
+                    transportFailure = new NetworkException(
+                        NetworkErrorKind.ConnectionError,
+                        "WebSocket 发送失败：连接已断开或传输异常。",
+                        inner: e);
+                    terminalReason = SendFailureReason;
                 }
                 catch (NetworkException)
                 {
@@ -492,8 +538,11 @@ namespace Game.Framework.Network
                 {
                     // 发送中途 socket 断掉（EnsureConnected 只挡得住「调用时未连接」）：折叠为 ConnectionError，
                     // 不让 WebSocketException 之类传输层原始异常泄给业务；发送本身也必须终结 session，不能依赖接收恰好随后失败。
-                    transportFailure = new NetworkException(NetworkErrorKind.ConnectionError, $"WebSocket 发送失败：{e.Message}", inner: e);
-                    terminalReason = string.IsNullOrWhiteSpace(e.Message) ? "WebSocket 发送异常结束" : e.Message;
+                    transportFailure = new NetworkException(
+                        NetworkErrorKind.ConnectionError,
+                        "WebSocket 发送失败：连接已断开或传输异常。",
+                        inner: e);
+                    terminalReason = SendFailureReason;
                 }
 
                 if (transportFailure != null && terminalReason != null)
@@ -539,13 +588,13 @@ namespace Game.Framework.Network
                     catch (OperationCanceledException e)
                     {
                         terminalError = e;
-                        lostReason = "WebSocket 接收被传输层意外取消";
+                        lostReason = ReceiveUnexpectedCancellationReason;
                         break;
                     }
                     catch (Exception e)
                     {
                         terminalError = e;
-                        lostReason = string.IsNullOrWhiteSpace(e.Message) ? "WebSocket 接收异常结束" : e.Message;
+                        lostReason = ReceiveFailureReason;
                         break;
                     }
 

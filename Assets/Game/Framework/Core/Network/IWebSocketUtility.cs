@@ -27,7 +27,10 @@ namespace Game.Framework.Network
         /// <summary>true = 用户主动 Disconnect；false = 意外断开（对端关闭 / 收发异常）。</summary>
         public readonly bool ByUser;
 
-        /// <summary>关闭原因描述（日志 / 提示用）。</summary>
+        /// <summary>
+        /// 框架拥有的稳定关闭原因（日志 / 提示用），不会直接透出平台或第三方 Adapter 的异常消息；
+        /// 原始异常另由结构化日志或调用异常的 inner 保留。不要按完整句子驱动业务分支，重连只判断 <see cref="ByUser"/>。
+        /// </summary>
         public readonly string Reason;
 
         public WebSocketClosedEvent(bool byUser, string reason)
@@ -82,7 +85,9 @@ namespace Game.Framework.Network
         /// </summary>
         void RegisterPush<TEvent>(string type) where TEvent : IEvent;
 
-        /// <summary>建立连接（<c>ws://</c> / <c>wss://</c>）。已在 Connecting/Connected 时调用抛
+        /// <summary>以绝对 <c>ws://</c> / <c>wss://</c> 地址建立连接；地址必须包含 host，且不能包含
+        /// userinfo 或 fragment。格式不符合时抛 <see cref="ArgumentException"/>，且不会调用 Provider。
+        /// 已在 Connecting/Connected 时调用抛
         /// <see cref="InvalidOperationException"/>；失败/超时（含 provider 在 token 未取消时自发 OCE）抛
         /// <see cref="NetworkException"/> 且状态回 Disconnected。调用方 / Context / Disconnect 取消仍原样抛 OCE。
         /// provider 成功返回是物理 ownership 提交点；普通 caller 取消与完成竞态时允许成功赢并建立 session。
@@ -98,14 +103,16 @@ namespace Game.Framework.Network
         /// 等发送退场后尽力发 Close，再停止接收并发布一次 <see cref="WebSocketClosedEvent"/>(ByUser:true)。
         /// <para><paramref name="ct"/> 在入口已经取消时不提交断开；关闭开始后再取消只停止优雅握手等待，
         /// session 清理与关闭事件仍完成，随后向调用方原样抛 <see cref="OperationCanceledException"/>；若 token 未取消而
-        /// provider 自发 OCE，则只按 best-effort 关闭握手失败记录，不向调用方伪造取消。</para>
+        /// provider 自发 OCE，则只按 best-effort 关闭握手失败记录，不向调用方伪造取消。若 owner 已取消而 Adapter 以
+        /// ODE / socket error 等其它异常形态退场，框架会保留其为 inner 并统一收口成 OCE。</para>
         /// </summary>
         UniTask Disconnect(CancellationToken ct = default);
 
         /// <summary>发送一条 envelope 消息（type + 序列化后的 payload）。多次调用保序（内部 FIFO）。
         /// 未连接、发送中途断掉、或该帧仍排队时所属连接已被替换，均抛 <see cref="NetworkException"/>
         /// （<see cref="NetworkErrorKind.ConnectionError"/>）；旧帧不会跨连接发送。current session 的物理发送失败还会发布一次
-        /// <see cref="WebSocketClosedEvent"/>(ByUser:false)，不依赖接收循环随后也报错。</summary>
+        /// <see cref="WebSocketClosedEvent"/>(ByUser:false)，不依赖接收循环随后也报错。调用方 / Context 取消优先保持 OCE；
+        /// Adapter 在已取消 owner 下抛出的其它异常形态只作为 inner 保留。</summary>
         UniTask Send<T>(string type, T payload, CancellationToken ct = default) where T : class;
 
         /// <summary>发送无载荷消息（如心跳 ping）。</summary>

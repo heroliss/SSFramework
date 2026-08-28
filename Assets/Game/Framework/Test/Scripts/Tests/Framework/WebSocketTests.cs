@@ -68,10 +68,16 @@ namespace Game.Framework.Test
             public bool CompleteConnectOnThreadPool;
             public bool CompleteCloseOnThreadPool;
             public bool IgnoreCancellationForConnectGate;
+            public bool IgnoreCancellationForSendGate;
+            public bool IgnoreCancellationForCloseGate;
             public bool ThrowOnConnectCancellation;
             public bool ThrowOnSendCancellation;
             public bool ThrowOnReceiveCancellation;
             public bool ThrowOnCloseCancellation;
+            public bool ThrowDisposedWhenSendTokenCanceled;
+            public bool ThrowDisposedWhenCloseTokenCanceled;
+            public bool ThrowOnDispose;
+            public int ConnectCount;
             public int DisposeCount;
             public int AbortCount;
             public readonly List<byte[]> Sent = new();
@@ -88,6 +94,7 @@ namespace Game.Framework.Test
 
             public async UniTask ConnectAsync(Uri uri, CancellationToken ct)
             {
+                ConnectCount++;
                 if (ThrowOnConnectCancellation)
                     ct.Register(() => throw new InvalidOperationException("fake connect cancellation callback"));
                 if (FailConnect) throw new Exception("fake connect failure");
@@ -107,7 +114,13 @@ namespace Game.Framework.Test
                 if (ThrowOnSendCancellation)
                     ct.Register(() => throw new InvalidOperationException("fake send cancellation callback"));
                 UniTaskCompletionSource gate = SendGate; // 一次物理发送绑定调用入口时的 gate，模拟 provider 绑定底层 socket
-                if (gate != null) await gate.Task.AttachExternalCancellation(ct);
+                if (gate != null)
+                {
+                    if (IgnoreCancellationForSendGate) await gate.Task;
+                    else await gate.Task.AttachExternalCancellation(ct);
+                }
+                if (ThrowDisposedWhenSendTokenCanceled && ct.IsCancellationRequested)
+                    throw new ObjectDisposedException("fake send socket");
                 if (FailSend || FailSendCount > 0)
                 {
                     if (FailSendCount > 0) FailSendCount--;
@@ -146,10 +159,20 @@ namespace Game.Framework.Test
                 if (ThrowOnCloseCancellation)
                     ct.Register(() => throw new InvalidOperationException("fake close cancellation callback"));
                 if (CancelCloseWithoutToken) throw new OperationCanceledException("fake provider canceled close");
-                if (CloseGate != null) await CloseGate.Task.AttachExternalCancellation(ct);
+                if (CloseGate != null)
+                {
+                    if (IgnoreCancellationForCloseGate) await CloseGate.Task;
+                    else await CloseGate.Task.AttachExternalCancellation(ct);
+                }
+                if (ThrowDisposedWhenCloseTokenCanceled && ct.IsCancellationRequested)
+                    throw new ObjectDisposedException("fake close socket");
                 if (CompleteCloseOnThreadPool) await UniTask.SwitchToThreadPool();
             }
-            public void Dispose() => DisposeCount++;
+            public void Dispose()
+            {
+                DisposeCount++;
+                if (ThrowOnDispose) throw new InvalidOperationException("fake provider dispose failure");
+            }
             public void Abort() => AbortCount++;
 
             public void InjectMessage(byte[] msg) => Deliver(msg);
@@ -196,8 +219,40 @@ namespace Game.Framework.Test
         public IEnumerator Connect_TransitionsToConnected() => UniTask.ToCoroutine(async () =>
         {
             Assert.AreEqual(NetworkConnectionState.Disconnected, _ws.State.CurrentValue);
-            await _ws.Connect("ws://fake/");
+            await _ws.Connect("wss://fake/socket?token=demo");
             Assert.AreEqual(NetworkConnectionState.Connected, _ws.State.CurrentValue);
+            Assert.AreEqual(1, _fake.ConnectCount, "合法 wss 地址的 path / query 应原样交给 Provider");
+        });
+
+        [UnityTest]
+        public IEnumerator Connect_InvalidWebSocketUrl_FailsBeforeProvider() => UniTask.ToCoroutine(async () =>
+        {
+            string[] invalidUrls =
+            {
+                "/relative",
+                "ws:relative",
+                "http://fake/",
+                "ws://user:password@fake/",
+                "ws://fake/path#fragment",
+                "not a uri",
+            };
+            foreach (string invalidUrl in invalidUrls)
+            {
+                try
+                {
+                    await _ws.Connect(invalidUrl);
+                    Assert.Fail($"非法 WebSocket url 应在调用 Provider 前失败：{invalidUrl}");
+                }
+                catch (ArgumentException e)
+                {
+                    StringAssert.Contains("ws://", e.Message);
+                    StringAssert.Contains(invalidUrl, e.Message);
+                }
+            }
+
+            Assert.AreEqual(0, _fake.ConnectCount,
+                "相对地址、非 ws/wss scheme、userinfo 与 fragment 都属于调用方配置错误，不能交给 Adapter 猜测");
+            Assert.AreEqual(NetworkConnectionState.Disconnected, _ws.State.CurrentValue);
         });
 
         [UnityTest]
@@ -463,10 +518,10 @@ namespace Game.Framework.Test
         {
             // EnsureConnected 只挡「调用时未连接」；写 socket 中途失败（对端刚断）也必须折叠为
             // NetworkException(ConnectionError)，并形成可观察的断线终态，不能留下假 Connected。
-            int unexpectedCloseCount = 0;
+            WebSocketClosedEvent? closed = null;
             using var sub = _ctx.RegisterEvent<WebSocketClosedEvent>(e =>
             {
-                if (!e.ByUser) unexpectedCloseCount++;
+                if (!e.ByUser) closed = e;
             });
             await _ws.Connect("ws://fake/");
             _fake.FailSend = true;
@@ -478,28 +533,99 @@ namespace Game.Framework.Test
             catch (NetworkException e)
             {
                 Assert.AreEqual(NetworkErrorKind.ConnectionError, e.Kind);
+                Assert.IsInstanceOf<Exception>(e.InnerException);
+                StringAssert.Contains("fake send failure", e.InnerException.Message,
+                    "业务异常正文保持稳定中文，Provider 原始详情由 InnerException 保留");
+                Assert.IsFalse(e.Message.Contains("fake send failure"),
+                    "NetworkException 正文不应直接泄露平台或第三方 Adapter 的不稳定消息");
             }
             Assert.AreEqual(NetworkConnectionState.Disconnected, _ws.State.CurrentValue);
-            Assert.AreEqual(1, unexpectedCloseCount,
+            Assert.IsTrue(closed.HasValue,
                 "接收仍挂起时，发送失败也必须发布一次意外关闭事件，让业务有机会重连");
+            Assert.AreEqual("WebSocket 发送异常结束", closed.Value.Reason);
+        });
+
+        [UnityTest]
+        public IEnumerator Send_CallerCancellation_NonOceProviderExit_StaysOceAndKeepsSession() => UniTask.ToCoroutine(async () =>
+        {
+            await _ws.Connect("ws://fake/");
+            _fake.SendGate = new UniTaskCompletionSource();
+            _fake.IgnoreCancellationForSendGate = true;
+            _fake.ThrowDisposedWhenSendTokenCanceled = true;
+            using var cts = new CancellationTokenSource();
+
+            UniTask sending = _ws.Send("caller-cancel", cts.Token);
+            cts.Cancel();
+            _fake.SendGate.TrySetResult();
+            try
+            {
+                await sending;
+                Assert.Fail("caller 已取消时，Adapter 的 ODE 必须按 owner 意图收口为 OCE");
+            }
+            catch (OperationCanceledException e)
+            {
+                Assert.AreEqual(cts.Token, e.CancellationToken);
+                Assert.IsInstanceOf<ObjectDisposedException>(e.InnerException);
+            }
+
+            Assert.AreEqual(NetworkConnectionState.Connected, _ws.State.CurrentValue,
+                "单次发送的 caller 取消只取消该 waiter，不能误判为整条连接失败");
+        });
+
+        [UnityTest]
+        public IEnumerator Send_ContextDispose_NonOceProviderExit_StaysLifecycleCancellation() => UniTask.ToCoroutine(async () =>
+        {
+            await _ws.Connect("ws://fake/");
+            _fake.SendGate = new UniTaskCompletionSource();
+            _fake.IgnoreCancellationForSendGate = true;
+            _fake.ThrowDisposedWhenSendTokenCanceled = true;
+
+            UniTask sending = _ws.Send("lifetime-cancel");
+            _ctx.Dispose();
+            _fake.SendGate.TrySetResult();
+            try
+            {
+                await sending;
+                Assert.Fail("Context Dispose 后 Adapter 的 ODE 必须保持生命周期取消语义");
+            }
+            catch (OperationCanceledException e)
+            {
+                Assert.IsInstanceOf<ObjectDisposedException>(e.InnerException);
+            }
         });
 
         [UnityTest]
         public IEnumerator Send_ProviderNetworkException_StillEndsCurrentSession() => UniTask.ToCoroutine(async () =>
         {
-            int unexpectedCloseCount = 0;
+            WebSocketClosedEvent? closed = null;
             using var sub = _ctx.RegisterEvent<WebSocketClosedEvent>(e =>
             {
-                if (!e.ByUser) unexpectedCloseCount++;
+                if (!e.ByUser) closed = e;
             });
             await _ws.Connect("ws://fake/");
             _fake.FailSendWithNetworkException = true;
 
-            await AssertConnectionError(_ws.Send("network-error"),
-                "Adapter 直接抛 NetworkException 也来自物理 Send，不能绕过 session 终态");
+            NetworkException error = null;
+            try
+            {
+                await _ws.Send("network-error");
+                Assert.Fail("Adapter 直接抛 NetworkException 也必须按物理 Send 失败收口");
+            }
+            catch (NetworkException e)
+            {
+                error = e;
+            }
 
+            Assert.IsNotNull(error);
+            Assert.AreEqual(NetworkErrorKind.ConnectionError, error.Kind);
+            Assert.AreEqual("WebSocket 发送失败：连接已断开或传输异常。", error.Message);
+            Assert.IsInstanceOf<NetworkException>(error.InnerException);
+            StringAssert.Contains("fake provider network failure", error.InnerException.Message,
+                "Adapter 详情只作为 inner 留证，不能成为公共错误正文");
             Assert.AreEqual(NetworkConnectionState.Disconnected, _ws.State.CurrentValue);
-            Assert.AreEqual(1, unexpectedCloseCount);
+            Assert.IsTrue(closed.HasValue);
+            Assert.AreEqual("WebSocket 发送异常结束", closed.Value.Reason,
+                "Provider 自己构造的 NetworkException 也不能把其 message 直接变成业务关闭原因");
         });
 
         [UnityTest]
@@ -724,7 +850,7 @@ namespace Game.Framework.Test
             Assert.AreEqual(1, unexpectedCloseCount);
             Assert.IsTrue(closed.HasValue);
             Assert.IsFalse(closed.Value.ByUser);
-            StringAssert.Contains("取消", closed.Value.Reason);
+            Assert.AreEqual("WebSocket 接收被传输层意外取消", closed.Value.Reason);
         });
 
         [UnityTest]
@@ -757,6 +883,65 @@ namespace Game.Framework.Test
             _fake.CloseGate = null;
             await _ws.Connect("ws://fake/");
             Assert.AreEqual(NetworkConnectionState.Connected, _ws.State.CurrentValue, "清理完成后同一 utility 应可立即重连");
+        });
+
+        [UnityTest]
+        public IEnumerator Disconnect_CallerCancellation_NonOceProviderExit_StaysOceAndStillCleansUp() => UniTask.ToCoroutine(async () =>
+        {
+            _fake.CloseGate = new UniTaskCompletionSource();
+            _fake.IgnoreCancellationForCloseGate = true;
+            _fake.ThrowDisposedWhenCloseTokenCanceled = true;
+            int userCloseCount = 0;
+            using var sub = _ctx.RegisterEvent<WebSocketClosedEvent>(e =>
+            {
+                if (e.ByUser) userCloseCount++;
+            });
+            await _ws.Connect("ws://fake/");
+            using var cts = new CancellationTokenSource();
+
+            UniTask disconnecting = _ws.Disconnect(cts.Token);
+            cts.Cancel();
+            _fake.CloseGate.TrySetResult();
+            try
+            {
+                await disconnecting;
+                Assert.Fail("caller 已取消时，Adapter 的 ODE 必须按 owner 意图收口为 OCE");
+            }
+            catch (OperationCanceledException e)
+            {
+                Assert.AreEqual(cts.Token, e.CancellationToken);
+                Assert.IsInstanceOf<ObjectDisposedException>(e.InnerException);
+            }
+
+            Assert.AreEqual(NetworkConnectionState.Disconnected, _ws.State.CurrentValue);
+            Assert.AreEqual(1, userCloseCount,
+                "断开意图已提交；caller 只取消握手等待，session 清理与 ByUser 事件仍须完成");
+        });
+
+        [UnityTest]
+        public IEnumerator Disconnect_ContextDispose_NonOceProviderExit_StaysLifecycleCancellation() => UniTask.ToCoroutine(async () =>
+        {
+            _fake.CloseGate = new UniTaskCompletionSource();
+            _fake.IgnoreCancellationForCloseGate = true;
+            _fake.ThrowDisposedWhenCloseTokenCanceled = true;
+            int closeCount = 0;
+            using var sub = _ctx.RegisterEvent<WebSocketClosedEvent>(_ => closeCount++);
+            await _ws.Connect("ws://fake/");
+
+            UniTask disconnecting = _ws.Disconnect();
+            _ctx.Dispose();
+            _fake.CloseGate.TrySetResult();
+            try
+            {
+                await disconnecting;
+                Assert.Fail("Context Dispose 后 Adapter 的 ODE 必须保持生命周期取消语义");
+            }
+            catch (OperationCanceledException e)
+            {
+                Assert.IsInstanceOf<ObjectDisposedException>(e.InnerException);
+            }
+
+            Assert.AreEqual(0, closeCount, "Context 整棵拆除期间不应再发布关闭事件");
         });
 
         [UnityTest]
@@ -938,10 +1123,13 @@ namespace Game.Framework.Test
         [UnityTest]
         public IEnumerator Receive_Exception_FiresExactlyOneUnexpectedClose() => UniTask.ToCoroutine(async () =>
         {
+            WebSocketClosedEvent? closed = null;
             int unexpectedCloseCount = 0;
             using var sub = _ctx.RegisterEvent<WebSocketClosedEvent>(e =>
             {
-                if (!e.ByUser) unexpectedCloseCount++;
+                if (e.ByUser) return;
+                unexpectedCloseCount++;
+                closed = e;
             });
 
             await _ws.Connect("ws://fake/");
@@ -950,9 +1138,14 @@ namespace Game.Framework.Test
             await UniTask.DelayFrame(2);
 
             Assert.AreEqual(NetworkConnectionState.Disconnected, _ws.State.CurrentValue);
+            Assert.IsTrue(closed.HasValue);
             Assert.AreEqual(1, unexpectedCloseCount);
+            Assert.AreEqual("WebSocket 接收异常结束", closed.Value.Reason);
+            Assert.IsFalse(closed.Value.Reason.Contains("transport broke"),
+                "业务事件只携带稳定框架原因，原始 Provider 异常由日志接缝保留");
             await _ws.Disconnect(); // 已断开 no-op，不得补发用户事件
-            Assert.AreEqual(1, unexpectedCloseCount);
+            Assert.AreEqual(1, unexpectedCloseCount,
+                "已断开 no-op 不得补发或覆盖终态事件");
         });
 
         [UnityTest]
@@ -1006,6 +1199,25 @@ namespace Game.Framework.Test
                 "CancellationToken 回调异常必须被 owner 隔离，不能截断 Context 级联释放");
             Assert.AreEqual(1, _fake.DisposeCount, "即使取消回调抛异常，Provider 仍必须被释放");
         });
+
+        [Test]
+        public void Dispose_ProviderFailure_StillDisposesReactiveStateAndPreservesOriginalException()
+        {
+            var stateOwner = (RP<NetworkConnectionState>)typeof(WebSocketUtility)
+                .GetField("_state", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                ?.GetValue(_ws);
+            Assert.IsNotNull(stateOwner, "测试应能定位 WebSocketUtility 的响应式 State owner");
+            Assert.IsFalse(stateOwner.IsDisposed);
+            _fake.ThrowOnDispose = true;
+
+            var error = Assert.Throws<InvalidOperationException>(_ws.Dispose);
+
+            Assert.AreEqual("fake provider dispose failure", error.Message,
+                "Provider 释放异常必须原样交给外层 OwnedDisposables 记录，不能被 State 清理覆盖");
+            Assert.AreEqual(1, _fake.DisposeCount);
+            Assert.IsTrue(stateOwner.IsDisposed,
+                "Provider.Dispose 抛错也不能截断响应式 State 的释放");
+        }
 
         [UnityTest]
         public IEnumerator Send_WhenNotConnected_ThrowsConnectionError() => UniTask.ToCoroutine(async () =>
