@@ -52,6 +52,23 @@ namespace Game.Framework.Editor.Tests
         }
 
         [Test]
+        public void InspectGenerationPrerequisites_RejectsInvalidNamespace()
+        {
+            var profile = CreateProfileWithEntry(namespaceName: "Bad Namespace", includeScanFolder: true);
+            try
+            {
+                var result = ServiceInstallerGenerator.InspectGenerationPrerequisites(profile);
+
+                Assert.That(result.CanGenerate, Is.False);
+                Assert.That(result.Message, Does.Contain("命名空间无效"));
+            }
+            finally
+            {
+                Object.DestroyImmediate(profile);
+            }
+        }
+
+        [Test]
         public void InspectGenerationPrerequisites_RejectsMissingScanFolder()
         {
             var profile = CreateProfileWithEntry(namespaceName: "Game.Generated", includeScanFolder: false);

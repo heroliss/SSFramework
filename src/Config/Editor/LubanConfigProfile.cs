@@ -14,7 +14,8 @@ namespace Game.Framework.Build
     /// 路径字段一律相对工程根目录，保证多人协作不受本机绝对路径影响；代码 / 数据输出还必须位于
     /// <c>Assets</c> 的非根子目录，生成入口会在创建目录或启动 CLI 前完成边界校验。
     /// <b>工程可并存多套</b>（例如按数据域或构建目标拆分）：每项代码 / 数据输出必须独占一个与其它项不嵌套的目录；
-    /// <see cref="ResolveAll"/> 返回全部，生成入口先统一验证所有权再逐套生成。路径无法从框架推导，因此缺失时不自动制造配置。
+    /// <see cref="ResolveAll"/> 返回全部。生成入口比较所有已经成立的安全输出声明后再按 Profile 就绪状态逐套生成；
+    /// 空白新配置不声明所有权，也不会冻结其它可用配置。路径无法从框架推导，因此缺失时不自动制造配置。
     /// </summary>
     [CreateAssetMenu(fileName = "LubanConfigProfile", menuName = "SSFramework/配置表生成配置 (Luban Profile)")]
     public sealed class LubanConfigProfile : ScriptableObject

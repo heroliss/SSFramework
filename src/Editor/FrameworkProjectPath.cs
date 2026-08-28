@@ -7,7 +7,7 @@ namespace Game.Framework.Editor
     /// <summary>
     /// 将用户配置的工程相对路径解析为规范化 Asset Path 与绝对路径，并在任何文件写入前锁定工程边界。
     /// 可选 Editor Module 共用本类型，避免各生成器只检查字符串前缀而被 <c>Assets/../..</c> 绕过。
-    /// 本类型只做词法路径校验，不创建目录或资产。
+    /// 本类型只做路径与当前文件系统对象类型校验，不创建目录或资产。
     /// </summary>
     public static class FrameworkProjectPath
     {
@@ -67,7 +67,8 @@ namespace Game.Framework.Editor
 
         /// <summary>
         /// 解析必须位于 <c>Assets</c> 子目录内的输出目录。默认拒绝 <c>Assets</c> 根目录，避免具有清理语义的
-        /// 生成器误把整个工程当成自己的产物目录；本方法不要求目录已经存在。
+        /// 生成器误把整个工程当成自己的产物目录；本方法不要求目录已经存在，但会拒绝目标或任一父级
+        /// 已被普通文件占用的路径。
         /// </summary>
         public static bool TryResolveAssetsDirectory(
             string configuredPath,
@@ -92,11 +93,26 @@ namespace Game.Framework.Editor
                 absolutePath = string.Empty;
                 return false;
             }
+            if (File.Exists(absolutePath))
+            {
+                error = $"目标当前是普通文件，不能作为输出目录：{configuredPath}";
+                assetPath = string.Empty;
+                absolutePath = string.Empty;
+                return false;
+            }
+            if (TryFindBlockingFileAncestor(absolutePath, out string blockingAssetPath))
+            {
+                error = $"路径中的父级已被普通文件占用，无法在其下创建输出：{blockingAssetPath}";
+                assetPath = string.Empty;
+                absolutePath = string.Empty;
+                return false;
+            }
             return true;
         }
 
         /// <summary>
-        /// 解析必须位于 <c>Assets</c> 子目录内的输出文件，并校验扩展名。成功时不会创建父目录或文件；
+        /// 解析必须位于 <c>Assets</c> 子目录内的输出文件，并校验扩展名。成功时不会创建父目录或文件，
+        /// 但会拒绝已被目录占用的目标，或任一父级已被普通文件占用的路径；
         /// <paramref name="requiredExtension"/> 应包含点号，例如 <c>.cs</c>。
         /// </summary>
         public static bool TryResolveAssetsFile(
@@ -125,6 +141,20 @@ namespace Game.Framework.Editor
                 !assetPath.EndsWith(requiredExtension, StringComparison.OrdinalIgnoreCase))
             {
                 error = $"输出文件必须以 {requiredExtension} 结尾：{configuredPath}";
+                assetPath = string.Empty;
+                absolutePath = string.Empty;
+                return false;
+            }
+            if (Directory.Exists(absolutePath))
+            {
+                error = $"目标当前是目录，不能作为输出文件：{configuredPath}";
+                assetPath = string.Empty;
+                absolutePath = string.Empty;
+                return false;
+            }
+            if (TryFindBlockingFileAncestor(absolutePath, out string blockingAssetPath))
+            {
+                error = $"路径中的父级已被普通文件占用，无法在其下创建输出：{blockingAssetPath}";
                 assetPath = string.Empty;
                 absolutePath = string.Empty;
                 return false;
@@ -161,6 +191,34 @@ namespace Game.Framework.Editor
             (path.Length >= 2 && char.IsLetter(path[0]) && path[1] == ':') ||
             path.StartsWith("\\\\", StringComparison.Ordinal) ||
             path.StartsWith("//", StringComparison.Ordinal);
+
+        private static bool TryFindBlockingFileAncestor(
+            string absoluteTargetPath,
+            out string blockingAssetPath)
+        {
+            blockingAssetPath = string.Empty;
+            string assetsRoot = Path.GetFullPath(Application.dataPath)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            string projectRoot = Directory.GetParent(assetsRoot)?.FullName ?? assetsRoot;
+            string current = Path.GetDirectoryName(Path.GetFullPath(absoluteTargetPath));
+
+            while (!string.IsNullOrEmpty(current) &&
+                   IsSameOrChild(current, assetsRoot, FileSystemPathComparison))
+            {
+                if (File.Exists(current))
+                {
+                    blockingAssetPath = Path.GetRelativePath(projectRoot, current).Replace('\\', '/');
+                    return true;
+                }
+
+                string normalizedCurrent = Path.GetFullPath(current)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                if (normalizedCurrent.Equals(assetsRoot, FileSystemPathComparison)) break;
+                current = Path.GetDirectoryName(normalizedCurrent);
+            }
+
+            return false;
+        }
 
         private static StringComparison FileSystemPathComparison =>
             Application.platform == RuntimePlatform.WindowsEditor

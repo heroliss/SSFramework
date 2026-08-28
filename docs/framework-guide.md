@@ -405,6 +405,12 @@ public class HudView : MonoViewBase
 
 业务按钮也不必“同生共死”。资源工作台里，构建和部署需要至少一个启用包，本地服务器只需要已有 Deploy 目录；因此零启用包不会阻止你继续查看已经部署的内容。服务安装器会先整批拒绝不安全输出路径和跨 Profile 的 `.g.cs` 所有权冲突，因为这两类问题可能覆盖别人的文件；命名空间、扫描目录或扫描结果则按条目独立报告，有一条就绪就可以先生成它。窗口显示的是同一份判定，不是另外猜的一套规则。
 
+Luban 与 Protobuf 也遵循相同的两级口径：同一生成器内的输出目录冲突会暂停整批，避免清理或覆盖别的配置；CLI、`luban.conf`、protoc、`.proto` 源文件等缺项只让对应卡片不可生成。所有权只比较已经能规范化为安全 `Assets` 路径的输出声明：刚新建、尚未填写输出的 Profile 不会冻结其它可用配置；但一个 Profile 即使还缺 CLI 或输入，只要已经声明了有效输出，该目录仍参与冲突比较，不能被另一套产物清理。存在部分可用配置时，按钮会明确写成“生成可用配置（x/y）”，并且只把这些配置交给动作层；零项可用时按钮直接写“暂无可生成配置”。字体字集稍有不同：逃逸工程的扫描路径、包含目录段的文件模式或无效输出路径会阻断；某个扫描目录暂不存在只会警告并跳过，因为 ASCII 与“额外字符”仍可能构成一份合法字集。三类工具都在真正写入或启动进程前复验同一份 Module 内判定。
+
+所有写入 `Assets` 的通用路径先经过 `FrameworkProjectPath`：除了防止 `Assets/../..` 逃逸和目录/文件类型用反，也会检查目标的任一父级是否已被普通文件占用，避免外部生成器跑完后才在建目录阶段失败。显式填写的 C# 命名空间会在写盘前验证；由文件名、Prefab 名、节点名或包名派生的类名、字段名和常量名则统一清洗非法字符、数字开头与保留关键字（例如 `class` 稳定变成 `_class`）。前者保留配置错误的可见性，后者减少内容命名给新手造成的无谓编译错误。
+
+当前输出所有权验证由各可删除生成器 Module 自己拥有，还不会跨 Luban、Protobuf、服务安装器等不同工具推断彼此的清理规则。项目应给不同生成器分配互不相同、互不嵌套的顶层生成目录；尤其不要把服务安装器或 Luban 的 `.g.cs` 放进 Protobuf 会递归清理的输出树。跨 Module 的中立 output-claim catalog 已列入架构候选，在它有明确的目录/文件/后缀所有权模型前，不让 Core 反向硬编码可选生成器类型。
+
 - `SSFramework/配置中心`：只读汇总各 Module 自注册的 Profile 类型、数量、位置和单例健康状态；缺配置时不暗中创建。删除可选 Module 后对应卡片自然消失，中央窗口不保留程序集名特例。
 - `构建与发布`：资源包与代码热更新的分步流水线。
 - `代码生成`：Luban、Protobuf、服务安装器与 UI 绑定，各自在自己的输入/输出上下文里操作。
@@ -1890,7 +1896,7 @@ var cachedItem = config.Tables.TbItem.Get(id);
 1. Luban CLI 解压到 `Tools/Luban/`（**不入库**，官方 release 可重下；缺 .NET 8 运行时时管线自动 `DOTNET_ROLL_FORWARD=LatestMajor`）。
 2. 建一处 conf 源目录：`luban.conf`（入口）+ `Defines/*.xml`（表定义）+ `Datas/`（数据）。放哪都行（路径填进 profile）；想随某模块一起删 / 抽包就放该模块目录下、用 `~` 后缀避免 Unity 导入。
 3. 在“配置总览”显式新建一个 `LubanConfigProfile`：填 conf 源、输出目录、topModule（见下方铁则）。需要多套时继续新建，并为每项代码 / 数据产物分配互不嵌套的独立输出目录。
-4. 打开 `SSFramework/代码生成/配置表 (Luban)` 工作台，点“生成全部”——逐套产出代码 / 数据 / 清单。
+4. 打开 `SSFramework/代码生成/配置表 (Luban)` 工作台。卡片会先检查 CLI、`luban.conf`、字段与输出所有权；全部就绪时点“生成全部”，只有部分就绪时点“生成可用配置（x/y）”，逐套产出代码 / 数据 / 清单。
 5. 确认数据输出目录在某个 YooAsset 收集器范围内（`.bytes` 按普通资源收集成 TextAsset、按文件名寻址）；demo 复用现成的 `FrameworkDemoGroup` 收集器，真实项目通常加进 DefaultPackage 的收集组。
 6. 写一个一行子类闭合泛型 `class GameConfigUtility : MonoConfigUtilityBase<Tables>`，补上面两个 override（`TableFiles` / `CreateTables`）；挂在 Context 子节点即可（与资源系统同 Context，靠容器父级回退共享 `IAssetUtility`，不必单独再挂一套资源系统）。
 7. 生成代码所在 asmdef 引用 `Luban.Runtime` + `Game.Framework.Config`；若业务程序集热更，它天然在热更侧（数据文件本就随资源包热更）。
@@ -2535,6 +2541,8 @@ CJK 全量字库体积大（单字体 15~30MB），全量随包不现实；砍�
 
 工作台 **SSFramework/代码生成/字体字集**（配置为 Charset Profile，全工程单例；缺失时由显式按钮创建）：扫描配置表（`.xlsx` 读 sharedStrings，Luban 源表直配）、代码字符串字面量（`.cs` 只取字面量，注释不进字集）、文案文件（`.json` / `.txt` 全文），去重出按码点排序的 charset 文件 → TMP Font Asset Creator 选主字体 ttf + **Characters from File** 烘焙 static atlas。常用字随包秒显，生僻字交给 ②③。
 
+工作台会在点击前区分错误与可恢复警告：扫描/输出路径逃逸工程、扫描路径实际是文件、输出目标实际是目录、文件名模式包含路径分隔符，或把 `.` / `..` 当作模式都会阻断，避免读写到扫描根或项目之外；`foo..txt` 仍是普通合法文件名模式。递归由扫描器统一负责，模式只写 `*.txt` 这类文件名。暂不存在的扫描目录会显示“将跳过”但仍允许生成，因为 ASCII 或额外字符可能就是本次的全部输入。未启用 ASCII 且没有额外字符时，预检不会为了绘制窗口而深度枚举全工程，而是提示扫描结果可能为空；生成后若实际得到 0 个字符，会明确以 Warning 报告已写入空字集。生成动作仍会重新检查，窗口提示不承担唯一安全线。
+
 ### 双后端的关键差异（实测 Unity 6000.3）
 
 - **TMP（UGUI 侧）没有引擎级 OS 兜底**：缺字就是豆腐块——②③ 在 TMP 侧是**刚需**。另外 TMP 缺字最后会查全局默认字体（TMP Settings → Default Font Asset）及其链，若主字体恰好就是默认字体，未列管的字体也会「沾光」——别依赖这个巧合。
@@ -2881,7 +2889,7 @@ builder.RegisterOwned(new HttpUtility(baseUrl, serializer: proto), typeof(IHttpU
 内置实现的定位是「消息不多的自建后端 / dev server」（Outpost 的排行榜是完整落地样例）：消息多到手写吃力、或要 `.proto` 契约共享 / map / oneof / 有符号 / 浮点，换官方 Google.Protobuf——框架已提供**增强模块 `Game.Framework.Network.Proto`** 承接这一档（可选启用，同 `Asset.Yoo` 收口姿势：Google.Protobuf 依赖收口于模块、内核仍零依赖，可整块删/抽 UPM）。接入三步：
 
 1. **加引用 + 装 DLL**：业务 asmdef 引用 `Game.Framework.Network.Proto`；Google.Protobuf 经 NuGetForUnity 装入（模块自带 link.xml 防 IL2CPP 裁剪）。
-2. **配 + 生成**：打开 `SSFramework/代码生成/Protobuf` 工作台，新建 `ProtoConfigProfile` → Inspector 填 .proto 源目录（放模块下的 `Proto~`，`~` 后缀不被 Unity 导入源文件）与 C# 输出目录 → 按套或全部生成（差量同步：内容未变不落盘、陈旧 `*.g.cs` 自动清理）。每套配置必须独占一个位于 `Assets` 内的子目录；相同或父子嵌套目录会在写盘前被拒绝，因为清理边界就是整棵输出目录。跨模块配置健康检查在 `SSFramework/配置中心`。
+2. **配 + 生成**：打开 `SSFramework/代码生成/Protobuf` 工作台，新建 `ProtoConfigProfile` → Inspector 填 protoc 工具目录、.proto 源目录（放模块下的 `Proto~`，`~` 后缀不被 Unity 导入源文件）与 C# 输出目录 → 按套或批量生成（差量同步：内容未变不落盘、陈旧 `*.g.cs` 自动清理）。卡片会递归统计 `.proto`，并在点击前一次列出缺失的 protoc、源目录或空输入；部分配置就绪时，批量按钮只生成可用项。每套配置必须独占一个位于 `Assets` 内的子目录；相同或父子嵌套目录会暂停整批，因为清理边界就是整棵输出目录。跨模块配置健康检查在 `SSFramework/配置中心`。
 3. **装配序列化器**：`RegisterFile` 整文件注册一个 .proto 的全部消息（含嵌套、跳过 map entry，并**递归 `import` 的依赖文件**——多 .proto 拆分时只给顶层 file、依赖自动带上），换真库后业务调用代码零改动：
 
 ```csharp

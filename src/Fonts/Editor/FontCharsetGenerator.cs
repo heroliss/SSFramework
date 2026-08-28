@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml;
@@ -23,6 +24,35 @@ namespace Game.Framework.Fonts.Editor
     /// </remarks>
     public static class FontCharsetGenerator
     {
+        internal readonly struct GenerationPrerequisiteReport
+        {
+            internal bool CanGenerate { get; }
+            internal string Message { get; }
+            internal bool HasWarnings { get; }
+            internal string OutputAssetPath { get; }
+            internal string OutputAbsolutePath { get; }
+            internal IReadOnlyList<(string configured, string absolute)> ScanDirectories { get; }
+            internal IReadOnlyList<string> FilePatterns { get; }
+
+            internal GenerationPrerequisiteReport(
+                bool canGenerate,
+                string message,
+                bool hasWarnings = false,
+                string outputAssetPath = "",
+                string outputAbsolutePath = "",
+                IReadOnlyList<(string configured, string absolute)> scanDirectories = null,
+                IReadOnlyList<string> filePatterns = null)
+            {
+                CanGenerate = canGenerate;
+                Message = message;
+                HasWarnings = hasWarnings;
+                OutputAssetPath = outputAssetPath;
+                OutputAbsolutePath = outputAbsolutePath;
+                ScanDirectories = scanDirectories ?? System.Array.Empty<(string, string)>();
+                FilePatterns = filePatterns ?? System.Array.Empty<string>();
+            }
+        }
+
         // 普通字符串 "..."（\ 转义）与逐字字符串 @"..."（"" 转义）；插值字符串的引号体也被普通规则覆盖。
         // 正则不是完整 C# 词法（如 '"' 字符字面量里的引号会误配一小段），charset 场景多收个别字符无害。
         private static readonly Regex CsStringLiteral = new(
@@ -46,26 +76,29 @@ namespace Game.Framework.Fonts.Editor
         /// </summary>
         public static (bool ok, string message, int count) TryGenerate(FontCharsetProfile profile)
         {
-            if (profile == null) return (false, "Font Charset Profile 不能为空。", 0);
-            if (!FrameworkProjectPath.TryResolveAssetsFile(
-                    profile.OutputPath, ".txt", out string outputAssetPath, out string outputPath, out string pathError))
-                return (false, "字集输出路径无效：" + pathError, 0);
-
-            var scanDirectories = new List<(string configured, string absolute)>();
-            foreach (string configuredDirectory in profile.ScanDirs ?? System.Array.Empty<string>())
-            {
-                if (string.IsNullOrWhiteSpace(configuredDirectory)) continue;
-                if (!FrameworkProjectPath.TryResolve(
-                        configuredDirectory, out _, out string absoluteDirectory, out string scanError))
-                    return (false, "字集扫描目录无效：" + scanError, 0);
-                scanDirectories.Add((configuredDirectory, absoluteDirectory));
-            }
+            GenerationPrerequisiteReport prerequisites = InspectGenerationPrerequisites(profile);
+            if (!prerequisites.CanGenerate) return (false, prerequisites.Message, 0);
 
             try
             {
-                int count = GenerateCore(profile, scanDirectories, outputPath);
-                AssetDatabase.ImportAsset(outputAssetPath);
-                return (true, $"已写入 {count} 个唯一字符：{outputAssetPath}", count);
+                int count = GenerateCore(
+                    profile,
+                    prerequisites.ScanDirectories,
+                    prerequisites.FilePatterns,
+                    prerequisites.OutputAbsolutePath);
+                AssetDatabase.ImportAsset(prerequisites.OutputAssetPath);
+                var warnings = new List<string>();
+                if (prerequisites.HasWarnings) warnings.Add(prerequisites.Message);
+                if (count == 0)
+                    warnings.Add(
+                        "本次没有提取到可用字符，已写入空字集；请检查扫描目录、文件匹配模式，" +
+                        "或启用 ASCII / 填写额外字符。");
+                string warning = warnings.Count > 0
+                    ? "\n⚠ " + string.Join("\n", warnings)
+                    : string.Empty;
+                return (true,
+                    $"已写入 {count} 个唯一字符：{prerequisites.OutputAssetPath}{warning}",
+                    count);
             }
             catch (System.Exception exception) when (
                 exception is System.ArgumentException or IOException or System.UnauthorizedAccessException or
@@ -75,9 +108,92 @@ namespace Game.Framework.Fonts.Editor
             }
         }
 
+        /// <summary>
+        /// 只读检查输出路径与扫描目录。不存在的扫描目录保持既有“跳过并继续”语义，但会提前给出 Warning；
+        /// 逃逸工程或无法解析的路径属于阻断错误。不会枚举或读取文本文件。
+        /// </summary>
+        internal static GenerationPrerequisiteReport InspectGenerationPrerequisites(
+            FontCharsetProfile profile)
+        {
+            if (profile == null)
+                return new GenerationPrerequisiteReport(false, "Font Charset Profile 不能为空。");
+            if (!FrameworkProjectPath.TryResolveAssetsFile(
+                    profile.OutputPath,
+                    ".txt",
+                    out string outputAssetPath,
+                    out string outputAbsolutePath,
+                    out string outputError))
+                return new GenerationPrerequisiteReport(
+                    false,
+                    "字集输出路径无效：" + outputError);
+            var scanDirectories = new List<(string configured, string absolute)>();
+            var warnings = new List<string>();
+            foreach (string configuredDirectory in profile.ScanDirs ?? System.Array.Empty<string>())
+            {
+                if (string.IsNullOrWhiteSpace(configuredDirectory)) continue;
+                if (!FrameworkProjectPath.TryResolve(
+                        configuredDirectory,
+                        out _,
+                        out string absoluteDirectory,
+                        out string scanError))
+                    return new GenerationPrerequisiteReport(
+                        false,
+                        "字集扫描目录无效：" + scanError,
+                        outputAssetPath: outputAssetPath,
+                        outputAbsolutePath: outputAbsolutePath);
+                if (File.Exists(absoluteDirectory))
+                    return new GenerationPrerequisiteReport(
+                        false,
+                        "字集扫描目录无效：路径当前是文件，请填写目录：" + configuredDirectory,
+                        outputAssetPath: outputAssetPath,
+                        outputAbsolutePath: outputAbsolutePath);
+                scanDirectories.Add((configuredDirectory, absoluteDirectory));
+                if (!Directory.Exists(absoluteDirectory))
+                    warnings.Add("扫描目录不存在，将跳过：" + configuredDirectory);
+            }
+
+            if (scanDirectories.Count == 0)
+                warnings.Add("未配置扫描目录；只会收集 ASCII 与额外字符。");
+            var filePatterns = new List<string>();
+            foreach (string configuredPattern in profile.FilePatterns ?? System.Array.Empty<string>())
+            {
+                if (string.IsNullOrWhiteSpace(configuredPattern)) continue;
+                string pattern = configuredPattern.Trim();
+                if (!IsSafeFilePattern(pattern, out string patternError))
+                    return new GenerationPrerequisiteReport(
+                        false,
+                        $"文件匹配模式无效“{configuredPattern}”：{patternError}",
+                        outputAssetPath: outputAssetPath,
+                        outputAbsolutePath: outputAbsolutePath,
+                        scanDirectories: scanDirectories);
+                filePatterns.Add(pattern);
+            }
+            if (filePatterns.Count == 0)
+                warnings.Add("未配置文件匹配模式；扫描目录不会提供字符。");
+            bool hasExistingScanDirectory = scanDirectories.Any(item => Directory.Exists(item.absolute));
+            bool hasDirectCharacters = profile.IncludeAsciiPrintable ||
+                                       !string.IsNullOrWhiteSpace(profile.ExtraChars);
+            if (!hasDirectCharacters)
+                warnings.Add(!hasExistingScanDirectory || filePatterns.Count == 0
+                    ? "当前没有可确认的字符来源，本次结果可能为空。"
+                    : "未启用 ASCII 且没有额外字符；若扫描目录没有匹配文件或文件中没有可用字符，本次结果可能为空。");
+
+            return new GenerationPrerequisiteReport(
+                true,
+                warnings.Count == 0
+                    ? "输出路径与扫描输入已就绪。"
+                    : string.Join("\n", warnings),
+                hasWarnings: warnings.Count > 0,
+                outputAssetPath: outputAssetPath,
+                outputAbsolutePath: outputAbsolutePath,
+                scanDirectories: scanDirectories,
+                filePatterns: filePatterns);
+        }
+
         private static int GenerateCore(
             FontCharsetProfile profile,
             IReadOnlyList<(string configured, string absolute)> scanDirectories,
+            IReadOnlyList<string> filePatterns,
             string outputPath)
         {
             var codepoints = new SortedSet<int>();
@@ -95,9 +211,8 @@ namespace Game.Framework.Fonts.Editor
                     Debug.LogWarning($"[FontCharset] 扫描目录不存在，跳过：{configured}");
                     continue;
                 }
-                foreach (var pattern in profile.FilePatterns ?? System.Array.Empty<string>())
+                foreach (string pattern in filePatterns)
                 {
-                    if (string.IsNullOrWhiteSpace(pattern)) continue;
                     foreach (var file in Directory.GetFiles(absolute, pattern, SearchOption.AllDirectories))
                     {
                         // 默认输出位于默认扫描根 Assets 内；不排除自己会让已删除字符被旧产物永久带回，字集只能增不能减。
@@ -114,6 +229,32 @@ namespace Game.Framework.Fonts.Editor
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
             File.WriteAllText(outputPath, sb.ToString(), new UTF8Encoding(false));
             return codepoints.Count;
+        }
+
+        // SearchOption.AllDirectories 已负责递归；searchPattern 只允许可移植的文件名模式，禁止借目录段逃逸扫描根。
+        private static bool IsSafeFilePattern(string pattern, out string error)
+        {
+            if (Path.IsPathRooted(pattern) ||
+                pattern.IndexOf('/') >= 0 ||
+                pattern.IndexOf('\\') >= 0 ||
+                pattern is "." or "..")
+            {
+                error = "只填写文件名模式（如 *.json），不要包含盘符、根路径或目录分隔符，也不要把 . / .. 当成模式；扫描本身已经递归。";
+                return false;
+            }
+
+            foreach (char character in pattern)
+            {
+                if (character is '*' or '?') continue;
+                if (character < 0x20 || character is ':' or '"' or '<' or '>' or '|')
+                {
+                    error = $"包含不可移植字符“{character}”。";
+                    return false;
+                }
+            }
+
+            error = string.Empty;
+            return true;
         }
 
         private static void AddFile(SortedSet<int> codepoints, string path)

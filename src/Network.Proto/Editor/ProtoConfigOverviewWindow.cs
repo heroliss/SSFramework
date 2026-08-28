@@ -1,4 +1,5 @@
 using System.IO;
+using System.Linq;
 using Game.Framework.Editor;
 using UnityEditor;
 using UnityEngine;
@@ -8,7 +9,7 @@ namespace Game.Framework.Network.Proto.Editor
     /// <summary>
     /// 「Protobuf 生成总览」窗口：把工程内所有 <see cref="ProtoConfigProfile"/> 集中成卡片——每套列出
     /// .proto 源目录（含文件数）、protoc 可用性、代码输出目录，并提供「生成这套 / 打开各目录 / 点名定位资产」。
-    /// 多套并存（正式协议 + 框架测试等）时一眼看清各套落点、按套操作；顶部「生成全部」是统一人工入口，
+    /// 多套并存（正式协议 + 框架测试等）时一眼看清各套落点、按套操作；顶部批量按钮只提交当前已就绪配置，
     /// 「新建 Protobuf 配置…」引导创建（本配置无自动创建——默认路径无从捏造）。
     /// </summary>
     public sealed class ProtoConfigOverviewWindow : EditorWindow
@@ -39,7 +40,7 @@ namespace Game.Framework.Network.Proto.Editor
             bool canWrite = FrameworkEditorOperationGate.CanStart(
                 requireEditMode: true, out string operationReason);
             EditorGUILayout.Space(4);
-            if (position.width < 380f)
+            if (compact)
             {
                 EditorGUILayout.LabelField("Protobuf 生成 · 总览", EditorStyles.boldLabel);
                 if (GUILayout.Button("刷新")) Repaint();
@@ -65,48 +66,92 @@ namespace Game.Framework.Network.Proto.Editor
             var (ownershipOk, ownershipMessage) = profiles.Count == 0
                 ? (false, string.Empty)
                 : ProtoCodeGenerator.ValidateOutputOwnership(profiles);
+            var prerequisites = profiles.ToDictionary(
+                profile => profile,
+                ProtoCodeGenerator.InspectGenerationPrerequisites);
+            var readyProfiles = profiles
+                .Where(profile => prerequisites[profile].CanGenerate)
+                .ToArray();
+            int readyCount = readyProfiles.Length;
+            bool canGenerateAny = canWrite && ownershipOk && readyCount > 0;
 
             _scroll = EditorGUILayout.BeginScrollView(_scroll);
-            if (position.width < 420f)
+            if (compact)
             {
-                EditorGUILayout.LabelField($"共 {profiles.Count} 套", EditorStyles.miniBoldLabel);
-                using (new EditorGUILayout.HorizontalScope())
-                {
-                    using (new EditorGUI.DisabledScope(!canWrite))
-                        if (GUILayout.Button("新建 Protobuf 配置…"))
-                            CreateProfile();
-                    using (new EditorGUI.DisabledScope(!canWrite || profiles.Count == 0 || !ownershipOk))
-                        if (GUILayout.Button("生成全部"))
-                            ProtoBuildMenu.GenerateProfiles(profiles);
-                }
+                EditorGUILayout.LabelField(
+                    FormatCountSummary(profiles.Count, ownershipOk, readyCount),
+                    EditorStyles.miniBoldLabel);
+                using (new EditorGUI.DisabledScope(!canWrite))
+                    if (GUILayout.Button("新建 Protobuf 配置…"))
+                        CreateProfile();
+                using (new EditorGUI.DisabledScope(!canGenerateAny))
+                    if (GUILayout.Button(FormatBatchButtonLabel(profiles.Count, ownershipOk, readyCount)))
+                        ProtoBuildMenu.GenerateProfiles(readyProfiles);
             }
             else
             {
                 using (new EditorGUILayout.HorizontalScope())
                 {
-                    EditorGUILayout.LabelField($"共 {profiles.Count} 套", EditorStyles.miniBoldLabel);
+                    EditorGUILayout.LabelField(
+                        FormatCountSummary(profiles.Count, ownershipOk, readyCount),
+                        EditorStyles.miniBoldLabel);
                     GUILayout.FlexibleSpace();
                     using (new EditorGUI.DisabledScope(!canWrite))
                         if (GUILayout.Button("新建 Protobuf 配置…", GUILayout.Width(150)))
                             CreateProfile();
-                    using (new EditorGUI.DisabledScope(!canWrite || profiles.Count == 0 || !ownershipOk))
-                        if (GUILayout.Button("生成全部", GUILayout.Width(90)))
-                            ProtoBuildMenu.GenerateProfiles(profiles);
+                    using (new EditorGUI.DisabledScope(!canGenerateAny))
+                        if (GUILayout.Button(
+                            FormatBatchButtonLabel(profiles.Count, ownershipOk, readyCount),
+                            GUILayout.MinWidth(90)))
+                            ProtoBuildMenu.GenerateProfiles(readyProfiles);
                 }
             }
             if (profiles.Count == 0)
                 EditorGUILayout.HelpBox("还没有 Protobuf 配置——点右上“新建 Protobuf 配置…”创建，然后在 Inspector 填写 .proto 源目录与输出目录。", MessageType.Warning);
             else if (!ownershipOk)
                 EditorGUILayout.HelpBox("输出目录预检未通过：\n" + ownershipMessage, MessageType.Error);
+            else if (readyCount == 0)
+                EditorGUILayout.HelpBox(
+                    "当前没有可生成的配置；请按卡片提示补齐 protoc、源文件与输出目录。",
+                    MessageType.Warning);
             else
                 EditorGUILayout.LabelField("✓ " + ownershipMessage, EditorStyles.miniLabel);
             foreach (var profile in profiles)
-                DrawCard(profile, !canWrite || !ownershipOk, compact);
+                DrawCard(
+                    profile,
+                    prerequisites[profile],
+                    canWrite && ownershipOk && prerequisites[profile].CanGenerate,
+                    compact);
             EditorGUILayout.EndScrollView();
         }
 
+        internal static string FormatCountSummary(int profileCount, bool ownershipOk, int readyCount)
+        {
+            if (profileCount <= 0) return "共 0 套";
+            return ownershipOk
+                ? $"共 {profileCount} 套 · 可生成 {readyCount} 套"
+                : $"共 {profileCount} 套 · 输出预检失败，已暂停";
+        }
+
+        internal static string FormatBatchButtonLabel(
+            int profileCount,
+            bool ownershipOk,
+            int readyCount)
+        {
+            if (profileCount <= 0) return "生成全部";
+            if (!ownershipOk) return "输出冲突，已暂停";
+            if (readyCount <= 0) return "暂无可生成配置";
+            return readyCount > 0 && readyCount < profileCount
+                ? $"生成可用配置（{readyCount}/{profileCount}）"
+                : "生成全部";
+        }
+
         // 一套配置一张卡片：资产名（点击定位选中）+ 源 / protoc / 输出 + 响应式操作区。
-        private static void DrawCard(ProtoConfigProfile profile, bool writeBlocked, bool compact)
+        private static void DrawCard(
+            ProtoConfigProfile profile,
+            ProtoCodeGenerator.GenerationPrerequisiteReport prerequisites,
+            bool canGenerate,
+            bool compact)
         {
             using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
             {
@@ -118,31 +163,26 @@ namespace Game.Framework.Network.Proto.Editor
                     Selection.activeObject = profile;
                 }
 
-                string protoDirFull = FrameworkProjectPath.TryResolve(
-                    profile.ProtoDir, out _, out string resolvedProtoDir, out _) ? resolvedProtoDir : null;
-                int protoCount = protoDirFull != null && Directory.Exists(protoDirFull)
-                    ? Directory.GetFiles(protoDirFull, "*.proto", SearchOption.AllDirectories).Length
-                    : 0;
                 DrawValue("源 (.proto)", string.IsNullOrEmpty(profile.ProtoDir)
                     ? "（未配置）"
-                    : $"{profile.ProtoDir}（{protoCount} 个 .proto）", compact);
+                    : prerequisites.ProtoFileCount > 0
+                        ? $"{profile.ProtoDir}（{prerequisites.ProtoFileCount} 个 .proto）"
+                        : profile.ProtoDir, compact);
 
-                bool validProtocDir = FrameworkProjectPath.TryResolve(
-                    profile.ProtocDir, out _, out string resolvedProtocDir, out string protocError);
-                string protoc = validProtocDir
-                    ? ProtoCodeGenerator.ResolveProtocPath(resolvedProtocDir, string.Empty)
-                    : string.Empty;
-                DrawValue("protoc", !validProtocDir
-                    ? "✗ " + protocError
-                    : File.Exists(protoc) ? profile.ProtocDir : $"✗ 缺失：{protoc}", compact);
+                DrawValue("protoc", profile.ProtocDir, compact);
 
                 DrawValue("代码输出", string.IsNullOrEmpty(profile.OutputCodeDir) ? "（未配置）" : profile.OutputCodeDir, compact);
                 if (!string.IsNullOrEmpty(profile.ExtraArgs))
                     DrawValue("附加参数", profile.ExtraArgs, compact);
 
+                if (!prerequisites.CanGenerate)
+                    EditorGUILayout.HelpBox(
+                        "当前配置不能生成：\n" + prerequisites.Message,
+                        MessageType.Warning);
+
                 if (compact)
                 {
-                    using (new EditorGUI.DisabledScope(writeBlocked))
+                    using (new EditorGUI.DisabledScope(!canGenerate))
                         if (GUILayout.Button("生成这套"))
                             ProtoBuildMenu.GenerateProfiles(new[] { profile });
                     using (new EditorGUILayout.HorizontalScope())
@@ -155,7 +195,7 @@ namespace Game.Framework.Network.Proto.Editor
                 {
                     using (new EditorGUILayout.HorizontalScope())
                     {
-                        using (new EditorGUI.DisabledScope(writeBlocked))
+                        using (new EditorGUI.DisabledScope(!canGenerate))
                             if (GUILayout.Button("生成这套"))
                                 ProtoBuildMenu.GenerateProfiles(new[] { profile });
                         if (GUILayout.Button("源目录")) Reveal(profile.ProtoDir);

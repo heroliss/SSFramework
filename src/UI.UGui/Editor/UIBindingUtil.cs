@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using Game.Framework.Editor;
 using UnityEditor;
 using UnityEngine;
 
@@ -306,16 +307,9 @@ namespace Game.Framework.UI.UGui.Editor
             return changed;
         }
 
-        /// <summary>把任意名字清洗成合法 C# 标识符（非法字符换 <c>_</c>，数字开头补前缀 <c>_</c>）。</summary>
-        public static string SanitizeIdentifier(string raw)
-        {
-            if (string.IsNullOrEmpty(raw)) return "_";
-            var sb = new StringBuilder(raw.Length);
-            foreach (char ch in raw)
-                sb.Append(char.IsLetterOrDigit(ch) || ch == '_' ? ch : '_');
-            if (char.IsDigit(sb[0])) sb.Insert(0, '_');
-            return sb.ToString();
-        }
+        /// <summary>把任意名字清洗成可直接写入生成源码的 C# 标识符；规则由代码生成公共语法 Module 统一维护。</summary>
+        public static string SanitizeIdentifier(string raw) =>
+            FrameworkCSharpSyntax.SanitizeIdentifier(raw);
 
         /// <summary>字段基名：取路径最后一段（root 自身取 root 名），清成合法标识符。生成器与 Hierarchy 装饰器共用。</summary>
         public static string DeriveBaseName(string path, string rootName)

@@ -33,7 +33,7 @@ namespace Game.Framework.Fonts.Editor
         [InspectorName("扫描目录")]
         [SerializeField] private string[] _scanDirs = { "Assets" };
 
-        [Tooltip("按扩展名决定提取方式：\n• *.cs —— 只取字符串字面量（注释 / 标识符不进字集）\n• *.xlsx —— 读 sharedStrings（Excel 全部文本单元格）\n• 其余（*.json / *.txt 等）—— 全文")]
+        [Tooltip("只填写文件名匹配模式（扫描目录已自动递归，不能包含路径分隔符；. / .. 也不是文件模式）。按扩展名决定提取方式：\n• *.cs —— 只取字符串字面量（注释 / 标识符不进字集）\n• *.xlsx —— 读 sharedStrings（Excel 全部文本单元格）\n• 其余（*.json / *.txt 等）—— 全文")]
         [InspectorName("文件匹配模式")]
         [SerializeField] private string[] _filePatterns = { "*.json", "*.txt", "*.cs", "*.xlsx" };
 
