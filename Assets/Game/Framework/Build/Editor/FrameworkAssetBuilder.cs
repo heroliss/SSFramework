@@ -36,7 +36,8 @@ namespace Game.Framework.Build
     ///       -version 1.2.3 [-output ./AssetBuild/Deploy] [-packages DefaultPackage,DLCPackage]
     /// ]]></code>
     /// <para>有真失败时以非 0 退出码结束（batchmode 下 CI 据此判定失败）。RawFile 包（收集器用 <c>PackRawFile</c>）需另走
-    /// RawFileBuildPipeline、不在本入口范围——构建前逐包预检，命中直接计失败并指路（代码包走代码热更新工作台；业务 RawFile 包暂不支持统一构建）。</para>
+    /// RawFileBuildPipeline、不在本入口范围——构建前逐包预检，命中直接计失败并说明应关闭本 Profile 的参与构建开关，
+    /// 再交给拥有该 RawFile 配方的独立 Module。</para>
     /// </summary>
     public static class FrameworkAssetBuilder
     {
@@ -146,16 +147,7 @@ namespace Game.Framework.Build
                 var target = EditorUserBuildSettings.activeBuildTarget;
                 var built = new List<string>();    // 正常构建
                 var skipped = new List<string>();  // 空包，跳过
-                var excluded = new List<string>(); // 不归本入口的包（代码包 → 热更构建管线）
                 var failed = new List<string>();   // 真失败
-
-                // 代码包由热更构建管线（FrameworkHotUpdateBuilder）负责，资源构建按名字识别后排除（见循环内）。
-                string codePackageName = FrameworkHotUpdateProfile.TryResolve(out var hotUpdateProfile)
-                    ? hotUpdateProfile.CodePackageName
-                    : "CodePackage";
-                if (!FrameworkBuildArtifactPath.TryNormalizeSegment(
-                        codePackageName, "热更代码包名", out codePackageName, out string codePackageError))
-                    return (false, "热更配置无效：" + codePackageError);
 
                 foreach (var pkg in packages)
                 {
@@ -169,21 +161,12 @@ namespace Game.Framework.Build
                         continue;
                     }
 
-                    // 代码包按【名字】识别后跳过——它带 CompileDll + manifest + AOT 补元数据的特殊配方，由热更构建
-                    // 管线负责。靠名字而非「参与构建」开关排除：即便它在 profile 里仍 enabled 也不会被资源构建误打成残品，
-                    // 不依赖人记得去取消勾选（ADR-0017 §5）。
-                    if (string.Equals(pkg, codePackageName, StringComparison.Ordinal))
-                    {
-                        excluded.Add($"{pkg}（代码包 → 代码热更新工作台）");
-                        continue;
-                    }
-
-                    // 预检：业务 RawFile 包暂不支持统一构建——SBP + AssetBundle 类型构建出的产物与 RawFile 运行时通道不兼容，
+                    // 预检：RawFile 包不属于本 Module——SBP + AssetBundle 类型构建出的产物与 RawFile 运行时通道不兼容，
                     // 放任构建要么半路崩、要么产出错误产物，失败信息也不指向真正原因，这里直接报明话指路。
                     if (UsesRawFilePackRule(pkg))
                     {
                         failed.Add($"{pkg}：收集器使用 RawFile 打包规则（PackRawFile），本入口只构建普通 AssetBundle 包——" +
-                                   "业务 RawFile 包统一构建尚未实现（计划见 ADR-0017 P1；当前构建配方参考 FrameworkHotUpdateBuilder）。");
+                                   "请在资源构建 Profile 关闭该包的“参与构建”，再使用拥有对应 RawFile 配方的独立构建模块。");
                         continue;
                     }
 
@@ -223,7 +206,6 @@ namespace Game.Framework.Build
                 sb.AppendLine($"平台 {target} · 版本 {version}");
                 if (built.Count > 0) sb.AppendLine($"✓ 构建 {built.Count}：{string.Join(", ", built)}");
                 if (skipped.Count > 0) sb.AppendLine($"⊘ 跳过（空包）{skipped.Count}：{string.Join(", ", skipped)}");
-                if (excluded.Count > 0) sb.AppendLine($"⊘ 跳过（非本入口）{excluded.Count}：{string.Join(", ", excluded)}");
                 if (failed.Count > 0) sb.AppendLine($"✗ 失败 {failed.Count}：\n  {string.Join("\n  ", failed)}");
                 if (built.Count == 0 && failed.Count == 0)
                     sb.AppendLine("（没有实际产出：启用的包全是空包）");

@@ -1709,6 +1709,14 @@ Bag.Subscribe(
 | 框架 | `Game.Framework`（内核）、`Game.Framework.Asset.Yoo`（YooAsset 适配） | 默认热更，可退 AOT |
 | 业务 | `Game.Main` 及未来模块/DLC | 热更（主战场） |
 
+### 构建工具也可以裁剪
+
+普通 YooAsset 资源构建位于 `Game.Framework.Build.Editor`；HybridCLR 的 Profile、Generate、DLL 编译和 RawFile 代码包位于下游的 `Game.Framework.Build.HybridCLR.Editor`。前者不引用 Boot、HybridCLR 或 dnlib，因此不使用代码热更新的项目可以删除后者、Boot 与对应第三方依赖，资源构建仍保持可用。热更新仍复用资源侧的版本格式、部署目录和路径安全，不复制第二套发布逻辑。
+
+CodePackage 在资源构建 Profile 中应明确关闭“参与构建”，再由代码热更新工作台负责。资源构建不会按包名猜测或读取另一个可删除 Module 的 Profile；如果把任意 `PackRawFile` 包误启用或由 CI 显式点名，它会在写产物前失败，并提示改走拥有对应配方的构建 Module。这样多一个明确配置，却避免模块删除后出现隐藏默认值或把代码包打成不完整的普通资源包。设计与删除测试见 ADR-0045。
+
+从旧版程序集布局升级时，已有 `FrameworkHotUpdateProfile` 资产因 MonoScript GUID 保持不变，无需重建。项目自己的 Editor asmdef 若直接使用热更新 Profile、Builder 或工作台类型，应把引用从 `Game.Framework.Build.Editor` 改为 `Game.Framework.Build.HybridCLR.Editor`；只调用普通资源构建 API 的代码不受影响。
+
 ### 新增业务程序集接入热更
 
 1. 新建领域目录 + asmdef，**`autoReferenced` 设为 `false`**（必须——否则散落脚本会隐式引用它，构成 AOT→热更违规，校验器会拦）。

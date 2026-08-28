@@ -1281,7 +1281,7 @@ namespace Game.Framework.Editor.Tests
         {
             var target = new FrameworkModuleAudit.HotUpdateDeploymentEvidence
             {
-                BuildModuleAvailable = true,
+                HotUpdateBuildModuleAvailable = true,
                 ProfileAvailable = true,
                 ProfileCount = 1,
                 ProfilePath = "Assets/Game/Settings/Profile.asset",
@@ -1333,14 +1333,14 @@ namespace Game.Framework.Editor.Tests
         {
             var missingProfile = new FrameworkModuleAudit.HotUpdateDeploymentEvidence
             {
-                BuildModuleAvailable = true,
+                HotUpdateBuildModuleAvailable = true,
             };
             Assert.That(missingProfile.RequiresAttention, Is.True,
                 "缺少热更配置这一唯一真源时不能静默判作纯 AOT；配置必须由工作台明确创建。 ");
 
             var pureAot = new FrameworkModuleAudit.HotUpdateDeploymentEvidence
             {
-                BuildModuleAvailable = true,
+                HotUpdateBuildModuleAvailable = true,
                 ProfileAvailable = true,
                 ProfileCount = 1,
                 InspectionAvailable = true,
@@ -1448,9 +1448,9 @@ namespace Game.Framework.Editor.Tests
                 foreach (string blocker in bridgeStatus.RemovalBlockers)
                     Assert.That(bridgeStatus.RemovalSteps, Has.Some.Contains(blocker),
                         "物理删除计划必须列出当前完整 asmdef 图实际发现的每个声明引用。");
-            if (result.HotUpdateDeployment.BuildModuleAvailable)
+            if (result.HotUpdateDeployment.HotUpdateBuildModuleAvailable)
                 Assert.That(result.HotUpdateDeployment.InspectionAvailable, Is.True,
-                    "安装 Build Editor Module 时，通用审计应经只读反射接缝读取证据，不能建立编译期反向依赖。");
+                    "安装 HybridCLR 热更构建 Module 时，通用审计应经只读反射接缝读取证据，不能建立编译期反向依赖。");
             Assert.That(result.Recommendations, Has.Some.Contains("Player BuildReport"));
             if (result.HasRetentionWarnings)
                 Assert.That(result.Recommendations, Has.Some.Contains("link.xml"));
@@ -1466,7 +1466,7 @@ namespace Game.Framework.Editor.Tests
             Assert.That(report, Does.Contain("全局与生成的 link.xml 证据"));
             Assert.That(report, Does.Contain("热更派生证据（只读）"));
             Assert.That(report, Does.Contain("第三方依赖证据目录"));
-            if (result.HotUpdateDeployment.BuildModuleAvailable)
+            if (result.HotUpdateDeployment.HotUpdateBuildModuleAvailable)
                 Assert.That(report, Does.Contain("CodePackage"));
         }
 

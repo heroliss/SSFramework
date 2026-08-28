@@ -373,12 +373,12 @@ namespace Game.Framework.Editor
         }
 
         /// <summary>
-        /// 热更 Profile 的只读派生证据。Build Editor Module 仍是具体设置、Generate 与中转清单的 owner；
-        /// 通用审计经反射读取，保持删除 Build Module 后仍可编译。
+        /// 热更 Profile 的只读派生证据。HybridCLR 热更构建 Module 仍是具体设置、Generate 与中转清单的 owner；
+        /// 通用审计经反射读取，保持删除该可选 Module 后仍可编译。
         /// </summary>
         internal sealed class HotUpdateDeploymentEvidence
         {
-            internal bool BuildModuleAvailable;
+            internal bool HotUpdateBuildModuleAvailable;
             internal bool ProfileAvailable;
             internal bool InspectionAvailable;
             internal int ProfileCount;
@@ -406,7 +406,7 @@ namespace Game.Framework.Editor
             internal string StagedMessage = string.Empty;
             internal string Note = string.Empty;
 
-            internal bool RequiresAttention => BuildModuleAvailable &&
+            internal bool RequiresAttention => HotUpdateBuildModuleAvailable &&
                                                (!ProfileAvailable || ProfileCount > 1 || !InspectionAvailable ||
                                                 !SettingsAvailable || !SettingsMatch ||
                                                 (GenerationRequired && !GenerationFresh) ||
@@ -2067,10 +2067,10 @@ namespace Game.Framework.Editor
                 .FirstOrDefault(type => type != null);
             if (profileType == null)
             {
-                evidence.Note = "未安装热更构建 Module；按纯 AOT 理解。";
+                evidence.Note = "未安装 HybridCLR 热更构建 Module；按纯 AOT 理解。资源构建 Module 是否安装与此状态无关。";
                 return evidence;
             }
-            evidence.BuildModuleAvailable = true;
+            evidence.HotUpdateBuildModuleAvailable = true;
 
             string[] guids = AssetDatabase.FindAssets("t:" + profileType.Name);
             evidence.ProfileCount = guids.Length;

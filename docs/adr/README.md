@@ -50,3 +50,4 @@
 | [0042](0042-external-dependency-evidence-catalog.md) | 第三方依赖证据目录：只读、来源可追溯、与 UPM 正交 | Accepted |
 | [0043](0043-editor-menu-navigation-workbenches.md) | Editor 菜单只导航：副作用操作进入 Module 工作台，自动化与上下文入口显式例外 | Accepted |
 | [0044](0044-unity-cli-external-automation-adapter.md) | Unity CLI 作为工程外启动 Adapter：ProjectVersion 单一真值、Direct 回退、Pipeline 延迟接入 | Accepted |
+| [0045](0045-build-editor-module-split.md) | 资源构建与 HybridCLR 热更新构建拆分：单向依赖、RawFile 显式归属与删除测试 | Accepted |

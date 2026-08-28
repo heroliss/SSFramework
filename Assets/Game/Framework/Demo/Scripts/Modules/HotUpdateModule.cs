@@ -20,7 +20,7 @@ namespace Game.Framework.Demo.Modules
         public override int Order => 20;
         public override string Summary =>
             "列表驱动热更范围（框架本体也可热更）+ 薄 Boot 程序集引导。编辑器恒走旁路、真机才走下载加载，" +
-            "本章讲原理与构建分工，校验按钮真实可跑；深度见 framework-guide §15 / ADR-0008。";
+            "本章讲原理、可删除构建模块与发布分工，校验按钮真实可跑；深度见 framework-guide §15 / ADR-0008 / ADR-0045。";
 
         public override void Build(DemoModuleHost host)
         {
@@ -52,19 +52,21 @@ namespace Game.Framework.Demo.Modules
                 new[] { "2. 生成桥接与裁剪文件（Generate All）", "首次接入 / 升级环境 / 改 AOT、签名、泛型、布局或原生调用边界（stamp 会拦截）", "分钟" },
                 new[] { "3. 构建代码包", "日常每次热更迭代", "几十秒" },
                 new[] { "4. 部署代码包", "跟在 3 后面（平铺到 Deploy，与资源包同套 CDN 结构）", "秒" });
+            host.AddSubNote("普通 YooAsset 资源构建与 HybridCLR 热更新构建是单向两个 Editor Module：资源侧不引用 Boot、HybridCLR 或 dnlib；热更新侧复用它的版本、部署与安全路径。小项目不用代码热更新时可以删除 `Build/HybridCLR` 与 Boot，资源构建仍成立。CodePackage 要在资源 Profile 明确关闭“参与构建”，误启用 RawFile 会在写产物前失败，而不是靠隐藏包名静默跳过。",
+                new CodeRef("Assets/Game/Framework/Build/Editor/FrameworkAssetBuilder.cs", "public static class FrameworkAssetBuilder", "独立的普通资源构建 Module"));
             host.AddSubNote("迭代边界：只改普通算术、分支、常量等业务算法，且不改变元数据依赖拓扑时，只需 3+4。新增方法/签名/泛型实例、值类型字段布局、P/Invoke / calli 或相关 Attribute 可能改变 Link、AOT 或 MethodBridge，构建器会比较 HybridCLR 目标 DLL 元数据拓扑与 AOT / linker 输入指纹并拒绝沿用旧 Generate；此时执行 2，并按平台重新构建安装包。不要凭『代码在热更程序集里』就断言永远不用 Generate。",
-                new CodeRef("Assets/Game/Framework/Build/Editor/FrameworkHotUpdateBuilder.cs", "class FrameworkHotUpdateBuilder", "构建实现（CompileDll → 清单 → RawFile 包）"));
+                new CodeRef("Assets/Game/Framework/Build/HybridCLR/Editor/FrameworkHotUpdateBuilder.cs", "class FrameworkHotUpdateBuilder", "构建实现（CompileDll → 清单 → RawFile 包）"));
             host.AddSubNote("不确定自己漏了哪一步时，模块裁剪审计的“热更产物链”会只读比较唯一 Profile → HybridCLRSettings → Generate stamp → 当前热更拓扑 / AOT 补元数据清单 → DLL 中转，并明确建议执行 1 / 2 / 3。绿色只证明结构与所列文件一致，不证明 DLL 已包含最新源码，也不代表步骤 4 的 Deploy / CDN 已完成；空 Profile 不要求 Generate，但若启用场景仍挂着 HotUpdateLauncher，Player 分支仍需要步骤 3 生成空清单代码包。只有改成直接 AOT 启动后 CodePackage 才可省略。");
 
             // ── 可现场执行的部分:构建期校验 ──
             host.AddSectionTitle("现场可跑：构建期校验（真实调用，与工作台同源）");
             host.AddNote("校验「AOT 不引用热更」（违规逐条指出元凶与修法）并展示自动拓扑排序的加载顺序——这是构建管线在编辑器侧真实存在的部分，与真机无关，可以现场跑。");
             host.AddActionRow("打开代码热更新工作台（校验 · 配置 · 构建）", () => RunMenu(WorkbenchMenu),
-                new CodeRef("Assets/Game/Framework/Build/Editor/HotUpdateAssemblyGraph.cs", "class HotUpdateAssemblyGraph", "引用图校验 + 拓扑排序"));
+                new CodeRef("Assets/Game/Framework/Build/HybridCLR/Editor/HotUpdateAssemblyGraph.cs", "class HotUpdateAssemblyGraph", "引用图校验 + 拓扑排序"));
             host.AddActionRow("查看热更产物链（只读，不自动修改）", () => RunMenu(ModuleAuditMenu),
-                new CodeRef("Assets/Game/Framework/Build/Editor/FrameworkHotUpdateBuilder.cs", "InspectEvidence(FrameworkHotUpdateProfile profile)", "Profile → Settings → Generate → DLL 中转证据"));
+                new CodeRef("Assets/Game/Framework/Build/HybridCLR/Editor/FrameworkHotUpdateBuilder.cs", "InspectEvidence(FrameworkHotUpdateProfile profile)", "Profile → Settings → Generate → DLL 中转证据"));
 
-            host.AddTip("深度阅读：docs/framework-guide.md §15（用法手册）、docs/adr/0008（设计取舍与已验证边界）。");
+            host.AddTip("深度阅读：docs/framework-guide.md §15（用法手册）、docs/adr/0008（热更机制）、docs/adr/0045（构建 Module 拆分与删除测试）。");
         }
 
         private static void RunMenu(string path)

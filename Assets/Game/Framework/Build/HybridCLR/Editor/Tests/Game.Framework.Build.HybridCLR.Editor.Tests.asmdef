@@ -1,9 +1,12 @@
 {
-    "name": "Game.Framework.Build.Editor.Tests",
+    "name": "Game.Framework.Build.HybridCLR.Editor.Tests",
     "rootNamespace": "Game.Framework.Build.Tests",
     "references": [
+        "Game.Framework.Build.HybridCLR.Editor",
         "Game.Framework.Build.Editor",
         "Game.Framework.Editor",
+        "Game.Framework.Boot",
+        "YooAsset.Editor",
         "UnityEngine.TestRunner"
     ],
     "includePlatforms": [

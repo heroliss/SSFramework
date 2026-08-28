@@ -35,7 +35,7 @@ namespace Game.Framework.Demo.Modules
             "Assets/Game/Framework/Core/Systems/MonoSystemBase.cs", "class MonoSystemBase",
             "System 层（realtime 仿真的驱动位，ADR-0014）");
         private static readonly CodeRef AotBoundary = new(
-            "Assets/Game/Framework/Build/Editor/HotUpdateAssemblyGraph.cs", "class HotUpdateAssemblyGraph",
+            "Assets/Game/Framework/Build/HybridCLR/Editor/HotUpdateAssemblyGraph.cs", "class HotUpdateAssemblyGraph",
             "热更程序集图（AOT↔热更边界机器校验）");
 
         public override void Build(DemoModuleHost host)

@@ -40,12 +40,12 @@ DLC = 自洽内容单元（资源 + 玩法代码 + 配置），按需下载，�
 - DLC 玩法层注册到**独立子 Context**；退 DLC 时整树 `Dispose`（呼应 ADR-0005「换血不允许，撤就整棵撤」）。
 - **程序集不可卸载**（C# 限制）⇒ 退 DLC 回收的是对象 / Context，**不是 DLL**；重进 DLC 复用已加载程序集。
 
-### 5. 构建管线：资源构建器统一支持业务 RawFile 包
+### 5. 构建管线：资源 Profile 显式声明归属，未来统一支持业务 RawFile 包
 
 - 扩展 `FrameworkAssetBuilder`：遇 RawFile 包**额外跑 `RawFileBuildPipeline`**，而非 fail-fast。恢复与 YooAsset 原生能力对齐，不阉割 RawFile（视频 / 原始数据等常见内容可走统一构建）。
-- **代码包按名字排除，不靠 enabled 开关**：判别从「是否 RawFile」改为「**是否 == `CodePackageName`**」——代码包带 `CompileDll` + manifest + AOT 补元数据的特殊配方，归 `FrameworkHotUpdateBuilder`。**关键**：靠名字识别而非 profile 的「参与构建」勾选，所以**即便代码包在 profile 里仍 enabled 也会被跳过**，从机制上杜绝"忘了取消勾选 → 代码包被资源构建误打成残品"。判别三分支：是代码包→跳过指路；是业务 RawFile 包→RawFile 管线构建；否则→SBP。
-- **结果**：执行「资源构建」= 构建所有 AB 包 **+ 所有业务 RawFile 包**，**代码包恒被排除、仍独立走热更菜单**（不会因此把代码也一起构建）。
-- **落地状态**：① 代码包按名字跳过——**已实现**（`FrameworkAssetBuilder.Build` 预检，本 ADR 起草同批）；② 业务 RawFile 包走 `RawFileBuildPipeline`——**待实现**（无业务 RawFile 包消费方前不盲写，等首个真实 RawFile 包/demo DLC 一起验证）。
+- **代码包由 Profile 显式排除，不让资源 Module 读取热更配置**：代码包带 `CompileDll` + manifest + AOT 补元数据的特殊配方，归 `Game.Framework.Build.HybridCLR.Editor`。它在资源 Profile 中必须关闭“参与构建”；资源 Module 不读取 `FrameworkHotUpdateProfile`、不按默认包名猜另一个可删除 Module。误启用或由 CLI 点名时，在任何产物写入前明确失败并指向专属配方。
+- **目标结果**：执行「资源构建」= 构建 Profile 中启用的普通 AB 包 **+ 未来启用的业务 RawFile 包**；代码包保持禁用并独立走热更新工作台。删除热更新 Module 后，资源构建不需要修改源码或恢复虚构默认名称。
+- **落地状态**：① 构建 Editor Module 依赖拆分、代码包显式禁用和 RawFile fail-fast——**已实现**（ADR-0045）；② 业务 RawFile 包走 `RawFileBuildPipeline`——**待实现**（无业务 RawFile 包消费方前不盲写，等首个真实 RawFile 包 / Demo DLC 一起验证）。
 
 ## Consequences
 
@@ -54,7 +54,7 @@ DLC = 自洽内容单元（资源 + 玩法代码 + 配置），按需下载，�
 - ✅ runtime loader 抽出后，base 与 DLC 共用一套加载链路（除 Boot 那份 AOT 副本）。
 - ⚠️ **AOT 泛型约束不变**：DLC asmdef 必须主包构建期在场并 Generate——文档需在显著位置反复强调，这是最易踩的雷。
 - ⚠️ 程序集不可卸载：DLC 反复进出靠对象 / Context 回收，不是卸 DLL。
-- ⚠️ 构建器须正确区分 CodePackage（特殊配方）与普通业务 RawFile 包，否则会把代码包 RawFile-pack 成运行期残品。
+- ⚠️ CodePackage 必须在资源 Profile 保持“不参与构建”；误启用会 fail-fast。未来加入业务 RawFile 配方时仍不得恢复资源 Module → 热更新 Profile 的反向依赖。
 
 ## 分期
 

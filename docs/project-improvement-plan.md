@@ -18,13 +18,13 @@
 | 维度 | 当前事实 |
 |---|---|
 | Unity | 6000.3.22f1 |
-| Framework Module | 29 个 asmdef Module（含测试与可选 Odin Editor Adapter）；依赖与删除测试见 `framework-module-map.md` |
+| Framework Module | 31 个 asmdef Module（含测试与可选 Odin / HybridCLR Editor Adapter）；依赖与删除测试见 `framework-module-map.md` |
 | Demo | 32 个自动发现章节；Catalog 集中拥有 Adapter 生命周期，并按 Capability / Concept / Workflow 校验真实 Build 教学语义 |
 | 教程 | `framework-guide.md` 28 章 |
-| ADR | 0001–0044；0040 为 UPM-aware 源码目录，0041/0042 补齐依赖证据，0043 收口 Editor 菜单与工作台，0044 固化 Unity CLI 工程外 Adapter 边界 |
-| 测试 | PlayMode 525 + EditMode 330，全绿；交互式 MCP 后台运行且 PlayMode 先预检，命令行入口默认 EditMode + PlayMode |
-| Demo CodeRef | 313 处可打开源码跳转全部精准命中；注释、文案与外部文档路径不计入源码构造点 |
-| AI 常驻规则预算 | 最深 AGENTS 链 29.88 KiB，低于 Codex 默认 32 KiB 项目指令上限；新增常驻规则前需继续评估外移空间 |
+| ADR | 0001–0045；0040 为 UPM-aware 源码目录，0041/0042 补齐依赖证据，0043 收口 Editor 菜单与工作台，0044 固化 Unity CLI 工程外 Adapter 边界，0045 拆分资源与 HybridCLR 构建依赖 |
+| 测试 | PlayMode 525 + EditMode 336，共 861 项全绿；交互式 MCP 后台运行且 PlayMode 先预检，命令行入口默认 EditMode + PlayMode |
+| Demo CodeRef | 314 处可打开源码跳转；完整门禁通过后以精准命中为基线，注释、文案与外部文档路径不计入源码构造点 |
+| AI 常驻规则预算 | 最深 AGENTS 链 30.48 KiB，低于 Codex 默认 32 KiB 项目指令上限；本轮已压缩 Demo 教程式规则，新增常驻规则前仍须优先外移可测试/可按需加载内容 |
 
 ## 已完成的高优先级闭环
 
@@ -199,6 +199,12 @@
 - 工程锁拒绝已进入共享 headless Interface，调用方不能绕过且 Module 从不自动删锁；启动 / IO / XML 异常统一归入基础设施退出码 2。`Tools/Tests/UnityAutomation.Tests.ps1` 无需启动 Unity 即回归 Adapter 选择、版本拒绝、参数过滤 / quoting 与专用测试映射。
 - 实验性的 `com.unity.pipeline` 暂不进入 manifest，当前 Editor 继续使用第三方 MCP、稳定菜单与 PlayMode 预检。未来只有形成可物理删除的 Editor-only 第二 Adapter 并通过删除测试时再接入。取舍、能力矩阵与命令示例见 ADR-0044 和 `unity-cli-automation.md`。
 
+### P1 · 资源构建与 HybridCLR 热更新构建拆分
+
+- 原 `Game.Framework.Build.Editor` 同时引用 YooAsset、Boot、HybridCLR.Editor 与 dnlib，且资源 Builder/Inspector 反向读取热更 Profile；只想保留普通资源构建的项目无法删除热更新工具链。现在保留既有程序集名给 YooAsset 资源构建，新建 `Game.Framework.Build.HybridCLR.Editor` 作为单向下游，热更新测试也随 owner 独立。
+- 资源 Profile 成为普通 AssetBundle 选择的唯一真源；CodePackage 显式关闭“参与构建”。任何误启用或由 CLI 点名的 RawFile 包都会在写产物前失败并给出中文修复步骤，不再靠另一个可删除 Module 的 Profile 或默认名称静默跳过。
+- 热更新侧继续复用资源侧的版本格式、部署、构建前预检与安全产物路径，没有为目录对称再抽浅 Common 程序集。通用 Module Audit 的证据字段和文案同步改为“HybridCLR 热更新构建 Module”，避免与仍可存在的资源构建混淆；取舍见 ADR-0045。
+
 ## 下一批候选（按杠杆排序）
 
 | 优先级 | 候选 | 证据 / 完成标准 |
@@ -206,9 +212,10 @@
 | P1 | 日志调用面继续收敛 | ADR-0034 已 Accepted；Fonts、UI、Asset/Yoo、Audio 与 Config Runtime 已收敛；AOT Boot 已确认必须保留原生日志。继续按 Module 审查其余历史裸 `Debug.*`，保留 Logging Implementation、第三方内部日志和 Editor 工具；测试守住消息、context、异常和双击定位语义。 |
 | P1 | 公共 API 注释审计 | 优先生命周期、取消、异常、所有权与 Adapter 接缝；删除复述代码或记录历史的注释。以“调用者能否仅靠悬浮提示正确释放/取消”为完成标准。 |
 | P1 | CI Runner 与发布真正接线 | 资源构建 workflow 已复用 ProjectVersion + Unity CLI / Direct Adapter；下一步是在真实自建 Runner 验证授权、Android/iOS/WebGL Module、缓存与 CDN 上传凭据，并把一次成功 artifact 固化为基线。 |
+| P1 | 中文友好性收口 | 根协作规则已要求中文提交和用户可见中文；下一步优先收敛 Console 纯英文错误、Inspector 主标签与诊断状态展示，保留类型、参数和第三方原始错误供检索，不引入过度的运行时多语言系统。 |
 | P2 | 大文件按职责复查 | `DiagnosticsWindow`、`YooAssetProvider`、`AssetUtility` 等只在发现两个独立变化轴或测试 Seam 时拆；单纯行数不是理由。 |
 | P2 | WebGL / 小游戏固定 Runner 基线 | 隔离探针已能在当前目标平台生成真实 Player BuildReport 上界；下一步等确定发布平台与 CI Runner 后保存同环境 artifact / 阈值，避免把本机 Windows 数字当 WebGL 基线。 |
-| P2 | UPM 分发依赖标准化 | Module 源码与 Odin 原生基线已经具备；下一步拆解 Git 直依赖与 embedded NuGet 单体包的发布来源，形成可重复安装 recipe，并在干净消费工程验证 Core / 可选 Adapter 的安装与删除，不在框架内复制第二套 Package Manager。 |
+| P1 | UPM 分发依赖标准化与干净消费矩阵 | 当前体积探针把源码复制到临时工程的 `Assets`，尚未证明真实 UPM 安装/移除。下一步先确定 Core / Yoo / UI 等发布 Package 拓扑和 Git、embedded NuGet 依赖来源，再以工程外临时 Unity 项目验证 core → add Yoo → remove Yoo（保留 Library）的编译与 Player Build，不在框架内复制第二套 Package Manager。 |
 
 ## 每批完成门禁
 

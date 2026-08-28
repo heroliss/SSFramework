@@ -315,7 +315,7 @@ namespace Game.Framework.Editor
 
         private void AddHotUpdateDeployment(FrameworkModuleAudit.HotUpdateDeploymentEvidence evidence)
         {
-            if (evidence == null || !evidence.BuildModuleAvailable) return;
+            if (evidence == null || !evidence.HotUpdateBuildModuleAvailable) return;
 
             AddSectionTitle("热更产物链 · Profile 到当前中转清单");
             var card = CreateCard("module-audit-hot-update-evidence");
@@ -789,7 +789,7 @@ namespace Game.Framework.Editor
                         .Select(status => status.Module.Name + "（AOT）→ " +
                                           string.Join("、", status.HotUpdateDependencies) + "（热更）"))
                     : "没有发现 AOT Framework Module 直接引用热更程序集。"));
-            if (result.HotUpdateDeployment?.BuildModuleAvailable == true)
+            if (result.HotUpdateDeployment?.HotUpdateBuildModuleAvailable == true)
                 card.Add(CreateCheckRow(!result.HasHotUpdateDeploymentWarnings,
                     "热更配置与本地派生状态可解释",
                     result.HasHotUpdateDeploymentWarnings

@@ -44,7 +44,11 @@ Demo 教学内容与自动化之间的运行时 Seam。`DemoModuleHost` 在真�
 
 ## Framework Module Audit
 
-编辑器侧的 Module Catalog、删除计划与体积证据入口。它以当前目标平台的 Player 编译图确定候选 Module，再读 asmdef、当前已编译 DLL 快照的元数据引用、FrameworkHotUpdateProfile，以及项目 Assets 与已注册 Packages 的全部 `link.xml`，把“源码存在、参与编译、预定义程序集隐式引用规则、当前 DLL 快照消费、全 asmdef 删除阻塞、linker 根、热更完整 DLL 部署、最终 Player 证据”保持正交；`autoReferenced:false` 只关闭 Assembly-CSharp 等预定义程序集的隐式引用，不叫“按需启用”，也不代表 Module 退出 Player 编译图。Core / Boot 删除门禁同时比较 asmdef 声明与当前 DLL 元数据闭包：Core 不得接触任意可选 Framework Player Module（含 Boot），Boot 不得接触 Framework Runtime；闭包中的缺失目标也不能因未进入当前 Catalog 而假绿。审计还经只读反射接缝比较可删除 Build Editor Module 所拥有的 HybridCLRSettings、Generate stamp、当前热更拓扑 / AOT 补元数据清单与 DLL 中转 manifest。它不把当前 Editor 中可得的 DLL 变体冒充目标平台 Player，也不把文件存在冒充 DLL 内容相对源码新鲜或已部署，并区分空 Profile 的显式纯 AOT 与缺失 / 重复 Profile。它报告常用组合与任意 Module 入口闭包，并解释受热更依赖传播约束的安全移除事务；不提供含糊的 `SetEnabled(bool)`，也不接管 UPM 安装/版本管理。原始 DLL 字节只用于组合对比，最终包体仍以目标平台 Player BuildReport 为准。
+编辑器侧的 Module Catalog、删除计划与体积证据入口。它以当前目标平台的 Player 编译图确定候选 Module，再读 asmdef、当前已编译 DLL 快照的元数据引用、FrameworkHotUpdateProfile，以及项目 Assets 与已注册 Packages 的全部 `link.xml`，把“源码存在、参与编译、预定义程序集隐式引用规则、当前 DLL 快照消费、全 asmdef 删除阻塞、linker 根、热更完整 DLL 部署、最终 Player 证据”保持正交；`autoReferenced:false` 只关闭 Assembly-CSharp 等预定义程序集的隐式引用，不叫“按需启用”，也不代表 Module 退出 Player 编译图。Core / Boot 删除门禁同时比较 asmdef 声明与当前 DLL 元数据闭包：Core 不得接触任意可选 Framework Player Module（含 Boot），Boot 不得接触 Framework Runtime；闭包中的缺失目标也不能因未进入当前 Catalog 而假绿。审计还经只读反射接缝比较可删除 HybridCLR 热更新构建 Module 所拥有的 HybridCLRSettings、Generate stamp、当前热更拓扑 / AOT 补元数据清单与 DLL 中转 manifest；资源构建 Module 是否安装与这份热更证据保持正交。它不把当前 Editor 中可得的 DLL 变体冒充目标平台 Player，也不把文件存在冒充 DLL 内容相对源码新鲜或已部署，并区分空 Profile 的显式纯 AOT 与缺失 / 重复 Profile。它报告常用组合与任意 Module 入口闭包，并解释受热更依赖传播约束的安全移除事务；不提供含糊的 `SetEnabled(bool)`，也不接管 UPM 安装/版本管理。原始 DLL 字节只用于组合对比，最终包体仍以目标平台 Player BuildReport 为准。
+
+## Framework Build Module Split
+
+Editor 构建能力按真实第三方变化源分成单向两层：`Game.Framework.Build.Editor` 拥有 YooAsset 普通 AssetBundle 的 Profile、构建、部署、本地服务和安全产物路径，不引用 Boot、HybridCLR 或 dnlib；`Game.Framework.Build.HybridCLR.Editor` 作为可删除的下游 Module，拥有热更 Profile、Generate 新鲜度、目标 DLL 编译与 YooAsset RawFile 代码包配方，并复用资源构建侧的版本、部署、预检与路径安全 Implementation。资源 Module 不读取热更 Profile；RawFile 包若误在资源 Profile 启用，会在写产物前明确失败并指向专属构建 Module。删除热更新 Module 后资源构建继续成立；保留热更新则必须保留它实际依赖的资源构建、Boot 与 HybridCLR 工具链。
 
 ## External Dependency Evidence
 
