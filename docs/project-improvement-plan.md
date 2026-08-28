@@ -22,7 +22,7 @@
 | Demo | 32 个自动发现章节；Catalog 集中拥有 Adapter 生命周期，并按 Capability / Concept / Workflow 校验真实 Build 教学语义 |
 | 教程 | `framework-guide.md` 28 章 |
 | ADR | 0001–0045；0040 为 UPM-aware 源码目录，0041/0042 补齐依赖证据，0043 收口 Editor 菜单与工作台，0044 固化 Unity CLI 工程外 Adapter 边界，0045 拆分资源与 HybridCLR 构建依赖 |
-| 测试 | PlayMode 545 + EditMode 370，共 915 项全绿；交互式 MCP 后台运行且 PlayMode 先预检，命令行入口默认 EditMode + PlayMode |
+| 测试 | PlayMode 545 + EditMode 390，共 935 项全绿；交互式 MCP 后台运行且 PlayMode 先预检，命令行入口默认 EditMode + PlayMode |
 | Demo CodeRef | 315 处可打开源码跳转；完整门禁通过后以精准命中为基线，注释、文案与外部文档路径不计入源码构造点 |
 | AI 常驻规则预算 | 最深 AGENTS 链 30.48 KiB，低于 Codex 默认 32 KiB 项目指令上限；本轮已压缩 Demo 教程式规则，新增常驻规则前仍须优先外移可测试/可按需加载内容 |
 
@@ -226,6 +226,12 @@
 - 日志接缝补齐 Warning 级原始异常：`LogEntry.Exception` 不再只在 Error 路径有意义，Unity 默认 sink 会在同一条 Warning 中展示异常而不额外抬成 Error；HTTP、WebSocket 与 Storage 的可恢复失败改为“稳定中文动作 + 结构化异常”，Demo 服务器清理反馈完成中文化。定向 PlayMode 111/111、Demo Server EditMode 2/2，最新完整 EditMode 364/364、PlayMode 545/545 通过。
 - WebSocket Interface 与 Implementation 的错误边界进一步收口：`Connect` 在 Adapter 前严格拒绝相对地址和非 `ws/wss` scheme；Send / Disconnect 以 caller / Context owner 意图识别取消，即使 Adapter 在竞态中抛 ODE 或 socket error 也返回 OCE 并保留 inner；关闭事件只发布框架稳定摘要，原始异常走日志 Seam；Provider Dispose 失败也不会漏掉响应式 State 释放。Guide、ADR-0028 与 Demo 同步解释“重连只判断 ByUser”，专项 PlayMode 52/52、最新完整 909/909 通过。
 
+### P1 · Editor 工作台动作可用态
+
+- `FrameworkEditorOperationGate` 增加无 Unity 静态依赖的状态 evaluator，统一编译、资产导入、Player Build 与 Play / 即将切换 Play 的阻止顺序；`requireEditMode:false` 明确表示“有副作用但 Play-safe”，不再被误当成只读动作。
+- 资源构建、HybridCLR、Luban、Protobuf、服务安装器与字体字集工作台都在点击前使用同一 Gate 并显示完整原因，Generator / Builder 动作层继续二次门禁竞态；刷新、定位、打开目录和 HotUpdate 只读校验保持可用。
+- Core 测试只拥有 evaluator 与 Service Installer；五个可删除 Editor Module 在各自测试程序集内锁定接入，不把可选窗口类型或源码路径反向写进 Core。真实 Utility 窗口已用 Unity MCP `PrintWindow` 在 280–320px 复查，资源、Proto、Installer 与 HotUpdate 的纵排、长文换行和 Play 状态双按钮原因均无横向裁切。审查补出的“业务原因被 Gate 覆盖 / 无 Profile 次按钮空提示”由 HybridCLR 模块内纯 evaluator 锁定；定向 Gate + Module 19/19、完整 EditMode 390/390、PlayMode 545/545，共 935/935 通过。
+
 ### P1 · UI 必需窗口与 Flow 错误边界
 
 - `Open<T>` 保留 Adapter 创建失败返回 null 的宽松 Interface；新增非破坏性的 `OpenRequired<T>` 扩展，把同一失败提升为带窗口类型与资源位置的异常，取消仍保持 OCE。可选提示窗继续判空降级，Flow 主页面与承诺出现可见结果的动作使用严格入口，不扩张自定义 Adapter 的实现面。
@@ -249,7 +255,7 @@
 | P2 | 大文件按职责复查 | `DiagnosticsWindow`、`YooAssetProvider`、`AssetUtility` 等只在发现两个独立变化轴或测试 Seam 时拆；单纯行数不是理由。 |
 | P2 | WebGL / 小游戏固定 Runner 基线 | 隔离探针已能在当前目标平台生成真实 Player BuildReport 上界；下一步等确定发布平台与 CI Runner 后保存同环境 artifact / 阈值，避免把本机 Windows 数字当 WebGL 基线。 |
 | P1 | UPM 分发依赖标准化与干净消费矩阵 | 当前体积探针把源码复制到临时工程的 `Assets`，尚未证明真实 UPM 安装/移除。下一步先确定 Core / Yoo / UI 等发布 Package 拓扑和 Git、embedded NuGet 依赖来源，再以工程外临时 Unity 项目验证 core → add Yoo → remove Yoo（保留 Library）的编译与 Player Build，不在框架内复制第二套 Package Manager。 |
-| P1 | 编辑器动作可用态收敛 | Luban、Protobuf、Installer、Font 与 Asset 工作台的按钮状态只检查了部分 Unity 状态，而动作 Implementation 已由 `FrameworkEditorOperationGate` 完整门禁。先提取可测试的纯状态 evaluator，再让窗口显示同一阻止原因并保留动作层二次门禁；视觉覆盖最小宽度和长原因换行。 |
+| P2 | Editor Module 业务前置条件前移 | 共享 Unity 状态 Gate 已收敛；下一步只在 owner Module 内把已经廉价可知的 Profile 条目为空、未启用包、缺 CLI / 源文件、无效扫描目录或部署目录缺失转成 `CanRun + Reason`。窗口提前解释，Implementation 仍复验；进程、IO、解析与构建结果不做昂贵 GUI 预跑，也不抽泛型工作台。 |
 | P2 | Editor Profile 发现 Module | 8 处以上重复了精确类型扫描、稳定排序、多份诊断、缓存与 `projectChanged` 失效。先补移动/删除资产后的缓存失效、多份稳定顺序和无隐式创建测试，再评估内部 discovery/catalog Interface；各可选 Module 继续拥有默认值与业务校验，不抽泛型工作台。 |
 | P2 | Asset 维护 operation / 更新 session | Demo 已有两处为区分 caller waiter 与物理维护 owner 而手拼 gate、`CancellationToken.None` 和章节 token；Demo 与 Outpost 也出现 Initialize → Ready → 快照下载轮廓。启动流程已直接锁定「waiter 在物理清理终态前仍为 Pending」、「页面取消不发迟到 UI，但物理失败仍保留原异常」及「非取消的旧缓存回收失败只降级为 Warning」；出现第三个生产调用方后再决定是否形成有状态 session，避免把业务重试/确认策略塞回 Core。 |
 | P2 | Demo 服务器物理任务 owner | `Stop` 已拥有逻辑取消、监听器与 socket，但 accept/handler/tick task 仍 fire-and-forget，Dispose 未等待物理终态。先用内部 task registry、统一异常观察和 CTS token 快照覆盖 Domain Reload / in-flight slow HTTP / WS handler 竞态；只有真实调用方需要等待时才扩 `IDemoGameServer`。 |

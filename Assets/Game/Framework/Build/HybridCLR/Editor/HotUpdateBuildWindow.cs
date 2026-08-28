@@ -7,6 +7,30 @@ namespace Game.Framework.Build
     /// <summary>HybridCLR 设置同步、生成、代码包构建与部署的分步工作台。</summary>
     public sealed class HotUpdateBuildWindow : EditorWindow
     {
+        /// <summary>一步中主、次操作的可用态与应就近显示的原因；不读取 Unity 静态状态。</summary>
+        internal readonly struct StepAvailability
+        {
+            internal bool PrimaryReady { get; }
+            internal string PrimaryReason { get; }
+            internal bool SecondaryReady { get; }
+            internal string SecondaryReason { get; }
+            internal bool ShowSecondaryReason { get; }
+
+            internal StepAvailability(
+                bool primaryReady,
+                string primaryReason,
+                bool secondaryReady,
+                string secondaryReason,
+                bool showSecondaryReason)
+            {
+                PrimaryReady = primaryReady;
+                PrimaryReason = primaryReason;
+                SecondaryReady = secondaryReady;
+                SecondaryReason = secondaryReason;
+                ShowSecondaryReason = showSecondaryReason;
+            }
+        }
+
         [MenuItem(FrameworkMenuPaths.HotUpdateBuild, priority = 21)]
         public static void Open() => GetWindow<HotUpdateBuildWindow>("SSFramework 代码热更新").Show();
 
@@ -39,12 +63,14 @@ namespace Game.Framework.Build
             _scroll = EditorGUILayout.BeginScrollView(_scroll);
             bool hasProfile = FrameworkHotUpdateProfile.TryResolve(out var profile);
             bool hasAssetProfile = FrameworkAssetBuildProfile.TryResolve(out _);
-            DrawProfile(profile, compact);
+            bool canCreateProfile = FrameworkEditorOperationGate.CanStart(
+                requireEditMode: true, out string createReason);
+            DrawProfile(profile, compact, canCreateProfile, createReason);
             DrawSharedVersionDependency(hasProfile, hasAssetProfile);
             DrawStep("① 校验与同步", "校验只读，不会在缺配置时偷偷创建资产；同步会把 Profile 的程序集列表写入 HybridCLRSettings。",
                 "校验程序集列表", HotUpdateBuildMenu.ValidateAssemblies,
                 "同步热更设置", HotUpdateBuildMenu.SyncSettings, compact, hasProfile,
-                primaryRequireEditMode: false, secondaryRequireEditMode: true);
+                primaryRequireEditMode: null, secondaryRequireEditMode: true);
             DrawStep("② 生成桥接与裁剪文件", "HybridCLR Generate All 较慢，并会运行迷你 Player Build；通常只在程序集、泛型实例或 Unity 版本变化后执行。",
                 "执行 Generate All", HotUpdateBuildMenu.GenerateBridgeAndLinker,
                 null, null, compact, hasProfile,
@@ -57,7 +83,11 @@ namespace Game.Framework.Build
             EditorGUILayout.EndScrollView();
         }
 
-        private static void DrawProfile(FrameworkHotUpdateProfile profile, bool compact)
+        private static void DrawProfile(
+            FrameworkHotUpdateProfile profile,
+            bool compact,
+            bool canCreateProfile,
+            string operationReason)
         {
             using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
             {
@@ -67,7 +97,10 @@ namespace Game.Framework.Build
                     EditorGUILayout.HelpBox(
                         "尚无 HotUpdate Profile。创建时会尝试加入 Framework Core 与 Asset.Yoo 作为默认候选；创建后应按项目程序集边界复核。",
                         MessageType.Warning);
-                    if (GUILayout.Button("创建默认热更配置")) HotUpdateBuildMenu.SelectProfile();
+                    if (!canCreateProfile)
+                        EditorGUILayout.HelpBox("当前不能创建配置：\n" + operationReason, MessageType.Warning);
+                    using (new EditorGUI.DisabledScope(!canCreateProfile))
+                        if (GUILayout.Button("创建默认热更配置")) HotUpdateBuildMenu.SelectProfile();
                     return;
                 }
 
@@ -110,7 +143,7 @@ namespace Game.Framework.Build
             System.Action secondary,
             bool compact,
             bool hasProfile,
-            bool primaryRequireEditMode,
+            bool? primaryRequireEditMode,
             bool secondaryRequireEditMode,
             bool primaryPrerequisitesReady = true)
         {
@@ -118,25 +151,46 @@ namespace Game.Framework.Build
             {
                 EditorGUILayout.LabelField(title, EditorStyles.boldLabel);
                 GUILayout.Label(description, EditorStyles.wordWrappedMiniLabel);
-                string primaryReason = primaryPrerequisitesReady
-                    ? "请先在上方明确创建并复核热更配置。"
-                    : "构建代码包还需要资源构建 Profile 提供统一版本号格式；请先用上方跳转补齐配置。";
-                bool primaryReady = hasProfile && primaryPrerequisitesReady &&
-                                    FrameworkEditorOperationGate.CanStart(primaryRequireEditMode, out primaryReason);
-                bool secondaryReady = secondary == null ||
-                                      (hasProfile && FrameworkEditorOperationGate.CanStart(secondaryRequireEditMode, out _));
-                if (!hasProfile)
-                    GUILayout.Label("当前不可执行：请先在上方明确创建并复核热更配置。", EditorStyles.wordWrappedMiniLabel);
-                else if (!primaryReady)
-                    GUILayout.Label("当前不可执行：" + primaryReason, EditorStyles.wordWrappedMiniLabel);
+                const string missingProfileReason = "请先在上方明确创建并复核热更配置。";
+                const string missingAssetProfileReason =
+                    "构建代码包还需要资源构建 Profile 提供统一版本号格式；请先用上方跳转补齐配置。";
+                string primaryGateReason = string.Empty;
+                bool primaryGateReady = !hasProfile || !primaryPrerequisitesReady ||
+                                        !primaryRequireEditMode.HasValue ||
+                                        FrameworkEditorOperationGate.CanStart(
+                                            primaryRequireEditMode.Value, out primaryGateReason);
+                string secondaryGateReason = string.Empty;
+                bool secondaryGateReady = !hasProfile || secondary == null ||
+                                          FrameworkEditorOperationGate.CanStart(
+                                              secondaryRequireEditMode, out secondaryGateReason);
+                StepAvailability availability = EvaluateStepAvailability(
+                    hasProfile,
+                    primaryPrerequisitesReady,
+                    missingProfileReason,
+                    missingAssetProfileReason,
+                    primaryGateReady,
+                    primaryGateReason,
+                    secondary != null,
+                    secondaryGateReady,
+                    secondaryGateReason);
+                if (!availability.PrimaryReady)
+                    GUILayout.Label(
+                        "当前不可执行：" + availability.PrimaryReason,
+                        EditorStyles.wordWrappedMiniLabel);
+                if (availability.ShowSecondaryReason)
+                {
+                    GUILayout.Label(
+                        secondaryLabel + " 当前不可执行：" + availability.SecondaryReason,
+                        EditorStyles.wordWrappedMiniLabel);
+                }
 
                 if (compact || secondary == null)
                 {
-                    using (new EditorGUI.DisabledScope(!primaryReady))
+                    using (new EditorGUI.DisabledScope(!availability.PrimaryReady))
                         if (GUILayout.Button(primaryLabel, GUILayout.Height(26))) primary();
                     if (secondary != null)
                     {
-                        using (new EditorGUI.DisabledScope(!secondaryReady))
+                        using (new EditorGUI.DisabledScope(!availability.SecondaryReady))
                             if (GUILayout.Button(secondaryLabel, GUILayout.Height(26))) secondary();
                     }
                     return;
@@ -144,12 +198,55 @@ namespace Game.Framework.Build
 
                 using (new EditorGUILayout.HorizontalScope())
                 {
-                    using (new EditorGUI.DisabledScope(!primaryReady))
+                    using (new EditorGUI.DisabledScope(!availability.PrimaryReady))
                         if (GUILayout.Button(primaryLabel, GUILayout.Height(26))) primary();
-                    using (new EditorGUI.DisabledScope(!secondaryReady))
+                    using (new EditorGUI.DisabledScope(!availability.SecondaryReady))
                         if (GUILayout.Button(secondaryLabel, GUILayout.Height(26))) secondary();
                 }
             }
+        }
+
+        /// <summary>
+        /// 合并业务前置条件与已经求值的 Gate 结果。业务缺失优先于 Unity 忙碌；共享 Profile 缺失只解释一次。
+        /// </summary>
+        internal static StepAvailability EvaluateStepAvailability(
+            bool hasProfile,
+            bool primaryPrerequisitesReady,
+            string missingProfileReason,
+            string primaryPrerequisiteReason,
+            bool primaryGateReady,
+            string primaryGateReason,
+            bool hasSecondary,
+            bool secondaryGateReady,
+            string secondaryGateReason)
+        {
+            if (!hasProfile)
+            {
+                return new StepAvailability(
+                    primaryReady: false,
+                    primaryReason: missingProfileReason,
+                    secondaryReady: !hasSecondary,
+                    secondaryReason: string.Empty,
+                    showSecondaryReason: false);
+            }
+
+            bool primaryReady = primaryPrerequisitesReady && primaryGateReady;
+            string primaryReason = !primaryPrerequisitesReady
+                ? primaryPrerequisiteReason
+                : primaryGateReady ? string.Empty : primaryGateReason;
+            bool secondaryReady = !hasSecondary || secondaryGateReady;
+            string secondaryReason = secondaryReady ? string.Empty : secondaryGateReason;
+            bool showSecondaryReason = hasSecondary && !secondaryReady &&
+                                       (primaryReady || !string.Equals(
+                                           primaryReason,
+                                           secondaryReason,
+                                           System.StringComparison.Ordinal));
+            return new StepAvailability(
+                primaryReady,
+                primaryReason,
+                secondaryReady,
+                secondaryReason,
+                showSecondaryReason);
         }
     }
 }

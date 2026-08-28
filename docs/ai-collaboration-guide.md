@@ -110,6 +110,8 @@ Adapter 删除测试见 `docs/unity-cli-automation.md` 和 ADR-0044。
 
 同一原则也用于框架 Editor 工具反馈：普通成功、失败、缺配置和 PlayMode 拦截通过 `FrameworkEditorFeedback` 输出稳定的 `[SSFramework.Tool][状态]` Console 记录与短暂通知，不用模态结果弹窗。完整详情留在 Console，失败使用 Error、提醒使用 Warning，Agent 可据此可靠判定结果；只有清缓存、停止 Play 后切场景、保存脏场景这类真实选择保留确认。源码门禁会扫描当前实际存在的框架模块，并只允许经过审查的确认框白名单，因此物理裁剪可选模块不会破坏测试。
 
+工作台还把同一门禁前移到按钮可用态：`FrameworkEditorOperationGate` 用可测试的纯 evaluator 统一编译、导入、Player Build 与 Play 状态优先级，窗口在按钮旁显示阻止原因，动作层仍二次检查竞态。`requireEditMode:false` 仅表示副作用动作可在 Play 中运行，不表示只读；只读校验、刷新和定位不消费 Gate。Profile、CLI、输入文件与输出所有权等条件继续由 owner Module 判断，Core 测试不点名可删除 Module。Agent 因此应先读原因、再决定是否等待或修配置，不要为探测灰色按钮升级到 Windows 控制。
+
 Demo 中的故意失败采用另一条可读契约：动作前用 Experiment Notice 明确“影响范围 / 预期证据 / 恢复方式”，随后由 Experiment Action 生成带“教学实验 ·”前缀的机器可读按钮；换到下一小节后不能借用旧提示卡。结果就近解释稳定的 Console 条数与级别。预期异常由章节本地精确捕获；若出现 Host 的 `DemoAction failed`，应视为 Demo 实现遗漏，而不是实验成功。这样人工操作、截图复查和 AI 日志解析能共享同一判定标准。
 
 分钟级 Module 体积矩阵采用同一原则：项目内 `SSFramework/诊断与分析/真实构建体积` 把隔离工程、最小依赖、Unity 子进程、BuildReport 解析和 Domain Reload 恢复集中在 `Game.Framework.Editor`，Claude / Codex 不各写一套临时脚本。常见 Core / UGUI / Toolkit 回归还有无窗口的 AI 自动化菜单，避免依赖当前不可用的 MCP `execute_code` 动态编译；Agent 启动一次后只观察 `Library/SSFramework/BuildSizeProbe/<run>/report.json`，主 Unity 重载后按落盘 PID 自动重新附着，不能因工具调用超时盲目重跑。证据口径和刻意不做见 ADR-0038，操作要点见 `docs/unity-mcp-tips.md` §12。

@@ -33,6 +33,10 @@ namespace Game.Framework.Build
         private void OnGUI()
         {
             bool compact = position.width < 500f;
+            bool canEditProject = FrameworkEditorOperationGate.CanStart(
+                requireEditMode: true, out string editModeReason);
+            bool canRunAnyMode = FrameworkEditorOperationGate.CanStart(
+                requireEditMode: false, out string anyModeReason);
             EditorGUILayout.Space(6);
             EditorGUILayout.LabelField("资源构建与本地联调", EditorStyles.boldLabel);
             EditorGUILayout.HelpBox(
@@ -41,14 +45,18 @@ namespace Game.Framework.Build
 
             _scroll = EditorGUILayout.BeginScrollView(_scroll);
             bool hasProfile = FrameworkAssetBuildProfile.TryResolve(out var profile);
-            DrawProfile(profile, compact);
-            DrawBuild(compact, hasProfile);
-            DrawDeployAndServe(compact, hasProfile);
+            DrawProfile(profile, compact, canEditProject, editModeReason);
+            DrawBuild(compact, hasProfile, canEditProject, editModeReason);
+            DrawDeployAndServe(compact, hasProfile, canRunAnyMode, anyModeReason);
             DrawUtilities(compact);
             EditorGUILayout.EndScrollView();
         }
 
-        private static void DrawProfile(FrameworkAssetBuildProfile profile, bool compact)
+        private static void DrawProfile(
+            FrameworkAssetBuildProfile profile,
+            bool compact,
+            bool canEditProject,
+            string operationReason)
         {
             using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
             {
@@ -58,31 +66,46 @@ namespace Game.Framework.Build
                     EditorGUILayout.HelpBox(
                         "尚无构建 Profile。创建时会读取 YooAsset Collector 的包列表作为初始值；这是一次明确的项目资产写入。",
                         MessageType.Warning);
-                    if (GUILayout.Button("创建默认构建配置")) AssetBuildMenu.SelectProfile();
+                    if (!canEditProject)
+                        EditorGUILayout.HelpBox("当前不能创建配置：\n" + operationReason, MessageType.Warning);
+                    using (new EditorGUI.DisabledScope(!canEditProject))
+                        if (GUILayout.Button("创建默认构建配置")) AssetBuildMenu.SelectProfile();
                     return;
                 }
 
                 string path = AssetDatabase.GetAssetPath(profile);
                 GUILayout.Label($"{profile.EnabledPackageNames.Count()} 个启用包 · {path}", EditorStyles.wordWrappedMiniLabel);
+                if (!canEditProject)
+                    EditorGUILayout.HelpBox("当前不能同步配置或生成常量：\n" + operationReason, MessageType.Warning);
                 if (compact)
                 {
                     if (GUILayout.Button("定位配置")) AssetBuildMenu.SelectProfile();
-                    if (GUILayout.Button("同步 Collector 包列表")) AssetBuildMenu.SyncProfile();
-                    if (GUILayout.Button("生成包名常量")) AssetBuildMenu.GeneratePackageConstants();
+                    using (new EditorGUI.DisabledScope(!canEditProject))
+                    {
+                        if (GUILayout.Button("同步 Collector 包列表")) AssetBuildMenu.SyncProfile();
+                        if (GUILayout.Button("生成包名常量")) AssetBuildMenu.GeneratePackageConstants();
+                    }
                 }
                 else
                 {
                     using (new EditorGUILayout.HorizontalScope())
                     {
                         if (GUILayout.Button("定位配置")) AssetBuildMenu.SelectProfile();
-                        if (GUILayout.Button("同步 Collector 包列表")) AssetBuildMenu.SyncProfile();
-                        if (GUILayout.Button("生成包名常量")) AssetBuildMenu.GeneratePackageConstants();
+                        using (new EditorGUI.DisabledScope(!canEditProject))
+                        {
+                            if (GUILayout.Button("同步 Collector 包列表")) AssetBuildMenu.SyncProfile();
+                            if (GUILayout.Button("生成包名常量")) AssetBuildMenu.GeneratePackageConstants();
+                        }
                     }
                 }
             }
         }
 
-        private static void DrawBuild(bool compact, bool hasProfile)
+        private static void DrawBuild(
+            bool compact,
+            bool hasProfile,
+            bool canEditProject,
+            string operationReason)
         {
             using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
             {
@@ -91,8 +114,10 @@ namespace Game.Framework.Build
                     "普通构建复用 SBP 增量缓存；全量重建会先清缓存，明显更慢，仅用于缓存损坏或产物异常排查。构建前 Unity 会询问如何处理脏场景。",
                     EditorStyles.wordWrappedMiniLabel);
 
-                string reason = "请先在上方明确创建并复核构建配置。";
-                bool ready = hasProfile && FrameworkEditorOperationGate.CanStart(requireEditMode: true, out reason);
+                string reason = hasProfile
+                    ? operationReason
+                    : "请先在上方明确创建并复核构建配置。";
+                bool ready = hasProfile && canEditProject;
                 if (!ready) EditorGUILayout.HelpBox(reason, MessageType.Warning);
                 using (new EditorGUI.DisabledScope(!ready))
                 {
@@ -118,7 +143,11 @@ namespace Game.Framework.Build
             }
         }
 
-        private static void DrawDeployAndServe(bool compact, bool hasProfile)
+        private static void DrawDeployAndServe(
+            bool compact,
+            bool hasProfile,
+            bool canRunAnyMode,
+            string operationReason)
         {
             using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
             {
@@ -126,7 +155,12 @@ namespace Game.Framework.Build
                 GUILayout.Label(
                     "部署会用最新构建产物重建 Deploy 下对应包目录；本地服务只用于开发联调，会启动外部 Python 进程。",
                     EditorStyles.wordWrappedMiniLabel);
-                using (new EditorGUI.DisabledScope(!hasProfile))
+                string reason = hasProfile
+                    ? operationReason
+                    : "请先在上方明确创建并复核构建配置。";
+                bool ready = hasProfile && canRunAnyMode;
+                if (!ready) EditorGUILayout.HelpBox(reason, MessageType.Warning);
+                using (new EditorGUI.DisabledScope(!ready))
                 {
                     if (compact)
                     {

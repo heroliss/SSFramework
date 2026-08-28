@@ -78,11 +78,109 @@ namespace Game.Framework.Build.Tests
             }
         }
 
+        [Test]
+        public void HotUpdateWorkbench_ConsumesSharedOperationGate()
+        {
+            string source = ReadScriptSource(nameof(HotUpdateBuildWindow));
+
+            Assert.That(source, Does.Contain("FrameworkEditorOperationGate.CanStart"));
+            Assert.That(source, Does.Contain("primaryRequireEditMode: null"),
+                "只读校验不应被误建模为允许 Play 的副作用动作。");
+            Assert.That(source, Does.Not.Contain("EditorApplication.isPlayingOrWillChangePlaymode"));
+            Assert.That(source, Does.Not.Contain("EditorApplication.isCompiling"));
+            Assert.That(source, Does.Not.Contain("EditorApplication.isUpdating"));
+            Assert.That(source, Does.Not.Contain("BuildPipeline.isBuildingPlayer"));
+        }
+
+        [Test]
+        public void StepAvailability_MissingHotUpdateProfile_ShowsOneSharedReason()
+        {
+            var result = EvaluateStep(
+                hasProfile: false,
+                primaryPrerequisitesReady: true,
+                primaryGateReady: true,
+                secondaryGateReady: false);
+
+            Assert.That(result.PrimaryReady, Is.False);
+            Assert.That(result.PrimaryReason, Is.EqualTo("缺少热更配置"));
+            Assert.That(result.SecondaryReady, Is.False);
+            Assert.That(result.ShowSecondaryReason, Is.False,
+                "共享 Profile 缺失只应解释一次，不能追加空白的次操作原因。");
+        }
+
+        [Test]
+        public void StepAvailability_BusinessPrerequisiteWinsOverBusyGate()
+        {
+            var result = EvaluateStep(
+                hasProfile: true,
+                primaryPrerequisitesReady: false,
+                primaryGateReady: false,
+                secondaryGateReady: true);
+
+            Assert.That(result.PrimaryReady, Is.False);
+            Assert.That(result.PrimaryReason, Is.EqualTo("缺少资源构建配置"),
+                "动作层会先拒绝缺失业务配置，窗口必须保持同一原因优先级。");
+        }
+
+        [Test]
+        public void StepAvailability_ReadOnlyPrimaryCanRemainReadyWhileSecondaryExplainsGate()
+        {
+            var result = EvaluateStep(
+                hasProfile: true,
+                primaryPrerequisitesReady: true,
+                primaryGateReady: true,
+                secondaryGateReady: false);
+
+            Assert.That(result.PrimaryReady, Is.True);
+            Assert.That(result.SecondaryReady, Is.False);
+            Assert.That(result.ShowSecondaryReason, Is.True);
+            Assert.That(result.SecondaryReason, Is.EqualTo("Unity 忙碌"));
+        }
+
+        [Test]
+        public void StepAvailability_SameGateReasonIsShownOnlyOnce()
+        {
+            var result = EvaluateStep(
+                hasProfile: true,
+                primaryPrerequisitesReady: true,
+                primaryGateReady: false,
+                secondaryGateReady: false);
+
+            Assert.That(result.PrimaryReason, Is.EqualTo("Unity 忙碌"));
+            Assert.That(result.ShowSecondaryReason, Is.False);
+        }
+
+        private static HotUpdateBuildWindow.StepAvailability EvaluateStep(
+            bool hasProfile,
+            bool primaryPrerequisitesReady,
+            bool primaryGateReady,
+            bool secondaryGateReady)
+            => HotUpdateBuildWindow.EvaluateStepAvailability(
+                hasProfile,
+                primaryPrerequisitesReady,
+                missingProfileReason: "缺少热更配置",
+                primaryPrerequisiteReason: "缺少资源构建配置",
+                primaryGateReady: primaryGateReady,
+                primaryGateReason: "Unity 忙碌",
+                hasSecondary: true,
+                secondaryGateReady: secondaryGateReady,
+                secondaryGateReason: "Unity 忙碌");
+
         private static AsmdefDeclaration ReadDeclaration(string assetPath)
         {
             AssemblyDefinitionAsset asset = AssetDatabase.LoadAssetAtPath<AssemblyDefinitionAsset>(assetPath);
             Assert.That(asset, Is.Not.Null, $"找不到程序集定义：{assetPath}");
             return JsonUtility.FromJson<AsmdefDeclaration>(asset.text);
+        }
+
+        private static string ReadScriptSource(string typeName)
+        {
+            string[] paths = AssetDatabase.FindAssets(typeName + " t:MonoScript")
+                .Select(AssetDatabase.GUIDToAssetPath)
+                .Where(path => path.EndsWith("/" + typeName + ".cs", StringComparison.Ordinal))
+                .ToArray();
+            Assert.That(paths, Has.Length.EqualTo(1), "应精确找到 owner Module 内的窗口源码。");
+            return AssetDatabase.LoadAssetAtPath<MonoScript>(paths[0]).text;
         }
 
         [Serializable]
