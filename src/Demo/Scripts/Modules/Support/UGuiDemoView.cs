@@ -24,7 +24,7 @@ namespace Game.Framework.Demo.Modules
             // 只读：查询 Command 返回状态流，订阅即得当前值——View 不直接读 Model。
             // 状态用「Model」章的 MonoScoreModel：本弹窗挂到哪个 Context 子树下，命令就解析到哪个作用域的实例
             //（「多 Context」章把同一个 prefab 弹进子作用域，正是靠这一点零代码切换数据源）。
-            Bag.Subscribe(this.ExecuteCommand(new GetMonoScoreCommand()), v => _scoreText.text = $"Score: {v}");
+            Bag.Subscribe(this.ExecuteCommand(new GetMonoScoreCommand()), v => _scoreText.text = $"分数：{v}");
 
             // 只写：所有外发动作只能 ExecuteCommand（View 拿不到 GetModel/SendEvent 权限）。
             Bag.Subscribe(_addButton.onClick, () => this.ExecuteCommand(new RaiseMonoScoreCommand()));

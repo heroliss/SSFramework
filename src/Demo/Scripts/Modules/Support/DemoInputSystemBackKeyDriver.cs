@@ -19,7 +19,7 @@ namespace Game.Framework.Demo.Modules
     /// </para>
     /// </remarks>
     [DisallowMultipleComponent]
-    [AddComponentMenu("SSFramework Demo/UI/Input System Back Key Driver")]
+    [AddComponentMenu("SSFramework 演示/UI/Input System 返回键驱动")]
     public sealed class DemoInputSystemBackKeyDriver : MonoBehaviour
     {
         private IUIUtility _ui;

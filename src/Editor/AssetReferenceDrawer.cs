@@ -12,7 +12,7 @@ namespace Game.Framework.Editor
 {
     /// <summary>
     /// AssetReference 的 Inspector 绘制器。
-    /// 通过 GUID 反查资源并显示 ObjectField，支持拖拽赋值和 Missing 提示。
+    /// 通过 GUID 反查资源并显示 ObjectField，支持拖拽赋值和“资源缺失”提示。
     /// </summary>
     [CustomPropertyDrawer(typeof(AssetReferenceBase), true)]
     public class AssetReferenceDrawer : PropertyDrawer
@@ -106,7 +106,7 @@ namespace Game.Framework.Editor
             DrawPackageDropdown(packageRect, packageProp);
 
             if (isMissing && newAsset == null)
-                EditorGUI.LabelField(objectRect, $"Missing ({assetType.Name})", EditorStyles.objectField);
+                EditorGUI.LabelField(objectRect, $"资源缺失（{assetType.Name}）", EditorStyles.objectField);
 
             if (newAsset != currentAsset)
             {
@@ -174,7 +174,7 @@ namespace Game.Framework.Editor
         {
             if (packageProp == null)
             {
-                EditorGUI.LabelField(rect, "(default)", EditorStyles.popup);
+                EditorGUI.LabelField(rect, "（默认资源包）", EditorStyles.popup);
                 return;
             }
 
@@ -186,7 +186,7 @@ namespace Game.Framework.Editor
             var text = string.IsNullOrEmpty(current) ? defaultLabel : current;
             var tooltip = string.IsNullOrEmpty(current)
                 ? (noDefault
-                    ? "⚠ 未配置默认包：留空的引用 Get() 会报错。请在此显式指定包，或给 AssetSystemConfigModel 配 Default Package。"
+                    ? "⚠ 未配置默认包：留空的引用 Get() 会报错。请在此显式指定包，或给 AssetSystemConfigModel 配置“默认资源包”。"
                     : $"留空 = 用默认包（当前默认包：{defaultPkg}）")
                 : $"显式指定包：{current}";
             if (!GUI.Button(rect, new GUIContent(text, tooltip), EditorStyles.popup)) return;
@@ -270,7 +270,7 @@ namespace Game.Framework.Editor
                 window._serializedObject = packageProp.serializedObject;
                 window._propertyPath = packageProp.propertyPath;
                 window._value = packageProp.stringValue;
-                window.titleContent = new GUIContent("Package");
+                window.titleContent = new GUIContent("资源包");
                 window.minSize = new Vector2(240f, 84f);
                 window.maxSize = new Vector2(720f, 140f);
                 Rect desktop = InternalEditorUtility.GetBoundsOfDesktopAtPoint(anchor);
@@ -289,7 +289,7 @@ namespace Game.Framework.Editor
                     return;
                 }
 
-                EditorGUILayout.LabelField("Package Name");
+                EditorGUILayout.LabelField("资源包名");
                 EditorGUI.BeginChangeCheck();
                 _value = EditorGUILayout.TextField(_value);
                 if (EditorGUI.EndChangeCheck())
@@ -298,7 +298,7 @@ namespace Game.Framework.Editor
                 using (new EditorGUILayout.HorizontalScope())
                 {
                     GUILayout.FlexibleSpace();
-                    if (GUILayout.Button("OK", GUILayout.Width(72f)))
+                    if (GUILayout.Button("确定", GUILayout.Width(72f)))
                     {
                         Apply();
                         Close();

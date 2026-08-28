@@ -130,7 +130,7 @@ namespace Game.Framework.Demo.Modules
             var card = DemoWindowKit.Card(Root, "计数窗口 · Window 层", Accent);
             var score = DemoWindowKit.Lbl(card, "");
             // 只读订阅查询 Command（与 UGUI / UIToolkit View 章共用同一份 MonoScoreModel）。
-            Bag.BindText(score, this.ExecuteCommand(new GetMonoScoreCommand()), v => $"Score: {v}");
+            Bag.BindText(score, this.ExecuteCommand(new GetMonoScoreCommand()), v => $"分数：{v}");
             DemoWindowKit.Btn(card, "+1（ExecuteCommand 写）", () => this.ExecuteCommand(new RaiseMonoScoreCommand()));
             DemoWindowKit.Btn(card, "关闭", () => this.GetUtility<IUIUtility>().Close(this));
         }
@@ -150,8 +150,10 @@ namespace Game.Framework.Demo.Modules
         private int _openCalls;
         private int _closeCalls;
 
-        /// <summary>窗口卡片展示的缓存策略名称。</summary>
-        protected abstract string PolicyName { get; }
+        /// <summary>窗口声明的缓存策略；同时驱动中文说明，避免以显示字符串判断行为。</summary>
+        protected abstract UICachePolicy Policy { get; }
+
+        private string PolicyName => Policy == UICachePolicy.Cache ? "缓存（Cache）" : "销毁（Destroy）";
 
         /// <summary>窗口卡片强调色。</summary>
         protected abstract Color AccentColor { get; }
@@ -166,7 +168,7 @@ namespace Game.Framework.Demo.Modules
             _createCalls++;
             var card = DemoWindowKit.Card(Root, $"{PolicyName} 策略 · 实例身份", AccentColor);
             _evidence = DemoWindowKit.Lbl(card, string.Empty);
-            DemoWindowKit.Lbl(card, PolicyName == "Cache"
+            DemoWindowKit.Lbl(card, Policy == UICachePolicy.Cache
                 ? "关闭只隐藏；再次打开应复用此实例，OnOpen 继续累计。"
                 : "关闭即销毁；再次打开应得到新实例，计数从头开始。");
             DemoWindowKit.Btn(card, "关闭，再从 Demo 重开", () => this.GetUtility<IUIUtility>().Close(this));
@@ -192,19 +194,19 @@ namespace Game.Framework.Demo.Modules
         }
     }
 
-    /// <summary>默认 Destroy 策略对照窗：关闭后物理销毁，重开必须构造新实例。</summary>
+    /// <summary>默认销毁（Destroy）策略对照窗：关闭后物理销毁，重开必须构造新实例。</summary>
     [UIWindow(Layer = UILayer.Window, Cache = UICachePolicy.Destroy)]
     public sealed class DemoDestroyPolicyWindow : DemoLifecyclePolicyWindowBase
     {
-        protected override string PolicyName => "Destroy";
+        protected override UICachePolicy Policy => UICachePolicy.Destroy;
         protected override Color AccentColor => new(1f, 0.55f, 0.45f);
     }
 
-    /// <summary>Cache 策略对照窗：关闭后只隐藏，重开复用同一实例并再次进入 OnOpen。</summary>
+    /// <summary>缓存（Cache）策略对照窗：关闭后只隐藏，重开复用同一实例并再次进入 OnOpen。</summary>
     [UIWindow(Layer = UILayer.Window, Cache = UICachePolicy.Cache)]
     public sealed class DemoCachedPolicyWindow : DemoLifecyclePolicyWindowBase
     {
-        protected override string PolicyName => "Cache";
+        protected override UICachePolicy Policy => UICachePolicy.Cache;
         protected override Color AccentColor => new(0.45f, 0.9f, 0.65f);
     }
 

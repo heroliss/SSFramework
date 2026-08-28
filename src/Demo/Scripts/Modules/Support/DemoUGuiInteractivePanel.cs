@@ -5,7 +5,7 @@ using UnityEngine.UI;
 namespace Game.Framework.Demo.Modules
 {
     /// <summary>
-    /// 被嵌进 UI Toolkit 的一块<b>可交互</b> UGUI 面板：代码搭建 计数文本 + <c>+1</c>/<c>reset</c> 按钮 + 一个 Slider——
+    /// 被嵌进 UI Toolkit 的一块<b>可交互</b> UGUI 面板：代码搭建计数文本、<c>+1</c>/<c>重置</c> 按钮和一个 Slider——
     /// 用来验证 RenderTexture 桥的**输入穿透**（点击按钮、拖 Slider 都经桥转发进这里，ADR-0033 §v2 demo）。
     /// 放在被 <c>MonoUGuiEmbed</c>（<c>Interactive=true</c>）实例化的 prefab 根上；本身不含 Canvas。
     /// </summary>
@@ -21,9 +21,9 @@ namespace Game.Framework.Demo.Modules
             bg.color = new Color(0.12f, 0.14f, 0.20f, 0.95f);
             Stretch(GetComponent<RectTransform>());
 
-            _countText = MakeText("Count", new Vector2(0.5f, 0.86f), 28f, "点 +1 / reset：计数 0");
+            _countText = MakeText("Count", new Vector2(0.5f, 0.86f), 28f, "点 +1 / 重置：计数 0");
             MakeButton("+1", new Vector2(0.30f, 0.62f), () => { _count++; RefreshCount(); });
-            MakeButton("reset", new Vector2(0.70f, 0.62f), () => { _count = 0; RefreshCount(); });
+            MakeButton("重置", new Vector2(0.70f, 0.62f), () => { _count = 0; RefreshCount(); });
 
             _sliderText = MakeText("SliderVal", new Vector2(0.5f, 0.34f), 20f, "拖滑块：0.00");
             var sliderGo = DefaultControls.CreateSlider(default); // 标准控件，handle 拖拽已内部接好
@@ -36,7 +36,7 @@ namespace Game.Framework.Demo.Modules
             slider.onValueChanged.AddListener(v => _sliderText.text = $"拖滑块：{v:0.00}");
         }
 
-        private void RefreshCount() => _countText.text = $"点 +1 / reset：计数 {_count}";
+        private void RefreshCount() => _countText.text = $"点 +1 / 重置：计数 {_count}";
 
         private TMP_Text MakeText(string name, Vector2 anchor, float size, string text)
         {

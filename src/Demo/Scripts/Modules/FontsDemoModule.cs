@@ -105,12 +105,12 @@ namespace Game.Framework.Demo.Modules
             // ── TMP 侧：真·豆腐块与 ③（经 RenderTexture 桥内联嵌入，不再是浮层）──
             host.AddSectionTitle("TMP（UGUI 侧）：真·豆腐块——②③ 在这里是刚需");
             host.AddNote("TMP **没有**引擎级 OS 兜底：缺字就是豆腐块（□）。下面是一块**内联嵌入**的 TMP 样本卡（经 RenderTexture 桥嵌进本章内容、随章滚动，不再是浮在角落的浮层——TMP 是 UGUI/mesh 渲染塞不进 VisualElement，桥把它渲进纹理当 Toolkit 内容显示，见「UI 融合」章）：" +
-                "**row1** 用 TMP 主字体（场景链 ①②）——**切 en → 豆腐块，切 zh → ②NotoSansSC 接住**；" +
-                "**row2** 用**不在场景链上**的独立字体，演示 ③——用下面按钮给它挂 / 撤纯 OS 候选链（不带 ②），看 OS 字体单独接住中文。",
+                "**第 1 行**用 TMP 主字体（场景链 ①②）——**切 en → 豆腐块，切 zh → ②NotoSansSC 接住**；" +
+                "**第 2 行**用**不在场景链上**的独立字体，演示 ③——用下面按钮给它挂 / 撤纯 OS 候选链（不带 ②），看 OS 字体单独接住中文。",
                 CodeRef.Here("void BuildInlineTmpSample", "内联搭 TMP 样本（嵌入桥）"));
             BuildInlineTmpSample(host);
 
-            host.AddActionRow("③ 给 row2 挂 OS 兜底链（Microsoft YaHei → PingFang SC → Noto Sans CJK SC）", () =>
+            host.AddActionRow("③ 给第 2 行挂 OS 兜底链（Microsoft YaHei → PingFang SC → Noto Sans CJK SC）", () =>
             {
                 if (_tmpOsDemoFont == null) return;
                 if (_osOnlyChain == null || _osOnlyChain.IsDisposed)
@@ -190,8 +190,8 @@ namespace Game.Framework.Demo.Modules
         }
 
         /// <summary>
-        /// 内联 TMP 样本卡（两行）：经 RenderTexture 桥嵌进本章内容流（不再是浮层）。row1 用 TMP 主字体（场景链 ①②——
-        /// 切语言看豆腐块⇄中文，靠 MonoLocaleFonts + 本处 locale 订阅 ForceMeshUpdate 强刷）；row2 用独立运行时字体，配合 ③ 演示纯 OS 兜底链。
+        /// 内联 TMP 样本卡（两行）：经 RenderTexture 桥嵌进本章内容流（不再是浮层）。第 1 行用 TMP 主字体（场景链 ①②——
+        /// 切语言看豆腐块⇄中文，靠 MonoLocaleFonts + 本处 locale 订阅 ForceMeshUpdate 强刷）；第 2 行用独立运行时字体，配合 ③ 演示纯 OS 兜底链。
         /// </summary>
         private void BuildInlineTmpSample(DemoModuleHost host)
         {
@@ -217,9 +217,9 @@ namespace Game.Framework.Demo.Modules
             bgGo.AddComponent<RawImage>().color = new Color(0.05f, 0.06f, 0.09f, 1f);
 
             // 标题行用 ASCII（避免解释文字被 Latin 主字体渲成豆腐——本章正演示这件事）
-            AddSampleLine(root, tmpMain, "TMP inline sample  (row1 主字体 / row2 独立字体)", new Vector2(0.5f, 0.80f), 15f);
-            var row1 = AddSampleLine(root, tmpMain, "row1)  " + SampleZh, new Vector2(0.5f, 0.50f), 26f);
-            var row2 = AddSampleLine(root, _tmpOsDemoFont, "row2)  " + SampleZh, new Vector2(0.5f, 0.20f), 26f);
+            AddSampleLine(root, tmpMain, "TMP sample  (line 1: main / line 2: standalone)", new Vector2(0.5f, 0.80f), 15f);
+            var row1 = AddSampleLine(root, tmpMain, "1)  " + SampleZh, new Vector2(0.5f, 0.50f), 26f);
+            var row2 = AddSampleLine(root, _tmpOsDemoFont, "2)  " + SampleZh, new Vector2(0.5f, 0.20f), 26f);
 
             var sample = new RenderTextureElement();
             sample.style.height = 150;

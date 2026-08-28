@@ -17,7 +17,7 @@ namespace Game.Framework.Demo.Modules
         protected override void OnCreated()
         {
             // 绑定字段（ScoreText / AddButton / CloseButton）在 BindNodes 已就绪——读写分离照旧。
-            Bag.Subscribe(this.ExecuteCommand(new GetMonoScoreCommand()), v => ScoreText.text = $"Score: {v}");
+            Bag.Subscribe(this.ExecuteCommand(new GetMonoScoreCommand()), v => ScoreText.text = $"分数：{v}");
             Bag.Subscribe(AddButton.onClick, () => this.ExecuteCommand(new RaiseMonoScoreCommand()));
             Bag.Subscribe(CloseButton.onClick, () => this.GetUtility<IUIUtility>().Close(this));
         }

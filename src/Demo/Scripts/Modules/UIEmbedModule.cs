@@ -90,7 +90,7 @@ namespace Game.Framework.Demo.Modules
                 interactive.Bind(iview);
                 Bag.Add(Disposable.Create(interactive.Unbind));
 
-                host.AddNote("上面这块是**可交互**嵌入：**点 +1 / reset 计数变、拖 Slider 数值变**——指针事件经桥从 Toolkit 转发进里面的 UGUI。开关就是 `MonoUGuiEmbed` 的 `Interactive`。",
+                host.AddNote("上面这块是**可交互**嵌入：**点 +1 / 重置会改变计数，拖动 Slider 会改变数值**——指针事件经桥从 Toolkit 转发进里面的 UGUI。开关就是 `MonoUGuiEmbed` 的 `Interactive`。",
                     new CodeRef(InteractivePanelFile, "class DemoUGuiInteractivePanel", "被嵌的可交互 UGUI 面板"));
                 host.AddNote("接法与只读一模一样——只多勾一个 `Interactive`：`interactive.Bind(iview)` 之后按钮 / Slider 就活了，其余零改动。",
                     CodeRef.Here("interactive.Bind(iview)", "交互 Bind"));

@@ -11,7 +11,7 @@ namespace Game.Framework.Demo.Modules
     /// 再 <c>Get()</c>，并自行决定何时 <c>Unload()</c>（SO 是共享资产、长期存活，不像 Mono 那样随宿主销毁自动释放）。
     /// 对应 Assets/Game/AGENTS.md 规则 19：「ScriptableObject 或手动创建的 ref 需要调 ref.Bind(utility, hostToken)」。
     /// </summary>
-    [CreateAssetMenu(fileName = "DemoAssetConfig", menuName = "SSFramework Demo/Demo Asset Config")]
+    [CreateAssetMenu(fileName = "DemoAssetConfig", menuName = "SSFramework 演示/资源引用配置（DemoAssetConfig）")]
     public sealed class DemoAssetConfig : ScriptableObject
     {
         [Tooltip("一张图标的资源引用（Inspector 拖入，内部存 GUID）。因为本类是 SO，这个引用不会自动绑定——需手动 Bind 后 Get。")]

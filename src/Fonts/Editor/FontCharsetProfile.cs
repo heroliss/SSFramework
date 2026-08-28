@@ -30,18 +30,23 @@ namespace Game.Framework.Fonts.Editor
         }
 
         [Tooltip("要扫描的目录（工程相对路径）。支持 Unity 不导入的 ~ 目录（如 Luban 源表目录 Configs~）。")]
+        [InspectorName("扫描目录")]
         [SerializeField] private string[] _scanDirs = { "Assets" };
 
         [Tooltip("按扩展名决定提取方式：\n• *.cs —— 只取字符串字面量（注释 / 标识符不进字集）\n• *.xlsx —— 读 sharedStrings（Excel 全部文本单元格）\n• 其余（*.json / *.txt 等）—— 全文")]
+        [InspectorName("文件匹配模式")]
         [SerializeField] private string[] _filePatterns = { "*.json", "*.txt", "*.cs", "*.xlsx" };
 
         [Tooltip("是否包含 ASCII 可打印区（0x20~0x7E：空格、数字、字母、标点）。\n主字体一般都要，除非 Latin 部分单独烘焙。")]
+        [InspectorName("包含 ASCII 可打印字符")]
         [SerializeField] private bool _includeAsciiPrintable = true;
 
         [Tooltip("额外必收字符（直接写在这里，如 …—×÷℃①②）——扫描没覆盖到但确定会显示的字。")]
+        [InspectorName("额外必收字符")]
         [SerializeField] private string _extraChars = "";
 
         [Tooltip("charset 输出路径（UTF-8 文本，字符按码点升序）。生成后在 TMP Font Asset Creator 用 Characters from File 引用。")]
+        [InspectorName("字集输出路径")]
         [SerializeField] private string _outputPath = "Assets/Generated/SSFramework/Fonts/CommonCharset.txt";
 
         public string[] ScanDirs => _scanDirs;

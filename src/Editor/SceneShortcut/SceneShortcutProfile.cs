@@ -36,20 +36,25 @@ namespace Game.Framework.Editor
         public sealed class SceneEntry
         {
             [Tooltip("要打开的场景资产（存 GUID，场景改名 / 移动不断链）。留空的项会被菜单忽略。")]
+            [InspectorName("场景")]
             public SceneAsset Scene;
 
             [Tooltip("菜单显示名（留空 = 用场景文件名）。")]
+            [InspectorName("菜单显示名")]
             public string DisplayName;
 
             [Tooltip("分组子菜单名（留空 = 直接挂在「场景」下）。\n填 Gameplay → 菜单落到 SSFramework/场景/Gameplay/xxx，条目多了不乱。")]
+            [InspectorName("分组子菜单")]
             public string Group;
 
             [Tooltip("勾选 = 附加打开（Additive，多场景编辑、不卸载当前场景，如 Boot + 玩法场景同开）；\n不勾 = 替换打开（Single，先按提示保存当前场景）。")]
+            [InspectorName("附加打开（Additive）")]
             public bool OpenAdditive;
         }
 
         [Tooltip("菜单里要显示的场景快捷入口。加一行即多一个菜单项——" +
                  "改完到 SSFramework/开发辅助/场景快捷入口 点“刷新菜单”，或触发一次域重载即可生效。")]
+        [InspectorName("场景快捷入口")]
         [SerializeField] private List<SceneEntry> _entries = new();
 
         [Space(6)]
@@ -57,9 +62,11 @@ namespace Game.Framework.Editor
         [Tooltip("勾选后：从任何场景按 Play 都先跑 Boot 场景（HybridCLR 引导流程）再进——" +
                  "无需每次手动切回 Boot。取消勾选恢复 Unity 默认（从当前场景直接 Play）。\n" +
                  "也可在 SSFramework/开发辅助/场景快捷入口 工作台切换。")]
+        [InspectorName("从 Boot 场景启动 Play")]
         [SerializeField] private bool _playFromBootScene;
 
         [Tooltip("Boot 场景资产：上面开关打开时，它就是 Play 的起始场景。")]
+        [InspectorName("Boot 场景")]
         [SerializeField] private SceneAsset _bootScene;
 
         /// <summary>菜单要渲染的场景快捷入口（只读视图；编辑请在 Inspector 改本资产）。</summary>
