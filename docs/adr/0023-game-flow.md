@@ -68,6 +68,7 @@ public abstract class FlowState
 
 - `OnEnter` 抛异常/被取消：子 Context 立即撤（Bag 把已加载的部分资源放掉），`Current = null`，异常从 `GoTo` 的 UniTask 冒出——由调用方决定重试/进错误状态，框架不猜（对齐存储的 fail-fast：流程走错比音效丢一声严重得多）。
 - `GoTo` 的 UniTask 必须被 `await` 或由导航边界显式观察：UI 不关心完成时机，不代表可以丢弃进入失败；`OnEnter` 内转向因不能 await，应交给一个捕获取消、记录其它异常的 fire-and-forget Adapter。
+- 状态依赖的主页面是进入成功的不变量：当 UI Adapter 允许 `Open<T>` 以 null 表示无法创建时，`OnEnter` 应使用 UI Module 的 `OpenRequired<T>` 严格入口。这样开窗失败沿 `GoTo` 冒出并保持 `Current = null`；可选提示窗仍可使用宽松入口就地降级。
 - `OnExit` 抛异常：经统一 `Log` Seam 记录 Error 后**继续转换**（离开失败不该把整个游戏卡死在旧阶段；旧子 Context 照撤，文件 / 遥测 sink 也能拿到同一异常）。
 - `OnExit` 是尽力而为的“优雅告别”，不是资源所有权边界。宿主销毁时，尚未开始的退出不会补调；已经开始但不结束的退出也不能阻止整棵撤。所有可靠清理必须进入状态 `Bag` 或子 Context 的 owned 服务，迟到的 `OnExit` 代码不得再依赖已撤的 Context / Bag。
 - Dispose 后调用 `GoTo`：抛 `ObjectDisposedException`（对齐 GameContext.ExecuteCommand 语义）。
