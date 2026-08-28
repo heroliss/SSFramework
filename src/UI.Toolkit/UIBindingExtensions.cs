@@ -82,7 +82,7 @@ namespace Game.Framework.UI.Toolkit
                 catch (Exception e)
                 {
                     Log.Error(
-                        "An async click cancellation callback failed; the binding will still be released.",
+                        "异步点击绑定的取消回调执行失败；绑定仍会继续释放。",
                         e,
                         "UIBinding");
                 }
@@ -100,7 +100,7 @@ namespace Game.Framework.UI.Toolkit
             catch (Exception e)
             {
                 Log.Error(
-                    $"Async click handler for Button '{buttonIdentity}' failed.",
+                    $"Button '{buttonIdentity}' 的异步点击处理器执行失败。",
                     e,
                     "UIBinding");
             }

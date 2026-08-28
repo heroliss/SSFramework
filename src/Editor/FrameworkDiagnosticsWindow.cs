@@ -36,6 +36,13 @@ namespace Game.Framework.Editor
         private const int RefreshMs = 500;
         private const string AutoRefreshKey = "SSFramework.Diag.AutoRefresh";
         private const string OnlyErrorsKey = "SSFramework.Diag.OnlyErrors";
+        private const string CommandHintCompact =
+            "暂无命令记录。命令流水默认关闭；项目需显式接入 LoggingCommandSystem。悬停查看接入代码。";
+        private const string CommandHintFull =
+            "尚未记录命令。命令流水采用显式接入（opt-in），不会改变执行语义：\n" +
+            "在根 Context 的 InstallBindings 中注册\n" +
+            "builder.RegisterValue(new LoggingCommandSystem(), typeof(ICommandSystem));\n" +
+            "替换默认 CommandSystem 后即可观察全局命令流水；是否启用由项目的 Composition Root 决定。";
 
         /// <summary>
         /// 编辑器窗口不保证被停靠在宽区域：窄浮窗仍应保留完整操作路径，而不是依赖水平滚动去找关键状态。
@@ -824,11 +831,11 @@ namespace Game.Framework.Editor
             pane.Add(_commandToolbarPrimary);
             pane.Add(_commandToolbarSearchRow);
 
-            _commandHint = new HelpBox(
-                "未记录到命令。接入（opt-in、不改变执行语义）：根 Context 的 InstallBindings 里注册\n" +
-                "builder.RegisterValue(new LoggingCommandSystem(), typeof(ICommandSystem));\n" +
-                "替换默认 CommandSystem 即得全局命令流水；是否启用由各项目的 Composition Root 明确决定。",
-                HelpBoxMessageType.Info);
+            _commandHint = new HelpBox(CommandHintFull, HelpBoxMessageType.Info)
+            {
+                name = "diagnostics-command-hint",
+                tooltip = CommandHintFull,
+            };
             pane.Add(_commandHint);
 
             _commandTable = new MultiColumnListView
@@ -936,6 +943,12 @@ namespace Game.Framework.Editor
             return column is CommandColumnId.Command or CommandColumnId.Duration or CommandColumnId.Status;
         }
 
+        /// <summary>
+        /// 最窄布局只展示“为什么为空、下一步做什么”，完整代码仍保留在 tooltip；避免长说明挤占命令区并被窗口底部裁切。
+        /// </summary>
+        internal static string ResolveCommandHint(LayoutMode mode)
+            => mode == LayoutMode.Compact ? CommandHintCompact : CommandHintFull;
+
         /// <summary>窗口变矮时同步压缩命令区，但保留足以显示工具栏和至少两行记录的高度。</summary>
         internal static float ResolveCommandPaneDimension(LayoutMode mode, float height)
         {
@@ -1017,6 +1030,8 @@ namespace Game.Framework.Editor
                 _treePane.style.minHeight = compact ? 90 : 100;
                 _detail.style.minHeight = compact ? 90 : 100;
                 _monoIssueScroll.style.maxHeight = ResolveMonoIssueMaxHeight(mode);
+
+                _commandHint.text = ResolveCommandHint(mode);
 
                 SetCommandColumnVisibility(mode);
                 _tree?.RefreshItems(); // 让已复用的行立刻隐藏 / 恢复低优先级 meta 信息。

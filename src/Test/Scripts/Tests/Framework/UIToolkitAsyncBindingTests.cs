@@ -62,7 +62,33 @@ namespace Game.Framework.Test
             Assert.AreEqual(LogLevel.Error, entry.Level);
             Assert.AreEqual("UIBinding", entry.Category);
             StringAssert.Contains("async-action", entry.Message);
+            StringAssert.Contains("异步点击处理器执行失败", entry.Message);
             Assert.AreEqual("click-boom", entry.Exception.Message);
+        }
+
+        [Test]
+        public void CancellationCallbackFailure_IsLoggedAndBindingStillReleases()
+        {
+            var physicalOperation = new UniTaskCompletionSource();
+            var cancellationFailure = new InvalidOperationException("click-cancel-boom");
+            var subscription = _bag.SubscribeClickAsync(_button, async ct =>
+            {
+                ct.Register(() => throw cancellationFailure);
+                await physicalOperation.Task;
+            });
+
+            Click();
+            subscription.Dispose();
+
+            Assert.AreEqual(1, _sink.Entries.Count);
+            var entry = _sink.Entries[0];
+            Assert.AreEqual(LogLevel.Error, entry.Level);
+            Assert.AreEqual("UIBinding", entry.Category);
+            StringAssert.Contains("取消回调执行失败", entry.Message);
+            StringAssert.Contains("继续释放", entry.Message);
+            StringAssert.Contains("click-cancel-boom", entry.Exception.ToString());
+
+            physicalOperation.TrySetResult();
         }
 
         [Test]

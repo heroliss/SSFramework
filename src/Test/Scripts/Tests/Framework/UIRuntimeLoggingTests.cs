@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -118,6 +119,28 @@ namespace Game.Framework.Test
             }
         }
 
+        [Test]
+        public void ToolkitView_RejectsRepeatedContextBindingWithActionableChineseMessage()
+        {
+            using var first = new GameContext(new ContainerBuilder().Build(), inheritFromGlobal: false);
+            using var second = new GameContext(new ContainerBuilder().Build(), inheritFromGlobal: false);
+            var view = new BindingOnceToolkitView();
+            try
+            {
+                view.BindTo(first);
+
+                var error = Assert.Throws<InvalidOperationException>(() => view.BindTo(second));
+
+                StringAssert.Contains(nameof(BindingOnceToolkitView), error.Message);
+                StringAssert.Contains("不能重复绑定", error.Message);
+                StringAssert.Contains("只能绑定一次", error.Message);
+            }
+            finally
+            {
+                view.Dispose();
+            }
+        }
+
         private void AssertSingleError(string category, string messagePart)
         {
             Assert.AreEqual(1, _sink.Entries.Count);
@@ -160,6 +183,11 @@ namespace Game.Framework.Test
         private sealed class BindingProbeWindow : UGuiWindowBase
         {
             public GameObject FindMissingNode() => BindGameObject("Missing/Node");
+        }
+
+        private sealed class BindingOnceToolkitView : UIToolkitViewBase
+        {
+            protected override void OnCreated() { }
         }
     }
 }

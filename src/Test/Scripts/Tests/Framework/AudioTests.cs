@@ -326,7 +326,7 @@ namespace Game.Framework.Test
             Assert.IsNull(_audio.CurrentMusic);
 
             // Dispose 后误用：Editor/Dev 报 error 帮抓过期引用，但返回失效 handle、不炸游戏。
-            LogAssert.Expect(LogType.Error, new Regex("after Dispose"));
+            LogAssert.Expect(LogType.Error, new Regex("音频服务已释放"));
             var sink = new CapturingSink();
             Log.AddSink(sink);
             AudioHandle stale;
@@ -343,6 +343,8 @@ namespace Game.Framework.Test
             Assert.AreEqual(1, sink.Entries.Count);
             Assert.AreEqual(LogLevel.Error, sink.Entries[0].Level);
             Assert.AreEqual(nameof(AudioUtility), sink.Entries[0].Category);
+            StringAssert.Contains("音频服务已释放", sink.Entries[0].Message);
+            StringAssert.Contains(nameof(AudioUtility.PlaySfx), sink.Entries[0].Message);
             StringAssert.Contains(nameof(IAudioUtility), sink.Entries[0].Message);
             handle.Stop(); // 陈旧句柄静默
 
