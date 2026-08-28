@@ -63,15 +63,17 @@ namespace Game.Framework.Editor.Tests
                 "窗口和动作日志必须在多个忙碌信号并存时给出稳定的第一原因。");
         }
 
-        [Test]
-        public void ServiceInstallerWorkbench_ConsumesSharedGateInsteadOfReimplementingUnityBusyChecks()
+        [TestCase("ServiceInstallerOverviewWindow.cs")]
+        [TestCase("ServiceInstallerMenu.cs")]
+        public void ServiceInstallerEditors_ConsumeSharedGateInsteadOfReimplementingUnityBusyChecks(
+            string fileName)
         {
             FrameworkModuleSourceCatalog.SourceLocation sourceLocation =
                 FrameworkModuleSourceCatalog.FindUniqueFileInAssemblySource(
-                    "ServiceInstallerOverviewWindow.cs", "Game.Framework.Editor");
+                    fileName, "Game.Framework.Editor");
             string source = File.ReadAllText(sourceLocation.PhysicalPath);
 
-            AssertConsumesSharedGate(source, "ServiceInstallerOverviewWindow.cs");
+            AssertConsumesSharedGate(source, fileName);
         }
 
         private static void AssertConsumesSharedGate(string source, string fileName)

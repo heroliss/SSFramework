@@ -30,6 +30,27 @@ namespace Game.Framework.Editor
     /// </summary>
     public static class ServiceInstallerGenerator
     {
+        internal readonly struct GenerationPrerequisiteReport
+        {
+            internal bool CanGenerate { get; }
+            internal int ReadyEntryCount { get; }
+            internal int TotalEntryCount { get; }
+            internal string Message { get; }
+            internal bool HasInvalidEntries => ReadyEntryCount < TotalEntryCount;
+
+            internal GenerationPrerequisiteReport(
+                bool canGenerate,
+                int readyEntryCount,
+                int totalEntryCount,
+                string message)
+            {
+                CanGenerate = canGenerate;
+                ReadyEntryCount = readyEntryCount;
+                TotalEntryCount = totalEntryCount;
+                Message = message;
+            }
+        }
+
         private static readonly UTF8Encoding Utf8NoBom = new(false);
 
         private static readonly Type[] LayerMarkers =
@@ -41,7 +62,8 @@ namespace Game.Framework.Editor
 
         /// <summary>
         /// 生成 profile 里全部条目。返回 (是否全部成功, 人类可读摘要)——交互外壳（菜单 / Inspector 按钮）
-        /// 拿摘要展示，本方法不弹窗。条目之间互不影响，单条失败不阻断其余。
+        /// 拿摘要展示，本方法不弹窗。输出路径无效、空条目或全局输出冲突属于写入安全问题，会在写盘前整批拒绝；
+        /// 通过输出所有权预检后，命名空间、扫描目录或反射扫描等单条失败不阻断其余条目。
         /// </summary>
         public static (bool ok, string message) Generate(ServiceInstallerProfile profile)
         {
@@ -49,19 +71,128 @@ namespace Game.Framework.Editor
             var ownershipProfiles = ServiceInstallerProfile.ResolveAll().Concat(new[] { profile }).Distinct().ToArray();
             var (ownershipOk, ownershipMessage) = ValidateOutputOwnership(ownershipProfiles);
             if (!ownershipOk) return (false, ownershipMessage);
-            if (profile.Installers == null || profile.Installers.Count == 0)
-                return (false, $"profile「{profile.name}」没有任何安装器条目，无可生成。");
+            GenerationPrerequisiteReport prerequisites = InspectGenerationPrerequisites(profile);
+            if (!prerequisites.CanGenerate) return (false, prerequisites.Message);
+
+            return GenerateEntriesIndependently(profile.Installers, GenerateEntry);
+        }
+
+        /// <summary>
+        /// 逐条调用生成 Implementation 并汇总结果。已知失败与未预期异常都只归属于当前条目，
+        /// 后续条目仍会执行；这样一份 Profile 中的反射或 IO 故障不会让其他独立输出保持旧版本。
+        /// </summary>
+        internal static (bool ok, string message) GenerateEntriesIndependently(
+            IReadOnlyList<ServiceInstallerProfile.InstallerEntry> entries,
+            Func<ServiceInstallerProfile.InstallerEntry, (bool ok, string message)> generateEntry)
+        {
+            if (entries == null || entries.Count == 0)
+                return (false, "没有可生成的安装器条目。");
+            if (generateEntry == null)
+                throw new ArgumentNullException(nameof(generateEntry));
 
             bool allOk = true;
             var sb = new StringBuilder();
-            for (int i = 0; i < profile.Installers.Count; i++)
+            for (int i = 0; i < entries.Count; i++)
             {
-                var (ok, message) = GenerateEntry(profile.Installers[i]);
+                bool ok;
+                string message;
+                try
+                {
+                    (ok, message) = generateEntry(entries[i]);
+                }
+                catch (Exception exception)
+                {
+                    ok = false;
+                    string output = entries[i] == null || string.IsNullOrWhiteSpace(entries[i].OutputPath)
+                        ? $"第 {i + 1} 条"
+                        : entries[i].OutputPath;
+                    message = $"{output}：发生未预期错误：{exception.GetType().Name}: {exception.Message}";
+                }
                 allOk &= ok;
                 if (i > 0) sb.AppendLine();
                 sb.Append(ok ? "✓ " : "✗ ").Append(message);
             }
             return (allOk, sb.ToString());
+        }
+
+        /// <summary>
+        /// 组合 Inspector/总览按钮共同依赖的三项事实。这里只做 owner Module 内的廉价 UI evaluator；
+        /// 点击后的动作层仍重新检查 Gate、输出所有权和条目输入。
+        /// </summary>
+        internal static bool CanStartGenerationAction(
+            bool canWrite,
+            bool ownershipOk,
+            int readyWorkCount)
+            => canWrite && ownershipOk && readyWorkCount > 0;
+
+        /// <summary>
+        /// 只读检查一份 Profile 是否具备开始扫描的廉价前置条件：至少有一个条目同时具备安全输出文件、
+        /// 命名空间和有效文件夹资产。报告会保留已就绪/总条目数，使 UI 能提示“部分可生成”；
+        /// 不会反射扫描类型、创建目录或写生成文件。
+        /// </summary>
+        internal static GenerationPrerequisiteReport InspectGenerationPrerequisites(
+            ServiceInstallerProfile profile)
+        {
+            if (profile == null)
+            {
+                return new GenerationPrerequisiteReport(
+                    canGenerate: false,
+                    readyEntryCount: 0,
+                    totalEntryCount: 0,
+                    message: "ServiceInstallerProfile 不能为空。");
+            }
+            if (profile.Installers == null || profile.Installers.Count == 0)
+            {
+                return new GenerationPrerequisiteReport(
+                    canGenerate: false,
+                    readyEntryCount: 0,
+                    totalEntryCount: 0,
+                    message: $"profile「{profile.name}」没有任何安装器条目，无可生成。");
+            }
+
+            int readyCount = 0;
+            string firstFailure = string.Empty;
+            for (int i = 0; i < profile.Installers.Count; i++)
+            {
+                var (ok, message) = ValidateEntryPrerequisites(profile.Installers[i], i);
+                if (ok)
+                    readyCount++;
+                else if (firstFailure.Length == 0)
+                    firstFailure = message;
+            }
+
+            int totalCount = profile.Installers.Count;
+            string summary = readyCount == totalCount
+                ? $"{readyCount} 个安装器条目具备生成前置条件。"
+                : readyCount == 0
+                    ? $"没有具备生成前置条件的安装器条目。首项原因：{firstFailure}"
+                    : $"{readyCount}/{totalCount} 个条目可生成；其余条目会逐条报告失败。首项原因：{firstFailure}";
+            return new GenerationPrerequisiteReport(
+                canGenerate: readyCount > 0,
+                readyEntryCount: readyCount,
+                totalEntryCount: totalCount,
+                message: summary);
+        }
+
+        private static (bool ok, string message) ValidateEntryPrerequisites(
+            ServiceInstallerProfile.InstallerEntry entry,
+            int entryIndex)
+        {
+            string prefix = $"第 {entryIndex + 1} 条";
+            if (entry == null) return (false, prefix + "安装器配置为空。");
+            if (!FrameworkProjectPath.TryResolveAssetsFile(
+                    entry.OutputPath, ".cs", out string outputPath, out _, out string outputError))
+                return (false, $"{prefix}输出路径无效：{outputError}");
+            if (string.IsNullOrWhiteSpace(entry.Namespace))
+                return (false, $"{prefix}（{outputPath}）未配置命名空间。");
+
+            bool hasValidFolder = (entry.ScanFolders ?? new List<DefaultAsset>())
+                .Where(folder => folder != null)
+                .Select(AssetDatabase.GetAssetPath)
+                .Any(AssetDatabase.IsValidFolder);
+            return hasValidFolder
+                ? (true, string.Empty)
+                : (false, $"{prefix}（{outputPath}）没有配置有效的扫描目录（文件夹资产）。");
         }
 
         /// <summary>
@@ -105,7 +236,10 @@ namespace Game.Framework.Editor
             return (true, $"{claims.Count} 个安装器条目各自拥有唯一输出文件。");
         }
 
-        /// <summary>生成单个安装器条目。</summary>
+        /// <summary>
+        /// 生成单个安装器条目。可预知的配置错误以结构化失败返回；反射、IO 或 Unity 导入的未预期异常可向上传播，
+        /// Profile 级 <see cref="Generate"/> 会逐条捕获并继续生成后续独立条目。
+        /// </summary>
         public static (bool ok, string message) GenerateEntry(ServiceInstallerProfile.InstallerEntry entry)
         {
             if (entry == null) return (false, "安装器条目不能为空。");
