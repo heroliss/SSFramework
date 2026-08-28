@@ -44,7 +44,9 @@ namespace Game.Framework.UI.UGui.Editor
 
         private static void OnItem(int instanceID, Rect rect)
         {
-            if (EditorUtility.InstanceIDToObject(instanceID) is not GameObject go) return;
+            // Hierarchy 回调在 Unity 6000.3 仍传 int；这里利用公开的 int → EntityId 隐式转换，
+            // 进入对象域后统一使用强类型 EntityId，避免继续依赖已废弃的 Instance ID API。
+            if (EditorUtility.EntityIdToObject(instanceID) is not GameObject go) return;
 
             // 定位该节点归属的 prefab 资产 + 根 + 是否可编辑 / 是否运行实例。
             string assetPath;
@@ -113,7 +115,7 @@ namespace Game.Framework.UI.UGui.Editor
             }
 
             if (!editable) return;
-            if (!IsSelected(instanceID)) return;
+            if (!IsSelected(go.GetEntityId())) return;
             if (UIBindingUtil.IsInsideSubView(root, go.transform, out _)) return;
             // 纯布局/空节点（无脚本无内置控件）也允许绑：默认取其 RectTransform/Transform（PickDefaultComponent 的兜底），
             // 用于布局引用 / 显隐容器等；「＋」只在选中节点时出现，噪音很小。GameObject 不自动选，需在面板里手动勾。
@@ -293,10 +295,10 @@ namespace Game.Framework.UI.UGui.Editor
             return string.Join("\n", lines);
         }
 
-        private static bool IsSelected(int instanceID)
+        internal static bool IsSelected(EntityId entityId)
         {
-            foreach (int id in Selection.instanceIDs)
-                if (id == instanceID) return true;
+            foreach (EntityId selectedEntityId in Selection.entityIds)
+                if (selectedEntityId == entityId) return true;
             return false;
         }
 
