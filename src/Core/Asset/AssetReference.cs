@@ -69,14 +69,15 @@ namespace Game.Framework
                 BoundUtility = assetUtility;
                 HostToken = GameContext.Main.CancellationToken;
                 Log.Warning(
-                    "Using GameContext.Main fallback because this reference was not explicitly bound. " +
-                    "The reference owns its handle and must be disposed manually. Prefer Mono automatic binding or Bag.BindAssetReferences().",
+                    "该资源引用未显式绑定，现回退使用 GameContext.Main。引用将自行持有加载句柄，必须手动释放；" +
+                    "优先使用 Mono 自动绑定或 Bag.BindAssetReferences()。",
                     "AssetReference");
                 return assetUtility;
             }
 
             Log.Error(
-                "No IAssetUtility bound. Use a MonoXxxBase field, call Bind(), or register IAssetUtility in GameContext.Main.",
+                "未绑定 IAssetUtility。请把引用声明为 MonoXxxBase 字段、显式调用 Bind()，" +
+                "或在 GameContext.Main 注册 IAssetUtility。",
                 category: "AssetReference");
             return null;
         }
@@ -129,7 +130,7 @@ namespace Game.Framework
 
             if (!HasGuid)
             {
-                Log.Warning("GUID is empty, assign asset in Inspector.", "AssetReference");
+                Log.Warning("GUID 为空，请先在 Inspector 中指定资源。", "AssetReference");
                 return null;
             }
 

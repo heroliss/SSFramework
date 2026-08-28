@@ -389,7 +389,7 @@ namespace Game.Framework.Test
 
         private async UniTask EmptyLocation_IsReportedThroughLoggingSeam_BeforeProviderWorkAsync()
         {
-            LogAssert.Expect(LogType.Warning, "[AssetUtility] Location is empty.");
+            LogAssert.Expect(LogType.Warning, "[AssetUtility] 资源地址（location）为空。");
             var sink = new CapturingSink();
             Log.AddSink(sink);
             IAssetHandle<GameObject> handle;
@@ -406,6 +406,7 @@ namespace Game.Framework.Test
             Assert.AreEqual(1, sink.Entries.Count);
             Assert.AreEqual(LogLevel.Warning, sink.Entries[0].Level);
             Assert.AreEqual(nameof(AssetUtility), sink.Entries[0].Category);
+            Assert.AreEqual("资源地址（location）为空。", sink.Entries[0].Message);
             Assert.AreSame(_utility, sink.Entries[0].Context,
                 "资源输入守卫应携带产生诊断的 Utility，便于 Console 定位并让外部 sink 保留上下文");
             Assert.AreEqual(0, _provider.InitializeCalls,

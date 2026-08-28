@@ -51,10 +51,10 @@ namespace Game.Framework
             if (_utility == null || _settings == null)
             {
                 var ex = new InvalidOperationException(
-                    "[AssetInitSystem] AssetUtility or AssetSystemConfigModel not found in Context. " +
-                    "Place both components under the same MonoGameContextBase.");
+                    "[AssetInitSystem] Context 中找不到 AssetUtility 或 AssetSystemConfigModel。" +
+                    "请将两个组件放在同一个 MonoGameContextBase 下。");
                 Log.Error(
-                    "Asset system wiring is incomplete; automatic initialization cannot start.",
+                    "资源系统接线不完整，无法启动自动初始化。",
                     ex,
                     nameof(AssetInitSystem),
                     this);
@@ -73,7 +73,7 @@ namespace Game.Framework
             {
                 var ex = new InvalidOperationException("[AssetInitSystem] " + configError);
                 Log.Error(
-                    "Asset system configuration is invalid; the default package was marked failed.",
+                    "资源系统配置无效，默认资源包已标记为失败。",
                     ex,
                     nameof(AssetInitSystem),
                     this);

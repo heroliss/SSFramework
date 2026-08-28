@@ -634,7 +634,7 @@ namespace Game.Framework.Asset.Yoo.Tests
                 Assert.AreEqual(LogLevel.Error, probe.Entry.Level);
                 Assert.AreEqual(nameof(YooPackageOperationCoordinator), probe.Entry.Category);
                 Assert.AreSame(expected, probe.Entry.Exception);
-                StringAssert.Contains("failed after all callers stopped waiting", probe.Entry.Message);
+                StringAssert.Contains("在所有调用方停止等待后执行失败", probe.Entry.Message);
             }
             finally
             {

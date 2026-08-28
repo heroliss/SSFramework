@@ -152,7 +152,7 @@ namespace Game.Framework
             {
                 if (state.State.Value != AssetInitState.Idle)
                     throw new InvalidOperationException(
-                        "[AssetUtility] Test provider can only be replaced before package initialization starts.");
+                        "[AssetUtility] 测试 Provider 只能在任何资源包开始初始化前替换。");
             }
 
             _provider?.Dispose();
@@ -197,7 +197,7 @@ namespace Game.Framework
                 var ownerToken = _disposeCts.Token;
                 RunInitializationOwner(state, attempt, packageName, mode, provider, config, ownerToken)
                     .Forget(ex => Log.Error(
-                        $"Package '{packageName}' initialization owner stopped unexpectedly.",
+                        $"资源包“{packageName}”的初始化所有者（owner）异常停止。",
                         ex,
                         nameof(AssetUtility),
                         this));
@@ -236,7 +236,7 @@ namespace Game.Framework
                 // 完成 owner 捕获的 attempt，而不是同步 State 订阅回调可能新建的重试 attempt。
                 attempt.Done.TrySetResult();
                 Log.Info(
-                    $"Package '{packageName}' initialization canceled.",
+                    $"资源包“{packageName}”初始化已取消。",
                     nameof(AssetUtility),
                     this);
             }
@@ -271,7 +271,7 @@ namespace Game.Framework
         {
             if (string.IsNullOrWhiteSpace(_defaultPackageName)) return; // 无默认包则无从置 Failed（业务本就该用 packageName 重载）
             var state = GetState(_defaultPackageName);
-            var ex = exception ?? new InvalidOperationException("[AssetUtility] Asset initialization failed.");
+            var ex = exception ?? new InvalidOperationException("[AssetUtility] 资源初始化失败。");
             var attempt = state.Attempt;
             attempt.Error = ex;
             state.State.Value = AssetInitState.Failed;
@@ -331,7 +331,7 @@ namespace Game.Framework
             var current = state.State.Value;
             if (current == AssetInitState.Ready) return;
             if (current == AssetInitState.Failed)
-                throw attempt.Error ?? new InvalidOperationException($"[AssetUtility] Package '{name}' initialization failed.");
+                throw attempt.Error ?? new InvalidOperationException($"[AssetUtility] 资源包“{name}”初始化失败。");
             // Idle = 既没开自动初始化、也没人 Initialize 过它：没人会去完成当前 attempt，等下去就是无限挂起——直接报错引导。
             if (current == AssetInitState.Idle)
                 throw new InvalidOperationException(
@@ -373,7 +373,7 @@ namespace Game.Framework
         {
             if (string.IsNullOrEmpty(location))
             {
-                Log.Warning("Location is empty.", nameof(AssetUtility), this);
+                Log.Warning("资源地址（location）为空。", nameof(AssetUtility), this);
                 return null;
             }
 
@@ -390,7 +390,7 @@ namespace Game.Framework
         {
             if (string.IsNullOrEmpty(guid))
             {
-                Log.Warning("GUID is empty.", nameof(AssetUtility), this);
+                Log.Warning("GUID 为空。", nameof(AssetUtility), this);
                 return null;
             }
 
@@ -414,7 +414,7 @@ namespace Game.Framework
         {
             if (string.IsNullOrEmpty(location))
             {
-                Log.Warning("Scene location is empty.", nameof(AssetUtility), this);
+                Log.Warning("场景地址（location）为空。", nameof(AssetUtility), this);
                 return null;
             }
 
@@ -431,7 +431,7 @@ namespace Game.Framework
         {
             if (string.IsNullOrEmpty(location))
             {
-                Log.Warning("Text location is empty.", nameof(AssetUtility), this);
+                Log.Warning("文本资源地址（location）为空。", nameof(AssetUtility), this);
                 return null;
             }
 
@@ -448,7 +448,7 @@ namespace Game.Framework
         {
             if (string.IsNullOrEmpty(location))
             {
-                Log.Warning("Bytes location is empty.", nameof(AssetUtility), this);
+                Log.Warning("字节资源地址（location）为空。", nameof(AssetUtility), this);
                 return null;
             }
 
@@ -495,7 +495,7 @@ namespace Game.Framework
         {
             ThrowIfDisposed();
             if (tags == null || tags.Length == 0)
-                throw new ArgumentException("At least one tag is required.", nameof(tags));
+                throw new ArgumentException("至少需要一个标签（tag）。", nameof(tags));
             return CreateTagDownloaderInternal(_defaultPackageName, tags);
         }
 
@@ -503,7 +503,7 @@ namespace Game.Framework
         {
             ThrowIfDisposed();
             if (tags == null || tags.Count == 0)
-                throw new ArgumentException("At least one tag is required.", nameof(tags));
+                throw new ArgumentException("至少需要一个标签（tag）。", nameof(tags));
             return CreateTagDownloaderInternal(packageName, tags);
         }
 
@@ -522,7 +522,7 @@ namespace Game.Framework
         {
             ThrowIfDisposed();
             if (locations == null || locations.Length == 0)
-                throw new ArgumentException("At least one location is required.", nameof(locations));
+                throw new ArgumentException("至少需要一个资源地址（location）。", nameof(locations));
             return CreateLocationDownloaderInternal(_defaultPackageName, locations);
         }
 
@@ -530,7 +530,7 @@ namespace Game.Framework
         {
             ThrowIfDisposed();
             if (locations == null || locations.Count == 0)
-                throw new ArgumentException("At least one location is required.", nameof(locations));
+                throw new ArgumentException("至少需要一个资源地址（location）。", nameof(locations));
             return CreateLocationDownloaderInternal(packageName, locations);
         }
 
@@ -560,7 +560,7 @@ namespace Game.Framework
         {
             ThrowIfDisposed();
             if (tags == null || tags.Count == 0)
-                throw new ArgumentException("At least one tag is required.", nameof(tags));
+                throw new ArgumentException("至少需要一个标签（tag）。", nameof(tags));
             // 维护操作可能先排队；先冻结参数，避免调用方随后修改原列表而改变尚未启动的清理范围。
             var tagSnapshot = CopyItems(tags);
             packageName = NormalizePackageName(packageName);
@@ -582,7 +582,7 @@ namespace Game.Framework
         {
             ThrowIfDisposed();
             if (locations == null || locations.Count == 0)
-                throw new ArgumentException("At least one location is required.", nameof(locations));
+                throw new ArgumentException("至少需要一个资源地址（location）。", nameof(locations));
             var locationSnapshot = CopyItems(locations);
             packageName = NormalizePackageName(packageName);
             await EnsureInitialized(packageName, ct);
@@ -639,7 +639,8 @@ namespace Game.Framework
         private void RequireReadyForDownloader(string packageName)
         {
             if (GetState(packageName).State.Value != AssetInitState.Ready)
-                throw new InvalidOperationException($"[AssetUtility] Create downloader before package '{packageName}' initialization completed.");
+                throw new InvalidOperationException(
+                    $"[AssetUtility] 资源包“{packageName}”尚未初始化完成，不能创建下载器。");
         }
 
         private async UniTask<IAssetHandle<UnityEngine.Object>> LoadInternal(
@@ -660,7 +661,7 @@ namespace Game.Framework
                 return new TypedAssetHandle<T>(handle, asset);
 
             Log.Error(
-                $"Loaded asset '{key}' cannot be used as '{typeof(T).Name}'.",
+                $"已加载资源“{key}”不能作为“{typeof(T).Name}”使用。",
                 category: nameof(AssetUtility));
             handle.Dispose();
             return null;
