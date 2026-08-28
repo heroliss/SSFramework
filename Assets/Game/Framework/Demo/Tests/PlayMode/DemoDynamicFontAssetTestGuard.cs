@@ -12,18 +12,20 @@ using UnityEngine.TestRunner;
 namespace Game.Framework.Demo.PlayMode.Tests
 {
     /// <summary>
-    /// 把当前场景中的 Demo 动态字体在任意 PlayMode TestRun 产生的 glyph / atlas 持久化限制在一次测试事务内。
+    /// 把当前场景中的 Demo 动态字体在 PlayMode（含 TestRun）产生的 glyph / atlas 持久化限制在一次运行事务内。
     /// </summary>
     /// <remarks>
-    /// PlayMode Runner 会先加载当前场景，再进入筛选后的 fixture；因此 Framework 测试也可能触发 DemoScene 字体写回。
-    /// TextCore 的资源更新又可能晚于单个 fixture TearDown，甚至在后续用例才落盘，所以恢复边界必须是
-    /// 整轮 TestRun 回到稳定 EditMode 之后，不能按测试类名前缀过滤。字节快照能保留测试前未提交的资产调整；
+    /// PlayMode Runner 会在 <see cref="ITestRunCallback.RunStarted"/> 前加载当前场景；若等回调再拍快照，首帧生成的字形
+    /// 已可能混入所谓“原始”字节。因此在 <see cref="PlayModeStateChange.ExitingEditMode"/>（场景切换前）捕获，
+    /// TestRun 回调只复用该快照。TextCore 的资源更新又可能晚于单个 fixture TearDown，甚至在后续用例才落盘，
+    /// 所以恢复边界必须是整轮运行回到稳定 EditMode 之后，不能按测试类名前缀过滤。字节快照能保留测试前未提交的资产调整；
     /// <c>ClearFontAssetData</c> 会误删源资产原有的 feature / atlas 基线，不能替代本守卫。
     /// </remarks>
     internal sealed class DemoDynamicFontAssetTestGuard : ITestRunCallback
     {
         private const string SnapshotFolder = "Library/SSFramework/TestSnapshots/DemoDynamicFonts";
         private const string ReadyMarker = "snapshot.ready";
+        private const string CapturedBeforePlayMarker = "captured-before-play.ready";
         private const double EditorSettleSeconds = 2d;
         private const double RestoredStableSeconds = 2d;
 
@@ -50,13 +52,20 @@ namespace Game.Framework.Demo.PlayMode.Tests
         }
 
         [InitializeOnLoadMethod]
-        private static void RecoverSnapshotAfterDomainReload() => ScheduleRestoreIfNeeded();
+        private static void InitializeEditorHooks()
+        {
+            EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
+            EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
+            ScheduleRestoreIfNeeded();
+        }
 
         public void RunStarted(ITest testsToRun)
         {
-            // PlayMode Runner 会先加载当前场景，再进入被筛选的 fixture；即使只跑 Framework 测试，
-            // DemoScene 中已加载的动态字体也可能在测试结束后迟到写回。因此快照边界必须是整轮
-            // PlayMode TestRun，不能再按测试 FullName 判断“是否属于 Demo”。
+            // PlayMode 在 ExitingEditMode 已捕获干净字节；RunStarted 此时场景可能已渲染，不能覆盖那份快照。
+            if (HasSnapshotCapturedBeforePlay()) return;
+
+            // EditMode TestRun 不经过 PlayMode 状态切换，仍在这里捕获。守卫对整轮测试生效，
+            // 不能按测试 FullName 判断“是否属于 Demo”。
             CaptureSnapshot();
         }
 
@@ -65,6 +74,44 @@ namespace Game.Framework.Demo.PlayMode.Tests
         public void TestStarted(ITest test) { }
 
         public void TestFinished(ITestResult result) { }
+
+        private static void OnPlayModeStateChanged(PlayModeStateChange state)
+        {
+            if (state == PlayModeStateChange.ExitingEditMode)
+            {
+                try
+                {
+                    CaptureSnapshotBeforePlay();
+                }
+                catch (Exception exception)
+                {
+                    // 快照失败时不能继续进入 Play，否则 Demo 字体可能在没有原始字节证据的情况下被持久化。
+                    Debug.LogException(exception);
+                    EditorApplication.isPlaying = false;
+                }
+            }
+            else if (state == PlayModeStateChange.EnteredEditMode)
+            {
+                // 人工 Play 没有 TestRunCallback.RunFinished，也必须走同一恢复路径。
+                ScheduleRestoreIfNeeded();
+            }
+        }
+
+        private static void CaptureSnapshotBeforePlay()
+        {
+            if (HasSnapshotCapturedBeforePlay()) return;
+            CaptureSnapshot();
+            File.WriteAllText(
+                Path.Combine(FullPath(SnapshotFolder), CapturedBeforePlayMarker),
+                DateTime.UtcNow.ToString("O"));
+        }
+
+        private static bool HasSnapshotCapturedBeforePlay()
+        {
+            string snapshotDirectory = FullPath(SnapshotFolder);
+            return File.Exists(Path.Combine(snapshotDirectory, ReadyMarker)) &&
+                   File.Exists(Path.Combine(snapshotDirectory, CapturedBeforePlayMarker));
+        }
 
         private static void CaptureSnapshot()
         {

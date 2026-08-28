@@ -178,7 +178,7 @@ namespace Game.Framework.Context
         public object Resolve(Type type)
         {
             if (TryResolve(type, out var instance)) return instance;
-            throw new InvalidOperationException($"[GameContext] {type.Name} not registered");
+            throw new InvalidOperationException($"[GameContext] 未注册类型 '{type.Name}'。");
         }
 
         // ---- 层访问 ----
@@ -294,7 +294,7 @@ namespace Game.Framework.Context
             if (_disposed)
             {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
-                Log.Warning($"SendEvent<{typeof(T).Name}> called on disposed Context; ignored.", "GameContext");
+                Log.Warning($"已释放的 Context 收到 SendEvent<{typeof(T).Name}> 调用，已忽略。", "GameContext");
 #endif
                 return;
             }
@@ -376,7 +376,7 @@ namespace Game.Framework.Context
                 catch (Exception e)
                 {
                     Log.Error(
-                        "A cancellation callback threw during Context disposal; events and owned services will still be released.",
+                        "Context 释放期间有取消回调抛出异常；事件与托管服务仍会继续释放。",
                         e,
                         "GameContext");
                 }
@@ -402,15 +402,15 @@ namespace Game.Framework.Context
             if (self is IHasGameContext hasCtx && hasCtx.Context != null)
                 return hasCtx.Context;
             throw new InvalidOperationException(
-                $"[GameContext] No context on '{self.GetType().Name}'. " +
-                "Inherit a *Base class, implement IHasGameContext, or use the GameContext parameter passed to Execute().");
+                $"[GameContext] 类型 '{self.GetType().Name}' 没有关联 Context。" +
+                "请继承框架 *Base 基类、实现 IHasGameContext，或使用 Execute() 传入的 GameContext 参数。");
         }
 
         private void ThrowIfDisposed()
         {
             if (_disposed)
                 throw new ObjectDisposedException(nameof(GameContext),
-                    "[GameContext] Cannot resolve, inject, subscribe, or mutate a disposed Context.");
+                    "[GameContext] Context 已释放，不能再解析、注入、订阅或修改注册项。");
         }
 
         private Subject<T> GetOrCreateSubject<T>() where T : IEvent
@@ -451,8 +451,8 @@ namespace Game.Framework.Context
                 if (field == null)
                 {
                     Log.Warning(
-                        $"AttachTo found no 'GameContext' field on '{type.Name}'. " +
-                        "Ensure the class declares a private GameContext field read by IHasGameContext.Context.",
+                        $"AttachTo 在类型 '{type.Name}' 上找不到 'GameContext' 字段。" +
+                        "请声明由 IHasGameContext.Context 读取的私有 GameContext 字段。",
                         "GameContext");
                 }
 #endif

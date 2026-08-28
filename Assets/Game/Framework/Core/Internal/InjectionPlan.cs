@@ -59,7 +59,7 @@ namespace Game.Framework.Internal
         {
             // 万能门：拿到完整 Context 能绕过所有权限接口，任何宿主都禁注。
             if (fieldType == typeof(GameContext) || fieldType == typeof(IGameContext))
-                return "GameContext/IGameContext is the all-access gate; reach layers via extension methods instead";
+                return "GameContext/IGameContext 是全权限入口；请通过分层扩展方法访问 Model/System/Utility";
 
             // Command 经 ctx 有完整层访问权，等同于持有 ICanGetModel/System/Utility 全部。
             bool hostIsCommand = typeof(Game.Framework.Command.ICommandBase).IsAssignableFrom(hostType);
@@ -68,15 +68,15 @@ namespace Game.Framework.Internal
             if (typeof(Game.Framework.Model.IModel).IsAssignableFrom(fieldType))
                 return hostIsCommand || typeof(ICanGetModel).IsAssignableFrom(hostType)
                     ? null
-                    : $"'{hostType.Name}' has no GetModel permission, so it cannot inject Model '{fieldType.Name}'";
+                    : $"宿主类型 '{hostType.Name}' 没有 GetModel 权限，不能注入 Model '{fieldType.Name}'";
             if (typeof(Game.Framework.Systems.ISystem).IsAssignableFrom(fieldType))
                 return hostIsCommand || typeof(ICanGetSystem).IsAssignableFrom(hostType)
                     ? null
-                    : $"'{hostType.Name}' has no GetSystem permission, so it cannot inject System '{fieldType.Name}'";
+                    : $"宿主类型 '{hostType.Name}' 没有 GetSystem 权限，不能注入 System '{fieldType.Name}'";
             if (typeof(Game.Framework.Utility.IUtility).IsAssignableFrom(fieldType))
                 return hostIsCommand || typeof(ICanGetUtility).IsAssignableFrom(hostType)
                     ? null
-                    : $"'{hostType.Name}' has no GetUtility permission, so it cannot inject Utility '{fieldType.Name}'";
+                    : $"宿主类型 '{hostType.Name}' 没有 GetUtility 权限，不能注入 Utility '{fieldType.Name}'";
 
             // 其它类型（普通服务，或 View / Command / Event 等不受 ICanGetX 管辖的角色）：不在权限模型内，允许——
             // 能否真正注入只取决于容器是否注册了它（通常 View/Command/Event 不注册，会自然 TryResolve 失败 → LogWarning 兜底）。
@@ -131,7 +131,7 @@ namespace Game.Framework.Internal
                 if (deny != null)
                 {
                     Log.Error(
-                        $"cannot inject '{fType.Name}' into field '{ownerName}.{f.Name}': {deny}.",
+                        $"无法将依赖 '{fType.Name}' 注入字段 '{ownerName}.{f.Name}'：{deny}。",
                         category: "Inject");
                     continue;
                 }
@@ -141,7 +141,7 @@ namespace Game.Framework.Internal
                 {
                     if (context.TryResolve(fType, out var value)) f.SetValue(target, value);
                     else Log.Warning(
-                        $"Cannot resolve '{fType.Name}' for field '{ownerName}.{f.Name}'",
+                        $"无法为字段 '{ownerName}.{f.Name}' 解析依赖 '{fType.Name}'。",
                         category: "Inject");
                 });
             }
@@ -161,7 +161,7 @@ namespace Game.Framework.Internal
                 if (deny != null)
                 {
                     Log.Error(
-                        $"cannot inject '{pType.Name}' into property '{ownerName}.{p.Name}': {deny}.",
+                        $"无法将依赖 '{pType.Name}' 注入属性 '{ownerName}.{p.Name}'：{deny}。",
                         category: "Inject");
                     continue;
                 }
@@ -171,7 +171,7 @@ namespace Game.Framework.Internal
                 {
                     if (context.TryResolve(pType, out var value)) p.SetValue(target, value);
                     else Log.Warning(
-                        $"Cannot resolve '{pType.Name}' for property '{ownerName}.{p.Name}'",
+                        $"无法为属性 '{ownerName}.{p.Name}' 解析依赖 '{pType.Name}'。",
                         category: "Inject");
                 });
             }
@@ -195,7 +195,7 @@ namespace Game.Framework.Internal
                     if (deny != null)
                     {
                         Log.Error(
-                            $"cannot inject '{paramTypes[i].Name}' into parameter of method '{ownerName}.{m.Name}': {deny}.",
+                            $"无法将依赖 '{paramTypes[i].Name}' 注入方法 '{ownerName}.{m.Name}' 的参数：{deny}。",
                             category: "Inject");
                         denied = true;
                         break;
@@ -212,7 +212,7 @@ namespace Game.Framework.Internal
                         if (!context.TryResolve(paramTypes[i], out args[i]))
                         {
                             Log.Warning(
-                                $"Cannot resolve '{paramTypes[i].Name}' for method '{ownerName}.{m.Name}'",
+                                $"无法为方法 '{ownerName}.{m.Name}' 解析依赖 '{paramTypes[i].Name}'。",
                                 category: "Inject");
                             return;
                         }

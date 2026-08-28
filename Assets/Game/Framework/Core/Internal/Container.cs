@@ -67,7 +67,7 @@ namespace Game.Framework.Internal
         public object Resolve(Type type)
         {
             if (TryResolve(type, out var instance)) return instance;
-            throw new InvalidOperationException($"[Container] {type.Name} not registered");
+            throw new InvalidOperationException($"[Container] 未注册类型 '{type.Name}'。");
         }
 
         /// <summary>
@@ -88,7 +88,7 @@ namespace Game.Framework.Internal
                 instance = stored.Resolve(this);
                 if (!type.IsInstanceOfType(instance))
                     throw new InvalidOperationException(
-                        $"[Container] Binding for '{type.Name}' returned incompatible '{instance.GetType().Name}'.");
+                        $"[Container] 契约 '{type.Name}' 的绑定返回了不兼容实例 '{instance.GetType().Name}'。");
                 return true;
             }
             if (_parent != null) return _parent.TryResolve(type, out instance);
@@ -181,7 +181,7 @@ namespace Game.Framework.Internal
         {
             if (_disposed)
                 throw new ObjectDisposedException(nameof(Container),
-                    "[Container] Cannot resolve or mutate registrations after its Context has been disposed.");
+                    "[Container] 所属 Context 已释放，不能再解析或修改注册项。");
         }
     }
 }

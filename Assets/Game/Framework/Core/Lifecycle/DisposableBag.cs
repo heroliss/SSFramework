@@ -226,8 +226,8 @@ namespace Game.Framework
             ThrowIfDisposed();
             var handle = await ResolveUtility().LoadScene(location, mode, suspendLoad, LinkToken(ct));
             if (handle == null) return null;
-            if (_disposed) { DisposeSafely(handle, "late scene handle"); return null; }
-            AddOwned(handle, "scene handle");
+            if (_disposed) { DisposeSafely(handle, "迟到的场景句柄"); return null; }
+            AddOwned(handle, "场景句柄");
             return handle;
         }
 
@@ -246,8 +246,8 @@ namespace Game.Framework
             ThrowIfDisposed();
             var handle = await ResolveUtility().LoadScene(packageName, location, mode, suspendLoad, LinkToken(ct));
             if (handle == null) return null;
-            if (_disposed) { DisposeSafely(handle, "late scene handle"); return null; }
-            AddOwned(handle, "scene handle");
+            if (_disposed) { DisposeSafely(handle, "迟到的场景句柄"); return null; }
+            AddOwned(handle, "场景句柄");
             return handle;
         }
 
@@ -391,8 +391,8 @@ namespace Game.Framework
         public IDisposable Add(IDisposable disposable)
         {
             if (disposable == null) return null;
-            if (_disposed) { DisposeSafely(disposable, "late registration"); return disposable; }
-            AddOwned(disposable, "registered disposable");
+            if (_disposed) { DisposeSafely(disposable, "迟到的注册项"); return disposable; }
+            AddOwned(disposable, "已注册的可释放对象");
             return disposable;
         }
 
@@ -405,7 +405,7 @@ namespace Game.Framework
         {
             ThrowIfDisposed();
             var child = new DisposableBag(_ctx);
-            AddOwned(child, "child bag");
+            AddOwned(child, "子 Bag");
             return child;
         }
 
@@ -424,13 +424,13 @@ namespace Game.Framework
             {
                 // CancellationTokenSource.Cancel 会聚合并抛出回调异常；取消监听者的故障不能截断后续句柄与订阅释放。
                 Log.Error(
-                    "DisposeToken cancellation callback threw; remaining cleanup will continue.",
+                    "DisposeToken 的取消回调抛出异常；其余清理仍会继续。",
                     e,
                     category: "DisposableBag");
             }
-            DisposeSafely(_disposeCts, "dispose token source");
+            DisposeSafely(_disposeCts, "释放令牌源");
             // 缓存的 linked CTS 已被根 _disposeCts.Cancel 触发取消，这里仅释放底层资源。
-            DisposeSafely(_cachedLinkedCts, "linked token source");
+            DisposeSafely(_cachedLinkedCts, "链接令牌源");
             // 每个登记项都由 AddOwned 包成异常隔离 wrapper；一个坏 Dispose 不会让 R3 CompositeDisposable 停在半路。
             _composite.Dispose();
             // 租借反查表随之作废（实例已全部归还）；置空让实例/句柄可被 GC——bag 引用可能仍被宿主持有。
@@ -441,8 +441,8 @@ namespace Game.Framework
 
         private IDisposable Track(IDisposable d)
         {
-            if (_disposed) { DisposeSafely(d, "late subscription"); return d; }
-            AddOwned(d, "subscription");
+            if (_disposed) { DisposeSafely(d, "迟到的订阅"); return d; }
+            AddOwned(d, "订阅");
             return d;
         }
 
@@ -450,8 +450,8 @@ namespace Game.Framework
         // 供 Return / Despawn 单个提前归还时摘除登记。
         private void TrackLeased(object instance, IDisposable handle)
         {
-            if (_disposed) { DisposeSafely(handle, "late pool lease"); return; }
-            var ownedHandle = AddOwned(handle, "pool lease");
+            if (_disposed) { DisposeSafely(handle, "迟到的池租借"); return; }
+            var ownedHandle = AddOwned(handle, "池租借");
             (_leased ??= new Dictionary<object, IDisposable>(ReferenceComparer.Instance))[instance] = ownedHandle;
         }
 
@@ -468,8 +468,8 @@ namespace Game.Framework
             {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
                 Log.Error(
-                    $"{op} target was not leased by this bag (or already returned). Ignored — " +
-                    "early return must be called on the same bag that rented/spawned the instance.",
+                    $"{op} 的目标并非由此 Bag 租出，或已经归还，已忽略。" +
+                    "提前归还必须在最初 Rent/Spawn 该实例的同一个 Bag 上调用。",
                     category: "DisposableBag");
 #endif
                 return;
@@ -492,8 +492,8 @@ namespace Game.Framework
         private T TrackAsset<T>(IAssetHandle<T> handle) where T : UnityEngine.Object
         {
             if (handle == null) return null;
-            if (_disposed) { DisposeSafely(handle, "late asset handle"); return null; }
-            AddOwned(handle, "asset handle");
+            if (_disposed) { DisposeSafely(handle, "迟到的资源句柄"); return null; }
+            AddOwned(handle, "资源句柄");
             return handle.Asset;
         }
 
@@ -511,7 +511,7 @@ namespace Game.Framework
             // 但把旧 CTS 交给 _composite，随 bag.Dispose 一并释放：否则它会作为回调挂在长寿命源
             // （如 view destroy / ctx 令牌）上、直到该源取消才被 GC，构成「多 external 交替」场景下的隐性泄漏。
             // CTS.Dispose 幂等，且只有被替换下来的旧 CTS 进 composite（当前 _cachedLinkedCts 在 bag.Dispose 单独释放），不会重复。
-            if (_cachedLinkedCts != null) AddOwned(_cachedLinkedCts, "superseded linked token source");
+            if (_cachedLinkedCts != null) AddOwned(_cachedLinkedCts, "被替换的链接令牌源");
             _cachedLinkedExternal = external;
             _cachedLinkedCts = CancellationTokenSource.CreateLinkedTokenSource(external, _disposeCts.Token);
             return _cachedLinkedCts.Token;
@@ -536,7 +536,7 @@ namespace Game.Framework
             catch (Exception e)
             {
                 Log.Error(
-                    $"{role} ({disposable.GetType().Name}) threw during Dispose; remaining cleanup will continue.",
+                    $"{role}（{disposable.GetType().Name}）在 Dispose 期间抛出异常；其余清理仍会继续。",
                     e,
                     category: "DisposableBag");
             }
@@ -549,22 +549,22 @@ namespace Game.Framework
         private void EnsurePoolUtility()
         {
             if (_ctx == null) throw new InvalidOperationException(
-                "[DisposableBag] Context is required for object pooling. " +
-                "Construct with a ctx, or use MonoXxxBase.Bag which auto-binds the host context.");
+                "[DisposableBag] 对象池操作需要 Context。" +
+                "请在构造时传入 ctx，或使用会自动绑定宿主 Context 的 MonoXxxBase.Bag。");
         }
 
         private void EnsureContext()
         {
             if (_ctx == null) throw new InvalidOperationException(
-                "[DisposableBag] Context is required for Framework Event subscriptions. " +
-                "Construct with a ctx, or use MonoXxxBase.Bag which auto-binds the host context.");
+                "[DisposableBag] Framework Event 订阅需要 Context。" +
+                "请在构造时传入 ctx，或使用会自动绑定宿主 Context 的 MonoXxxBase.Bag。");
         }
 
         private void EnsureUtility()
         {
             if (_ctx == null) throw new InvalidOperationException(
-                "[DisposableBag] Context is required for asset loading. " +
-                "Construct with a ctx, or use MonoXxxBase.Bag which auto-binds the host context.");
+                "[DisposableBag] 资源加载需要 Context。" +
+                "请在构造时传入 ctx，或使用会自动绑定宿主 Context 的 MonoXxxBase.Bag。");
         }
 
         private void ThrowIfDisposed()

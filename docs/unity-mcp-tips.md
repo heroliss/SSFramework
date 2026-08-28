@@ -39,6 +39,11 @@ EditorWindow 截图不等于通用交互：可表达的菜单、查询、滚动�
 `Game.Framework.Test` 是 PlayMode 程序集。经 `unity_advanced_tool` 的 testing 类工具跑：
 `unity_testing_run_tests`（params：`mode: "PlayMode"` + `assemblies` / `testNames` / `groupNames`）→ 返回 jobId → `unity_testing_get_job` 查结果。注意参数名是 `mode` 不是 `testMode`，程序集过滤名是 `assemblies` 不是 `assemblyNames`；传错字段可能被忽略，造成错跑或范围失真。
 
+定向运行前，先用 `unity_testing_list_tests` 传入相同 `mode` 与 `nameFilter`，确认目标 fixture 确实存在于该模式，再把类名交给
+`groupNames`，或把清单返回的完整用例名交给 `testNames`。当前项目安装的 AnkleBreaker Unity 端只读取
+`testNames/categories/assemblies/groupNames`；MCP schema 虽暴露 `filter` 便利别名，Unity 端并未解析它，可能静默退化成全量运行，
+因此不要使用。任务终态 `succeeded + total=0` 只能说明 Runner 没找到用例，不能算验证通过；它通常意味着 mode 或筛选器写错。
+
 ### PlayMode 无弹窗预检（必须先做）
 
 交互式 Editor 有脏场景时，Test Runner 在进入 PlayMode 前会打开原生保存弹窗。该弹窗阻塞 Unity 主线程，连 MCP 工具发现与队列查询都可能一起卡住；**弹窗出现后不能指望 Unity MCP 点击它**，只能人工或经操作系统 UI 自动化处理。
@@ -91,6 +96,7 @@ AnkleBreaker Unity MCP 2.39.5 的 `blockedReason: editor_unfocused` 由 job 序�
 `total=0` 也可能只是测试发现、编译或域重载尚未回调 `RunStarted`。固定做法是保存 job id，用 30–60 秒 server-side wait
 继续轮询同一个 job；只要 total/completed/currentTest、Console 里程碑或 Editor 状态在变化，就保持后台，不抢焦点、不清 job、
 不重复启动。2026-08-26 实测在从未激活 Unity 的情况下，带该字段的 EditMode 16/16 与 PlayMode 14/14 都正常完成。
+这里的 `total=0` 只允许出现在运行中的启动阶段；任务已经结束仍为 0 时，必须按第 5 节检查 mode 与筛选器，不能报告“测试通过”。
 
 连续约 120 秒没有任何进度时，再依次检查编译、域重载、当前测试耗时、Console、保存弹窗与场景状态。只有这些证据都不能解释
 停顿，才把“临时激活 Unity 一次”作为诊断实验，并继续观察原 job；它不是默认前置条件。普通手动 Play 不经过 Test Runner 时，

@@ -103,7 +103,7 @@ namespace Game.Framework.Pool
                 // 非池化对象：无法路由归还。Editor/Dev 报错，Release 静默忽略。
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
                 Log.Error(
-                    $"Despawn called on a GameObject '{instance.name}' that wasn't spawned from any pool. Ignored.",
+                    $"GameObject '{instance.name}' 不是由任何池 Spawn 的，已忽略 Despawn。",
                     category: "PoolUtility");
 #endif
                 return;
@@ -192,7 +192,7 @@ namespace Game.Framework.Pool
         {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             if (_disposed)
-                Log.Error($"'{op}' called after Dispose——池已释放，检查是否持有了过期的 IPoolUtility 引用。", category: "PoolUtility");
+                Log.Error($"'{op}' 在 Dispose 后被调用——池已释放，检查是否持有了过期的 IPoolUtility 引用。", category: "PoolUtility");
 #endif
         }
     }

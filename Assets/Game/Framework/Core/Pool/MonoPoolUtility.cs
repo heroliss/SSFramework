@@ -74,7 +74,7 @@ namespace Game.Framework.Pool
         {
             try { await pool.Prewarm(count, perFrame, ct); }
             catch (OperationCanceledException) { /* 宿主销毁，正常取消 */ }
-            catch (Exception e) { Log.Error("GameObject pool prewarm failed.", e, "MonoPoolUtility"); }
+            catch (Exception e) { Log.Error("GameObject 池预热失败。", e, "MonoPoolUtility"); }
         }
 
         // ── IPoolUtility 转发到底层 PoolUtility ──────────────────────────────

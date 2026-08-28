@@ -11,15 +11,19 @@ description: 在不抢用户焦点的前提下运行或监控 Unity MCP 测试�
 
 1. 确认 Editor 不在 Play / 编译中；PlayMode 测试先执行菜单
    `SSFramework/诊断/AI 自动化/PlayMode 测试预检（保存脏场景）`。
-2. 创建一次测试 job，保存 job id；用 30–60 秒服务端等待轮询同一个 job。不要因为启动阶段
-   `total=0` 就重跑或 `clearStuck`。
-3. `blockedReason: editor_unfocused` 在当前 AnkleBreaker Unity MCP 中只是
+2. 定向测试先用 `unity_testing_list_tests` 按**相同 mode**配合 `nameFilter` 确认测试实际归属，再传
+   `groupNames`（fixture）或 `testNames`（完整用例名）。本项目 `Game.Framework.Test` 属于 PlayMode；当前安装的
+   Unity 端只解析 `testNames/categories/assemblies/groupNames`，不会消费 MCP schema 中的 `filter` 别名，因此不要依赖
+   `filter`。终态若显示 `succeeded` 但 `total=0`，视为 mode/筛选错误，不算验证通过。
+3. 创建一次测试 job，保存 job id；用 30–60 秒服务端等待轮询同一个 job。不要因为**启动阶段**
+   `total=0` 就重跑或 `clearStuck`；只有任务结束后仍为 0 才按上一步排查。
+4. `blockedReason: editor_unfocused` 在当前 AnkleBreaker Unity MCP 中只是
    `InternalEditorUtility.isApplicationActive == false` 的状态标签，不是 Test Runner 门禁。只要 total、completed、
    currentTest、Console 里程碑或编译/域重载状态在变化，就继续后台等待，不激活 Unity。
-4. Unity Test Framework 会在 EditMode / PlayMode 测试事务中临时启用
+5. Unity Test Framework 会在 EditMode / PlayMode 测试事务中临时启用
    `Application.runInBackground`，并把 Editor Interaction Mode 临时切为 `NoThrottling`；结束后均恢复。测试不需要持续占用
    前台；需要真实输入焦点语义的用例除外。不要把 `NoThrottling` 永久写进用户设置，那只会增加后台 CPU 与功耗。
-5. 连续约 120 秒没有任何进度时，先查编译、域重载、当前测试耗时、Console 与场景保存状态。只有这些证据都不解释停顿，
+6. 连续约 120 秒没有任何进度时，先查编译、域重载、当前测试耗时、Console 与场景保存状态。只有这些证据都不解释停顿，
    才把焦点切换当作一次诊断，不把它当成固定流程；仍轮询原 job，确认真实失败后才清理或重跑。
 
 ## 普通 Play、构建与观察

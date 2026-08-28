@@ -32,8 +32,8 @@ namespace Game.Framework.Context
             if (GameContext.Main != null && GameContext.Main != RawContext)
             {
                 Log.Error(
-                    $"Another global context is already active. " +
-                    $"Only one MonoGlobalContext should exist per project. Destroying '{name}'.",
+                    $"已存在活动的全局 Context；每个项目只能存在一个 MonoGlobalContext。" +
+                    $"正在销毁重复实例 '{name}'。",
                     category: "MonoGlobalContext",
                     context: this);
                 Destroy(gameObject);

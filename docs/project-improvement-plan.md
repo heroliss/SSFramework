@@ -190,7 +190,7 @@
 
 - 清空 `DemoLatin SDF` 与 `DemoNotoSansSC SDF` 中由编辑器会话生成的 glyph / character / atlas 缓存，保留 Dynamic 模式、源字体引用、atlas 配置与 `Clear Dynamic Data On Build`；序列化资产合计减少约 4.2 MiB，运行时仍按需生成字形。
 - 这是源码仓库体积与 diff 稳定性优化，不宣称玩家包同步减少：两份资产原本就启用了构建时清理，最终包体仍由目标平台 BuildReport 判断。
-- Demo EditMode / PlayMode TestRun 守卫保存两份动态字体的原始字节，整轮测试回到稳定 EditMode 后恢复并继续观察迟到写回；只有连续保持原字节才消费快照。Domain Reload / Editor 重启也能从 `Library` 快照续恢复。这比调用 `ClearFontAssetData` 更安全，因为后者会连资产原有的 feature / atlas 基线一起清除；测试前未提交的字体调整也会被原样保留。
+- Demo EditMode / PlayMode TestRun 守卫保存两份动态字体的原始字节，整轮测试回到稳定 EditMode 后恢复并继续观察迟到写回；只有连续保持原字节才消费快照。实测确认 `ITestRunCallback.RunStarted` 晚于 PlayMode 场景首帧，捕获现前移到 `ExitingEditMode`，回调只复用该快照；人工 Play 同样受保护，捕获失败会取消进入 Play，避免无原始证据时静默污染。Domain Reload / Editor 重启也能从 `Library` 快照续恢复。这比调用 `ClearFontAssetData` 更安全，因为后者会连资产原有的 feature / atlas 基线一起清除；测试前未提交的字体调整也会被原样保留。普通 Play→Stop、定向 PlayMode 26/26 与完整 888/888 后两份字体均保持干净。
 
 ### P1 · Unity CLI 工程外自动化 Adapter
 
@@ -218,6 +218,8 @@
 - 服务安装器与 `MonoGameContextBase` 补齐中文 Inspector 主标签；场景快捷入口、Protobuf 与字体字集工作台不再裸露 `Entries / Profile / Charset`，需要映射到 Unity、TMP 或框架 API 的 `Boot Scene / Play / Character Set` 等术语以中文释义加英文原名呈现。
 - 资源 Core、配置服务与 YooAsset Adapter 的启动、空输入、清单失配、加载/清缓存/下载失败、缓存世代和后台所有权消息改为中文说明；`Provider`、`TableFiles`、`location/tag`、类型/API 名及 YooAsset 原始错误仍原样保留。精确日志测试改为锁“中文动作 + 动态标识 + 原始异常对象”，不把整句标点当脆弱契约。
 - Demo 总览把五层名称统一成“中文职责（英文类型）”，日志章先解释日志接收器（sink）再展示 `Info / Warning`，资源章把三类下载/清理范围改成横向表格，并把启动更新长段落拆成四步流程。真实 Game View 复查又收短了导航标题与表格参数显示，避免窄列截断；教学契约与 CodeRef 专项 31/31、DemoScene 冒烟 6/6、整库 888/888 通过。
+- Context / DI / Pool 的异常、警告与 Trace 改为中文动作优先，同时保留 `Context`、类型名、`GetModel`、`IDisposable`、`Spawn/Despawn` 等可复制标识；覆盖容器构建与所有权回滚、Mono Context 初始化、注入权限、主线程守卫、Bag 归还和对象池误用。相关测试不再锁整句英文，而是断言“中文语义 + 动态类型/API + 原始异常”；Unity 编译 0 错误/0 警告，完整 EditMode 363/363、PlayMode 525/525 通过。
+- 后台测试复查确认 `editor_unfocused` 不阻塞 Runner；同时发现当前 MCP schema 的 `filter` 别名未被已安装 Unity 端消费。后台自动化 Skill 与 MCP 指南现要求先按同一 mode 查询测试清单、使用 `groupNames/testNames`，并把终态 `succeeded + total=0` 判为筛选失败而非假绿；PlayMode 定向复验 26/26。
 
 ## 下一批候选（按杠杆排序）
 
@@ -226,7 +228,7 @@
 | P1 | 日志调用面继续收敛 | ADR-0034 已 Accepted；Fonts、UI、Asset/Yoo、Audio 与 Config Runtime 已收敛；AOT Boot 已确认必须保留原生日志。继续按 Module 审查其余历史裸 `Debug.*`，保留 Logging Implementation、第三方内部日志和 Editor 工具；测试守住消息、context、异常和双击定位语义。 |
 | P1 | 公共 API 注释审计 | 优先生命周期、取消、异常、所有权与 Adapter 接缝；删除复述代码或记录历史的注释。以“调用者能否仅靠悬浮提示正确释放/取消”为完成标准。 |
 | P1 | CI Runner 与发布真正接线 | 资源构建 workflow 已复用 ProjectVersion + Unity CLI / Direct Adapter；下一步是在真实自建 Runner 验证授权、Android/iOS/WebGL Module、缓存与 CDN 上传凭据，并把一次成功 artifact 固化为基线。 |
-| P1 | 中文友好性继续收口 | 高频 Inspector、诊断状态、资源/配置/YooAsset 运行时反馈，以及 Demo 入门术语、日志入口和资源流程层级已完成；下一步按 Context / DI / Pool 等 Module 收敛仍会困扰调用者的纯英文错误，并处理剩余低频 Profile。始终保留类型、参数和第三方原始错误供检索，不引入过度的运行时多语言系统。 |
+| P1 | 中文友好性继续收口 | 高频 Inspector、诊断状态、资源/配置/YooAsset、Context/DI/Pool/Bag 运行时反馈，以及 Demo 入门术语、日志入口和资源流程层级已完成；下一步收敛 Lifecycle / Flow / UI Toolkit / Audio 等剩余低频英文异常与 Profile。始终保留类型、参数和第三方原始错误供检索，不引入过度的运行时多语言系统。 |
 | P2 | 大文件按职责复查 | `DiagnosticsWindow`、`YooAssetProvider`、`AssetUtility` 等只在发现两个独立变化轴或测试 Seam 时拆；单纯行数不是理由。 |
 | P2 | WebGL / 小游戏固定 Runner 基线 | 隔离探针已能在当前目标平台生成真实 Player BuildReport 上界；下一步等确定发布平台与 CI Runner 后保存同环境 artifact / 阈值，避免把本机 Windows 数字当 WebGL 基线。 |
 | P1 | UPM 分发依赖标准化与干净消费矩阵 | 当前体积探针把源码复制到临时工程的 `Assets`，尚未证明真实 UPM 安装/移除。下一步先确定 Core / Yoo / UI 等发布 Package 拓扑和 Git、embedded NuGet 依赖来源，再以工程外临时 Unity 项目验证 core → add Yoo → remove Yoo（保留 Library）的编译与 Player Build，不在框架内复制第二套 Package Manager。 |

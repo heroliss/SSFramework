@@ -169,7 +169,7 @@ namespace Game.Framework.Test
             var foreign = new GameObject("Foreign");
             foreign.transform.SetParent(_root.transform);
 
-            LogAssert.Expect(LogType.Error, new Regex("non-pooled"));
+            LogAssert.Expect(LogType.Error, new Regex("非池化 GameObject.*Foreign"));
             pool.Despawn(foreign); // 无 PooledObject 标记 → 报错并忽略
             Assert.AreEqual(0, pool.CountInactive);
         }
@@ -331,7 +331,7 @@ namespace Game.Framework.Test
             pool.Despawn(go);
             Assert.AreEqual(1, pool.CountInactive);
 
-            LogAssert.Expect(LogType.Error, new Regex("Double-despawn"));
+            LogAssert.Expect(LogType.Error, new Regex("重复归还"));
             pool.Despawn(go); // 第二次归还应被短路，不再次入池
             Assert.AreEqual(1, pool.CountInactive, "重复 Despawn 不应把同一实例二次入池（避免别名 bug）");
         }
@@ -346,7 +346,7 @@ namespace Game.Framework.Test
             var poolB = new GameObjectPool(_prefab, parkingB.transform);
 
             var goA = poolA.Spawn(_root.transform); // OwningPool = poolA
-            LogAssert.Expect(LogType.Error, new Regex("different pool"));
+            LogAssert.Expect(LogType.Error, new Regex("属于其他池"));
             poolB.Despawn(goA); // 归还到错误的池应被拒绝
             Assert.AreEqual(0, poolB.CountInactive, "不应把别的池的实例入本池");
         }
