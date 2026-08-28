@@ -7,7 +7,6 @@ using Game.Framework.Systems;
 using Game.Framework.Utility;
 using Game.Framework.View;
 using Sirenix.OdinInspector.Editor;
-using Sirenix.Utilities;
 using UnityEditor;
 using UnityEngine;
 
@@ -132,18 +131,9 @@ namespace Game.Framework.Odin.Editor
                 return configuredEditor == typeof(OdinEditor);
             }
 
-            AssemblyTypeFlags assemblyType = AssemblyUtilities.GetAssemblyTypeFlag(type.Assembly);
-            InspectorDefaultEditors category = InspectorDefaultEditors.None;
-            if ((assemblyType & AssemblyTypeFlags.UserTypes) != 0)
-                category |= InspectorDefaultEditors.UserTypes;
-            if ((assemblyType & AssemblyTypeFlags.PluginTypes) != 0)
-                category |= InspectorDefaultEditors.PluginTypes;
-            if ((assemblyType & AssemblyTypeFlags.UnityTypes) != 0)
-                category |= InspectorDefaultEditors.UnityTypes;
-            if ((assemblyType & AssemblyTypeFlags.OtherTypes) != 0)
-                category |= InspectorDefaultEditors.OtherTypes;
-            return category != InspectorDefaultEditors.None &&
-                   (config.DefaultEditorBehaviour & category) != 0;
+            // 复用 Odin 自己的程序集分类与默认 Editor 决策。不要在 Adapter 复制 AssemblyCategory →
+            // InspectorDefaultEditors 映射：分类规则属于第三方 Implementation，且 Odin 4 已废弃旧 flags。
+            return InspectorTypeDrawingConfig.GetDefaultEditorType(type) == typeof(OdinEditor);
         }
 
         private static Type GetNativeFrameworkFallback(Type inspectedType)
