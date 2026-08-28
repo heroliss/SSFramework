@@ -1458,9 +1458,9 @@ Host 模式默认允许 `Load` 对未缓存 bundle 当场按需下载。大型 D
 1. **发版**：构建 + 部署（CI 传 `-version`，本地工作台默认时间戳）——本质是覆盖 CDN 上 `<包>.version` 一行文本。bundle 文件名带哈希、新旧版本共存，改回旧值即回滚。
 2. **启动检查**：客户端下次启动 `Initialize` 自然拉到新版本清单（不抛异常，读 `InitState` 判成败）。
 3. **强更下载**：`CreateAllDownloader()` 统计缺口（`TotalCount == 0` 即已最新）→ 订阅 `Progress` 驱动进度条 → `Download()`；失败或期间发生过清缓存都要**重建下载器**（已下分片走缓存跳过 = 断点续传）。`Download(ct)` 的 token 只取消当前等待者：排队且无人等待可跳过，已经开始的共享物理下载继续到终态。
-4. **回收旧版本**：下载成功后 `ClearCache(Unused)` 清掉不被新清单引用的历史 bundle。
+4. **回收旧版本**：确认包已是最新后尽力执行 `ClearCache(Unused)`，清掉不被新清单引用的历史 bundle。此时新内容已可用，非取消的清理失败只影响磁盘占用：应记录带原始异常的 Warning 并继续启动，稍后重试收尾清理，不要伪装成包更新失败。Context 销毁等物理生命周期取消仍保持取消异常（`OperationCanceledException`，OCE）；业务页面传入 `None` 只是不让等待方（waiter）提前脱离，真正的物理所有者（owner）仍由 `AssetUtility` 生命周期管理。
 
-`GetPackageVersion(pkg)` 返回包当前生效的清单版本（未就绪为 null）——设置页展示资源版本、客服排查、更新完成确认用它。「修复客户端」= `ClearCache(All)` + 重跑上述流程（全量重下）。可整段搬走的启动器流程活样板见 demo「资源运营 · 端到端」章（`AssetOpsFlowModule.RunUpdateFlow`）；只强更启动必需包，DLC 类「按需下载」包不进启动流程，进对应玩法时再 `Initialize` + tag 下载器。
+`GetPackageVersion(pkg)` 返回包当前生效的清单版本（未就绪为 null）——设置页展示资源版本、客服排查、更新完成确认用它。「修复客户端」= `ClearCache(All)` + 重跑上述流程（全量重下）；全清本身是用户要求的核心动作，失败应保留异常并允许重试，不能套用 `Unused` 收尾清理的降级策略。可整段搬走的启动器流程活样板见 demo「资源运营 · 端到端」章（`AssetOpsFlowModule.RunUpdateFlow`）；只强更启动必需包，DLC 类「按需下载」包不进启动流程，进对应玩法时再 `Initialize` + tag 下载器。
 
 ### Inspector 行为
 

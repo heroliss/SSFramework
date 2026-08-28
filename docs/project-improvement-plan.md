@@ -22,7 +22,7 @@
 | Demo | 32 个自动发现章节；Catalog 集中拥有 Adapter 生命周期，并按 Capability / Concept / Workflow 校验真实 Build 教学语义 |
 | 教程 | `framework-guide.md` 28 章 |
 | ADR | 0001–0045；0040 为 UPM-aware 源码目录，0041/0042 补齐依赖证据，0043 收口 Editor 菜单与工作台，0044 固化 Unity CLI 工程外 Adapter 边界，0045 拆分资源与 HybridCLR 构建依赖 |
-| 测试 | PlayMode 545 + EditMode 364，共 909 项全绿；交互式 MCP 后台运行且 PlayMode 先预检，命令行入口默认 EditMode + PlayMode |
+| 测试 | PlayMode 545 + EditMode 370，共 915 项全绿；交互式 MCP 后台运行且 PlayMode 先预检，命令行入口默认 EditMode + PlayMode |
 | Demo CodeRef | 315 处可打开源码跳转；完整门禁通过后以精准命中为基线，注释、文案与外部文档路径不计入源码构造点 |
 | AI 常驻规则预算 | 最深 AGENTS 链 30.48 KiB，低于 Codex 默认 32 KiB 项目指令上限；本轮已压缩 Demo 教程式规则，新增常驻规则前仍须优先外移可测试/可按需加载内容 |
 
@@ -232,6 +232,12 @@
 - Outpost 标题/结算状态改用严格开窗，真实 `GameFlow` 测试锁定窗口创建失败后 `Current` 仍为 null；`FlowNav` Adapter 覆盖成功、顶替取消、faulted task 与同步误用异常，真实失败只保留原异常并记录一次中文日志。Outpost 玩家路径与 DemoScene 冒烟继续通过。
 - 扩展包命令式初始化改为 `Initialize → EnsureInitialized`，不再读状态后手造泛化异常；排行榜与扩展包的可恢复 Warning 也把原异常交给日志 Seam。Demo/guide/ADR 同步解释宽松/严格开窗及响应式状态与命令式资源门禁的选择。新增 10 项 PlayMode 契约后完整基线为 EditMode 364/364、PlayMode 545/545，共 909/909。
 
+### P1 · Asset 启动更新与旧缓存收尾边界
+
+- Demo 启动更新不再把 `ClearCache(Unused)` 失败混成整包不可用：确认新清单与 bundle 已就绪后，非取消的旧缓存回收失败记录带原异常的 Warning，让玩家继续进入游戏；`ClearCache(All)` 修复动作仍保持异常与重试语义。
+- 内部 `ReclaimUnusedCache` Seam 明确区分页面 caller、`ClearCache` waiter 与 `AssetUtility` 物理 owner：页面取消不会提前释放共享 gate，也不向旧 UI 发布迟到结果；同时发生的物理失败仍保留原异常，物理生命周期取消则原样传播 OCE。预取消、正常成功、可恢复失败、caller 取消后的物理成功/失败与物理取消共 6 项契约全部覆盖。
+- Demo 与 guide 同步说明为什么「新内容可用」与「旧缓存已删除」是两个不同成功条件，并将 `None` 解释为不让 waiter 提前脱离，不再误称业务页面拥有物理操作。独立只读评审的 Medium/Low 已全部闭环；Demo 教学与 CodeRef 31/31、DemoScene 6/6，最终 EditMode 370/370、PlayMode 545/545，共 915/915。
+
 ## 下一批候选（按杠杆排序）
 
 | 优先级 | 候选 | 证据 / 完成标准 |
@@ -245,7 +251,7 @@
 | P1 | UPM 分发依赖标准化与干净消费矩阵 | 当前体积探针把源码复制到临时工程的 `Assets`，尚未证明真实 UPM 安装/移除。下一步先确定 Core / Yoo / UI 等发布 Package 拓扑和 Git、embedded NuGet 依赖来源，再以工程外临时 Unity 项目验证 core → add Yoo → remove Yoo（保留 Library）的编译与 Player Build，不在框架内复制第二套 Package Manager。 |
 | P1 | 编辑器动作可用态收敛 | Luban、Protobuf、Installer、Font 与 Asset 工作台的按钮状态只检查了部分 Unity 状态，而动作 Implementation 已由 `FrameworkEditorOperationGate` 完整门禁。先提取可测试的纯状态 evaluator，再让窗口显示同一阻止原因并保留动作层二次门禁；视觉覆盖最小宽度和长原因换行。 |
 | P2 | Editor Profile 发现 Module | 8 处以上重复了精确类型扫描、稳定排序、多份诊断、缓存与 `projectChanged` 失效。先补移动/删除资产后的缓存失效、多份稳定顺序和无隐式创建测试，再评估内部 discovery/catalog Interface；各可选 Module 继续拥有默认值与业务校验，不抽泛型工作台。 |
-| P2 | Asset 维护 operation / 更新 session | Demo 已有两处为区分 caller waiter 与物理维护 owner 而手拼 gate、`CancellationToken.None` 和章节 token；Demo 与 Outpost 也出现 Initialize → Ready → 快照下载轮廓。先补切章期间清理与旧缓存回收失败策略测试，出现第三个生产调用方后再决定是否形成有状态 session，避免把业务重试/确认策略塞回 Core。 |
+| P2 | Asset 维护 operation / 更新 session | Demo 已有两处为区分 caller waiter 与物理维护 owner 而手拼 gate、`CancellationToken.None` 和章节 token；Demo 与 Outpost 也出现 Initialize → Ready → 快照下载轮廓。启动流程已直接锁定「waiter 在物理清理终态前仍为 Pending」、「页面取消不发迟到 UI，但物理失败仍保留原异常」及「非取消的旧缓存回收失败只降级为 Warning」；出现第三个生产调用方后再决定是否形成有状态 session，避免把业务重试/确认策略塞回 Core。 |
 | P2 | Demo 服务器物理任务 owner | `Stop` 已拥有逻辑取消、监听器与 socket，但 accept/handler/tick task 仍 fire-and-forget，Dispose 未等待物理终态。先用内部 task registry、统一异常观察和 CTS token 快照覆盖 Domain Reload / in-flight slow HTTP / WS handler 竞态；只有真实调用方需要等待时才扩 `IDemoGameServer`。 |
 | P2 | WebSocket 安装期注册权限 | `RegisterPush` 与运行期 Connect/Send 共处一个较宽 Interface，Outpost 又在运行 System 中登记映射。先把映射移回 composition root 并补退避重连 Adapter 测试；是否拆注册 Seam 需单独评估兼容性，不在本批破坏公共 Interface。 |
 | P2 | UI 窗口 lease 语义 | `Open → Bag.Add(Close<T>)` 已在多个 Flow 状态重复，但当前同类型全局单实例，简单 `OpenOwned` 会让多个 owner 互相误关。先定义独占或引用计数所有权并证明并发需求，再决定是否形成窗口 lease Module。 |
