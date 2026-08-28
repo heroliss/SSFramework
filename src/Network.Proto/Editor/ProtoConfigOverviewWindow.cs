@@ -36,6 +36,8 @@ namespace Game.Framework.Network.Proto.Editor
         private void OnGUI()
         {
             bool compact = position.width < 520f;
+            bool canWrite = FrameworkEditorOperationGate.CanStart(
+                requireEditMode: true, out string operationReason);
             EditorGUILayout.Space(4);
             if (position.width < 380f)
             {
@@ -56,9 +58,10 @@ namespace Game.Framework.Network.Proto.Editor
                 "生成消息类型经 GoogleProtobufNetworkSerializer（框架模块 Game.Framework.Network.Proto）接进网络接缝：" +
                 "构造处 RegisterFile(生成的 XxxReflection.Descriptor) 即整文件注册。",
                 MessageType.Info);
+            if (!canWrite)
+                EditorGUILayout.HelpBox("当前不能新建或生成：\n" + operationReason, MessageType.Warning);
 
             var profiles = ProtoConfigProfile.ResolveAll();
-            bool playing = EditorApplication.isPlayingOrWillChangePlaymode;
             var (ownershipOk, ownershipMessage) = profiles.Count == 0
                 ? (false, string.Empty)
                 : ProtoCodeGenerator.ValidateOutputOwnership(profiles);
@@ -69,9 +72,10 @@ namespace Game.Framework.Network.Proto.Editor
                 EditorGUILayout.LabelField($"共 {profiles.Count} 套", EditorStyles.miniBoldLabel);
                 using (new EditorGUILayout.HorizontalScope())
                 {
-                    if (GUILayout.Button("新建 Protobuf 配置…"))
-                        CreateProfile();
-                    using (new EditorGUI.DisabledScope(playing || profiles.Count == 0 || !ownershipOk))
+                    using (new EditorGUI.DisabledScope(!canWrite))
+                        if (GUILayout.Button("新建 Protobuf 配置…"))
+                            CreateProfile();
+                    using (new EditorGUI.DisabledScope(!canWrite || profiles.Count == 0 || !ownershipOk))
                         if (GUILayout.Button("生成全部"))
                             ProtoBuildMenu.GenerateProfiles(profiles);
                 }
@@ -82,16 +86,14 @@ namespace Game.Framework.Network.Proto.Editor
                 {
                     EditorGUILayout.LabelField($"共 {profiles.Count} 套", EditorStyles.miniBoldLabel);
                     GUILayout.FlexibleSpace();
-                    if (GUILayout.Button("新建 Protobuf 配置…", GUILayout.Width(150)))
-                        CreateProfile();
-                    using (new EditorGUI.DisabledScope(playing || profiles.Count == 0 || !ownershipOk))
+                    using (new EditorGUI.DisabledScope(!canWrite))
+                        if (GUILayout.Button("新建 Protobuf 配置…", GUILayout.Width(150)))
+                            CreateProfile();
+                    using (new EditorGUI.DisabledScope(!canWrite || profiles.Count == 0 || !ownershipOk))
                         if (GUILayout.Button("生成全部", GUILayout.Width(90)))
                             ProtoBuildMenu.GenerateProfiles(profiles);
                 }
             }
-            if (playing)
-                EditorGUILayout.LabelField("（运行中——停止后可生成）", EditorStyles.miniLabel);
-
             if (profiles.Count == 0)
                 EditorGUILayout.HelpBox("还没有 Protobuf 配置——点右上“新建 Protobuf 配置…”创建，然后在 Inspector 填写 .proto 源目录与输出目录。", MessageType.Warning);
             else if (!ownershipOk)
@@ -99,12 +101,12 @@ namespace Game.Framework.Network.Proto.Editor
             else
                 EditorGUILayout.LabelField("✓ " + ownershipMessage, EditorStyles.miniLabel);
             foreach (var profile in profiles)
-                DrawCard(profile, playing || !ownershipOk, compact);
+                DrawCard(profile, !canWrite || !ownershipOk, compact);
             EditorGUILayout.EndScrollView();
         }
 
         // 一套配置一张卡片：资产名（点击定位选中）+ 源 / protoc / 输出 + 响应式操作区。
-        private static void DrawCard(ProtoConfigProfile profile, bool playing, bool compact)
+        private static void DrawCard(ProtoConfigProfile profile, bool writeBlocked, bool compact)
         {
             using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
             {
@@ -140,7 +142,7 @@ namespace Game.Framework.Network.Proto.Editor
 
                 if (compact)
                 {
-                    using (new EditorGUI.DisabledScope(playing))
+                    using (new EditorGUI.DisabledScope(writeBlocked))
                         if (GUILayout.Button("生成这套"))
                             ProtoBuildMenu.GenerateProfiles(new[] { profile });
                     using (new EditorGUILayout.HorizontalScope())
@@ -153,7 +155,7 @@ namespace Game.Framework.Network.Proto.Editor
                 {
                     using (new EditorGUILayout.HorizontalScope())
                     {
-                        using (new EditorGUI.DisabledScope(playing))
+                        using (new EditorGUI.DisabledScope(writeBlocked))
                             if (GUILayout.Button("生成这套"))
                                 ProtoBuildMenu.GenerateProfiles(new[] { profile });
                         if (GUILayout.Button("源目录")) Reveal(profile.ProtoDir);

@@ -12,7 +12,8 @@
 ## Decision
 
 1. 人工顶部 `SSFramework/` 菜单只打开 `EditorWindow`。会写项目、生成代码、构建、清理、部署或启动外部进程的动作，进入所属 Module 的工作台按钮。
-2. 工作台必须在按钮附近解释用途、前置条件、主要影响和失败后的下一步；按钮禁用只改善体验，动作 Implementation 仍调用 `FrameworkEditorOperationGate` 二次检查。
+2. 工作台必须在按钮附近解释用途、前置条件、主要影响和失败后的下一步；按钮禁用只改善体验，动作 Implementation 仍调用 `FrameworkEditorOperationGate` 二次检查。窗口与动作层必须消费同一套 Unity 状态语义，并把阻止原因显示在点击前：编译、资产导入和 Player Build 一律阻止副作用动作；需要 Edit Mode 的动作还会阻止 Play / 即将切换 Play。
+   `requireEditMode:false` 表示“有副作用但可在 Play 中执行”，例如部署或启动本地服务，并不表示只读。真正只读的校验、刷新、定位和查看动作不应为了复用布尔参数而误接 Gate。
 3. `FrameworkToolsWindow` 是意图导航 hub，不复制 Module 的业务逻辑。可选 Editor Module 通过 `FrameworkToolRegistry` 登记描述符；删除整个 Module 后，其卡片自然消失。
 4. `FrameworkConfigOverviewWindow` 保持只读配置发现 hub。拥有 Profile 的 Module 通过 `FrameworkConfigRegistry` 登记真实资产类型、单例/多份语义、附属配置与工作台路径；中央窗口不维护可选程序集限定类型名。只读/导航路径使用 `TryResolve`，缺配置时显示显式“创建”按钮；查看目录不创建空目录。
 5. 保留两类例外：
@@ -26,11 +27,14 @@
    Protobuf / Luban 拒绝相同或嵌套目录，服务安装器拒绝重复文件，避免后执行配置覆盖前一份产物。
 9. 资源包名与版本号同时是磁盘目录和 CDN URL 段，统一经 `FrameworkBuildArtifactPath` 限制为可移植叶子名；
    构建与部署在任何递归清理前再次证明目标是声明根目录的直接子项，并按大小写不敏感口径拒绝重复包名。
+10. `FrameworkEditorOperationGate` 只拥有跨 Module 一致的 Unity Editor 状态，不接收 Profile、工具路径、输入文件或输出所有权等业务条件。廉价且确定的业务前置检查留在所属 Module，窗口用于提前解释，Generator / Builder 仍在真正写入前复验，避免 GUI 绘制到点击之间的状态竞态。
+11. Core 的测试只锁定 Gate evaluator 与 Core 自有窗口。可选 Editor Module 在自己的测试程序集内证明窗口消费共享 Gate；Core 不通过源码路径或类型名反向拥有可删除 Module。
 
 ## Consequences
 
 - 菜单树从“命令清单”变成可预测的导航目录；新用户在执行前能理解步骤与风险。
 - Module 的交互说明与 Implementation 保持 Locality，Core 只持有路径/注册 Seam，不反向引用可选模块。
+- “按钮为什么是灰的”与点击后动作层的拒绝原因一致；AI 可以读取窗口说明或稳定 Console 反馈，不需要靠抢前台焦点试点按钮。只读诊断仍可在 Play 中使用。
 - 常用操作多一次“打开窗口”的动作，但窗口可连续执行同一流水线并保留上下文，整体操作成本更低。
 - 既有人工菜单字符串发生迁移；Demo、guide 和生成代码注释必须同步。机器自动化路径保持不变，避免破坏 MCP/CI。
 - 错误输出路径现在在任何目录创建、覆盖或清理前失败；已有把输出写到 `Assets` 外的配置需要迁回项目资产目录。

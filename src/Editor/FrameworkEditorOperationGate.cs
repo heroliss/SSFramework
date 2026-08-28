@@ -2,6 +2,27 @@ using UnityEditor;
 
 namespace Game.Framework.Editor
 {
+    /// <summary>Unity 与项目写入有关的当前编辑器状态；独立值对象便于稳定测试状态优先级。</summary>
+    internal readonly struct FrameworkEditorOperationState
+    {
+        internal readonly bool IsCompiling;
+        internal readonly bool IsUpdating;
+        internal readonly bool IsBuildingPlayer;
+        internal readonly bool IsPlayingOrWillChangePlaymode;
+
+        internal FrameworkEditorOperationState(
+            bool isCompiling,
+            bool isUpdating,
+            bool isBuildingPlayer,
+            bool isPlayingOrWillChangePlaymode)
+        {
+            IsCompiling = isCompiling;
+            IsUpdating = isUpdating;
+            IsBuildingPlayer = isBuildingPlayer;
+            IsPlayingOrWillChangePlaymode = isPlayingOrWillChangePlaymode;
+        }
+    }
+
     /// <summary>
     /// 编辑器写入与生成操作的共享状态门禁。它只判断 Unity 当前是否适合启动操作；具体 Builder / Generator
     /// 仍需在入口再次调用，不能只依赖按钮禁用状态。
@@ -13,18 +34,30 @@ namespace Game.Framework.Editor
         /// <paramref name="requireEditMode"/> 为 <c>true</c> 时 Play 及 Play 切换阶段也会被拒绝。
         /// </summary>
         public static bool CanStart(bool requireEditMode, out string reason)
+            => CanStart(CaptureState(), requireEditMode, out reason);
+
+        /// <summary>纯状态 evaluator；生产入口与窗口可用态共用同一优先级和原因文案。</summary>
+        internal static bool CanStart(
+            FrameworkEditorOperationState state,
+            bool requireEditMode,
+            out string reason)
         {
-            if (EditorApplication.isCompiling)
+            if (state.IsCompiling)
             {
                 reason = "Unity 正在编译脚本，请等待编译完成。";
                 return false;
             }
-            if (EditorApplication.isUpdating)
+            if (state.IsUpdating)
             {
                 reason = "Unity 正在导入或刷新资源，请等待资源更新完成。";
                 return false;
             }
-            if (requireEditMode && EditorApplication.isPlayingOrWillChangePlaymode)
+            if (state.IsBuildingPlayer)
+            {
+                reason = "Unity 正在构建 Player，请等待本次构建完成。";
+                return false;
+            }
+            if (requireEditMode && state.IsPlayingOrWillChangePlaymode)
             {
                 reason = "当前处于 Play 或即将切换 Play；该操作会写项目或触发重编译。";
                 return false;
@@ -33,6 +66,12 @@ namespace Game.Framework.Editor
             reason = string.Empty;
             return true;
         }
+
+        private static FrameworkEditorOperationState CaptureState() => new(
+            EditorApplication.isCompiling,
+            EditorApplication.isUpdating,
+            BuildPipeline.isBuildingPlayer,
+            EditorApplication.isPlayingOrWillChangePlaymode);
 
         /// <summary>
         /// 执行动作入口的二次门禁。失败时通过统一反馈输出“未启动、内容未改变”和下一步，并返回 <c>false</c>；

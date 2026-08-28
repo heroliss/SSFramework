@@ -35,11 +35,14 @@ namespace Game.Framework.Build
         private void OnGUI()
         {
             bool compact = position.width < 520f;
+            bool canWrite = FrameworkEditorOperationGate.CanStart(
+                requireEditMode: true, out string operationReason);
             EditorGUILayout.Space(4);
             if (position.width < 380f)
             {
                 EditorGUILayout.LabelField("配置表生成 · 总览", EditorStyles.boldLabel);
-                if (GUILayout.Button("新建配置")) CreateProfile();
+                using (new EditorGUI.DisabledScope(!canWrite))
+                    if (GUILayout.Button("新建配置")) CreateProfile();
                 if (GUILayout.Button("刷新")) Repaint();
             }
             else
@@ -47,7 +50,8 @@ namespace Game.Framework.Build
                 using (new EditorGUILayout.HorizontalScope())
                 {
                     EditorGUILayout.LabelField("配置表生成 · 总览", EditorStyles.boldLabel);
-                    if (GUILayout.Button("新建配置", GUILayout.Width(80))) CreateProfile();
+                    using (new EditorGUI.DisabledScope(!canWrite))
+                        if (GUILayout.Button("新建配置", GUILayout.Width(80))) CreateProfile();
                     if (GUILayout.Button("刷新", GUILayout.Width(60))) Repaint();
                 }
             }
@@ -56,9 +60,10 @@ namespace Game.Framework.Build
                 "且彼此不能相同或嵌套，避免一套整理目录时覆盖另一套。\n" +
                 "可按数据域、客户端/服务端目标或可选内容拆分；路径由项目明确填写，框架不会猜测业务目录。",
                 MessageType.Info);
+            if (!canWrite)
+                EditorGUILayout.HelpBox("当前不能新建或生成：\n" + operationReason, MessageType.Warning);
 
             var profiles = LubanConfigProfile.ResolveAll();
-            bool playing = EditorApplication.isPlayingOrWillChangePlaymode;
             var (ownershipOk, ownershipMessage) = profiles.Count == 0
                 ? (false, string.Empty)
                 : LubanCodeGenerator.ValidateOutputOwnership(profiles);
@@ -67,7 +72,7 @@ namespace Game.Framework.Build
             if (position.width < 380f)
             {
                 EditorGUILayout.LabelField($"共 {profiles.Count} 套", EditorStyles.miniBoldLabel);
-                using (new EditorGUI.DisabledScope(playing || profiles.Count == 0 || !ownershipOk))
+                using (new EditorGUI.DisabledScope(!canWrite || profiles.Count == 0 || !ownershipOk))
                     if (GUILayout.Button("生成全部"))
                         LubanBuildMenu.GenerateProfiles(profiles);
             }
@@ -77,13 +82,11 @@ namespace Game.Framework.Build
                 {
                     EditorGUILayout.LabelField($"共 {profiles.Count} 套", EditorStyles.miniBoldLabel);
                     GUILayout.FlexibleSpace();
-                    using (new EditorGUI.DisabledScope(playing || profiles.Count == 0 || !ownershipOk))
+                    using (new EditorGUI.DisabledScope(!canWrite || profiles.Count == 0 || !ownershipOk))
                         if (GUILayout.Button("生成全部", GUILayout.Width(90)))
                             LubanBuildMenu.GenerateProfiles(profiles);
                 }
             }
-            if (playing)
-                EditorGUILayout.LabelField("（运行中——停止后可生成）", EditorStyles.miniLabel);
             if (profiles.Count == 0)
                 EditorGUILayout.LabelField("（无配置——点击“新建配置”后填写 conf 与输出目录）", EditorStyles.wordWrappedMiniLabel);
             else if (!ownershipOk)
@@ -92,7 +95,7 @@ namespace Game.Framework.Build
                 EditorGUILayout.LabelField("✓ " + ownershipMessage, EditorStyles.miniLabel);
 
             foreach (var profile in profiles)
-                DrawCard(profile, playing || !ownershipOk, compact);
+                DrawCard(profile, !canWrite || !ownershipOk, compact);
             EditorGUILayout.EndScrollView();
         }
 
@@ -106,7 +109,7 @@ namespace Game.Framework.Build
         }
 
         // 一套配置一张卡片：资产名（点击定位选中）+ 源 / 目标 / 输出 / 命名空间 + 响应式操作区。
-        private static void DrawCard(LubanConfigProfile profile, bool playing, bool compact)
+        private static void DrawCard(LubanConfigProfile profile, bool writeBlocked, bool compact)
         {
             using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
             {
@@ -127,7 +130,7 @@ namespace Game.Framework.Build
                 {
                     using (new EditorGUILayout.HorizontalScope())
                     {
-                        using (new EditorGUI.DisabledScope(playing))
+                        using (new EditorGUI.DisabledScope(writeBlocked))
                             if (GUILayout.Button("生成这套"))
                                 LubanBuildMenu.GenerateProfiles(new[] { profile });
                         if (GUILayout.Button("源目录")) Reveal(Path.GetDirectoryName(profile.ConfPath));
@@ -142,7 +145,7 @@ namespace Game.Framework.Build
                 {
                     using (new EditorGUILayout.HorizontalScope())
                     {
-                        using (new EditorGUI.DisabledScope(playing))
+                        using (new EditorGUI.DisabledScope(writeBlocked))
                             if (GUILayout.Button("生成这套"))
                                 LubanBuildMenu.GenerateProfiles(new[] { profile });
                         if (GUILayout.Button("源目录")) Reveal(Path.GetDirectoryName(profile.ConfPath));

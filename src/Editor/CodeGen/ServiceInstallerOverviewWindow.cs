@@ -36,11 +36,14 @@ namespace Game.Framework.Editor
         private void OnGUI()
         {
             bool compact = position.width < 420f;
+            bool canWrite = FrameworkEditorOperationGate.CanStart(
+                requireEditMode: true, out string operationReason);
             EditorGUILayout.Space(4);
             if (compact)
             {
                 EditorGUILayout.LabelField("服务安装器 · 配置总览", EditorStyles.boldLabel);
-                if (GUILayout.Button("新建配置")) CreateProfile();
+                using (new EditorGUI.DisabledScope(!canWrite))
+                    if (GUILayout.Button("新建配置")) CreateProfile();
                 if (GUILayout.Button("刷新")) Repaint();
             }
             else
@@ -48,7 +51,8 @@ namespace Game.Framework.Editor
                 using (new EditorGUILayout.HorizontalScope())
                 {
                     EditorGUILayout.LabelField("服务安装器 · 配置总览", EditorStyles.boldLabel);
-                    if (GUILayout.Button("新建配置", GUILayout.Width(80))) CreateProfile();
+                    using (new EditorGUI.DisabledScope(!canWrite))
+                        if (GUILayout.Button("新建配置", GUILayout.Width(80))) CreateProfile();
                     if (GUILayout.Button("刷新", GUILayout.Width(60))) Repaint();
                 }
             }
@@ -57,9 +61,10 @@ namespace Game.Framework.Editor
                 "装进哪个 Context 由业务在该 Context 的 InstallBindings 里手写一行调用决定。\n" +
                 "多份 profile 可按子项目、环境或功能域拆分；每个条目必须独占一个位于 Assets 内的 .cs 输出文件。",
                 MessageType.Info);
+            if (!canWrite)
+                EditorGUILayout.HelpBox("当前不能新建或生成：\n" + operationReason, MessageType.Warning);
 
             var profiles = ServiceInstallerProfile.ResolveAll();
-            bool playing = EditorApplication.isPlayingOrWillChangePlaymode;
             var (ownershipOk, ownershipMessage) = profiles.Count == 0
                 ? (false, string.Empty)
                 : ServiceInstallerGenerator.ValidateOutputOwnership(profiles);
@@ -68,7 +73,7 @@ namespace Game.Framework.Editor
             if (compact)
             {
                 EditorGUILayout.LabelField($"共 {profiles.Count} 份", EditorStyles.miniBoldLabel);
-                using (new EditorGUI.DisabledScope(playing || profiles.Count == 0 || !ownershipOk))
+                using (new EditorGUI.DisabledScope(!canWrite || profiles.Count == 0 || !ownershipOk))
                     if (GUILayout.Button("生成全部"))
                         ServiceInstallerMenu.GenerateProfiles(profiles);
             }
@@ -78,13 +83,11 @@ namespace Game.Framework.Editor
                 {
                     EditorGUILayout.LabelField($"共 {profiles.Count} 份", EditorStyles.miniBoldLabel);
                     GUILayout.FlexibleSpace();
-                    using (new EditorGUI.DisabledScope(playing || profiles.Count == 0 || !ownershipOk))
+                    using (new EditorGUI.DisabledScope(!canWrite || profiles.Count == 0 || !ownershipOk))
                         if (GUILayout.Button("生成全部", GUILayout.Width(90)))
                             ServiceInstallerMenu.GenerateProfiles(profiles);
                 }
             }
-            if (playing)
-                EditorGUILayout.LabelField("（运行中——停止后可生成）", EditorStyles.miniLabel);
             if (profiles.Count == 0)
                 EditorGUILayout.HelpBox("还没有服务安装器配置——点击顶部“新建配置”，再填写扫描目录、唯一输出文件与命名空间。", MessageType.Warning);
             else if (!ownershipOk)
@@ -93,7 +96,7 @@ namespace Game.Framework.Editor
                 EditorGUILayout.LabelField("✓ " + ownershipMessage, EditorStyles.miniLabel);
 
             foreach (var profile in profiles)
-                DrawCard(profile, playing || !ownershipOk, compact);
+                DrawCard(profile, !canWrite || !ownershipOk, compact);
             EditorGUILayout.EndScrollView();
         }
 
@@ -107,7 +110,7 @@ namespace Game.Framework.Editor
         }
 
         // 一份 profile 一张卡片：资产名（点击定位选中）+ 逐条目「扫描目录 → 输出 / 命名空间」+ 生成按钮。
-        private static void DrawCard(ServiceInstallerProfile profile, bool playing, bool compact)
+        private static void DrawCard(ServiceInstallerProfile profile, bool writeBlocked, bool compact)
         {
             using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
             {
@@ -125,7 +128,7 @@ namespace Game.Framework.Editor
                     foreach (var entry in profile.Installers)
                         DrawEntry(entry, compact);
 
-                using (new EditorGUI.DisabledScope(playing))
+                using (new EditorGUI.DisabledScope(writeBlocked))
                     if (GUILayout.Button("生成这份"))
                         ServiceInstallerMenu.GenerateProfiles(new[] { profile });
             }
