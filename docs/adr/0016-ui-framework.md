@@ -72,3 +72,5 @@ Game.Framework.UI        (核心，渲染中立)  IUIUtility / UIUtility 编排 
 **2026-08-26 Adapter 契约补强：**Toolkit 原本会在加载 UXML 前验证 `UIToolkitWindowBase`，UGUI 却只检查最终对象能否转成 `IUIWindow`，使普通 `MonoBehaviour + IUIWindow` 能绕过 `MonoViewBase` 注入与 Bag 所有权。两个 Adapter 现统一在创建层级或加载资源前验证各自窗口基类并 fail-fast；窗口类型、prefab 根组件、节点绑定与生命周期 hook 错误统一进入 `Log` Seam，category、异常和 Unity context 可同时被 Console、文件与测试 sink 消费。`UIRuntimeLoggingTests` 锁定“失败前无层级副作用”和 context 透传。
 
 **2026-08-26 异步交互所有权补强：**Toolkit Adapter 新增 `Bag.SubscribeClickAsync`，把按钮解绑、View 生命周期取消与异常观察收成一个窄而深的接缝；5 项 PlayMode 契约锁定异常日志、Bag 释放取消、单订阅释放、已释放 Bag 不接线，以及物理操作忽略 View token 后仍走到终态并被观察。Outpost 实战验证了两种边界：榜单刷新跟随窗口取消；已启动的扩展包下载由包级物理操作拥有、窗口关闭后继续，但安装标记保存被纳入下载的完成终点。Adapter 刻意不自动实现 single-flight，也不把 UI 按钮语义推进 Core。
+
+**2026-08-28 必需窗口失败边界：**`Open<T>` 继续保留“未获得实例时返回 null”的宽松 Interface，供可选窗口在调用点隐藏、替代或重试；null 可能来自 Adapter 创建失败，也可能来自创建期间 UI 生命周期结束。新增非破坏性的 `OpenRequired<T>` 扩展，把同一个 null 提升为带窗口类型与资源位置的异常，调用方取消仍保持 `OperationCanceledException`。没有把严格模式做成 `IUIUtility` 新成员或布尔参数：两种路径共享全部创建 Implementation，差异只是调用处的业务不变量，扩展方法既提高错误 Locality，也不迫使自定义 Adapter 重复实现；它不改变 hook 异常隔离，也不把开窗定义为事务提交。Flow 主页面与承诺打开可见窗口的动作使用严格入口；真实 `GameFlow` 契约锁定创建失败后 `Current` 仍为 null。

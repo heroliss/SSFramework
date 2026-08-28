@@ -150,6 +150,7 @@ namespace Game.Framework.Demo.Modules
                     : $"初始化结果：{defaultState}。要复现 Failed，须在 Play 前就于 AssetUtility 的 Inspector 开「模拟断网」让默认包从一开始拉不到远端——看上方状态 / 控制台。";
             }, CodeRef.Here("asset.Initialize(ct: ct)", "初始化默认包"));
             host.AddNote("默认包没自动初始化（本 demo 即如此，状态停在 `Idle`）或 init 失败（CDN 不可达 / 断网 → `Failed`）时，`Load` / `LoadScene` / `ClearCache` 内部的 `EnsureInitialized` 都会**上抛**异常——所以这一类要么 `try/catch`、要么先判 `InitState` / `IsInitialized`。`Initialize` 既是**未自动初始化包的冷启动入口**、也是**失败后的重试**：普通失败不抛、结果回写 `InitState`（上方状态会跟着变）；调用者取消只离开等待并保留 OCE，已启动的物理初始化仍由 utility 完成。真实项目里「关掉某包自动初始化 → 同意联网后 Initialize」「CDN 不可达 → 修好网络 → Initialize 重试」都不必重启 App。");
+            host.AddSubNote("命令式流程若必须拿到精确失败根因，使用 `await Initialize → await EnsureInitialized`：前者启动/重试，后者在 Failed 时抛出当前失败 attempt 的原始异常。需要聚合多个包或持续展示状态的界面，才适合读取各包 `InitState` 后统一决策；若另一个订阅者并发发起重试，门禁会等待/观察当前的新 attempt。");
             host.AddSubNote("⚠ 包 `Idle`（既没自动初始化、也没 Initialize 过）时直接 `Load` 它会**抛**「未初始化」异常，不是无限等待——这是刻意的 fail-fast：要加载的包，要么开自动初始化、要么先 `Initialize`。为什么运行时开「模拟断网」后已 `Ready` 的包仍能加载？因为它只拦截新发起的远端请求——已 `Ready` 的包不回退、已缓存的资源照常加载，此时 `Initialize` 是幂等空操作。要复现初始化失败，请在 `AssetUtility` 的 Inspector 进 Play 前就勾「模拟断网」，或切 `Host` 但不起本地服务。注意「下载」失败另说——单文件失败下载器自动重试，但整体最终失败仍会**抛**、要 `try/catch`（详见下方·下载）。");
 
             // ── 2. 按地址加载（Bag.Load）──

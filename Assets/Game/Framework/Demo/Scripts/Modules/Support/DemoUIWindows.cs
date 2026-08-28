@@ -253,7 +253,9 @@ namespace Game.Framework.Demo.Modules
         {
             _page = DemoWindowKit.FullPage(Root, "主页 · Page 层", new Color(0.12f, 0.20f, 0.28f, 1f));
             _state = DemoWindowKit.Lbl(_page, "（当前在最上层）");
-            DemoWindowKit.Btn(_page, "进入详情页（盖住本页）", () => this.GetUtility<IUIUtility>().Open<DemoPageDetail>().Forget());
+            var openDetail = DemoWindowKit.Btn(_page, "进入详情页（盖住本页）", null);
+            Bag.SubscribeClickAsync(openDetail,
+                ct => this.GetUtility<IUIUtility>().OpenRequired<DemoPageDetail>(ct));
             DemoWindowKit.Btn(_page, "关闭主页", () => this.GetUtility<IUIUtility>().Close(this));
         }
 

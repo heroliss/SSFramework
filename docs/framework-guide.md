@@ -1391,6 +1391,15 @@ await this.GetUtility<IAssetUtility>().Initialize("DlcPack"); // 指定包
 
 `Initialize` 的普通网络 / 清单失败不直接抛，仍由该包 `InitState` 落到 `Failed`；但调用者 token 取消会保留 `OperationCanceledException`。这里的取消只表示“当前页面不再等”：物理初始化已经启动后仍由 `AssetUtility` 生命周期持有，包继续保持 `Initializing`，最终落到 `Ready` / `Failed`。新的同包调用只加入这份 owner，不会在 YooAsset operation 尚未结束时重入初始化。
 
+响应式界面可以订阅 `GetInitState(package)` 展示 Idle / Initializing / Failed；命令式门禁若必须拿到精确失败根因，则按顺序组合两个现有入口，不要读状态后另造一个泛化异常：
+
+```csharp
+await asset.Initialize("DlcPack", ct);        // 启动或重试；普通失败写回状态
+await asset.EnsureInitialized("DlcPack", ct); // Ready 直接返回；Failed 抛当前失败 attempt 的原始异常
+```
+
+这样 CDN、清单或 Provider 的异常类型、消息与堆栈会原样交给调用方和日志 Seam。两次调用不是绑定某一代 attempt 的原子事务：若状态订阅者在 Failed 发布时同步发起重试，随后调用的 `EnsureInitialized` 会观察当前的新 attempt；`Initialize + 读取 InitState` 仍适合需要聚合多个包、逐包展示状态而不因一个失败中断的启动面板。
+
 默认资源后端采用 Adapter-local 装配：Yoo 模块在自己的 `AssemblyInfo.cs` 声明 `[assembly: DefaultAssetProvider(typeof(YooAssetProvider))]`，Core 的 `AssetProviderFactory` 只发现并校验已加载程序集中的注册，不保存 Yoo 类型名。换 Addressables / 自研时物理删除旧 Adapter、让新 Adapter 实现 `IAssetProvider` 并声明同一属性；未注册、非法类型或同时注册两个默认后端都会 fail-fast。自定义 Adapter 还要像 Yoo 模块一样自带 `link.xml`（或等价静态根），保证 Player 包含并加载该程序集，并在目标平台 AOT Player 验证一次“发现 → 构造 → 初始化”；Assembly attribute 本身不是 linker 根。项目若完全不使用资源系统，可以不安装任何 Adapter，但也不要在场景里挂 `AssetUtility`。这是一条安装 / 删除 Seam，不是运行期切换开关。
 
 > ⚠ 既没开自动初始化、也没 `Initialize` 过的包，`Load` 它会**直接抛**「未初始化」异常（fail-fast，不是无限等待）——要加载的包要么开自动初始化、要么先 `Initialize`。
@@ -1932,7 +1941,7 @@ View 之上的 UI 调度：打开/关闭窗口、固定有序层级、Page 返�
 ### 心智模型：窗口 = View 的一种 + 层级调度
 
 ```
-业务 View / Command  ──Open<T>()──►  IUIUtility（核心：栈/层/缓存/生命周期编排）
+业务 View / Command  ──Open<T>() / OpenRequired<T>()──►  IUIUtility（核心：栈/层/缓存/生命周期编排）
                                               │
                                          IUIBackend（port）
                                           ┌────┴────┐
@@ -1957,15 +1966,26 @@ View 之上的 UI 调度：打开/关闭窗口、固定有序层级、Page 返�
 
 ```csharp
 // View / Command / System 里（View 有 ICanGetUtility，同 Bag.Load 心智）
-await this.GetUtility<IUIUtility>().Open<ShopWindow>();           // 无参
-await this.GetUtility<IUIUtility>().Open<ConfirmDialog>(args);    // 带打开参数（窗口 OnOpen 取用）
-this.GetUtility<IUIUtility>().Close<ShopWindow>();                     // 关闭（按缓存策略隐藏/销毁）
-this.GetUtility<IUIUtility>().Back();                                  // 返回导航：按 Popup→Window→Page 关第一个非空层的栈顶
-this.GetUtility<IUIUtility>().CloseAll(UILayer.Popup);                 // 关某层全部
-var w = this.GetUtility<IUIUtility>().Get<ShopWindow>();               // 取已打开实例（未开返回 null）
+var ui = this.GetUtility<IUIUtility>();
+ShopWindow optional = await ui.Open<ShopWindow>();               // 宽松入口：失败返回 null，由本地决定是否降级
+await ui.OpenRequired<MainPage>();                               // 严格入口：必需页面失败就抛异常，不提交上层状态
+await ui.OpenRequired<ConfirmDialog>(args);                      // 严格入口同样支持 OnOpen(args)
+ui.Close<ShopWindow>();                                          // 关闭（按缓存策略隐藏/销毁）
+ui.Back();                                                       // 返回导航：按 Popup→Window→Page 关第一个非空层的栈顶
+ui.CloseAll(UILayer.Popup);                                      // 关某层全部
+var opened = ui.Get<ShopWindow>();                               // 取已打开实例（未开返回 null）
 ```
 
-资源加载失败 `Open` 返回 null；已打开同类型窗口再 `Open` 会置顶并重新 `OnOpen(args)`，不重建（若它原本不在同层栈顶，旧栈顶收 `OnCover`、它自己收 `OnReveal`）。
+两种入口共用同一套 UI Implementation，只在失败策略上不同：
+
+| 入口 | Adapter 未创建窗口时 | 适用范围 |
+|---|---|---|
+| `Open<T>()` | 未获得实例时返回 `null` | 提示、活动入口等允许缺席，且调用点准备了隐藏、替代内容或重试策略的可选窗口 |
+| `OpenRequired<T>()` | 抛带窗口类型与 `UIWindow.Asset` 的异常；取消仍是 `OperationCanceledException` | Flow 主页面、启动门禁、必须出现才能继续当前动作的窗口 |
+
+不要因为“不想写异常处理”就把所有窗口都设为宽松：如果主页面没出现却让 `FlowState.OnEnter` 正常返回，`GameFlow` 会把一个无页面状态提交为 `Current`。相反，可选提示窗也不必一律抛错；用 `Open` 判空后就地降级更符合其业务语义。`OpenRequired` 是扩展方法，没有扩张 `IUIUtility` Interface，因此自定义 Adapter 不需要增加第二套实现。它只保证“获得了非 null 窗口实例”：`OnCreate` / `OnOpen` hook 仍按核心契约隔离异常，也不构成事务式开窗。
+
+已打开同类型窗口再次调用任一入口都会置顶并重新 `OnOpen(args)`，不重建（若它原本不在同层栈顶，旧栈顶收 `OnCover`、它自己收 `OnReveal`）。
 
 ### 窗口元数据：`[UIWindow]` 特性
 
@@ -2113,7 +2133,7 @@ Bag.SubscribeClickAsync(button, async ct =>   // 异步点击：随 Bag 取消�
 
 ### 换后端零业务改动
 
-业务开窗代码（`Open<T>()`）与核心对后端一无所知。从 UI Toolkit 换 UGUI：入口换 `MonoUGuiUI`、窗口基类换 `UGuiWindowBase` + prefab——`IUIBackend` 吸收了 Canvas sortingOrder 与 VisualElement 顺序、自动注入 vs 显式注入的全部差异。adapter 分 asmdef，只用一种 UI 技术的项目可整目录删另一个。
+业务开窗代码（`Open<T>()` / `OpenRequired<T>()`）与核心对后端一无所知。从 UI Toolkit 换 UGUI：入口换 `MonoUGuiUI`、窗口基类换 `UGuiWindowBase` + prefab——`IUIBackend` 吸收了 Canvas sortingOrder 与 VisualElement 顺序、自动注入 vs 显式注入的全部差异。adapter 分 asmdef，只用一种 UI 技术的项目可整目录删另一个。
 
 ### 约束与坑
 
@@ -2121,12 +2141,13 @@ Bag.SubscribeClickAsync(button, async ct =>   // 异步点击：随 Bag 取消�
 - **cover/reveal 按层内计算**：跨层覆盖（Popup 盖 Page）不触发下层 cover，需要时业务自行处理。
 - **UI Toolkit 窗口需无参构造**（框架 `Activator` 实例化）；数据经 `OnOpen(args)`，不走构造函数。
 - **UI Toolkit 窗口 Context 由框架显式注入**（不在 GameObject 父链上）；UGUI 窗口沿父链自动注入（实例化到层根下即可）。
+- **先判断窗口是否允许缺席**：可选窗口 `Open<T>()` 后处理 null；Flow 主页面等必需窗口用 `OpenRequired<T>()`，不能让创建失败静默变成成功状态。
 - **异步 UI 动作必须有 owner**：Toolkit 点击优先 `Bag.SubscribeClickAsync`；同步生命周期 hook 无法 `await` 时必须显式观察异常，不能裸 `.Forget()` / `UniTaskVoid`。
 - 三个 UI asmdef 引用热更内核，已在热更列表（ADR-0008 铁律）；输入 Package 只应由项目 composition layer 按真实方案引用。
 
 > **要点回顾**
 >
-> - 挂一个 `MonoToolkitUI` / `MonoUGuiUI` 注册 `IUIUtility`，`this.GetUtility<IUIUtility>().Open<T>()` 开窗
+> - 挂一个 `MonoToolkitUI` / `MonoUGuiUI` 注册 `IUIUtility`；可选窗口用 `Open<T>()` 判空，必需窗口用 `OpenRequired<T>()` 让失败阻止状态提交
 > - 窗口 = View 的一种：自动注入 / Bag / 读写分离；元数据用 `[UIWindow]` 声明层 / 缓存 / 模态 / 返回键可关性
 > - 过渡动画重写 `OnOpenTransition` / `OnCloseTransition`，框架统一挡输入；项目把返回 Input Action 映射到 `IUIUtility.Back()`
 > - 核心渲染中立、可单测；换 UGUI ↔ UI Toolkit 业务零改，`IUIBackend` 吸收差异

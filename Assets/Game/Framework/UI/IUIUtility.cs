@@ -13,14 +13,25 @@ namespace Game.Framework.UI
     /// 心智同 <c>Bag.Load</c>）、System、Command（经 <c>ctx</c>）。需要被 CommandSystem 拦截（日志/回放）的业务语义流程可另包 Command。<br/>
     /// <b>窗口元数据</b>由窗口类上的 <see cref="UIWindowAttribute"/> 提供（层 / 资源 / 缓存 / 模态）。<br/>
     /// <b>渲染无关：</b>同一套 API 在 UGUI 与 UI Toolkit 后端下行为一致，由 <see cref="IUIBackend"/> 吸收差异。<br/>
-    /// <b>异步：</b><see cref="Open{T}(object, CancellationToken)"/> 内部走资源系统加载窗口资源，失败返回 null。
+    /// <b>异步：</b><see cref="Open{T}(object, CancellationToken)"/> 内部走资源系统加载窗口资源；Adapter 未能创建，
+    /// 或 UI 生命周期在创建期间结束而未获得实例时返回 null；
+    /// Flow 主页面等不可缺席的路径使用 <see cref="UIUtilityExtensions.OpenRequired{T}(IUIUtility, CancellationToken)"/>，
+    /// 让失败阻止上层状态提交。
     /// </remarks>
     public interface IUIUtility : IUtility
     {
-        /// <summary>打开窗口（无参）。已打开则置顶并返回该实例。资源加载失败返回 null。</summary>
+        /// <summary>
+        /// 打开窗口（无参）。已打开则置顶并返回该实例；未获得窗口实例时返回 null（如 Adapter 创建失败，
+        /// 或 UI 生命周期在创建期间结束）。
+        /// 不可缺席的窗口使用 <see cref="UIUtilityExtensions.OpenRequired{T}(IUIUtility, CancellationToken)"/>。
+        /// </summary>
         UniTask<T> Open<T>(CancellationToken ct = default) where T : class, IUIWindow;
 
-        /// <summary>打开窗口并传入打开参数 <paramref name="args"/>（窗口在 <c>OnOpen</c> 里取用）。已打开则置顶并重新 <c>OnOpen</c>。</summary>
+        /// <summary>
+        /// 打开窗口并传入打开参数 <paramref name="args"/>（窗口在 <c>OnOpen</c> 里取用）。已打开则置顶并重新
+        /// <c>OnOpen</c>；未获得窗口实例时返回 null。不可缺席的窗口使用
+        /// <see cref="UIUtilityExtensions.OpenRequired{T}(IUIUtility, object, CancellationToken)"/>。
+        /// </summary>
         UniTask<T> Open<T>(object args, CancellationToken ct = default) where T : class, IUIWindow;
 
         /// <summary>关闭指定类型窗口（未打开则忽略）。按其缓存策略隐藏或销毁。</summary>
