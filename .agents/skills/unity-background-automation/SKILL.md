@@ -29,6 +29,18 @@ description: 在不抢用户焦点的前提下运行或监控 Unity MCP 测试�
 - 同一工程已由交互式 Editor 打开时，不能再用 `Unity -batchmode -projectPath` 启动第二实例。需要完全隔离时使用独立工程/
   worktree/CI，但要明确它测试的是哪份提交或同步快照。
 
+## Unity CLI
+
+- CLI 适合工程外的 Editor 发现与 headless test / build / run；它不绕过同工程锁，也不等于当前 Editor 的语义控制。
+- 关闭本工程 Editor 后的项目命令优先调用 `Tools/run-tests.ps1` 或 `Tools/UnityAutomation.psm1`，让 ProjectVersion、CLI 与
+  Direct fallback 保持一个真值；不要在临时命令里重新硬编码 Editor 版本、机器路径或重复透传 CLI 自己拥有的
+  `-batchmode/-quit/-projectPath`。
+- CLI 测试必须走 `unity test` / Module 的 `Invoke-UnityTests`；不要用通用 `unity run -- -runTests`，它可能退出 0 却不产出
+  NUnit XML。无论 Adapter 返回什么退出码，都继续验证结果文件存在且测试数大于 0。
+- 当前 Editor 仍按本 Skill 的 MCP 流程运行。只有项目已明确安装 Pipeline 时，才使用 `unity status/list/command`；不要让
+  自动化自行安装 / 升级实验 Package。需要判断 CLI、Pipeline、MCP、Windows UI 的能力边界时读
+  `docs/unity-cli-automation.md`。
+
 ## 只有这些场景升级到前台
 
 - Windows 原生模态框、文件选择器、凭据/授权窗口或崩溃对话框；优先通过预检避免它们出现。

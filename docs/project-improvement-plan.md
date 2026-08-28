@@ -13,7 +13,7 @@
 5. **Demo + guide + AI 规则同步**：教学和协作约束不能继续推荐旧路径；
 6. **全量验证**：编译、EditMode、PlayMode、Demo 防腐检查与文档一致性。
 
-## 已验证基线（2026-08-26）
+## 已验证基线（2026-08-28）
 
 | 维度 | 当前事实 |
 |---|---|
@@ -21,7 +21,7 @@
 | Framework Module | 29 个 asmdef Module（含测试与可选 Odin Editor Adapter）；依赖与删除测试见 `framework-module-map.md` |
 | Demo | 32 个自动发现章节；Catalog 集中拥有 Adapter 生命周期，并按 Capability / Concept / Workflow 校验真实 Build 教学语义 |
 | 教程 | `framework-guide.md` 28 章 |
-| ADR | 0001–0043；0040 为 UPM-aware 源码目录，0041/0042 补齐依赖证据，0043 收口 Editor 菜单与工作台 |
+| ADR | 0001–0044；0040 为 UPM-aware 源码目录，0041/0042 补齐依赖证据，0043 收口 Editor 菜单与工作台，0044 固化 Unity CLI 工程外 Adapter 边界 |
 | 测试 | PlayMode 525 + EditMode 330，全绿；交互式 MCP 后台运行且 PlayMode 先预检，命令行入口默认 EditMode + PlayMode |
 | Demo CodeRef | 313 处可打开源码跳转全部精准命中；注释、文案与外部文档路径不计入源码构造点 |
 | AI 常驻规则预算 | 最深 AGENTS 链 29.88 KiB，低于 Codex 默认 32 KiB 项目指令上限；新增常驻规则前需继续评估外移空间 |
@@ -192,13 +192,20 @@
 - 这是源码仓库体积与 diff 稳定性优化，不宣称玩家包同步减少：两份资产原本就启用了构建时清理，最终包体仍由目标平台 BuildReport 判断。
 - Demo EditMode / PlayMode TestRun 守卫保存两份动态字体的原始字节，整轮测试回到稳定 EditMode 后恢复并继续观察迟到写回；只有连续保持原字节才消费快照。Domain Reload / Editor 重启也能从 `Library` 快照续恢复。这比调用 `ClearFontAssetData` 更安全，因为后者会连资产原有的 feature / atlas 基线一起清除；测试前未提交的字体调整也会被原样保留。
 
+### P1 · Unity CLI 工程外自动化 Adapter
+
+- 资源构建 workflow 中的 Editor `6000.3.14f1` 硬编码已经与项目 `6000.3.22f1` 漂移；测试脚本又独立维护 Hub / 注册表发现逻辑。新增 `Tools/UnityAutomation.psm1` 集中读取 ProjectVersion、核对 revision、选择 CLI / Direct Adapter、同步启动并返回退出码。
+- `Tools/run-tests.ps1` 与 `build-assets.yml` 已复用同一 Module。Auto 模式在无显式 Editor 路径时优先使用 Unity CLI，旧 Hub 环境安全回退；通用 run、专用 test、CLI 保留参数与 Direct command-line quoting 的差异集中在 Module。不自动安装 / 升级、不删除工程锁，也不以“退出 0”替代 NUnit XML / 构建产物门禁；隔离最小工程已验证 beta.5 能精确选择 6000.3.22f1、同步等待并返回 0，`unity test` 的 1 条 EditMode 测试产出 1/1 passed XML。
+- 工程锁拒绝已进入共享 headless Interface，调用方不能绕过且 Module 从不自动删锁；启动 / IO / XML 异常统一归入基础设施退出码 2。`Tools/Tests/UnityAutomation.Tests.ps1` 无需启动 Unity 即回归 Adapter 选择、版本拒绝、参数过滤 / quoting 与专用测试映射。
+- 实验性的 `com.unity.pipeline` 暂不进入 manifest，当前 Editor 继续使用第三方 MCP、稳定菜单与 PlayMode 预检。未来只有形成可物理删除的 Editor-only 第二 Adapter 并通过删除测试时再接入。取舍、能力矩阵与命令示例见 ADR-0044 和 `unity-cli-automation.md`。
+
 ## 下一批候选（按杠杆排序）
 
 | 优先级 | 候选 | 证据 / 完成标准 |
 |---|---|---|
 | P1 | 日志调用面继续收敛 | ADR-0034 已 Accepted；Fonts、UI、Asset/Yoo、Audio 与 Config Runtime 已收敛；AOT Boot 已确认必须保留原生日志。继续按 Module 审查其余历史裸 `Debug.*`，保留 Logging Implementation、第三方内部日志和 Editor 工具；测试守住消息、context、异常和双击定位语义。 |
 | P1 | 公共 API 注释审计 | 优先生命周期、取消、异常、所有权与 Adapter 接缝；删除复述代码或记录历史的注释。以“调用者能否仅靠悬浮提示正确释放/取消”为完成标准。 |
-| P1 | CI 真正接线 | 当前脚本已可作为门禁；选择 GitHub Actions / 自建 Runner 后再落配置，避免仓库里放一份无人运行的“装饰性 CI”。 |
+| P1 | CI Runner 与发布真正接线 | 资源构建 workflow 已复用 ProjectVersion + Unity CLI / Direct Adapter；下一步是在真实自建 Runner 验证授权、Android/iOS/WebGL Module、缓存与 CDN 上传凭据，并把一次成功 artifact 固化为基线。 |
 | P2 | 大文件按职责复查 | `DiagnosticsWindow`、`YooAssetProvider`、`AssetUtility` 等只在发现两个独立变化轴或测试 Seam 时拆；单纯行数不是理由。 |
 | P2 | WebGL / 小游戏固定 Runner 基线 | 隔离探针已能在当前目标平台生成真实 Player BuildReport 上界；下一步等确定发布平台与 CI Runner 后保存同环境 artifact / 阈值，避免把本机 Windows 数字当 WebGL 基线。 |
 | P2 | UPM 分发依赖标准化 | Module 源码与 Odin 原生基线已经具备；下一步拆解 Git 直依赖与 embedded NuGet 单体包的发布来源，形成可重复安装 recipe，并在干净消费工程验证 Core / 可选 Adapter 的安装与删除，不在框架内复制第二套 Package Manager。 |

@@ -1,6 +1,6 @@
 # AI 协作方案
 
-> 面向项目维护者：说明 SSFramework 如何让 Claude Code、Codex 等编码 Agent 共享项目规则，又如何隔离各工具自己的 Skill、Hook、Subagent 与权限配置。能力信息最后核验于 **2026-08-25**。
+> 面向项目维护者：说明 SSFramework 如何让 Claude Code、Codex 等编码 Agent 共享项目规则，又如何隔离各工具自己的 Skill、Hook、Subagent 与权限配置。能力信息最后核验于 **2026-08-28**。
 
 ## 1. 当前布局
 
@@ -101,6 +101,12 @@ Unity 交互式 Editor 还有一类更适合“项目内代码门禁”的固定
 是当前 MCP job 的观察值，不是 Test Runner 门禁；Agent 轮询真实进度，不为测试固定抢焦点。只有原生模态框、真实输入焦点/
 拖拽验证或已经阻塞 MCP 主线程的现场才升级到 OS UI。这个判断有明确触发条件且包含多步诊断，适合 Skill；不放进 Hook
 强制每次切窗口，也不在 Framework Runtime 增加与产品无关的焦点设置。
+
+Unity Hub 3.21 起自动安装的独立 Unity CLI 被放在另一条 Seam：它负责工程外的 Editor / Module / Project 发现，以及关闭交互式
+Editor 后的 headless test / build / run。项目的 `Tools/UnityAutomation.psm1` 读取 `ProjectVersion.txt`，优先让 CLI 精确定位并启动
+Editor，旧环境回退 Hub / 注册表的 Direct Adapter；测试脚本与资源构建 CI 不再各自硬编码版本。它不绕过同工程锁，也不替代当前 Editor 的 MCP、
+PlayMode 预检或 Windows 原生模态框处理。实验性的 Pipeline Package 暂不成为 Framework 依赖；完整能力矩阵、命令示例与未来
+Adapter 删除测试见 `docs/unity-cli-automation.md` 和 ADR-0044。
 
 同一原则也用于框架 Editor 工具反馈：普通成功、失败、缺配置和 PlayMode 拦截通过 `FrameworkEditorFeedback` 输出稳定的 `[SSFramework.Tool][状态]` Console 记录与短暂通知，不用模态结果弹窗。完整详情留在 Console，失败使用 Error、提醒使用 Warning，Agent 可据此可靠判定结果；只有清缓存、停止 Play 后切场景、保存脏场景这类真实选择保留确认。源码门禁会扫描当前实际存在的框架模块，并只允许经过审查的确认框白名单，因此物理裁剪可选模块不会破坏测试。
 

@@ -140,5 +140,17 @@ Input System 的“PlayerLoop 在后台继续”与“键鼠设备失焦后是�
 
 边界：Unity MCP 不是通用鼠标/键盘代理，不能承诺捕获或操作任意屏幕矩形、Tooltip、上下文菜单和系统子窗口。尤其原生保存框已经出现时，Unity 主线程与 MCP 队列可能一起被阻塞；先人工或经系统 UI 自动化关闭，再回到 §5 的预检流程，不要重复提交 Unity 命令。若只需一次 OS 激活，窄命令行 Adapter 最终仍调用 Windows 前台 API；它可以避免坐标点击，但不能做到“切焦点却完全不打扰用户”。Game/Scene/指定 EditorWindow 都能由 MCP 捕获时，截图与定位操作应留在 Unity 工具链内。完整后台判定流程见 Project Skill `unity-background-automation`。
 
+## 14. Unity CLI 负责工程外启动，不绕过当前 Editor 边界
+
+Hub 3.21 安装的独立 `unity` CLI 适合查询 Editor / Module / Project，并在本工程 Editor 关闭后运行 headless test、build、run；
+仓库的 `Tools/UnityAutomation.psm1` 已把它作为首选启动 Adapter，并在 CLI 不可用时回退直接 Editor。它不能绕过
+`Temp/UnityLockfile`，不要因为 CLI 能找到版本就对正在交互式打开的同一工程启动第二实例。
+
+安装 `com.unity.pipeline` 后，CLI 确实可以连接当前 Editor，执行场景、资产、测试、截图、PlayMode、菜单等内置命令，或由
+`unity mcp` 暴露 MCP；这与当前第三方 `unity_*` 工具有较大重叠，但官方说明第三方 MCP 不受 Assistant MCP 迁移影响。
+当前项目不安装实验性的 Pipeline，也不改变 §1–§13 的稳定流程。重复的项目语义仍先实现成可测试的 Editor API / 菜单；只有
+需要第二个机器 Adapter 且删除测试成立时，才在独立 Editor-only Module 中加 `[CliCommand]` 薄适配。完整说明见
+`docs/unity-cli-automation.md` 与 ADR-0044。
+
 ---
 经验沉淀文档：踩到新坑、确认调用方式后追加一节即可。
