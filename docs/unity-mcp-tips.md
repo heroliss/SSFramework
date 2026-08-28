@@ -102,9 +102,13 @@ AnkleBreaker Unity MCP 2.39.5 的 `blockedReason: editor_unfocused` 由 job 序�
 停顿，才把“临时激活 Unity 一次”作为诊断实验，并继续观察原 job；它不是默认前置条件。普通手动 Play 不经过 Test Runner 时，
 后台 PlayerLoop 仍取决于项目设置/运行时值，不应由通用框架为所有消费项目静默改写产品行为。
 
+`Run In Background` 只保证继续推进，不保证“几十毫秒内一定获得某一帧”。测试若用 `Delay(0.05s)` 后断言对象仍处于
+中间态，Editor 后台调度稍粗就可能在断言恢复前让后一个计时也到期。所有权、超时竞态等核心契约优先注入手动 clock / delay
+Seam，由测试显式完成旧、新 owner；真实音频设备等焦点敏感集成另行验证。不要为了救脆弱墙钟断言把 Unity 前台焦点变成整库前置条件。
+
 用 Additive 场景隔离用户现场时，也不要清空启动场景的全部根节点：Unity Test Framework 的 `Code-based tests runner` 本身就是根节点，销毁后业务帧仍会走，但测试协程再也不会恢复。只撤项目自己的 Composition Root（如 `MonoGameContextBase`），并在 TearDown 卸载测试加载的场景。
 
-动态 TextCore / TMP 字体会在 Editor 测试中把新 glyph 与 atlas 缓存延迟写回源资产，单个 fixture TearDown 后清理仍可能被迟到写回覆盖。PlayMode Runner 还会先加载当前场景再进入筛选后的 fixture，所以即使只跑 Framework 测试，也可能触发 DemoScene 字体写回；PlayMode TestRun 守卫必须覆盖整轮、不能按测试类名前缀过滤。守卫会快照两份动态字体，整轮回到稳定 EditMode 后恢复，并持续确认原字节不再变化后才消费快照；Domain Reload / Editor 重启也能从 `Library` 续恢复。新增会触发动态字体的测试时沿用同一事务边界，不要在结束后笼统调用 `ClearFontAssetData`，它可能误删资产原有的 feature / atlas 基线。
+动态 TextCore / TMP 字体会在 Editor 测试中把新 glyph 与 atlas 缓存延迟写回源资产，单个 fixture TearDown 后清理仍可能被迟到写回覆盖。PlayMode Runner 还会先加载当前场景再进入筛选后的 fixture，所以即使只跑 Framework 测试，也可能触发 DemoScene 字体写回；PlayMode TestRun 守卫必须覆盖整轮、不能按测试类名前缀过滤。守卫会快照两份动态字体，整轮回到稳定 EditMode 后恢复，并同时确认磁盘原字节与该 asset path 下**全部** Unity Object（FontAsset 主对象、材质、atlas 纹理等子资产）的 dirty flag；任一对象标脏都先清标记并强制同步重导入，让内存态也回到快照。只 ClearDirty(main asset) 不够：脏子资产仍会让下一次 `Assets/Refresh` 保存整份 `.asset`，连带把 main asset 的 glyph table 写回。捕获前若已经有 dirty 对象则 fail-fast：磁盘字节只能保留“已保存但尚未提交 Git”的调整，不能安全恢复仍在内存中的用户编辑。Domain Reload / Editor 重启也能从 `Library` 续恢复。新增会触发动态字体的测试时沿用同一事务边界，不要在结束后笼统调用 `ClearFontAssetData`，它可能误删资产原有的 feature / atlas 基线。
 
 ## 10. 反射断言生成代码/第三方类型时注意成员形态
 

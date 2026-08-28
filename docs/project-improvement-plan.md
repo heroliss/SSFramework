@@ -22,7 +22,7 @@
 | Demo | 32 个自动发现章节；Catalog 集中拥有 Adapter 生命周期，并按 Capability / Concept / Workflow 校验真实 Build 教学语义 |
 | 教程 | `framework-guide.md` 28 章 |
 | ADR | 0001–0045；0040 为 UPM-aware 源码目录，0041/0042 补齐依赖证据，0043 收口 Editor 菜单与工作台，0044 固化 Unity CLI 工程外 Adapter 边界，0045 拆分资源与 HybridCLR 构建依赖 |
-| 测试 | PlayMode 528 + EditMode 364，共 892 项全绿；交互式 MCP 后台运行且 PlayMode 先预检，命令行入口默认 EditMode + PlayMode |
+| 测试 | PlayMode 535 + EditMode 364，共 899 项全绿；交互式 MCP 后台运行且 PlayMode 先预检，命令行入口默认 EditMode + PlayMode |
 | Demo CodeRef | 314 处可打开源码跳转；完整门禁通过后以精准命中为基线，注释、文案与外部文档路径不计入源码构造点 |
 | AI 常驻规则预算 | 最深 AGENTS 链 30.48 KiB，低于 Codex 默认 32 KiB 项目指令上限；本轮已压缩 Demo 教程式规则，新增常驻规则前仍须优先外移可测试/可按需加载内容 |
 
@@ -190,7 +190,7 @@
 
 - 清空 `DemoLatin SDF` 与 `DemoNotoSansSC SDF` 中由编辑器会话生成的 glyph / character / atlas 缓存，保留 Dynamic 模式、源字体引用、atlas 配置与 `Clear Dynamic Data On Build`；序列化资产合计减少约 4.2 MiB，运行时仍按需生成字形。
 - 这是源码仓库体积与 diff 稳定性优化，不宣称玩家包同步减少：两份资产原本就启用了构建时清理，最终包体仍由目标平台 BuildReport 判断。
-- Demo EditMode / PlayMode TestRun 守卫保存两份动态字体的原始字节，整轮测试回到稳定 EditMode 后恢复并继续观察迟到写回；只有连续保持原字节才消费快照。实测确认 `ITestRunCallback.RunStarted` 晚于 PlayMode 场景首帧，捕获现前移到 `ExitingEditMode`，回调只复用该快照；人工 Play 同样受保护，捕获失败会取消进入 Play，避免无原始证据时静默污染。Domain Reload / Editor 重启也能从 `Library` 快照续恢复。这比调用 `ClearFontAssetData` 更安全，因为后者会连资产原有的 feature / atlas 基线一起清除；测试前未提交的字体调整也会被原样保留。普通 Play→Stop、定向 PlayMode 26/26 与最新完整 892/892 后两份字体均保持干净。
+- Demo EditMode / PlayMode TestRun 守卫保存两份动态字体的原始字节，整轮测试回到稳定 EditMode 后恢复并继续观察迟到写回；只有磁盘原字节与同路径下 FontAsset、材质、atlas 等全部 Unity Object 的 dirty flag 都连续稳定才消费快照。任一子资产标脏时会先清标记再强制同步重导入，避免后续 `Assets/Refresh` 因脏 atlas 保存整份 `.asset`、连带写回主对象 glyph table。捕获前移到 `ExitingEditMode`，人工 Play 同样受保护；Domain Reload / Editor 重启也能从 `Library` 快照续恢复。这比调用 `ClearFontAssetData` 更安全，因为后者会连资产原有的 feature / atlas 基线一起清除。已落盘但 Git 未提交的字体字节会原样保留；捕获前仍在内存 dirty 的主/子资产则明确拒绝启动，避免静默丢弃用户编辑，并有专门回归锁定。真实 DemoScene 逐章 Build 与完整 899/899 后主动 `Assets/Refresh` 均须保持两份字体无源码 diff。
 
 ### P1 · Unity CLI 工程外自动化 Adapter
 
@@ -214,15 +214,17 @@
 
 - 高频配置 Profile 和资源运行模式增加 `InspectorName`：界面显示中文，序列化字段名、枚举成员与已有资产保持不变；关键代码值放在括号中，仍可按英文标识检索源码和第三方文档。
 - `MonoContext` 状态由同一格式化入口显示“未初始化（Uninitialized）”等中文优先标签，诊断、Inspector 和复制报告不再各写一套；资源引用 Drawer 与模块/体积工具同步收敛用户可见术语。
-- Demo 的分数、重置、缓存策略等现场文案和 guide 日志示例改为中文优先；缓存策略示例同时移除以显示字符串判断行为的脆弱逻辑。测试锁定高频标签与全部诊断状态，最新完整基线为 EditMode 364 + PlayMode 528。
+- Demo 的分数、重置、缓存策略等现场文案和 guide 日志示例改为中文优先；缓存策略示例同时移除以显示字符串判断行为的脆弱逻辑。测试锁定高频标签与全部诊断状态，最新完整基线为 EditMode 364 + PlayMode 535。
 - 服务安装器与 `MonoGameContextBase` 补齐中文 Inspector 主标签；场景快捷入口、Protobuf 与字体字集工作台不再裸露 `Entries / Profile / Charset`，需要映射到 Unity、TMP 或框架 API 的 `Boot Scene / Play / Character Set` 等术语以中文释义加英文原名呈现。
 - 资源 Core、配置服务与 YooAsset Adapter 的启动、空输入、清单失配、加载/清缓存/下载失败、缓存世代和后台所有权消息改为中文说明；`Provider`、`TableFiles`、`location/tag`、类型/API 名及 YooAsset 原始错误仍原样保留。精确日志测试改为锁“中文动作 + 动态标识 + 原始异常对象”，不把整句标点当脆弱契约。
-- Demo 总览把五层名称统一成“中文职责（英文类型）”，日志章先解释日志接收器（sink）再展示 `Info / Warning`，资源章把三类下载/清理范围改成横向表格，并把启动更新长段落拆成四步流程。真实 Game View 复查又收短了导航标题与表格参数显示，避免窄列截断；教学契约与 CodeRef 专项 31/31、DemoScene 冒烟 6/6、最新整库 892/892 通过。
-- Context / DI / Pool 的异常、警告与 Trace 改为中文动作优先，同时保留 `Context`、类型名、`GetModel`、`IDisposable`、`Spawn/Despawn` 等可复制标识；覆盖容器构建与所有权回滚、Mono Context 初始化、注入权限、主线程守卫、Bag 归还和对象池误用。相关测试不再锁整句英文，而是断言“中文语义 + 动态类型/API + 原始异常”；Unity 编译 0 错误/0 警告，最新完整 EditMode 364/364、PlayMode 528/528 通过。
+- Demo 总览把五层名称统一成“中文职责（英文类型）”，日志章先解释日志接收器（sink）再展示 `Info / Warning`，资源章把三类下载/清理范围改成横向表格，并把启动更新长段落拆成四步流程。真实 Game View 复查又收短了导航标题与表格参数显示，避免窄列截断；教学契约与 CodeRef 专项 31/31、DemoScene 冒烟 6/6、最新整库 899/899 通过。
+- Context / DI / Pool 的异常、警告与 Trace 改为中文动作优先，同时保留 `Context`、类型名、`GetModel`、`IDisposable`、`Spawn/Despawn` 等可复制标识；覆盖容器构建与所有权回滚、Mono Context 初始化、注入权限、主线程守卫、Bag 归还和对象池误用。相关测试不再锁整句英文，而是断言“中文语义 + 动态类型/API + 原始异常”；Unity 编译 0 错误/0 警告，最新完整 EditMode 364/364、PlayMode 535/535 通过。
 - 后台测试复查确认 `editor_unfocused` 不阻塞 Runner；同时发现当前 MCP schema 的 `filter` 别名未被已安装 Unity 端消费。后台自动化 Skill 与 MCP 指南现要求先按同一 mode 查询测试清单、使用 `groupNames/testNames`，并把终态 `succeeded + total=0` 判为筛选失败而非假绿；PlayMode 定向复验 26/26。
+- Toast owner 测试不再依赖 0.05–0.35 秒墙钟窗口：UI Implementation 保持生产实时延迟，在内部构造提供手动 delay Seam，测试可让已取消旧 timer 故意迟到成功并直接验证 identity。Audio 生产淡变仍使用 `Time.unscaledDeltaTime`，内部测试 Seam 改用固定帧增量；一次性/非循环播放由显式 `AudioSource.Stop` 模拟物理终态，循环契约直接验证引擎 loop 与显式 owner。音频整组不再依赖真实声卡、前台焦点或 batchmode Ignore；修复后完整 PlayMode 535/535 通过。
 - Flow 的退出失败/取消回调、Audio 的淡变/回收/释放后误用，以及 UI Toolkit 的异步点击与重复 Context 绑定反馈已改为中文语义优先，同时保留 `FlowState`、`OnExit`、`IAudioUtility`、Button 名和 View 类型等检索锚点；原始 exception 继续单独交给日志 Seam。新增契约测试锁定中文动作、动态标识和“失败后仍清理”的所有权语义。
 - “框架诊断”窗口以真实最小宽度、中宽和宽屏三档复查：最小宽度下原命令接入长说明会被底部裁切，现按信息密度显示短说明并把完整接入代码保留在 tooltip；中宽/宽屏继续展示完整说明。按钮、搜索、日志闸门、Context 分栏和命令区在三档均无溢出，响应式结构测试同步锁定实际 HelpBox 文案。
-- 日志接缝补齐 Warning 级原始异常：`LogEntry.Exception` 不再只在 Error 路径有意义，Unity 默认 sink 会在同一条 Warning 中展示异常而不额外抬成 Error；HTTP、WebSocket 与 Storage 的可恢复失败改为“稳定中文动作 + 结构化异常”，Demo 服务器清理反馈完成中文化。定向 PlayMode 111/111、Demo Server EditMode 2/2，完整 EditMode 364/364、PlayMode 528/528 通过。
+- 日志接缝补齐 Warning 级原始异常：`LogEntry.Exception` 不再只在 Error 路径有意义，Unity 默认 sink 会在同一条 Warning 中展示异常而不额外抬成 Error；HTTP、WebSocket 与 Storage 的可恢复失败改为“稳定中文动作 + 结构化异常”，Demo 服务器清理反馈完成中文化。定向 PlayMode 111/111、Demo Server EditMode 2/2，完整 EditMode 364/364、PlayMode 535/535 通过。
+- WebSocket Interface 与 Implementation 的错误边界进一步收口：`Connect` 在 Adapter 前严格拒绝相对地址和非 `ws/wss` scheme；Send / Disconnect 以 caller / Context owner 意图识别取消，即使 Adapter 在竞态中抛 ODE 或 socket error 也返回 OCE 并保留 inner；关闭事件只发布框架稳定摘要，原始异常走日志 Seam；Provider Dispose 失败也不会漏掉响应式 State 释放。Guide、ADR-0028 与 Demo 同步解释“重连只判断 ByUser”，专项 PlayMode 52/52、完整 899/899 通过。
 
 ## 下一批候选（按杠杆排序）
 

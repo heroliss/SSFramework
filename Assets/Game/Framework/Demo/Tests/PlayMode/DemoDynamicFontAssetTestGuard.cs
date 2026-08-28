@@ -18,7 +18,11 @@ namespace Game.Framework.Demo.PlayMode.Tests
     /// PlayMode Runner 会在 <see cref="ITestRunCallback.RunStarted"/> 前加载当前场景；若等回调再拍快照，首帧生成的字形
     /// 已可能混入所谓“原始”字节。因此在 <see cref="PlayModeStateChange.ExitingEditMode"/>（场景切换前）捕获，
     /// TestRun 回调只复用该快照。TextCore 的资源更新又可能晚于单个 fixture TearDown，甚至在后续用例才落盘，
-    /// 所以恢复边界必须是整轮运行回到稳定 EditMode 之后，不能按测试类名前缀过滤。字节快照能保留测试前未提交的资产调整；
+    /// 所以恢复边界必须是整轮运行回到稳定 EditMode 之后，不能按测试类名前缀过滤。恢复后仍要同时观察磁盘字节与
+    /// Unity Object dirty flag：DemoScene 的文本重绘可能只改了内存对象，稍后的 Refresh / SaveAssets 才落盘。
+    /// FontAsset 的材质、atlas 纹理等子资产也能单独标脏；必须检查整条 asset path 的全部对象，而不只是 main asset。
+    /// 字节快照能保留测试前已落盘、但尚未提交版本控制的资产调整；捕获前仍在内存中的 dirty 修改会明确拒绝启动，
+    /// 因为仅凭磁盘快照无法在恢复时区分它与本轮测试生成的数据。
     /// <c>ClearFontAssetData</c> 会误删源资产原有的 feature / atlas 基线，不能替代本守卫。
     /// </remarks>
     internal sealed class DemoDynamicFontAssetTestGuard : ITestRunCallback
@@ -121,6 +125,8 @@ namespace Game.Framework.Demo.PlayMode.Tests
                     "检测到上一轮 Demo 动态字体快照尚未恢复；请回到 EditMode 等待自动恢复后再重跑测试：" +
                     snapshotDirectory);
 
+            ThrowIfTrackedAssetsDirtyBeforeCapture();
+
             Directory.CreateDirectory(snapshotDirectory);
             try
             {
@@ -163,6 +169,14 @@ namespace Game.Framework.Demo.PlayMode.Tests
 
             if (_verifyingRestoredFiles)
             {
+                // TextCore 可能在恢复后的 DemoScene 重绘中再次把字体对象标脏，但尚未写回磁盘。
+                // 这正是本事务要丢弃的临时动态数据；清掉 dirty 并重新开始稳定窗口，避免快照删除后
+                // 下一次 Assets/Refresh 才把 glyph / atlas 迟到写回源码资产。
+                if (ReloadTrackedAssetsIfDirty())
+                {
+                    _editorReadySince = EditorApplication.timeSinceStartup;
+                    return;
+                }
                 if (!RestoredFileStampsMatch())
                 {
                     if (!RestoreSnapshotFiles()) return;
@@ -212,7 +226,9 @@ namespace Game.Framework.Demo.PlayMode.Tests
                     if (File.Exists(destination) && File.ReadAllBytes(destination).SequenceEqual(expected))
                         continue;
                     File.WriteAllBytes(destination, expected);
-                    AssetDatabase.ImportAsset(AssetPaths[i], ImportAssetOptions.ForceUpdate);
+                    AssetDatabase.ImportAsset(
+                        AssetPaths[i],
+                        ImportAssetOptions.ForceUpdate | ImportAssetOptions.ForceSynchronousImport);
                 }
                 return true;
             }
@@ -266,6 +282,50 @@ namespace Game.Framework.Demo.PlayMode.Tests
                     return false;
             }
             return true;
+        }
+
+        /// <summary>
+        /// 快照只能保存磁盘字节，不能保存 Unity Object 尚未落盘的序列化状态。测试启动前若已有 dirty 对象，
+        /// 恢复阶段无法区分“用户编辑”与“本轮动态 glyph”，因此必须 fail-fast，不能静默替用户丢弃修改。
+        /// </summary>
+        internal static void ThrowIfTrackedAssetsDirtyBeforeCapture()
+        {
+            string[] dirtyObjects = AssetPaths
+                .SelectMany(path => AssetDatabase.LoadAllAssetsAtPath(path)
+                    .Where(asset => asset != null && EditorUtility.IsDirty(asset))
+                    .Select(asset => $"{path} / {asset.name} ({asset.GetType().Name})"))
+                .ToArray();
+            if (dirtyObjects.Length == 0) return;
+
+            throw new InvalidOperationException(
+                "Demo 动态字体在测试开始前存在未保存的内存修改，已拒绝启动，避免恢复事务覆盖用户编辑。" +
+                "请先在 Unity 中保存或撤销这些修改后重试：\n- " +
+                string.Join("\n- ", dirtyObjects));
+        }
+
+        /// <summary>
+        /// 丢弃字体主对象及其材质 / atlas 子资产尚未落盘的运行时修改。
+        /// 只 ClearDirty(main asset) 不够：任一子资产保持 dirty，后续 Refresh 仍会保存整份 .asset，
+        /// 连带把 main asset 内存中的 glyph table 一起写回。清标记后强制同步重导入，让内存对象也回到磁盘快照。
+        /// </summary>
+        private static bool ReloadTrackedAssetsIfDirty()
+        {
+            bool reloaded = false;
+            for (int i = 0; i < AssetPaths.Length; i++)
+            {
+                UnityEngine.Object[] assets = AssetDatabase.LoadAllAssetsAtPath(AssetPaths[i]);
+                if (!assets.Any(asset => asset != null && EditorUtility.IsDirty(asset))) continue;
+
+                foreach (UnityEngine.Object asset in assets)
+                    if (asset != null && EditorUtility.IsDirty(asset))
+                        EditorUtility.ClearDirty(asset);
+
+                AssetDatabase.ImportAsset(
+                    AssetPaths[i],
+                    ImportAssetOptions.ForceUpdate | ImportAssetOptions.ForceSynchronousImport);
+                reloaded = true;
+            }
+            return reloaded;
         }
 
         private static void CompleteRestore()

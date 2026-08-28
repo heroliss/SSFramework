@@ -102,9 +102,9 @@ public interface IAudioUtility : IUtility
 - 线性音量不如 dB 曲线符合听感（滑条中段感知偏快）——大多数游戏可接受，追求专业响度的项目换实现。
 - 不上 AudioMixer 意味着没有效果链 / 闪避——这是「全局播放服务」与「混音工程」的边界，后者本就该按项目定制。
 
-**风险：**
+**剩余边界：**
 
-- batchmode（CI 命令行跑测试）下 Unity 无音频设备，「播放推进」类断言不可靠——相关测试在 `Application.isBatchMode` 下 `Assert.Ignore`，编辑器内跑全量（音量数学 / 池化 / handle 语义等结构性测试不受影响）。
+- batchmode（CI 命令行）可能没有真实音频设备，因此自动测试只验证框架可控的契约：是否正确配置 `AudioSource`、owner 是否交接、物理终态后是否回收、暂停是否保留、淡变是否隔离。最终是否真的出声、设备切换和平台音频中断仍属于目标设备集成验证，不用一条依赖声卡墙钟的测试伪装覆盖。
 
 ## 2026-08-26 修订（异步驱动诊断进入日志 Seam）
 
@@ -116,3 +116,8 @@ public interface IAudioUtility : IUtility
 
 - `PlayMusic(loop:false)` 自然结束后由中央驱动归还 voice，使 `CurrentMusic`、活动计数和 clip 引用恢复空闲终态；循环音乐仍只由 `PlayMusic` / `StopMusic` 显式切换。
 - 淡变 CTS 改为显式 owner：成功完成也会释放，仅当前 owner 能清理自己的槽；旧任务迟到恢复不会误伤接管它的新淡变。淡出异常仍归还已经交出所有权的 voice，避免旧声音永久滞留。
+
+## 2026-08-28 修订（后台与 batchmode 的确定性测试 Seam）
+
+- 生产淡变仍逐帧读取 `Time.unscaledDeltaTime`；`AudioUtility` 仅向测试程序集开放内部帧增量 Seam，用固定增量直接验证淡变 owner，不把 Editor 是否聚焦、某个短墙钟窗口内是否调度到帧当成产品契约。
+- 一次性音效和非循环音乐的终态测试显式停止其池化 `AudioSource`，再观察中央驱动回收；循环测试直接验证 `AudioSource.loop` 与显式 handle / 音乐 owner。整组测试不再依赖真实声卡，也无需在 batchmode Ignore。

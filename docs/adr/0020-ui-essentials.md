@@ -65,7 +65,7 @@ UniTask OnCloseTransition(CancellationToken ct);  // 出场动画：OnClose 之�
 
 内置窗口本体（每 adapter 一对，纯代码搭建、`Cache` 复用、落 `UILayer.Top`）：
 
-- **Toast**（`UGuiToastWindow` / `ToolkitToastWindow`）：底部居中半透明文字条，整棵树不吃输入；连续 Toast 复用同一实例——刷新文本、重置计时，**不做队列**（no-over-engineering，要队列的项目自包一层）。自动关闭是公共 Interface 的行为，owner 统一放在渲染中立 `UIUtility`：计时令牌链接 Context，连续 Show 只允许最新 timer 关闭，Close / CloseAll / Dispose 会取消旧 timer 与创建请求；两个 adapter 只渲染文本和样式，不复制时序。首次异步创建期间的多个 Show 另用单调提交序号定胜负——`OpenCore` 可能同步唤醒后发等待者，旧创建者最后恢复也不能拿旧 duration 覆盖新 owner；后发请求若取消，则较早有效请求仍可提交。
+- **Toast**（`UGuiToastWindow` / `ToolkitToastWindow`）：底部居中半透明文字条，整棵树不吃输入；连续 Toast 复用同一实例——刷新文本、重置计时，**不做队列**（no-over-engineering，要队列的项目自包一层）。自动关闭是公共 Interface 的行为，owner 统一放在渲染中立 `UIUtility`：计时令牌链接 Context，连续 Show 只允许最新 timer 关闭，Close / CloseAll / Dispose 会取消旧 timer 与创建请求；两个 adapter 只渲染文本和样式，不复制时序。首次异步创建期间的多个 Show 另用单调提交序号定胜负——`OpenCore` 可能同步唤醒后发等待者，旧创建者最后恢复也不能拿旧 duration 覆盖新 owner；后发请求若取消，则较早有效请求仍可提交。生产计时仍用不受 `timeScale` 影响的 PlayerLoop 实时延迟；仅 Implementation 的内部构造允许测试注入手动时钟，直接验证 owner identity，不把 Editor 后台帧调度误当成产品契约。
 - **Loading**（`UGuiLoadingWindow` / `ToolkitLoadingWindow`）：`Modal = true` 遮罩挡输入 + `BackClosable = false` 拦返回键；中央文本 + 旋转指示块（无美术资源的默认表现，正式项目通常用带资产的自定义 Loading 替代）；重复占用复用同一窗口并刷新文本，窗口所有权由 ADR-0037 的 lease 管理。
 
 ## Consequences

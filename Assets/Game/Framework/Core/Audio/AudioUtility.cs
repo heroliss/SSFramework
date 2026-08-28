@@ -42,6 +42,7 @@ namespace Game.Framework.Audio
         private readonly ObjectPool<Voice> _pool;
         private readonly List<Voice> _active = new();
         private readonly Dictionary<string, float> _groupVolumes = new();
+        private readonly Func<float> _unscaledDeltaTime;
 
         // 驱动循环与 Dispose 共用的生命周期取消源（淡变任务各有自己的 per-voice cts）。
         private readonly CancellationTokenSource _lifeCts = new();
@@ -53,8 +54,17 @@ namespace Game.Framework.Audio
         private bool _driverRunning;
         private bool _disposed;
 
-        public AudioUtility()
+        public AudioUtility() : this(() => Time.unscaledDeltaTime)
         {
+        }
+
+        /// <summary>
+        /// 测试 Seam：允许用确定的帧增量验证淡变 owner 与回收竞态，避免依赖编辑器焦点和墙钟。
+        /// 生产入口始终使用 <see cref="Time.unscaledDeltaTime"/>。
+        /// </summary>
+        internal AudioUtility(Func<float> unscaledDeltaTime)
+        {
+            _unscaledDeltaTime = unscaledDeltaTime ?? throw new ArgumentNullException(nameof(unscaledDeltaTime));
             // onReturn 钩子做完整复位（停声、断 clip 引用、取消淡变、停用节点），保证池里的 voice 永远是干净的。
             _pool = new ObjectPool<Voice>(CreateVoice, onReturn: ResetVoice);
         }
@@ -337,7 +347,7 @@ namespace Game.Framework.Audio
                     // Cancel 可能发生在本次 Yield 已完成、continuation 已排队之后；恢复时重新确认 owner，
                     // 防止旧任务给已被新淡变接管、甚至已经回池复用的 voice 写状态。
                     if (!ReferenceEquals(v.FadeCts, owner)) return;
-                    elapsed += Time.unscaledDeltaTime;
+                    elapsed += Mathf.Max(0f, _unscaledDeltaTime());
                     v.FadeScale = Mathf.Lerp(from, to, Mathf.Clamp01(elapsed / seconds));
                     ApplyVolume(v);
                 }
