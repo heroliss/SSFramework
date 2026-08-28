@@ -41,7 +41,7 @@ namespace Game.Framework
             {
                 _draining = true;
                 Drain().Forget(ex => Log.Error(
-                    "Asset package operation lane stopped unexpectedly.", ex,
+                    "资源包操作队列异常停止。", ex,
                     nameof(AssetPackageOperationLane)));
             }
 
@@ -105,7 +105,7 @@ namespace Game.Framework
                 CancellationToken ownerToken,
                 CancellationToken waiterToken)
             {
-                OperationName = string.IsNullOrWhiteSpace(operationName) ? "asset maintenance" : operationName;
+                OperationName = string.IsNullOrWhiteSpace(operationName) ? "资源维护" : operationName;
                 Operation = operation;
                 OwnerToken = ownerToken;
                 WaiterToken = waiterToken;
@@ -139,7 +139,7 @@ namespace Game.Framework
                       (OwnerToken.IsCancellationRequested || WaiterToken.IsCancellationRequested)))
                 {
                     Log.Error(
-                        $"Asset package operation '{OperationName}' failed after its caller stopped waiting.",
+                        $"资源包操作“{OperationName}”在调用方停止等待后执行失败。",
                         error,
                         nameof(AssetPackageOperationLane));
                 }

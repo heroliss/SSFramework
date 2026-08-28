@@ -135,7 +135,7 @@ namespace Game.Framework.Test
 
         private async UniTask Utility_Load_InvalidPath_ShouldReturnNullAsync()
         {
-            LogAssert.Expect(LogType.Error, new Regex("Asset not found.*__NonExistentAsset__"));
+            LogAssert.Expect(LogType.Error, new Regex("找不到资源.*__NonExistentAsset__"));
             var sink = new CapturingSink();
             Log.AddSink(sink);
             IAssetHandle<GameObject> handle;
@@ -175,7 +175,7 @@ namespace Game.Framework.Test
                 GameContext.Main = _context.RawContext;
 
                 LogAssert.Expect(LogType.Warning,
-                    new Regex(@"\[AssetReference\] Using GameContext\.Main fallback.*must be disposed manually"));
+                    new Regex(@"\[AssetReference\].*回退使用 GameContext\.Main.*必须手动释放"));
                 var resolved = _config.PrefabReference.ResolveUtility();
 
                 Assert.AreSame(_utility, resolved);
@@ -347,7 +347,7 @@ namespace Game.Framework.Test
             invalidRef.Bind(_utility, default); // 仍要 bind，否则会走 fallback 路径输出额外 error
             Assert.IsFalse(invalidRef.HasGuid, "空 GUID 的 HasGuid 应为 false");
 
-            LogAssert.Expect(LogType.Warning, "[AssetReference] GUID is empty, assign asset in Inspector.");
+            LogAssert.Expect(LogType.Warning, "[AssetReference] GUID 为空，请先在 Inspector 中指定资源。");
             var sink = new CapturingSink();
             Log.AddSink(sink);
             GameObject result = null;
@@ -364,6 +364,7 @@ namespace Game.Framework.Test
             Assert.AreEqual(1, sink.Entries.Count);
             Assert.AreEqual(LogLevel.Warning, sink.Entries[0].Level);
             Assert.AreEqual("AssetReference", sink.Entries[0].Category);
+            Assert.AreEqual("GUID 为空，请先在 Inspector 中指定资源。", sink.Entries[0].Message);
         }
 
         // ── AssetReferenceList 批量加载测试 ──────────────────────────
@@ -483,7 +484,7 @@ namespace Game.Framework.Test
             }
 
             Assert.IsInstanceOf<System.InvalidOperationException>(staleError);
-            StringAssert.Contains("Rebuild the downloader", staleError.Message,
+            StringAssert.Contains("重新创建下载器", staleError.Message,
                 "Clear 之后必须明确要求重建 downloader，而不是静默执行创建时的旧快照");
 
             var freshDownloader = _utility.CreateAllDownloader();

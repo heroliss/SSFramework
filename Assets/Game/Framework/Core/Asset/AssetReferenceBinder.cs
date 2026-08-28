@@ -116,8 +116,9 @@ namespace Game.Framework.Internal
             if (utility == null)
             {
                 Log.Warning(
-                    $"Skip '{target.GetType().Name}': IAssetUtility is null. " +
-                    "Add AssetSystemConfigModel + AssetUtility + AssetInitSystem under the context, or call ref.Bind() manually.",
+                    $"跳过“{target.GetType().Name}”：IAssetUtility 为 null。" +
+                    "请在同一 Context 下添加 AssetSystemConfigModel、AssetUtility 与 AssetInitSystem，" +
+                    "或手动调用 ref.Bind()。",
                     nameof(AssetReferenceBinder),
                     target as UnityEngine.Object);
                 return;

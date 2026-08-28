@@ -113,7 +113,7 @@ namespace Game.Framework.Config.Tests
             var config = CreateConfig(new[] { "alpha" }, expected);
 
             LogAssert.Expect(LogType.Error,
-                new Regex(@"\[ConfigUtility\] Configuration service 'TestConfigUtility' failed to load"));
+                new Regex(@"\[ConfigUtility\] 配置服务.TestConfigUtility.加载表根失败"));
             LogAssert.Expect(LogType.Exception, new Regex("table-construction-failed"));
             var sink = new CapturingSink();
             Log.AddSink(sink);
@@ -134,6 +134,7 @@ namespace Game.Framework.Config.Tests
             var entry = sink.Entries[0];
             Assert.AreEqual(LogLevel.Error, entry.Level);
             Assert.AreEqual("ConfigUtility", entry.Category);
+            Assert.AreEqual("配置服务“TestConfigUtility”加载表根失败。", entry.Message);
             Assert.AreSame(expected, entry.Exception);
             Assert.AreSame(config, entry.Context);
 
@@ -180,12 +181,12 @@ namespace Game.Framework.Config.Tests
         {
             var config = CreateConfig(new[] { "duplicate", "duplicate" });
             LogAssert.Expect(LogType.Error,
-                new Regex(@"\[ConfigUtility\] Configuration service 'TestConfigUtility' failed to load"));
-            LogAssert.Expect(LogType.Exception, new Regex("duplicate location 'duplicate'"));
+                new Regex(@"\[ConfigUtility\] 配置服务.TestConfigUtility.加载表根失败"));
+            LogAssert.Expect(LogType.Exception, new Regex("包含重复资源地址.duplicate"));
 
             var failure = await CaptureFailure(config.EnsureReady());
 
-            StringAssert.Contains("duplicate location 'duplicate'", failure.Message);
+            StringAssert.Contains("包含重复资源地址“duplicate”", failure.Message);
             Assert.AreEqual(ConfigInitState.Failed, config.State.CurrentValue);
             Assert.AreEqual(0, _provider.LoadBytesCalls,
                 "无效清单应在进入资源 Module 前失败，避免部分表已经产生 I/O 副作用");

@@ -40,7 +40,7 @@ namespace Game.Framework
         {
             ThrowIfDisposed();
             if (string.IsNullOrEmpty(packageName))
-                throw new ArgumentException("Package name is required.", nameof(packageName));
+                throw new ArgumentException("资源包名不能为空。", nameof(packageName));
             config ??= new AssetProviderConfig();
             ct.ThrowIfCancellationRequested();
 
@@ -90,7 +90,8 @@ namespace Game.Framework
                 await WaitOp(initOp, CancellationToken.None);
 
                 if (initOp.Status != EOperationStatus.Succeeded)
-                    throw new InvalidOperationException($"[YooAssetProvider] Package '{packageName}' initialize failed: {initOp.Error}");
+                    throw new InvalidOperationException(
+                        $"[YooAssetProvider] 资源包“{packageName}”初始化失败：{initOp.Error}");
             }
 
             if (!package.PackageValid)
@@ -110,7 +111,7 @@ namespace Game.Framework
             var package = GetReadyPackage(packageName);
             if (string.IsNullOrEmpty(locationOrGuid))
             {
-                Log.Warning("Asset location/GUID is empty.", nameof(YooAssetProvider));
+                Log.Warning("资源地址（location）/ GUID 为空。", nameof(YooAssetProvider));
                 return null;
             }
 
@@ -138,7 +139,7 @@ namespace Game.Framework
             if (assetInfo == null || !assetInfo.IsValid)
             {
                 Log.Error(
-                    $"Asset not found in package '{packageName}': {locationOrGuid}. {assetInfo?.Error}",
+                    $"资源包“{packageName}”中找不到资源“{locationOrGuid}”。{assetInfo?.Error}",
                     category: nameof(YooAssetProvider));
                 return null;
             }
@@ -157,7 +158,7 @@ namespace Game.Framework
             if (handle.Status != EOperationStatus.Succeeded)
             {
                 Log.Error(
-                    $"Load failed in package '{packageName}': {locationOrGuid}, {handle.Error}",
+                    $"从资源包“{packageName}”加载“{locationOrGuid}”失败：{handle.Error}",
                     category: nameof(YooAssetProvider));
                 handle.Release();
                 return null;
@@ -167,8 +168,8 @@ namespace Game.Framework
             if (asset == null)
             {
                 Log.Error(
-                    $"Loaded asset '{locationOrGuid}' in package '{packageName}' cannot be used as '{type.Name}'. " +
-                    $"Actual type: '{handle.AssetObject?.GetType().Name ?? "null"}'.",
+                    $"资源包“{packageName}”中已加载资源“{locationOrGuid}”不能作为“{type.Name}”使用；" +
+                    $"实际类型：“{handle.AssetObject?.GetType().Name ?? "null"}”。",
                     category: nameof(YooAssetProvider));
                 handle.Release();
                 return null;
@@ -184,7 +185,7 @@ namespace Game.Framework
             var package = GetReadyPackage(packageName);
             if (string.IsNullOrEmpty(location))
             {
-                Log.Warning("Scene location is empty.", nameof(YooAssetProvider));
+                Log.Warning("场景地址（location）为空。", nameof(YooAssetProvider));
                 return null;
             }
 
@@ -229,7 +230,7 @@ namespace Game.Framework
             if (handle.IsDone && handle.Status != EOperationStatus.Succeeded)
             {
                 Log.Error(
-                    $"Load scene failed in package '{packageName}': {location}, {handle.Error}",
+                    $"从资源包“{packageName}”加载场景“{location}”失败：{handle.Error}",
                     category: nameof(YooAssetProvider));
                 _ = handle.UnloadSceneAsync();
                 return null;
@@ -329,7 +330,7 @@ namespace Game.Framework
             ThrowIfDisposed();
             var package = GetReadyPackage(packageName);
             if (tags == null || tags.Count == 0)
-                throw new ArgumentException("At least one tag is required.", nameof(tags));
+                throw new ArgumentException("至少需要一个标签（tag）。", nameof(tags));
 
             var tagArray = new string[tags.Count];
             for (int i = 0; i < tags.Count; i++)
@@ -366,7 +367,7 @@ namespace Game.Framework
             ThrowIfDisposed();
             var package = GetReadyPackage(packageName);
             if (locations == null || locations.Count == 0)
-                throw new ArgumentException("At least one location is required.", nameof(locations));
+                throw new ArgumentException("至少需要一个资源地址（location）。", nameof(locations));
 
             var locationSnapshot = new List<string>(locations);
             var coordinator = YooPackageOperationCoordinator.Get(package);
@@ -381,7 +382,8 @@ namespace Game.Framework
                         var info = package.GetAssetInfo(locationSnapshot[i]);
                         if (info == null || !info.IsValid)
                             Log.Warning(
-                                $"Create location downloader: '{locationSnapshot[i]}' not found in package '{packageName}' manifest — skipped. {info?.Error}",
+                                $"创建按地址下载器时，资源包“{packageName}”的清单中找不到“{locationSnapshot[i]}”，" +
+                                $"已跳过。{info?.Error}",
                                 nameof(YooAssetProvider));
                         else
                             infos.Add(info);
@@ -412,7 +414,8 @@ namespace Game.Framework
                     await WaitOp(op, CancellationToken.None);
 
                     if (op.Status != EOperationStatus.Succeeded)
-                        throw new InvalidOperationException($"[YooAssetProvider] Clear cache failed for '{packageName}': {op.Error}");
+                        throw new InvalidOperationException(
+                            $"[YooAssetProvider] 清理资源包“{packageName}”缓存失败：{op.Error}");
                 },
                 ct,
                 advanceCacheEpoch: true);
@@ -433,7 +436,8 @@ namespace Game.Framework
                     await WaitOp(op, CancellationToken.None);
 
                     if (op.Status != EOperationStatus.Succeeded)
-                        throw new InvalidOperationException($"[YooAssetProvider] Clear cache by tags failed for '{packageName}': {op.Error}");
+                        throw new InvalidOperationException(
+                            $"[YooAssetProvider] 按标签清理资源包“{packageName}”缓存失败：{op.Error}");
                 },
                 ct,
                 advanceCacheEpoch: true);
@@ -457,14 +461,15 @@ namespace Game.Framework
                     {
                         if (!package.IsLocationValid(locationSnapshot[i]))
                             Log.Warning(
-                                $"Clear cache by locations: '{locationSnapshot[i]}' not found in package '{packageName}' manifest — skipped.",
+                                $"按地址清理缓存时，资源包“{packageName}”的清单中找不到“{locationSnapshot[i]}”，已跳过。",
                                 nameof(YooAssetProvider));
                     }
                     var op = package.ClearCacheAsync(new ClearCacheOptions(ClearCacheMethods.ClearBundleFilesByLocations, locationSnapshot));
                     await WaitOp(op, CancellationToken.None);
 
                     if (op.Status != EOperationStatus.Succeeded)
-                        throw new InvalidOperationException($"[YooAssetProvider] Clear cache by locations failed for '{packageName}': {op.Error}");
+                        throw new InvalidOperationException(
+                            $"[YooAssetProvider] 按地址清理资源包“{packageName}”缓存失败：{op.Error}");
                 },
                 ct,
                 advanceCacheEpoch: true);
@@ -484,7 +489,8 @@ namespace Game.Framework
                     await WaitOp(op, CancellationToken.None);
 
                     if (op.Status != EOperationStatus.Succeeded)
-                        throw new InvalidOperationException($"[YooAssetProvider] Unload unused assets failed for '{packageName}': {op.Error}");
+                        throw new InvalidOperationException(
+                            $"[YooAssetProvider] 卸载资源包“{packageName}”的未使用资源失败：{op.Error}");
                 },
                 ct,
                 advanceCacheEpoch: false);
@@ -525,7 +531,7 @@ namespace Game.Framework
         {
             if (string.IsNullOrEmpty(location))
             {
-                Log.Warning("Text/bytes location is empty.", nameof(YooAssetProvider));
+                Log.Warning("文本 / 字节资源地址（location）为空。", nameof(YooAssetProvider));
                 return (null, null);
             }
 
@@ -536,7 +542,7 @@ namespace Game.Framework
             if (handle.Status != EOperationStatus.Succeeded)
             {
                 Log.Error(
-                    $"Load text asset failed in package '{packageName}': {location}, {handle.Error}",
+                    $"从资源包“{packageName}”加载文本资源“{location}”失败：{handle.Error}",
                     category: nameof(YooAssetProvider));
                 handle.Release();
                 return (null, null);
@@ -545,8 +551,8 @@ namespace Game.Framework
             if (handle.AssetObject is not TextAsset ta)
             {
                 Log.Error(
-                    $"'{location}' in package '{packageName}' is not a TextAsset — " +
-                    "only text-like assets (.bytes/.txt/.json...) can be read via LoadText/LoadBytes on an AssetBundle package.",
+                    $"资源包“{packageName}”中的“{location}”不是 TextAsset；" +
+                    "AssetBundle 资源包只能通过 LoadText/LoadBytes 读取 .bytes、.txt、.json 等文本类资源。",
                     category: nameof(YooAssetProvider));
                 handle.Release();
                 return (null, null);
@@ -561,7 +567,7 @@ namespace Game.Framework
         {
             if (string.IsNullOrEmpty(location))
             {
-                Log.Warning("RawFile location is empty.", nameof(YooAssetProvider));
+                Log.Warning("RawFile 资源地址（location）为空。", nameof(YooAssetProvider));
                 return (null, null);
             }
 
@@ -572,7 +578,7 @@ namespace Game.Framework
             if (handle.Status != EOperationStatus.Succeeded)
             {
                 Log.Error(
-                    $"Load raw file failed in package '{packageName}': {location}, {handle.Error}",
+                    $"从资源包“{packageName}”加载 RawFile“{location}”失败：{handle.Error}",
                     category: nameof(YooAssetProvider));
                 handle.Release();
                 return (null, null);
@@ -581,7 +587,7 @@ namespace Game.Framework
             if (handle.AssetObject is not RawFileObject raw)
             {
                 Log.Error(
-                    $"'{location}' in package '{packageName}' is not a RawFile.",
+                    $"资源包“{packageName}”中的“{location}”不是 RawFile。",
                     category: nameof(YooAssetProvider));
                 handle.Release();
                 return (null, null);
@@ -592,7 +598,8 @@ namespace Game.Framework
         private ResourcePackage GetReadyPackage(string packageName)
         {
             if (IsPackageReady(packageName)) return _packages[packageName];
-            throw new InvalidOperationException($"[YooAssetProvider] Package '{packageName}' is not initialized or manifest is unavailable.");
+            throw new InvalidOperationException(
+                $"[YooAssetProvider] 资源包“{packageName}”尚未初始化，或其清单不可用。");
         }
 
         // cdnUrls = 配置的 CDN 地址列表。YooAsset 的默认 URL 策略一次请求只选一条候选地址，
@@ -834,7 +841,7 @@ namespace Game.Framework
                 }
 
                 default:
-                    throw new NotSupportedException($"Unsupported asset play mode: {mode}");
+                    throw new NotSupportedException($"不支持的资源运行模式：{mode}。");
             }
         }
 
@@ -957,14 +964,14 @@ namespace Game.Framework
             var op = native.UnloadSceneAsync();
             await UniTask.WaitUntil(() => op.IsDone);
             if (op.Status != EOperationStatus.Succeeded)
-                throw new InvalidOperationException($"[YooSceneHandle] Unload failed: {op.Error}");
+                throw new InvalidOperationException($"[YooSceneHandle] 卸载场景失败：{op.Error}");
         }
 
         public void Dispose()
         {
             if (_native == null) return;
             Unload().Forget(static ex => Log.Error(
-                "Scene unload failed during handle disposal.",
+                "释放场景句柄时卸载场景失败。",
                 ex,
                 nameof(YooSceneHandle)));
         }
@@ -1040,7 +1047,7 @@ namespace Game.Framework
             _operation.StartDownload();
             await UniTask.WaitUntil(() => _operation.IsDone);
             if (_operation.Status != EOperationStatus.Succeeded)
-                throw new InvalidOperationException($"[AssetDownloader] Download failed: {_operation.Error}");
+                throw new InvalidOperationException($"[AssetDownloader] 下载失败：{_operation.Error}");
             return true;
         }
 
@@ -1050,9 +1057,9 @@ namespace Game.Framework
             if (currentEpoch == _createdCacheEpoch) return;
 
             throw new InvalidOperationException(
-                $"[AssetDownloader] Package '{_packageName}' cache changed after this downloader was created " +
-                $"(created epoch {_createdCacheEpoch}, current epoch {currentEpoch}). " +
-                "Rebuild the downloader and call Download again（缓存维护后请重新创建 downloader 再下载）。");
+                $"[AssetDownloader] 资源包“{_packageName}”的缓存已在此下载器创建后发生变化" +
+                $"（创建时世代 {_createdCacheEpoch}，当前世代 {currentEpoch}）。" +
+                "请等待缓存维护完成后重新创建下载器，再调用 Download。");
         }
 
         private void OnProgressChanged(DownloadProgressChangedEventArgs _)
@@ -1149,7 +1156,7 @@ namespace Game.Framework
             if (offset <= 0 || offset >= data.Length)
             {
                 Log.Error(
-                    $"Invalid offset {offset} for a bundle of {data.Length} bytes.",
+                    $"Bundle 文件共 {data.Length} 字节，偏移量 {offset} 无效。",
                     category: nameof(GameBundleOffsetDecryptor));
                 return data;
             }

@@ -67,7 +67,7 @@ namespace Game.Framework
             if (_state.CurrentValue == ConfigInitState.Failed) return RethrowFailure();
 
             // 正常路径只可能 Ready / Failed；到这里表示 owner 销毁取消了完成信号。
-            throw new OperationCanceledException("Configuration loading ended because its owner was destroyed.");
+            throw new OperationCanceledException("配置加载因其所有者（owner）已销毁而终止。");
         }
 
         private CancellationTokenSource _cts;
@@ -133,9 +133,9 @@ namespace Game.Framework
                     // 资源级加载失败 LoadBytes 返回 null（不抛）——这里必须拦下，否则 null 字节会在表构造里炸出难定位的 NRE。
                     if (results[i] == null)
                         throw new InvalidOperationException(
-                            $"[ConfigUtility] table data '{files[i]}' failed to load (null). " +
-                            "Check that the data output dir is inside a YooAsset collector of this package, " +
-                            "and that the asset package was rebuilt after codegen.");
+                            $"[ConfigUtility] 表数据“{files[i]}”加载失败（返回 null）。" +
+                            "请确认数据输出目录位于该资源包的 YooAsset 收集器范围内，" +
+                            "并在代码生成后重新构建资源包。");
                     bytesByFile[files[i]] = results[i];
                 }
 
@@ -143,14 +143,14 @@ namespace Game.Framework
                 {
                     if (!bytesByFile.TryGetValue(file, out var bytes))
                         throw new KeyNotFoundException(
-                            $"[ConfigUtility] table data '{file}' not preloaded. " +
-                            "The generated tables requested a file missing from TableFiles — regenerate config code/data so the manifest matches.");
+                            $"[ConfigUtility] 表数据“{file}”未预加载。生成的表代码请求了 TableFiles 未列出的文件——" +
+                            "请重新生成配置代码与数据，使清单保持一致。");
                     return bytes;
                 });
 
                 if (tables == null)
                     throw new InvalidOperationException(
-                        "[ConfigUtility] CreateTables returned null. The project adapter must return a fully constructed table root.");
+                        "[ConfigUtility] CreateTables 返回 null；项目 Adapter 必须返回完整构造的表根对象。");
 
                 // 先写表再置 Ready：订阅 State 的一方在收到 Ready 时 Tables 一定可用。
                 _tables = tables;
@@ -167,7 +167,7 @@ namespace Game.Framework
                 _failure = ExceptionDispatchInfo.Capture(e);
                 _state.Value = ConfigInitState.Failed;
                 Log.Error(
-                    $"Configuration service '{GetType().Name}' failed to load its table root.",
+                    $"配置服务“{GetType().Name}”加载表根失败。",
                     e,
                     "ConfigUtility",
                     this);
@@ -180,7 +180,7 @@ namespace Game.Framework
             var source = TableFiles;
             if (source == null || source.Count == 0)
                 throw new InvalidOperationException(
-                    "[ConfigUtility] TableFiles is empty — run the config codegen first (the manifest is generated together with the table code).");
+                    "[ConfigUtility] TableFiles 为空——请先运行配置代码生成；表清单会与表代码一同生成。");
 
             var files = new string[source.Count];
             var unique = new HashSet<string>(StringComparer.Ordinal);
@@ -189,10 +189,10 @@ namespace Game.Framework
                 string file = source[i];
                 if (string.IsNullOrWhiteSpace(file))
                     throw new InvalidOperationException(
-                        $"[ConfigUtility] TableFiles contains an empty location at index {i}. Regenerate the table manifest.");
+                        $"[ConfigUtility] TableFiles 在索引 {i} 处包含空资源地址（location）；请重新生成表清单。");
                 if (!unique.Add(file))
                     throw new InvalidOperationException(
-                        $"[ConfigUtility] TableFiles contains duplicate location '{file}'. Regenerate the table manifest.");
+                        $"[ConfigUtility] TableFiles 包含重复资源地址“{file}”；请重新生成表清单。");
                 files[i] = file;
             }
 
@@ -203,7 +203,7 @@ namespace Game.Framework
         {
             if (_failure != null) _failure.Throw();
             throw new InvalidOperationException(
-                "Configuration state is Failed, but the original failure was not captured.");
+                "配置状态为 Failed，但没有捕获到原始失败异常。");
         }
     }
 }

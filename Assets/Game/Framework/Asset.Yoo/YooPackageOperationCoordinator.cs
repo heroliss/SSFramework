@@ -70,11 +70,11 @@ namespace Game.Framework
                 if (_writerActive || _pending.Count > 0)
                 {
                     string name = string.IsNullOrWhiteSpace(operationName)
-                        ? "Yoo package synchronous read"
+                        ? "Yoo 资源包同步读取"
                         : operationName;
                     throw new InvalidOperationException(
-                        $"Yoo package operation '{name}' cannot read cache state while an exclusive operation " +
-                        "is running or queued. Retry after package maintenance completes（包维护完成后请重试）。");
+                        $"Yoo 资源包操作“{name}”在独占操作正在执行或排队时不能读取缓存状态；" +
+                        "请在资源包维护完成后重试。");
                 }
 
                 _activeReaders++;
@@ -192,13 +192,15 @@ namespace Game.Framework
                 if (kind == LeaseKind.Reader)
                 {
                     if (_activeReaders <= 0)
-                        throw new InvalidOperationException("Yoo package Reader lease was released without an active Reader.");
+                        throw new InvalidOperationException(
+                            "Yoo 资源包读取租约（Reader lease）在没有活跃读取者时被释放。");
                     _activeReaders--;
                 }
                 else
                 {
                     if (!_writerActive)
-                        throw new InvalidOperationException("Yoo package Writer lease was released without an active Writer.");
+                        throw new InvalidOperationException(
+                            "Yoo 资源包写入租约（Writer lease）在没有活跃写入者时被释放。");
                     _writerActive = false;
                     if (advanceCacheEpoch)
                     {
@@ -302,7 +304,7 @@ namespace Game.Framework
             public void MarkGrantedNoLock()
             {
                 if (_state != RequestState.Pending)
-                    throw new InvalidOperationException("Only a pending Yoo package lease request can be granted.");
+                    throw new InvalidOperationException("只有等待中的 Yoo 资源包租约请求才能被授予。");
                 _state = RequestState.Granted;
             }
 
@@ -373,7 +375,7 @@ namespace Game.Framework
                 _coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
                 _kind = kind;
                 _advanceCacheEpoch = advanceCacheEpoch;
-                _operationName = string.IsNullOrWhiteSpace(operationName) ? "Yoo package operation" : operationName;
+                _operationName = string.IsNullOrWhiteSpace(operationName) ? "Yoo 资源包操作" : operationName;
                 _operation = operation ?? throw new ArgumentNullException(nameof(operation));
                 _releaseAbandonedResult = releaseAbandonedResult;
                 _validateAfterLease = validateAfterLease;
@@ -405,7 +407,7 @@ namespace Game.Framework
                 if (shouldStart)
                 {
                     Run(attempt).Forget(ex => Log.Error(
-                        $"Yoo package operation owner '{_operationName}' stopped unexpectedly.",
+                        $"Yoo 资源包操作“{_operationName}”的所有者（owner）异常停止。",
                         ex,
                         nameof(YooPackageOperationCoordinator)));
                 }
@@ -517,7 +519,7 @@ namespace Game.Framework
                 lock (_gate)
                 {
                     if (attempt.Waiters <= 0)
-                        throw new InvalidOperationException("Yoo package operation waiter count became unbalanced.");
+                        throw new InvalidOperationException("Yoo 资源包操作的等待者（waiter）计数失衡。");
 
                     attempt.Waiters--;
                     if (observed)
@@ -560,7 +562,7 @@ namespace Game.Framework
                 if (attempt.Error != null)
                 {
                     Log.Error(
-                        $"Yoo package operation '{_operationName}' failed after all callers stopped waiting.",
+                        $"Yoo 资源包操作“{_operationName}”在所有调用方停止等待后执行失败。",
                         attempt.Error.SourceException,
                         nameof(YooPackageOperationCoordinator));
                     return;
@@ -574,7 +576,7 @@ namespace Game.Framework
                 catch (Exception ex)
                 {
                     Log.Error(
-                        $"Yoo package operation '{_operationName}' failed to release an abandoned result.",
+                        $"Yoo 资源包操作“{_operationName}”释放无人接收的结果时失败。",
                         ex,
                         nameof(YooPackageOperationCoordinator));
                 }
