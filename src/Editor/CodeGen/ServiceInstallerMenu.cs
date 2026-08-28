@@ -76,8 +76,42 @@ namespace Game.Framework.Editor
         {
             DrawDefaultInspector();
             GUILayout.Space(8);
-            if (GUILayout.Button("生成服务安装器代码", GUILayout.Height(28)))
-                ServiceInstallerMenu.GenerateProfiles(new[] { (ServiceInstallerProfile)target });
+            var profile = (ServiceInstallerProfile)target;
+            bool canWrite = FrameworkEditorOperationGate.CanStart(
+                requireEditMode: true, out string operationReason);
+            var ownershipProfiles = ServiceInstallerProfile.ResolveAll()
+                .Concat(new[] { profile })
+                .Distinct()
+                .ToArray();
+            var (ownershipOk, ownershipMessage) =
+                ServiceInstallerGenerator.ValidateOutputOwnership(ownershipProfiles);
+            ServiceInstallerGenerator.GenerationPrerequisiteReport prerequisites =
+                ServiceInstallerGenerator.InspectGenerationPrerequisites(profile);
+            if (!canWrite)
+                EditorGUILayout.HelpBox(
+                    "当前不能生成：\n" + operationReason,
+                    MessageType.Warning);
+            else if (!ownershipOk)
+                EditorGUILayout.HelpBox(
+                    "输出文件预检未通过：\n" + ownershipMessage,
+                    MessageType.Error);
+            else if (!prerequisites.CanGenerate)
+                EditorGUILayout.HelpBox(
+                    "生成前置条件未满足：\n" + prerequisites.Message,
+                    MessageType.Warning);
+            else if (prerequisites.HasInvalidEntries)
+                EditorGUILayout.HelpBox(
+                    "部分条目尚未就绪：\n" + prerequisites.Message,
+                    MessageType.Warning);
+
+            string buttonLabel = prerequisites.HasInvalidEntries && prerequisites.CanGenerate
+                ? $"生成可用条目（{prerequisites.ReadyEntryCount}/{prerequisites.TotalEntryCount}）"
+                : "生成服务安装器代码";
+            bool canGenerate = ServiceInstallerGenerator.CanStartGenerationAction(
+                canWrite, ownershipOk, prerequisites.ReadyEntryCount);
+            using (new EditorGUI.DisabledScope(!canGenerate))
+                if (GUILayout.Button(buttonLabel, GUILayout.Height(28)))
+                    ServiceInstallerMenu.GenerateProfiles(new[] { profile });
         }
     }
 }

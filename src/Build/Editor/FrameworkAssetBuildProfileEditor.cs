@@ -27,20 +27,30 @@ namespace Game.Framework.Build
                 "误删条目 / 收集器里新增了包：点「同步收集器包列表」——按 YooAsset 收集器补缺、保留你已有的每包设置、孤儿仅警告不自动删。",
                 MessageType.Info);
 
-            if (GUILayout.Button("同步收集器包列表"))
-            {
-                if (!FrameworkEditorOperationGate.EnsureCanStart("同步资源包列表")) return;
-                var profile = (FrameworkAssetBuildProfile)target;
-                string summary = profile.SyncFromCollector();
-                FrameworkEditorFeedback.ReportSummary("同步资源包列表", summary, profile);
-            }
+            bool canWrite = FrameworkEditorOperationGate.CanStart(
+                requireEditMode: true, out string operationReason);
+            if (!canWrite)
+                EditorGUILayout.HelpBox(
+                    "当前不能同步配置或生成常量：\n" + operationReason,
+                    MessageType.Warning);
 
-            if (GUILayout.Button("生成包名常量代码"))
+            using (new EditorGUI.DisabledScope(!canWrite))
             {
-                if (!FrameworkEditorOperationGate.EnsureCanStart("生成资源包名常量")) return;
-                var profile = (FrameworkAssetBuildProfile)target;
-                var (ok, message) = AssetPackageConstantsGenerator.Generate(profile);
-                FrameworkEditorFeedback.ReportResult("生成资源包名常量", ok, message, profile);
+                if (GUILayout.Button("同步收集器包列表"))
+                {
+                    if (!FrameworkEditorOperationGate.EnsureCanStart("同步资源包列表")) return;
+                    var profile = (FrameworkAssetBuildProfile)target;
+                    string summary = profile.SyncFromCollector();
+                    FrameworkEditorFeedback.ReportSummary("同步资源包列表", summary, profile);
+                }
+
+                if (GUILayout.Button("生成包名常量代码"))
+                {
+                    if (!FrameworkEditorOperationGate.EnsureCanStart("生成资源包名常量")) return;
+                    var profile = (FrameworkAssetBuildProfile)target;
+                    var (ok, message) = AssetPackageConstantsGenerator.Generate(profile);
+                    FrameworkEditorFeedback.ReportResult("生成资源包名常量", ok, message, profile);
+                }
             }
         }
     }

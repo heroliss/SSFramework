@@ -37,11 +37,15 @@ namespace Game.Framework.Build
 
         // ───────────── 1/2/3：构建 → 部署 → 起服务（拆开） ─────────────
 
-        internal static void Build() => RunBuild(clearBuildCache: false);
+        internal static void Build()
+        {
+            if (!TryPrepareBuild("资源包构建", out var profile, out var packages)) return;
+            RunBuild(profile, packages, clearBuildCache: false);
+        }
 
         internal static void FullRebuild()
         {
-            if (!TryGetProfile("资源包全量重建", out var profile)) return;
+            if (!TryPrepareBuild("资源包全量重建", out var profile, out var packages)) return;
             if (!EditorUtility.DisplayDialog("全量重建",
                     "将清掉 SBP 增量构建缓存后【全量】重建所有启用的包——比平时慢得多，仅在怀疑增量缓存损坏 / 产物异常时用。继续？",
                     "全量重建", "取消"))
@@ -49,21 +53,28 @@ namespace Game.Framework.Build
                 FrameworkEditorFeedback.Info("资源包全量重建已取消", "没有清理缓存，也没有启动构建。");
                 return;
             }
-            RunBuild(profile, clearBuildCache: true);
+            RunBuild(profile, packages, clearBuildCache: true);
         }
 
-        // 构建实操（菜单两个构建入口共用）：依赖数据库开关读 EditorPrefs（本机持久），清缓存按入口决定。
-        private static void RunBuild(bool clearBuildCache)
+        private static bool TryPrepareBuild(
+            string operation,
+            out FrameworkAssetBuildProfile profile,
+            out System.Collections.Generic.List<string> packages)
         {
-            if (!TryGetProfile("资源包构建", out var profile)) return;
-            RunBuild(profile, clearBuildCache);
+            packages = null;
+            if (!TryGetProfile(operation, out profile)) return false;
+            if (!FrameworkEditorOperationGate.EnsureCanStart(operation)) return false;
+            return TryGetEnabledPackages(operation, profile, out packages);
         }
 
-        private static void RunBuild(FrameworkAssetBuildProfile profile, bool clearBuildCache)
+        // 构建实操（两个构建入口共用）：动作前已经预检一次，真正触碰 SBP 前仍二次检查并处理脏场景竞态。
+        private static void RunBuild(
+            FrameworkAssetBuildProfile profile,
+            System.Collections.Generic.IReadOnlyList<string> packages,
+            bool clearBuildCache)
         {
             if (!FrameworkAssetBuilder.EnsureReadyToBuild()) return;
 
-            var packages = profile.EnabledPackageNames.ToList();
             string version = profile.ResolveVersionNow();
 
             var (ok, message) = FrameworkAssetBuilder.Build(
@@ -76,12 +87,27 @@ namespace Game.Framework.Build
         {
             if (!TryGetProfile("资源包部署", out var profile)) return;
             if (!FrameworkEditorOperationGate.EnsureCanStart("资源包部署", requireEditMode: false)) return;
-            var packages = profile.EnabledPackageNames.ToList();
+            if (!TryGetEnabledPackages("资源包部署", profile, out var packages)) return;
             string deployDir = AssetBuildLayout.DeployRoot;
 
             var (ok, message) = FrameworkAssetBuilder.Deploy(packages, deployDir);
             FrameworkEditorFeedback.ReportResult("资源包部署", ok, message);
             if (ok) EditorUtility.RevealInFinder(deployDir);
+        }
+
+        private static bool TryGetEnabledPackages(
+            string operation,
+            FrameworkAssetBuildProfile profile,
+            out System.Collections.Generic.List<string> packages)
+        {
+            packages = profile?.EnabledPackageNames.ToList() ?? new System.Collections.Generic.List<string>();
+            if (packages.Count > 0) return true;
+            FrameworkEditorFeedback.Warn(
+                operation + "未启动",
+                "影响：没有构建、部署或清理任何资源产物。\n" +
+                "原因：资源构建配置中没有启用的普通 AssetBundle 包。\n" +
+                "下一步：定位资源构建配置，至少开启一个包的“参与构建”，或先同步 Collector 包列表。");
+            return false;
         }
 
         internal static void StartLocalServer()

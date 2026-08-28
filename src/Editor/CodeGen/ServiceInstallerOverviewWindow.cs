@@ -68,12 +68,19 @@ namespace Game.Framework.Editor
             var (ownershipOk, ownershipMessage) = profiles.Count == 0
                 ? (false, string.Empty)
                 : ServiceInstallerGenerator.ValidateOutputOwnership(profiles);
+            var prerequisites = profiles.ToDictionary(
+                profile => profile,
+                ServiceInstallerGenerator.InspectGenerationPrerequisites);
+            int readyCount = prerequisites.Count(pair => pair.Value.CanGenerate);
+            string countSummary = FormatCountSummary(profiles.Count, ownershipOk, readyCount);
+            bool canGenerateAny = ServiceInstallerGenerator.CanStartGenerationAction(
+                canWrite, ownershipOk, readyCount);
 
             _scroll = EditorGUILayout.BeginScrollView(_scroll);
             if (compact)
             {
-                EditorGUILayout.LabelField($"共 {profiles.Count} 份", EditorStyles.miniBoldLabel);
-                using (new EditorGUI.DisabledScope(!canWrite || profiles.Count == 0 || !ownershipOk))
+                EditorGUILayout.LabelField(countSummary, EditorStyles.miniBoldLabel);
+                using (new EditorGUI.DisabledScope(!canGenerateAny))
                     if (GUILayout.Button("生成全部"))
                         ServiceInstallerMenu.GenerateProfiles(profiles);
             }
@@ -81,9 +88,9 @@ namespace Game.Framework.Editor
             {
                 using (new EditorGUILayout.HorizontalScope())
                 {
-                    EditorGUILayout.LabelField($"共 {profiles.Count} 份", EditorStyles.miniBoldLabel);
+                    EditorGUILayout.LabelField(countSummary, EditorStyles.miniBoldLabel);
                     GUILayout.FlexibleSpace();
-                    using (new EditorGUI.DisabledScope(!canWrite || profiles.Count == 0 || !ownershipOk))
+                    using (new EditorGUI.DisabledScope(!canGenerateAny))
                         if (GUILayout.Button("生成全部", GUILayout.Width(90)))
                             ServiceInstallerMenu.GenerateProfiles(profiles);
                 }
@@ -92,12 +99,31 @@ namespace Game.Framework.Editor
                 EditorGUILayout.HelpBox("还没有服务安装器配置——点击顶部“新建配置”，再填写扫描目录、唯一输出文件与命名空间。", MessageType.Warning);
             else if (!ownershipOk)
                 EditorGUILayout.HelpBox("输出文件预检未通过：\n" + ownershipMessage, MessageType.Error);
+            else if (readyCount == 0)
+                EditorGUILayout.HelpBox(
+                    "当前没有具备生成前置条件的配置；请按卡片提示补齐条目。",
+                    MessageType.Warning);
             else
                 EditorGUILayout.LabelField("✓ " + ownershipMessage, EditorStyles.miniLabel);
 
             foreach (var profile in profiles)
-                DrawCard(profile, !canWrite || !ownershipOk, compact);
+            {
+                ServiceInstallerGenerator.GenerationPrerequisiteReport profilePrerequisites =
+                    prerequisites[profile];
+                bool canGenerateProfile = ServiceInstallerGenerator.CanStartGenerationAction(
+                    canWrite, ownershipOk, profilePrerequisites.ReadyEntryCount);
+                DrawCard(profile, profilePrerequisites, canGenerateProfile, compact);
+            }
             EditorGUILayout.EndScrollView();
+        }
+
+        /// <summary>零配置是引导态，不应被描述成输出预检失败；有配置后才呈现所有权或就绪数量。</summary>
+        internal static string FormatCountSummary(int profileCount, bool ownershipOk, int readyCount)
+        {
+            if (profileCount <= 0) return "共 0 份";
+            return ownershipOk
+                ? $"共 {profileCount} 份 · 可生成 {readyCount} 份"
+                : $"共 {profileCount} 份 · 输出预检失败，已暂停";
         }
 
         private static void CreateProfile()
@@ -110,7 +136,11 @@ namespace Game.Framework.Editor
         }
 
         // 一份 profile 一张卡片：资产名（点击定位选中）+ 逐条目「扫描目录 → 输出 / 命名空间」+ 生成按钮。
-        private static void DrawCard(ServiceInstallerProfile profile, bool writeBlocked, bool compact)
+        private static void DrawCard(
+            ServiceInstallerProfile profile,
+            ServiceInstallerGenerator.GenerationPrerequisiteReport prerequisites,
+            bool canGenerate,
+            bool compact)
         {
             using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
             {
@@ -122,14 +152,32 @@ namespace Game.Framework.Editor
                     Selection.activeObject = profile;
                 }
 
-                if (profile.Installers == null || profile.Installers.Count == 0)
-                    EditorGUILayout.LabelField("（没有任何安装器条目）", EditorStyles.miniLabel);
-                else
-                    foreach (var entry in profile.Installers)
-                        DrawEntry(entry, compact);
+                if (profile.Installers != null)
+                    for (int i = 0; i < profile.Installers.Count; i++)
+                    {
+                        ServiceInstallerProfile.InstallerEntry entry = profile.Installers[i];
+                        if (entry == null)
+                            EditorGUILayout.LabelField(
+                                $"条目 {i + 1}：（空配置，无法生成）",
+                                EditorStyles.wordWrappedMiniLabel);
+                        else
+                            DrawEntry(entry, compact);
+                    }
 
-                using (new EditorGUI.DisabledScope(writeBlocked))
-                    if (GUILayout.Button("生成这份"))
+                if (!prerequisites.CanGenerate)
+                    EditorGUILayout.HelpBox(
+                        "生成前置条件未满足：\n" + prerequisites.Message,
+                        MessageType.Warning);
+                else if (prerequisites.HasInvalidEntries)
+                    EditorGUILayout.HelpBox(
+                        "部分条目尚未就绪：\n" + prerequisites.Message,
+                        MessageType.Warning);
+
+                string buttonLabel = prerequisites.HasInvalidEntries && prerequisites.CanGenerate
+                    ? $"生成可用条目（{prerequisites.ReadyEntryCount}/{prerequisites.TotalEntryCount}）"
+                    : "生成这份";
+                using (new EditorGUI.DisabledScope(!canGenerate))
+                    if (GUILayout.Button(buttonLabel))
                         ServiceInstallerMenu.GenerateProfiles(new[] { profile });
             }
         }

@@ -403,6 +403,8 @@ public class HudView : MonoViewBase
 
 按钮状态是点击前提示，不是唯一安全线。Unity 状态可能在窗口绘制后变化，所以 Generator / Builder 动作层会在写盘前再次检查；Profile 完整性、输入工具和输出所有权等业务条件则由各自 Module 负责，不会堆进一个中央巨型工作台。AI 自动化也应优先读取窗口原因与 `[SSFramework.Tool]` Console 结果，无需为了试探按钮持续占用 Unity 前台。
 
+业务按钮也不必“同生共死”。资源工作台里，构建和部署需要至少一个启用包，本地服务器只需要已有 Deploy 目录；因此零启用包不会阻止你继续查看已经部署的内容。服务安装器会先整批拒绝不安全输出路径和跨 Profile 的 `.g.cs` 所有权冲突，因为这两类问题可能覆盖别人的文件；命名空间、扫描目录或扫描结果则按条目独立报告，有一条就绪就可以先生成它。窗口显示的是同一份判定，不是另外猜的一套规则。
+
 - `SSFramework/配置中心`：只读汇总各 Module 自注册的 Profile 类型、数量、位置和单例健康状态；缺配置时不暗中创建。删除可选 Module 后对应卡片自然消失，中央窗口不保留程序集名特例。
 - `构建与发布`：资源包与代码热更新的分步流水线。
 - `代码生成`：Luban、Protobuf、服务安装器与 UI 绑定，各自在自己的输入/输出上下文里操作。
@@ -1170,7 +1172,9 @@ protected override void InstallBindings(ContainerBuilder builder)
     => MainServicesInstaller.Install(builder);
 ```
 
-扫描口径：目录下「文件名 = 类名」的顶层非抽象 class、实现恰一个层标记（`IModel` / `ISystem` / `IUtility`）体系、非 `UnityEngine.Object`、有公共无参构造。契约推导与 Mono 路径同口径（具体类型 + 派生自层标记的接口）；`IDisposable` 服务自动用 `RegisterOwned`。不想被扫的类标 `[ExcludeFromInstaller]`（需要懒构造 / 带参构造的服务标上后回落手写）。同一安装器内两个实现撞同一接口契约会在生成期报错；所有条目的输出必须是 `Assets` 内唯一的 `.cs` 文件，批量入口会在写盘前拒绝规范化后重复的路径。设计取舍见 `docs/adr/0019-service-installer-codegen.md`；活样板（服务目录 + profile + 生成产物 + 一行接线）见 demo「服务注册生成 · 安装器」章。
+扫描口径：目录下「文件名 = 类名」的顶层非抽象 class、实现恰一个层标记（`IModel` / `ISystem` / `IUtility`）体系、非 `UnityEngine.Object`、有公共无参构造。契约推导与 Mono 路径同口径（具体类型 + 派生自层标记的接口）；`IDisposable` 服务自动用 `RegisterOwned`。不想被扫的类标 `[ExcludeFromInstaller]`（需要懒构造 / 带参构造的服务标上后回落手写）。同一安装器内两个实现撞同一接口契约会在生成期报错。
+
+生成前有两层边界。第一层是**写入安全**：空条目、不在 `Assets` 内的输出或规范化后重复的 `.cs` 所有权会让整批在写盘前停止，避免一份配置覆盖另一份。第二层是**条目就绪**：命名空间、扫描目录以及实际反射扫描按条目独立；一份 Profile 中 1/2 条就绪时，按钮会明确写出比例，生成有效条目并逐条报告其余失败。这样既不拿安全换“尽量生成”，也不会让一个尚在配置中的条目阻塞已经可用的安装器。设计取舍见 `docs/adr/0019-service-installer-codegen.md`；活样板（服务目录 + profile + 生成产物 + 一行接线）见 demo「服务注册生成 · 安装器」章。
 
 ### 运行时动态注册
 
@@ -1454,6 +1458,8 @@ switch (asset.GetLocationState("ui/logo"))
 Host 模式默认允许 `Load` 对未缓存 bundle 当场按需下载。大型 DLC 若不想“误 Load 一个资源就自动下载”，在 `AssetSystemConfigModel.Packages` 列表里取消该包的「启用按需下载」：之后本包未缓存资源的 `Load` 直接失败，业务必须先用下载器显式预下载并展示进度。包级策略（自动初始化 / 启用按需下载）都在这一处按包配置。
 
 > **包名别写裸字符串**：`SSFramework/构建与发布/资源构建` 工作台的“生成包名常量”从收集器包列表生成常量类；输出路径与命名空间必须在构建 profile 中指向实际业务程序集，框架不猜项目布局。`Initialize` / `Load` 等的 `packageName` 参数用生成的 `AssetPackages.Xxx`——收集器改名 / 删包后重新生成，引用处编译期报错，不用等运行时才发现。
+
+资源工作台的三个动作有意分开判断：**构建**与**部署**读取当前启用包，列表为空时会在保存场景、清 SBP 缓存或弹全量确认框之前停止；**启动本地服务器**只伺服已经存在的 Deploy 根，不依赖当前包勾选。于是你可以调整下一次构建配置，同时继续检查上一次部署产物；但若 Deploy 目录本身不存在，服务器按钮会直接说明先部署一次。
 
 ### 运营链路：发版与启动更新
 
