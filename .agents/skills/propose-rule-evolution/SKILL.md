@@ -31,7 +31,7 @@ description: 为重复协作问题选择 AGENTS.md、Skill、Hook、测试或个
 | 只属于某位开发者的偏好/机器状态 | 用户级配置或 memory | 不提交为项目架构规则 |
 | 重复的隔离型只读/评审角色 | Subagent 定义 | 角色边界稳定才落配置 |
 
-Skill/Hook/Subagent 的意图可跨工具，入口格式不能假装通用：Claude 使用 `.claude/*`，Codex 使用 `.agents/skills` / `.codex/*`。详细矩阵见 `docs/ai-collaboration-guide.md`。
+当前项目以 Codex 入口为真值：Skill 放 `.agents/skills`，Codex 项目配置放 `.codex/*`。遗留 `.claude/*` 只在用户明确重新启用 Claude 后按届时官方格式适配；不要让停用工具扩大本次维护和验证范围。详细说明见 `docs/ai-collaboration-guide.md`。
 
 ## 规则强度
 
@@ -58,7 +58,7 @@ Skill/Hook/Subagent 的意图可跨工具，入口格式不能假装通用：Cla
 - Skill：name/description 触发边界清楚；长条件资料放 references；分别验证各工具发现入口。
 - Hook：脚本独立可运行、幂等、超时/失败可诊断；项目 Hook 遵循 trust/权限流程。
 - 测试：断言行为，不用正则锁死文案/章节标题等实现细节。
-- 配置：修改 `.claude/settings.json` 后追加同目录 `SETTINGS_LOG.md`。
+- 配置：仓库级 AI 行为变更同步协作指南，并在提交正文记录原因、影响与验证；用户级配置不冒充项目真值。
 - 架构/协作拓扑变化：同步 `docs/ai-collaboration-guide.md`。
 
 ## 反模式
@@ -67,5 +67,5 @@ Skill/Hook/Subagent 的意图可跨工具，入口格式不能假装通用：Cla
 - 把请求触发型长流程塞进根 `AGENTS.md`；
 - 用 Hook 强制主观偏好；
 - 把项目编码契约放进某个用户的 memory；
-- Claude/Codex 各复制一份长正文却没有一致性策略；
+- 为未启用的工具复制一份长正文或要求双端验证；
 - 只增加规则，不删除已经过期或被机器约束取代的规则。

@@ -1,207 +1,180 @@
-# AI 协作方案
+# Codex 协作方案
 
-> 面向项目维护者：说明 SSFramework 如何让 Claude Code、Codex 等编码 Agent 共享项目规则，又如何隔离各工具自己的 Skill、Hook、Subagent 与权限配置。能力信息最后核验于 **2026-08-28**。
+> 面向项目维护者：说明 SSFramework 当前如何向 Codex 提供常驻规则、按需流程与确定性门禁。能力信息最后核验于 **2026-08-28**；Claude 相关文件仅作为停用工具的遗留适配，不再驱动本项目设计。
 
-## 1. 当前布局
+## 1. 当前真值
 
 ```text
 SSFramework/
-├── AGENTS.md                         # 项目常驻约束，Codex 等工具直接读
-├── CLAUDE.md                         # @AGENTS.md，Claude 的同源入口
-├── Assets/Game/
-│   ├── AGENTS.md                     # Framework 业务使用约束
-│   ├── CLAUDE.md                     # @AGENTS.md
-│   └── Framework/
-│       ├── AGENTS.md                 # Framework 内部实现约束
-│       ├── CLAUDE.md                 # @AGENTS.md
-│       └── Demo/Scripts/Modules/
-│           ├── AGENTS.md             # Demo 教学章节约束
-│           └── CLAUDE.md             # @AGENTS.md
-├── .agents/skills/                   # 跨工具 Skill 的权威正文（当前 3 个）
-├── .claude/skills/                   # Claude 发现入口，路由到 .agents 正文
-├── .mcp.json                         # Claude MCP 项目配置（当前为空）
-└── docs/
-    ├── framework-guide.md            # 完整教程与 API 心智模型
-    ├── framework-module-map.md       # Module / Interface / Seam / 删除测试
-    └── adr/                          # 关键设计决策与演进历史
+├── AGENTS.md                         # 全项目常驻协作边界
+├── Assets/Game/AGENTS.md             # Framework 业务调用约束
+├── Assets/Game/Framework/AGENTS.md   # Framework 内部实现约束
+├── Assets/Game/Framework/Demo/Scripts/Modules/AGENTS.md
+│                                      # Demo 教学章节约束
+├── .agents/skills/                   # Project Skill 权威正文（当前 3 个）
+├── docs/                             # guide / ADR / 专题文档，按需读取
+├── CLAUDE.md / .claude/ / .mcp.json # 停用工具的遗留适配，不参与当前完成定义
+└── .codex/                           # 当前未创建；没有仓库级 Codex 配置或自定义 Agent
 ```
 
-当前没有团队共享的 `.claude/settings.json`、`.claude/agents/` 或 `.codex/`。不要把“工具支持某能力”误写成“本项目已经配置该能力”。
+不要把“Codex 支持某能力”写成“本项目已经配置该能力”。当前项目有分层 `AGENTS.md` 与 `.agents/skills`，但没有仓库级 Hook、custom agent 或 Codex MCP 配置。
 
 ## 2. 设计原则
 
-### 2.1 同一条项目规则只维护一次
+### 2.1 Codex-first，而不是客户端快捷键优先
 
-项目规则的权威内容写在 `AGENTS.md`；同目录 `CLAUDE.md` 只做 `@AGENTS.md` 导入。不要复制两份自然语言规则，否则它们会独立漂移。
+项目规则描述目标、边界和完成条件，不规定某个 UI 操作。Codex 当前官方实践确实提供 Plan mode，并在支持的交互界面给出 `/plan` 或 Shift+Tab 入口；这说明 Plan mode 并非 Claude 专属，但快捷键仍是客户端细节，不应成为仓库门禁。
 
-### 2.2 常驻约束与按需知识分离
+复杂任务需要的是“先调查、形成可检查计划、执行中更新、完成后验证”。当前客户端有计划工具就直接使用；没有也可在任务内维护计划。只有缺少会显著改变结果的用户决策时才暂停，不要求用户为了计划切换模式。
 
-| 内容 | 最佳载体 | 原因 |
+### 2.2 一条规则只有一个权威来源
+
+- 项目常驻规则写在覆盖范围最小的 `AGENTS.md`。
+- 多步流程写在 `.agents/skills/<name>/SKILL.md`。
+- 完整原理和历史取舍写入 guide / ADR。
+- 确定性契约用测试、编译器约束或项目内工具门禁实现。
+
+遗留 `CLAUDE.md` 仍可导入同目录 `AGENTS.md`，`.claude/skills` 仍可路由到 `.agents/skills`，但这些适配不再要求同步扩展、验证或修复。若未来重新启用 Claude，先按届时官方格式重做一次兼容审计。
+
+### 2.3 常驻上下文只保留主动判断
+
+`AGENTS.md` 不是模块百科。只有无需关键词也必须改变每次判断的内容才常驻；某个可选模块的详细 API、故障处理和示例在任务命中后读取对应 guide / ADR。这样在 Framework 深目录工作时，不会被当前任务无关的十几个模块契约占满上下文。
+
+### 2.4 机器门禁优于“请记得”
+
+能写成行为契约的规则优先落到代码和测试：
+
+- PlayMode 测试前的脏场景处理由 `SSFramework/诊断/AI 自动化/PlayMode 测试预检（保存脏场景）` 承担；
+- Editor 副作用动作由 `FrameworkEditorOperationGate` 在 UI 与 Implementation 两层校验；
+- Module 依赖、菜单契约、Demo CodeRef 与真实构建体积都有项目内验证入口；
+- 工程外 Unity 发现与 headless 自动化经 `Tools/UnityAutomation.psm1` 统一，避免每个 Agent 重写机器路径。
+
+这些 Seam 比某个客户端 Hook 更靠近事件源，也能被人工、MCP 与 CI 共同复用。具体流程见 `docs/unity-mcp-tips.md`、`docs/unity-cli-automation.md` 和相关 ADR。
+
+## 3. Codex 能力与本项目策略
+
+| 能力 | Codex 当前入口 | 本项目当前策略 |
 |---|---|---|
-| 每次都影响安全/架构判断的短规则 | `AGENTS.md` | 自动进入当前目录的指令链 |
-| 完整教程、原理、历史取舍 | guide / ADR / 专题文档 | 人和 Agent 按需读取，不挤占每次请求 |
-| 可识别触发条件的多步流程 | Skill | 只在命中任务时加载完整正文 |
-| 必须确定执行、不能依赖模型记得 | 测试 / Hook / 编译器约束 | 机器门禁比自然语言可靠 |
-| 大范围只读探索或独立并行任务 | Subagent | 隔离搜索噪音与上下文 |
+| 项目规则 | 根到 cwd 的 `AGENTS.md` 指令链 | 分四层就近约束，越近越具体 |
+| Project Skill | cwd 到 repo root 的 `.agents/skills/<name>/SKILL.md` | `.agents/skills` 是唯一权威正文 |
+| Hook | `<repo>/.codex/hooks.json` 或 `.codex/config.toml` 内联 hooks，需项目 trust | 当前未配置；只有固定事件的确定性检查才新增 |
+| Subagent | 内置 Agent；可选 `.codex/agents/*.toml` | 默认单 Agent；仅用户或已触发 Skill 明确要求时委派 |
+| 权限/沙箱 | 客户端 permission profile / `.codex/config.toml` | 不在仓库规则里承诺或扩大权限 |
+| MCP / Connector | 客户端连接器或对应 Codex 配置层 | Unity 使用现有 MCP；凭据和机器状态不提交仓库 |
 
-`AGENTS.md` 不是知识库。规则能被类型系统、测试或工具自然约束后，应从常驻上下文删除或缩成一句路由。
-
-### 2.3 目录就近、越近越具体
-
-根规则处理整个项目；`Assets/Game` 处理框架调用者；`Framework` 处理内核维护；Demo Modules 再追加教学规范。子目录规则可以收紧或覆盖父规则，但不要重复父文件全文。
-
-### 2.4 工具能力可相似，配置格式不假装通用
-
-Claude 与 Codex 都支持 Skill、Hook、Subagent，但发现路径和配置格式不同。共享的是设计意图和 `SKILL.md` 内容格式，不是 `.claude/` 与 `.codex/` 文件本身。
-
-## 3. 自动指令预算
-
-Codex 从项目根沿当前工作目录向下拼接 `AGENTS.md`，越近的文件越晚出现、优先级越高；合计默认上限为 **32 KiB**。超过上限后，靠后的就近规则可能无法加入上下文。官方说明见 [Codex AGENTS.md](https://learn.chatgpt.com/docs/agent-configuration/agents-md)。
-
-2026-08-25 实测的 UTF-8 预算：
-
-| 最深工作位置 | 合计 |
-|---|---:|
-| 项目根 | 6.52 KiB |
-| `Assets/Game` | 15.47 KiB |
-| `Assets/Game/Framework` | 22.17 KiB |
-| Demo Modules | 26.34 KiB |
-
-最深链保留约 5.66 KiB 给后续规则和换行差异。维护时不要只看单文件行数；要测量**最深链的 UTF-8 合计**。
-
-Claude Code 从工作目录向上读取 `CLAUDE.md`，并在访问子目录文件时发现嵌套 `CLAUDE.md`；`@path` 可导入同源规则。可用 `/memory` 查看实际加载项。官方说明见 [Claude Code memory](https://docs.anthropic.com/zh-CN/docs/claude-code/memory)。
-
-## 4. 能力与配置差异
-
-| 能力 | Claude Code | Codex | 本项目策略 |
-|---|---|---|---|
-| 项目规则 | `CLAUDE.md`，支持嵌套与 import | `AGENTS.md`，根→cwd 指令链 | `AGENTS.md` 为正文，同目录 `CLAUDE.md` 导入 |
-| Project Skill | `.claude/skills/<name>/SKILL.md` | 从 cwd→repo root 扫描 `.agents/skills/<name>/SKILL.md` | Skill 正文可共享，但发现入口需分别提供 |
-| User Skill | `~/.claude/skills/` | `~/.agents/skills/` | 个人可用 symlink/junction 复用，不写死机器路径进仓库 |
-| Hook | `.claude/settings.json` 的 `hooks` | `.codex/hooks.json` 或 `.codex/config.toml` | 两边都支持，但事件/handler 能力不同，分别配置与测试 |
-| Project Subagent | `.claude/agents/*.md` | `.codex/agents/*.toml` | 任务描述可同源，定义格式分别维护 |
-| 权限/沙箱 | `.claude/settings*.json` | `.codex/config.toml` / 客户端 Profile | 不互相复制字段；最小权限 |
-| MCP | `.mcp.json` / Claude 配置 | `.codex/config.toml` 或客户端 Connector | 协议可共享，注册位置以当前客户端官方文档为准 |
+配置格式和能力会随 Codex 更新。新增 `.codex/*` 前先查当前官方文档，不从旧项目文案反推 schema。
 
 ### Skills
 
-两边都使用 `SKILL.md` 和按需加载思路。Claude 官方说明见 [Extend Claude with skills](https://code.claude.com/docs/en/slash-commands)，Codex 的发现路径见 [Build skills](https://learn.chatgpt.com/docs/build-skills)。
+Codex 会从当前目录向仓库根扫描 `.agents/skills`，并按 name/description 发现任务。当前三个 Project Skill：
 
-本项目以 `.agents/skills/<name>/SKILL.md` 为两个 Skill 的权威正文，Codex 可直接发现；`.claude/skills/<name>/SKILL.md` 只保留同名 frontmatter 和相对路径路由，Claude 命中后读取权威正文。这样两边都有稳定入口，长流程只有一份。
+- `propose-rule-evolution`：选择 AGENTS、Skill、Hook、测试或配置等正确载体；
+- `unity-background-automation`：后台运行/监控 Unity 测试与 Editor 自动化；
+- `unity-screenshot`：捕获并实际检查 Unity 视图。
+
+Skill 只收口有稳定触发条件的多步流程。一次性判断、已经由测试兜底的契约或与项目无关的个人偏好，不再创建 Skill。
 
 ### Hooks
 
-旧文档曾写“Codex 不支持 Hook”，现已不成立。Codex 支持 user/repo `hooks.json` 或 `config.toml`，项目 Hook 需经过 trust review；见 [Codex Hooks](https://learn.chatgpt.com/docs/hooks)。Claude Hook 配在 settings，见 [Claude Hooks](https://code.claude.com/docs/en/hooks-guide)。
+Hook 适合格式化、配置审计、危险命令拦截或固定事件验证，要求脚本可独立运行、幂等、超时和失败可诊断。主观架构判断不塞入 Hook；已有项目内测试/工具能更靠近事件源时，不重复做客户端 Hook。
 
-Hook 适合格式化、配置审计、阻止危险命令、结束前确定性验证。需要复杂架构判断时，不要强塞进 shell Hook；让测试或人工/Agent review 承担。
-
-Unity 交互式 Editor 还有一类更适合“项目内代码门禁”的固定时机：PlayMode 测试前若存在脏场景，原生保存弹窗会同时阻塞 Unity 主线程与 MCP 队列。项目没有为此复制 Claude/Codex Hook，而是在 `Game.Framework.Editor` 提供跨工具菜单 `SSFramework/诊断/AI 自动化/PlayMode 测试预检（保存脏场景）`。Agent 先显式调用它，再调用各自的 Unity 测试工具；详细失败语义与恢复流程见 `docs/unity-mcp-tips.md`。这种实现比某个客户端的 Hook 更靠近事件源，也不会把人工 Play 变成全局静默保存。
-
-测试与普通 Editor 自动化的“后台优先”流程由 Project Skill `unity-background-automation` 收口：`editor_unfocused`
-是当前 MCP job 的观察值，不是 Test Runner 门禁；Agent 轮询真实进度，不为测试固定抢焦点。只有原生模态框、真实输入焦点/
-拖拽验证或已经阻塞 MCP 主线程的现场才升级到 OS UI。这个判断有明确触发条件且包含多步诊断，适合 Skill；不放进 Hook
-强制每次切窗口，也不在 Framework Runtime 增加与产品无关的焦点设置。
-
-Unity Hub 3.21 起自动安装的独立 Unity CLI 被放在另一条 Seam：它负责工程外的 Editor / Module / Project 发现，以及关闭交互式
-Editor 后的 headless test / build / run。项目的 `Tools/UnityAutomation.psm1` 读取 `ProjectVersion.txt`，优先让 CLI 精确定位并启动
-Editor，旧环境回退 Hub / 注册表的 Direct Adapter；测试脚本与资源构建 CI 不再各自硬编码版本。它不绕过同工程锁，也不替代当前 Editor 的 MCP、
-PlayMode 预检或 Windows 原生模态框处理。实验性的 Pipeline Package 暂不成为 Framework 依赖；完整能力矩阵、命令示例与未来
-Adapter 删除测试见 `docs/unity-cli-automation.md` 和 ADR-0044。
-
-同一原则也用于框架 Editor 工具反馈：普通成功、失败、缺配置和 PlayMode 拦截通过 `FrameworkEditorFeedback` 输出稳定的 `[SSFramework.Tool][状态]` Console 记录与短暂通知，不用模态结果弹窗。完整详情留在 Console，失败使用 Error、提醒使用 Warning，Agent 可据此可靠判定结果；只有清缓存、停止 Play 后切场景、保存脏场景这类真实选择保留确认。源码门禁会扫描当前实际存在的框架模块，并只允许经过审查的确认框白名单，因此物理裁剪可选模块不会破坏测试。
-
-工作台还把同一门禁前移到按钮可用态：`FrameworkEditorOperationGate` 用可测试的纯 evaluator 统一编译、导入、Player Build 与 Play 状态优先级，窗口在按钮旁显示阻止原因，动作层仍二次检查竞态。`requireEditMode:false` 仅表示副作用动作可在 Play 中运行，不表示只读；只读校验、刷新和定位不消费 Gate。Profile、CLI、输入文件与输出所有权等条件继续由 owner Module 判断，Core 测试不点名可删除 Module。Agent 因此应先读原因、再决定是否等待或修配置，不要为探测灰色按钮升级到 Windows 控制。
-
-Demo 中的故意失败采用另一条可读契约：动作前用 Experiment Notice 明确“影响范围 / 预期证据 / 恢复方式”，随后由 Experiment Action 生成带“教学实验 ·”前缀的机器可读按钮；换到下一小节后不能借用旧提示卡。结果就近解释稳定的 Console 条数与级别。预期异常由章节本地精确捕获；若出现 Host 的 `DemoAction failed`，应视为 Demo 实现遗漏，而不是实验成功。这样人工操作、截图复查和 AI 日志解析能共享同一判定标准。
-
-分钟级 Module 体积矩阵采用同一原则：项目内 `SSFramework/诊断与分析/真实构建体积` 把隔离工程、最小依赖、Unity 子进程、BuildReport 解析和 Domain Reload 恢复集中在 `Game.Framework.Editor`，Claude / Codex 不各写一套临时脚本。常见 Core / UGUI / Toolkit 回归还有无窗口的 AI 自动化菜单，避免依赖当前不可用的 MCP `execute_code` 动态编译；Agent 启动一次后只观察 `Library/SSFramework/BuildSizeProbe/<run>/report.json`，主 Unity 重载后按落盘 PID 自动重新附着，不能因工具调用超时盲目重跑。证据口径和刻意不做见 ADR-0038，操作要点见 `docs/unity-mcp-tips.md` §12。
+当前仓库没有 `.codex/`，因此也没有团队 Hook。未来新增时选择 `hooks.json` 或内联 TOML 之一，避免同一配置层双份加载，并完成 trust 与成功/失败/超时验证。
 
 ### Subagents
 
-两边都支持隔离上下文的 Subagent。Claude 项目定义位于 `.claude/agents/`，见 [Claude subagents](https://code.claude.com/docs/en/sub-agents)；Codex 项目定义位于 `.codex/agents/*.toml`，见 [Codex subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents)。
+Subagent 能隔离大范围搜索噪音，也会增加 token 与协调成本。项目不把“任务复杂”自动等同于“必须并行”：只有用户明确要求委派/并行，或已触发的 Skill 明确要求时才使用；子任务还必须真正独立、不会争写同一文件。一次性 Explorer/Reviewer 不必落 `.codex/agents`，只有角色反复使用且边界稳定时才配置 custom agent。
 
-“跨工具复用”指复用角色意图（如只读 Explorer / Reviewer）和关注点，不指同一个配置文件能被两边直接读取。是否启动 Subagent 仍遵循根 `AGENTS.md` 的协作门槛：默认单 Agent；跨目录只读探索、模糊大设计或真正独立的并行子任务可由主 Agent 自主启动，并在启动时告知用户边界与预期产出，不再要求逐次等待批准。
+## 4. 自动指令预算
 
-## 5. 添加或修改协作能力
+Codex 从项目根沿当前工作目录向下拼接 `AGENTS.md`，越近的文件越晚出现、优先级越高；默认合计上限为 **32 KiB**。超过上限时，最重要的就近规则反而可能无法加入。
 
-### 添加项目规则
+2026-08-28 按 UTF-8 实测：
 
-1. 判断它是否每次都需要；若是流程，优先 Skill；若必须执行，优先测试/Hook。
-2. 放到覆盖范围最小的 `AGENTS.md`。
-3. 若该目录需要 Claude 懒加载，确认有仅含 `@AGENTS.md` 的 `CLAUDE.md`。
-4. 测量根→该目录的 UTF-8 合计，保持低于 32 KiB 并留余量。
-5. 架构/目录方案改变时同步本文。
+| 最深工作位置 | 累计字节 | 约合 |
+|---|---:|---:|
+| 项目根 | 7,134 | 6.97 KiB |
+| `Assets/Game` | 14,826 | 14.48 KiB |
+| `Assets/Game/Framework` | 24,431 | 23.86 KiB |
+| Demo Modules | 28,622 | 27.95 KiB |
 
-### 添加跨工具 Project Skill
+最深链还剩 4,146 字节（约 4.05 KiB）。维护时测量**根到最深目录的 UTF-8 合计**，不要只看单文件行数；新增细节优先下沉到 guide、ADR 或 Skill。
 
-1. 用同一份 `SKILL.md` 设计触发条件、输入、步骤、验证和失败处理。
-2. Claude 入口放 `.claude/skills/<name>/SKILL.md`；Codex 入口放 `.agents/skills/<name>/SKILL.md`。
-3. 避免复制长正文：可选一个权威正文，让另一入口只做稳定相对路径路由；或者提供生成/一致性检查。
-4. 分别在 Claude 和 Codex 中验证“能发现、该触发时触发、不该触发时不触发”。
+PowerShell 测量示例：
 
-### 添加 Hook
+```powershell
+$paths = @(
+  'AGENTS.md',
+  'Assets/Game/AGENTS.md',
+  'Assets/Game/Framework/AGENTS.md',
+  'Assets/Game/Framework/Demo/Scripts/Modules/AGENTS.md'
+)
+$total = 0
+foreach ($path in $paths) {
+  $total += [Text.Encoding]::UTF8.GetByteCount((Get-Content -LiteralPath $path -Raw))
+  [pscustomobject]@{ Path = $path; RunningBytes = $total }
+}
+```
 
-1. 先写成可独立运行、幂等、有明确退出码的脚本；不要把大段 shell 内嵌在 JSON/TOML。
-2. 为 Claude 和 Codex 分别写最薄的事件配置。
-3. 项目 Hook 默认最小权限；对修改/新增的 Codex Hook 完成 trust review。
-4. 修改 `.claude/settings.json` 时按根规则追加 `.claude/SETTINGS_LOG.md`。
-5. 验证成功、失败、超时和从子目录启动四条路径。
+## 5. 修改协作体系
 
-### 添加自定义 Subagent
+### 添加或修改项目规则
 
-只有角色会重复使用时才落配置；一次性探索直接临时委派即可。定义至少包含：明确触发条件、读写边界、预期输出、禁止事项和验证责任。Reviewer 默认只读，优先报告 correctness/边界/测试缺口，而非纯风格意见。
+1. 判断它是否无需关键词也必须影响每次决策；否则优先文档、Skill 或测试。
+2. 放到覆盖范围最小的 `AGENTS.md`，删除被替代的旧规则。
+3. 测量最深指令链，并验证新规则不会与更近目录冲突。
+4. 协作拓扑或重大策略改变时同步本文。
 
-### 添加 MCP Server
+### 添加 Project Skill
 
-MCP 是通用协议，但客户端注册方式会变化：Claude 项目配置通常使用 `.mcp.json`；Codex 使用 `.codex/config.toml` 或桌面客户端 Connector。先查当前官方文档，再分别注册；不要再写“一个 `.mcp.json` 两边必然自动识别”。凭据不提交仓库。
+1. 在 `.agents/skills/<name>/SKILL.md` 写清触发条件、步骤、验证和失败处理。
+2. 长参考放 `references/`，重复机械动作优先提供脚本。
+3. 验证“能发现、该触发时触发、不该触发时不触发”。
+4. 不为停用的 Claude 自动创建路由；未来重启兼容时再适配。
 
-## 6. 用户级配置
+### 添加 Hook 或 custom agent
 
-- Claude：`~/.claude/CLAUDE.md`、`~/.claude/skills/`、`~/.claude/agents/`、`~/.claude/settings.json`。
-- Codex：`~/.codex/AGENTS.md`、`~/.agents/skills/`、`~/.codex/agents/`、`~/.codex/config.toml` / `hooks.json`。
-- 用户级配置只保存个人偏好和跨项目能力；项目架构约束必须提交到仓库。
-- 若用 symlink/junction 复用 Skill，先备份并验证目标路径。不要在文档里给无校验的递归删除命令。
-- 用户级路径和已安装 Skill 是机器状态，不应在项目文档声称“每个人当前都有”。
+只有固定事件确实需要确定执行时才添加 Hook；只有相同隔离角色反复出现时才添加 custom agent。创建 `.codex/` 后同步本文，记录触发边界、权限、失败语义和验证结果。仓库配置不能替用户授予外部权限，也不得提交凭据。
 
-## 7. 排查清单
+### 修改用户级配置
+
+`~/.codex`、`~/.agents` 与客户端已安装能力属于个人/机器状态，不是仓库真值。除非用户明确要求，不把项目任务扩张成用户配置变更；确需修改时先说明影响，并按当前 Codex 推荐方式保留可追溯记录。
+
+## 6. 排查清单
 
 ### 规则没有生效
 
-1. 确认当前工作目录和目标文件所在目录；Codex 的链构建与 cwd 有关。
-2. Codex 检查最深链是否触及 `project_doc_max_bytes`；Claude 用 `/memory` 查看导入。
-3. 检查同目录 `CLAUDE.md` 是否存在、`@AGENTS.md` 路径是否正确。
-4. 检查更近的规则是否覆盖父规则。
+1. 确认当前 cwd、项目根和目标文件所在目录。
+2. 测量根到 cwd 的指令链是否接近 `project_doc_max_bytes`。
+3. 检查更近的 `AGENTS.override.md` / `AGENTS.md` 是否覆盖父规则。
+4. 不用遗留 `CLAUDE.md` 的加载结果推断 Codex 行为。
 
 ### Skill 没出现或误触发
 
-1. 确认放在当前工具会扫描的目录，不只检查 `SKILL.md` 格式。
-2. 核对 frontmatter 的 name/description 与触发边界。
-3. 新增后若客户端未热更新，重启会话再验证。
-4. 同名 Skill 不假定会自动合并；明确权威来源。
+1. 确认目录位于 cwd 到 repo root 的 `.agents/skills` 链上。
+2. 核对 frontmatter 的 name/description 与真实触发边界。
+3. 同名 Skill 不会自动合并；明确项目权威来源。
+4. 若客户端未热更新，重启任务后再验证。
 
 ### Hook 没运行
 
-1. 用客户端的 Hook 检查界面/命令查看发现来源。
-2. Codex 项目 Hook 确认已 trust；Claude 检查 settings 层级与 matcher。
-3. 直接运行脚本并检查退出码、工作目录、路径与超时。
+1. 先确认仓库实际存在并信任 `.codex/hooks.json` 或 `.codex/config.toml`。
+2. 直接运行脚本，检查退出码、cwd、路径、权限和超时。
+3. 检查是否同时配置 JSON 与内联 TOML，避免重复执行与告警。
 
-## 8. 维护责任
+## 7. 维护责任
 
-- 改代码的人同步相关 guide/ADR/AGENTS/Demo/Test，避免文档与行为分叉。
-- 改协作拓扑、Skill/Hook/Subagent 方案的人同步本文。
-- `.claude/settings.json` 的每次变更同步 `.claude/SETTINGS_LOG.md`。
-- 每次大版本审查重新测量指令链、检查空入口/断链、核对官方能力链接与仓库实际目录。
+- 改代码的人同步相关 guide / ADR / AGENTS / Demo / Test，避免文档与行为分叉。
+- 改协作拓扑、Skill、Hook、Subagent 或 Codex 配置的人同步本文。
+- 每次大版本重新测量指令链、检查空入口/断链，并核对官方能力与仓库实际目录。
+- 停用工具的遗留入口只做保留性维护，不纳入日常完成定义；重新启用时重新设计，不承诺旧配置仍兼容。
 
-## 9. 官方参考
+## 8. 官方参考
 
-- [AGENTS.md 约定](https://agents.md/)
+- [Codex 最佳实践](https://learn.chatgpt.com/guides/best-practices)
 - [Codex：AGENTS.md](https://learn.chatgpt.com/docs/agent-configuration/agents-md)
 - [Codex：Skills](https://learn.chatgpt.com/docs/build-skills)
 - [Codex：Hooks](https://learn.chatgpt.com/docs/hooks)
 - [Codex：Subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents)
-- [Claude：Memory / CLAUDE.md](https://docs.anthropic.com/zh-CN/docs/claude-code/memory)
-- [Claude：Skills](https://code.claude.com/docs/en/slash-commands)
-- [Claude：Hooks](https://code.claude.com/docs/en/hooks-guide)
-- [Claude：Subagents](https://code.claude.com/docs/en/sub-agents)
-- [Agent Skills 标准](https://agentskills.io)
+- [Codex：配置](https://learn.chatgpt.com/docs/config-file/config-basic)
+- [Agent Skills 规范](https://agentskills.io)
 - [MCP](https://modelcontextprotocol.io)

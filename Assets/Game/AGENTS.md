@@ -49,22 +49,11 @@
 - 局部阶段用 `Bag.CreateChild()`；按清理时机命名 `_enableBag/_roundBag`，对应回调先 Dispose 再重建。
 - 池租借首选 `Bag.Rent/Spawn`；提前归还必须在同一个 Bag 上 `Return/Despawn`，避免父 Bag 再次归还。
 
-## 模块使用不变量
+## 按需加载模块契约
 
-| Module / Interface | 业务侧必须守住的边界 | 详见 |
-|---|---|---|
-| 资源 `IAssetUtility` | 资源三件套同一 Context；动态借用进 Bag，Inspector 用 `AssetReference<T>`，SO/纯 C# 由持有者绑定。Load 前判初始化/位置状态；package 名用生成常量。 | guide §13 / ADR-0013 |
-| 对象池 `IPoolUtility` | Context 所有权用 `RegisterOwned`；首次工厂/钩子配置生效。Pool 不替实例释放非托管资源，GameObject 池只在主线程使用。 | guide §7 |
-| 配置 `IConfigUtility<TTables>` | 配置是全层只读 Utility；响应式界面订 `State`，启动/流程门禁 `await EnsureReady(token)`，不轮询 `Tables`。调用方取消只退出自己的等待，失败会抛原始异常。改表走 profile/生成菜单，生成目录不手改，`topModule` 不含 `System`。 | guide §16 / ADR-0009 |
-| UI `IUIUtility` | 每个 Context 只挂一个 Toolkit/UGUI 入口；窗口仍是 View。Toolkit 窗口需无参构造，UGUI 窗口不覆写 Awake；Toolkit 异步点击用 `Bag.SubscribeClickAsync` 并透传 token，可预期失败在 handler 呈现；并发 Loading 用 `AcquireLoading` 租约。 | guide §17 / ADR-0016/0020/0037 |
-| 存储 `IStorageUtility` | `[Serializable]` 类整存整取，key 是持久契约；Save 必须 await，Load 无主/备数据返回 null；迁移用数据 `Version`。 | guide §18 / ADR-0021 |
-| 音频 `IAudioUtility` | BGM 单通道编排；一次性 SFX 自动回收，循环 handle 必须 Stop 或进 Bag。跟随对象的 3D 音源直接用 `AudioSource`。 | guide §19 / ADR-0022 |
-| 流程 `IGameFlow` | 只表达宏观阶段，每次进入 new `FlowState`；私有能力放状态子 Context/Bag。转换“串行 + 最新意图胜”；GoTo 必须 await/显式观察，OnEnter 转向交给导航 Adapter 后直接 return。OnExit 只做优雅告别，可靠清理必须进 Bag/子 Context。 | guide §20 / ADR-0023 |
-| 本地化 `ILocalizationUtility` | 文本订 `TextRevision`，字体/按语言资源只订 `Locale`。Source 用 `Unavailable/Missing/Found` 区分加载中与真缺失；仅真缺 key 警告。 | guide §21 / ADR-0024 |
-| 字体 `MonoLocaleFonts` | 根 Context 一份组件接管主字体 fallback；TMP/Toolkit 分开配置，同一主字体不能重复接管。 | guide §22 / ADR-0025 |
-| 网络 `IHttpUtility/IWebSocketUtility` | HTTP 返回 UniTask，WS 推送转 Framework Event；失败抛 `NetworkException`，外部取消保持 OCE，provider 在 token 未取消时自发 OCE 不冒充外部取消/超时。HTTP deadline 与三类取消由 request owner 隔离；Provider 可在任意线程完成，公共调用回主线程。每次成功 WS 连接至多一个 ClosedEvent，收/发传输失败都终结 current session；优先从事件启动重连，并让重连 task 跟随 Bag token、显式观察异常。 | guide §25 / ADR-0028 |
-| UI 嵌入 `UI.Bridge` | 需要随 Toolkit 裁剪/滚动才用 RenderTexture；顶层覆盖优先 overlay。隔离 layer 并从主相机排除。 | guide §27 / ADR-0033 |
-| 日志 `Log` | 新代码不用裸 `Debug.Log`；Trace 插值无副作用。玩家追踪在启动时配置 File sink 并 `CaptureUnityLogs()`。 | guide §28 / ADR-0034 |
+资源、池、配置、UI、存储、音频、流程、本地化、字体、网络、UI Bridge 与日志的详细调用契约集中在 `docs/framework-guide.md` 对应章节及其 ADR；不要把所有可选模块的细节常驻到每个业务与 Framework 任务。开始修改某一模块前，先读取该章节和 ADR，再以本文件的架构、生命周期与所有权规则统领实现。
+
+跨模块仍需始终遵守：异步调用必须观察异常并透传 token；动态借用进入 Bag；Context 拥有的服务用 owned 注册；持久 key、配置生成目录和生成常量属于稳定契约；外部取消保持 `OperationCanceledException`，不可伪装成普通失败。
 
 ## 模块入口与配置可发现性
 
