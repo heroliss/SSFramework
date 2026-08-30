@@ -30,6 +30,10 @@ Demo 教学内容与自动化之间的运行时 Seam。`DemoModuleHost` 在真�
 
 `IConfigUtility<TTables>` 对一次自加载尝试的稳定就绪契约。响应式消费者订阅 `State`，命令式流程 `await EnsureReady(token)` 直接得到同一份 `Tables` 或原始失败；已证明 Ready 的同步热路径才直接读 `Tables`。调用方取消只脱离自己的 waiter，组件与 Context 共同拥有物理加载并在销毁时取消；失败后不隐式重试。该 Interface 把终态编排、根异常保存和共享所有权藏在 Config Module 内，业务不再复制 `WaitUntil(Ready or Failed)`。
 
+## Game Flow
+
+`IGameFlow` 是 System 层的宏观业务阶段 Interface；`GameFlow` Implementation 把 `FlowState` 当前状态、最新意图排队、协作取消和每状态子 Context 的所有权保持在同一个深 Module 内。View 在 Command Seam 表达流转意图，持续展示时由查询 Command 返回只读投影；System 与 FlowState 内部可直接解析该 System。项目侧 `FlowNav` 是只观察 fire-and-forget 终态的 Adapter：正常顶替/销毁取消静默，真实进入失败进入 Log Seam，它不拥有转换规则。`Current` 不单拆 Model，因为它只是转换不变量的一部分；保留在同一 Implementation 能提高 Locality，避免增加一条只做镜像同步的浅 Interface。
+
 ## HTTP Request Owner
 
 `HttpUtility` 内一次物理 HTTP 交换的私有 owner：独占传给 Provider 的取消 token，并把 caller、Utility lifetime 与 realtime deadline 三种取消意图汇入该 token。外部 token 只触发 owner 的安全 Cancel，第三方取消回调异常不会逃逸到调用方 `CancellationTokenSource.Cancel()` 或 timer 线程；deadline 用独立 completion signal 与物理 outcome 显式竞速，不在 pending UniTask 上并发多 await，也不使用裸 `CancelAfter`。Provider 成功、失败或取消可在任意线程完成，但公共调用回到 Unity 主线程再交还业务。caller / lifetime 在公共 completion 前取消保持 OCE并优先于 deadline；scope 仍存活时 deadline 折叠 Timeout，Provider 在 owner token 未取消时自发 OCE 属 ConnectionError。

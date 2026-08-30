@@ -7,6 +7,8 @@ using Game.Framework.Context;
 using Game.Framework.Flow;
 using Game.Framework.Internal;
 using Game.Framework.Logging;
+using Game.Framework.Systems;
+using Game.Framework.Utility;
 using NUnit.Framework;
 using UnityEngine.TestTools;
 
@@ -91,6 +93,14 @@ namespace Game.Framework.Test
         }
 
         // ── 子 Context：父链解析 / 私有注册不外泄 / 整棵撤 ───────────────────
+
+        [Test]
+        public void Contract_IsSystemAndDoesNotExposeGoToThroughUtilityPermission()
+        {
+            Assert.IsTrue(typeof(ISystem).IsAssignableFrom(typeof(IGameFlow)));
+            Assert.IsFalse(typeof(IUtility).IsAssignableFrom(typeof(IGameFlow)),
+                "View 与 Utility 不应通过宽权限 GetUtility 取得可写的游戏流程");
+        }
 
         [Test]
         public void Enter_BuildsScope_ParentResolves_LocalStaysLocal()
@@ -376,6 +386,32 @@ namespace Game.Framework.Test
             Assert.IsNull(events[0].From,
                 "失败已经结束并稳定处于无状态后，后来另起的转换应明确从 null 开始");
             Assert.AreSame(b2, events[0].To);
+        }
+
+        [Test]
+        public void EnterCancelsWithoutFlowRequest_IsReportedAsFailureInsteadOfNormalSupersession()
+        {
+            var probe = new Probe();
+            var unexpectedCancellation = new OperationCanceledException("provider-canceled-itself");
+            var broken = State("UnexpectedCancel",
+                install: b => b.RegisterOwned(probe, typeof(Probe)),
+                enter: _ => throw unexpectedCancellation);
+
+            var task = _flow.GoTo(broken);
+
+            Assert.AreEqual(UniTaskStatus.Faulted, task.Status,
+                "只有 GameFlow 自己请求的顶替/销毁取消才属于正常控制流");
+            var error = Assert.Throws<InvalidOperationException>(() => task.GetAwaiter().GetResult());
+            StringAssert.Contains("GameFlow 未请求取消", error.Message);
+            Assert.IsInstanceOf<OperationCanceledException>(error.InnerException,
+                "UniTask 的 async builder 会把业务 OCE 规范化为取消结果，框架应保留取消类型而非承诺对象身份");
+            Assert.IsTrue(probe.Disposed, "非预期取消同样属于进入失败，半建状态作用域必须撤除");
+            Assert.IsNull(_flow.Current);
+            Assert.IsFalse(_flow.IsTransitioning);
+
+            var healthy = State("Healthy");
+            Assert.DoesNotThrow(() => _flow.GoTo(healthy).GetAwaiter().GetResult());
+            Assert.AreSame(healthy, _flow.Current, "一次下游自发取消不能毒化后续转换");
         }
 
         [Test]

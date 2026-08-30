@@ -1,6 +1,6 @@
 # ADR-0023：游戏流程状态机 —— IGameFlow：显式 Flow + 每状态一个子 Context
 
-**Status:** Accepted（2026-07-04）
+**Status:** Accepted（2026-07-04；2026-08-30 分层修订）
 
 ## Context
 
@@ -12,7 +12,8 @@ roadmap 中期新模块第三项：游戏流程状态机——启动→登录→
 
 - **GameContext 可嵌套可释放**：`ContainerBuilder.SetParent` + `GameContext.Dispose`（连带 `RegisterOwned` 实例与全部事件 Subject）已是现成原语——状态机不发明新作用域机制，只是编排既有机制。
 - **注册即注入（ADR-0019）**：`RegisterOwned` 的纯 C# 实例在 GameContext 构造时统一 `Inject` + `AttachTo`（`IHasGameContext` 字段自动回填）——状态机作为纯 C# 服务注册即可拿到宿主 Context，无鸡生蛋问题。
-- **全层可读服务走 Utility**（配置表先例，ADR-0009）：流程切换要能从 View（登录按钮）和 System（战斗结束）触发，`IUtility` 是现成的全层可达通道。
+- **v1 曾借 Utility 获得全层可达性**：最初认为 View（登录按钮）与 System（战斗结束）都要直接触发流程，因此让 `IGameFlow : IUtility`。后续五层边界收紧后，真实项目的 View 已统一经 Command 表达流转意图；继续保留 Utility 只会让带写能力的 `GoTo` 对所有 View 和 Utility 开放。
+- **语义比可达性更重要**：GameFlow 拥有业务阶段转换、最新意图排队、取消与子 Context 生命周期，是“如何切换宏观阶段”的业务编排；它不是不黏业务的基础设施，也不是只保存数据的 Model。
 - **不过度设计**：罕见需求用现有原语组合，不加专门 API。
 
 ## Decision
@@ -20,7 +21,7 @@ roadmap 中期新模块第三项：游戏流程状态机——启动→登录→
 ### 1. API 形态：实例式 GoTo + 状态基类
 
 ```csharp
-public interface IGameFlow : IUtility
+public interface IGameFlow : ISystem
 {
     FlowState Current { get; }              // 当前状态；转换中/未启动为 null 或旧状态（见 §4）
     bool IsTransitioning { get; }
@@ -41,6 +42,7 @@ public abstract class FlowState
 
 - **状态是一次性实例，不是注册的单例**：`flow.GoTo(new BattleState(levelId))`——传参走构造函数（类型安全、零泛型体操），每次进入全新对象（无残留字段脏状态），"重进同类状态"（下一关）天然支持。对照方案「类型注册 + `GoTo<T>()`」需要额外解决传参（双泛型或 object 装箱）与实例复用脏状态两个问题，放弃。
 - **不做转换表/守卫**：任意 `GoTo` 合法。哪些转换允许是业务 if 的事（登录未完成不给进大厅=按钮不可点/Command 里查状态），框架不做规则引擎。
+- **分层选择 System，不拆 Model**：Flow 的深度来自“状态 + 转换 + 子作用域所有权”位于同一 Implementation；把 `Current` 单独搬进 Model 会新增同步接缝，却不减少转换复杂度，反而降低 Locality。View 经 Command 发起转换，需要持续展示时由查询 Command 返回只读投影；Command、System 与 FlowState 内部经 `GetSystem<IGameFlow>()` 访问。
 
 ### 2. 每状态一个子 Context：整棵撤
 
@@ -50,9 +52,9 @@ public abstract class FlowState
 - 状态期间的订阅/资源/句柄全进状态 `Bag`（子 Context 的 bag），退出统一放掉——**切阶段漏清理**这一最大泄漏源被结构性消灭；
 - 子 Context 解析未命中自动回退父链→全局：状态内代码照常 `GetUtility<IAudioUtility>()` 等取全局服务。
 
-### 3. 载体与注册：纯 C# 进内核 `Core/Flow/`，注册为 Utility
+### 3. 载体与注册：纯 C# 进内核 `Core/Flow/`，契约属于 System
 
-- `GameFlow`（纯 C#，`IDisposable`，`IHasGameContext`）：零第三方依赖（只用 UniTask），进内核。注册 `builder.RegisterOwned(new GameFlow(), typeof(IGameFlow))`——ADR-0019 注入语义自动回填宿主 Context；宿主 Context Dispose → flow Dispose → 当前 / 进入中 / 退出中状态的子 Context 撤除（不会为了销毁补调尚未开始的 `OnExit`）。
+- `GameFlow`（纯 C#，`IDisposable`，`IHasGameContext`）：零 Unity 对象依赖（异步只用 UniTask），进内核。`IGameFlow : ISystem` 决定编译期访问权限；容器所有权仍用 `builder.RegisterOwned(new GameFlow(), typeof(IGameFlow))`，ADR-0019 注入语义自动回填宿主 Context。宿主 Context Dispose → flow Dispose → 当前 / 进入中 / 退出中状态的子 Context 撤除（不会为了销毁补调尚未开始的 `OnExit`）。
 - **不做 Mono 版**：flow 没有 Inspector 可配项（状态是代码 new 的），也不该跟随场景节点（流程比场景活得长）。要看运行时状态，走后续的框架诊断面板（roadmap 中期⑥）。
 - **子流程 = 组合**：战斗内的阶段机（准备→作战→结算）就是在 `BattleState.InstallBindings` 里再注册一个 `GameFlow`——作用域树天然嵌套，不做 HSM（分层状态机）专门支持。
 
@@ -66,7 +68,8 @@ public abstract class FlowState
 
 ### 5. 失败语义：Enter 失败 = 明确的"无状态"，不静默
 
-- `OnEnter` 抛异常/被取消：子 Context 立即撤（Bag 把已加载的部分资源放掉），`Current = null`，异常从 `GoTo` 的 UniTask 冒出——由调用方决定重试/进错误状态，框架不猜（对齐存储的 fail-fast：流程走错比音效丢一声严重得多）。
+- `OnEnter` 抛异常/被 flow 顶替或销毁取消：子 Context 立即撤（Bag 把已加载的部分资源放掉），`Current = null`。flow 自己请求的取消让 `GoTo` 以取消结束；其它异常从 UniTask 冒出，由调用方决定重试/进错误状态，框架不猜（对齐存储的 fail-fast：流程走错比音效丢一声严重得多）。
+- 下游操作若在 flow token 未取消时自行抛 `OperationCanceledException`，不能冒充“最新意图胜”的正常取消；默认实现把它包装为进入失败，并把 UniTask 交回的取消异常保留为 InnerException。UniTask 的 async builder 可能规范化原 OCE，因此不承诺对象身份或原 message。否则项目导航 Adapter 会把真实连接/资源故障静默吞掉，让流程停在无状态却没有线索。
 - `GoTo` 的 UniTask 必须被 `await` 或由导航边界显式观察：UI 不关心完成时机，不代表可以丢弃进入失败；`OnEnter` 内转向因不能 await，应交给一个捕获取消、记录其它异常的 fire-and-forget Adapter。
 - 状态依赖的主页面是进入成功的不变量：当 UI Adapter 允许 `Open<T>` 以 null 表示无法创建时，`OnEnter` 应使用 UI Module 的 `OpenRequired<T>` 严格入口。这样开窗失败沿 `GoTo` 冒出并保持 `Current = null`；可选提示窗仍可使用宽松入口就地降级。
 - `OnExit` 抛异常：经统一 `Log` Seam 记录 Error 后**继续转换**（离开失败不该把整个游戏卡死在旧阶段；旧子 Context 照撤，文件 / 遥测 sink 也能拿到同一异常）。
@@ -86,4 +89,5 @@ public abstract class FlowState
 - 转换语义（最新意图胜、Enter 失败无状态）是**框架拍板**的约定——换取业务不必自己处理竞态；不合口味的项目自己包一层排队策略。
 - 状态机自身无 Unity 对象，PlayMode 测试可全程无场景跑（转换/取消/失败/事件全可同步或短 await 断言），batchmode 无风险。
 - 没有取消 token 的 `OnExit` 不再拥有 flow 的逻辑寿命：宿主释放可立即完成 flow 收尾，同时由一个窄的物理 owner 保留异常观察。这增加了一条明确边界，但避免第三方上报、存档等退出任务把 Context 永久挂住。
+- `IGameFlow` 从 Utility 修订为 System 是一次有意的源码兼容性调整：注册语句和运行时所有权不变；调用端将 `GetUtility<IGameFlow>()` 改为 `GetSystem<IGameFlow>()`，View 端改走 Command / 只读投影。换来的是编译器重新阻止 View 与 Utility 直接驱动业务流程。
 - demo 章做「启动→登录→大厅→战斗」四状态迷你 Flow：面板实时显示 Current / 流转日志（含 GoTo 三种结局），大厅注册阶段私有服务演示整棵撤，战斗带构造参数 + 1.5s 模拟加载供手动验证最新意图胜。

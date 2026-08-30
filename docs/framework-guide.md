@@ -2353,12 +2353,12 @@ builder.RegisterOwned(new FmodAudioUtility(), typeof(IAudioUtility));
 
 ## 20. 游戏流程状态机
 
-把「启动 → 登录 → 大厅 → 战斗」的游戏宏观阶段显式化为 `FlowState` 子类，由 `IGameFlow` 驱动：每个状态进入时获得一个以宿主 Context 为父级的**子 Context**，退出时整棵 Dispose——阶段私有服务 / 订阅 / 资源随阶段结束自动撤干净。作用域树是名词，GameFlow 是那个动词。ADR-0023。
+把「启动 → 登录 → 大厅 → 战斗」的游戏宏观阶段显式化为 `FlowState` 子类，由 System 层的 `IGameFlow` 驱动：每个状态进入时获得一个以宿主 Context 为父级的**子 Context**，退出时整棵 Dispose——阶段私有服务 / 订阅 / 资源随阶段结束自动撤干净。作用域树是名词，GameFlow 是那个动词。ADR-0023。
 
 ### 快速开始
 
 ```csharp
-// 注册（RegisterOwned：注册即注入回填宿主 Context，宿主 Dispose 时连同当前状态一并撤）：
+// 注册（IGameFlow 是 System 契约；RegisterOwned 同时表达 Context 所有权）：
 builder.RegisterOwned(new GameFlow(), typeof(IGameFlow));
 
 // 定义阶段（一次性实例：传参走构造函数，重进同类状态 = new 新实例）：
@@ -2380,9 +2380,20 @@ public sealed class BattleState : FlowState
     protected override UniTask OnExit() => ReportBattleResult(); // 仅正常转换时被调；可靠清理靠 Bag
 }
 
-// 切阶段（View 按钮 / System 战斗结束……任意层经 GetUtility<IGameFlow>()）：
-await flow.GoTo(new BattleState(levelId));      // 异步 UI / Command：观察完成 / 被顶替（取消）/ Enter 失败（异常）
+// View 只发 Command；Command 经 System 权限取得 flow，并观察完成 / 顶替取消 / Enter 失败：
+public readonly struct EnterBattleCommand : IAsyncCommand
+{
+    private readonly int _levelId;
+    public EnterBattleCommand(int levelId) => _levelId = levelId;
+
+    public UniTask ExecuteAsync(ICommandContext ctx, CancellationToken cancellationToken)
+        => ctx.GetSystem<IGameFlow>().GoTo(new BattleState(_levelId));
+}
+
+await this.ExecuteCommandAsync(new EnterBattleCommand(levelId));
 ```
+
+`IGameFlow` 属于 System，不是 Utility：它编排的是“如何切换业务阶段”，并拥有排队、取消与状态子 Context 的生命周期；把它放进 Utility 只为少写一层 Command，会把可写的 `GoTo` 同时暴露给 View 与其它基础设施。它也不是 Model：`Current` 只是整个转换不变量的一部分，把这一个字段拆出去会新增同步接缝、降低 Locality，却没有减少状态机复杂度。需要展示当前阶段的 View，可让查询 Command 返回只读投影；System 与 FlowState 内部则直接 `GetSystem<IGameFlow>()`。
 
 ### 转换语义（框架拍板，业务不用自己处理竞态）
 
@@ -2390,9 +2401,10 @@ await flow.GoTo(new BattleState(levelId));      // 异步 UI / Command：观察�
 |---|---|
 | 转换全程 | 串行：`OnExit(旧)` → 撤旧子 Context → 建新子 Context → `OnEnter(新)` |
 | 转换中再 GoTo | **最新意图胜**：排队槽只有一格、新请求顶替旧排队；在途 `OnEnter` 经 ct 协作取消 |
-| 被顶替 / 取消的进入 | 半进入状态整棵撤、**不调 OnExit**（清理靠 Bag）；其 GoTo task 以取消结束 |
+| 被 flow 顶替 / 销毁取消的进入 | 半进入状态整棵撤、**不调 OnExit**（清理靠 Bag）；其 GoTo task 以取消结束 |
 | 状态忽略 ct 跑完 | 正常进入，随后被排队的转换正常退出（协作式取消，不强杀） |
 | `OnEnter` 抛异常 | 子 Context 立即撤、`Current = null`、异常从 GoTo task 冒出——调用方决定重试 / 进错误状态 |
+| 下游自行抛 `OperationCanceledException` | flow token 未取消时包装成进入失败，UniTask 交回的取消异常保留为 InnerException；不能伪装成正常顶替被 Adapter 静默吞掉 |
 | `OnExit` 抛异常 | 统一日志记录 Error 后继续转换（含宿主释放后的迟到异常），旧子 Context 照撤 |
 | 宿主 Context Dispose | flow 连同当前 / 进入中 / 退出中状态子 Context 立即撤，已接受的 GoTo 以取消终止，`IsTransitioning = false`；此后 GoTo 抛 `ObjectDisposedException` |
 | 同类状态再进入 | 正常退旧进新（重开一局是刻意行为）；复用**同一实例**抛参数异常（一次性守卫） |
@@ -2412,7 +2424,7 @@ public static void Request(IGameFlow flow, FlowState next)
 private static async UniTask Observe(IGameFlow flow, FlowState next)
 {
     try { await flow.GoTo(next); }
-    catch (OperationCanceledException) { } // 被更新意图顶替 / 宿主释放：正常收口
+    catch (OperationCanceledException) { } // IGameFlow 只用它表达自身顶替 / 宿主释放：正常收口
     catch (Exception e) { Log.Error($"进入流程状态“{next}”失败。", e, "GameFlow"); }
 }
 ```
@@ -2428,6 +2440,7 @@ private static async UniTask Observe(IGameFlow flow, FlowState next)
 > **要点回顾**
 >
 > - 阶段 = `FlowState` 子类：一次性实例、传参走构造；私有服务进 `InstallBindings`、订阅资源进 `Bag`，退出整棵撤
+> - `IGameFlow` = System：View 经 Command 发起意图或取得只读投影；System / FlowState 内部经 `GetSystem` 访问
 > - `GoTo` 是唯一动词：串行 + 最新意图胜；await 它拿完成 / 被顶替 / 失败三种结局
 > - `OnExit` 只做优雅告别；可靠清理进 Bag。宿主释放不会被无 token 的退出任务拖住
 > - 微观逻辑状态机（技能连招 / AI 行为）**不要**用它——那是每帧驱动的粒度，用行为树 / 自定义 FSM
