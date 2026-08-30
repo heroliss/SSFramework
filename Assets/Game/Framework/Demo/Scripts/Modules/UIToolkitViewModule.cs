@@ -35,6 +35,8 @@ namespace Game.Framework.Demo.Modules
 
             // ── 动手试 ──
             host.AddSectionTitle("动手试：弹出一个纯 C# UIToolkit View");
+            var viewSlot = new VisualElement();
+            viewSlot.AddToClassList("demo-inline-view-slot");
             host.AddActionRow("弹出 UIToolkit View（无 prefab）", () =>
             {
                 if (_view != null && !_view.IsDisposed) return; // 已经开着就不重复弹
@@ -44,9 +46,11 @@ namespace Game.Framework.Demo.Modules
                 // 业务里这一步通常由 UI 框架的 IUIUtility 代劳（开窗时自动绑定），无需手写。
                 var ctx = ((IHasGameContext)this).Context;
                 _view = new UIToolkitDemoView(CloseView);
-                host.Content.Add(_view.BindTo(ctx));
+                viewSlot.Add(_view.BindTo(ctx));
                 Bag.Add(_view); // 切走本章（Teardown → Bag.Dispose）时自动释放视图，订阅随之退订
             }, CodeRef.Here("class UIToolkitDemoView", "UIToolkitDemoView · 纯 C# View"));
+            // 动态结果必须留在触发动作旁边；直接追加到 host.Content 会落到整章末尾，点击后在当前视口里看不到反馈。
+            host.Content.Add(viewSlot);
 
             host.AddNote("卡片里：「+1」经 `ExecuteCommand` 同步写；「延迟 +1」则把异步点击交给 `Bag.SubscribeClickAsync`。等待期间关闭卡片，View 的 `Bag` 会取消任务，不会迟到修改分数或产生未观察异常。",
                 CodeRef.Here("protected override void OnCreated", "View 内部接线（OnCreated）"));
@@ -60,13 +64,15 @@ namespace Game.Framework.Demo.Modules
 
             host.AddSectionTitle("核心层对 UI 技术无感");
             host.AddNote("这张卡片读写的分数，和「View · MonoViewBase」(UGUI) 章是**同一个** `MonoScoreModel`、同一对查询/写命令。切到那一章，分数一致——证明 Model / Command / System 根本不知道上层用的是 UGUI 还是 UI Toolkit。");
+            host.AddSubNote("这里的“同一个”特指 demo **根 Context** 下的 `ChapterAssets/ScoreModel`；`ScoreModel (Sub)` 是「多 Context · 作用域树」章用于演示子级覆盖的另一份独立状态，不应与根分数同步。");
             host.AddCodeLink(new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/Support/MonoScoreModel.cs", "class MonoScoreModel", "MonoScoreModel · 共用状态"));
             host.AddCodeLink(new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/ModelReactiveModule.cs", "struct GetMonoScoreCommand", "只读查询 Command"));
             host.AddCodeLink(new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/ModelReactiveModule.cs", "struct RaiseMonoScoreCommand", "写操作 Command"));
 #if UNITY_EDITOR
-            host.AddActionRow("选中共享分数 Model（运行时 Inspector 看 Score 值跳变）", () =>
+            host.AddActionRow("选中根作用域的共享 ScoreModel（Inspector 看值跳变）", () =>
             {
-                var model = UnityEngine.Object.FindFirstObjectByType<MonoScoreModel>();
+                var rootContext = UnityEngine.Object.FindFirstObjectByType<MonoDemoContext>();
+                var model = DemoEditorNav.FindComponentOwnedBy<MonoScoreModel>(rootContext);
                 if (model != null) DemoEditorNav.PingSceneObject(model.gameObject);
             });
 #endif

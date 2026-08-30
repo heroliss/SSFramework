@@ -72,7 +72,8 @@ namespace Game.Framework.Demo.Modules
         // 编辑器便利：把场景里的 Mono Model 选中并高亮，方便你立刻在 Inspector 看它的 RP。这是 demo 导航，不是框架用法。
         private static void SelectMonoModelInInspector()
         {
-            var model = Object.FindFirstObjectByType<MonoScoreModel>();
+            var rootContext = Object.FindFirstObjectByType<MonoDemoContext>();
+            var model = DemoEditorNav.FindComponentOwnedBy<MonoScoreModel>(rootContext);
             if (model != null) DemoEditorNav.PingSceneObject(model.gameObject);
         }
 #endif

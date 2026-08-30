@@ -1,4 +1,5 @@
 #if UNITY_EDITOR
+using Game.Framework.Context;
 using UnityEditor;
 using UnityEngine;
 
@@ -16,6 +17,23 @@ namespace Game.Framework.Demo.Core
             if (go == null) return;
             Selection.activeObject = go;
             EditorGUIUtility.PingObject(go);
+        }
+
+        /// <summary>
+        /// 在指定 Context 的 Hierarchy 子树中查找由它直接拥有的组件；嵌套 Context 下的同类型组件会被排除。
+        /// 这让 Inspector 导航与运行时“沿父链取最近 Context”的注册语义保持一致，避免多 Context 场景里选中另一份同类型状态。
+        /// </summary>
+        public static T FindComponentOwnedBy<T>(MonoGameContextBase context) where T : Component
+        {
+            if (context == null) return null;
+
+            foreach (var candidate in context.GetComponentsInChildren<T>(true))
+            {
+                if (candidate.GetComponentInParent<MonoGameContextBase>(true) == context)
+                    return candidate;
+            }
+
+            return null;
         }
 
         /// <summary>按工程资源路径选中并 ping 一个资产（Project 窗口高亮）。找不到则告警。</summary>
