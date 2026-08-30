@@ -8,6 +8,7 @@ using Game.Framework.Common;
 using Game.Framework.Context;
 using Game.Framework.Event;
 using Game.Framework.Internal;
+using Game.Framework.Logging;
 using Game.Framework.Model;
 using Game.Framework.Systems;
 using R3;
@@ -59,8 +60,8 @@ namespace Game.Framework.Diagnostics
             var model = new CheckModel();
             var system = new CheckSystem();
             using var builder = new ContainerBuilder();
-            builder.RegisterValue(model, new[] { typeof(IModel), typeof(CheckModel) });
-            builder.RegisterValue(system, new[] { typeof(ISystem), typeof(CheckSystem) });
+            builder.RegisterModel(model);
+            builder.RegisterSystem(system);
             builder.RegisterValue(new CommandSystem(), new[] { typeof(ICommandSystem) });
             // 值绑定实例（model / system）由 GameContext 构造时统一 Inject + AttachTo（ADR-0019），无需手动补。
             _ctx = new GameContext(builder.Build(), inheritFromGlobal: false) { DebugName = nameof(FrameworkSelfCheck) };
@@ -145,8 +146,8 @@ namespace Game.Framework.Diagnostics
         {
             string summary = $"[FrameworkSelfCheck] {Caption} 自检完成 allOk={AllOk}\n" +
                              string.Join("\n", _results);
-            if (AllOk) Debug.Log(summary);
-            else Debug.LogError(summary);
+            if (AllOk) Log.Info(summary, nameof(FrameworkSelfCheck), this);
+            else Log.Error(summary, category: nameof(FrameworkSelfCheck), context: this);
         }
 
         private void OnGUI()

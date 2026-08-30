@@ -4,6 +4,7 @@ using System.Threading;
 using Cysharp.Threading.Tasks;
 using Game.Framework.Command;
 using Game.Framework.Context;
+using Game.Framework.Logging;
 using UnityEngine;
 
 namespace Game.Framework.Systems
@@ -99,7 +100,7 @@ namespace Game.Framework.Systems
         private readonly bool _echoToConsole;
 
         /// <param name="inner">被装饰的内层 dispatcher；null = 默认 <see cref="CommandSystem"/>。装饰器可继续嵌套。</param>
-        /// <param name="echoToConsole">true 时每条记录同时 <c>Debug.Log</c> 一行（默认关——缓冲照记，面板照看，不刷屏）。</param>
+        /// <param name="echoToConsole">true 时每条记录同时经 <see cref="Log"/> 写一条 Info（默认关——缓冲照记，面板照看，不刷屏）。</param>
         public LoggingCommandSystem(ICommandSystem inner = null, bool echoToConsole = false)
         {
             _inner = inner ?? new CommandSystem();
@@ -220,8 +221,10 @@ namespace Game.Framework.Systems
             _total++;
 
             if (_echoToConsole)
-                Debug.Log($"[Command] {commandType} @{contextName} {(isAsync ? "async " : "")}{durationMs:F2}ms" +
-                          (errorText != null ? $" ✗ {errorText}" : ""));
+                Log.Info(
+                    $"[Command] {commandType} @{contextName} {(isAsync ? "async " : "")}{durationMs:F2}ms" +
+                    (errorText != null ? $" ✗ {errorText}" : ""),
+                    nameof(LoggingCommandSystem));
         }
     }
 }
