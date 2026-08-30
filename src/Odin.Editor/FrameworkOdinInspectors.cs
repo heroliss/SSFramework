@@ -102,10 +102,11 @@ namespace Game.Framework.Odin.Editor
                         type, typeof(FrameworkOdinInspector), isFallbackEditor: false, isEditorForChildClasses: false);
                     registered++;
                 }
-                else if (adapterOwnsType)
+                else if (adapterOwnsType || currentEditor == typeof(OdinEditor))
                 {
-                    // Odin 设置变为禁用/排除时主动归还原生 Inspector，避免旧的内存映射一直残留到
-                    // 下一次 Domain Reload。只撤回本 Adapter 当前持有的类型，不碰其它业务 Editor。
+                    // Odin 设置变为禁用/排除时主动归还原生 Inspector。域重载后 Odin 可能先重建为
+                    // OdinEditor；若只处理本 Adapter 的旧映射，Framework 诊断会在这种会话里整块消失。
+                    // mayTakeOwnership 已排除业务自定义 Editor，因此这里不会覆盖项目有意选择的实现。
                     CustomEditorUtility.SetCustomEditor(
                         type, nativeEditor, isFallbackEditor: false, isEditorForChildClasses: false);
                 }

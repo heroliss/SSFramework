@@ -20,18 +20,16 @@ namespace Game.Framework.Fonts.Editor
         {
             if (!Application.isPlaying || fonts == null) return;
 
-            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+            EditorGUILayout.Space(2);
+            EditorGUILayout.LabelField("字体 fallback 诊断", EditorStyles.boldLabel);
+            var lines = fonts.EditorDiagnostics;
+            if (lines.Count == 0)
             {
-                EditorGUILayout.LabelField("字体 fallback 诊断", EditorStyles.boldLabel);
-                var lines = fonts.EditorDiagnostics;
-                if (lines.Count == 0)
-                {
-                    EditorGUILayout.LabelField("（未配置主字体）", EditorStyles.wordWrappedMiniLabel);
-                    return;
-                }
-                foreach (string line in lines)
-                    EditorGUILayout.LabelField("• " + line, EditorStyles.wordWrappedMiniLabel);
+                EditorGUILayout.LabelField("（未配置主字体）", EditorStyles.wordWrappedMiniLabel);
+                return;
             }
+            foreach (string line in lines)
+                EditorGUILayout.LabelField("• " + line, EditorStyles.wordWrappedMiniLabel);
         }
     }
 }

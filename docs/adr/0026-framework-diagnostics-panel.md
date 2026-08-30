@@ -74,3 +74,5 @@ roadmap 中期第六项：把散在各组件 Inspector「运行时诊断」折�
 - `LoggingCommandSystem` 从文档示例变成实物后，`ICommandSystem` 的 XML doc 示例改指实物，文档与代码不再有「教你写一个其实已经有」的漂移。
 
 **2026-08-23 失败宿主补诊断，2026-08-25 根因聚合：**初始化事务失败的 `MonoGameContextBase` 不会发布 `GameContext`，因此无法进入 `LiveContexts` 作用域树。Core 提供 Editor-only 只读快照（状态、已解析父级、Context、异常），窗口复用场景扫描在树上方单列问题；不制造假的 Context，也不增加静态强引用登记。父级初始化失败会被子级包装并继续传播，窗口按“同一最深异常对象 + 实际 Mono 父子链”聚合为根因组，显示最先失败宿主与受影响链；相同类型 / 文案但无父子关系的异常仍保持独立。没有异常的 `Uninitialized/Initializing` 只按实际父子链聚合为“时序提醒”，不计入根因数，也不宣称已经发生异常。运行中标为“当前 Play”，退出后保留的 `Failed` 标为“历史证据”，避免把上次运行残留误读成当前故障。Edit Mode 下普通 MonoBehaviour 尚未执行 `Awake`，`Uninitialized` 是正常场景资产状态，不显示为异常；Play Mode 中激活宿主仍为 `Uninitialized/Initializing` 才提示时序问题。该边界由 Editor 纯分析与状态分类契约测试锁定。
+
+**2026-08-29 Inspector 渐进披露：**Framework Mono 组件不再各自重复显示“打开完整框架诊断”按钮；总览入口只保留在顶部菜单、工具中心和 Demo 教学中。组件内的“运行时诊断”按目标实例记录展开状态并默认折叠，只有展开后才枚举注册契约、服务状态和可选 Module contributor。折叠不等于隐藏故障：失败 Context、当前 Play 中激活但仍未初始化的 Context，以及没有解析到 Context 的激活层组件仍显示一条摘要；普通 Edit Mode 不制造噪音。原生 fallback、Odin Adapter 与默认 Header 接缝复用同一绘制器，且 Odin 被禁用或排除时必须明确归还原生 fallback，不能落到不含诊断的 `OdinEditor`。

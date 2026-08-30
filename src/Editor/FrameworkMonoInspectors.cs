@@ -1,6 +1,7 @@
 #if UNITY_EDITOR
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using Game.Framework.Audio;
 using Game.Framework.Context;
 using Game.Framework.Diagnostics;
@@ -68,30 +69,117 @@ namespace Game.Framework.Editor
     /// </summary>
     internal static class FrameworkMonoDiagnosticsGUI
     {
+        private sealed class ExpandedState { }
+
+        // 运行时对象销毁后不应把 instance id 状态泄漏给未来复用该 id 的组件；
+        // ConditionalWeakTable 以托管对象身份跟随 Inspector target 的真实生命周期。
+        private static ConditionalWeakTable<UnityEngine.Object, ExpandedState> _expandedTargets = new();
+
         internal static void DrawRuntimeDiagnostics(UnityEngine.Object inspected)
         {
             EditorGUILayout.Space();
-            EditorGUILayout.LabelField("框架诊断", EditorStyles.boldLabel);
-            if (!Application.isPlaying)
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
             {
-                EditorGUILayout.HelpBox("进入 Play 后可在这里查看实际解析到的 Context 和服务状态。", MessageType.Info);
-            }
-            else if (inspected is MonoGameContextBase contextHost)
-            {
-                DrawContextHost(contextHost);
-            }
-            else if (inspected is IHasGameContext holder)
-            {
-                DrawResolvedContext(holder.Context);
-                DrawLayerContracts(inspected);
-                DrawServiceDetails(inspected);
-            }
+                bool expanded = IsExpanded(inspected);
+                bool requested = EditorGUILayout.Foldout(
+                    expanded,
+                    new GUIContent("运行时诊断", "低频使用的 Context、注册契约与服务状态；默认折叠。"),
+                    true,
+                    EditorStyles.foldoutHeader);
+                if (requested != expanded) SetExpanded(inspected, requested);
 
-            FrameworkInspectorDiagnostics.DrawRegistered(inspected);
+                if (!requested)
+                {
+                    if (TryGetCollapsedIssue(
+                            inspected, Application.isPlaying, out string summary, out MessageType messageType))
+                        EditorGUILayout.HelpBox(summary, messageType);
+                    return;
+                }
 
-            if (GUILayout.Button("打开完整框架诊断"))
-                FrameworkDiagnosticsWindow.Open();
+                if (!Application.isPlaying)
+                {
+                    EditorGUILayout.HelpBox(
+                        "进入 Play 后可在这里查看实际解析到的 Context 和服务状态。",
+                        MessageType.Info);
+                }
+                else if (inspected is MonoGameContextBase contextHost)
+                {
+                    DrawContextHost(contextHost);
+                }
+                else if (inspected is IHasGameContext holder)
+                {
+                    DrawResolvedContext(holder.Context);
+                    DrawLayerContracts(inspected);
+                    DrawServiceDetails(inspected);
+                }
+
+                FrameworkInspectorDiagnostics.DrawRegistered(inspected);
+            }
         }
+
+        internal static bool IsExpanded(UnityEngine.Object inspected) =>
+            inspected != null && _expandedTargets.TryGetValue(inspected, out _);
+
+        internal static void SetExpanded(UnityEngine.Object inspected, bool expanded)
+        {
+            if (inspected == null) return;
+            if (expanded) _expandedTargets.GetValue(inspected, _ => new ExpandedState());
+            else _expandedTargets.Remove(inspected);
+        }
+
+        internal static void ResetExpandedStateForTests() =>
+            _expandedTargets = new ConditionalWeakTable<UnityEngine.Object, ExpandedState>();
+
+        /// <summary>
+        /// 折叠不等于隐藏故障：失败 Context、Play 中激活但未完成初始化的 Context，以及未解析到
+        /// Context 的激活层组件仍显示一条摘要；普通 Edit Mode 未初始化状态不制造噪音。
+        /// </summary>
+        internal static bool TryGetCollapsedIssue(
+            UnityEngine.Object inspected,
+            bool editorIsPlaying,
+            out string summary,
+            out MessageType messageType)
+        {
+            summary = string.Empty;
+            messageType = MessageType.None;
+            if (inspected == null) return false;
+
+            if (inspected is MonoGameContextBase contextHost &&
+                MonoContextIssueAnalysis.ShouldReport(contextHost, editorIsPlaying))
+            {
+                MonoContextDiagnosticSnapshot snapshot = contextHost.DiagnosticSnapshot;
+                if (snapshot.State == MonoContextDiagnosticState.Failed)
+                {
+                    string failure = snapshot.Failure == null
+                        ? "未记录异常详情"
+                        : snapshot.Failure.GetType().Name + ": " + snapshot.Failure.Message;
+                    summary = $"{MonoContextIssueAnalysis.EvidenceLabel(editorIsPlaying)}；" +
+                              $"初始化{MonoContextIssueAnalysis.StateLabel(snapshot.State)}：{failure}";
+                    messageType = MessageType.Error;
+                }
+                else
+                {
+                    summary = $"当前 Play 中该 Context 仍为{MonoContextIssueAnalysis.StateLabel(snapshot.State)}；" +
+                              "展开查看父级解析与初始化状态。";
+                    messageType = MessageType.Warning;
+                }
+                return true;
+            }
+
+            if (editorIsPlaying && inspected is Component component && IsActiveLayerComponent(component) &&
+                inspected is IHasGameContext holder && holder.Context == null)
+            {
+                summary = "当前 Play 中尚未解析到 Context；展开检查 Target Context 或 Transform 父级。";
+                messageType = MessageType.Warning;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool IsActiveLayerComponent(Component component) =>
+            component.gameObject.activeInHierarchy &&
+            (component is not Behaviour behaviour || behaviour.isActiveAndEnabled);
 
         private static void DrawContextHost(MonoGameContextBase host)
         {
@@ -235,8 +323,7 @@ namespace Game.Framework.Editor
             UnityEngine.Object inspected = editor.target;
             if (inspected is not MonoGameContextBase && inspected is not IHasGameContext) return;
 
-            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
-                FrameworkMonoDiagnosticsGUI.DrawRuntimeDiagnostics(inspected);
+            FrameworkMonoDiagnosticsGUI.DrawRuntimeDiagnostics(inspected);
         }
     }
 
