@@ -40,6 +40,8 @@ SSFramework/
 
 `AGENTS.md` 不是模块百科。只有无需关键词也必须改变每次判断的内容才常驻；某个可选模块的详细 API、故障处理和示例在任务命中后读取对应 guide / ADR。这样在 Framework 深目录工作时，不会被当前任务无关的十几个模块契约占满上下文。
 
+Demo 教学的内容组织规则放在最窄的 `Assets/Game/Framework/Demo/Scripts/Modules/AGENTS.md`：总览只说明一次阅读路线，顺读主线靠各章正文承接、对比与边界形成递进，不由 Shell 给每章重复叠加“新手导览”。这是作者判断，不适合用 Hook 或锁死具体文案的测试强制。
+
 ### 2.4 机器门禁优于“请记得”
 
 能写成行为契约的规则优先落到代码和测试：
@@ -95,9 +97,9 @@ Codex 从项目根沿当前工作目录向下拼接 `AGENTS.md`，越近的文�
 | 项目根 | 7,134 | 6.97 KiB |
 | `Assets/Game` | 15,082 | 14.73 KiB |
 | `Assets/Game/Framework` | 24,687 | 24.11 KiB |
-| Demo Modules | 29,177 | 28.49 KiB |
+| Demo Modules | 29,518 | 28.83 KiB |
 
-最深链还剩 3,591 字节（约 3.51 KiB）。维护时测量**根到最深目录的 UTF-8 合计**，不要只看单文件行数；新增细节优先下沉到 guide、ADR 或 Skill。
+最深链还剩 3,250 字节（约 3.17 KiB）。维护时测量**根到最深目录的 UTF-8 合计**，不要只看单文件行数；新增细节优先下沉到 guide、ADR 或 Skill。
 
 PowerShell 测量示例：
 

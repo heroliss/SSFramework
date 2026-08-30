@@ -65,7 +65,7 @@ namespace Game.Framework.Demo.Modules
             host.AddSectionTitle("什么时候不需要 System");
             host.AddConcept("保留在 Command", "一次赋值、自增、重置等原子操作，没有跨对象不变量，也不会被其他入口复用。");
             host.AddConcept("提取到 System", "规则包含校验与多步提交、会被多个 Command/流程调用，或需要替换实现与独立测试。");
-            host.AddTip("先按业务复杂度选择最浅结构，再在规则出现时加深模块；不要把“所有写入都必须经过 System”当成仪式。");
+            host.AddTip("先按业务复杂度选择最浅结构，再在规则出现时加深模块；不要把“所有写入都必须经过 System”当成仪式。下一章转向另一组常混淆概念：Model 保存持续状态，Event 只广播已经发生的瞬时事实。");
         }
     }
 

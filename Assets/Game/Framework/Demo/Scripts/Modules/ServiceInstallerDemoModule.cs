@@ -7,7 +7,7 @@ using Game.Framework.Systems;
 namespace Game.Framework.Demo.Modules
 {
     /// <summary>
-    /// 核心·服务注册生成：演示"注册样板交给代码生成"——固定目录放纯 C# 服务 → 生成显式安装器（.g.cs）→
+    /// 进阶·服务注册生成：演示"注册样板交给代码生成"——固定目录放纯 C# 服务 → 生成显式安装器（.g.cs）→
     /// Context 里一行接线；配套演示构建期值绑定的"注册即注入"（ADR-0019）。
     /// </summary>
     public sealed class ServiceInstallerDemoModule : DemoModuleBase
@@ -16,8 +16,8 @@ namespace Game.Framework.Demo.Modules
 
         public override string Id => "service-installer";
         public override string Title => "服务注册生成 · 安装器";
-        public override string Category => "核心";
-        public override int Order => 46;   // 紧跟「容器」章：先懂注册/解析机制，再看注册样板如何生成掉
+        public override string Category => "进阶";
+        public override int Order => 45;   // 先读核心「容器」理解手写注册，再按需看如何生成掉重复样板
         public override DemoTeachingKind TeachingKind => DemoTeachingKind.Workflow;
         public override string Summary =>
             "纯 C# 服务的 InstallBindings 注册样板可以生成：固定目录放服务类 → 工作台生成一份显式安装器（.g.cs，注册关系 git 可审）→ "

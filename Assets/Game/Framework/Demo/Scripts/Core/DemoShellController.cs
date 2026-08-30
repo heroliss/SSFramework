@@ -46,7 +46,6 @@ namespace Game.Framework.Demo.Core
         private Button _previousChapterButton;
         private Button _nextChapterButton;
         private Label _chapterNavigationHint;
-        private bool _readingGuideExpanded = true;
 
         /// <summary>真实场景冒烟测试使用的稳定章节 Interface；不暴露可变集合。</summary>
         internal IReadOnlyList<IDemoModule> Modules => _modules;
@@ -163,11 +162,6 @@ namespace Game.Framework.Demo.Core
             _headerSummary.style.whiteSpace = WhiteSpace.Normal;
             _headerSummary.enableRichText = false; // 简介里可能出现 RP<T> 等泛型，关掉富文本免得 <T> 被当标签吞掉
             contentRoot.Add(_headerSummary);
-
-            var readingGuide = new DemoReadingGuide(
-                _readingGuideExpanded,
-                expanded => _readingGuideExpanded = expanded);
-            contentRoot.Add(readingGuide.Root);
 
             _contentArea = new VisualElement();
             _contentArea.AddToClassList("demo-content-body");

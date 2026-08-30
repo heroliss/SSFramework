@@ -77,7 +77,7 @@ namespace Game.Framework.Demo.Modules
             });
 #endif
 
-            host.AddTip("本章只演示「UIToolkit 视图怎么接入框架」这一层；真正的窗口/层级/模态/栈管理在「UI 框架 · 窗口/层级」章——那里 UGUI 与 UIToolkit 共用同一套调度，按界面选载体。");
+            host.AddTip("本章只演示「UIToolkit 视图怎么接入框架」这一层；真正的窗口/层级/模态/栈管理在「UI 框架 · 窗口/层级」章。若按核心顺序继续，下一章先看 Context：同一个 View 挂到不同子树，为什么会自动读写不同作用域的数据。");
         }
 
         // 关闭视图：Dispose 幂等，释放 Bag + 摘出可视树；置空让下次可重新弹。

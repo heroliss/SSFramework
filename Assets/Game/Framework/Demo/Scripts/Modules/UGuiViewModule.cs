@@ -80,6 +80,7 @@ namespace Game.Framework.Demo.Modules
             host.AddSectionTitle("authored 资产 vs 代码搭 UI");
             host.AddNote("这个弹窗是编辑器里搭好的 UGUI prefab（所见即所得、策划可改）。而本 demo 的外壳是命令式代码搭的——因为它是“按数据动态生成的目录”，不是固定布局。"
                 + "真实业务界面通常用 authored 资产（UGUI prefab，或 UI Toolkit 的 UXML + UI Builder），代码只负责接线；命令式搭 UI 适合这种动态生成的特例，别把外壳的写法当成框架推荐。");
+            host.AddTip("本章先固定 View 的职责，再比较载体。下一章换成纯 C# UI Toolkit View，但仍复用同一份 Model 与 Command；如果分数能保持一致，就证明核心层没有绑死在 UGUI 上。");
         }
 
     }

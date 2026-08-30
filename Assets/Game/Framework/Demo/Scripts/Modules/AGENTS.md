@@ -17,6 +17,7 @@
 ## `Build()` 结构
 
 - 开头用一次 `AddPositioning` 交代“是什么 + 关键边界”，随后先给最小可操作闭环，再解释 Implementation/Seam、代价、适用范围与刻意不做；深入内容指向 guide/ADR。
+- 全局阅读路线只在「框架总览」说明一次，不在 Shell 或每章重复注入导览/图例。顺读主线的相邻章节应在正文中自然承接：先唤起已学内容，再引出新问题，并就地说明联系、易混点、取舍、边界与下一站；“新手友好”来自知识组织，不来自重复外壳。
 - 通常“一按钮 = 一框架操作”，源码链接指向 demo 调用点；端到端 Workflow 可组合已学原语，但须明确是编排入口。
 - 同步用 `AddActionRow`；异步用 `AddAsyncActionRow(async ct => ...)` 并透传 token。禁止 `async void`、丢弃 UniTask/Task、`.Forget()` 或 `UniTaskVoid` 包装。
 - “取消只离开等待”的物理操作：提交前检查章节 token，提交后由 owner token 等终态，再检查章节 token 且不发布旧 UI；调用点解释原因。

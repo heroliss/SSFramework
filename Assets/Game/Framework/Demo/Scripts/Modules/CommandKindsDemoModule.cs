@@ -29,7 +29,7 @@ namespace Game.Framework.Demo.Modules
         {
             // ── 定位 ──
             host.AddPositioning("Command 的三种形态");
-            host.AddNote("同一套 Command 接缝有三态：**同步** `ICommand`（计数器已演）、**异步** `IAsyncCommand`（带取消令牌）、**查询** `ICommand<T>`（返回值）。本章聚焦异步与查询，含查询进阶「只读投影」。");
+            host.AddNote("上一章确定了状态由 Model 持有；Command 则是外部读写这些状态的统一入口。同一接缝有三态：**同步** `ICommand`（计数器已演）、**异步** `IAsyncCommand`（带取消令牌）、**查询** `ICommand<T>`（返回值）。本章聚焦异步与查询。");
 
             host.AddSectionTitle("为什么 View 不直接调用 System");
             host.AddNote("Command 把所有外部意图收口到一个可观察接缝，日志、测试替身、回放、取消和权限检查都能在这里获得高杠杆，而 View 不必知道逻辑实现。",
@@ -119,6 +119,7 @@ namespace Game.Framework.Demo.Modules
             host.AddConcept("同步 ICommand", "`Execute(ctx)` 立即完成。简单写操作首选（`struct` 零分配）。计数器章已演。");
             host.AddConcept("异步 IAsyncCommand", "`readonly struct` + `ExecuteAsync(ctx, ct)`（struct 也能 async，默认首选）。加载 / 网络 / 动画等耗时操作，令牌可取消。");
             host.AddConcept("查询 ICommand<T>", "`Execute(ctx)` 返回值。读状态：返回只读流持续订阅，或返回一次性快照；读密集面板用只读投影打包多个源（一面板一查询）。");
+            host.AddTip("Command 负责统一入口，不代表所有规则都要塞进 Command。下一章会比较一步自增与“校验 + 多步提交”，说明什么时候让 Command 直接改 Model、什么时候把规则交给 System。");
         }
     }
 

@@ -65,7 +65,7 @@ namespace Game.Framework.Demo.Modules
             host.AddConcept("基类 Bag", "`MonoView/Model/System/Utility` 内置，跟宿主 `OnDestroy` 一起释放——最常用的一档。");
             host.AddConcept("CreateChild", "需要比宿主更短的作用域时开：`OnDisable` / 一个回合 / “清理一次”按钮。子 `Bag` 单独 `Dispose` 不碰父级，父级释放自动级联子级（`Dispose` 幂等）。");
             host.AddTip("命名约定：按“何时清理”给子 Bag 起名 _enableBag / _roundBag / _loadedBag，在对应回调里 Dispose 后再 CreateChild 重建。"
-                + "统一进 Bag 的意义在于——只要东西进了 Bag 就不会忘记释放，宿主一销毁全部连根带走。");
+                + "统一进 Bag 的意义在于——只要东西进了 Bag 就不会忘记释放，宿主一销毁全部连根带走。核心主线最后一章会打开诊断面板，把 Context 树、Container 注册和 Bag 存活趋势放在一起观察。");
         }
     }
 }
