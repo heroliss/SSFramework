@@ -17,7 +17,7 @@ namespace Game.Framework.Test
 {
     /// <summary>
     /// 测试 DisposableBag：invokeImmediately、OnEvent&lt;T&gt;() 桥接、ReactiveProperty 订阅、Dispose 行为、异常隔离、嵌套 child bag。
-    /// 不覆盖资源加载方法（依赖 YooAsset 初始化，参见 YooAssetLoadTests）。
+    /// 不覆盖真实资源加载方法（参见 Game.Framework.Asset.Yoo.PlayMode.Tests/YooAssetLoadTests）。
     /// </summary>
     public class DisposableBagTests
     {
