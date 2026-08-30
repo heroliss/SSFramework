@@ -2,7 +2,7 @@ syntax = "proto3";
 
 // 框架测试专用 .proto 契约：给 GoogleProtobufNetworkSerializer 的 PlayMode 测试提供生成消息——
 // 覆盖标量 / repeated / 嵌套消息 / map（map entry 合成类型应被 RegisterFile 跳过）。
-// 生成：工作台 SSFramework/代码生成/Protobuf（TestProtoProfile 套）→ Scripts/Tests/Framework/ProtoGen/。
+// 生成：工作台 SSFramework/代码生成/Protobuf（TestProtoProfile 套）→ Network.Proto/Tests/ProtoGen/。
 // 仅测试消费，不是任何对端契约——字段号可随测试需要调整。
 
 option csharp_namespace = "Game.Framework.Test.ProtoGen";

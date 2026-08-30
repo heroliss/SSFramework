@@ -1,15 +1,9 @@
 {
-    "name": "Game.Framework.Test",
-    "rootNamespace": "Game.Framework",
+    "name": "Game.Framework.Network.Proto.Tests",
+    "rootNamespace": "Game.Framework.Test",
     "references": [
-        "YooAsset",
-        "UniTask",
         "Game.Framework",
-        "Game.Framework.UI",
-        "Game.Framework.UI.UGui",
-        "Game.Framework.UI.Toolkit",
-        "Game.Framework.UI.Bridge",
-        "R3.Unity",
+        "Game.Framework.Network.Proto",
         "UnityEngine.TestRunner"
     ],
     "includePlatforms": [],
@@ -18,10 +12,7 @@
     "overrideReferences": true,
     "precompiledReferences": [
         "nunit.framework.dll",
-        "R3.dll",
-        "ObservableCollections.dll",
-        "ObservableCollections.R3.dll",
-        "Microsoft.Bcl.TimeProvider.dll"
+        "Google.Protobuf.dll"
     ],
     "autoReferenced": false,
     "defineConstraints": [
