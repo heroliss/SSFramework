@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using Game.Framework;
 using Game.Framework.Context;
 using Game.Framework.Demo.Core;
 using Game.Framework.Internal;
+using Game.Framework.View;
 using NUnit.Framework;
 using UnityEngine.UIElements;
 
@@ -11,6 +13,23 @@ namespace Game.Framework.Demo.Tests
     /// <summary>直接穿过 DemoModuleCatalog Interface 锁定同实例生命周期、乱序拒绝和 Build 失败回滚。</summary>
     public sealed class DemoModuleCatalogTests
     {
+        [Test]
+        public void DemoModuleBase_UsesIViewAsItsOnlyFrameworkLayerRole()
+        {
+            var module = new BaseRoleModule();
+
+            Assert.IsInstanceOf<IView>(module,
+                "章节 Adapter 的运行期交互身份应直接复用 IView，而不是复制一组容易漂移的权限。");
+            Assert.IsInstanceOf<ICanSendCommand>(module);
+            Assert.IsInstanceOf<ICanRegisterEvent>(module);
+            Assert.IsInstanceOf<ICanGetUtility>(module);
+            Assert.IsFalse(module is ICanGetModel, "View 角色不能直接读取 Model。");
+            Assert.IsFalse(module is ICanGetSystem, "View 角色不能直接读取 System。");
+            Assert.IsFalse(module is ICanSendEvent, "View 角色不能绕过 System 发送领域事件。");
+            Assert.IsFalse(typeof(IView).IsAssignableFrom(typeof(IDemoModule)),
+                "IDemoModule 是教学目录生命周期，不应把所有目录 Adapter 强制定义成某个框架层。");
+        }
+
         [Test]
         public void Lifecycle_UsesSameAdapterAndAllowsRepeatedBuildTeardownPairs()
         {
@@ -208,6 +227,13 @@ namespace Game.Framework.Demo.Tests
                 _calls?.Add("teardown");
                 TeardownAction?.Invoke();
             }
+        }
+
+        private sealed class BaseRoleModule : DemoModuleBase
+        {
+            public override string Id => "base-role";
+            public override string Title => "Base Role";
+            public override void Build(DemoModuleHost host) { }
         }
     }
 }

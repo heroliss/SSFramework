@@ -2,20 +2,23 @@ using System;
 using Game.Framework;
 using Game.Framework.Context;
 using Game.Framework.Internal;
+using Game.Framework.View;
 
 namespace Game.Framework.Demo.Core
 {
     /// <summary>
-    /// 演示模块基类。扮演框架里的 <b>"View 角色"</b>：持有 demo Context、享有与真实 <c>IView</c> 一致的权限
-    /// （<see cref="ICanSendCommand"/> + <see cref="ICanRegisterEvent"/> + <see cref="ICanGetUtility"/>），用 <see cref="Bag"/> 管理订阅与资源——
-    /// 模块就走这条和真实 View 一样的路径调用框架，正好验证 API 手感。
+    /// Demo 专用的章节 Adapter：集中章节元数据、装配 hook、教学 Build 与清理，不是 Model / System / View 之外的新层。
+    /// 章节进入运行期交互后扮演 <see cref="IView"/> 角色，用 <see cref="Bag"/> 管理订阅与资源，
+    /// 因而走和真实 View 相同的受限 API 路径并验证其使用体验。
     /// </summary>
     /// <remarks>
-    /// 和 <c>MonoViewBase</c> 一样把 <see cref="IGameContext"/> 做成<b>显式接口实现</b>：子类拿不到完整 Context，
-    /// 只能用扩展方法（<c>this.ExecuteCommand(...)</c> / <c>this.RegisterEvent(...)</c> / <c>this.GetUtility(...)</c>），
-    /// 受权限接口约束——模块因此无法越权 GetModel/SendEvent，教学上示范的就是"正确的 View 写法"。
+    /// <see cref="IDemoModule"/> 描述教学目录生命周期，<see cref="IView"/> 描述运行期权限；两个 Interface 正交，
+    /// 不应让目录 Interface 继承某个框架层。和 <c>MonoViewBase</c> 一样把 <see cref="IGameContext"/> 做成
+    /// <b>显式接口实现</b>：完整 Context 不出现在子类的普通成员查找中，日常代码只能使用
+    /// <c>ExecuteCommand</c> / <c>RegisterEvent</c> / <c>GetUtility</c>。刻意强转仍可访问 Context，
+    /// 仅限装配代码选择作用域；这是编译期使用护栏，不是安全沙箱。
     /// </remarks>
-    public abstract class DemoModuleBase : IDemoModule, IHasGameContext, ICanSendCommand, ICanRegisterEvent, ICanGetUtility
+    public abstract class DemoModuleBase : IDemoModule, IView, IHasGameContext
     {
         private IGameContext _context;
         private DisposableBag _bag;

@@ -9,7 +9,8 @@ namespace Game.Framework.Logging
     /// <b>线程约定</b>：<see cref="Log"/> 可能从任意线程被调用（如网络接收循环在后台线程记日志），
     /// 实现若持有可变状态（文件句柄、缓冲）**必须自行加锁**（见 <see cref="FileLogSink"/>）。
     /// 门面对 sink 列表用 copy-on-write，广播本身无锁。<br/>
-    /// 实现应吞掉自身异常、绝不让日志故障冒泡打断业务（sink 内部 try/catch）。
+    /// 实现应吞掉自身异常、绝不让日志故障冒泡打断业务（sink 内部 try/catch）；门面仍会把
+    /// <see cref="MinLevel"/> getter 与 <see cref="Log"/> 投递作为同一个故障域兜底隔离，坏 sink 不会阻断其它去向。
     /// </remarks>
     public interface ILogSink
     {

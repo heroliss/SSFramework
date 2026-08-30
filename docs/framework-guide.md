@@ -2166,9 +2166,10 @@ public sealed class CounterWindow : UIToolkitWindowBase
     {
         var score = new Label(); Root.Add(score);
         var add = new Button { text = "+1" }; Root.Add(add);
+        var close = new Button { text = "关闭" }; Root.Add(close);
         Bag.BindText(score, this.ExecuteCommand(new GetScoreCommand()), v => $"Score: {v}"); // 只读订阅
         Bag.SubscribeClick(add, () => this.ExecuteCommand(new RaiseScoreCommand()));          // 只写经 Command
-        Bag.SubscribeClick(new Button { text = "关闭" }, () => this.GetUtility<IUIUtility>().Close(this));
+        Bag.SubscribeClick(close, () => this.GetUtility<IUIUtility>().Close(this));
     }
     protected override void OnOpen(object args) { /* 取打开参数 */ }
 }
@@ -2199,7 +2200,19 @@ Bag.SubscribeClickAsync(button, async ct =>   // 异步点击：随 Bag 取消�
 
 ### 非窗口的 UI Toolkit 视图
 
-不走窗口框架、只想要一个接入框架的 UI Toolkit 视图，直接继承 `UIToolkitViewBase`（纯 C# View，享自动注入 / Bag / `ExecuteCommand`），由持有 Context 的引导方调 `view.BindTo(ctx)` 绑定并把 `Root` 挂进可视树。
+不走窗口框架、只想要一个接入框架的 UI Toolkit 视图，直接继承 `UIToolkitViewBase`（纯 C# View，享自动注入 / Bag / `ExecuteCommand`），由持有 Context 的装配代码调用 `view.BindTo(context)`，再把返回的 `Root` 挂进可视树。
+
+这里显式传 `context` 不是因为 View 需要更大的业务权限，而是在回答“这个纯 C# View 属于哪个作用域”：UGUI 能从 Transform 父链找最近的 Context，`VisualElement` 没有 GameObject 父链，创建方只能明确交付。强转 `IHasGameContext` 取得完整 Context 应局限在 composition Adapter；普通 View 逻辑仍只用 `IView` 的 `ExecuteCommand / RegisterEvent / GetUtility`。
+
+`BindTo` 会完成 Context 关联、字段注入和 `OnCreated` 接线；其中一步失败会先回滚已经登记的 Bag 内容与 Root，再保留原始异常抛出。这个事务只覆盖 View 自己拥有的 Bag 与可视树，不能撤销 `OnCreated` 已经发出的 Command 等外部副作用，因此 `OnCreated` 应专注建 UI 和接订阅，不提交一次性业务状态；它也不能同步 `Dispose()` 自己后还让 `BindTo` 返回一个失去生命周期的 Root。绑定成功后 Context 仍只是借用的作用域能力，**不会拥有或自动摘除 View**：创建方结束时必须 `Dispose`，独立 View 的关闭按钮也可以直接 `Dispose()` 自己。
+
+| 对象 | 正确关闭方式 | 原因 |
+|---|---|---|
+| 独立 UGUI View | `Destroy(gameObject)` | GameObject 是物理宿主，`OnDestroy` 释放 View Bag |
+| 独立 `UIToolkitViewBase` | `Dispose()` | View 自己拥有 Bag 与 Root，释放会退订并摘出可视树 |
+| `UGuiWindowBase` / `UIToolkitWindowBase` | `this.GetUtility<IUIUtility>().Close(this)` | 窗口是 UI 框架管理的借用值；关闭还要同步栈、模态、缓存、过渡与 Backend 资源 |
+
+不要把 Context 取消与 View 关闭混为一件事：Context token 表示整个作用域结束；View Bag token 表示这张界面结束。`SubscribeClickAsync` 给出的 `ct` 跟随后者，适合“关卡片就取消”的交互；确需关窗后继续的物理操作应另有更长寿命 owner。
 
 ### 换后端零业务改动
 
@@ -3133,7 +3146,7 @@ CI / AI 只需做最小删除测试时，可直接执行无窗口菜单 `SSFrame
 ### demo 是活样例，但两处别照抄
 
 - demo 程序集带 `defineConstraints:["UNITY_EDITOR"]`（教学定位、不进玩家包）——**正式模块要发布，不带这约束**。
-- demo 里的 `DemoModuleBase` 章节脚手架是教学专用，正式项目没有这层。
+- demo 里的 `DemoModuleBase` 是教学目录 Adapter，不是新增的第六层；它在运行期直接扮演 `IView`，正式项目不需要这套章节脚手架。
 
 其余（模块自洽、`Res/` 只放可寻址资源、编辑器配置外置、配置源 `~` 目录、独立 asmdef）都可直接借鉴。
 
@@ -3256,7 +3269,7 @@ Log.AddSink(new FileLogSink(
 
 - **多 sink 广播**：一条日志可同时进 Console + 文件（+ 未来的遥测）。
 - **每个 sink 自带 `MinLevel`**：让 Console 只留 Warning 以上（`new UnityDebugLogSink { MinLevel = LogLevel.Warning }`），细粒度日志交给文件 sink。
-- **自定义去向**：实现 `ILogSink`（`Log(in LogEntry)` + `MinLevel`）。⚠ 可能被后台线程调用（如网络接收循环记日志），持有可变状态要自行加锁（参考 `FileLogSink`）。
+- **自定义去向**：实现 `ILogSink`（`Log(in LogEntry)` + `MinLevel`）。⚠ 可能被后台线程调用（如网络接收循环记日志），持有可变状态要自行加锁并在内部处理自身故障（参考 `FileLogSink`）；门面仍会兜底隔离 `MinLevel` getter 与 `Log` 投递异常，坏 sink 只降级告警，不得阻断其它 sink 或业务根异常。
 - **测试静音 / 捕获**：`Log.ClearSinks()` 后装一个收集用的 sink（见 `LoggingTests`）。
 - **查当前状态 / 就地调**：`Log.Sinks`（只读快照，含各自 `MinLevel`）/ `Log.IsCapturingUnityLogs`。sink 是业务在启动期用代码装配的，「日志怎么没落盘」时要能查是**压根没装**还是**被 `MinLevel` 卡掉了**——**「运行时诊断」**（菜单 `SSFramework/诊断与分析/运行时诊断`）顶部的**日志**一栏把这些做成可读可改：**全局 `Log.MinLevel` 下拉**、`接管 Unity 日志流` 勾选框、**每个 sink 的 `MinLevel` 下拉**（无 sink 时红字告警）。
   > 典型用法：想把这次复现的细粒度日志抓进文件 → 把全局 `Log.MinLevel` 与文件 sink 的 `MinLevel` 都调到 `Trace`，复现一遍即可，**不必改代码重进 Play**。面板改动立即生效但**不持久**——下次运行仍由业务启动代码决定。

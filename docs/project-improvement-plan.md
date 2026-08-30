@@ -13,16 +13,16 @@
 5. **Demo + guide + AI 规则同步**：教学和协作约束不能继续推荐旧路径；
 6. **全量验证**：编译、EditMode、PlayMode、Demo 防腐检查与文档一致性。
 
-## 已验证基线（2026-08-30）
+## 已验证基线（2026-08-31）
 
 | 维度 | 当前事实 |
 |---|---|
 | Unity | 6000.3.22f1 |
 | Framework Module | 31 个 asmdef Module（含测试与可选 Odin / HybridCLR Editor Adapter）；依赖与删除测试见 `framework-module-map.md` |
-| Demo | 32 个自动发现章节；Catalog 集中拥有 Adapter 生命周期，并按 Capability / Concept / Workflow 校验真实 Build 教学语义 |
+| Demo | 33 个自动发现章节；Catalog 集中拥有 Adapter 生命周期，并按 Capability / Concept / Workflow 校验真实 Build 教学语义 |
 | 教程 | `framework-guide.md` 28 章 |
 | ADR | 0001–0046；0040 为 UPM-aware 源码目录，0041/0042 补齐依赖证据，0043 收口 Editor 菜单与工作台，0044 固化 Unity CLI 工程外 Adapter 边界，0045 拆分资源与 HybridCLR 构建依赖，0046 收敛资源运行时入口 |
-| 测试 | PlayMode 565 + EditMode 577，共 1142 项全绿；交互式 MCP 后台运行且 PlayMode 先预检，命令行入口默认 EditMode + PlayMode |
+| 测试 | PlayMode 581 + EditMode 581，共 1162 项全绿；交互式 MCP 后台运行且 PlayMode 先预检，命令行入口默认 EditMode + PlayMode |
 | Demo CodeRef | 317 处可打开源码跳转；完整门禁通过后以精准命中为基线，注释、文案与外部文档路径不计入源码构造点 |
 | AI 常驻规则预算 | 最深 AGENTS 链 30.48 KiB，低于 Codex 默认 32 KiB 项目指令上限；本轮已压缩 Demo 教程式规则，新增常驻规则前仍须优先外移可测试/可按需加载内容 |
 
@@ -66,6 +66,7 @@
 - 重写入门地图，并为 Counter / Model / Command / System / Event 补上选择标准、代价、生命周期与反例；8 个过长章节摘要完成收束，实际 Game View 已检查首屏、对照表和 System 深度说明。
 - Demo 实战发现 `IShopSystem` 泄漏 `ICommandContext`：改成窄业务接口 `TryBuyPotion()`，WalletModel 由 Implementation 注入，并用购买不变量测试锁定。
 - 修正框架层术语漂移：简单原子 Command 可直接写 Model，System 承载可复用/多步规则；Utility 可持有基础设施状态但不持有业务状态。源码 XML doc、README、guide、roadmap 与 ADR-0001 已同步。
+- `DemoModuleBase` 明确为教学目录 Adapter，而非第六层；运行期直接实现已有 `IView`，不再手写复制三项权限。`IDemoModule` 继续只描述目录生命周期，测试锁定 View 可用能力与 `GetModel / GetSystem / SendEvent` 禁权，避免两种 Interface 身份互相污染。
 - UI 融合章新增 128px 低清/正常预算即时切换，把视觉异常变成可复现教学实验；实战修复 RT 两轴分别钳制造成的拉伸，并以托管 `CanvasScaler` 分离逻辑布局与采样分辨率，确保降预算只变糊、不变形也不重排。纯尺寸契约、实际 Game View 与低清按钮 Raycast 均已验证。
 
 ### P1 · Demo 异步动作生命周期
@@ -102,6 +103,7 @@
 - 相邻公共 Interface 注释补齐 `LocaleFontChain` 的字体表快照、OS 资产所有权、Dispose 义务与 Apply 异常，以及 `LocaleFontProfile` 的只读查看和非所有权语义。
 - 迁移按 Module 做定向回归并保留原 Console 文案与 Unity Object context；Logging 自身实现、第三方 Adapter 和编辑器工具不做机械替换。
 - DisposableBag 补齐释放异常隔离：取消回调或单个 `IDisposable` 失败不会截断余下清理，并有契约测试锁定。
+- `UIToolkitViewBase.BindTo` 以注入与 `OnCreated` 完整结束为提交点：失败、自释放或清理 hook 二次失败都会穷尽 View 自有 Bag / Root，且保留最初异常；Context 明确只是借用的作用域能力，不替创建 owner 释放独立 View。为守住“日志不能覆盖业务根因”，`Log` 同时隔离自定义 sink 的 `MinLevel` getter 与投递异常，坏去向不会阻断后续 sink。
 
 ### P1 · 配置就绪契约深化
 
@@ -134,6 +136,7 @@
 - ReactiveList 章为真实行 View 显示稳定实例号，并从 item factory 与 rowBag Dispose 两个 Seam 采集创建 / 释放 / 存活计数；新增 Replace 操作，Move 复用、Replace 重造一槽与逐行释放都能在画面直接核对。
 - EditMode 契约不只比对最终文本，而是断言真实 `VisualElement` 引用、父子层级和 rowBag 释放状态，让增量绑定 Implementation 的身份与生命周期语义有可执行证据。
 - UI Framework 章新增 Destroy / Cache 真实窗口对照：稳定实例号与 hook 计数展示重开身份；PlayMode 穿过 DemoScene 的 `MonoToolkitUI` Adapter，锁定 Destroy 重建、Cache 复用。
+- 独立 Toolkit View 删除只做转发的 `CloseView` 回调：卡片直接 `Dispose` 自己，章节每轮 Build 只拥有一个当前实例清理项，反复开关不再线性保留已释放 View；真实 DemoScene 契约覆盖按钮旁挂载、关闭、重开与切章兜底。正式 Window 仍请求 `IUIUtility.Close(this)`，不把两种所有权压成含糊的自关闭 API。
 - guide §17/§24 与 ADR-0016/0027 同步选择标准、代价和验证方法；修正列表 XML doc 对不存在 `BindListView` Interface 的陈旧引用，继续守住“虚拟化留给原生 ListView”的边界。
 
 ### P1 · Module 裁剪证据与依赖可见性
