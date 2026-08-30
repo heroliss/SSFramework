@@ -122,6 +122,114 @@ namespace Game.Framework.Test
         }
 
         [Test]
+        public void OpenTransition_NonOwnerCancellation_IsLoggedAndUnblocksInput()
+        {
+            LogAssert.Expect(LogType.Error,
+                new Regex("SelfCanceledOpenTransitionWindow.*OnOpenTransition.*异常已隔离"));
+            LogAssert.Expect(LogType.Exception, new Regex("OperationCanceledException"));
+
+            var window = Open<SelfCanceledOpenTransitionWindow>();
+
+            Assert.IsNotNull(window);
+            Assert.IsTrue(_ui.IsOpen<SelfCanceledOpenTransitionWindow>(),
+                "过渡自身取消属于 hook 故障，但不能回滚已经完成的逻辑打开");
+            CollectionAssert.AreEqual(new[] { "block:True", "block:False" }, _backend.BlockLog,
+                "非 owner OCE 也必须释放全屏输入挡板");
+        }
+
+        [Test]
+        public void CloseTransition_NonOwnerCancellation_IsLoggedAndStillFinishes()
+        {
+            LogAssert.Expect(LogType.Error,
+                new Regex("SelfCanceledCloseTransitionWindow.*OnCloseTransition.*异常已隔离"));
+            LogAssert.Expect(LogType.Exception, new Regex("OperationCanceledException"));
+
+            var window = Open<SelfCanceledCloseTransitionWindow>();
+            _ui.Close<SelfCanceledCloseTransitionWindow>();
+
+            Assert.IsFalse(_ui.IsOpen<SelfCanceledCloseTransitionWindow>());
+            Assert.IsTrue(window.Calls.Contains("close"),
+                "过渡自身取消应按失败隔离，仍完成 OnClose 与物理回收");
+            Assert.AreEqual(1, _backend.Count("destroy:SelfCanceledCloseTransitionWindow"));
+            CollectionAssert.AreEqual(new[] { "block:True", "block:False" }, _backend.BlockLog,
+                "非 owner OCE 也必须释放全屏输入挡板");
+        }
+
+        [Test]
+        public void OpenTransition_SynchronousOwnerCancellation_IsSilent()
+        {
+            _ctx.Dispose();
+
+            var window = Open<SynchronousOwnerCanceledOpenTransitionWindow>();
+
+            Assert.IsNotNull(window);
+            Assert.IsTrue(_ui.IsOpen<SynchronousOwnerCanceledOpenTransitionWindow>());
+            Assert.IsEmpty(_backend.BlockLog,
+                "hook 在调用阶段观察到已取消的 Context token，应作为零时长收口且不启动挡板");
+        }
+
+        [Test]
+        public void OpenTransition_SynchronousNonOwnerCancellation_IsLoggedWithoutBlockingInput()
+        {
+            LogAssert.Expect(LogType.Error,
+                new Regex("SynchronousSelfCanceledOpenTransitionWindow.*OnOpenTransition.*异常已隔离"));
+            LogAssert.Expect(LogType.Exception, new Regex("sync open transition canceled itself"));
+
+            var window = Open<SynchronousSelfCanceledOpenTransitionWindow>();
+
+            Assert.IsNotNull(window);
+            Assert.IsTrue(_ui.IsOpen<SynchronousSelfCanceledOpenTransitionWindow>());
+            Assert.IsEmpty(_backend.BlockLog,
+                "hook 在调用阶段已失败，没有在途动画，不应短暂启用输入挡板");
+        }
+
+        [Test]
+        public void CloseTransition_SynchronousNonOwnerCancellation_IsLoggedAndStillFinishes()
+        {
+            LogAssert.Expect(LogType.Error,
+                new Regex("SynchronousSelfCanceledCloseTransitionWindow.*OnCloseTransition.*异常已隔离"));
+            LogAssert.Expect(LogType.Exception, new Regex("sync close transition canceled itself"));
+
+            var window = Open<SynchronousSelfCanceledCloseTransitionWindow>();
+            _ui.Close<SynchronousSelfCanceledCloseTransitionWindow>();
+
+            Assert.IsFalse(_ui.IsOpen<SynchronousSelfCanceledCloseTransitionWindow>());
+            Assert.IsTrue(window.Calls.Contains("close"));
+            Assert.AreEqual(1, _backend.Count("destroy:SynchronousSelfCanceledCloseTransitionWindow"));
+            Assert.IsEmpty(_backend.BlockLog,
+                "hook 在调用阶段已失败，没有在途动画，不应短暂启用输入挡板");
+        }
+
+        [Test]
+        public void OpenTransition_AsynchronousOwnerCancellation_IsSilentAndUnblocksInput()
+        {
+            var window = Open<OwnerCanceledOpenTransitionWindow>();
+            CollectionAssert.AreEqual(new[] { "block:True" }, _backend.BlockLog);
+
+            _ctx.Dispose();
+
+            Assert.IsNotNull(window);
+            Assert.IsTrue(_ui.IsOpen<OwnerCanceledOpenTransitionWindow>(),
+                "Context 取消只结束表现层过渡，不回滚已经完成的逻辑打开");
+            CollectionAssert.AreEqual(new[] { "block:True", "block:False" }, _backend.BlockLog);
+        }
+
+        [Test]
+        public void CloseTransition_AsynchronousOwnerCancellation_IsSilentAndStillFinishes()
+        {
+            var window = Open<OwnerCanceledCloseTransitionWindow>();
+            _ui.Close<OwnerCanceledCloseTransitionWindow>();
+            CollectionAssert.AreEqual(new[] { "block:True" }, _backend.BlockLog);
+
+            _ctx.Dispose();
+
+            Assert.IsFalse(_ui.IsOpen<OwnerCanceledCloseTransitionWindow>());
+            Assert.IsTrue(window.Calls.Contains("close"));
+            Assert.AreEqual(1, _backend.Count("destroy:OwnerCanceledCloseTransitionWindow"));
+            CollectionAssert.AreEqual(new[] { "block:True", "block:False" }, _backend.BlockLog);
+        }
+
+        [Test]
         public void CloseAll_SkipsTransitions_DestroysImmediately()
         {
             Open<TransitionWindow>();
@@ -223,6 +331,66 @@ namespace Game.Framework.Test
         {
             public override UniTask OnCloseTransition(CancellationToken ct)
                 => throw new InvalidOperationException("transition boom");
+        }
+
+        [UIWindow(Layer = UILayer.Window)]
+        private class SelfCanceledOpenTransitionWindow : RecordingWindow
+        {
+            public override UniTask OnOpenTransition(CancellationToken ct)
+                => UniTask.FromException(new OperationCanceledException("open transition canceled itself"));
+        }
+
+        [UIWindow(Layer = UILayer.Window)]
+        private class SelfCanceledCloseTransitionWindow : RecordingWindow
+        {
+            public override UniTask OnCloseTransition(CancellationToken ct)
+                => UniTask.FromException(new OperationCanceledException("close transition canceled itself"));
+        }
+
+        [UIWindow(Layer = UILayer.Window)]
+        private class SynchronousOwnerCanceledOpenTransitionWindow : RecordingWindow
+        {
+            public override UniTask OnOpenTransition(CancellationToken ct)
+            {
+                ct.ThrowIfCancellationRequested();
+                return UniTask.CompletedTask;
+            }
+        }
+
+        [UIWindow(Layer = UILayer.Window)]
+        private class SynchronousSelfCanceledOpenTransitionWindow : RecordingWindow
+        {
+            public override UniTask OnOpenTransition(CancellationToken ct)
+                => throw new OperationCanceledException("sync open transition canceled itself");
+        }
+
+        [UIWindow(Layer = UILayer.Window)]
+        private class SynchronousSelfCanceledCloseTransitionWindow : RecordingWindow
+        {
+            public override UniTask OnCloseTransition(CancellationToken ct)
+                => throw new OperationCanceledException("sync close transition canceled itself");
+        }
+
+        [UIWindow(Layer = UILayer.Window)]
+        private class OwnerCanceledOpenTransitionWindow : RecordingWindow
+        {
+            public override async UniTask OnOpenTransition(CancellationToken ct)
+            {
+                var completion = new UniTaskCompletionSource();
+                using (ct.Register(() => completion.TrySetCanceled(ct)))
+                    await completion.Task;
+            }
+        }
+
+        [UIWindow(Layer = UILayer.Window)]
+        private class OwnerCanceledCloseTransitionWindow : RecordingWindow
+        {
+            public override async UniTask OnCloseTransition(CancellationToken ct)
+            {
+                var completion = new UniTaskCompletionSource();
+                using (ct.Register(() => completion.TrySetCanceled(ct)))
+                    await completion.Task;
+            }
         }
 
         private class RecordingBackend : IUIBackend
