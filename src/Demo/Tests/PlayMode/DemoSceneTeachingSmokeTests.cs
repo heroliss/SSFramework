@@ -92,7 +92,7 @@ namespace Game.Framework.Demo.PlayMode.Tests
         }
 
         [UnityTest]
-        public IEnumerator EveryCatalogChapter_BuildsInTheRealSceneAndSatisfiesItsTeachingContract()
+        public IEnumerator SemanticChapterTraversal_BuildsEveryModuleInTheRealSceneAndSatisfiesItsTeachingContract()
         {
             yield return UniTask.ToCoroutine(async () =>
             {
@@ -100,6 +100,8 @@ namespace Game.Framework.Demo.PlayMode.Tests
                 Assert.IsNotNull(shell);
                 Assert.AreEqual(32, shell.Modules.Count);
 
+                // 这里不模拟鼠标，也不逐个派发 Button 点击事件。测试直接走 Shell 与导航按钮共用的语义入口，
+                // 让真实选中态、标题、内容和 Catalog 生命周期保持一份真源；每章让出一帧，用于暴露切章后的清理/挂载问题。
                 foreach (var module in shell.Modules)
                 {
                     Assert.DoesNotThrow(
