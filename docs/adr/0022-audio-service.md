@@ -11,7 +11,7 @@ roadmap 中期新模块第二项：音频服务——需求普适（所有游戏
 - **定位先想清楚**：Unity 的 `AudioSource` 组件本身已经能干「挂在对象上持续发声」的活（引擎组件可跨层）。框架服务要补的是它不管的部分——**全局播放编排**：BGM 单通道切换、一次性音效不想每处手挂组件、设置页三条音量滑条要能实时作用到所有在播声音。
 - **ports & adapters**：零第三方依赖的能力整体留内核（`PoolUtility` / `StorageUtility` 先例）；重依赖才拆模块 asmdef。
 - **对象池先例**（ADR-0007）：`PoolUtility` 刻意不依赖 `IAssetUtility`——工具之间不互拉依赖，组合归调用方。
-- **失败语义先例**：池对 Dispose 后误用是「Editor/Dev LogError + 宽容 no-op」；存储是 fail-fast 抛异常（写丢失不可容忍）。音频丢一声不致命，跟池走。
+- **失败语义按损害选择**：存储写丢失必须 fail-fast；对象池后来也收紧为“关闭后拒绝新 lease、只允许旧 lease terminal 归还”，否则可能复活缓存或发布无 owner 引用。音频丢一声通常不致命，且关闭后可以返回失效 handle，因此保留独立的宽容 no-op 契约，不把其它 Utility 的策略机械套过来。
 - **生命周期理念**：一切可停止的东西最好能进 `DisposableBag` 随宿主自动清理。
 
 ## Decision
@@ -71,7 +71,7 @@ public interface IAudioUtility : IUtility
 - 用 `Time.unscaledDeltaTime` 推进：游戏暂停（timeScale = 0）时音乐淡变照常工作（暂停菜单切 BGM 是常见场景）。
 - `fadeSeconds = 0` = 立即切换/停止（测试与「不要过渡」场景都需要确定性路径）。
 
-### 6. 失败与 Dispose 语义：宽容（学池，不学存储）
+### 6. 失败与 Dispose 语义：音频自己的宽容契约
 
 | 情形 | 行为 |
 |---|---|

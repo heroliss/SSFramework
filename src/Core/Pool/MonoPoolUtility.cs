@@ -85,7 +85,7 @@ namespace Game.Framework.Pool
 
         public T Rent<T>() where T : class, new() => _impl.Rent<T>();
 
-        public void Return<T>(T instance) where T : class, new() => _impl.Return(instance);
+        public void Return<T>(T instance) where T : class => _impl.Return(instance);
 
         public IGameObjectPool GetGameObjectPool(GameObject prefab, int maxSize = 0) => _impl.GetGameObjectPool(prefab, maxSize);
 

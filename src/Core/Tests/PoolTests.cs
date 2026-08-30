@@ -1,3 +1,4 @@
+using System;
 using System.Text.RegularExpressions;
 using Game.Framework.Context;
 using Game.Framework.Pool;
@@ -23,6 +24,28 @@ namespace Game.Framework.Test
             public void OnReturn() { ReturnCount++; Value = 0; }
         }
 
+        private class BaseWidget : IPoolable
+        {
+            public int RentCount;
+            public int ReturnCount;
+            public void OnRent() => RentCount++;
+            public void OnReturn() => ReturnCount++;
+        }
+
+        private sealed class DerivedWidget : BaseWidget
+        {
+        }
+
+        private sealed class ValueEqualWidget : IPoolable
+        {
+            public int RentCount;
+            public int ReturnCount;
+            public void OnRent() => RentCount++;
+            public void OnReturn() => ReturnCount++;
+            public override bool Equals(object obj) => obj is ValueEqualWidget;
+            public override int GetHashCode() => 1;
+        }
+
         [Test]
         public void ObjectPool_RentReturn_ReusesSameInstance()
         {
@@ -46,6 +69,43 @@ namespace Game.Framework.Test
         }
 
         [Test]
+        public void ObjectPool_ValueEqualReferences_AreIndependentLeases()
+        {
+            var pool = new ObjectPool<ValueEqualWidget>(() => new ValueEqualWidget());
+
+            var a = pool.Rent();
+            var b = pool.Rent();
+
+            Assert.AreNotSame(a, b);
+            Assert.IsTrue(a.Equals(b), "前置条件：两个独立引用在业务值语义上相等");
+            Assert.AreEqual(2, pool.CountActive, "池所有权必须按引用身份，而不是 Equals/GetHashCode 跟踪");
+
+            pool.Return(a);
+            pool.Return(b);
+            Assert.AreEqual(0, pool.CountActive);
+            Assert.AreEqual(2, pool.CountInactive);
+        }
+
+        [Test]
+        public void ObjectPool_FactoryNullOrRepeatedReference_FailsWithoutPublishingLease()
+        {
+            var nullPool = new ObjectPool<Widget>(() => null);
+            Assert.Throws<InvalidOperationException>(() => nullPool.Rent());
+            Assert.AreEqual(0, nullPool.CountActive);
+            Assert.AreEqual(0, nullPool.CountInactive);
+
+            var singleton = new Widget();
+            var singletonPool = new ObjectPool<Widget>(() => singleton);
+            Assert.AreSame(singleton, singletonPool.Rent());
+            Assert.Throws<InvalidOperationException>(() => singletonPool.Rent(),
+                "factory 不能把仍处于活动 lease 的同一引用再次发布给另一个 owner");
+            Assert.AreEqual(1, singletonPool.CountActive);
+            Assert.AreEqual(0, singletonPool.CountInactive);
+
+            singletonPool.Return(singleton);
+        }
+
+        [Test]
         public void ObjectPool_Poolable_HooksInvokedAndStateCleared()
         {
             var pool = new ObjectPool<Widget>(() => new Widget());
@@ -63,6 +123,89 @@ namespace Game.Framework.Test
         }
 
         [Test]
+        public void ObjectPool_RentHookFailure_RollsBackAndDiscardsDirtyInstance()
+        {
+            var failure = new ApplicationException("rent failed");
+            var created = 0;
+            Widget dirty = null;
+            var pool = new ObjectPool<Widget>(
+                () => dirty = new Widget { Value = ++created },
+                onRent: _ => throw failure);
+
+            var thrown = Assert.Throws<ApplicationException>(() => pool.Rent());
+
+            Assert.AreSame(failure, thrown, "应保留最初租借异常，而不是用补偿路径改写失败原因");
+            Assert.AreEqual(0, pool.CountActive);
+            Assert.AreEqual(0, pool.CountInactive, "经历过失败激活的实例不得回到可复用栈");
+            Assert.AreEqual(1, dirty.ReturnCount, "租借失败也要执行一次 best-effort 归还清理");
+            Assert.AreEqual(0, dirty.Value, "IPoolable.OnReturn 应参与租借失败补偿");
+        }
+
+        [Test]
+        public void ObjectPool_ReturnHookFailure_CompletesCleanupAndDiscardsDirtyInstance()
+        {
+            var failure = new ApplicationException("return failed");
+            var shouldFail = true;
+            var pool = new ObjectPool<Widget>(
+                () => new Widget(),
+                onReturn: _ =>
+                {
+                    if (shouldFail) throw failure;
+                });
+            var dirty = pool.Rent();
+            dirty.Value = 42;
+
+            var thrown = Assert.Throws<ApplicationException>(() => pool.Return(dirty));
+
+            Assert.AreSame(failure, thrown);
+            Assert.AreEqual(1, dirty.ReturnCount, "委托失败不能跳过 IPoolable.OnReturn");
+            Assert.AreEqual(0, dirty.Value);
+            Assert.AreEqual(0, pool.CountActive, "归还所有权必须在用户清理回调前关闭");
+            Assert.AreEqual(0, pool.CountInactive, "清理失败的脏实例不得再复用");
+
+            shouldFail = false;
+            var fresh = pool.Rent();
+            Assert.AreNotSame(dirty, fresh);
+            pool.Return(fresh);
+        }
+
+        [Test]
+        public void ObjectPool_OnRentReentry_IsRejectedWithoutPublishingAlias()
+        {
+            ObjectPool<Widget> pool = null;
+            pool = new ObjectPool<Widget>(
+                () => new Widget(),
+                onRent: instance => pool.Return(instance));
+
+            LogAssert.Expect(LogType.Error, new Regex("重入归还"));
+            var first = pool.Rent();
+            LogAssert.Expect(LogType.Error, new Regex("重入归还"));
+            var second = pool.Rent();
+
+            Assert.AreNotSame(first, second, "Renting 实例不得被钩子提前压栈并再次发布");
+            Assert.AreEqual(2, pool.CountActive);
+            Assert.AreEqual(0, pool.CountInactive);
+        }
+
+        [Test]
+        public void ObjectPool_OnReturnReentry_IsRejectedWithoutDuplicateInactiveAlias()
+        {
+            ObjectPool<Widget> pool = null;
+            pool = new ObjectPool<Widget>(
+                () => new Widget(),
+                onReturn: instance => pool.Return(instance));
+            var instance = pool.Rent();
+
+            LogAssert.Expect(LogType.Error, new Regex("重入归还"));
+            pool.Return(instance);
+
+            Assert.AreEqual(0, pool.CountActive);
+            Assert.AreEqual(1, pool.CountInactive, "同一引用只能在空闲栈中出现一次");
+            Assert.AreSame(instance, pool.Rent());
+            Assert.AreEqual(0, pool.CountInactive);
+        }
+
+        [Test]
         public void ObjectPool_UnityObjectType_LogsMisuseGuard()
         {
             // GameObject 满足 class/new() 约束也能进 C# 对象池，但这里不 Instantiate/SetActive——几乎必然是误用。
@@ -77,6 +220,30 @@ namespace Game.Framework.Test
             var pool = new ObjectPool<Widget>(() => new Widget());
             pool.Prewarm(3);
             Assert.AreEqual(3, pool.CountInactive);
+        }
+
+        [Test]
+        public void ObjectPool_PrewarmFactoryReentry_DoesNotExceedMaxSizeAtCommit()
+        {
+            ObjectPool<Widget> pool = null;
+            var reentered = false;
+            pool = new ObjectPool<Widget>(
+                () =>
+                {
+                    var instance = new Widget();
+                    if (!reentered)
+                    {
+                        reentered = true;
+                        pool.Prewarm(1); // 内层先占满唯一 idle 槽。
+                    }
+                    return instance;
+                },
+                maxSize: 1);
+
+            pool.Prewarm(1);
+
+            Assert.AreEqual(1, pool.CountInactive,
+                "factory 重入填满容量后，外层 Prewarm 的未发布实例必须在提交点丢弃，不能突破 maxSize");
         }
 
         [Test]
@@ -119,6 +286,30 @@ namespace Game.Framework.Test
         {
             IPoolUtility util = new PoolUtility();
             Assert.AreSame(util.GetPool<Widget>(), util.GetPool<Widget>());
+        }
+
+        [Test]
+        public void PoolUtility_ReturnAfterUpcast_RoutesToActualSourcePool()
+        {
+            var util = new PoolUtility();
+            var sourcePool = util.GetPool<DerivedWidget>();
+            var derived = sourcePool.Rent();
+            BaseWidget upcast = derived;
+
+            util.Return(upcast);
+
+            Assert.AreEqual(0, sourcePool.CountActive);
+            Assert.AreEqual(1, sourcePool.CountInactive);
+            LogAssert.Expect(LogType.Error, new Regex("没有活动来源记录"));
+            util.Return(upcast);
+            Assert.AreEqual(1, sourcePool.CountInactive, "重复归还不得再次触达来源池");
+            Assert.AreSame(derived, sourcePool.Rent(),
+                "Return<T> 应按实例引用的来源路由，而不是调用点静态类型 T 猜池");
+            Assert.AreEqual(1, util.GetPoolDiagnostics().Count,
+                "上转型归还不应顺带创建 BaseWidget 池");
+
+            sourcePool.Return(derived);
+            util.Dispose();
         }
 
         [Test]
@@ -236,20 +427,51 @@ namespace Game.Framework.Test
         }
 
         [Test]
-        public void PoolUtility_Dispose_ClearsPools_AndIsIdempotent()
+        public void Bag_RentWhenOnRentDisposesBag_DoesNotPublishReturnedInstance()
+        {
+            var util = new PoolUtility();
+            DisposableBag bag = null;
+            var pool = util.GetPool<Widget>(
+                () => new Widget(),
+                onRent: _ => bag.Dispose());
+            var builder = new ContainerBuilder();
+            builder.RegisterValue(new CommandSystem(), new[] { typeof(ICommandSystem) });
+            builder.RegisterValue(util, typeof(IPoolUtility));
+            using var ctx = new GameContext(builder.Build());
+            bag = ctx.CreateBag();
+
+            Assert.Throws<ObjectDisposedException>(() => bag.Rent<Widget>(),
+                "OnRent 关闭 bag 后，Rent 不得把已经补偿归还的实例发布给调用方");
+            Assert.AreEqual(0, pool.CountActive);
+            Assert.AreEqual(1, pool.CountInactive);
+
+            var recovered = pool.Rent();
+            Assert.AreEqual(2, recovered.RentCount, "补偿归还后的实例仍可由存活的池重新租借");
+            pool.Return(recovered);
+            util.Dispose();
+        }
+
+        [Test]
+        public void PoolUtility_Dispose_TerminatesNewWorkButAllowsTerminalReturn()
         {
             var util = new PoolUtility();
             var pool = util.GetPool<Widget>();
             pool.Prewarm(3);
             Assert.AreEqual(3, pool.CountInactive);
+            var active = pool.Rent();
+            Assert.AreEqual(1, pool.CountActive);
 
             util.Dispose();
 
-            // Dispose 后再取池：_pools 已清，返回新空池；Editor/Dev 下伴随一条 use-after-dispose 诊断
-            LogAssert.Expect(LogType.Error, new Regex("Dispose 后被调用"));
-            var fresh = util.GetPool<Widget>();
-            Assert.AreNotSame(pool, fresh, "Dispose 应清 _pools，再取是新池实例");
-            Assert.AreEqual(0, fresh.CountInactive, "Dispose 后再取应是空池");
+            Assert.AreEqual(0, pool.CountInactive, "Dispose 应立即清除旧池的 idle 缓存");
+            Assert.Throws<ObjectDisposedException>(() => pool.Rent(), "旧池句柄不得在终止后继续发布 lease");
+            Assert.Throws<ObjectDisposedException>(() => util.GetPool<Widget>(),
+                "Dispose 后不得通过 Utility 复活一个同类型新池");
+
+            util.Return(active);
+            Assert.AreEqual(1, active.ReturnCount, "Dispose 前已发布的 lease 仍要完成一次 terminal Return 清理");
+            Assert.AreEqual(0, pool.CountActive);
+            Assert.AreEqual(0, pool.CountInactive, "terminal Return 只清理并丢弃，不得复活 idle 缓存");
 
             util.Dispose(); // 幂等：再次 Dispose 不抛、不二次释放
         }

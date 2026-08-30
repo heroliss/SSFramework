@@ -12,8 +12,10 @@ namespace Game.Framework.Pool
     /// <b>线程契约：</b>主线程独占（与框架 Container / <see cref="IObjectPool{T}"/> 一致），不加锁。<br/>
     /// <b>复用语义：</b><see cref="Spawn(Transform,bool)"/> 出来的实例会被 <see cref="GameObject.SetActive(bool)"/> 激活、
     /// local transform 重置为 prefab 默认值（位置/旋转/缩放），实例上实现了 <see cref="IPoolable"/> 的组件收到 <see cref="IPoolable.OnRent"/>；
-    /// <see cref="Despawn"/> 时收到 <see cref="IPoolable.OnReturn"/>（<b>在此清理状态</b>），随后停用并挂回池的 parking 节点。<br/>
-    /// <b>所有权：</b>Spawn 出去的实例用完必须 <see cref="Despawn"/>（或交给 <c>Bag.Spawn</c> 自动归还）；已 Despawn 的实例不要再用——它可能被下一次 Spawn 取走。
+    /// <see cref="Despawn"/> 时收到 <see cref="IPoolable.OnReturn"/>（<b>在此清理状态</b>），随后停用并挂回池的 parking 节点。
+    /// 新实例会先在停用 parking 下完成标记与钩子缓存，正式 Spawn 定位后才首次激活；因此 active prefab 的预热不会提前触发 Awake/OnEnable。<br/>
+    /// <b>所有权：</b>Spawn 出去的实例用完必须 <see cref="Despawn"/>（或交给 <c>Bag.Spawn</c> 自动归还）；已 Despawn 的实例不要再用——它可能被下一次 Spawn 取走。<br/>
+    /// <b>失败语义：</b>租借 / 归还钩子处于受保护事务中，重入同一实例会被拒绝。任一钩子失败时，池先完成 best-effort 补偿、停用并 Destroy 脏实例，再重抛首异常；不会发布或复用半初始化对象。
     /// </remarks>
     public interface IGameObjectPool
     {
@@ -44,7 +46,8 @@ namespace Game.Framework.Pool
 
         /// <summary>
         /// 归还实例：触发 <see cref="IPoolable.OnReturn"/>、停用、挂回 parking 节点入池（超过容量上限则 Destroy）。
-        /// null 安全；归还非本池实例在 Editor/Development Build 下 LogError。
+        /// null 安全；非本池、重复或钩子重入的归还在所有构建中都会被拒绝（Editor/Development Build 额外 LogError）。
+        /// 所属 Utility 已释放时，既有 lease 仍可完成一次 terminal Despawn：执行清理钩子后直接 Destroy，不再复活池或 parking。
         /// </summary>
         void Despawn(GameObject instance);
 

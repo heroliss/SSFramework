@@ -330,6 +330,7 @@ namespace Game.Framework
         /// <summary>
         /// 从 <see cref="IPoolUtility"/> 的默认池租借一个实例；bag.Dispose 时自动归还。
         /// 与 <see cref="Load{T}(string, CancellationToken)"/> 的"借通道、自动释放"心智一致，业务无感知归还动作。
+        /// 若 OnRent 在租借过程中同步关闭本 bag，本方法会先把晚到 lease 归还源池，再抛 <see cref="ObjectDisposedException"/>，绝不发布已归还引用。
         /// 作用域内单个提前归还用本 bag 的 <see cref="Return{T}(T)"/>；
         /// 需要自定义工厂/钩子时，直接用 <c>this.GetUtility&lt;IPoolUtility&gt;()</c> 操作池。
         /// </summary>
@@ -339,8 +340,7 @@ namespace Game.Framework
             ThrowIfDisposed();
             var pool = ResolvePoolUtility().GetPool<T>();
             var instance = pool.Rent();
-            TrackLeased(instance, Disposable.Create(() => pool.Return(instance)));
-            return instance;
+            return TrackLeasedOrThrow(instance, Disposable.Create(() => pool.Return(instance)));
         }
 
         /// <summary>
@@ -354,6 +354,7 @@ namespace Game.Framework
         /// <summary>
         /// 从 <paramref name="prefab"/> 的 GameObject 池 Spawn 一个实例并挂到 <paramref name="parent"/>；
         /// bag.Dispose 时自动 Despawn（归还），心智同 <see cref="Rent{T}"/> / <see cref="Load{T}(string, CancellationToken)"/>。
+        /// 若 OnRent 在 Spawn 过程中同步关闭本 bag，晚到实例会先归还源池，再抛 <see cref="ObjectDisposedException"/>，不会交给调用方。
         /// 实例若已被外部 Destroy（如随场景卸载）则跳过归还。位置加载先 <c>await Bag.Load&lt;GameObject&gt;(location)</c> 取得 prefab。
         /// <b>不要绕过 bag 直接对实例调池的 Despawn</b>（与 <see cref="Rent{T}"/> 同约定）：bag 的自动归还会叠加成
         /// 重复 Despawn——作用域内单个提前归还用本 bag 的 <see cref="Despawn(GameObject)"/>（归还同时摘除登记）。
@@ -364,8 +365,7 @@ namespace Game.Framework
             ThrowIfDisposed();
             var pool = ResolvePoolUtility().GetGameObjectPool(prefab);
             var go = pool.Spawn(parent);
-            TrackLeased(go, Disposable.Create(() => { if (go != null) pool.Despawn(go); }));
-            return go;
+            return TrackLeasedOrThrow(go, Disposable.Create(() => { if (go != null) pool.Despawn(go); }));
         }
 
         /// <summary>Spawn 一个实例并置于指定世界位置/旋转；bag.Dispose 时自动归还。见 <see cref="Spawn(GameObject, Transform)"/>。</summary>
@@ -375,8 +375,7 @@ namespace Game.Framework
             ThrowIfDisposed();
             var pool = ResolvePoolUtility().GetGameObjectPool(prefab);
             var go = pool.Spawn(position, rotation, parent);
-            TrackLeased(go, Disposable.Create(() => { if (go != null) pool.Despawn(go); }));
-            return go;
+            return TrackLeasedOrThrow(go, Disposable.Create(() => { if (go != null) pool.Despawn(go); }));
         }
 
         /// <summary>
@@ -448,11 +447,20 @@ namespace Game.Framework
 
         // Rent / Spawn 共用：归还登记进 composite（Dispose 自动归还）的同时记录「实例 → 登记项」反查，
         // 供 Return / Despawn 单个提前归还时摘除登记。
-        private void TrackLeased(object instance, IDisposable handle)
+        private T TrackLeasedOrThrow<T>(T instance, IDisposable handle) where T : class
         {
-            if (_disposed) { DisposeSafely(handle, "迟到的池租借"); return; }
+            // Rent / Spawn 的用户钩子可能同步重入 bag.Dispose。此时 lease 已被池创建、却不能再交给已经关闭的 owner：
+            // 先经原池完成一次 terminal 归还，再抛 ODE，避免调用方拿到一个已经回池、可能同时被别人复用的引用。
+            if (_disposed)
+            {
+                DisposeSafely(handle, "迟到的池租借");
+                throw new ObjectDisposedException(
+                    nameof(DisposableBag),
+                    "对象池租借期间 Bag 已被释放；新实例已安全归还，不会发布给调用方。");
+            }
             var ownedHandle = AddOwned(handle, "池租借");
             (_leased ??= new Dictionary<object, IDisposable>(ReferenceComparer.Instance))[instance] = ownedHandle;
+            return instance;
         }
 
         // Return / Despawn 共用实现：按实例反查归还登记项 → 同时摘出 _leased 与 composite → 触发归还。

@@ -11,6 +11,7 @@ using Game.Framework.Systems;
 using Game.Framework.Utility;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using UnityEngine.TestTools;
 
 namespace Game.Framework.Test
@@ -31,6 +32,96 @@ namespace Game.Framework.Test
             public void OnReturn() => ReturnCount++;
         }
 
+        // 异常 / 重入路径用探针。静态回调只在单个测试的 SetUp/TearDown 之间生效，
+        // 避免依赖 Unity 是否会克隆委托字段，同时仍能在首次 Spawn 的 OnRent 内注入行为。
+        private sealed class LifecycleProbe : MonoBehaviour, IPoolable
+        {
+            public static Action<LifecycleProbe> RentAction;
+            public static Action<LifecycleProbe> ReturnAction;
+            public static GameObject LastInstance;
+
+            public int RentCount;
+            public int ReturnCount;
+
+            public void OnRent()
+            {
+                LastInstance = gameObject;
+                RentCount++;
+                RentAction?.Invoke(this);
+            }
+
+            public void OnReturn()
+            {
+                ReturnCount++;
+                ReturnAction?.Invoke(this);
+            }
+
+            public static void Reset()
+            {
+                RentAction = null;
+                ReturnAction = null;
+                LastInstance = null;
+            }
+        }
+
+        // 单独的尾部探针用于证明：前一个 IPoolable.OnReturn 抛错后，后续清理钩子仍会执行。
+        private sealed class TailReturnProbe : MonoBehaviour, IPoolable
+        {
+            public static int ReturnCount;
+            public void OnRent() { }
+            public void OnReturn() => ReturnCount++;
+        }
+
+        // active prefab 首次创建顺序探针：预热不能触发激活生命周期；正式 Spawn 时 Awake/OnEnable 必须看到已接线 marker 与最终 parent/pose。
+        private sealed class ActivationOrderProbe : MonoBehaviour, IPoolable
+        {
+            public static readonly List<string> Events = new();
+            public static Transform ExpectedParent;
+            public static Vector3 ExpectedWorldPosition;
+            public static bool ObservedReadyState = true;
+
+            private void Awake()
+            {
+                Events.Add(nameof(Awake));
+                ObserveReadyState();
+            }
+
+            private void OnEnable()
+            {
+                Events.Add(nameof(OnEnable));
+                ObserveReadyState();
+            }
+
+            public void OnRent()
+            {
+                Events.Add(nameof(OnRent));
+                ObserveReadyState();
+            }
+
+            public void OnReturn() => Events.Add(nameof(OnReturn));
+
+            private void ObserveReadyState()
+            {
+                ObservedReadyState &= GetComponent<PooledObject>() != null &&
+                                      transform.parent == ExpectedParent &&
+                                      Vector3.Distance(transform.position, ExpectedWorldPosition) < 0.001f;
+            }
+
+            public static void Reset()
+            {
+                Events.Clear();
+                ExpectedParent = null;
+                ExpectedWorldPosition = default;
+                ObservedReadyState = true;
+            }
+        }
+
+        private sealed class ParentChangeProbe : MonoBehaviour
+        {
+            public static Action<GameObject> Changed;
+            private void OnTransformParentChanged() => Changed?.Invoke(gameObject);
+        }
+
         private GameObject _root;     // 所有测试对象的父节点，TearDown 一次性销毁
         private GameObject _prefab;   // 源 prefab（停用，避免在原位置触发 Awake）
         private Transform _parking;   // 直接构造 GameObjectPool 用的 parking 节点（在 _root 下，便于清理）
@@ -38,6 +129,10 @@ namespace Game.Framework.Test
         [UnitySetUp]
         public IEnumerator SetUp()
         {
+            LifecycleProbe.Reset();
+            TailReturnProbe.ReturnCount = 0;
+            ActivationOrderProbe.Reset();
+            ParentChangeProbe.Changed = null;
             _root = new GameObject("GameObjectPoolTestRoot");
 
             _prefab = new GameObject("PoolPrefab");
@@ -55,6 +150,10 @@ namespace Game.Framework.Test
         [UnityTearDown]
         public IEnumerator TearDown()
         {
+            LifecycleProbe.Reset();
+            TailReturnProbe.ReturnCount = 0;
+            ActivationOrderProbe.Reset();
+            ParentChangeProbe.Changed = null;
             if (_root != null) UnityEngine.Object.Destroy(_root);
             if (_prefab != null) UnityEngine.Object.Destroy(_prefab);
             _root = null;
@@ -117,6 +216,166 @@ namespace Game.Framework.Test
             Assert.AreEqual(2, p.RentCount, "复用实例应再次触发 OnRent");
         }
 
+        [UnityTest]
+        public IEnumerator Spawn_OnRentThrows_CompensatesAndDestroysWithoutPublishing()
+        {
+            _prefab.AddComponent<LifecycleProbe>();
+            var expected = new InvalidOperationException("rent failed");
+            LifecycleProbe.RentAction = _ => throw expected;
+            var pool = new GameObjectPool(_prefab, _parking);
+
+            var thrown = Assert.Throws<InvalidOperationException>(() => pool.Spawn(_root.transform));
+            Assert.AreSame(expected, thrown, "补偿清理不能覆盖最初的 OnRent 异常");
+            Assert.AreEqual(0, pool.CountActive, "失败的 Spawn 不得发布活动 lease");
+            Assert.AreEqual(0, pool.CountInactive, "执行过业务钩子的脏实例不得回池复用");
+
+            var failedInstance = LifecycleProbe.LastInstance;
+            Assert.IsTrue(failedInstance != null, "探针应记录本次创建的实例");
+            Assert.AreEqual(1, failedInstance.GetComponent<LifecycleProbe>().ReturnCount,
+                "OnRent 失败后应尽力执行一次 OnReturn 补偿");
+            Assert.IsFalse(failedInstance.activeSelf, "延迟销毁前也应先停用失败实例");
+
+            yield return null;
+            yield return null;
+            Assert.IsTrue(failedInstance == null, "失败实例最终应被销毁，不能留下无主对象");
+        }
+
+        [UnityTest]
+        public IEnumerator ActivePrefab_PrewarmStaysDormant_AndFirstSpawnActivatesAfterWiring() => UniTask.ToCoroutine(async () =>
+        {
+            var activePrefab = new GameObject("ActivePoolPrefab");
+            activePrefab.transform.SetParent(_root.transform);
+            activePrefab.AddComponent<ActivationOrderProbe>();
+            ActivationOrderProbe.Reset(); // 排除源对象 AddComponent 时自身的 Awake / OnEnable。
+
+            var pool = new GameObjectPool(activePrefab, _parking);
+            await pool.Prewarm(1);
+            CollectionAssert.IsEmpty(
+                ActivationOrderProbe.Events,
+                "active prefab 的预热实例必须始终处于 inactive hierarchy，不能先触发一次 Awake/OnEnable 再停用");
+
+            var position = new Vector3(7f, 8f, 9f);
+            ActivationOrderProbe.ExpectedParent = _root.transform;
+            ActivationOrderProbe.ExpectedWorldPosition = position;
+            var spawned = pool.Spawn(position, Quaternion.identity, _root.transform);
+
+            CollectionAssert.AreEqual(
+                new[] { "Awake", "OnEnable", "OnRent" },
+                ActivationOrderProbe.Events,
+                "首次生命周期顺序应为完成池接线与定位后 Awake/OnEnable，再进入 OnRent");
+            Assert.IsTrue(ActivationOrderProbe.ObservedReadyState,
+                "Awake/OnEnable/OnRent 都应看到 PooledObject 标记、最终 parent 与最终世界位置");
+            Assert.IsTrue(spawned.activeSelf);
+        });
+
+        [UnityTest]
+        public IEnumerator Despawn_OnReturnThrows_ContinuesCleanupAndDestroysDirtyInstance()
+        {
+            _prefab.AddComponent<LifecycleProbe>();
+            _prefab.AddComponent<TailReturnProbe>();
+            var expected = new InvalidOperationException("return failed");
+            LifecycleProbe.ReturnAction = _ => throw expected;
+            var pool = new GameObjectPool(_prefab, _parking);
+            var go = pool.Spawn(_root.transform);
+
+            var thrown = Assert.Throws<InvalidOperationException>(() => pool.Despawn(go));
+            Assert.AreSame(expected, thrown, "后续物理清理不能覆盖最初的 OnReturn 异常");
+            Assert.AreEqual(1, TailReturnProbe.ReturnCount,
+                "一个 OnReturn 抛错不应阻断其余 IPoolable 的 best-effort 清理");
+            Assert.AreEqual(0, pool.CountActive, "抛错归还也必须结束活动 lease");
+            Assert.AreEqual(0, pool.CountInactive, "清理钩子失败的脏实例不得重新入池");
+            Assert.IsFalse(go.activeSelf, "延迟销毁前应先停用脏实例");
+
+            yield return null;
+            yield return null;
+            Assert.IsTrue(go == null, "OnReturn 失败的实例最终应被销毁");
+        }
+
+        [Test]
+        public void Spawn_OnRentReentrantDespawn_IsRejectedWithoutPublishingAlias()
+        {
+            _prefab.AddComponent<LifecycleProbe>();
+            GameObjectPool pool = null;
+            LifecycleProbe.RentAction = probe => pool.Despawn(probe.gameObject);
+            pool = new GameObjectPool(_prefab, _parking);
+
+            LogAssert.Expect(LogType.Error, new Regex("事务中"));
+            var first = pool.Spawn(_root.transform);
+
+            Assert.IsTrue(first.activeSelf);
+            Assert.AreEqual(1, pool.CountActive, "OnRent 重入不能提前关闭尚未发布的 lease");
+            Assert.AreEqual(0, pool.CountInactive, "Renting 实例不得在外层 Spawn 返回前进入空闲栈");
+
+            LogAssert.Expect(LogType.Error, new Regex("事务中"));
+            var second = pool.Spawn(_root.transform);
+            Assert.AreNotSame(first, second, "同一实例不得因 OnRent 重入而同时发布给两个调用方");
+        }
+
+        [Test]
+        public void Despawn_ReentrantCall_IsRejectedWithoutRecursionOrAliasing()
+        {
+            _prefab.AddComponent<LifecycleProbe>();
+            GameObjectPool pool = null;
+            LifecycleProbe.ReturnAction = probe => pool.Despawn(probe.gameObject);
+            pool = new GameObjectPool(_prefab, _parking);
+            var go = pool.Spawn(_root.transform);
+
+            LogAssert.Expect(LogType.Error, new Regex("归还"));
+            pool.Despawn(go);
+
+            Assert.AreEqual(0, pool.CountActive);
+            Assert.AreEqual(1, pool.CountInactive, "重入 Despawn 只能让实例入池一次");
+            var first = pool.Spawn(_root.transform);
+            var second = pool.Spawn(_root.transform);
+            Assert.AreSame(go, first, "原实例应仍可被一个调用方正常复用");
+            Assert.AreNotSame(first, second, "重入不得把同一实例发布给两个调用方");
+        }
+
+        [UnityTest]
+        public IEnumerator Despawn_WhenParentCallbackDisposesUtility_DoesNotReviveInactivePool() => UniTask.ToCoroutine(async () =>
+        {
+            _prefab.AddComponent<ParentChangeProbe>();
+            var util = new PoolUtility();
+            var pool = util.GetGameObjectPool(_prefab);
+            var go = pool.Spawn(_root.transform);
+            ParentChangeProbe.Changed = _ => util.Dispose();
+
+            util.Despawn(go); // SetParent(parking) 的同步回调终止池；外层归还必须复检并 Destroy，不能继续 push idle。
+            Assert.AreEqual(0, pool.CountActive);
+            Assert.AreEqual(0, pool.CountInactive, "终止回调返回后不得把实例重新写回已关闭池");
+            Assert.IsFalse(go.activeSelf);
+
+            await UniTask.Yield();
+            await UniTask.Yield();
+            Assert.IsTrue(go == null, "回调中终止池的归还实例最终应被销毁");
+        });
+
+        [UnityTest]
+        public IEnumerator Despawn_WhenParentCallbackFillsPool_StillHonorsMaxSizeAtCommit() => UniTask.ToCoroutine(async () =>
+        {
+            _prefab.AddComponent<ParentChangeProbe>();
+            var pool = new GameObjectPool(_prefab, _parking, maxSize: 1);
+            var returning = pool.Spawn(_root.transform);
+            var reentered = false;
+            ParentChangeProbe.Changed = _ =>
+            {
+                if (reentered) return;
+                reentered = true;
+                // count=1 且 perFrame=2 会同步完成：在外层 SetParent 回调里先填满空闲槽。
+                pool.Prewarm(1, perFrame: 2).GetAwaiter().GetResult();
+            };
+
+            pool.Despawn(returning);
+
+            Assert.IsTrue(reentered, "测试前提：SetParent 回调应重入预热");
+            Assert.AreEqual(1, pool.CountInactive,
+                "maxSize 必须在最终入栈时仍成立，回调中填满池后外层实例不得超额入池");
+
+            await UniTask.Yield();
+            await UniTask.Yield();
+            Assert.IsTrue(returning == null, "提交时超出容量的外层归还实例应被销毁");
+        });
+
         [Test]
         public void Spawn_WithPositionRotation_AppliesWorldTransform()
         {
@@ -139,6 +398,75 @@ namespace Game.Framework.Test
             pool.Despawn(b); // 超过 cap=1，应被 Destroy 而非入池
             Assert.AreEqual(1, pool.CountInactive);
         }
+
+        [UnityTest]
+        public IEnumerator MaxSize_PrunesDestroyedInactiveBeforeCapacityDecision()
+        {
+            var pool = new GameObjectPool(_prefab, _parking, maxSize: 2);
+            var dead = pool.Spawn(_root.transform);
+            var live = pool.Spawn(_root.transform);
+            var returning = pool.Spawn(_root.transform);
+            pool.Despawn(dead);
+            pool.Despawn(live);
+            Assert.AreEqual(2, pool.CountInactive);
+
+            UnityEngine.Object.Destroy(dead);
+            yield return null;
+            yield return null;
+            Assert.IsTrue(dead == null, "测试前提：一个空闲槽已成为 Unity fake-null");
+
+            // 刻意不在 Despawn 前读取 CountInactive；容量判断自身必须压缩所有死槽。
+            pool.Despawn(returning);
+            Assert.AreEqual(2, pool.CountInactive,
+                "死槽不占容量，新归还的有效实例应进入池而不是被误判超限后销毁");
+
+            var a = pool.Spawn(_root.transform);
+            var b = pool.Spawn(_root.transform);
+            Assert.IsTrue(a != null && b != null);
+            Assert.AreNotSame(a, b, "压缩死槽后仍应保留两个互不别名的有效实例");
+        }
+
+        [UnityTest]
+        public IEnumerator Prewarm_ReplenishesDestroyedInactiveSlotAtCapacity() => UniTask.ToCoroutine(async () =>
+        {
+            var pool = new GameObjectPool(_prefab, _parking, maxSize: 3);
+            await pool.Prewarm(3, perFrame: 3);
+            var dead = pool.Spawn(_root.transform);
+            pool.Despawn(dead);
+
+            UnityEngine.Object.Destroy(dead);
+            await UniTask.Yield();
+            await UniTask.Yield();
+            Assert.IsTrue(dead == null, "测试前提：容量内有一个已销毁的空闲槽");
+
+            // 不先读取 CountInactive，确保 Prewarm 自己在 raw Count 触顶时压缩死槽并补足容量。
+            await pool.Prewarm(1);
+            Assert.AreEqual(3, pool.CountInactive, "被外部销毁的空闲槽不应永久占用预热容量");
+        });
+
+        [UnityTest]
+        public IEnumerator Prewarm_WhenProviderReenters_StillHonorsMaxSizeAtCommit() => UniTask.ToCoroutine(async () =>
+        {
+            GameObjectPool pool = null;
+            var reentered = false;
+            Transform ParkingProvider()
+            {
+                if (pool != null && !reentered)
+                {
+                    reentered = true;
+                    // 内层先填满 maxSize=1；外层 CreateNew 返回后必须重新检查容量。
+                    pool.Prewarm(1, perFrame: 2).GetAwaiter().GetResult();
+                }
+                return _parking;
+            }
+
+            pool = new GameObjectPool(_prefab, ParkingProvider, maxSize: 1);
+            await pool.Prewarm(1, perFrame: 2);
+
+            Assert.IsTrue(reentered, "测试前提：parkingProvider 应重入预热");
+            Assert.AreEqual(1, pool.CountInactive,
+                "provider 重入可以改变容量，但最终提交不得突破 maxSize");
+        });
 
         [UnityTest]
         public IEnumerator Prewarm_PopulatesInactive() => UniTask.ToCoroutine(async () =>
@@ -196,6 +524,45 @@ namespace Game.Framework.Test
             var again = util.Spawn(_prefab, _root.transform);
             Assert.AreSame(go, again, "归还的实例应被下次 Spawn 复用");
         }
+
+        [UnityTest]
+        public IEnumerator Utility_SpawnMovesInstanceFromPersistentParkingToRequestedScene() => UniTask.ToCoroutine(async () =>
+        {
+            var util = new PoolUtility();
+            var pool = util.GetGameObjectPool(_prefab);
+            var activeScene = SceneManager.GetActiveScene();
+            var additiveScene = SceneManager.CreateScene($"PoolTarget-{Guid.NewGuid():N}");
+            GameObject activeRootInstance = null;
+            GameObject additiveParent = null;
+            GameObject additiveChild = null;
+
+            try
+            {
+                activeRootInstance = pool.Spawn();
+                Assert.AreEqual(activeScene, activeRootInstance.scene,
+                    "parent=null 的契约是当前激活 Scene 根，不能因为实例来自 DDOL parking 而继续常驻");
+                pool.Despawn(activeRootInstance);
+                activeRootInstance = null;
+
+                additiveParent = new GameObject("AdditiveSceneParent");
+                SceneManager.MoveGameObjectToScene(additiveParent, additiveScene);
+                additiveChild = pool.Spawn(additiveParent.transform);
+                Assert.AreEqual(additiveScene, additiveChild.scene,
+                    "指定 parent 时，池化实例应属于 parent 所在 Scene");
+                pool.Despawn(additiveChild);
+                additiveChild = null;
+            }
+            finally
+            {
+                util.Dispose();
+                if (activeRootInstance != null) UnityEngine.Object.Destroy(activeRootInstance);
+                if (additiveChild != null) UnityEngine.Object.Destroy(additiveChild);
+                if (additiveParent != null) UnityEngine.Object.Destroy(additiveParent);
+
+                var unload = SceneManager.UnloadSceneAsync(additiveScene);
+                if (unload != null) await unload.ToUniTask();
+            }
+        });
 
         [UnityTest]
         public IEnumerator Utility_SelfHealsParking_AfterRootDestroyedExternally() => UniTask.ToCoroutine(async () =>
@@ -270,6 +637,30 @@ namespace Game.Framework.Test
                 Assert.AreEqual(0, pool.CountInactive);
             }
             Assert.AreEqual(1, pool.CountInactive, "bag.Dispose 应自动归还");
+        }
+
+        [Test]
+        public void Bag_Spawn_WhenOnRentDisposesBag_DoesNotPublishReturnedInstance()
+        {
+            _prefab.AddComponent<LifecycleProbe>();
+            var builder = new ContainerBuilder();
+            builder.RegisterValue(new CommandSystem(), new[] { typeof(ICommandSystem) });
+            builder.RegisterValue(new PoolUtility(), typeof(IPoolUtility));
+            using var ctx = new GameContext(builder.Build());
+            var pool = ctx.GetUtility<IPoolUtility>().GetGameObjectPool(_prefab);
+            using var bag = ctx.CreateBag();
+            LifecycleProbe.RentAction = _ => bag.Dispose();
+
+            Assert.Throws<ObjectDisposedException>(() => bag.Spawn(_prefab, _root.transform),
+                "OnRent 内关闭 bag 后，不应把随后已自动归还的实例交付给调用方");
+
+            var instance = LifecycleProbe.LastInstance;
+            Assert.IsTrue(instance != null, "探针应记录被立即归还的实例");
+            Assert.IsFalse(instance.activeSelf, "晚到 lease 应由已关闭 bag 立即归还");
+            Assert.AreEqual(1, instance.GetComponent<LifecycleProbe>().ReturnCount,
+                "晚到 lease 的归还钩子应且仅应执行一次");
+            Assert.AreEqual(0, pool.CountActive);
+            Assert.AreEqual(1, pool.CountInactive, "实例应回到源池，但不得从 bag.Spawn 发布给调用方");
         }
 
         [Test]
@@ -458,6 +849,11 @@ namespace Game.Framework.Test
 
             util.Dispose();                                // 释放池工具：标记 disposed（此例尚无停放根可销毁）
             await UniTask.Yield();
+
+            Assert.Throws<ObjectDisposedException>(() => pool.Spawn(_root.transform),
+                "旧池句柄在 Utility Dispose 后不得继续发布新实例");
+            Assert.Throws<ObjectDisposedException>(() => util.GetGameObjectPool(_prefab),
+                "Utility Dispose 后不得重新创建同 prefab 的新池");
 
             pool.Despawn(go);                              // post-dispose 归还：不应复活停放根
             await UniTask.Yield();

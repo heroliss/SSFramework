@@ -683,12 +683,26 @@ var b = pool.Rent();
 pool.Return(b);                   // 手动管理时显式归还
 ```
 
-池化对象可实现 `IPoolable`，在 `OnRent` / `OnReturn` 收到回调。要点：
+池化对象可实现 `IPoolable`，在 `OnRent` / `OnReturn` 收到回调。先认识一个贯穿本节的词：一次成功的 `Rent` 称为一个 **lease（租借所有权）**——对象暂时只归当前调用方使用，`Return` 会结束这份所有权；归还后即使手里还有 C# 引用，也已经没有使用权。
+
+池内部用下面的状态机保护 lease，四个状态在所有构建中都存在：
+
+```text
+Inactive（池中空闲） → Renting（运行取出钩子） → Active（已交给调用方） → Returning（运行归还钩子）
+Returning 成功后回到 Inactive；容量已满、池已关闭或钩子失败则丢弃实例。
+```
+
+`Renting` / `Returning` 是很短的同步过渡态，作用是挡住钩子里对同一实例再次 `Return` 的重入。这里的“事务化”不是数据库事务，而是一个简单承诺：调用方要么拿到完整激活的实例，要么池完成补偿并抛异常，绝不会拿到一半初始化的对象。
 
 - **状态在归还时清理**（`IPoolable.OnReturn` 或 `onReturn` 委托），避免脏数据被下一个租借者看到。
-- **已 `Return` 的对象不要再用**——它可能已被取走。
+- **钩子失败仍会收尾**：取出钩子失败时会 best-effort 运行归还补偿并丢弃实例；归还钩子失败时其余清理钩子仍会运行，脏实例不再入池。两条路径都在状态稳定后重抛首个异常，调用方可以正常记录或处理失败。
+- **按引用身份判断所有权**：两个对象即使 `Equals` 相等，也仍是两份不同 lease；工厂返回 `null` 或重复引用会在发布前失败。重复归还、外来实例与钩子重入在所有构建中都会被拒绝，不能依赖 Release 省掉这条正确性保护。
+- **按真实来源归还**：通过 `IPoolUtility.Return(obj)` 归还时，Utility 根据实例引用找到实际创建它的池，不根据调用点的静态类型猜测。派生对象上转型为基类后仍会回到派生类型池；外来 / 重复 `Return` 也不会顺手创建一个错误类型的新池。
+- **已 `Return` 的对象不要再用**——它可能已被下一位租借者取走。
 - **单个提前归还**：`Bag.Rent` 借出的实例在**同一 bag** 上 `bag.Return(obj)` 提前归还，自动摘除 Dispose 时的归还登记（不重复归还）；见下文「局部作用域」。
-- 主线程独占；Editor / Development Build 下检测"重复归还 / 归还外来实例"。
+- 主线程独占，不是并发容器。
+
+`PoolUtility.Dispose` 是“两阶段关闭”：先拒绝新的建池、租借、Spawn、预热和维护，并清空 idle 缓存；Dispose 前已经交给调用方的 lease 仍可做最后一次 `Return` / `Despawn`，让清理钩子有机会执行，但实例随后只会丢弃 / Destroy，不会复活已关闭的池或 parking 节点。若 `OnRent` 在 `Bag.Rent` 过程中同步关闭了这个 bag，Bag 会先归还这份“晚到”的 lease，再抛 `ObjectDisposedException`，不会把已经回池的引用交给调用方。
 
 #### GameObject / Prefab 池
 
@@ -710,13 +724,19 @@ public class EnemySpawnerView : MonoViewBase
 要点与心智：
 
 - **键控**：每个 prefab 对应一个池，`Spawn` 复用空闲实例（重置 local transform、`SetActive(true)`），`Despawn` 停用并挂回一个停用的 parking 节点。
+- **首次激活顺序**：即使源 prefab 默认激活，新 clone 也会先在停用 parking 下完成 `PooledObject` 标记与钩子缓存；预热不会误跑 Awake/OnEnable，正式 Spawn 设置最终 parent / pose 后才统一首次激活。
+- **Scene 归属**：parking 在 `DontDestroyOnLoad` 只是为了保存空闲缓存。`Spawn(parent: null)` 会把实例显式迁回调用时的激活 Scene 根，指定 parent 则跟随 parent 所属 Scene；活动实例不会因为曾在 parking 里就意外跨场景存活。
 - **手动管理**：`this.GetUtility<IPoolUtility>().Spawn(prefab, parent)` 取、`.Despawn(go)` 还（实例自带 `PooledObject` 标记，归还时自动路由回源池，无需再传 prefab）。
 - **预热**：`await pool.Prewarm(n, perFrame)` 分帧实例化 `n` 个（每帧 `perFrame` 个，默认 1），把开销摊到多帧（适合加载界面期间调用）。
 - **收缩 / 分帧销毁**：`await pool.TrimAsync(target, perFrame)` 把空闲实例分帧收缩到 `target` 个、`await pool.ClearAsync()` 分帧销毁全部空闲（要瞬时全销用 `Clear()`）；C# 池用同步 `pool.Trim(target)`。内存吃紧时回收过度预热的实例。
 - **停放点自愈**：内部 `[Game.Framework PooledObjects]` 停放节点若被外部销毁，下次归还会自动重建，归还实例不会散落到场景根。
 - **重置钩子**：实例上**任意组件**实现 `IPoolable`，即在 `OnRent` / `OnReturn` 收到回调（`OnReturn` 里清状态）。
+- **失败不复用脏对象**：`Spawn` / `Despawn` 与 C# 池一样受 `Renting` / `Returning` 事务态保护；钩子异常时会继续 best-effort 清理、停用并 Destroy 实例，再重抛首异常。
+- **fake-null 死槽清理**：Unity 的 `Destroy` 到帧末才真正生效，空闲栈里的引用可能稍后变成 fake-null。Spawn 取用时会逐个跳过遇到的死槽；读取 `CountInactive`、容量即将触顶、预热触顶和收缩时会完整压缩 idle 栈，因此被外部销毁的空闲对象不占可复用容量。
+- **容量在提交时仍成立**：`maxSize` 不只在操作开始时检查。factory、parking provider 或 `SetParent` 回调若同步重入并先填满池，外层预热 / 归还会在最终入栈前复检，超额实例直接丢弃 / Destroy。
 - **位置加载组合**：池本身不做按 location 的异步加载——先 `var prefab = await Bag.Load<GameObject>("...")` 取到 prefab 再 `Bag.Spawn(prefab)`，刻意让 `PoolUtility` 不依赖资源系统（保持可被父子 Context 共享、不绑 Context）。
-- 主线程独占；Editor / Dev 构建下检测"重复 Despawn / 归还非池化对象"。
+- **诊断边界**：重复 Despawn、归还非本池实例和钩子重入在所有构建中都会被拒绝；Editor / Development Build 额外输出详细错误。活动实例若被业务直接 `Destroy`，池收不到 Despawn，`CountActive` 会保留这笔未正常结束的 lease，作为泄漏线索。
+- 主线程独占，不是并发容器。
 
 #### 局部作用域：整批自动归还 + 单个提前归还
 
@@ -735,9 +755,9 @@ _waveBag.Despawn(enemy);
 _waveBag.Dispose();
 ```
 
-- `Return` / `Despawn` 必须在**借出实例的同一个 bag** 上调用；外来实例 / 重复归还被忽略（Editor/Dev 下 LogError）。
+- `Return` / `Despawn` 必须在**借出实例的同一个 bag** 上调用；外来实例 / 重复归还会被忽略，底层池在所有构建中都不会让它们污染空闲栈（开发构建提供额外诊断）。
 - 纯 C# 对象同理：`bag.Rent<T>()` 配 `bag.Return(obj)`。
-- 弹幕级高频热路径仍建议「领域 List + 手动池」（`GetUtility<IPoolUtility>()`）——`Return`/`Despawn` 按值反查并从登记列表线性摘除，量大时这笔开销不如手动管理直接。
+- 弹幕级高频热路径仍建议「领域 List + 手动池」（`GetUtility<IPoolUtility>()`）——Bag 的 `Return` / `Despawn` 要按实例从登记表反查，并从 CompositeDisposable 的登记列表线性摘除；量大时这笔开销不如手动管理直接。
 
 ---
 
@@ -2371,7 +2391,7 @@ clip 经资源系统 `Bag.Load<AudioClip>(location)` 取到再传入——加载
 - AudioSource 挂在 DontDestroyOnLoad 的 `[Game.Framework Audio]` 节点下复用（`ObjectPool<T>` 原语），高频音效不产生 Instantiate/Destroy 抖动；一次性音效播完由中央驱动自动回收（全局暂停 `AudioListener.pause` 期间不误回收）。
 - BGM 默认循环；片头 / 结算曲等一次性音乐传 `loop: false`，自然结束后 `CurrentMusic` 变为 null，voice 与 clip 引用自动释放，不需要按时长手动 Stop。
 - 淡入淡出走 **unscaled 时间**：游戏暂停（timeScale = 0）时切 BGM 照常过渡；`fadeSeconds = 0` = 立即切。
-- 失败语义**宽容**（学池，不学存储）：clip 为 null 抛参数异常；Dispose 后调用 = Editor/Dev LogError + 安全 no-op（丢一声音效不致命）；同时发声数不设上限（Unity 自带 voice 虚拟化）。
+- 失败语义采用**音频自己的宽容契约**：clip 为 null 抛参数异常；Dispose 后调用 = Editor/Dev LogError + 安全 no-op（丢一声音效不致命）；同时发声数不设上限（Unity 自带 voice 虚拟化）。对象池已改为关闭后拒绝新 lease，不能再把音频的 no-op 理解成照搬池策略。
 
 ### 刻意不做
 
@@ -2758,7 +2778,7 @@ var ctx = new GameContext(builder.Build()) { DebugName = "MiniGame" };
 - **采集仅在 Editor**：存活登记表 / 订阅计数 / Bag 计数在玩家包（含 Development Build）里编译消除，零成本；真机诊断走 `FrameworkSelfCheck` 冒烟 + `Log` 日志（配 `CaptureUnityLogs()` + `FileLogSink` 可把引擎报错 / 崩溃一并落盘，见 §28）。
 - **登记表持强引用**：没 Dispose 的 Context 会一直挂在树上——这不是面板的 bug，这就是它要暴露的泄漏。
 - **回退来源只持弱引用**：实际回退历史不会为了显示来源而延长已替换 Main 的生命周期；来源已经释放时，明细保留次数并显示“已释放的 Context”。
-- 池概要的「借出」计数：GameObject 池实例被外部 Destroy 时计数停在借出侧（该实例再也不会归还了，本身就是线索）；C# 池在 Release 下无归属校验，误用会漂移（Editor / Dev 精确）。
+- 池概要的「借出」只统计已成功发布的 `Active` lease：C# 池按引用身份与真实来源路由精确计数；GameObject 若被调用方直接 Destroy，计数停在借出侧，表示一次没有正常 Despawn 的 lease。空闲栈中的 Unity fake-null 死槽会先清理，不会虚增「空闲」。
 
 > **要点回顾**
 >
