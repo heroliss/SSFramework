@@ -8,6 +8,7 @@ using Game.Framework.Command;
 using Game.Framework.Context;
 using Game.Framework.Diagnostics;
 using Game.Framework.Internal;
+using Game.Framework.Logging;
 using Game.Framework.Pool;
 using Game.Framework.Systems;
 using NUnit.Framework;
@@ -436,10 +437,43 @@ namespace Game.Framework.Test
             finally { ctx.Dispose(); }
         }
 
+        [Test]
+        public void LoggingCommandSystem_Echo_UsesLoggingSeam()
+        {
+            var sink = new CapturingSink();
+            LogLevel previousLevel = Log.MinLevel;
+            Log.MinLevel = LogLevel.Info;
+            Log.AddSink(sink);
+            var ctx = CreateContext(new LoggingCommandSystem(echoToConsole: true));
+            try
+            {
+                ctx.DebugName = "EchoContext";
+                ctx.ExecuteCommand(new TestCommand { Name = "echo" });
+
+                LogEntry entry = sink.Entries.Single(e => e.Category == nameof(LoggingCommandSystem));
+                StringAssert.Contains("[Command] TestCommand @EchoContext", entry.Message);
+                Assert.AreEqual(LogLevel.Info, entry.Level);
+            }
+            finally
+            {
+                ctx.Dispose();
+                Log.RemoveSink(sink);
+                Log.MinLevel = previousLevel;
+            }
+        }
+
         /// <summary>测试用：执行即抛，验证装饰器异常透传 + 落账。</summary>
         private sealed class ThrowingCommand : ICommand
         {
             public void Execute(ICommandContext ctx) => throw new InvalidOperationException("boom");
+        }
+
+        private sealed class CapturingSink : ILogSink
+        {
+            public LogLevel MinLevel => LogLevel.Trace;
+            public List<LogEntry> Entries { get; } = new();
+
+            public void Log(in LogEntry entry) => Entries.Add(entry);
         }
     }
 }
