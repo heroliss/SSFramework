@@ -58,6 +58,12 @@ Module 源码不假设位于 `Assets/Game/Framework`。审计先经 `FrameworkMo
 
 当前档位、Profile key、子进程 PID、待运行队列与“当前完成后停止”的具体原因持续写入 `report.json`；运行目录由本机 EditorPrefs 保存，输出 / 结果 / 日志路径在读取时按 Profile key 重建，不进入分享 JSON。主 Unity 发生 Domain Reload 或重启后会重新附着仍在运行的 Unity 子进程；子进程已退出则从独立结果文件恢复，再继续下一档。停止原因是报告状态而不是易失的静态布尔值：人工请求和自动证据漂移在重载后都会继续生效，最终跳过项也保留真实原因。若恢复时恰逢 manifest / Package / Source Catalog 正在变化，连当前拓扑都无法重建，该异常也被归为漂移：优先按落盘 PID 附着当前 child，完成后停止；PID 已退出但冻结输入产生的独立结果已落盘时，先消费该结果再停止后续档位；只有进程和结果都不存在时才明确失败并完成报告，不让子进程因主 Editor 的重建异常失去 owner，也不用空数据猜成功。
 
+#### 窗口预览与执行证据分离（2026-08-29）
+
+`FrameworkBuildSizeProbeWindow.CreateGUI` 只建立布局、读取已落盘结果和会话内只读快照；打开窗口不再隐式运行 Module Audit、遍历全部 asmdef 或为所有档位计算源码 / Package SHA-256。用户明确点击“读取可构建组合”时才刷新用于选择的审计预览，工程或编译图变化后预览立即失效并给出提示。
+
+预览缓存不是构建输入。点击构建或调用无窗口机器菜单时，动作 Implementation 必须重新采集当前审计证据，并且只为请求的 Profile 计算闭包、manifest 与内容指纹；不能为了方便复用可能陈旧的窗口对象，也不应先为未选组合做昂贵哈希。这样把“打开工作台”“理解并选择”“冻结真实执行证据”分成三个明确阶段，同时保留启动时 fail-fast 与整轮漂移检测。
+
 ### 5. JSON、Markdown、日志和产物共同构成证据
 
 每轮保留：
@@ -97,6 +103,7 @@ Unity Windows IL2CPP 会把 `*_BackUpThisFolder_ButDontShipItWithYourGame` 的 C
 - ✅ 主工程不切平台、不改场景、不改 Build Settings，人工与 AI 自动化都能安全重复运行。
 - ✅ 主工程 Domain Reload / 重启不会让仍在工作的子构建失去 owner；进度能从落盘状态恢复。
 - ✅ JSON + Markdown 同时服务 CI、issue 与人工阅读；窗口只负责选择与反馈，Implementation 保持 locality。
+- ✅ 打开窗口不再触发全工程扫描或全矩阵哈希；昂贵工作都有明确按钮或机器命令，执行仍强制使用新鲜证据。
 - ✅ 源码位于 Assets、嵌入式 Package 或 registry/Git PackageCache 时复用同一探针 Implementation；报告能追溯每个 Module 的 package 版本。
 - ✅ Module 与 Package 依赖计划共用 asmdef / 当前 DLL / Source Catalog 证据；新增可选 Module 不必再同步修改体积探针中的名称映射。
 - ✅ 固定自动化菜单要求所请求档位全部存在；物理删除某个 Module 后会明确失败并提示改选，不把残缺矩阵静默包装成 Core / UGUI / Toolkit 全部成功。

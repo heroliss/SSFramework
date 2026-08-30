@@ -15,6 +15,53 @@ namespace Game.Framework.Editor.Tests
     public sealed class FrameworkModuleAuditTests
     {
         [Test]
+        public void AuditOutcome_SeparatesKnownRetentionCostFromActionableFindings()
+        {
+            FrameworkModuleAudit.AuditResult CreateHealthyResult() => new()
+            {
+                AllRuntimeModulesHavePredefinedAutoReferenceDisabled = true,
+                DeletionChecks = new[]
+                {
+                    new FrameworkModuleAudit.DeletionCheck { Name = "test", Passed = true },
+                },
+            };
+
+            FrameworkModuleAudit.AuditResult clear = CreateHealthyResult();
+            Assert.That(clear.Outcome, Is.EqualTo(FrameworkModuleAudit.AuditOutcome.Clear));
+            Assert.That(clear.RequiresAction, Is.False);
+
+            FrameworkModuleAudit.AuditResult advisory = CreateHealthyResult();
+            advisory.UnconditionalModulePreservations = new[]
+            {
+                new FrameworkModuleAudit.LinkerPreservation
+                {
+                    OwnerModuleName = "Game.Framework.Optional",
+                    AssemblyName = "ThirdParty.Optional",
+                    Scope = "preserve=all",
+                },
+            };
+            Assert.That(advisory.Outcome, Is.EqualTo(FrameworkModuleAudit.AuditOutcome.Advisory));
+            Assert.That(advisory.RequiresAction, Is.False,
+                "已知无条件保留是裁剪成本说明，不应伪装成需要修复的结构警告。 ");
+
+            FrameworkModuleAudit.AuditResult warning = CreateHealthyResult();
+            warning.DependencyEvidenceIssues = new[]
+            {
+                new FrameworkModuleAudit.EvidenceIssue { Code = "test", Message = "missing evidence" },
+            };
+            Assert.That(warning.Outcome, Is.EqualTo(FrameworkModuleAudit.AuditOutcome.Warning));
+            Assert.That(warning.RequiresAction, Is.True);
+
+            FrameworkModuleAudit.AuditResult error = CreateHealthyResult();
+            error.DeletionChecks = new[]
+            {
+                new FrameworkModuleAudit.DeletionCheck { Name = "test", Passed = false },
+            };
+            Assert.That(error.Outcome, Is.EqualTo(FrameworkModuleAudit.AuditOutcome.Error));
+            Assert.That(error.RequiresAction, Is.True);
+        }
+
+        [Test]
         public void Reachability_UsesActualMetadataReferences()
         {
             var assemblies = new Dictionary<string, FrameworkModuleAudit.AssemblyInfo>
@@ -633,17 +680,17 @@ namespace Game.Framework.Editor.Tests
             Assert.That(unrelatedResult.DependencyEvidenceIssues, Is.Empty,
                 "可归属但不在一方依赖图中的问题不应冒充全局扫描失败。 ");
             Assert.That(unrelatedResult.DependencyEvidenceIssueCount, Is.Zero);
-            Assert.That(unrelatedResult.RequiresAttention, Is.False);
+            Assert.That(unrelatedResult.RequiresAction, Is.False);
             Assert.That(matchingResult.DependencyEvidenceIssues, Is.Empty,
                 "scoped issue 只在匹配卡片显示，不能在顶部重复出现。 ");
             Assert.That(matchingResult.DependencyEvidenceIssueCount, Is.EqualTo(1));
             Assert.That(matchingResult.ExternalDependencies.Single().EvidenceIssues, Has.Length.EqualTo(1));
-            Assert.That(matchingResult.RequiresAttention, Is.True);
+            Assert.That(matchingResult.RequiresAction, Is.True);
             Assert.That(globalResult.DependencyEvidenceIssues, Has.Length.EqualTo(1));
             Assert.That(globalResult.DependencyEvidenceIssueCount, Is.EqualTo(1),
                 "一条全局问题只能计数一次。 ");
             Assert.That(globalResult.ExternalDependencies.Single().EvidenceIssues, Is.Empty);
-            Assert.That(globalResult.RequiresAttention, Is.True);
+            Assert.That(globalResult.RequiresAction, Is.True);
         }
 
         [Test]
@@ -1452,7 +1499,7 @@ namespace Game.Framework.Editor.Tests
                 Assert.That(result.HotUpdateDeployment.InspectionAvailable, Is.True,
                     "安装 HybridCLR 热更构建 Module 时，通用审计应经只读反射接缝读取证据，不能建立编译期反向依赖。");
             Assert.That(result.Recommendations, Has.Some.Contains("Player BuildReport"));
-            if (result.HasRetentionWarnings)
+            if (result.HasRetentionAdvisories)
                 Assert.That(result.Recommendations, Has.Some.Contains("link.xml"));
 
             string report = FrameworkModuleAudit.CreateReport(result);
@@ -1598,6 +1645,7 @@ namespace Game.Framework.Editor.Tests
         [Test]
         public void Window_UsesProgressiveDisclosureAndResponsiveRows()
         {
+            FrameworkModuleAuditCache.Invalidate();
             var window = ScriptableObject.CreateInstance<FrameworkModuleAuditWindow>();
             try
             {
@@ -1606,6 +1654,13 @@ namespace Game.Framework.Editor.Tests
 
                 var actions = window.rootVisualElement.Q<VisualElement>("module-audit-actions");
                 var content = window.rootVisualElement.Q<ScrollView>("module-audit-content");
+                var idle = window.rootVisualElement.Q<VisualElement>("module-audit-idle");
+                Assert.That(idle, Is.Not.Null,
+                    "打开窗口只能绘制轻量说明，不能把完整工程扫描藏在 CreateGUI 中。 ");
+                Assert.That(window.rootVisualElement.Q<VisualElement>("module-audit-summary"), Is.Null);
+
+                window.RefreshForTests();
+
                 var summary = window.rootVisualElement.Q<VisualElement>("module-audit-summary");
                 var coreProfile = window.rootVisualElement.Q<VisualElement>("module-audit-profile-core");
                 var raw = window.rootVisualElement.Q<Foldout>("module-audit-raw-details");
@@ -1672,6 +1727,7 @@ namespace Game.Framework.Editor.Tests
             finally
             {
                 UnityEngine.Object.DestroyImmediate(window);
+                FrameworkModuleAuditCache.Invalidate();
             }
         }
 

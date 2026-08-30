@@ -209,6 +209,7 @@ namespace Game.Framework.Editor
             catch (Exception exception)
             {
                 FrameworkEditorFeedback.ReportResult(title, false, exception.Message);
+                throw;
             }
         }
 
@@ -276,18 +277,70 @@ namespace Game.Framework.Editor
                     "拒绝用旧代码重写并丢失未知字段。请切回生成该报告的版本。 ");
         }
 
-        internal static ProfilePlan[] CreatePlans()
+        internal static ProfilePlan[] CreatePlans() => CreatePlansForKeys(requestedKeys: null);
+
+        private static ProfilePlan[] CreatePlansForKeys(IEnumerable<string> requestedKeys)
         {
-            FrameworkModuleAudit.Snapshot snapshot = FrameworkModuleAudit.Capture();
-            var result = FrameworkModuleAudit.Analyze(snapshot);
+            // 执行计划必须来自当前证据，不能把窗口 Preview 缓存冒充冻结输入；刷新结果会顺带供窗口复用。
+            FrameworkModuleAuditCache.Entry evidence = FrameworkModuleAuditCache.Refresh();
+            return CreatePlans(evidence.Snapshot, evidence.Result, requestedKeys);
+        }
+
+        private static ProfilePlan[] CreatePlans(
+            FrameworkModuleAudit.Snapshot snapshot,
+            FrameworkModuleAudit.AuditResult result,
+            IEnumerable<string> requestedKeys)
+        {
+            if (snapshot == null) throw new ArgumentNullException(nameof(snapshot));
+            if (result == null) throw new ArgumentNullException(nameof(result));
             var copiedSourceCache = new Dictionary<string, PackageSourcePlan>(StringComparer.Ordinal);
             string sourceManifest = File.ReadAllText(FullPath("Packages/manifest.json"), Encoding.UTF8);
-            var profiles = result.CommonProfiles
+            var allProfiles = result.CommonProfiles
                 .Select(profile => (profile, advanced: false))
                 .Concat(new[] { (profile: result.FullProfile, advanced: false) })
-                .Concat(result.ModuleProfiles.Select(profile => (profile, advanced: true)));
+                .Concat(result.ModuleProfiles.Select(profile => (profile, advanced: true)))
+                .Where(item => item.profile != null)
+                .ToArray();
+            string[] requested = requestedKeys == null
+                ? null
+                : requestedKeys
+                    .Where(key => !string.IsNullOrWhiteSpace(key))
+                    .Select(key => key.Trim())
+                    .Distinct(StringComparer.Ordinal)
+                    .ToArray();
+            if (requested != null && requested.Length == 0)
+                throw new InvalidOperationException("至少选择一个构建组合。");
+            if (requested != null)
+            {
+                var availableKeys = new HashSet<string>(
+                    allProfiles.Select(item => item.profile.Key), StringComparer.Ordinal);
+                string[] missing = requested
+                    .Where(key => !availableKeys.Contains(key))
+                    .OrderBy(key => key, StringComparer.Ordinal)
+                    .ToArray();
+                if (missing.Length > 0)
+                    throw new InvalidOperationException(
+                        "请求的构建组合当前不存在：" + string.Join("、", missing) + "。" +
+                        "可能已物理删除对应 Module；请改用真实构建体积窗口重新选择。 ");
+            }
+            var profiles = requested == null
+                ? allProfiles
+                : allProfiles.Where(item => requested.Contains(item.profile.Key, StringComparer.Ordinal)).ToArray();
             var runtimeByName = result.RuntimeModules.ToDictionary(module => module.Name, StringComparer.Ordinal);
+            var prepared = profiles.Select(item =>
+            {
+                string[] assemblies = BuildFrameworkCompileClosure(
+                    snapshot, item.profile.Footprint.FrameworkAssemblies, runtimeByName.Keys);
+                PackageDependencyPlan dependencies = BuildPackageDependencyPlan(
+                    snapshot, assemblies, copiedSourceCache);
+                string minimalManifest = CreateMinimalManifest(
+                    sourceManifest, dependencies.ManifestPackages);
+                return (item.profile, item.advanced, assemblies, dependencies, minimalManifest);
+            }).ToArray();
+            var requiredAssemblies = new HashSet<string>(
+                prepared.SelectMany(item => item.assemblies), StringComparer.Ordinal);
             var sourceByName = runtimeByName.Values
+                .Where(module => requiredAssemblies.Contains(module.Name))
                 .Select(module => new ModuleSourcePlan
                 {
                     AssemblyName = module.Name,
@@ -301,27 +354,21 @@ namespace Game.Framework.Editor
                 })
                 .ToDictionary(source => source.AssemblyName, StringComparer.Ordinal);
             ValidateDisjointSourceDirectories(sourceByName.Values);
-            return profiles.Select(item =>
+            return prepared.Select(item =>
             {
                 FrameworkModuleAudit.AuditProfile profile = item.profile;
-                string[] assemblies = BuildFrameworkCompileClosure(
-                    snapshot, profile.Footprint.FrameworkAssemblies, runtimeByName.Keys);
-                PackageDependencyPlan dependencies = BuildPackageDependencyPlan(
-                    snapshot, assemblies, copiedSourceCache);
-                string minimalManifest = CreateMinimalManifest(
-                    sourceManifest, dependencies.ManifestPackages);
                 return new ProfilePlan
                 {
                     Key = profile.Key,
                     Title = profile.Title,
                     Description = profile.Description,
                     RootAssemblies = profile.Roots,
-                    Assemblies = assemblies,
-                    Sources = assemblies.Select(name => sourceByName[name]).ToArray(),
-                    ManifestPackages = dependencies.ManifestPackages,
-                    ManifestFingerprint = ComputeTextFingerprint(minimalManifest),
-                    MinimalManifest = minimalManifest,
-                    CopiedPackages = dependencies.CopiedPackages,
+                    Assemblies = item.assemblies,
+                    Sources = item.assemblies.Select(name => sourceByName[name]).ToArray(),
+                    ManifestPackages = item.dependencies.ManifestPackages,
+                    ManifestFingerprint = ComputeTextFingerprint(item.minimalManifest),
+                    MinimalManifest = item.minimalManifest,
+                    CopiedPackages = item.dependencies.CopiedPackages,
                     IsAdvanced = item.advanced,
                 };
             }).ToArray();
@@ -576,14 +623,16 @@ namespace Game.Framework.Editor
         {
             if (selectedKeys == null) throw new ArgumentNullException(nameof(selectedKeys));
             if (IsRunning) throw new InvalidOperationException("已有一轮真实构建体积探针正在运行。");
-            if (EditorApplication.isCompiling || EditorApplication.isUpdating)
-                throw new InvalidOperationException("Unity 正在编译或刷新资源，请完成后再启动构建探针。");
-            if (EditorApplication.isPlayingOrWillChangePlaymode)
-                throw new InvalidOperationException("请先退出 Play Mode，再启动隔离构建探针。");
-            if (BuildPipeline.isBuildingPlayer)
-                throw new InvalidOperationException("当前已有 Player Build 正在运行。");
-
-            ProfilePlan[] plans = SelectRequestedPlans(selectedKeys, CreatePlans());
+            if (!FrameworkEditorOperationGate.CanStart(requireEditMode: true, out string blockedReason))
+                throw new InvalidOperationException(blockedReason);
+            string[] requested = selectedKeys
+                .Where(key => !string.IsNullOrWhiteSpace(key))
+                .Select(key => key.Trim())
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            if (requested.Length == 0)
+                throw new InvalidOperationException("至少选择一个构建组合。");
+            ProfilePlan[] plans = SelectRequestedPlans(requested, CreatePlansForKeys(requested));
 
             BuildTarget target = EditorUserBuildSettings.activeBuildTarget;
             BuildTargetGroup group = BuildPipeline.GetBuildTargetGroup(target);
@@ -633,6 +682,13 @@ namespace Game.Framework.Editor
             WriteReports(_activeRun.Report);
             EditorApplication.update += PollChildProcess;
             StartNextProfile();
+            if (_activeRun == null)
+            {
+                ProfileRecord failure = report.Profiles.FirstOrDefault(record => record.Status == "失败");
+                throw new InvalidOperationException(
+                    "隔离构建任务未能启动首个 Unity 子进程：" +
+                    (failure?.Message ?? "请打开最近报告查看准备阶段错误。"));
+            }
         }
 
         /// <summary>
@@ -1188,7 +1244,11 @@ namespace Game.Framework.Editor
                 new UTF8Encoding(false));
 
             string packagesDirectory = Path.Combine(projectDirectory, "Packages");
-            foreach (string directory in Directory.GetDirectories(packagesDirectory))
+            FrameworkProjectPath.PhysicalTreeSnapshot packagesTree =
+                FrameworkProjectPath.CapturePhysicalTree(packagesDirectory);
+            foreach (string directory in packagesTree.Directories.Where(path =>
+                         FrameworkProjectPath.PathsEqual(
+                             Path.GetDirectoryName(path) ?? string.Empty, packagesDirectory)))
                 DeleteDirectoryInsideWorkspace(directory, projectDirectory);
             string packageLock = Path.Combine(packagesDirectory, "packages-lock.json");
             if (File.Exists(packageLock)) File.Delete(packageLock);
@@ -1201,7 +1261,8 @@ namespace Game.Framework.Editor
                         (package?.PhysicalDirectory ?? "（空）"));
                 string destination = Path.Combine(
                     packagesDirectory, SafeDirectoryName(package.PackageName));
-                CopyDirectory(Path.GetFullPath(package.PhysicalDirectory), destination, _ => false);
+                CopyDirectory(
+                    Path.GetFullPath(package.PhysicalDirectory), destination, projectDirectory, _ => false);
                 ValidateFrozenCopy(
                     "复制 Package " + package.PackageName,
                     package.SourceFingerprint,
@@ -1223,7 +1284,7 @@ namespace Game.Framework.Editor
                 string destination = Path.Combine(
                     frameworkDestination,
                     ModuleDestinationDirectoryName(module));
-                CopyDirectory(source, destination, ShouldSkipModulePath);
+                CopyDirectory(source, destination, projectDirectory, ShouldSkipModulePath);
                 ValidateFrozenCopy(
                     "Module " + module.AssemblyName,
                     module.SourceFingerprint,
@@ -1487,7 +1548,9 @@ namespace Game.Framework.Editor
         {
             if (record == null || string.IsNullOrWhiteSpace(record.OutputPath) ||
                 !Directory.Exists(record.OutputPath)) return;
-            string[] files = Directory.GetFiles(record.OutputPath, "*", SearchOption.AllDirectories);
+            IReadOnlyList<string> files = FrameworkProjectPath
+                .CapturePhysicalTree(Path.GetFullPath(record.OutputPath))
+                .Files;
             record.RawOutputBytes = files.Sum(path => new FileInfo(path).Length);
             var shipping = files.Select(path => new
                 {
@@ -1567,24 +1630,38 @@ namespace Game.Framework.Editor
             throw new InvalidDataException($"Packages/manifest.json 的 {propertyName} 数组没有闭合。");
         }
 
-        private static void CopyDirectory(string source, string destination, Func<string, bool> skip)
+        private static void CopyDirectory(
+            string source,
+            string destination,
+            string destinationBoundary,
+            Func<string, bool> skip)
         {
             if (!Directory.Exists(source))
                 throw new DirectoryNotFoundException("找不到隔离探针依赖目录：" + source);
+            if (skip == null) throw new ArgumentNullException(nameof(skip));
+            if (!FrameworkProjectPath.TryValidatePhysicalPath(
+                    destinationBoundary, destination, out string destinationError))
+                throw new InvalidOperationException(destinationError);
+
+            FrameworkProjectPath.PhysicalTreeSnapshot sourceTree =
+                FrameworkProjectPath.CapturePhysicalTree(Path.GetFullPath(source));
             Directory.CreateDirectory(destination);
-            foreach (string directory in Directory.GetDirectories(source, "*", SearchOption.AllDirectories))
+            if (!FrameworkProjectPath.TryValidatePhysicalPath(
+                    destinationBoundary, destination, out destinationError))
+                throw new InvalidOperationException(destinationError);
+            foreach (string directory in sourceTree.Directories)
             {
                 string relative = RelativePath(source, directory);
                 if (skip(relative)) continue;
                 Directory.CreateDirectory(Path.Combine(destination, relative));
             }
-            foreach (string file in Directory.GetFiles(source, "*", SearchOption.AllDirectories))
+            foreach (string file in sourceTree.Files)
             {
                 string relative = RelativePath(source, file);
                 if (skip(relative)) continue;
                 string destinationFile = Path.Combine(destination, relative);
                 Directory.CreateDirectory(Path.GetDirectoryName(destinationFile) ?? destination);
-                File.Copy(file, destinationFile, true);
+                File.Copy(ExtendedLengthPath(file), ExtendedLengthPath(destinationFile), true);
             }
         }
 
@@ -1600,13 +1677,7 @@ namespace Game.Framework.Editor
 
         private static void DeleteDirectoryInsideWorkspace(string directory, string workspace)
         {
-            if (!Directory.Exists(directory)) return;
-            string resolvedDirectory = Path.GetFullPath(directory).TrimEnd(Path.DirectorySeparatorChar);
-            string resolvedWorkspace = Path.GetFullPath(workspace).TrimEnd(Path.DirectorySeparatorChar) +
-                                       Path.DirectorySeparatorChar;
-            if (!resolvedDirectory.StartsWith(resolvedWorkspace, StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException("拒绝删除隔离工作区之外的目录：" + resolvedDirectory);
-            Directory.Delete(resolvedDirectory, true);
+            FrameworkProjectPath.DeleteDirectoryWithinBoundary(directory, workspace);
         }
 
         private static ProfileRecord FindRecord(string key) =>
@@ -1939,7 +2010,7 @@ namespace Game.Framework.Editor
             if (skip == null) throw new ArgumentNullException(nameof(skip));
 
             string root = Path.GetFullPath(sourceDirectory);
-            string[] files = Directory.GetFiles(root, "*", SearchOption.AllDirectories)
+            string[] files = FrameworkProjectPath.CapturePhysicalTree(root).Files
                 .Select(path => new
                 {
                     PhysicalPath = path,

@@ -28,6 +28,8 @@ Framework 工具和教学不得使用一个“已启用”布尔值合并以下�
 
 `SSFramework/诊断与分析/模块与依赖` 继续从实际 Player 编译图、asmdef、DLL 元数据、热更 Profile，以及项目 Assets 与全部已注册 Package 中的 `link.xml` 派生 Catalog，不新增“已安装 Module”资产，也不让用户重复维护依赖。asmdef、linker 规则与模板的读取统一经过 `FrameworkModuleSourceCatalog`；稳定 Asset Path 用于定位和报告，真实 Physical Path 用于 I/O，因此 registry/Git 包位于 `Library/PackageCache` 时不会被误判为缺失。详见 ADR-0040。
 
+一次显式采集先冻结 AssetDatabase 路径、PluginImporter 列表，以及 Player / Editor 编译程序集图，再让后续 Module、外部依赖与 linker 分析复用同一份输入；热更分析中最昂贵的 Generate stamp 校验也复用其中的 Asset 路径与 Player 编译图。热更新生成证据的文件内容缓存只活在这一轮采集内；同一 response file、Analyzer、预编译 DLL 或序列化根只读一次，下一次显式采集仍重新读取当前磁盘。Player linker 根按“根集合 + 可达依赖并集”一次批量查询，不保留对最终裁剪无影响的逐根归属，也不让共享 Resources 闭包被数百个根重复遍历。Unity API 仍在主线程同步读取，不伪装成可后台并行；窗口用进度与阶段耗时解释等待，Cache 只保存已完成快照，并在工程或编译图变化后失效。这样既避免同轮重复全量扫描，也避免报告前后分别读取到两套工程状态。
+
 HybridCLR 热更新构建 Module 额外提供只读派生证据：比较唯一 Profile 与 HybridCLRSettings、复用代码包构建门禁校验 Generate stamp，并把当前热更拓扑顺序及 `AOTGenericReferences.PatchedAOTAssemblyList` 与 `Assets/HotUpdateDlls` 中转 manifest、实际文件互相核对。通用 Editor 通过反射读取这个可删除 Module，不建立编译期反向依赖；资源构建 Module 是否安装与该证据正交。空 Profile 不强制 Generate，但审计会检查启用场景是否仍依赖 `HotUpdateLauncher`：保留 Launcher 时仍要求其 Player 分支读取的空清单 CodePackage，只有直接 AOT composition root 才把中转视为可选。缺失 / 重复 Profile 不冒充明确配置。中转一致只证明结构与文件存在，不证明 DLL 内容相对源码新鲜，也不冒充 YooAsset bundle、Deploy 目录或 CDN 已更新。
 
 每个 Runtime Module 显示：
@@ -45,13 +47,22 @@ HybridCLR 热更新构建 Module 额外提供只读派生证据：比较唯一 P
 
 ### 3. 全局、第三方和生成的 linker 规则只读追踪
 
-Module 目录内的无条件 `link.xml` 进入 Module 风险提示。Module 目录外的规则另列为全局证据：
+Module 目录内的无条件 `link.xml` 进入 Module 保留成本说明；它表示已知、确定的裁剪上界，不等于依赖声明错误。Module 目录外的规则另列为全局证据：
 
 - `Assets/HybridCLRGenerate/` 标记为生成物，提示修改 Profile / HybridCLR 来源后重新 Generate，不建议手改；
 - 第三方插件规则只报告来源与范围，不越过升级边界直接修改；
 - 条件规则与无条件根明确区分。
 
 当前不自动把无条件保留改成 `ignoreIfUnreferenced`。反射 Adapter（尤其 YooAsset Provider）必须先建立显式注册根，并通过目标平台 IL2CPP 回归，才能收窄规则。
+
+窗口与文本报告使用固定优先级表达结论：
+
+1. **Error**：依赖方向、删除边界等结构契约已经违反；
+2. **Warning**：声明尚一致，但存在证据缺口、未知来源或热更派生状态漂移，需要行动或目标构建确认；
+3. **Advisory**：只有已知的无条件保留规则，例如 Module 自有 `preserve="all"`；用蓝色说明成本，不制造长期黄色告警；
+4. **Clear**：以上问题与已知成本都不存在。
+
+同一报告只显示其中最高级状态；详细证据仍全部保留。物理删除 Module 会连同自有 `link.xml` 一起移除，因此 Advisory 不是要求立刻改规则，而是提醒“保留该 Module 时，UnityLinker 不会继续细裁这部分”。
 
 ### 4. 移除是一项结构事务，不提供 `SetEnabled(bool)`
 
@@ -77,6 +88,8 @@ asmdef 管**编译依赖边界**，UnityLinker 管**成员裁剪**，HybridCLR P
 - ✅ `autoReferenced:false` 被准确解释为预定义程序集引用规则；所有已存在 Runtime Module 仍参与当前 Player 编译的事实不再被“按需选择”文案遮蔽。
 - ✅ Core / Boot 的删除边界覆盖任意新增 Runtime Module，不必在每次增加 Module 后补一条名称特例。
 - ✅ Module Catalog 从真实构建输入派生，窗口、文本报告、测试与隔离探针共享同一模型，保持 locality。
+- ✅ 同轮采集只读取一次全局 Asset / Importer / Compilation 输入并公开阶段耗时，性能问题可定位，报告也不会混用跨时刻快照。
+- ✅ 有意的 `preserve="all"` 与真正需行动的缺口分级显示，不再让健康项目长期停在黄色状态。
 - ✅ 任意 Module 都能做闭包与隔离构建 what-if，不再把可拆卸设计局限在 UGUI / Toolkit。
 - ✅ 热更传播被显式说明，避免给出会被 `HotUpdateAssemblyGraph` 拒绝的操作顺序。
 - ✅ UPM 保持粗粒度分发职责，Framework 不重复实现版本与依赖管理。

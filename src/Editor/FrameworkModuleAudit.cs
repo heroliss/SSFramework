@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -39,6 +40,32 @@ namespace Game.Framework.Editor
         private static readonly Dictionary<string, AssemblyReferenceCacheEntry> AssemblyReferenceCache =
             new(StringComparer.OrdinalIgnoreCase);
         private static readonly object AssemblyReferenceCacheLock = new();
+
+        /// <summary>一次同步采集的阶段耗时；用于定位重型输入，不参与审计结论。</summary>
+        internal sealed class CaptureTimings
+        {
+            internal double InputSnapshotSeconds;
+            internal double PlayerGraphSeconds;
+            internal double DependencyEvidenceSeconds;
+            internal double HotUpdateEvidenceSeconds;
+            internal double LinkerEvidenceSeconds;
+            internal double TotalSeconds;
+        }
+
+        /// <summary>
+        /// 仅在一次 <see cref="Capture()"/> 内存活的 Unity 输入快照。AssetDatabase、PluginImporter 与编译图
+        /// 各读取一次，使 asmdef、DLL 与 linker 证据基于同一轮可见输入。
+        /// </summary>
+        private sealed class CaptureInputs
+        {
+            internal string[] AssetPaths = Array.Empty<string>();
+            internal PluginImporter[] PluginImporters = Array.Empty<PluginImporter>();
+            internal UnityEditor.Compilation.Assembly[] PlayerAssemblies =
+                Array.Empty<UnityEditor.Compilation.Assembly>();
+            internal UnityEditor.Compilation.Assembly[] EditorAssemblies =
+                Array.Empty<UnityEditor.Compilation.Assembly>();
+            internal BuildTarget[] BuildTargets = Array.Empty<BuildTarget>();
+        }
 
         internal sealed class AssemblyInfo
         {
@@ -134,6 +161,18 @@ namespace Game.Framework.Editor
             Tests,
             Mixed,
             Unknown,
+        }
+
+        /// <summary>
+        /// 审计结论的行动级别。已知的无条件 linker 根属于成本说明，不会单独把结构检查降级为警告；
+        /// 只有证据不完整或派生状态漂移才要求确认，结构契约破坏则视为错误。
+        /// </summary>
+        internal enum AuditOutcome
+        {
+            Clear,
+            Advisory,
+            Warning,
+            Error,
         }
 
         /// <summary>
@@ -445,7 +484,7 @@ namespace Game.Framework.Editor
             internal bool HasUnresolvedAssemblies =>
                 AllProfiles.Any(profile => profile.Footprint.UnresolvedAssemblies.Count > 0);
 
-            internal bool HasRetentionWarnings => UnconditionalModulePreservations.Length > 0;
+            internal bool HasRetentionAdvisories => UnconditionalModulePreservations.Length > 0;
             internal bool HasHotUpdateViolations => ModuleStatuses.Any(status => status.HasHotUpdateViolation);
             internal bool HasHotUpdateDeploymentWarnings => HotUpdateDeployment?.RequiresAttention == true;
             internal bool HasUnknownExternalDependencySources =>
@@ -457,26 +496,58 @@ namespace Game.Framework.Editor
                                                           ExternalDependencies.Sum(dependency =>
                                                               dependency.EvidenceIssues.Length);
 
-            internal bool RequiresAttention => !IsHealthy || HasRetentionWarnings ||
-                                               HasHotUpdateDeploymentWarnings ||
-                                               HasUnknownExternalDependencySources ||
-                                               HasDependencyEvidenceGaps;
-
             internal bool IsHealthy => DependencyIssues.Length == 0 &&
                                        AllRuntimeModulesHavePredefinedAutoReferenceDisabled &&
                                        !HasUnresolvedAssemblies &&
                                        !HasHotUpdateViolations &&
                                        DeletionChecks.All(check => check.Passed);
+
+            internal AuditOutcome Outcome => !IsHealthy
+                ? AuditOutcome.Error
+                : HasHotUpdateDeploymentWarnings || HasUnknownExternalDependencySources ||
+                  HasDependencyEvidenceGaps
+                    ? AuditOutcome.Warning
+                    : HasRetentionAdvisories
+                        ? AuditOutcome.Advisory
+                        : AuditOutcome.Clear;
+
+            internal bool RequiresAction => Outcome == AuditOutcome.Warning || Outcome == AuditOutcome.Error;
         }
 
-        internal static Snapshot Capture()
+        internal static Snapshot Capture() => Capture(out _);
+
+        internal static Snapshot Capture(
+            out CaptureTimings timings,
+            Action<string, float> progress = null)
         {
-            var playerAssemblies = CompilationPipeline.GetAssemblies(AssembliesType.Player)
+            timings = new CaptureTimings();
+            var total = Stopwatch.StartNew();
+            var phase = Stopwatch.StartNew();
+            progress?.Invoke("建立 Unity 输入快照", 0.02f);
+            var inputs = new CaptureInputs
+            {
+                AssetPaths = AssetDatabase.GetAllAssetPaths(),
+                PluginImporters = PluginImporter.GetAllImporters(),
+                PlayerAssemblies = CompilationPipeline.GetAssemblies(AssembliesType.Player),
+                EditorAssemblies = CompilationPipeline.GetAssemblies(AssembliesType.Editor),
+                BuildTargets = Enum.GetValues(typeof(BuildTarget))
+                    .Cast<BuildTarget>()
+                    .Where(target => target != BuildTarget.NoTarget)
+                    .GroupBy(target => (int)target)
+                    .Select(group => group.First())
+                    .ToArray(),
+            };
+            timings.InputSnapshotSeconds = phase.Elapsed.TotalSeconds;
+
+            phase.Restart();
+            progress?.Invoke("读取 Player 编译图与程序集元数据", 0.14f);
+            UnityEditor.Compilation.Assembly[] playerAssemblies = inputs.PlayerAssemblies
                 .Where(assembly => !IsEditorConstrained(assembly.name))
                 .ToArray();
 
             var referencePaths = BuildReferencePathMap(playerAssemblies);
-            Dictionary<string, string> precompiledIdentities = BuildPrecompiledReferenceIdentityMap();
+            Dictionary<string, string> precompiledIdentities = BuildPrecompiledReferenceIdentityMap(
+                inputs.PluginImporters, out Dictionary<string, string> pluginIdentitiesByAssetPath);
             var infos = new Dictionary<string, AssemblyInfo>(StringComparer.Ordinal);
             foreach (var assembly in playerAssemblies)
             {
@@ -514,16 +585,39 @@ namespace Game.Framework.Editor
                     ActualReferences = ReadAssemblyReferences(outputPath),
                 };
             }
+            timings.PlayerGraphSeconds = phase.Elapsed.TotalSeconds;
 
+            phase.Restart();
+            progress?.Invoke("采集 asmdef 与第三方 DLL 依赖证据", 0.36f);
             DependencyCapture dependencyCapture = CaptureDependencyEvidence(
-                infos, referencePaths, precompiledIdentities);
-            HotUpdateDeploymentEvidence hotUpdate = ReadHotUpdateEvidence();
+                infos,
+                referencePaths,
+                precompiledIdentities,
+                pluginIdentitiesByAssetPath,
+                inputs.AssetPaths,
+                inputs.PluginImporters,
+                inputs.EditorAssemblies,
+                inputs.BuildTargets);
+            timings.DependencyEvidenceSeconds = phase.Elapsed.TotalSeconds;
+
+            phase.Restart();
+            progress?.Invoke("读取热更 Profile 与派生证据", 0.76f);
+            HotUpdateDeploymentEvidence hotUpdate = ReadHotUpdateEvidence(inputs);
+            timings.HotUpdateEvidenceSeconds = phase.Elapsed.TotalSeconds;
+
+            phase.Restart();
+            progress?.Invoke("解析 UnityLinker 保留规则", 0.88f);
+            LinkerPreservation[] linkerPreservations = ReadLinkerPreservations(
+                infos, inputs.AssetPaths);
+            timings.LinkerEvidenceSeconds = phase.Elapsed.TotalSeconds;
+            timings.TotalSeconds = total.Elapsed.TotalSeconds;
+            progress?.Invoke("采集完成", 1f);
             return new Snapshot(
                 infos,
                 referencePaths,
                 hotUpdate.ProfileAssemblies,
                 hotUpdate.Note,
-                ReadLinkerPreservations(infos),
+                linkerPreservations,
                 dependencyCapture.DeclaredConsumersByDependency,
                 hotUpdate,
                 dependencyCapture.DeclaredConsumers,
@@ -643,11 +737,16 @@ namespace Game.Framework.Editor
             var sb = new StringBuilder(8192);
             sb.AppendLine("Framework Module 裁剪审计");
             sb.AppendLine("────────────────────────────────────────");
-            sb.AppendLine(!result.RequiresAttention
-                ? "结论：当前依赖声明一致，未发现已知的 Module 依赖方向或保留证据冲突。"
-                : result.IsHealthy
-                    ? "结论：程序集依赖声明一致，但第三方来源、linker 保留或热更派生状态仍需要理解 / 处理。"
-                    : "结论：发现需要处理或确认的问题，请先看检查结果。 ");
+            sb.AppendLine(result.Outcome switch
+            {
+                AuditOutcome.Clear =>
+                    "结论：当前依赖声明一致，未发现已知的 Module 依赖方向或证据冲突。",
+                AuditOutcome.Advisory =>
+                    $"结论：结构检查通过；发现 {result.UnconditionalModulePreservations.Length} 条已知无条件 linker 保留规则。它们是裁剪成本说明，不是结构失败。",
+                AuditOutcome.Warning =>
+                    "结论：程序集依赖声明一致，但第三方来源或热更派生证据不完整 / 已漂移，需要确认后再作移除判断。",
+                _ => "结论：发现需要处理的依赖、程序集定位或删除边界错误，请先看检查结果。 ",
+            });
             sb.AppendLine("说明：这里比较的是编译后的原始 DLL，不是最终包体；真正发布大小仍以目标平台 Player BuildReport 为准。 ");
             sb.AppendLine();
 
@@ -1877,13 +1976,14 @@ namespace Game.Framework.Editor
                 recommendations.Add("有程序集文件无法定位，本次闭包和字节数不完整；先修编译或热更清单，再比较体积。");
             if (result.DeletionChecks.Any(check => !check.Passed))
                 recommendations.Add("至少一条删除检查失败，说明可选模块发生了反向耦合；先修依赖方向，再讨论包体优化。");
-            if (result.HasRetentionWarnings)
+            if (result.HasRetentionAdvisories)
             {
                 string targets = string.Join("、", result.UnconditionalModulePreservations
                     .Select(rule => $"{rule.OwnerModuleName} → {rule.AssemblyName}")
                     .Distinct(StringComparer.Ordinal));
-                recommendations.Add("发现可选 Module 目录下的无条件 link.xml 保留：" + targets +
-                                    "。这不一定是错误，但会让“没调用就自动消失”失效；应结合反射/热更需求逐条验证。 ");
+                recommendations.Add("已知保留说明：可选 Module 目录下存在无条件 link.xml 保留：" + targets +
+                                    "。这不是依赖错误；保留该 Module 时，它会成为 UnityLinker 根并限制程序集或成员裁剪。" +
+                                    "物理移除 Module 会连同其 link.xml 一并移除，保留 Module 时则应结合反射、序列化或热更需求理解这项成本。 ");
             }
             if (result.HasHotUpdateViolations)
             {
@@ -2059,8 +2159,9 @@ namespace Game.Framework.Editor
             }
         }
 
-        private static HotUpdateDeploymentEvidence ReadHotUpdateEvidence()
+        private static HotUpdateDeploymentEvidence ReadHotUpdateEvidence(CaptureInputs inputs)
         {
+            if (inputs == null) throw new ArgumentNullException(nameof(inputs));
             var evidence = new HotUpdateDeploymentEvidence();
             Type profileType = AppDomain.CurrentDomain.GetAssemblies()
                 .Select(assembly => assembly.GetType("Game.Framework.Build.FrameworkHotUpdateProfile", false))
@@ -2072,17 +2173,16 @@ namespace Game.Framework.Editor
             }
             evidence.HotUpdateBuildModuleAvailable = true;
 
-            string[] guids = AssetDatabase.FindAssets("t:" + profileType.Name);
-            evidence.ProfileCount = guids.Length;
-            if (guids.Length == 0)
+            IReadOnlyList<string> paths = FrameworkEditorProfileCatalog.GetPaths(profileType);
+            evidence.ProfileCount = paths.Count;
+            if (paths.Count == 0)
             {
                 evidence.Note = "未找到 FrameworkHotUpdateProfile；请在代码热更新工作台明确创建。若目标是纯 AOT，也应保留空 Profile 作为明确的单一真源。";
                 return evidence;
             }
             evidence.ProfileAvailable = true;
 
-            string path = AssetDatabase.GUIDToAssetPath(guids.OrderBy(guid => AssetDatabase.GUIDToAssetPath(guid),
-                StringComparer.Ordinal).First());
+            string path = paths[0];
             evidence.ProfilePath = path;
             var profile = AssetDatabase.LoadAssetAtPath(path, profileType);
             var property = profileType.GetProperty("HotUpdateAssemblyNames", BindingFlags.Instance | BindingFlags.Public);
@@ -2096,7 +2196,7 @@ namespace Game.Framework.Editor
                 .Distinct(StringComparer.Ordinal)
                 .OrderBy(name => name, StringComparer.Ordinal)
                 .ToArray();
-            string multiple = guids.Length > 1 ? $"；发现 {guids.Length} 个 Profile，仅检查排序第一项" : string.Empty;
+            string multiple = paths.Count > 1 ? $"；发现 {paths.Count} 个 Profile，仅检查排序第一项" : string.Empty;
             evidence.Note = evidence.ProfileAssemblies.Length == 0
                 ? $"{path}：Profile 期望纯 AOT{multiple}。"
                 : $"{path}：Profile 期望 {evidence.ProfileAssemblies.Length} 个热更入口{multiple}。";
@@ -2104,9 +2204,24 @@ namespace Game.Framework.Editor
             Type builderType = AppDomain.CurrentDomain.GetAssemblies()
                 .Select(assembly => assembly.GetType("Game.Framework.Build.FrameworkHotUpdateBuilder", false))
                 .FirstOrDefault(type => type != null);
+            const BindingFlags inspectFlags =
+                BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
             MethodInfo inspect = builderType?.GetMethod(
+                "InspectEvidenceFromSnapshot",
+                inspectFlags,
+                binder: null,
+                new[]
+                {
+                    profileType,
+                    typeof(string[]),
+                    typeof(UnityEditor.Compilation.Assembly[]),
+                },
+                modifiers: null) ?? builderType?.GetMethod(
                 "InspectEvidence",
-                BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+                inspectFlags,
+                binder: null,
+                new[] { profileType },
+                modifiers: null);
             if (inspect == null)
             {
                 evidence.Note += " 当前 Build Module 未提供派生证据检查。";
@@ -2115,7 +2230,10 @@ namespace Game.Framework.Editor
 
             try
             {
-                object raw = inspect.Invoke(null, new[] { profile });
+                object[] arguments = inspect.GetParameters().Length == 3
+                    ? new object[] { profile, inputs.AssetPaths, inputs.PlayerAssemblies }
+                    : new[] { profile };
+                object raw = inspect.Invoke(null, arguments);
                 ApplyHotUpdateInspection(evidence, raw);
             }
             catch (TargetInvocationException ex)
@@ -2176,11 +2294,12 @@ namespace Game.Framework.Editor
         }
 
         private static LinkerPreservation[] ReadLinkerPreservations(
-            IReadOnlyDictionary<string, AssemblyInfo> assemblies)
+            IReadOnlyDictionary<string, AssemblyInfo> assemblies,
+            IEnumerable<string> assetPaths)
         {
             var result = new List<LinkerPreservation>();
             foreach (FrameworkModuleSourceCatalog.SourceLocation source in
-                     FrameworkModuleSourceCatalog.EnumerateFiles("link.xml"))
+                     FrameworkModuleSourceCatalog.EnumerateFiles("link.xml", assetPaths))
             {
                 string owner = ResolveLinkerOwner(source.PhysicalPath, assemblies.Values);
                 try
@@ -2243,11 +2362,16 @@ namespace Game.Framework.Editor
         private static DependencyCapture CaptureDependencyEvidence(
             IReadOnlyDictionary<string, AssemblyInfo> playerAssemblies,
             IReadOnlyDictionary<string, string> referencePaths,
-            IReadOnlyDictionary<string, string> precompiledIdentities)
+            IReadOnlyDictionary<string, string> precompiledIdentities,
+            IReadOnlyDictionary<string, string> pluginIdentitiesByAssetPath,
+            IEnumerable<string> assetPaths,
+            IEnumerable<PluginImporter> pluginImporters,
+            IEnumerable<UnityEditor.Compilation.Assembly> editorAssemblies,
+            IReadOnlyCollection<BuildTarget> buildTargets)
         {
             var capture = new DependencyCapture();
             var declarations = new List<AsmdefRecord>();
-            foreach (string path in AssetDatabase.GetAllAssetPaths()
+            foreach (string path in assetPaths
                          .Where(path => path.EndsWith(".asmdef", StringComparison.OrdinalIgnoreCase))
                          .OrderBy(path => path, StringComparer.Ordinal))
             {
@@ -2285,7 +2409,7 @@ namespace Game.Framework.Editor
                 capture.AddSource(CreateDependencySource(dto.name, source, false));
             }
 
-            foreach (PluginImporter importer in PluginImporter.GetAllImporters()
+            foreach (PluginImporter importer in pluginImporters
                          .OrderBy(importer => importer.assetPath, StringComparer.Ordinal))
             {
                 if (importer == null || importer.isNativePlugin ||
@@ -2298,7 +2422,7 @@ namespace Game.Framework.Editor
                         $"{importer.assetPath}：{sourceReason}");
                     continue;
                 }
-                string identity = ReadManagedAssemblyIdentity(source.PhysicalPath);
+                pluginIdentitiesByAssetPath.TryGetValue(importer.assetPath, out string identity);
                 if (string.IsNullOrWhiteSpace(identity))
                 {
                     capture.AddIssue("managed-plugin-identity-unreadable",
@@ -2311,11 +2435,7 @@ namespace Game.Framework.Editor
                 try
                 {
                     editorCompatible = importer.GetCompatibleWithEditor();
-                    compatibleBuildTargets = Enum.GetValues(typeof(BuildTarget))
-                        .Cast<BuildTarget>()
-                        .Where(target => target != BuildTarget.NoTarget)
-                        .GroupBy(target => (int)target)
-                        .Select(group => group.First())
+                    compatibleBuildTargets = buildTargets
                         .Where(importer.GetCompatibleWithPlatform)
                         .Select(target => target.ToString())
                         .OrderBy(value => value, StringComparer.Ordinal)
@@ -2412,8 +2532,7 @@ namespace Game.Framework.Editor
                     consumer.ActualReferences);
             }
 
-            foreach (UnityEditor.Compilation.Assembly assembly in
-                     CompilationPipeline.GetAssemblies(AssembliesType.Editor)
+            foreach (UnityEditor.Compilation.Assembly assembly in editorAssemblies
                          .OrderBy(item => item.name, StringComparer.Ordinal))
             {
                 string path = CompilationPipeline.GetAssemblyDefinitionFilePathFromAssemblyName(assembly.name);
@@ -2734,13 +2853,19 @@ namespace Game.Framework.Editor
                 .ToArray();
         }
 
-        private static Dictionary<string, string> BuildPrecompiledReferenceIdentityMap()
+        private static Dictionary<string, string> BuildPrecompiledReferenceIdentityMap(
+            IEnumerable<PluginImporter> pluginImporters,
+            out Dictionary<string, string> identitiesByAssetPath)
         {
             var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach (PluginImporter importer in PluginImporter.GetAllImporters())
+            identitiesByAssetPath = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (PluginImporter importer in pluginImporters)
             {
+                if (importer == null) continue;
                 string file = Path.GetFileName(importer.assetPath);
                 string identity = ReadManagedPluginAssemblyIdentity(importer);
+                if (!string.IsNullOrWhiteSpace(importer.assetPath))
+                    identitiesByAssetPath[importer.assetPath] = identity;
                 if (string.IsNullOrWhiteSpace(file) || string.IsNullOrWhiteSpace(identity)) continue;
                 if (result.TryGetValue(file, out string existing) &&
                     !existing.Equals(identity, StringComparison.Ordinal))

@@ -24,6 +24,13 @@ namespace Game.Framework.Editor
     /// </remarks>
     internal static class FrameworkModuleSourceCatalog
     {
+        private static UpmPackageInfo[] _registeredPackages;
+
+        static FrameworkModuleSourceCatalog()
+        {
+            UnityEditor.PackageManager.Events.registeredPackages += _ => _registeredPackages = null;
+        }
+
         /// <summary>源码在当前工程中的安装形态；只描述来源，不推导能否安全移除。</summary>
         internal enum SourceKind
         {
@@ -89,13 +96,22 @@ namespace Game.Framework.Editor
         }
 
         /// <summary>枚举当前项目 Assets 与全部已注册 Package 中指定文件名的真实源码。</summary>
-        internal static SourceLocation[] EnumerateFiles(string fileName)
+        internal static SourceLocation[] EnumerateFiles(string fileName) =>
+            EnumerateFiles(fileName, AssetDatabase.GetAllAssetPaths());
+
+        /// <summary>
+        /// 从调用方同一轮采集的 AssetDatabase 路径快照枚举指定文件，避免一次审计为不同证据重复扫描全工程。
+        /// </summary>
+        internal static SourceLocation[] EnumerateFiles(
+            string fileName,
+            System.Collections.Generic.IEnumerable<string> knownAssetPaths)
         {
             if (string.IsNullOrWhiteSpace(fileName) ||
                 fileName.IndexOfAny(new[] { '/', '\\' }) >= 0)
                 throw new ArgumentException("只能按单个文件名枚举。", nameof(fileName));
+            if (knownAssetPaths == null) throw new ArgumentNullException(nameof(knownAssetPaths));
 
-            return ResolveKnownAssetPaths(AssetDatabase.GetAllAssetPaths()
+            return ResolveKnownAssetPaths(knownAssetPaths
                     .Where(path => string.Equals(
                         Path.GetFileName(path), fileName, StringComparison.OrdinalIgnoreCase)))
                 .OrderBy(item => item.AssetPath, StringComparer.Ordinal)
@@ -362,7 +378,7 @@ namespace Game.Framework.Editor
         };
 
         private static UpmPackageInfo[] RegisteredPackages() =>
-            UpmPackageInfo.GetAllRegisteredPackages()
+            _registeredPackages ??= UpmPackageInfo.GetAllRegisteredPackages()
                 .Where(package => package != null)
                 .OrderBy(package => package.name, StringComparer.Ordinal)
                 .ToArray();

@@ -90,6 +90,16 @@ namespace Game.Framework.Build
 
         // YooAsset 构建管线的临时输出子目录名（同 FrameworkAssetBuilder 内联常量，清理版本时跳过）。
         private const string OutputCacheFolderName = "OutputCache";
+        private const int GenerationStampFormatVersion = 5;
+
+        private static readonly StringComparer PhysicalPathComparer =
+            Path.DirectorySeparatorChar == '\\'
+                ? StringComparer.OrdinalIgnoreCase
+                : StringComparer.Ordinal;
+        private static readonly StringComparison PhysicalPathComparison =
+            Path.DirectorySeparatorChar == '\\'
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal;
 
         // Generate 的结果同时依赖这些编辑器状态。stamp 放在 HybridCLRData（本地生成物目录）里，
         // BuildCodePackage 据此拒绝消费旧版本/旧平台的桥接和裁剪产物。
@@ -97,10 +107,91 @@ namespace Game.Framework.Build
             Path.Combine(SettingsUtil.HybridCLRDataDir, "SSFramework", "generation-stamp.json");
 
         /// <summary>
+        /// 一次 Generate 写戳或新鲜度校验内共享的输入快照。它只复用本轮已经读取过的文件内容，
+        /// 不跨调用缓存，因此下一次显式审计仍会重新读取当前磁盘；Module Audit 还可把同轮冻结的
+        /// Asset 路径与 Player 编译图传进来，避免一份报告混用两套 Unity 状态。
+        /// </summary>
+        internal sealed class GenerationFingerprintCapture
+        {
+            private readonly Dictionary<string, FileHashEvidence> _fileHashes =
+                new(PhysicalPathComparer);
+            private string[] _assetPaths;
+            private UnityEditor.Compilation.Assembly[] _playerAssemblies;
+
+            internal GenerationFingerprintCapture(
+                string[] assetPaths = null,
+                UnityEditor.Compilation.Assembly[] playerAssemblies = null)
+            {
+                _assetPaths = assetPaths;
+                _playerAssemblies = playerAssemblies;
+            }
+
+            internal string[] AssetPaths => _assetPaths ??= AssetDatabase.GetAllAssetPaths();
+
+            internal UnityEditor.Compilation.Assembly[] PlayerAssemblies =>
+                _playerAssemblies ??= CompilationPipeline.GetAssemblies(AssembliesType.Player);
+
+            internal int UniqueFileReadCount => _fileHashes.Count;
+
+            // UPM 锁、NuGet 清单和 HybridCLRSettings 都按内容进入同一轮证据；显示版本不足以覆盖重解析或字段漂移。
+            internal string HashRequiredProjectFile(string relativePath) =>
+                HashRequiredFile(Path.Combine(AssetBuildLayout.ProjectRoot, relativePath), relativePath);
+
+            internal string HashRequiredFile(string path, string description)
+            {
+                string fullPath = Path.GetFullPath(path);
+                if (!File.Exists(fullPath))
+                    throw new FileNotFoundException($"生成环境输入文件不存在：{description}", fullPath);
+
+                var before = new FileInfo(fullPath);
+                if (_fileHashes.TryGetValue(fullPath, out FileHashEvidence cached))
+                {
+                    if (cached.Length != before.Length || cached.LastWriteUtc != before.LastWriteTimeUtc)
+                        throw new IOException($"生成环境输入在同一次证据采集中发生变化：{description}（{fullPath}）");
+                    return cached.Sha256;
+                }
+
+                string sha256;
+                using (var stream = File.OpenRead(fullPath))
+                using (var hash = SHA256.Create())
+                    sha256 = BitConverter.ToString(hash.ComputeHash(stream)).Replace("-", "").ToLowerInvariant();
+
+                var after = new FileInfo(fullPath);
+                if (before.Length != after.Length || before.LastWriteTimeUtc != after.LastWriteTimeUtc)
+                    throw new IOException($"生成环境输入在读取期间发生变化：{description}（{fullPath}）");
+                _fileHashes[fullPath] = new FileHashEvidence(after.Length, after.LastWriteTimeUtc, sha256);
+                return sha256;
+            }
+
+            private readonly struct FileHashEvidence
+            {
+                internal FileHashEvidence(long length, DateTime lastWriteUtc, string sha256)
+                {
+                    Length = length;
+                    LastWriteUtc = lastWriteUtc;
+                    Sha256 = sha256;
+                }
+
+                internal long Length { get; }
+                internal DateTime LastWriteUtc { get; }
+                internal string Sha256 { get; }
+            }
+        }
+
+        /// <summary>
         /// 只读检查 Profile 的三层派生状态。不会同步设置、Generate、CompileDll 或写文件，
         /// 供 Module Audit、CI 与问题排查在执行昂贵构建前解释“期望配置是否已经落到产物”。
         /// </summary>
-        internal static FrameworkHotUpdateEvidence InspectEvidence(FrameworkHotUpdateProfile profile)
+        internal static FrameworkHotUpdateEvidence InspectEvidence(FrameworkHotUpdateProfile profile) =>
+            InspectEvidenceFromSnapshot(profile, assetPaths: null, playerAssemblies: null);
+
+        /// <summary>
+        /// 复用调用者已经冻结的 Unity 全局输入；只影响单轮采集成本，不改变证据范围或跨调用缓存结果。
+        /// </summary>
+        internal static FrameworkHotUpdateEvidence InspectEvidenceFromSnapshot(
+            FrameworkHotUpdateProfile profile,
+            string[] assetPaths,
+            UnityEditor.Compilation.Assembly[] playerAssemblies)
         {
             if (profile == null) throw new ArgumentNullException(nameof(profile));
 
@@ -113,7 +204,7 @@ namespace Game.Framework.Build
                 HasHotUpdateLauncherInEnabledScenes());
 
             InspectHybridClrSettings(evidence);
-            InspectGenerationStamp(profile, evidence);
+            InspectGenerationStamp(profile, evidence, assetPaths, playerAssemblies);
             InspectStagedManifest(evidence);
             return evidence;
         }
@@ -220,7 +311,9 @@ namespace Game.Framework.Build
 
         private static void InspectGenerationStamp(
             FrameworkHotUpdateProfile profile,
-            FrameworkHotUpdateEvidence evidence)
+            FrameworkHotUpdateEvidence evidence,
+            string[] assetPaths,
+            UnityEditor.Compilation.Assembly[] playerAssemblies)
         {
             evidence.GenerationRequired = evidence.ProfileAssemblies.Length > 0;
             if (!evidence.GenerationRequired)
@@ -232,7 +325,8 @@ namespace Game.Framework.Build
 
             try
             {
-                (evidence.GenerationFresh, evidence.GenerationMessage) = ValidateGenerationStamp(profile);
+                (evidence.GenerationFresh, evidence.GenerationMessage) = ValidateGenerationStamp(
+                    profile, assetPaths, playerAssemblies);
             }
             catch (Exception ex)
             {
@@ -609,6 +703,15 @@ namespace Game.Framework.Build
                 var hotNames = profile.HotUpdateAssemblyNames;
                 if (hotNames.Count > 0)
                 {
+                    // 旧版或缺失 stamp 不可能被 CompileDll 修复；先做廉价的格式预检，
+                    // 避免直接菜单 / CI 调用先支付一次目标平台编译成本才得到必然失败的结论。
+                    var (stampReady, stampMessage) = ValidateGenerationStampHeader();
+                    if (!stampReady)
+                    {
+                        sb.AppendLine(stampMessage);
+                        return (false, sb.ToString().TrimEnd());
+                    }
+
                     // stamp 的热更侧必须比较当前目标平台 DLL，而不是 Editor ScriptAssemblies；先做一次快速
                     // CompileDll，既刷新证据也是本次代码包本来就需要的产物。
                     CompileDllCommand.CompileDll(target, EditorUserBuildSettings.development);
@@ -773,21 +876,23 @@ namespace Game.Framework.Build
         private static void WriteGenerationStamp(FrameworkHotUpdateProfile profile)
         {
             var installer = new InstallerController();
+            var capture = new GenerationFingerprintCapture();
             var stamp = new GenerationStamp
             {
-                FormatVersion = 4,
+                FormatVersion = GenerationStampFormatVersion,
                 UnityVersion = Application.unityVersion,
                 HybridClrVersion = installer.PackageVersion,
                 BuildTarget = EditorUserBuildSettings.activeBuildTarget.ToString(),
                 Development = EditorUserBuildSettings.development,
                 HotUpdateAssemblies = GetSortedHotUpdateAssemblyNames(profile),
-                PackageLockSha256 = HashRequiredProjectFile("Packages/packages-lock.json"),
-                NuGetPackagesSha256 = HashRequiredProjectFile("Packages/nuget-packages/packages.config"),
-                HybridClrSettingsSha256 = HashRequiredProjectFile("ProjectSettings/HybridCLRSettings.asset"),
+                PackageLockSha256 = capture.HashRequiredProjectFile("Packages/packages-lock.json"),
+                NuGetPackagesSha256 = capture.HashRequiredProjectFile("Packages/nuget-packages/packages.config"),
+                HybridClrSettingsSha256 = capture.HashRequiredProjectFile("ProjectSettings/HybridCLRSettings.asset"),
                 PlayerBuildSettings = GetPlayerBuildSettingsFingerprint(),
                 HotUpdateTargetMetadataTopologySha256 = GetHotUpdateTargetMetadataTopologyFingerprint(profile),
-                AotSourceInputsSha256 = GetAotSourceInputsFingerprint(profile.HotUpdateAssemblyNames),
-                PlayerLinkerRootsSha256 = GetPlayerLinkerRootsFingerprint(),
+                AotSourceInputsSha256 = GetAotSourceInputsFingerprint(
+                    profile.HotUpdateAssemblyNames, capture),
+                PlayerLinkerRootsSha256 = GetPlayerLinkerRootsFingerprint(capture),
                 GeneratedAtUtc = DateTime.UtcNow.ToString("O"),
             };
             string dir = Path.GetDirectoryName(GenerationStampPath);
@@ -795,25 +900,16 @@ namespace Game.Framework.Build
             File.WriteAllText(GenerationStampPath, JsonUtility.ToJson(stamp, prettyPrint: true), Encoding.UTF8);
         }
 
-        private static (bool ok, string message) ValidateGenerationStamp(FrameworkHotUpdateProfile profile)
+        private static (bool ok, string message) ValidateGenerationStamp(
+            FrameworkHotUpdateProfile profile,
+            string[] assetPaths = null,
+            UnityEditor.Compilation.Assembly[] playerAssemblies = null)
         {
-            if (!File.Exists(GenerationStampPath))
-                return (false, "✗ 未找到 Generate/All 环境记录。请先执行「2. 生成桥接与裁剪文件」。");
-
-            GenerationStamp stamp;
-            try
-            {
-                stamp = JsonUtility.FromJson<GenerationStamp>(File.ReadAllText(GenerationStampPath, Encoding.UTF8));
-            }
-            catch (Exception e)
-            {
-                return (false, "✗ Generate/All 环境记录损坏：" + e.Message + "。请重新执行生成。");
-            }
-
-            if (stamp == null || stamp.FormatVersion != 4)
-                return (false, "✗ Generate/All 环境记录版本不兼容。请重新执行生成。");
+            if (!TryReadCompatibleGenerationStamp(out GenerationStamp stamp, out string stampError))
+                return (false, stampError);
 
             var installer = new InstallerController();
+            var capture = new GenerationFingerprintCapture(assetPaths, playerAssemblies);
             var mismatches = new List<string>();
             if (!string.Equals(stamp.UnityVersion, Application.unityVersion, StringComparison.Ordinal))
                 mismatches.Add($"Unity {stamp.UnityVersion} → {Application.unityVersion}");
@@ -826,36 +922,97 @@ namespace Game.Framework.Build
                 mismatches.Add($"Development {stamp.Development} → {EditorUserBuildSettings.development}");
             if (!(stamp.HotUpdateAssemblies ?? new List<string>()).SequenceEqual(GetSortedHotUpdateAssemblyNames(profile)))
                 mismatches.Add("热更程序集列表已变化");
-            if (!string.Equals(
-                    stamp.HotUpdateTargetMetadataTopologySha256,
-                    GetHotUpdateTargetMetadataTopologyFingerprint(profile),
-                    StringComparison.Ordinal))
-                mismatches.Add("目标平台热更 DLL 元数据拓扑已变化");
-            if (!string.Equals(
-                    stamp.AotSourceInputsSha256,
-                    GetAotSourceInputsFingerprint(profile.HotUpdateAssemblyNames),
-                    StringComparison.Ordinal))
-                mismatches.Add("AOT 程序集源码或预编译输入已变化");
-            if (!string.Equals(
-                    stamp.PlayerLinkerRootsSha256,
-                    GetPlayerLinkerRootsFingerprint(),
-                    StringComparison.Ordinal))
-                mismatches.Add("Player linker 根（link.xml / 场景 / Resources / Preloaded）已变化");
-            if (!string.Equals(stamp.PackageLockSha256, HashRequiredProjectFile("Packages/packages-lock.json"), StringComparison.Ordinal))
+            if (!string.Equals(stamp.PackageLockSha256,
+                    capture.HashRequiredProjectFile("Packages/packages-lock.json"), StringComparison.Ordinal))
                 mismatches.Add("Packages/packages-lock.json 已变化");
-            if (!string.Equals(stamp.NuGetPackagesSha256, HashRequiredProjectFile("Packages/nuget-packages/packages.config"), StringComparison.Ordinal))
+            if (!string.Equals(stamp.NuGetPackagesSha256,
+                    capture.HashRequiredProjectFile("Packages/nuget-packages/packages.config"), StringComparison.Ordinal))
                 mismatches.Add("NuGet packages.config 已变化");
-            if (!string.Equals(stamp.HybridClrSettingsSha256, HashRequiredProjectFile("ProjectSettings/HybridCLRSettings.asset"), StringComparison.Ordinal))
+            if (!string.Equals(stamp.HybridClrSettingsSha256,
+                    capture.HashRequiredProjectFile("ProjectSettings/HybridCLRSettings.asset"), StringComparison.Ordinal))
                 mismatches.Add("HybridCLRSettings 已变化");
             string playerSettings = GetPlayerBuildSettingsFingerprint();
             if (!string.Equals(stamp.PlayerBuildSettings, playerSettings, StringComparison.Ordinal))
                 mismatches.Add($"AOT PlayerSettings {stamp.PlayerBuildSettings} → {playerSettings}");
+            if (mismatches.Count > 0) return StaleGenerationStamp(mismatches);
 
-            return mismatches.Count == 0
-                ? (true, $"✓ Generate/All 产物与当前环境一致（{stamp.GeneratedAtUtc}）")
-                : (false, "✗ Generate/All 产物已过期：" + string.Join("；", mismatches) +
-                    "。请重新执行「2. 生成桥接与裁剪文件」。");
+            // 所有失效原因的修复动作相同。按成本从低到高逐层证明新鲜；一层已经证明过期后，
+            // 不再为了罗列更多原因继续执行后续完整源码或 AssetDatabase 依赖扫描。
+            if (!string.Equals(
+                    stamp.HotUpdateTargetMetadataTopologySha256,
+                    GetHotUpdateTargetMetadataTopologyFingerprint(profile),
+                    StringComparison.Ordinal))
+                return StaleGenerationStamp("目标平台热更 DLL 元数据拓扑已变化");
+            if (!string.Equals(
+                    stamp.AotSourceInputsSha256,
+                    GetAotSourceInputsFingerprint(profile.HotUpdateAssemblyNames, capture),
+                    StringComparison.Ordinal))
+                return StaleGenerationStamp("AOT 程序集源码或预编译输入已变化");
+            if (!string.Equals(
+                    stamp.PlayerLinkerRootsSha256,
+                    GetPlayerLinkerRootsFingerprint(capture),
+                    StringComparison.Ordinal))
+                return StaleGenerationStamp(
+                    "Player linker 根（link.xml / 场景 / Resources / Preloaded）已变化");
+
+            return (true, $"✓ Generate/All 产物与当前环境一致（{stamp.GeneratedAtUtc}）");
         }
+
+        private static (bool ok, string message) ValidateGenerationStampHeader() =>
+            TryReadCompatibleGenerationStamp(out _, out string error)
+                ? (true, string.Empty)
+                : (false, error);
+
+        private static bool TryReadCompatibleGenerationStamp(
+            out GenerationStamp stamp,
+            out string error)
+        {
+            stamp = null;
+            if (!File.Exists(GenerationStampPath))
+            {
+                error = "✗ 未找到 Generate/All 环境记录。请先执行「2. 生成桥接与裁剪文件」。";
+                return false;
+            }
+
+            try
+            {
+                stamp = JsonUtility.FromJson<GenerationStamp>(
+                    File.ReadAllText(GenerationStampPath, Encoding.UTF8));
+            }
+            catch (Exception e)
+            {
+                error = "✗ Generate/All 环境记录损坏：" + e.Message + "。请重新执行生成。";
+                return false;
+            }
+
+            (bool compatible, string formatMessage) =
+                ValidateGenerationStampFormatVersion(stamp?.FormatVersion);
+            if (!compatible)
+            {
+                error = formatMessage;
+                return false;
+            }
+
+            error = string.Empty;
+            return true;
+        }
+
+        internal static (bool ok, string message) ValidateGenerationStampFormatVersion(int? actualVersion)
+        {
+            if (actualVersion == GenerationStampFormatVersion) return (true, string.Empty);
+
+            string actual = actualVersion.HasValue ? $"v{actualVersion.Value}" : "未知版本";
+            return (false,
+                $"✗ Generate/All 环境记录版本不兼容：发现 {actual}，当前要求 v{GenerationStampFormatVersion}。" +
+                "请重新执行「2. 生成桥接与裁剪文件」。");
+        }
+
+        private static (bool ok, string message) StaleGenerationStamp(params string[] mismatches) =>
+            StaleGenerationStamp((IEnumerable<string>)mismatches);
+
+        private static (bool ok, string message) StaleGenerationStamp(IEnumerable<string> mismatches) =>
+            (false, "✗ Generate/All 产物已过期：" + string.Join("；", mismatches) +
+                    "。请重新执行「2. 生成桥接与裁剪文件」。");
 
         private static List<string> GetSortedHotUpdateAssemblyNames(FrameworkHotUpdateProfile profile)
             => profile.HotUpdateAssemblyNames.OrderBy(name => name, StringComparer.Ordinal).ToList();
@@ -887,10 +1044,16 @@ namespace Game.Framework.Build
         /// 误判成必须 Generate，同时覆盖 #if !UNITY_EDITOR / 平台分支。
         /// </summary>
         internal static string GetAotSourceInputsFingerprint(IEnumerable<string> hotUpdateAssemblies)
+            => GetAotSourceInputsFingerprint(
+                hotUpdateAssemblies, new GenerationFingerprintCapture());
+
+        private static string GetAotSourceInputsFingerprint(
+            IEnumerable<string> hotUpdateAssemblies,
+            GenerationFingerprintCapture capture)
         {
+            if (capture == null) throw new ArgumentNullException(nameof(capture));
             var hot = new HashSet<string>(hotUpdateAssemblies ?? Array.Empty<string>(), StringComparer.Ordinal);
-            UnityEditor.Compilation.Assembly[] playerAssemblies = CompilationPipeline
-                .GetAssemblies(AssembliesType.Player)
+            UnityEditor.Compilation.Assembly[] playerAssemblies = capture.PlayerAssemblies
                 .Where(assembly => !FrameworkModuleAudit.IsEditorConstrained(assembly.name))
                 .ToArray();
             var playerNames = new HashSet<string>(
@@ -904,33 +1067,37 @@ namespace Game.Framework.Build
                 if (hot.Contains(assembly.name)) continue;
 
                 var entries = new List<string>();
-                entries.AddRange(GetCompilerOptionsFingerprintEntries(assembly));
+                entries.AddRange(GetCompilerOptionsFingerprintEntries(assembly, capture));
                 entries.AddRange((assembly.defines ?? Array.Empty<string>())
                     .OrderBy(define => define, StringComparer.Ordinal)
                     .Select(define => "D|" + define));
                 foreach (string sourceFile in (assembly.sourceFiles ?? Array.Empty<string>())
                              .OrderBy(path => path, StringComparer.Ordinal))
-                    entries.Add("S|" + HashRequiredFile(sourceFile, assembly.name + " 源文件"));
+                    entries.Add("S|" + capture.HashRequiredFile(sourceFile, assembly.name + " 源文件"));
 
                 string asmdefPath = CompilationPipeline.GetAssemblyDefinitionFilePathFromAssemblyName(assembly.name);
                 if (!string.IsNullOrWhiteSpace(asmdefPath) &&
                     FrameworkModuleSourceCatalog.TryResolve(asmdefPath, out var source, out _))
-                    entries.Add("ASMDEF|" + HashRequiredFile(source.PhysicalPath, assembly.name + " asmdef"));
+                    entries.Add("ASMDEF|" + capture.HashRequiredFile(
+                        source.PhysicalPath, assembly.name + " asmdef"));
                 inputs[assembly.name] = entries.ToArray();
             }
 
             var precompiledByName = new Dictionary<string, (string path, string hash)>(
                 StringComparer.OrdinalIgnoreCase);
+            var precompiledPaths = new SortedSet<string>(PhysicalPathComparer);
             foreach (UnityEditor.Compilation.Assembly assembly in playerAssemblies)
             foreach (string reference in assembly.compiledAssemblyReferences ?? Array.Empty<string>())
             {
                 string fullPath = Path.GetFullPath(reference);
+                if (!IsPathInside(fullPath, EditorApplication.applicationContentsPath))
+                    precompiledPaths.Add(fullPath);
+            }
+            foreach (string fullPath in precompiledPaths)
+            {
                 string name = FrameworkModuleAudit.ReadManagedAssemblyIdentity(fullPath);
-                if (string.IsNullOrWhiteSpace(name)) continue;
-                if (IsPathInside(fullPath, EditorApplication.applicationContentsPath) ||
-                    playerNames.Contains(name))
-                    continue;
-                string hash = HashRequiredFile(fullPath, "Player 预编译依赖");
+                if (string.IsNullOrWhiteSpace(name) || playerNames.Contains(name)) continue;
+                string hash = capture.HashRequiredFile(fullPath, "Player 预编译依赖");
                 if (precompiledByName.TryGetValue(name, out var existing) &&
                     !string.Equals(existing.hash, hash, StringComparison.Ordinal))
                     throw new InvalidOperationException(
@@ -952,8 +1119,15 @@ namespace Game.Framework.Build
         /// </summary>
         internal static string[] GetCompilerOptionsFingerprintEntries(
             UnityEditor.Compilation.Assembly assembly)
+            => GetCompilerOptionsFingerprintEntries(
+                assembly, new GenerationFingerprintCapture());
+
+        private static string[] GetCompilerOptionsFingerprintEntries(
+            UnityEditor.Compilation.Assembly assembly,
+            GenerationFingerprintCapture capture)
         {
             if (assembly == null) throw new ArgumentNullException(nameof(assembly));
+            if (capture == null) throw new ArgumentNullException(nameof(capture));
             ScriptCompilerOptions options = assembly.compilerOptions;
             if (options == null)
                 throw new InvalidOperationException($"Player 程序集 {assembly.name} 缺少 ScriptCompilerOptions。 ");
@@ -965,11 +1139,11 @@ namespace Game.Framework.Build
                 $"editorCompatibility={options.EditorAssembliesCompatibilityLevel}",
             };
             AddOrderedValues(entries, "ARG", options.AdditionalCompilerArguments);
-            AddOrderedCompilerFiles(entries, "RSP", options.ResponseFiles, assembly.name);
-            AddOrderedCompilerFiles(entries, "ANALYZER", options.RoslynAnalyzerDllPaths, assembly.name);
-            AddOrderedCompilerFiles(entries, "ADDITIONAL", options.RoslynAdditionalFilePaths, assembly.name);
-            AddOptionalCompilerFile(entries, "ANALYZER_CONFIG", options.AnalyzerConfigPath, assembly.name);
-            AddOptionalCompilerFile(entries, "RULESET", options.RoslynAnalyzerRulesetPath, assembly.name);
+            AddOrderedCompilerFiles(entries, "RSP", options.ResponseFiles, assembly.name, capture);
+            AddOrderedCompilerFiles(entries, "ANALYZER", options.RoslynAnalyzerDllPaths, assembly.name, capture);
+            AddOrderedCompilerFiles(entries, "ADDITIONAL", options.RoslynAdditionalFilePaths, assembly.name, capture);
+            AddOptionalCompilerFile(entries, "ANALYZER_CONFIG", options.AnalyzerConfigPath, assembly.name, capture);
+            AddOptionalCompilerFile(entries, "RULESET", options.RoslynAnalyzerRulesetPath, assembly.name, capture);
             return entries.ToArray();
         }
 
@@ -984,25 +1158,34 @@ namespace Game.Framework.Build
             ICollection<string> entries,
             string kind,
             string[] paths,
-            string assemblyName)
+            string assemblyName,
+            GenerationFingerprintCapture capture)
         {
             string[] source = paths ?? Array.Empty<string>();
             for (int index = 0; index < source.Length; index++)
-                entries.Add($"{kind}|{index}|{GetCompilerInputFileEvidence(source[index], assemblyName)}");
+            {
+                string evidence = GetCompilerInputFileEvidence(
+                    source[index], assemblyName, capture);
+                entries.Add($"{kind}|{index}|{evidence}");
+            }
         }
 
         private static void AddOptionalCompilerFile(
             ICollection<string> entries,
             string kind,
             string path,
-            string assemblyName)
+            string assemblyName,
+            GenerationFingerprintCapture capture)
         {
             entries.Add(string.IsNullOrWhiteSpace(path)
                 ? kind + "|<none>"
-                : kind + "|" + GetCompilerInputFileEvidence(path, assemblyName));
+                : kind + "|" + GetCompilerInputFileEvidence(path, assemblyName, capture));
         }
 
-        private static string GetCompilerInputFileEvidence(string path, string assemblyName)
+        private static string GetCompilerInputFileEvidence(
+            string path,
+            string assemblyName,
+            GenerationFingerprintCapture capture)
         {
             if (string.IsNullOrWhiteSpace(path))
                 throw new InvalidDataException($"Player 程序集 {assemblyName} 包含空编译器输入路径。 ");
@@ -1017,7 +1200,8 @@ namespace Game.Framework.Build
                     .Replace('\\', '/');
             else
                 identity = "$external/" + Path.GetFileName(fullPath);
-            return identity + "|" + HashRequiredFile(fullPath, assemblyName + " 编译器输入");
+            return identity + "|" + capture.HashRequiredFile(
+                fullPath, assemblyName + " 编译器输入");
         }
 
         /// <summary>
@@ -1025,12 +1209,17 @@ namespace Game.Framework.Build
         /// 资产及其依赖图。序列化资产还记录内容哈希，以发现“依赖集合没变但组件/字段根变化”的情况。
         /// </summary>
         internal static string GetPlayerLinkerRootsFingerprint()
+            => GetPlayerLinkerRootsFingerprint(new GenerationFingerprintCapture());
+
+        private static string GetPlayerLinkerRootsFingerprint(
+            GenerationFingerprintCapture capture)
         {
+            if (capture == null) throw new ArgumentNullException(nameof(capture));
             var inputs = new Dictionary<string, string[]>(StringComparer.Ordinal);
             string generatedLinkXml = NormalizeAssetPath(
                 "Assets/" + HybridCLRSettings.Instance.outputLinkFile.TrimStart('/', '\\'));
             var linkEntries = new List<string>();
-            foreach (string assetPath in AssetDatabase.GetAllAssetPaths()
+            foreach (string assetPath in capture.AssetPaths
                          .Where(path => Path.GetFileName(path).Equals(
                              "link.xml", StringComparison.OrdinalIgnoreCase))
                          .Select(NormalizeAssetPath)
@@ -1039,7 +1228,7 @@ namespace Game.Framework.Build
             {
                 if (!FrameworkModuleSourceCatalog.TryResolve(assetPath, out var source, out string reason))
                     throw new InvalidDataException($"无法解析 UnityLinker 输入 {assetPath}：{reason}");
-                linkEntries.Add(assetPath + "|" + HashRequiredFile(source.PhysicalPath, assetPath));
+                linkEntries.Add(assetPath + "|" + capture.HashRequiredFile(source.PhysicalPath, assetPath));
             }
             inputs["$link.xml"] = linkEntries.ToArray();
 
@@ -1052,7 +1241,7 @@ namespace Game.Framework.Build
                 {
                     string assemblyPath = type.Assembly.Location;
                     string implementation = !string.IsNullOrWhiteSpace(assemblyPath) && File.Exists(assemblyPath)
-                        ? HashRequiredFile(assemblyPath, type.FullName + " linker processor")
+                        ? capture.HashRequiredFile(assemblyPath, type.FullName + " linker processor")
                         : "<dynamic-assembly>";
                     return type.AssemblyQualifiedName + "|" + implementation;
                 })
@@ -1068,7 +1257,7 @@ namespace Game.Framework.Build
                 rootEntries.Add($"SCENE|{index}|enabled={scene.enabled}|{path}");
                 if (scene.enabled && !string.IsNullOrWhiteSpace(path)) roots.Add(path);
             }
-            foreach (string path in AssetDatabase.GetAllAssetPaths()
+            foreach (string path in capture.AssetPaths
                          .Where(path => path.IndexOf("/Resources/", StringComparison.OrdinalIgnoreCase) >= 0)
                          .Where(path => !AssetDatabase.IsValidFolder(path)))
                 roots.Add(NormalizeAssetPath(path));
@@ -1082,28 +1271,47 @@ namespace Game.Framework.Build
                 if (!string.IsNullOrWhiteSpace(path) && path != "<null>") roots.Add(path);
             }
 
-            foreach (string root in roots)
-            {
+            string[] rootPaths = roots.ToArray();
+            foreach (string root in rootPaths)
                 rootEntries.Add("ROOT|" + root);
-                string[] dependencies = AssetDatabase.GetDependencies(root, recursive: true)
-                    .Select(NormalizeAssetPath)
-                    .OrderBy(path => path, StringComparer.Ordinal)
-                    .ToArray();
-                foreach (string dependency in dependencies)
-                {
-                    rootEntries.Add($"DEP|{root}|{dependency}");
-                    if (!IsSerializedLinkerRootAsset(dependency)) continue;
-                    if (!FrameworkModuleSourceCatalog.TryResolve(
-                            dependency, out var source, out string reason))
-                        throw new InvalidDataException(
-                            $"无法解析 UnityLinker 序列化依赖 {dependency}（根：{root}）：{reason}");
-                    rootEntries.Add($"SERIALIZED|{dependency}|" +
-                                    HashRequiredFile(source.PhysicalPath, dependency));
-                }
+
+            // Unity 的 recursive 查询本身会遍历整张依赖图。逐个 Resources 资产调用会让共享闭包被
+            // 重复遍历数百次；linker 只关心所有有效根的并集，因此一次批量查询既保持语义，也让
+            // 同一序列化依赖只解析和哈希一次。
+            string[] dependencies = CanonicalizeLinkerDependencyUnion(
+                rootPaths,
+                rootPaths.Length == 0
+                    ? Array.Empty<string>()
+                    : AssetDatabase.GetDependencies(rootPaths, recursive: true));
+            foreach (string dependency in dependencies)
+            {
+                rootEntries.Add("DEP|" + dependency);
+                if (!IsSerializedLinkerRootAsset(dependency)) continue;
+                if (!FrameworkModuleSourceCatalog.TryResolve(
+                        dependency, out var source, out string reason))
+                    throw new InvalidDataException(
+                        $"无法解析 UnityLinker 序列化依赖 {dependency}：{reason}");
+                rootEntries.Add($"SERIALIZED|{dependency}|" +
+                                capture.HashRequiredFile(source.PhysicalPath, dependency));
             }
             inputs["$roots"] = rootEntries.ToArray();
             return ComputeDependencyTopologySha256(inputs);
         }
+
+        /// <summary>
+        /// UnityLinker 只消费所有有效根可达资产的并集；根之间的归属关系不会改变最终可达集合。
+        /// 把根本身补进依赖集，并稳定去重，避免同一依赖因多个 Resources 根而重复进入指纹。
+        /// </summary>
+        internal static string[] CanonicalizeLinkerDependencyUnion(
+            IEnumerable<string> roots,
+            IEnumerable<string> dependencies) =>
+            (roots ?? Array.Empty<string>())
+            .Concat(dependencies ?? Array.Empty<string>())
+            .Select(NormalizeAssetPath)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(path => path, StringComparer.Ordinal)
+            .ToArray();
 
         internal static bool IsSerializedLinkerRootAsset(string assetPath)
         {
@@ -1128,7 +1336,7 @@ namespace Game.Framework.Build
             string fullPath = Path.GetFullPath(path);
             string fullDirectory = Path.GetFullPath(directory).TrimEnd(
                 Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
-            return fullPath.StartsWith(fullDirectory, StringComparison.OrdinalIgnoreCase);
+            return fullPath.StartsWith(fullDirectory, PhysicalPathComparison);
         }
 
         /// <summary>对程序集名和完整依赖条目分别排序；保留重复数量，同时避免元数据表返回顺序造成伪失效。</summary>
@@ -1166,24 +1374,6 @@ namespace Game.Framework.Build
             byte[] bytes = Encoding.UTF8.GetBytes(value ?? string.Empty);
             writer.Write(bytes.Length);
             writer.Write(bytes);
-        }
-
-        // UPM 包锁和 NuGet 清单决定实际进入 AOT 世界的第三方程序集版本；HybridCLRSettings 决定桥接、裁剪与生成策略。
-        // 只看“版本显示值”不够，直接记内容哈希能覆盖 lock 重解析、显式 DLL 依赖与设置新增字段等变化。
-        private static string HashRequiredProjectFile(string relativePath)
-        {
-            string path = Path.Combine(AssetBuildLayout.ProjectRoot, relativePath);
-            return HashRequiredFile(path, relativePath);
-        }
-
-        private static string HashRequiredFile(string path, string description)
-        {
-            string fullPath = Path.GetFullPath(path);
-            if (!File.Exists(fullPath))
-                throw new FileNotFoundException($"生成环境输入文件不存在：{description}", fullPath);
-            using var stream = File.OpenRead(fullPath);
-            using var sha256 = SHA256.Create();
-            return BitConverter.ToString(sha256.ComputeHash(stream)).Replace("-", "").ToLowerInvariant();
         }
 
         // 只记录确实影响 AOT 裁剪/代码生成的 PlayerSettings，避免产品名、图标等无关改动让日常热更被迫重跑 Generate。
