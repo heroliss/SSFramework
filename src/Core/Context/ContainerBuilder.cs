@@ -136,6 +136,9 @@ namespace Game.Framework.Context
         /// <remarks>
         /// 用于“需要先从 Container 解析依赖、同时生命周期应跟随 Context”的服务。普通 <see cref="RegisterFactory(Func{Container, object}, Type[])"/>
         /// 不拥有产物；不能用它创建无人持有的 <see cref="IDisposable"/>。工厂产物仍不自动 Inject/Attach，依赖由工厂显式接线。
+        /// 工厂一旦成功返回 <see cref="IDisposable"/>，该对象在契约校验与所有权登记完成前属于“待提交产物”；
+        /// 若返回类型不符合 contract 等后续步骤失败，容器会立即回滚释放它，同时保留最初的契约异常。
+        /// 工厂在返回前自行创建但未交出的资源仍由工厂负责清理；已经被同一 Container 接管的共享实例也不会因别名注册失败而提前释放。
         /// </remarks>
         public ContainerBuilder RegisterOwnedFactory(
             Func<Container, object> factory,

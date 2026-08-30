@@ -40,20 +40,23 @@ namespace Game.Framework.Internal
         /// <summary>
         /// 对现有对象执行 <c>[Inject]</c> 字段/方法注入。只写依赖，不注册、不绑定 Context，也不接管
         /// <paramref name="obj"/> 的生命周期；需要扩展方法能力的纯 C# 对象再显式调用
-        /// <see cref="AttachTo"/>。
+        /// <see cref="AttachTo"/>。若对象已经属于其它 Context，会在执行任何注入前 fail-fast。
         /// </summary>
         /// <exception cref="ArgumentNullException"><paramref name="obj"/> 为 <c>null</c>。</exception>
         /// <exception cref="ObjectDisposedException">Context 已释放。</exception>
+        /// <exception cref="InvalidOperationException"><paramref name="obj"/> 已关联另一个底层 Context。</exception>
         void Inject(object obj);
 
         /// <summary>
         /// 把底层 <see cref="GameContext"/> 写入实现了 <see cref="IHasGameContext"/> 且尚未绑定的纯 C# 对象，
         /// 使其可以使用 <c>this.GetXxx/SendEvent</c> 等扩展入口。只绑定 Context 引用，不执行 Inject、
-        /// 不注册对象、也不转移所有权；已有非空 Context 时保持原绑定。
+        /// 不注册对象、也不转移所有权。同一底层 Context 重复附着是幂等 no-op；已属于其它 Context 的实例
+        /// 会 fail-fast，框架不会静默保留旧引用或把同一实例重新绑定。
         /// </summary>
         /// <param name="target">声明了由 <see cref="IHasGameContext.Context"/> 读取的私有 <see cref="GameContext"/> 字段的对象。</param>
         /// <exception cref="ArgumentNullException"><paramref name="target"/> 为 <c>null</c>。</exception>
         /// <exception cref="ObjectDisposedException">Context 已释放。</exception>
+        /// <exception cref="InvalidOperationException"><paramref name="target"/> 已关联另一个底层 Context。</exception>
         void AttachTo(object target);
 
         /// <summary>
@@ -82,7 +85,7 @@ namespace Game.Framework.Internal
 
         /// <summary>
         /// 在当前 Context 的运行时覆盖层登记 Model 的具体类型与其 Model Interface。
-        /// 不执行 Inject / AttachTo，也不转移所有权；重复契约 fail-fast。
+        /// 不执行 Inject / AttachTo，也不转移所有权；重复契约或实例已属于其它 Context 时，在写入前 fail-fast。
         /// </summary>
         void RegisterModel<T>(T instance) where T : class, IModel;
         /// <summary>运行时登记 System；注入、Context 绑定和释放仍由调用方负责，语义同 <see cref="RegisterModel{T}(T)"/>。</summary>

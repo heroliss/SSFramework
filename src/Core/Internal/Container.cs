@@ -283,6 +283,17 @@ namespace Game.Framework.Internal
         }
 
         /// <summary>
+        /// 判断实例是否已由当前 Container 的 ownership registry 持有。供 OwnedFactory 失败回滚区分
+        /// “本次尚未提交的产物”与“其它有效绑定已经拥有的共享实例”，避免错误提前释放后者。
+        /// </summary>
+        internal bool Owns(IDisposable instance)
+        {
+            // 失败回滚可能发生在工厂重入导致 Container 已进入释放之后；这里只读 registry，不再用生命周期
+            // 异常覆盖最初的工厂错误。已释放 registry 已清空，返回 false 后对产物做幂等兜底 Dispose。
+            return _owned.Contains(instance);
+        }
+
+        /// <summary>
         /// 诊断用：本容器<b>本地</b>注册的契约键（不含父级回退）——运行时覆盖层 + 构建时绑定的并集（override 遮蔽同名 binding，去重）。
         /// 供 Inspector 只读展示「这个 Context 注册了什么」，不参与解析逻辑。
         /// </summary>

@@ -28,6 +28,9 @@ namespace Game.Framework.Internal
                 return null;
             }
 
+            // Mono 自动挂接同样先守住 Context 单一归属；否则重复挂接会先污染目标 Container，
+            // 随后的 Inject 才发现实例仍属于旧 Context，留下无法自动回滚的半注册状态。
+            ContextInternals.ValidateContextAffinity(contextProvider, self);
             ContextInternals.GetContainer(contextProvider).RegisterFor<TLayer>(self, $"{self.GetType().Name}({self.name})");
             contextProvider.Inject(self);
             return contextProvider;

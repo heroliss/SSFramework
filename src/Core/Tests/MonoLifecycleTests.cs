@@ -51,6 +51,13 @@ namespace Game.Framework.Test
             internal ContextMarker Marker => _marker;
         }
 
+        private sealed class ProxyAffinityTarget : IHasGameContext
+        {
+            private readonly IGameContext _context;
+            internal ProxyAffinityTarget(IGameContext context) => _context = context;
+            IGameContext IHasGameContext.Context => _context;
+        }
+
         private sealed class FailingMonoContext : MonoGameContextBase
         {
             internal static Action<ContainerBuilder> Install;
@@ -113,6 +120,48 @@ namespace Game.Framework.Test
             Assert.AreSame(model, resolved, "MonoModelBase Awake 后应自动注册到父级 MonoGameContextBase");
             Assert.AreEqual("registered", resolved.Tag);
         });
+
+        [UnityTest]
+        public IEnumerator MonoLayer_ReattachToDifferentContext_FailsBeforeTargetRegistration()
+            => UniTask.ToCoroutine(async () =>
+            {
+                var contextAGo = new GameObject("ContextA");
+                contextAGo.transform.SetParent(_root.transform);
+                var contextA = contextAGo.AddComponent<MonoGameContextBase>();
+                var contextBGo = new GameObject("ContextB");
+                contextBGo.transform.SetParent(_root.transform);
+                var contextB = contextBGo.AddComponent<MonoGameContextBase>();
+
+                var modelGo = new GameObject("AffinityModel");
+                modelGo.transform.SetParent(contextAGo.transform);
+                var model = modelGo.AddComponent<TestMonoModel>();
+                await UniTask.Yield();
+
+                Assert.AreSame(model, contextA.GetModel<TestMonoModel>());
+                var error = Assert.Throws<InvalidOperationException>(
+                    () => model.AttachLayer<IModel>(contextB));
+
+                StringAssert.Contains("另一个 Context", error.Message);
+                Assert.IsFalse(contextB.TryResolve(typeof(TestMonoModel), out _),
+                    "Mono 自动挂接的归属冲突必须在目标 Container 写入前失败。");
+                Assert.AreSame(contextA, ((IHasGameContext)model).Context);
+            });
+
+        [UnityTest]
+        public IEnumerator AttachTo_TargetHoldingMonoProxyOfSameRawContext_IsIdempotent()
+            => UniTask.ToCoroutine(async () =>
+            {
+                var contextGo = new GameObject("ProxyContext");
+                contextGo.transform.SetParent(_root.transform);
+                var monoContext = contextGo.AddComponent<MonoGameContextBase>();
+                await UniTask.Yield();
+
+                var target = new ProxyAffinityTarget(monoContext);
+
+                Assert.DoesNotThrow(() => monoContext.RawContext.AttachTo(target),
+                    "同一 raw GameContext 的 Mono 代理只是不同表示，不应被误判成跨 Context 共享。");
+                Assert.AreSame(monoContext, ((IHasGameContext)target).Context);
+            });
 
         // ── 用例 2：Instantiate prefab 子树到 Context 节点下，Model 仍自动注册 ─
 

@@ -21,9 +21,17 @@ namespace Game.Framework.Internal
                     "所有权作用域已释放，不能再添加托管资源。");
             if (item == null) throw new ArgumentNullException(nameof(item));
 
-            for (int i = 0; i < _items.Count; i++)
-                if (ReferenceEquals(_items[i], item)) return;
+            if (Contains(item)) return;
             _items.Add(item);
+        }
+
+        /// <summary>按对象身份判断资源是否已经由本 registry 持有，不调用用户自定义 Equals。</summary>
+        internal bool Contains(IDisposable item)
+        {
+            if (item == null) return false;
+            for (int i = 0; i < _items.Count; i++)
+                if (ReferenceEquals(_items[i], item)) return true;
+            return false;
         }
 
         /// <summary>逆序释放全部资源；单个 Dispose 失败只记录，不阻断其余清理。幂等。</summary>

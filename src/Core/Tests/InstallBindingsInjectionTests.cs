@@ -2,6 +2,7 @@ using System;
 using Game.Framework.Common;
 using Game.Framework.Context;
 using Game.Framework.Internal;
+using Game.Framework.Model;
 using Game.Framework.Systems;
 using Game.Framework.Utility;
 using NUnit.Framework;
@@ -37,6 +38,18 @@ namespace Game.Framework.Test
             [Inject] public ProbeUtility Utility;
             public bool Disposed;
             public void Dispose() => Disposed = true;
+        }
+
+        private sealed class AffinityModel : IModel, IHasGameContext
+        {
+            private GameContext _ctx;
+            IGameContext IHasGameContext.Context => _ctx;
+        }
+
+        private sealed class AffinityUtility : IUtility, IHasGameContext
+        {
+            private GameContext _ctx;
+            IGameContext IHasGameContext.Context => _ctx;
         }
 
         [Test]
@@ -112,6 +125,133 @@ namespace Game.Framework.Test
 
             Assert.IsNotNull(effective.Utility, "构建完成时仍生效的实例应被注入");
             Assert.IsNull(orphan.Utility, "被覆盖的孤儿实例不应被注入（不在最终绑定表里）");
+        }
+
+        [Test]
+        public void ContextConstruction_ValueAlreadyAttachedElsewhere_FailsBeforeAnyInjectionAndRollsBack()
+        {
+            var utilityA = new ProbeUtility();
+            var service = new ProbeService();
+            using var builderA = new ContainerBuilder();
+            builderA.RegisterValue(utilityA, typeof(ProbeUtility));
+            builderA.RegisterValue(service, typeof(ProbeService));
+            using var contextA = new GameContext(builderA.Build(), inheritFromGlobal: false);
+
+            Assert.AreSame(utilityA, service.Utility);
+            Assert.AreEqual(1, service.InjectMethodCalls);
+            Assert.AreSame(contextA, ((IHasGameContext)service).Context);
+
+            var utilityB = new ProbeUtility();
+            var rollbackProbe = new DisposableProbeService();
+            using var builderB = new ContainerBuilder();
+            builderB.RegisterValue(utilityB, typeof(ProbeUtility));
+            builderB.RegisterValue(service, typeof(ProbeService));
+            builderB.RegisterOwned(rollbackProbe, typeof(DisposableProbeService));
+
+            var error = Assert.Throws<InvalidOperationException>(
+                () => _ = new GameContext(builderB.Build(), inheritFromGlobal: false));
+
+            StringAssert.Contains(nameof(ProbeService), error.Message);
+            StringAssert.Contains("另一个 Context", error.Message);
+            Assert.AreSame(utilityA, service.Utility,
+                "Context affinity 冲突必须在整批注入前失败，不能把实例字段改成第二个 Context 的依赖。");
+            Assert.AreEqual(1, service.InjectMethodCalls,
+                "失败的第二次装配不能执行任何 [Inject] 方法。");
+            Assert.AreSame(contextA, ((IHasGameContext)service).Context,
+                "失败后扩展方法仍应解析最初 Context，不能形成依赖快照与实时解析两份真相。");
+            Assert.IsNull(rollbackProbe.Utility,
+                "预检失败前不应注入同批次中的其它值实例，无论字典枚举顺序如何。");
+            Assert.IsNull(((IHasGameContext)rollbackProbe).Context);
+            Assert.IsTrue(rollbackProbe.Disposed,
+                "GameContext 构造失败仍须回滚第二个 Container 已接管的 owned 资源。");
+        }
+
+        [Test]
+        public void AttachTo_SameContextIsIdempotent_DifferentContextFailsFast()
+        {
+            var service = new ProbeService();
+            using var builderA = new ContainerBuilder();
+            builderA.RegisterValue(service, typeof(ProbeService));
+            using var contextA = new GameContext(builderA.Build(), inheritFromGlobal: false);
+            using var builderB = new ContainerBuilder();
+            using var contextB = new GameContext(builderB.Build(), inheritFromGlobal: false);
+
+            Assert.DoesNotThrow(() => contextA.AttachTo(service),
+                "重复附着到同一 Context 应保持幂等，便于装配入口安全组合。");
+
+            var error = Assert.Throws<InvalidOperationException>(() => contextB.AttachTo(service));
+
+            StringAssert.Contains(nameof(ProbeService), error.Message);
+            StringAssert.Contains("另一个 Context", error.Message);
+            Assert.AreSame(contextA, ((IHasGameContext)service).Context);
+        }
+
+        [Test]
+        public void Inject_ValueAttachedElsewhere_FailsBeforeChangingInjectedSnapshot()
+        {
+            var utilityA = new ProbeUtility();
+            var service = new ProbeService();
+            using var builderA = new ContainerBuilder();
+            builderA.RegisterValue(utilityA, typeof(ProbeUtility));
+            builderA.RegisterValue(service, typeof(ProbeService));
+            using var contextA = new GameContext(builderA.Build(), inheritFromGlobal: false);
+
+            var utilityB = new ProbeUtility();
+            using var builderB = new ContainerBuilder();
+            builderB.RegisterValue(utilityB, typeof(ProbeUtility));
+            using var contextB = new GameContext(builderB.Build(), inheritFromGlobal: false);
+
+            var error = Assert.Throws<InvalidOperationException>(() => contextB.Inject(service));
+
+            StringAssert.Contains("另一个 Context", error.Message);
+            Assert.AreSame(utilityA, service.Utility,
+                "Inject 的 Context 归属预检必须发生在字段写入前，不能把 A 的实例污染成 B 的依赖快照。");
+            Assert.AreEqual(1, service.InjectMethodCalls);
+            Assert.AreSame(contextA, ((IHasGameContext)service).Context);
+        }
+
+        [TestCase("Model")]
+        [TestCase("System")]
+        [TestCase("Utility")]
+        public void RuntimeRegister_ValueAttachedElsewhere_FailsBeforeContainerMutation(string layer)
+        {
+            using var builderA = new ContainerBuilder();
+            using var contextA = new GameContext(builderA.Build(), inheritFromGlobal: false);
+            using var builderB = new ContainerBuilder();
+            using var contextB = new GameContext(builderB.Build(), inheritFromGlobal: false);
+
+            object instance;
+            Type concreteType;
+            TestDelegate register;
+            switch (layer)
+            {
+                case "Model":
+                    var model = new AffinityModel();
+                    instance = model;
+                    concreteType = typeof(AffinityModel);
+                    register = () => contextB.RegisterModel(model);
+                    break;
+                case "System":
+                    var system = new ProbeService();
+                    instance = system;
+                    concreteType = typeof(ProbeService);
+                    register = () => contextB.RegisterSystem(system);
+                    break;
+                default:
+                    var utility = new AffinityUtility();
+                    instance = utility;
+                    concreteType = typeof(AffinityUtility);
+                    register = () => contextB.RegisterUtility(utility);
+                    break;
+            }
+
+            contextA.AttachTo(instance);
+            var error = Assert.Throws<InvalidOperationException>(register);
+
+            StringAssert.Contains("另一个 Context", error.Message);
+            Assert.AreSame(contextA, ((IHasGameContext)instance).Context);
+            Assert.IsFalse(contextB.TryResolve(concreteType, out _),
+                "归属冲突必须在动态注册的完整 contract 集写入前失败，不能给 Context B 留下 override。");
         }
     }
 }

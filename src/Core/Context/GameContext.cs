@@ -95,10 +95,11 @@ namespace Game.Framework.Context
         /// 创建 GameContext。inheritFromGlobal 控制本容器未命中时是否回退到 GameContext.Main。
         /// </summary>
         /// <remarks>
-        /// 构造时对容器里<b>构建期值绑定</b>（RegisterValue / RegisterOwned）的实例统一 <see cref="Inject"/> +
-        /// <see cref="AttachTo"/>，与 Mono 路径「注册即注入」语义对称（ADR-0019）——纯 C# 服务在 InstallBindings
-        /// 注册后不再需要手动补注入。此刻全部绑定已入容器、父链可解析；<c>[Inject]</c> 解析失败 / 越权在启动期
-        /// 即以 LogWarning / LogError 暴露（与 Mono 路径同一套 InjectionPlan 语义）。
+        /// 构造时先验证容器里全部<b>构建期值绑定</b>（RegisterValue / RegisterOwned）的 Context 归属，再统一
+        /// <see cref="Inject"/> + <see cref="AttachTo"/>，与 Mono 路径「注册即注入」语义对称（ADR-0019）。
+        /// 整批预检确保跨 Context 复用在任何字段注入前失败；纯 C# 服务在 InstallBindings 注册后不再需要手动补注入。
+        /// 此刻全部绑定已入容器、父链可解析；<c>[Inject]</c> 解析失败 / 越权在启动期即以 LogWarning / LogError
+        /// 暴露（与 Mono 路径同一套 InjectionPlan 语义）。
         /// 工厂产物不自动注入——工厂经 <c>Func&lt;Container, object&gt;</c> 显式接线。
         /// </remarks>
         public GameContext(Container container, bool inheritFromGlobal = true)
@@ -110,11 +111,18 @@ namespace Game.Framework.Context
             {
                 var boundValues = container.BoundValues;
                 if (boundValues != null)
+                {
+                    // Context 归属是整批值装配的提交前置条件。必须先检查完全部实例，再执行任何 Inject；否则后面才
+                    // 发现某个实例属于其它 Context 时，前面的字段快照已经被本 Context 污染，回滚也无法还原。
+                    for (int i = 0; i < boundValues.Count; i++)
+                        ValidateContextAffinity(boundValues[i]);
+
                     for (int i = 0; i < boundValues.Count; i++)
                     {
                         Inject(boundValues[i]);
                         AttachTo(boundValues[i]);
                     }
+                }
 
 #if UNITY_EDITOR
                 CreatedRealtime = Time.realtimeSinceStartupAsDouble;
@@ -184,6 +192,7 @@ namespace Game.Framework.Context
         {
             ThrowIfDisposed();
             if (obj == null) throw new ArgumentNullException(nameof(obj));
+            ValidateContextAffinity(obj);
             InjectionPlan.For(obj.GetType()).Apply(obj, this);
         }
 
@@ -244,6 +253,7 @@ namespace Game.Framework.Context
         {
             ThrowIfDisposed();
             if (instance == null) throw new ArgumentNullException(nameof(instance));
+            ValidateContextAffinity(instance);
             _container.RegisterFor<IModel>(instance, $"dynamic:{instance.GetType().Name}");
         }
 
@@ -251,6 +261,7 @@ namespace Game.Framework.Context
         {
             ThrowIfDisposed();
             if (instance == null) throw new ArgumentNullException(nameof(instance));
+            ValidateContextAffinity(instance);
             _container.RegisterFor<ISystem>(instance, $"dynamic:{instance.GetType().Name}");
         }
 
@@ -258,6 +269,7 @@ namespace Game.Framework.Context
         {
             ThrowIfDisposed();
             if (instance == null) throw new ArgumentNullException(nameof(instance));
+            ValidateContextAffinity(instance);
             _container.RegisterFor<IUtility>(instance, $"dynamic:{instance.GetType().Name}");
         }
 
@@ -404,8 +416,29 @@ namespace Game.Framework.Context
         {
             ThrowIfDisposed();
             if (target == null) throw new ArgumentNullException(nameof(target));
-            if (target is IHasGameContext hasCtx && hasCtx.Context == null)
+            if (ValidateContextAffinity(target))
                 SetContextField(target);
+        }
+
+        /// <summary>
+        /// 验证持有 Context 的实例（context-aware instance）只能归属一个底层 GameContext。
+        /// 返回 true 表示尚未绑定、调用方应写入本 Context；
+        /// 已经绑定到本实例或代理本实例的 Mono Context 时返回 false，保持幂等。
+        /// </summary>
+        internal bool ValidateContextAffinity(object target)
+        {
+            if (target is not IHasGameContext hasContext) return false;
+
+            IGameContext existing = hasContext.Context;
+            if (existing == null) return true;
+            if (ReferenceEquals(existing, this)) return false;
+            if (existing is MonoGameContextBase monoContext && ReferenceEquals(monoContext.RawContext, this))
+                return false;
+
+            throw new InvalidOperationException(
+                $"[GameContext] 类型 '{target.GetType().Name}' 已关联另一个 Context，不能再附着到当前 Context。" +
+                "同一个持有 Context 的实例（context-aware instance）不能跨 Context 共享；请为每个 Context 创建独立实例，" +
+                "或让不需要 Context 能力的共享值不要实现 IHasGameContext。");
         }
 
         // ---- IDisposable ----

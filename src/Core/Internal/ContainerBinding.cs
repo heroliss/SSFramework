@@ -1,4 +1,5 @@
 using System;
+using Game.Framework.Logging;
 
 namespace Game.Framework.Internal
 {
@@ -52,9 +53,11 @@ namespace Game.Framework.Internal
                     $"[ContainerBuilder] 检测到契约 '{ContractNames()}' 的工厂循环解析。");
 
             _isCreating = true;
+            object instance = null;
+            bool ownershipTransferred = false;
             try
             {
-                var instance = _factory(container);
+                instance = _factory(container);
                 if (instance == null)
                     throw new InvalidOperationException(
                         $"[ContainerBuilder] 契约 '{ContractNames()}' 的工厂返回了 null。");
@@ -67,11 +70,34 @@ namespace Game.Framework.Internal
                             $"[ContainerBuilder] 契约 '{ContractNames()}' 的托管工厂返回了 " +
                             $"未实现 IDisposable 的类型 '{instance.GetType().Name}'。");
                     container.Own(disposable);
+                    ownershipTransferred = true;
                 }
 
                 _instance = instance;
                 _hasInstance = true;
                 return instance;
+            }
+            catch
+            {
+                // RegisterOwnedFactory 从工厂成功返回 IDisposable 起就声明 Container 所有权。若 contract 校验或
+                // ownership 提交失败，本次新产物必须立即回滚；已由其它有效绑定持有的同实例继续留给 Container，
+                // 不能因这条错误 alias 提前释放。普通 RegisterFactory 则从未声明所有权，这里不擅自 Dispose。
+                if (_ownsResult && !ownershipTransferred && instance is IDisposable disposable &&
+                    !container.Owns(disposable))
+                {
+                    try
+                    {
+                        disposable.Dispose();
+                    }
+                    catch (Exception cleanupException)
+                    {
+                        Log.Error(
+                            "托管工厂产物未能提交，回滚释放又抛出异常；仍保留最初的工厂结果错误。",
+                            cleanupException,
+                            nameof(ContainerBinding));
+                    }
+                }
+                throw;
             }
             finally
             {
