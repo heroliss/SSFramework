@@ -17,11 +17,38 @@ using UnityEngine;
 namespace Game.Framework.Context
 {
     /// <summary>
-    /// 事件总线接口：按类型独立 Subject 分发，消除广播过滤开销。
+    /// Context 内的同步事件 Interface：按事件类型分发瞬时通知，不保存历史、没有 replay。
+    /// 调用方可用它把完整 <see cref="IGameContext"/> 缩窄为“只发送与订阅事件”的能力。
     /// </summary>
+    /// <remarks>
+    /// <b>作用域：</b>每个 <see cref="GameContext"/> 拥有独立事件流，不跨父子 Context 或
+    /// <see cref="GameContext.Main"/> 转发。<br/>
+    /// <b>线程：</b>发送、订阅与退订都在 Unity 主线程使用；Implementation 不为跨线程访问加锁。<br/>
+    /// <b>所有权：</b><see cref="RegisterEvent{T}(Action{T})"/> 返回的订阅归调用方，通常交给
+    /// <see cref="DisposableBag"/> 或用 <c>using</c> 释放；Context 结束时仍会兜底终止其全部订阅。<br/>
+    /// <b>异常与释放：</b>handler 异常进入 R3 的隔离/错误报告路径，不会让整个事件总线永久失效。
+    /// Context 已释放后，注册新订阅会抛 <see cref="ObjectDisposedException"/>；迟到发送则只在
+    /// Editor / Development Build 记录 warning 并忽略，便于异步收尾保持幂等。
+    /// </remarks>
     public interface IEventBus
     {
+        /// <summary>
+        /// 同步发送一次 <typeparamref name="T"/> 事件；当前没有订阅者时为无副作用操作。
+        /// 无数据事件可省略 <paramref name="evt"/>，直接调用 <c>SendEvent&lt;T&gt;()</c>。
+        /// </summary>
+        /// <typeparam name="T">事件值类型或引用类型；必须实现 <see cref="IEvent"/>。</typeparam>
+        /// <param name="evt">本次瞬时事件值，不会被总线缓存。</param>
         void SendEvent<T>(T evt = default) where T : IEvent;
+
+        /// <summary>
+        /// 订阅 <typeparamref name="T"/> 的后续事件。不会立即回放过去事件；返回值由调用方负责释放。
+        /// Context 释放会终止订阅，之后再释放返回值仍应安全。
+        /// </summary>
+        /// <typeparam name="T">要订阅的事件类型。</typeparam>
+        /// <param name="handler">在发送线程（框架约定为 Unity 主线程）同步调用的处理函数。</param>
+        /// <returns>幂等退订句柄。</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="handler"/> 为 <c>null</c>。</exception>
+        /// <exception cref="ObjectDisposedException">所属 Context 已释放。</exception>
         IDisposable RegisterEvent<T>(Action<T> handler) where T : IEvent;
     }
 
@@ -31,6 +58,14 @@ namespace Game.Framework.Context
     /// 消除了单 Subject 广播 + 订阅端类型过滤的 O(N) 开销。
     /// 每个 GameContext 独立、可嵌套、可释放。
     /// </summary>
+    /// <remarks>
+    /// <b>线程：</b>Context、Container、Command 与 Event 均为 Unity 主线程独占，不为并发访问加锁。<br/>
+    /// <b>所有权：</b>Context 只释放由 <see cref="ContainerBuilder.RegisterOwned(IDisposable, Type[])"/> 或
+    /// OwnedFactory 明确交给 Container 的实例。运行时 <c>RegisterModel/System/Utility</c> 只是登记外部实例，
+    /// 不注入、不绑定 Context、也不接管释放；调用方仍拥有这些实例。<br/>
+    /// <b>终止：</b><see cref="Dispose"/> 先取消生命周期 token，再终止事件流，最后逆序释放 owned 实例；
+    /// 单个取消回调或 owned 实例释放失败会记录错误，但不会截断其余清理。
+    /// </remarks>
     public sealed class GameContext : IDisposable, IEventBus, IGameContext, ICommandContext
     {
         private readonly Container _container;
@@ -364,6 +399,7 @@ namespace Game.Framework.Context
 
         // ---- 上下文绑定 ----
 
+        /// <inheritdoc />
         public void AttachTo(object target)
         {
             ThrowIfDisposed();
