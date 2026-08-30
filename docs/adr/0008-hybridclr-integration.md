@@ -110,6 +110,6 @@ Boot 场景（唯一随包场景：Launcher + 朴素进度 UI，只挂 Boot 程�
 - 边玩边下/版本灰度：本期不做；YooAsset 按需下载原语已具备，需要时组合。
 - **入口的启动编排落地（2026-07，Outpost M5 驱动，详见 ADR-0029）**：`GameEntry.Enter` 从「挂自检」模板换成真实编排——
   代码搭最小引导资源栈（`MonoGameContextBase` + `AssetUtility` 双 AddComponent → `Configure`(为此提升 public) →
-  `Initialize` → `LoadScene` 首场景 → Destroy 交棒），编辑器旁路走 EditorSimulate、玩家包走 Host。
+  `Initialize` → `LoadScene` 首场景 → Destroy 交棒），编辑器旁路走 EditorSimulate、桌面/移动玩家包走 Host、WebGL 强制走 Web 文件系统。
   首个真实业务程序集 `Game.Outpost` 入热更列表（9 个）；`Game.Outpost.Sim` 刻意留 AOT（M6 ECS 后端只依赖它）——
   「热更程序集引用 AOT 程序集」方向合法，Generate 的 link.xml 保住仅被热更侧引用的 AOT 类型不被裁剪。

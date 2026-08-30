@@ -79,7 +79,7 @@ Host 下版本号与清单请求都会按配置的 CDN 候选列表轮转重试�
 | **EditorSimulate** | 编辑器直读 AssetDatabase（免打包） | 否 | 无 |
 | **Offline** | 仅内置首包（StreamingAssets） | 否 | 无（全内置） |
 | **Host** | 内置首包 + 远端 CDN，默认**缺的按需下载并缓存**；包级可取消「启用按需下载」 | 是（拉版本+清单） | 下载的落沙盒缓存 |
-| **Web** | 纯远端 HTTP（WebGL） | 是 | 不落地 |
+| **Web** | 远端 HTTP（WebGL；内置偏移包下载后在内存剥头） | 是 | 不落地 |
 
 > 「部分内置首包 + 部分远端」不需要混模式：**Host 模式本身就是首包 + CDN 混合**，哪些 bundle 进首包是**构建期**（AssetBundleCollector）决定的。
 

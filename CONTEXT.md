@@ -36,7 +36,7 @@ Demo 教学内容与自动化之间的运行时 Seam。`DemoModuleHost` 在真�
 
 ## Asset Runtime Setup
 
-场景中资源基础设施的唯一正式 Mono 入口：`AssetUtility` 内嵌 `AssetRuntimeSettings`，拥有 provider、包状态机、自动初始化批次与加载/维护能力；配置不是业务 Model，启动薄编排也不是业务 System。场景路径在 Awake 应用设置、Start 自动初始化；代码引导在 Start 前 `Configure` 即接管启动，随后显式 `Initialize`。业务只依赖 `IAssetUtility`；Editor/Demo 从具体 Utility 读取的 `Settings` 是 Inspector 场景创作配置，其集合是结构只读视图。代码路径的 `Configure` 提交独立运行快照且不回写 `Settings`，它会深拷贝调用方 DTO 并给 Provider 独立快照，避免调用方、Utility 与 Adapter 之间的配置所有权分叉。运行配置不支持热换：场景设置在 Play 前编辑，代码设置在 Start 前提交。`AssetSystemConfigModel` / `AssetInitSystem` 仅是可迁移兼容层，不得用于新场景。Editor 迁移器先按显式 `_targetContext` 或最近父 Context 验证完整旧接线：同一 Scene/Context 的兄弟 Init 会一起删除，多份 Config / Utility、跨 Scene/跨 Context 或无宿主歧义等已识别风险会在写 Utility 前失败。Project 中的持久化 Prefab 必须先进入 Prefab Mode，候选扫描按 Main Stage / 当前 Prefab Stage 隔离，不把其它预览 Scene 与当前运行作用域混在一起。
+场景中资源基础设施的唯一正式 Mono 入口：`AssetUtility` 内嵌 `AssetRuntimeSettings`，拥有 provider、包状态机、自动初始化批次与加载/维护能力；配置不是业务 Model，启动薄编排也不是业务 System。场景路径在 Awake 应用设置、Start 自动初始化；代码引导在 Start 前 `Configure` 即接管启动，随后显式 `Initialize`。首场景引导早于场景 Settings，普通 AssetBundle 的 `FileOffset` 因而从构建 Profile 生成到业务 `AssetPackages.AssetBundleFileOffset`；构建前校验生成物新鲜度，修改后仍须重编实际部署的 Game.Main / Player。内置偏移共享 1 MiB 上限，Web 文件系统以内存解密读取；该常量不作用于独立 RawFile / CodePackage。WebGL 的 Boot 与业务首场景引导均强制使用 Web 模式。业务只依赖 `IAssetUtility`；Editor/Demo 从具体 Utility 读取的 `Settings` 是 Inspector 场景创作配置，其集合是结构只读视图。代码路径的 `Configure` 提交独立运行快照且不回写 `Settings`，它会深拷贝调用方 DTO 并给 Provider 独立快照，避免调用方、Utility 与 Adapter 之间的配置所有权分叉。运行配置不支持热换：场景设置在 Play 前编辑，代码设置在 Start 前提交。`AssetSystemConfigModel` / `AssetInitSystem` 仅是可迁移兼容层，不得用于新场景。Editor 迁移器先按显式 `_targetContext` 或最近父 Context 验证完整旧接线：同一 Scene/Context 的兄弟 Init 会一起删除，多份 Config / Utility、跨 Scene/跨 Context 或无宿主歧义等已识别风险会在写 Utility 前失败。Project 中的持久化 Prefab 必须先进入 Prefab Mode，候选扫描按 Main Stage / 当前 Prefab Stage 隔离，不把其它预览 Scene 与当前运行作用域混在一起。
 
 ## Asset Reference Package Resolution
 
@@ -44,7 +44,7 @@ Demo 教学内容与自动化之间的运行时 Seam。`DemoModuleHost` 在真�
 
 ## Config Readiness
 
-`IConfigUtility<TTables>` 对一次自加载尝试的稳定就绪契约。响应式消费者订阅 `State`；命令式流程通常经 Context 感知的 `await EnsureConfig<TTables>(token)` 得到同一份 `Tables` 或原始失败；已证明 Ready 的同步路径用 `GetConfig<TTables>()`，高频调用再缓存返回值。两个短入口都解析当前精确 Context，不引入全局静态表。调用方取消只脱离自己的 waiter，组件与 Context 共同拥有物理加载并在销毁时取消；失败后不隐式重试。该 Interface 把终态编排、根异常保存和共享所有权藏在 Config Module 内，业务不再复制 `WaitUntil(Ready or Failed)`。
+`IConfigUtility<TTables>` 对一次自加载尝试的稳定就绪契约。响应式消费者订阅 `State`；命令式流程通常经 Context 感知的 `await EnsureConfig<TTables>(token)` 得到同一份 `Tables` 或原始失败；已证明 Ready 的同步路径用 `GetConfig<TTables>()`，高频调用再缓存返回值。两个短入口都解析当前精确 Context，不引入全局静态表。调用方取消只脱离自己的 waiter，组件与 Context 共同拥有物理加载并在销毁时取消；只有 owner token 已取消时，下游 OCE 才是生命周期控制流，Provider / Adapter 自发取消会包装成带 inner 的失败并发布 Failed。活跃组件可在 Unity 调用 Start 前先等待；disabled / inactive 且仍为 Idle 的组件会立即报告接线错误，但不污染 completion，修正状态后 Start 仍可完成首次加载。失败后不隐式重试。该 Interface 把终态编排、根异常保存和共享所有权藏在 Config Module 内，业务不再复制 `WaitUntil(Ready or Failed)`。
 
 ## Game Flow
 
@@ -88,7 +88,7 @@ Demo 教学内容与自动化之间的运行时 Seam。`DemoModuleHost` 在真�
 
 ## Framework Build Module Split
 
-Editor 构建能力按真实第三方变化源分成单向两层：`Game.Framework.Build.Editor` 拥有 YooAsset 普通 AssetBundle 的 Profile、构建、部署、本地服务和安全产物路径，不引用 Boot、HybridCLR 或 dnlib；`Game.Framework.Build.HybridCLR.Editor` 作为可删除的下游 Module，拥有热更 Profile、Generate 新鲜度、目标 DLL 编译与 YooAsset RawFile 代码包配方，并复用资源构建侧的版本、部署、预检与路径安全 Implementation。资源 Module 不读取热更 Profile；RawFile 包若误在资源 Profile 启用，会在写产物前明确失败并指向专属构建 Module。删除热更新 Module 后资源构建继续成立；保留热更新则必须保留它实际依赖的资源构建、Boot 与 HybridCLR 工具链。
+Editor 构建能力按真实第三方变化源分成单向两层：`Game.Framework.Build.Editor` 拥有 YooAsset 普通 AssetBundle 的 Profile、构建、部署、本地服务、安全产物路径，以及“包名 + 普通 AssetBundle 引导偏移”的业务代码生成物；构建前以同一渲染函数校验生成物，避免首场景使用陈旧偏移。它不引用 Boot、HybridCLR 或 dnlib。`Game.Framework.Build.HybridCLR.Editor` 作为可删除的下游 Module，拥有热更 Profile、Generate 新鲜度、目标 DLL 编译与 YooAsset RawFile 代码包配方，并复用资源构建侧的版本、部署、预检与路径安全 Implementation。资源 Module 不读取热更 Profile；RawFile 包若误在资源 Profile 启用，会在写产物前明确失败并指向专属构建 Module，也不会继承普通 AssetBundle 的偏移。删除热更新 Module 后资源构建继续成立；保留热更新则必须保留它实际依赖的资源构建、Boot 与 HybridCLR 工具链。
 
 ## External Dependency Evidence
 

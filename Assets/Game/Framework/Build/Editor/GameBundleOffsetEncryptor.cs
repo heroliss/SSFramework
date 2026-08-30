@@ -21,10 +21,18 @@ namespace Game.Framework.Build
     /// </summary>
     internal sealed class GameBundleOffsetEncryptor : IBundleEncryptor
     {
+        // 偏移只用于破坏 AssetBundle 魔数，不是安全强度参数。给出保守现实上限，避免配置错误为每个 bundle
+        // 分配数百 MiB / GiB 的无意义头部；需要强加密应使用流式自定义 Encryptor。
         private readonly int _fileOffset;
 
-        /// <param name="fileOffset">文件头偏移字节数；须与运行时当前生效资源配置的 FileOffset 一致。0 视为不加密。</param>
-        public GameBundleOffsetEncryptor(ulong fileOffset) => _fileOffset = (int)fileOffset;
+        /// <param name="fileOffset">文件头偏移字节数；须与运行时当前生效资源配置的 FileOffset 一致。0 视为不加密，内置实现最大 1 MiB。</param>
+        public GameBundleOffsetEncryptor(ulong fileOffset)
+        {
+            if (fileOffset > AssetProviderConfig.MaxBuiltInFileOffset)
+                throw new ArgumentOutOfRangeException(nameof(fileOffset), fileOffset,
+                    $"内置偏移不能超过 {AssetProviderConfig.MaxBuiltInFileOffset} 字节；更大的弱混淆头只会浪费磁盘与构建内存。");
+            _fileOffset = (int)fileOffset;
+        }
 
         /// <summary>
         /// 无参构造，仅为兼容 YooAsset 自带 Bundle Builder <b>窗口</b>——该窗口靠反射 + <c>Activator.CreateInstance</c>（无参）实例化加密器，
@@ -48,7 +56,12 @@ namespace Game.Framework.Build
                 return new BundleEncryptResult(false, null);
 
             byte[] source = File.ReadAllBytes(args.FilePath);
-            byte[] encrypted = new byte[_fileOffset + source.Length];
+            long encryptedLength = (long)_fileOffset + source.LongLength;
+            if (encryptedLength > int.MaxValue)
+                throw new InvalidDataException(
+                    $"偏移加密后的 bundle 需要 {encryptedLength} 字节，超过单个 CLR byte[] 的 Int32 长度上限；" +
+                    "请减小 bundle 或改用项目侧流式加密器。");
+            byte[] encrypted = new byte[(int)encryptedLength];
             // 种子只取 bundle 名（文件名），不能用 args.FilePath 全路径：它含构建输出绝对路径（本机项目根 / CI 工作目录），
             // 用全路径会让同名同内容的包在不同机器 / 检出目录得到不同种子 → 不同头 → 不同 hash → 破坏增量发布。
             // 只取文件名才路径无关（HashName 风格下文件名即内容哈希，天然内容相关）。

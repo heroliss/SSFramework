@@ -409,7 +409,7 @@ Luban 与 Protobuf 也遵循相同的两级口径：同一生成器内的输出�
 
 所有写入 `Assets` 的通用路径先经过 `FrameworkProjectPath`：除了防止 `Assets/../..` 逃逸和目录/文件类型用反，也会检查目标的任一父级是否已被普通文件占用，避免外部生成器跑完后才在建目录阶段失败。递归扫描、复制、指纹和清理还会拒绝 symbolic link、Windows junction 与其它 reparse point，并在删除前先验证整棵物理树；因此一个词法上位于 `Assets` 内、实际指向工程外的目录也不会被跟随。显式填写的 C# 命名空间会在写盘前验证；由文件名、Prefab 名、节点名或包名派生的类名、字段名和常量名则统一清洗非法字符、数字开头与保留关键字（例如 `class` 稳定变成 `_class`）。前者保留配置错误的可见性，后者减少内容命名给新手造成的无谓编译错误。
 
-跨 Module 输出由 `FrameworkGeneratedOutputClaimCatalog` 统一核对，但生成规则仍留在 owner Module。当前三种 claim 是：Luban 代码/数据的独占目录，Protobuf 的递归 `*.g.cs` 清理范围，以及服务安装器、UI Binding 两份 partial、资源包名常量和字体字集的精确文件。独占目录与目录树内任何其它输出冲突；递归后缀只拒绝落在范围内且后缀相交的文件；两个精确文件只在规范路径相同时冲突。因此手写 `Main.cs` 可以与 Protobuf 的 `*.g.cs` 清理树共存，而 `Main.nodes.g.cs` 会被明确拒绝。可选 Module 自注册只读 collector，Core 不引用它们的类型；删除 Module 后声明自然消失。窗口预览只读取已有外部快照；冷启动或工程变化后的缺失来源会明确显示“尚无预览快照”，不会因画窗口暗中扫描工程。真正创建、覆盖或清理前仍强制重采集全部来源，不能拿缺失或过期配置冒充安全证据。UI Binding 不再在每次核对时加载全工程所有 Prefab：第一次完整建立“根上含 `UIBindingData`”的会话索引，之后增量检查发生导入、移动或删除的 Prefab，并利用同时持久化的 Prefab Variant 依赖重验后代；脚本域重载从 `SessionState` 恢复快照。collector 仍读取命中 Prefab 的当前条目和覆盖配置，真实写盘时索引缺失则完整补扫。
+跨 Module 输出由 `FrameworkGeneratedOutputClaimCatalog` 统一核对，但生成规则仍留在 owner Module。当前三种 claim 是：Luban 代码/数据的独占目录，Protobuf 的递归 `*.g.cs` 清理范围，以及服务安装器、UI Binding 两份 partial、资源包名与构建常量和字体字集的精确文件。独占目录与目录树内任何其它输出冲突；递归后缀只拒绝落在范围内且后缀相交的文件；两个精确文件只在规范路径相同时冲突。因此手写 `Main.cs` 可以与 Protobuf 的 `*.g.cs` 清理树共存，而 `Main.nodes.g.cs` 会被明确拒绝。可选 Module 自注册只读 collector，Core 不引用它们的类型；删除 Module 后声明自然消失。窗口预览只读取已有外部快照；冷启动或工程变化后的缺失来源会明确显示“尚无预览快照”，不会因画窗口暗中扫描工程。真正创建、覆盖或清理前仍强制重采集全部来源，不能拿缺失或过期配置冒充安全证据。UI Binding 不再在每次核对时加载全工程所有 Prefab：第一次完整建立“根上含 `UIBindingData`”的会话索引，之后增量检查发生导入、移动或删除的 Prefab，并利用同时持久化的 Prefab Variant 依赖重验后代；脚本域重载从 `SessionState` 恢复快照。collector 仍读取命中 Prefab 的当前条目和覆盖配置，真实写盘时索引缺失则完整补扫。
 
 - `SSFramework/配置中心`：只读汇总各 Module 自注册的 Profile 类型、数量、位置和单例健康状态；缺配置时不暗中创建。所有 Framework Profile owner、配置中心与只读审计共享按工程 revision 缓存的路径发现快照，工程变化时统一失效；单例 stable-first 快照的首路径刚移动或删除时会只刷新该类型并重试。单例的重复 Warning、默认初始化、创建和业务校验仍由所属 Module 决定；固定路径创建会在任何目录写入前强制重扫，拒绝 reparse 与路径碰撞，并在写入后确认新资产确实是稳定生效项。窗口首次打开先显示轻量壳，需要立即确认磁盘状态时点击“重新扫描”。删除可选 Module 后对应卡片自然消失，中央窗口不保留程序集名特例。
 - `构建与发布`：资源包与代码热更新的分步流水线。
@@ -1474,7 +1474,7 @@ switch (asset.GetLocationState("ui/logo"))
 
 `AssetLocationState` 与 `AssetInitState` 刻意正交：前者只回答“当前内容位置能否用于业务决策”，后者回答“包为何尚未工作”。空白 location 无需清单就能确定为 `Invalid`；其他 location 在包非 Ready 时统一为 `PackageNotReady`，且不会下沉到 Adapter。旧 `CheckLocationValid` / `IsNeedDownload` 仅以 `[Obsolete]` 扩展方法保留源码迁移期兼容，仍会把 `PackageNotReady` 压成 false，新代码不要继续使用。
 
-**运行模式按“编辑器 / 玩家包”分开配**：`AssetUtility.Settings` 有两个模式字段——“编辑器运行模式”只在编辑器 Play 生效（日常 `EditorSimulate` 免打包；也可临时切 Offline / Host 联调），“玩家包运行模式”是构建出的玩家端实际模式（默认 `Offline`；资源热更选 `Host`）。同一份场景配置两头通用。玩家包误选 EditorSimulate 会在启动校验时报清晰错误。
+**运行模式按“编辑器 / 玩家包”分开配**：`AssetUtility.Settings` 有两个模式字段——“编辑器运行模式”只在编辑器 Play 生效（日常 `EditorSimulate` 免打包；也可临时切 Offline / Host 联调），“玩家包运行模式”是构建出的玩家端实际模式（默认 `Offline`；资源热更选 `Host`）。WebGL Player 无条件使用 `Web`，避免场景里遗留的桌面模式误导浏览器文件系统。同一份场景配置两头通用；其它玩家包误选 EditorSimulate 会在启动校验时报清晰错误。
 
 `Settings` 是场景作者和诊断界面读取的 Inspector 创作配置：`Packages` / `CdnUrls` 不能强转回内部 `List<T>` 修改。场景路径请在进入 Play 前用 Inspector 编辑；代码引导在 `Start` 前一次调用 `Configure`，Utility 会另行深拷贝 DTO 及其集合，不把代码配置回写到 `Settings`。调用后继续修改原 `AssetProviderConfig`，或由自定义 Provider 修改自己收到的隔离副本，都不会热换 Utility 已接管的下载与初始化参数。诊断代码应据启动方式区分“场景创作值”和“代码路径生效值”，不要把二者当作同步镜像。
 
@@ -1498,7 +1498,7 @@ switch (asset.GetLocationState("ui/logo"))
 
 Host 模式默认允许 `Load` 对未缓存 bundle 当场按需下载。大型 DLC 若不想“误 Load 一个资源就自动下载”，在 `AssetUtility.Settings.Packages` 列表里取消该包的“启用按需下载”：之后本包未缓存资源的 `Load` 直接失败，业务必须先用下载器显式预下载并展示进度。
 
-> **包名别写裸字符串**：`SSFramework/构建与发布/资源构建` 工作台的“生成包名常量”从收集器包列表生成常量类；输出路径与命名空间必须在构建 profile 中指向实际业务程序集，框架不猜项目布局。`Initialize` / `Load` 等的 `packageName` 参数用生成的 `AssetPackages.Xxx`——收集器改名 / 删包后重新生成，引用处编译期报错，不用等运行时才发现。
+> **包名别写裸字符串**：`SSFramework/构建与发布/资源构建` 工作台的“生成包名与构建常量”从收集器包列表生成 `AssetPackages.Xxx`，并从构建 Profile 派生首场景使用的 `AssetBundleFileOffset`；输出路径与命名空间必须指向实际业务程序集，框架不猜项目布局。收集器包名或偏移变化后先重新生成并等待 Unity 编译：包名引用会在编译期发现改名，普通 AssetBundle 构建还会在写盘前逐字校验生成物是否新鲜。偏移常量会被 `const` 内联，因此修改后还必须重编并部署实际的 `Game.Main` / Player，不能只替换 CDN 资源。它只描述普通 AssetBundle，不作用于独立 RawFile / `CodePackage`。
 
 资源工作台的三个动作有意分开判断：**构建**与**部署**读取当前启用包，列表为空时会在保存场景、清 SBP 缓存或弹全量确认框之前停止；**启动本地服务器**只伺服已经存在的 Deploy 根，不依赖当前包勾选。于是你可以调整下一次构建配置，同时继续检查上一次部署产物；但若 Deploy 目录本身不存在，服务器按钮会直接说明先部署一次。
 
@@ -1816,7 +1816,7 @@ CodePackage 在资源构建 Profile 中应明确关闭“参与构建”，再�
 
 - **入口类型名**：必填程序集限定名，例如 `"MyGame.GameEntry, MyGame.Runtime"`；入口提供公共静态无参方法 `Enter()`，DLL 全部加载完后反射调用。它就是业务的 main：创建全局 Context、初始化资源系统、加载首场景都从这里往下走。
 - **CDN 地址列表**：第一条主、其余备，取址 `{CDN}/{包名}/{文件}`，与资源包同一套部署结构。
-- **模式**：`Host`（远端检查更新；fresh install 也可回退随包内置代码清单）/ `Offline`（纯单机，永不联网）。
+- **模式**：`Host`（远端检查更新；fresh install 也可回退随包内置代码清单）/ `Offline`（纯单机，永不联网）/ `Web`（浏览器 WebServer + WebNetwork 文件系统）。WebGL Player 会无条件使用 `Web`，无需为同一 BootScene 另存一份平台配置。
 
 **编辑器旁路**：编辑器下程序集本就在 AppDomain，Launcher 直接反射进入口——不走下载/加载，日常开发与热更机制零接触。
 
@@ -1828,13 +1828,18 @@ Object.DontDestroyOnLoad(go);                    // Single 切场景会清场，
 go.AddComponent<MonoGameContextBase>();          // Context 在前（AddComponent 即 Awake，后者沿父链注册）
 var assets = go.AddComponent<AssetUtility>();
 assets.Configure(AssetPackages.DefaultPackage,
-    new AssetProviderConfig { CdnUrls = cdnUrls }, AssetPlayMode.Host);
+    new AssetProviderConfig
+    {
+        CdnUrls = cdnUrls,
+        FileOffset = AssetPackages.AssetBundleFileOffset,
+    },
+    AssetPlayMode.Host);
 await assets.Initialize();
 await assets.LoadScene("FirstScene");            // Single：卸掉 Boot 场景、拉起首场景
 Object.Destroy(go);                              // 交棒：首场景根 Context 与其 AssetUtility 接管
 ```
 
-首场景内的 `AssetUtility` 随后按自己的 Settings 初始化；provider 对已初始化的包按名复用、不重复拉清单，引导栈与场景入口两个 Utility 实例可安全交棒。代码引导必须在 `Start` 前 `Configure`，这会抑制该实例的 Inspector 自动初始化。项目入口通常放在业务 Runtime 程序集中；本仓库的垂直切片另提供一份完整实现。
+首场景内的 `AssetUtility` 随后按自己的 Settings 初始化；provider 对已初始化的包按名复用、不重复拉清单，引导栈与场景入口两个 Utility 实例可安全交棒。代码引导必须在 `Start` 前 `Configure`，这会抑制该实例的 Inspector 自动初始化。引导栈之所以使用生成的 `AssetBundleFileOffset`，是因为此刻还读不到首场景的 Settings；构建 Profile 改偏移后要执行“生成常量 → 等编译 → 重编 Game.Main / Player → 构建并部署资源”的完整发布事务。该偏移只属于普通 AssetBundle，Boot 的 RawFile `CodePackage` 仍由独立热更管线拥有。WebGL 的 Boot 与业务资源引导都改用 Web 文件系统；偏移 bundle 会下载到内存后剥头，内置值上限为 1 MiB。项目入口通常放在业务 Runtime 程序集中；本仓库的垂直切片另提供一份完整实现。
 
 ### 铁则（违反会在构建期被校验器拦下或真机才爆雷）
 
@@ -1932,7 +1937,9 @@ var commandItem = ctx.GetConfig<Tables>().TbItem[id];
 | 在继续流程前必须得到表根 | `await this.EnsureConfig<Tables>(token)` | 转发同一 `EnsureReady` 契约；Failed 重新抛出该次加载的原始异常 |
 | 持续显示 Loading / Ready / Failed，随状态刷新 UI | 获取 `IConfigUtility<Tables>` 后订阅 `State` | 状态只表达可观察阶段；收到 Ready 时 `Tables` 已发布 |
 
-`EnsureConfig` 只是 Context 解析的短入口，取消与失败语义仍由 `IConfigUtility.EnsureReady` 唯一拥有：调用方 token **只取消这个等待者**，不传给共享的物理加载。一个窗口关闭不能把别的 System 也在等待的配置加载截断；真正的 owner 是配置组件 + Context，Context 取消或组件销毁才会终止共享加载及全部未完成等待，而组件销毁还会完结 `State` 流以释放订阅。正常的 Context 宿主销毁会随层级继续销毁其配置组件；若代码只手动 Dispose 纯 C# Context，则不要把它误当作 Unity 组件已经销毁。即使 Provider 的取消回调抛异常，也不会截断 Bag 释放和 Context 反注册。服务失败后不会偷偷重试：重试应重建所属 Context / 组件，避免旧表与新表在同一作用域并存。
+`EnsureConfig` 只是 Context 解析的短入口，取消与失败语义仍由 `IConfigUtility.EnsureReady` 唯一拥有：调用方 token **只取消这个等待者**，不传给共享的物理加载。一个窗口关闭不能把别的 System 也在等待的配置加载截断；真正的 owner 是配置组件 + Context，Context 取消或组件销毁才会终止共享加载及全部未完成等待，而组件销毁还会完结 `State` 流以释放订阅。正常的 Context 宿主销毁会随层级继续销毁其配置组件；若代码只手动 Dispose 纯 C# Context，则不要把它误当作 Unity 组件已经销毁。即使 Provider 的取消回调抛异常，也不会截断 Bag 释放和 Context 反注册。反过来，owner token 没取消时 Provider / Adapter 自发抛出的 `OperationCanceledException` 不是生命周期控制流：服务会把它包装为保留 inner 的 `InvalidOperationException` 并发布 Failed，避免状态永远停在 Loading。服务失败后不会偷偷重试：重试应重建所属 Context / 组件，避免旧表与新表在同一作用域并存。
+
+活跃且启用的配置组件可以在 Unity 调用 `Start` 前先被 `EnsureReady` / `EnsureConfig` 等待；这是正常的启动门禁。若组件仍为 Idle 却处于 disabled，或所在 GameObject inactive，Unity 根本不会调用 `Start`，框架会立即提示先启用 / 激活，而不是让 await 永久挂起。这个提示不会把服务写成 Failed；修正场景状态后，第一次自加载仍会正常发生。
 
 不要把它缩成静态 `TbItem.Get(...)` 或 ambient `Tables.Current`。那会把“当前配置属于哪个 Context、是否是子 Context 覆盖、使用的是哪套配置”变成隐藏状态，并破坏并行测试隔离。`GetConfig<Tables>()` 保留了这一跳有意义的作用域信息；如果项目只有一套配置且仍嫌泛型名长，可以在**项目侧、生成目录外**补一个具名转发（如 `GameTables()`），但不要把它变成框架全局单例。
 

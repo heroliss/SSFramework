@@ -9,7 +9,7 @@ using YooAsset;
 
 namespace Game.Framework.Boot
 {
-    /// <summary>Boot 层运行模式。比框架资源系统的 AssetPlayMode 少：编辑器恒走旁路（无模拟模式），Web 暂不支持。</summary>
+    /// <summary>Boot 层运行模式。编辑器恒走旁路；WebGL Player 无条件使用 <see cref="Web"/>。</summary>
     public enum BootPlayMode
     {
         /// <summary>联机：远端检查代码更新，CDN 轮转；取不到远端版本时回退本地已有清单（内置/上次缓存）。</summary>
@@ -17,6 +17,9 @@ namespace Game.Framework.Boot
 
         /// <summary>单机/离线分发：只用随包内置的代码，永不联网。</summary>
         Offline,
+
+        /// <summary>WebGL：浏览器远端文件系统，不使用本地沙盒缓存；版本、清单与 RawFile 按需经 HTTP 读取。</summary>
+        Web,
     }
 
     /// <summary>
@@ -40,7 +43,7 @@ namespace Game.Framework.Boot
         [Tooltip("代码包名，须与热更构建配置（FrameworkHotUpdateProfile）的 CodePackageName 一致。")]
         [SerializeField] private string _codePackageName = "CodePackage";
 
-        [Tooltip("Host = 远端检查代码更新（CDN 轮转，失败回退本地已有清单）；Offline = 只用随包内置代码。")]
+        [Tooltip("Host = 远端检查代码更新（CDN 轮转，失败回退本地已有清单）；Offline = 只用随包内置代码；Web = 浏览器远端文件系统。WebGL Player 会忽略此字段并强制使用 Web。")]
         [SerializeField] private BootPlayMode _playMode = BootPlayMode.Host;
 
         [Tooltip("CDN 根地址列表（第一条主、其余备）。实际取址 {CDN}/{包名}/{文件}，与资源包同一套部署结构。")]
@@ -67,6 +70,18 @@ namespace Game.Framework.Boot
 
         private string _lastStatus = "";
         private float _lastProgress = -1f; // <0 = 无下载量，不画进度条
+
+        private BootPlayMode ActualPlayMode
+        {
+            get
+            {
+#if UNITY_WEBGL && !UNITY_EDITOR
+                return BootPlayMode.Web;
+#else
+                return _playMode;
+#endif
+            }
+        }
 
         private void OnGUI()
         {
@@ -121,7 +136,7 @@ namespace Game.Framework.Boot
                 throw new InvalidOperationException("[HotUpdateLauncher] 未配置热更入口类型名（Inspector：Entry Type Name）。");
             if (string.IsNullOrWhiteSpace(_entryMethodName))
                 throw new InvalidOperationException("[HotUpdateLauncher] 未配置热更入口方法名（Inspector：Entry Method Name）。");
-            if (_playMode != BootPlayMode.Host) return;
+            if (ActualPlayMode == BootPlayMode.Offline) return;
 
             bool hasCdn = false;
             if (_cdnUrls != null)
@@ -129,7 +144,8 @@ namespace Game.Framework.Boot
                     if (!string.IsNullOrWhiteSpace(url)) { hasCdn = true; break; }
             if (!hasCdn)
                 throw new InvalidOperationException(
-                    "[HotUpdateLauncher] Host 模式没有配置 CDN 地址；需要联网检查更新时填写 Cdn Urls，纯内置分发请改用 Offline。");
+                    $"[HotUpdateLauncher] {ActualPlayMode} 模式没有配置 CDN 地址；" +
+                    "需要联网检查更新时填写 Cdn Urls，非 WebGL 的纯内置分发请改用 Offline。");
         }
 
 #if !UNITY_EDITOR
@@ -206,7 +222,7 @@ namespace Game.Framework.Boot
 
         private InitializePackageOptions CreateInitOptions()
         {
-            switch (_playMode)
+            switch (ActualPlayMode)
             {
                 case BootPlayMode.Offline:
                 {
@@ -228,16 +244,27 @@ namespace Game.Framework.Boot
                         CacheFileSystemParameters = FileSystemParameters.CreateDefaultSandboxFileSystemParameters(remote)
                     };
                 }
+                case BootPlayMode.Web:
+                {
+                    var remote = new BootRemoteService(_codePackageName, _cdnUrls);
+                    return new WebPlayModeOptions
+                    {
+                        WebServerFileSystemParameters = FileSystemParameters.CreateDefaultWebServerFileSystemParameters(),
+                        WebNetworkFileSystemParameters = FileSystemParameters.CreateDefaultWebNetworkFileSystemParameters(remote)
+                    };
+                }
                 default:
-                    throw new NotSupportedException($"未支持的 Boot 模式：{_playMode}");
+                    throw new NotSupportedException($"未支持的 Boot 模式：{ActualPlayMode}");
             }
         }
 
         // 远端版本 + 清单各自按候选 CDN 数轮转一圈（YooAsset 的 URL 失败计数跨请求保留，循环即轮换镜像）。
-        // Host 拉不到远端版本时：本地已有有效清单（内置/上次缓存）→ 警告 + 降级继续；连本地都没有才真失败。
+        // Host 拉不到远端版本时可用内置/上次缓存；Web 可用 WebServer 随包文件。已有有效清单就降级继续，
+        // fresh install 则显式尝试激活随包版本；两处都没有才真失败。
         private async UniTask UpdateManifest(ResourcePackage package, System.Threading.CancellationToken ct)
         {
-            int attempts = _playMode == BootPlayMode.Host ? Math.Max(1, _cdnUrls?.Length ?? 1) : 1;
+            bool remoteMode = ActualPlayMode is BootPlayMode.Host or BootPlayMode.Web;
+            int attempts = remoteMode ? Math.Max(1, _cdnUrls?.Length ?? 1) : 1;
 
             string version = null;
             string lastError = null;
@@ -301,7 +328,8 @@ namespace Game.Framework.Boot
 
         /// <summary>
         /// fresh install 尚无 ActiveManifest，不能只靠 <see cref="ResourcePackage.PackageValid"/> 判断内置首包是否可用。
-        /// Host 初始化已把内置 hash/manifest 复制到主沙盒文件系统；这里再读取 StreamingAssets 的版本文件并显式激活它。
+        /// Host 初始化已把内置 hash/manifest 复制到主沙盒文件系统；Web 则由 WebServer 文件系统暴露随包内容。
+        /// 这里读取 StreamingAssets 的版本文件并显式激活它。
         /// 版本文件用 UnityWebRequest 读取，兼容 Android 的 jar:file 路径，避免只在桌面端可用的 <c>File.ReadAllText</c>。
         /// </summary>
         private async UniTask<(bool ok, string message)> TryLoadBuiltinManifest(

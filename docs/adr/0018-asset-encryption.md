@@ -1,6 +1,6 @@
 # ADR-0018：资源加密 —— 偏移内置为默认 + 代码接入位承载自定义，不内置 AES
 
-**Status:** Accepted（偏移加密 + 接入位已实现；2026-06-18）
+**Status:** Accepted（偏移加密 + 接入位已实现；2026-08-31 修订首场景配置派生、现实上限与 Web 内存解密）
 
 ## Context
 
@@ -30,9 +30,13 @@
 
 插入的偏移字节**确定性派生自 bundle 名**（FNV-1a）：因 YooAsset 对**加密后**文件算 hash 写清单（`TaskUpdateBundleInfo`：`PackageSourceFilePath = EncryptedFilePath`），随机字节会让内容未变的包每次 hash 都变 → CDN 误判全量重传，破坏增量发布。
 
-### 2. 偏移量 = 构建 / 运行时各一个简单字段，必须手动对齐
+### 2. 场景运行值手动对齐，首场景代码值从构建 Profile 派生
 
-偏移之所以能做成普通字段（`FrameworkAssetBuildProfile.FileOffset` + 当前生效资源配置的运行时 FileOffset；场景路径来自 `AssetUtility.Settings`，代码路径来自 `Configure` DTO），正因为它的“参数”是个**非密钥、两端相同**的数字。两值必须一致（构建插几字节、运行时跳几字节），用 tooltip 约束——与 `LocalServePort` 须等于 CDN 端口是同一种“构建↔运行时手动对齐”约定。
+偏移之所以能做成普通字段，正因为它是**非密钥、两端相同**的数字。`FrameworkAssetBuildProfile.FileOffset` 与场景 `AssetUtility.Settings.FileOffset` 仍须人工一致；但首场景在场景内 Utility 出现前已经要读 bundle，不能依赖场景字段，也不能让 `GameEntry` 再手写第三份数字。
+
+因此 `AssetPackageConstantsGenerator` 除包名外，从构建 Profile 派生 `AssetBundleFileOffset`；代码引导的 `Configure` DTO 使用该生成常量。普通 AssetBundle 构建前以同一渲染函数逐字校验生成物，陈旧时拒绝写产物，不在构建中自动改 `.cs`（否则 Domain Reload 前的旧程序集仍会继续执行）。该常量只描述普通 AssetBundle 格式，不作用于独立 RawFile / CodePackage。修改偏移后必须把“生成 + 编译 Game.Main / Player + 构建资源 + 部署”视为同一发布事务；`const` 内联意味着源码新鲜不等于已部署 DLL 新鲜。
+
+内置偏移实现共享 1 MiB 现实上限：偏移只破坏魔数，继续增大不会增加安全性，只会为每个 bundle 放大磁盘、网络与内存成本；构建侧另以 `long` 检查“正文 + 文件头”不能超过单个 `byte[]` 的长度边界。YooAsset 3 的 WebServer / WebNetwork 文件系统支持内存解密，因此 WebGL 也注入同一 `GameBundleOffsetDecryptor`，下载后剥头；自定义 Web 解密器必须实现 `IBundleMemoryDecryptor`，不能只提供文件偏移或流接口。
 
 ### 3. 自定义加密走代码接入位，不做多态配置 UI
 
@@ -69,9 +73,9 @@
 
 ## Consequences
 
-- **开箱**：偏移加密改两个数字即用；对 95% 场景足够，且零性能代价。
+- **开箱**：场景与构建 Profile 两个人工值对齐，首场景代码值自动派生；对 95% 场景足够，且零性能代价。
 - **可扩展**：强加密 / 清单加密经接入点接入，不 fork 框架；为 UPM 抽包预留干净扩展位。
 - **诚实的边界**：框架不假装提供「真安全」；强加密的密钥与性能取舍交还项目。
-- **手动对齐成本**：偏移量两端、自定义加 / 解密两半都需项目保证一致，任一不匹配 → 运行时整批加载失败（已用 tooltip / 警告 / 文档收敛）。
+- **对齐与发布成本**：场景运行值仍需与构建 Profile 对齐；代码引导由生成门禁防漂移，但修改后必须重编并原子部署实际 Game.Main / Player 与资源。自定义加 / 解密两半仍由项目保证一致。
 - **AES 缺位**：需要强加密的项目要自行实现 AES-CTR 流式解密器（含可 Seek 流），有一定门槛——这是有意的取舍，不是遗漏。
 - 完整 how-to / 选型 / 代码示例见 `docs/asset-encryption.md`。

@@ -1,10 +1,10 @@
 {
-    "name": "Game.Framework.Build.Editor.Tests",
-    "rootNamespace": "Game.Framework.Build.Tests",
+    "name": "Game.Main.Editor.Tests",
+    "rootNamespace": "Game.Main.Tests",
     "references": [
-        "Game.Framework.Build.Editor",
+        "Game.Main",
         "Game.Framework",
-        "Game.Framework.Editor",
+        "Game.Framework.Build.Editor",
         "UnityEngine.TestRunner"
     ],
     "includePlatforms": [

@@ -17,24 +17,30 @@
 偏移加密 = 在每个 bundle 文件头前插入 N 个字节，使产物不再以 AssetBundle 魔数开头，挡住「直接拖进 AssetStudio / AB 提取工具打开」的最低门槛。
 **它是弱加密**（不改 bundle 正文、只换个头），解密近乎零成本（运行时带偏移加载或剥头）；要真正防逆向用第 3 节的内容加密。先读第 2 节「选型」再决定要不要升级。
 
-### 启用：只改两个数字，且必须一致
+### 启用：两个人工配置必须一致，首场景代码值由构建 Profile 派生
 
 | 改哪 | 字段 | 含义 |
 |---|---|---|
 | 构建配置 `FrameworkAssetBuildProfile`（工作台 `SSFramework/构建与发布/资源构建`） | `FileOffset` | 构建时每个 bundle 头插入的字节数 |
 | 场景节点 `AssetUtility` 的“资源运行配置 / 加密” | `FileOffset` | 运行时跳过的字节数 |
+| 首场景代码引导 `AssetPackages`（生成文件） | `AssetBundleFileOffset` | 从构建 Profile 自动派生；`GameEntry` 在场景内 `AssetUtility` 出现前使用，禁止手改 |
 
-两个值**必须完全相等**：构建插几个字节、运行时就跳几个字节，对不上会读坏**所有** bundle。`0` = 不加密（默认）。
-（这与“`profile.LocalServePort` 必须等于当前生效资源配置的 CDN 主地址端口”是同一种“构建↔运行时手动对齐”约定；场景路径配置来自 `AssetUtility.Settings`，代码路径来自 `Configure` DTO。）
+前两个**人工值必须完全相等**：构建插几个字节、场景运行时就跳几个字节，对不上会读坏**所有** bundle。`0` = 不加密（默认）。
+首场景是特殊路径：它的 bundle 在场景内配置出现前就要加载，所以工作台“生成包名与构建常量”会把 Profile 的值派生为
+`AssetPackages.AssetBundleFileOffset`，`GameEntry` 的 `Configure` DTO 使用它。普通 AssetBundle 构建前会逐字比较生成物；缺失或陈旧时
+在写任何 bundle 前停止，并要求先生成、等待 Unity 编译，避免一边改 `.cs` 一边让旧程序集继续构建。
 
-改完重新构建即生效。验证：加密产物的 hash 会变（YooAsset 对**加密后**的文件算 hash 写清单），首次构建后全量产物都会更新。
+改偏移后的完整发布事务是：**重新生成常量 → 等 Unity 编译 → 重编实际部署的 `Game.Main` / Player → 重建并部署资源**。
+`const` 会内联；只替换 CDN bundle、却仍部署旧 Game.Main，会继续用旧偏移。加密产物的 hash 会变（YooAsset 对**加密后**的文件算 hash 写清单），首次构建后全量产物都会更新。
+
+> `FileOffset` 只属于 `FrameworkAssetBuilder` 的普通 AssetBundle。热更 `CodePackage` 由独立 RawFile 管线构建，当前保持明文且 Boot 没有安装 RawBundle 偏移解密器；不要把普通资源偏移自动套给代码包。内置偏移上限为 1 MiB——它只是弱混淆，不是“越大越安全”。Offline / Host 可直接带偏移加载；WebGL 的 WebServer / WebNetwork 文件系统会下载到内存后剥头，因此网络与峰值内存成本高于桌面偏移路径。自定义 Web 解密器必须实现 `IBundleMemoryDecryptor`。
 
 > ⚠ 别用 YooAsset 自带的 **Bundle Builder 窗口**构建：本框架统一走 `SSFramework/构建与发布/资源构建` 工作台（`FrameworkAssetBuilder`），那个窗口被绕过（SBP-only、对纯资源包会崩、配置也不读我们的 profile）。该窗口靠反射会把 `GameBundleOffsetEncryptor` 列进它的「Bundle Encryptor」下拉，但它用无参构造实例化——本类的无参构造是**空操作 + 警告**（不加密），就是为了「在那里误选也不崩、且不会无声产出未加密包」。要加密请回到框架工作台 + profile。
 
 ### 原理 / 落点
 
 - 构建：`profile.FileOffset > 0` 时，`FrameworkAssetBuilder.BuildPackage` 挂上 `GameBundleOffsetEncryptor`——读原文件、头部插入 N 个**确定性**字节（按 bundle 名 FNV-1a 派生，保证内容不变的包每次构建产出同样的头，不破坏增量发布），返回加密数据。
-- 运行时：当前生效资源配置的 `FileOffset`（场景路径为 `AssetUtility.Settings` 经 `AssetRuntimeSettings.ToProviderConfig()`；代码路径为 `Configure` DTO）→ `AssetProviderConfig.FileOffset` → `YooAssetProvider.ApplyDecryptor` 注册 `GameBundleOffsetDecryptor`（同时作 `AssetBundleDecryptor` / `RawBundleDecryptor` / `AssetBundleFallbackDecryptor`）。它实现 `IBundleOffsetDecryptor`（带偏移直接加载）+ `IBundleMemoryDecryptor`（内存兜底：剥头后从内存加载）。
+- 运行时：当前生效资源配置的 `FileOffset`（场景路径为 `AssetUtility.Settings`；首场景代码引导为生成的 `AssetBundleFileOffset`）→ `AssetProviderConfig.FileOffset` → `YooAssetProvider.ApplyDecryptor` 注册 `GameBundleOffsetDecryptor`。它实现 `IBundleOffsetDecryptor`（Offline / Host 带偏移直接加载）+ `IBundleMemoryDecryptor`（内存剥头；WebGL 必走此路径，Sandbox/Builtin 也可作 fallback）。这里的 RawBundle 参数只是同一个资源文件系统的读取能力，不表示独立 Boot CodePackage 已接入该配置。
 
 ---
 

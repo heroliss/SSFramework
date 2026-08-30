@@ -756,7 +756,7 @@ namespace Game.Framework
 
         // 按运行模式构建 3.0 初始化选项。解密器经 EFileSystemParameter 注入对应文件系统参数。
         // 非 static：Host/Web 分支要把实例上的「模拟断网」开关源（编辑器期）注入 GameRemoteService。
-        private InitializePackageOptions CreateInitOptions(
+        internal InitializePackageOptions CreateInitOptions(
             string packageName,
             AssetPlayMode mode,
             AssetProviderConfig config,
@@ -833,10 +833,16 @@ namespace Game.Framework
 #if UNITY_EDITOR
                     remoteService.SimulateOffline = SimulateOffline; // 注入模拟断网开关源（实时读取）
 #endif
+                    var server = FileSystemParameters.CreateDefaultWebServerFileSystemParameters();
+                    var network = FileSystemParameters.CreateDefaultWebNetworkFileSystemParameters(remoteService);
+                    // Web 文件系统只接受内存解密器；内置偏移解密器同时实现 IBundleMemoryDecryptor，
+                    // YooAsset 会先下载字节再剥离文件头。Web FS 不支持 Sandbox 专属的 fallback 参数。
+                    ApplyDecryptor(server, config, supportsFallback: false, requiresMemoryDecryptor: true);
+                    ApplyDecryptor(network, config, supportsFallback: false, requiresMemoryDecryptor: true);
                     return new WebPlayModeOptions
                     {
-                        WebServerFileSystemParameters = FileSystemParameters.CreateDefaultWebServerFileSystemParameters(),
-                        WebNetworkFileSystemParameters = FileSystemParameters.CreateDefaultWebNetworkFileSystemParameters(remoteService)
+                        WebServerFileSystemParameters = server,
+                        WebNetworkFileSystemParameters = network
                     };
                 }
 
@@ -847,16 +853,27 @@ namespace Game.Framework
 
         // 给文件系统注入解密器。优先级：项目自定义解密器（GameAssetDecryption）> 偏移解密（FileOffset>0）> 不加密。
         // 同一个解密器同时登记为 AssetBundle / Raw 解密器；内存兜底解密器要求实现 IBundleMemoryDecryptor，实现了才登记。
-        private static void ApplyDecryptor(FileSystemParameters fsParams, AssetProviderConfig config)
+        private static void ApplyDecryptor(
+            FileSystemParameters fsParams,
+            AssetProviderConfig config,
+            bool supportsFallback = true,
+            bool requiresMemoryDecryptor = false)
         {
             // ① 自定义解密器优先（项目用 XOR/AES 等时设了工厂）。与构建侧自定义加密器成对，见 docs/asset-encryption.md。
             if (GameAssetDecryption.BundleDecryptorFactory != null)
             {
                 var custom = GameAssetDecryption.BundleDecryptorFactory();
+                if (custom == null)
+                    throw new InvalidOperationException(
+                        "GameAssetDecryption.BundleDecryptorFactory 返回 null；请返回有效 IBundleDecryptor，或清空该工厂以使用内置偏移解密。");
+                if (requiresMemoryDecryptor && custom is not IBundleMemoryDecryptor)
+                    throw new InvalidOperationException(
+                        $"Web 文件系统要求自定义解密器实现 {nameof(IBundleMemoryDecryptor)}；" +
+                        $"当前工厂返回 {custom.GetType().Name}。");
                 fsParams.AddParameter(EFileSystemParameter.AssetBundleDecryptor, custom);
                 fsParams.AddParameter(EFileSystemParameter.RawBundleDecryptor, custom);
                 // 兜底解密器（加载失败时回内存解密重试）必须是内存解密器；偏移/流式解密器不实现它就不登记。
-                if (custom is IBundleMemoryDecryptor)
+                if (supportsFallback && custom is IBundleMemoryDecryptor)
                     fsParams.AddParameter(EFileSystemParameter.AssetBundleFallbackDecryptor, custom);
                 var manifest = GameAssetDecryption.ManifestDecryptorFactory?.Invoke();
                 if (manifest != null)
@@ -869,7 +886,8 @@ namespace Game.Framework
             var decryptor = new GameBundleOffsetDecryptor(config.FileOffset);
             fsParams.AddParameter(EFileSystemParameter.AssetBundleDecryptor, decryptor);
             fsParams.AddParameter(EFileSystemParameter.RawBundleDecryptor, decryptor);
-            fsParams.AddParameter(EFileSystemParameter.AssetBundleFallbackDecryptor, decryptor);
+            if (supportsFallback)
+                fsParams.AddParameter(EFileSystemParameter.AssetBundleFallbackDecryptor, decryptor);
         }
 
         private static UnityEngine.Object ResolveLoadedObject(UnityEngine.Object loaded, Type expectedType)
@@ -1143,7 +1161,14 @@ namespace Game.Framework
     {
         private readonly ulong _fileOffset;
 
-        public GameBundleOffsetDecryptor(ulong fileOffset) => _fileOffset = fileOffset;
+        public GameBundleOffsetDecryptor(ulong fileOffset)
+        {
+            if (fileOffset > AssetProviderConfig.MaxBuiltInFileOffset)
+                throw new ArgumentOutOfRangeException(nameof(fileOffset), fileOffset,
+                    $"内置偏移不能超过 {AssetProviderConfig.MaxBuiltInFileOffset} 字节；" +
+                    "请修正运行配置，或为强加密安装项目侧流式解密器。");
+            _fileOffset = fileOffset;
+        }
 
         public long GetFileOffset(BundleDecryptArgs args) => (long)_fileOffset;
 

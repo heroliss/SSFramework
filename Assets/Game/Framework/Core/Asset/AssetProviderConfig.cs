@@ -11,7 +11,7 @@ namespace Game.Framework
     ///   <item><b>EditorSimulate</b>：忽略本配置（除并发/重试外）。</item>
     ///   <item><b>Offline</b>：用 <see cref="FileOffset"/>。</item>
     ///   <item><b>Host</b>：用 <see cref="CdnUrls"/> / <see cref="FileOffset"/> / 按包的 <see cref="ShouldEnableOnDemandDownload"/>。</item>
-    ///   <item><b>Web</b>：用 <see cref="CdnUrls"/>。</item>
+    ///   <item><b>Web</b>：用 <see cref="CdnUrls"/> / <see cref="FileOffset"/>；Web 文件系统以内存解密读取偏移包。</item>
     /// </list>
     /// 单个 provider 实现应在初始化时校验自身需要的字段并清晰报错（而不是静默忽略）。
     /// 调用方可用对象初始化器组装本 DTO；<see cref="AssetUtility.Configure"/> 会接管深拷贝快照，
@@ -19,6 +19,12 @@ namespace Game.Framework
     /// </summary>
     public sealed class AssetProviderConfig
     {
+        /// <summary>
+        /// 内置弱偏移加/解密的现实上限（1 MiB）。偏移只用于破坏文件魔数，继续增大不会提升实际安全性，
+        /// 只会按 bundle 放大磁盘、网络与内存成本；强加密应改用项目侧流式 Encryptor / Decryptor。
+        /// </summary>
+        public const ulong MaxBuiltInFileOffset = 1024UL * 1024UL;
+
         /// <summary>
         /// CDN 地址列表（Host / Web 模式）。第一条为主地址，其余为备用——底层库按失败计数在其间轮转。
         /// Provider 内部自动规范化结尾斜杠、并按包名追加子目录。空列表表示未配置远端。
@@ -31,7 +37,7 @@ namespace Game.Framework
         /// </summary>
         public IReadOnlyDictionary<string, bool> EnableOnDemandDownloadByPackage { get; set; }
 
-        /// <summary>AssetBundle 文件头偏移字节数（Offline / Host 模式的偏移加密）。0 表示不加密。</summary>
+        /// <summary>AssetBundle 文件头偏移字节数（Offline / Host / Web 模式）。0 表示不加密，内置实现最大为 <see cref="MaxBuiltInFileOffset"/>。</summary>
         public ulong FileOffset { get; set; }
 
         /// <summary>下载器最大并发数。</summary>
