@@ -36,6 +36,8 @@ namespace Game.Framework
     {
         /// <summary>
         /// 初始化指定包。重复调用应是 idempotent（已 ready 则立即返回）。
+        /// <paramref name="config"/> 是 Utility 为本次 Adapter 调用创建的隔离快照；实现可读取或在内部规范化它，
+        /// 但修改不会、也不应被用来反向热换 Utility 的后续下载参数。
         /// <paramref name="ct"/> 是当前 utility owner 的生命周期令牌，不是某个 UI 调用者的短期令牌；
         /// 复用进程级原生包的实现仍需把已经开始的不可取消操作持有到真实终态。
         /// </summary>

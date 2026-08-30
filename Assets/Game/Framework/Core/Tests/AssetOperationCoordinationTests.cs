@@ -26,6 +26,9 @@ namespace Game.Framework.Test
         private MonoGameContextBase _context;
         private AssetUtility _utility;
         private ControllableAssetProvider _provider;
+        private List<string> _callerCdnUrls;
+        private Dictionary<string, bool> _callerOnDemandPolicies;
+        private AssetProviderConfig _callerConfig;
 
         [UnitySetUp]
         public IEnumerator SetUp()
@@ -87,6 +90,10 @@ namespace Game.Framework.Test
         [UnityTest]
         public IEnumerator EnsureInitialized_BeforeUtilityStart_StartsConfiguredAutoPackage()
             => EnsureInitialized_BeforeUtilityStart_StartsConfiguredAutoPackageAsync().ToCoroutine();
+
+        [UnityTest]
+        public IEnumerator Configure_FreezesCallerConfigAndIsolatesProviderSnapshot()
+            => Configure_FreezesCallerConfigAndIsolatesProviderSnapshotAsync().ToCoroutine();
 
         [Test]
         public void ConfigureBeforeStart_SuppressesInspectorAutoInitialization()
@@ -184,8 +191,56 @@ namespace Game.Framework.Test
 
             _provider = new ControllableAssetProvider();
             _utility.ReplaceProviderForTesting(_provider);
-            _utility.Configure(Package, new AssetProviderConfig(), AssetPlayMode.EditorSimulate);
+            _callerCdnUrls = new List<string> { "https://original.example/" };
+            _callerOnDemandPolicies = new Dictionary<string, bool> { [Package] = false };
+            _callerConfig = new AssetProviderConfig
+            {
+                CdnUrls = _callerCdnUrls,
+                EnableOnDemandDownloadByPackage = _callerOnDemandPolicies,
+                FileOffset = 16,
+                DownloadingMaxNumber = 4,
+                FailedTryAgain = 2,
+            };
+            _utility.Configure(Package, _callerConfig, AssetPlayMode.EditorSimulate);
             await UniTask.Yield();
+        }
+
+        private async UniTask Configure_FreezesCallerConfigAndIsolatesProviderSnapshotAsync()
+        {
+            _callerCdnUrls.Clear();
+            _callerCdnUrls.Add("https://mutated.example/");
+            _callerOnDemandPolicies[Package] = true;
+            _callerConfig.FileOffset = 999;
+            _callerConfig.DownloadingMaxNumber = 99;
+            _callerConfig.FailedTryAgain = 88;
+
+            var gate = _provider.PlanInitialization();
+            UniTask initializing = _utility.Initialize(Package);
+            await gate.Started.Task;
+
+            AssetProviderConfig received = _provider.ReceivedInitializationConfig;
+            Assert.That(received, Is.Not.Null);
+            Assert.That(received, Is.Not.SameAs(_callerConfig),
+                "Utility 必须接管一份配置快照，不能把调用方仍可修改的 DTO 直接交给 Adapter。");
+            CollectionAssert.AreEqual(new[] { "https://original.example/" }, received.CdnUrls);
+            Assert.That(received.ShouldEnableOnDemandDownload(Package), Is.False);
+            Assert.That(received.FileOffset, Is.EqualTo(16));
+            Assert.That(received.DownloadingMaxNumber, Is.EqualTo(4));
+            Assert.That(received.FailedTryAgain, Is.EqualTo(2));
+
+            received.CdnUrls = new[] { "https://provider-mutated.example/" };
+            received.EnableOnDemandDownloadByPackage = new Dictionary<string, bool> { [Package] = true };
+            received.FileOffset = 777;
+            received.DownloadingMaxNumber = 77;
+            received.FailedTryAgain = 66;
+
+            gate.Release.TrySetResult();
+            await initializing;
+            _utility.CreateAllDownloader(Package);
+
+            Assert.That(_provider.LastDownloaderMaxConcurrent, Is.EqualTo(4),
+                "Adapter 收到的 DTO 不能反向改写 Utility-owned 下载参数。");
+            Assert.That(_provider.LastDownloaderRetries, Is.EqualTo(2));
         }
 
         private async UniTask Initialize_CallerCancellationOnlyDetachesWaiter_AndSecondCallerJoinsOwnerAsync()
@@ -616,6 +671,9 @@ namespace Game.Framework.Test
             public int CheckLocationCalls { get; private set; }
             public int NeedDownloadCalls { get; private set; }
             public string LastQueriedPackage { get; private set; }
+            public AssetProviderConfig ReceivedInitializationConfig { get; private set; }
+            public int LastDownloaderMaxConcurrent { get; private set; }
+            public int LastDownloaderRetries { get; private set; }
 
 #if UNITY_EDITOR
             public Func<bool> SimulateOffline { get; set; }
@@ -633,6 +691,7 @@ namespace Game.Framework.Test
                 var gate = _initializations.Dequeue();
                 InitializeCalls++;
                 InitializeOwnerToken = ct;
+                ReceivedInitializationConfig = config;
                 gate.Started.TrySetResult();
                 await gate.Release.Task.AttachExternalCancellation(ct);
                 if (gate.Failure != null) throw gate.Failure;
@@ -742,7 +801,12 @@ namespace Game.Framework.Test
             }
             public string GetPackageVersion(string packageName) => _readyPackages.Contains(packageName) ? "test" : null;
             public IAssetDownloader CreateTagDownloader(string packageName, IReadOnlyList<string> tags, int maxConcurrent, int retries) => null;
-            public IAssetDownloader CreateAllDownloader(string packageName, int maxConcurrent, int retries) => null;
+            public IAssetDownloader CreateAllDownloader(string packageName, int maxConcurrent, int retries)
+            {
+                LastDownloaderMaxConcurrent = maxConcurrent;
+                LastDownloaderRetries = retries;
+                return null;
+            }
             public IAssetDownloader CreateLocationDownloader(string packageName, IReadOnlyList<string> locations, int maxConcurrent, int retries) => null;
             public void Dispose()
             {

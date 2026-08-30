@@ -36,7 +36,7 @@ Demo 教学内容与自动化之间的运行时 Seam。`DemoModuleHost` 在真�
 
 ## Asset Runtime Setup
 
-场景中资源基础设施的唯一正式 Mono 入口：`AssetUtility` 内嵌 `AssetRuntimeSettings`，拥有 provider、包状态机、自动初始化批次与加载/维护能力；配置不是业务 Model，启动薄编排也不是业务 System。场景路径在 Awake 应用设置、Start 自动初始化；代码引导在 Start 前 `Configure` 即接管启动，随后显式 `Initialize`。业务只依赖 `IAssetUtility`，Editor/Demo 才从具体 Utility 读取只读 Settings。`AssetSystemConfigModel` / `AssetInitSystem` 仅是可迁移兼容层，不得用于新场景。Editor 迁移器先按显式 `_targetContext` 或最近父 Context 验证完整旧接线：同一 Scene/Context 的兄弟 Init 会一起删除，多份 Config / Utility、跨 Scene/跨 Context 或无宿主歧义等已识别风险会在写 Utility 前失败。Project 中的持久化 Prefab 必须先进入 Prefab Mode，候选扫描按 Main Stage / 当前 Prefab Stage 隔离，不把其它预览 Scene 与当前运行作用域混在一起。
+场景中资源基础设施的唯一正式 Mono 入口：`AssetUtility` 内嵌 `AssetRuntimeSettings`，拥有 provider、包状态机、自动初始化批次与加载/维护能力；配置不是业务 Model，启动薄编排也不是业务 System。场景路径在 Awake 应用设置、Start 自动初始化；代码引导在 Start 前 `Configure` 即接管启动，随后显式 `Initialize`。业务只依赖 `IAssetUtility`；Editor/Demo 从具体 Utility 读取的 `Settings` 是 Inspector 场景创作配置，其集合是结构只读视图。代码路径的 `Configure` 提交独立运行快照且不回写 `Settings`，它会深拷贝调用方 DTO 并给 Provider 独立快照，避免调用方、Utility 与 Adapter 之间的配置所有权分叉。运行配置不支持热换：场景设置在 Play 前编辑，代码设置在 Start 前提交。`AssetSystemConfigModel` / `AssetInitSystem` 仅是可迁移兼容层，不得用于新场景。Editor 迁移器先按显式 `_targetContext` 或最近父 Context 验证完整旧接线：同一 Scene/Context 的兄弟 Init 会一起删除，多份 Config / Utility、跨 Scene/跨 Context 或无宿主歧义等已识别风险会在写 Utility 前失败。Project 中的持久化 Prefab 必须先进入 Prefab Mode，候选扫描按 Main Stage / 当前 Prefab Stage 隔离，不把其它预览 Scene 与当前运行作用域混在一起。
 
 ## Asset Reference Package Resolution
 

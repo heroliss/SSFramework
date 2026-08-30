@@ -1476,6 +1476,8 @@ switch (asset.GetLocationState("ui/logo"))
 
 **运行模式按“编辑器 / 玩家包”分开配**：`AssetUtility.Settings` 有两个模式字段——“编辑器运行模式”只在编辑器 Play 生效（日常 `EditorSimulate` 免打包；也可临时切 Offline / Host 联调），“玩家包运行模式”是构建出的玩家端实际模式（默认 `Offline`；资源热更选 `Host`）。同一份场景配置两头通用。玩家包误选 EditorSimulate 会在启动校验时报清晰错误。
 
+`Settings` 是场景作者和诊断界面读取的 Inspector 创作配置：`Packages` / `CdnUrls` 不能强转回内部 `List<T>` 修改。场景路径请在进入 Play 前用 Inspector 编辑；代码引导在 `Start` 前一次调用 `Configure`，Utility 会另行深拷贝 DTO 及其集合，不把代码配置回写到 `Settings`。调用后继续修改原 `AssetProviderConfig`，或由自定义 Provider 修改自己收到的隔离副本，都不会热换 Utility 已接管的下载与初始化参数。诊断代码应据启动方式区分“场景创作值”和“代码路径生效值”，不要把二者当作同步镜像。
+
 `Host` 在全新安装且 CDN 暂时不可用时会先尝试远端，失败后显式激活随包内置版本清单；因此“全部内置”的启动必需包仍可离线进入游戏，已有本地清单的老客户端也会继续用当前版本。初始化前会先探测内置版本文件，纯 CDN（`BuiltinCopy=None`）的包不会开启 manifest 复制，也就不会因“没有内置文件”在访问远端前失败。这个回退只覆盖真正随包携带的内容：按 tag / 零内置的 bundle 仍需 CDN。资源构建器会在成功后核对 `StreamingAssets` 的清单和 bundle，`ClearAndCopyAll` 少拷任何文件都会让构建失败，避免产出“清单可用、资源却意外联网”的半成品。
 
 资源释放分三层，别混用：

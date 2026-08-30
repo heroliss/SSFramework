@@ -25,7 +25,7 @@
 | 场景节点 `AssetUtility` 的“资源运行配置 / 加密” | `FileOffset` | 运行时跳过的字节数 |
 
 两个值**必须完全相等**：构建插几个字节、运行时就跳几个字节，对不上会读坏**所有** bundle。`0` = 不加密（默认）。
-（这与“`profile.LocalServePort` 必须等于 `AssetUtility.Settings.CdnUrls` 端口”是同一种“构建↔运行时手动对齐”约定。）
+（这与“`profile.LocalServePort` 必须等于当前生效资源配置的 CDN 主地址端口”是同一种“构建↔运行时手动对齐”约定；场景路径配置来自 `AssetUtility.Settings`，代码路径来自 `Configure` DTO。）
 
 改完重新构建即生效。验证：加密产物的 hash 会变（YooAsset 对**加密后**的文件算 hash 写清单），首次构建后全量产物都会更新。
 
@@ -34,7 +34,7 @@
 ### 原理 / 落点
 
 - 构建：`profile.FileOffset > 0` 时，`FrameworkAssetBuilder.BuildPackage` 挂上 `GameBundleOffsetEncryptor`——读原文件、头部插入 N 个**确定性**字节（按 bundle 名 FNV-1a 派生，保证内容不变的包每次构建产出同样的头，不破坏增量发布），返回加密数据。
-- 运行时：`AssetUtility.Settings` 的 `FileOffset` 经 `AssetRuntimeSettings.ToProviderConfig()` → `AssetProviderConfig.FileOffset` → `YooAssetProvider.ApplyDecryptor` 注册 `GameBundleOffsetDecryptor`（同时作 `AssetBundleDecryptor` / `RawBundleDecryptor` / `AssetBundleFallbackDecryptor`）。它实现 `IBundleOffsetDecryptor`（带偏移直接加载）+ `IBundleMemoryDecryptor`（内存兜底：剥头后从内存加载）。
+- 运行时：当前生效资源配置的 `FileOffset`（场景路径为 `AssetUtility.Settings` 经 `AssetRuntimeSettings.ToProviderConfig()`；代码路径为 `Configure` DTO）→ `AssetProviderConfig.FileOffset` → `YooAssetProvider.ApplyDecryptor` 注册 `GameBundleOffsetDecryptor`（同时作 `AssetBundleDecryptor` / `RawBundleDecryptor` / `AssetBundleFallbackDecryptor`）。它实现 `IBundleOffsetDecryptor`（带偏移直接加载）+ `IBundleMemoryDecryptor`（内存兜底：剥头后从内存加载）。
 
 ---
 

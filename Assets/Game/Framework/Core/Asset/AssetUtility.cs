@@ -79,7 +79,8 @@ namespace Game.Framework
         }
 
         /// <summary>
-        /// 当前组件的场景运行配置。业务只读；需要代码引导时请在 <c>Start</c> 前调用 <see cref="Configure"/>。
+        /// 当前组件的 Inspector 场景配置。集合返回结构只读视图；代码引导请在 <c>Start</c> 前调用
+        /// <see cref="Configure"/> 提交独立运行快照，它不会反向改写本属性。
         /// </summary>
         public AssetRuntimeSettings Settings => _settings ??= new AssetRuntimeSettings();
 
@@ -276,7 +277,8 @@ namespace Game.Framework
         /// <summary>
         /// 在初始化前写入运行时配置、默认包名与运行模式。它面向代码引导路径：在 <c>Start</c> 前调用会明确
         /// 接管启动过程，抑制 Inspector 设置的自动初始化；随后由入口代码调用 <see cref="Initialize"/> 与
-        /// <c>LoadScene</c>。场景常规路径不必调用，直接编辑 <see cref="Settings"/> 即可。
+        /// <c>LoadScene</c>。配置与其集合会在调用时深拷贝，之后修改原 DTO 不会热换本 Utility。
+        /// 场景常规路径不必调用，直接在 Play 前编辑 <see cref="Settings"/> 即可。
         /// <para>运行模式在此即写入 <see cref="CurrentPlayMode"/>（而非等到 <see cref="InitializePackageAsync"/>）：
         /// 某些包关闭自动初始化、延迟到业务显式 <c>Initialize</c> 触发时，仍能用正确模式初始化，而不是回落到默认值。</para>
         /// </summary>
@@ -293,7 +295,7 @@ namespace Game.Framework
         private void ApplyConfiguration(string defaultPackageName, AssetProviderConfig config, AssetPlayMode mode)
         {
             _defaultPackageName = defaultPackageName?.Trim() ?? string.Empty;
-            _config = config ?? new AssetProviderConfig();
+            _config = (config ?? new AssetProviderConfig()).Snapshot();
             CurrentPlayMode = mode;
             if (!string.IsNullOrWhiteSpace(_defaultPackageName))
                 GetState(_defaultPackageName);
@@ -412,7 +414,7 @@ namespace Game.Framework
             try
             {
                 // 这里刻意不用任一调用者 token。provider 的物理操作归 utility 生命周期所有；只有 OnDestroy 才取消 owner。
-                await provider.InitializeAsync(packageName, mode, config, ownerToken);
+                await provider.InitializeAsync(packageName, mode, config.Snapshot(), ownerToken);
                 if (_disposedByDestroy) return;
                 state.State.Value = AssetInitState.Ready;
                 attempt.Done.TrySetResult();
@@ -451,7 +453,7 @@ namespace Game.Framework
         private static string InitFailureHint(AssetPlayMode mode) => mode switch
         {
             AssetPlayMode.Host or AssetPlayMode.Web =>
-                "拉远端清单失败：确认已①构建 ②部署资源，且远端 CDN 可达——本地联调还需③启动本地 CDN 服务，且服务端口与 AssetUtility.Settings 的 CDN 列表第一条端口一致。开发期可改回 EditorSimulate 免构建。",
+                "拉远端清单失败：确认已①构建 ②部署资源，且远端 CDN 可达——本地联调还需③启动本地 CDN 服务，且服务端口与当前生效配置的 CDN 主地址一致（场景路径来自 Settings，代码路径来自 Configure）。开发期可改回 EditorSimulate 免构建。",
             AssetPlayMode.Offline =>
                 "读内置清单失败：确认已构建、且把 bundle 内置进首包（首包 Tags）。开发期可改回 EditorSimulate 免构建。",
             _ =>
@@ -942,8 +944,9 @@ namespace Game.Framework
             var name = NormalizePackageName(packageName);
             if (string.IsNullOrWhiteSpace(name))
                 throw new InvalidOperationException(
-                    "[AssetUtility] 未配置默认资源包（AssetUtility.Settings.DefaultPackageName 为空），且本次未指定 packageName——" +
-                    "请配置默认包，或改用带 packageName 的重载（如 Load(packageName, location)）。");
+                    "[AssetUtility] 当前生效配置没有默认资源包，且本次未指定 packageName——" +
+                    "场景路径请检查 AssetUtility.Settings.DefaultPackageName，代码路径请检查 Configure 的 defaultPackageName；" +
+                    "也可改用带 packageName 的重载（如 Load(packageName, location)）。");
             return name;
         }
 

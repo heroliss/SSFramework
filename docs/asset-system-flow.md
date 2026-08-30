@@ -21,6 +21,7 @@ flowchart LR
 
 - 业务**只经** `this.GetUtility<IAssetUtility>()` 或 `Bag.Load`，看不到 YooAsset。
 - `AssetRuntimeSettings` 是资源基础设施配置，不注册为业务 Model；自动初始化是 Utility 自己的生命周期，不另占一个 System。
+- `Settings` 的集合只提供结构只读视图；场景配置在 Play 前编辑。代码路径的 `Configure` 会冻结调用方 DTO，并给 Provider Adapter 独立快照，不支持靠修改旧集合在运行中热换。
 - 换底层库（Addressables / 自研）只需实现一个新 `IAssetProvider`，上层零改动（`AssetProviderFactory.CreateDefault()` 里 new provider 是唯一切换点）。
 
 ---

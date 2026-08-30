@@ -58,7 +58,7 @@
 ## 模块入口与配置可发现性
 
 - 资源、存储、音频、池等纯 C# Utility 默认按 Interface 注册并由 Context 持有所有权；需要 Inspector 配置时再选 Mono Adapter。
-- 场景资源运行时只挂 `AssetUtility`：包、模式、CDN 与下载设置内嵌在 `Settings`，自动初始化由 Utility 自己编排；旧 `AssetSystemConfigModel` / `AssetInitSystem` 只用于迁移已有场景，新代码不要继续接线。
+- 场景资源运行时只挂 `AssetUtility`：包、模式、CDN 与下载设置内嵌在 `Settings`，自动初始化由 Utility 自己编排；`Settings` 集合只读，场景配置在 Play 前编辑，代码引导在 Start 前用 `Configure` 一次提交，不能靠强转集合或继续修改原 DTO 热换；旧 `AssetSystemConfigModel` / `AssetInitSystem` 只用于迁移已有场景，新代码不要继续接线。
 - 新模块配置 Profile 必须能从 `SSFramework/工具中心` 的 Module 工作台到达，并登记到 `SSFramework/配置中心`；不要让生效配置只能靠翻目录猜。顶层菜单只导航，创建/生成动作放进工作台并说明影响。
 - UGUI 与 UI Toolkit 是 Adapter，实现可替换；核心业务通过 `IUIUtility`/View 约束保持渲染中立。
 

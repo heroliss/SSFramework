@@ -9,7 +9,8 @@ namespace Game.Framework.Build
     /// 挡住「直接用 AB 提取工具/AssetStudio 打开」的最低门槛。N = 偏移字节数。
     ///
     /// <para>这是运行时 <c>GameBundleOffsetDecryptor</c> 的<b>构建期对偶</b>：构建插 N 字节、运行时跳过 N 字节，两端必须用<b>同一个 N</b>
-    /// （构建侧 <see cref="FrameworkAssetBuildProfile.FileOffset"/>，运行时侧 <c>AssetUtility.Settings</c> 的 FileOffset）。
+    /// （构建侧 <see cref="FrameworkAssetBuildProfile.FileOffset"/>，运行时侧为当前生效资源配置的 FileOffset：
+    /// 场景路径来自 <c>AssetUtility.Settings</c>，代码路径来自 <c>AssetUtility.Configure</c> DTO）。
     /// 偏移式不改变 bundle 正文、解密近乎零成本（运行时只是带偏移加载或剥头），强度也最弱（仅防扫魔数）；
     /// 要真正的内容加密（XOR / AES 等）见 <c>docs/asset-encryption.md</c>。</para>
     ///
@@ -22,7 +23,7 @@ namespace Game.Framework.Build
     {
         private readonly int _fileOffset;
 
-        /// <param name="fileOffset">文件头偏移字节数；须与运行时 <c>AssetUtility.Settings</c> 的 FileOffset 一致。0 视为不加密。</param>
+        /// <param name="fileOffset">文件头偏移字节数；须与运行时当前生效资源配置的 FileOffset 一致。0 视为不加密。</param>
         public GameBundleOffsetEncryptor(ulong fileOffset) => _fileOffset = (int)fileOffset;
 
         /// <summary>
