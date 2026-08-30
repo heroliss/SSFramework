@@ -46,7 +46,7 @@ namespace Game.Framework.Demo.Modules
                 new[] { "表清单（LubanTableManifest.g.cs）", "随生成代码", "配置服务据此并行预载" });
             host.AddSubNote("为什么要表清单：生成的 `Tables` 构造函数是**同步**逐表要字节，而框架资源加载是**异步**——先按清单把全部数据并行预载进内存，" +
                             "再同步构造。清单与代码 / 数据同一次生成（CLI 跑完扫数据目录补写），不存在手工维护漏表（机制同热更代码包的 manifest）。",
-                new CodeRef("Assets/Game/Framework/Config/Editor/LubanCodeGenerator.cs", "WriteManifest(string outputDataDir", "生成管线 · 扫数据目录写清单"));
+                new CodeRef("Assets/Game/Framework/Config/Editor/LubanGenerationTransaction.cs", "private static void WriteManifest(", "生成事务 · 校验暂存数据后写清单"));
 
             // ── 2. 先看结果：各层一行取到强类型表（最常用的一步，先给概念落地） ──
             host.AddSectionTitle("先看结果：各层一行取到强类型表");
@@ -157,7 +157,8 @@ namespace Game.Framework.Demo.Modules
             // ── 4. 改表工作流 ──
             host.AddSectionTitle("改一张表的完整工作流");
             host.AddStep("①", "改数据：`Demo/Configs~/Datas/item.json`（JSON，diff 可读）或 `monster.xlsx`（Excel/WPS 直接编辑）；改表结构 / 加表：`Demo/Configs~/Defines/demo.xml`。");
-            host.AddStep("②", "打开「SSFramework/代码生成/配置表 (Luban)」工作台，确认输入与输出后点生成：代码 / 数据 / 清单一次刷新（Play 中会被拒绝，先停）。");
+            host.AddStep("②", "打开「SSFramework/代码生成/配置表 (Luban)」工作台，确认输入与输出后点生成：CLI 先写暂存区，代码 / 数据 / 清单校验通过才一起差量发布（Play 中会被拒绝，先停）。");
+            host.AddSubNote("生成失败不会拿半套新产物覆盖旧配置；发布中断会恢复代码与数据两棵目录树。内容完全未变时也不会重写文件或触发无谓编译。");
             host.AddStep("③", "重新 Play 查看——配置在启动时一次性加载（只读数据不做运行中增量更新）。");
             host.AddActionRow("打开表定义与数据目录（Demo/Configs~/）", () => OpenConfigSource());
 

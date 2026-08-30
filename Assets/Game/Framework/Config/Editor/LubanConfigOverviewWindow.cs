@@ -4,7 +4,7 @@ using Game.Framework.Editor;
 using UnityEditor;
 using UnityEngine;
 
-namespace Game.Framework.Build
+namespace Game.Framework.Config.Editor
 {
     /// <summary>
     /// 「配置表生成总览」窗口：把工程内所有 <see cref="LubanConfigProfile"/> 集中成卡片——每套列出 luban.conf 源、目标、
@@ -21,12 +21,16 @@ namespace Game.Framework.Build
         {
             FrameworkToolRegistry.Register(new FrameworkToolDescriptor(
                 "luban", FrameworkToolCategory.CodeGeneration, 10,
-                "配置表 (Luban)", "管理多套 Luban 输入与输出，按套或全部生成代码、数据和 manifest。",
+                "配置表 (Luban)", "管理多套 Luban 输入与输出；代码、数据和 manifest 经暂存校验后按套事务发布。",
                 FrameworkMenuPaths.Luban));
             FrameworkConfigRegistry.Register(new FrameworkConfigDescriptor(
                 "luban", 30, "配置表（Luban 生成）", typeof(LubanConfigProfile), singleton: false,
                 "可按数据域或构建目标并存多套；每套显式维护 luban.conf 源、代码与数据输出，框架不猜业务路径。",
                 FrameworkMenuPaths.Luban));
+            FrameworkGeneratedOutputClaimCatalog.Register(new FrameworkGeneratedOutputClaimSource(
+                LubanCodeGenerator.OutputClaimSourceId,
+                "配置表（Luban）",
+                LubanCodeGenerator.CollectRegisteredOutputClaims));
         }
 
         private Vector2 _scroll;
@@ -58,8 +62,8 @@ namespace Game.Framework.Build
             }
             EditorGUILayout.HelpBox(
                 "每套配置 = 一个 Luban Profile（luban.conf 源 + 代码 / 数据输出 + 命名空间）。所有输出必须位于 Assets 的独立子目录，" +
-                "且彼此不能相同或嵌套，避免一套整理目录时覆盖另一套。\n" +
-                "可按数据域、客户端/服务端目标或可选内容拆分；路径由项目明确填写，框架不会猜测业务目录。",
+                "且不得与其它生成器的写入 / 清理范围重叠。当前运行时固定使用 cs-bin + bin。\n" +
+                "CLI 只写暂存区；校验成功后差量发布，失败恢复旧代码与数据。可按数据域或可选内容拆分。",
                 MessageType.Info);
             if (!canWrite)
                 EditorGUILayout.HelpBox("当前不能新建或生成：\n" + operationReason, MessageType.Warning);
@@ -170,7 +174,10 @@ namespace Game.Framework.Build
                 }
                 DrawValue("Luban CLI", profile.LubanToolPath, compact);
                 DrawValue("源 (luban.conf)", profile.ConfPath, compact);
-                DrawValue("目标", $"{profile.Target} · {profile.CodeTarget} / {profile.DataTarget}", compact);
+                DrawValue(
+                    "目标",
+                    $"{profile.Target} · {LubanCodeGenerator.CodeTarget} / {LubanCodeGenerator.DataTarget}",
+                    compact);
                 DrawValue("代码输出", profile.OutputCodeDir, compact);
                 DrawValue("数据输出", profile.OutputDataDir, compact);
                 DrawValue("命名空间", profile.ManifestNamespace, compact);

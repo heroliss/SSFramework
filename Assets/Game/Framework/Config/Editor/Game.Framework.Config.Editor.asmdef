@@ -1,6 +1,6 @@
 {
     "name": "Game.Framework.Config.Editor",
-    "rootNamespace": "Game.Framework.Build",
+    "rootNamespace": "Game.Framework.Config.Editor",
     "references": [
         "Game.Framework.Editor"
     ],
