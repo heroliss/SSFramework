@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using Game.Framework.Model;
 using UnityEngine;
 using UnityEngine.Serialization;
@@ -25,6 +26,9 @@ namespace Game.Framework
         [FormerlySerializedAs("_extraPackages")]
         [SerializeField] private List<AssetPackageConfig> _packages = new() { new AssetPackageConfig(DefaultPackage) };
 
+        [NonSerialized] private List<AssetPackageConfig> _packagesViewSource;
+        [NonSerialized] private ReadOnlyCollection<AssetPackageConfig> _packagesView;
+
 #if UNITY_EDITOR
         [DefaultAssetPackageName]
 #endif
@@ -42,6 +46,9 @@ namespace Game.Framework
         [Header("CDN 配置")]
         [InspectorName("CDN 地址列表")]
         [SerializeField] private List<string> _cdnUrls = new() { DefaultLocalCdnUrl };
+
+        [NonSerialized] private List<string> _cdnUrlsViewSource;
+        [NonSerialized] private ReadOnlyCollection<string> _cdnUrlsView;
 
         [Header("下载器配置")]
         [InspectorName("最大并发下载数")]
@@ -62,9 +69,11 @@ namespace Game.Framework
         /// <summary>旧版编辑器运行模式；仅供迁移期读取。</summary>
         public AssetPlayMode PlayMode => _playMode;
         /// <summary>旧版包列表；仅供迁移期读取。</summary>
-        public IReadOnlyList<AssetPackageConfig> Packages => _packages;
+        public IReadOnlyList<AssetPackageConfig> Packages =>
+            AssetRuntimeSettings.GetReadOnlyView(_packages, ref _packagesViewSource, ref _packagesView);
         /// <summary>旧版 CDN 列表；仅供迁移期读取。</summary>
-        public IReadOnlyList<string> CdnUrls => _cdnUrls;
+        public IReadOnlyList<string> CdnUrls =>
+            AssetRuntimeSettings.GetReadOnlyView(_cdnUrls, ref _cdnUrlsViewSource, ref _cdnUrlsView);
 
         /// <summary>旧版环境模式计算；仅供迁移期读取。</summary>
         public AssetPlayMode ActualPlayMode => ToRuntimeSettings().ActualPlayMode;

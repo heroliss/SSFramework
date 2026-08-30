@@ -19,7 +19,8 @@ namespace Game.Framework.Build
     /// 这是**项目配置实例**，不是框架代码——资产入库放在项目配置位（默认新建到 <c>Assets/Settings/SSFramework/</c>，不在 <c>Framework/</c> 内，
     /// 框架抽 UPM 包时项目配置不该进包，ADR-0010/0011）；<see cref="Resolve"/> 按类型扫描定位（不认路径），
     /// 找不到时在该位自动建一个默认 profile，找到多个时取第一个并警告（全工程应只保留一个）。
-    /// 这是**编辑器构建配置**，不是运行时数据（运行时资源行为看 <c>AssetUtility.Settings</c>），故只存在于 Editor 程序集。
+    /// 这是**编辑器构建配置**，不是运行时数据（运行时行为看当前生效资源配置：场景路径来自
+    /// <c>AssetUtility.Settings</c>，代码路径来自 <c>AssetUtility.Configure</c>），故只存在于 Editor 程序集。
     /// 字段只读暴露：修改只经 Inspector / <see cref="SyncFromCollector"/>，保证「资产 = 唯一真源」不被代码旁路改写。
     /// </summary>
     [CreateAssetMenu(fileName = "FrameworkAssetBuildProfile", menuName = "SSFramework/资源构建配置 (Build Profile)")]
@@ -94,7 +95,8 @@ namespace Game.Framework.Build
 
         /// <summary>
         /// AssetBundle 文件头偏移加密的字节数（全局，对所有包生效）；0 = 不加密。&gt;0 时构建挂上偏移加密器在每个 bundle 头前插入该字节数。
-        /// 必须与运行时 <c>AssetUtility.Settings</c> 的 FileOffset 一致（构建插几字节、运行时跳几字节）。自定义内容加密见 <c>docs/asset-encryption.md</c>。
+        /// 必须与运行时当前生效资源配置的 FileOffset 一致（场景路径来自 Settings，代码路径来自 Configure DTO；
+        /// 构建插几字节、运行时就跳几字节）。自定义内容加密见 <c>docs/asset-encryption.md</c>。
         /// </summary>
         public ulong FileOffset => _fileOffset;
 
@@ -104,7 +106,7 @@ namespace Game.Framework.Build
         /// <summary>包名常量类所在的命名空间。</summary>
         public string PackageConstantsNamespace => _packageConstantsNamespace?.Trim() ?? "";
 
-        /// <summary>本地 CDN 服务端口（联调专用，须与 AssetUtility.Settings.CdnUrls 主地址端口一致）。</summary>
+        /// <summary>本地 CDN 服务端口（联调专用，须与当前生效资源配置的 CDN 主地址端口一致）。</summary>
         public int LocalServePort => _localServePort;
 
         /// <summary>本地 CDN 服务每连接限速（KB/s）；0 = 不限速。</summary>

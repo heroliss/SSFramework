@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using UnityEngine;
 using UnityEngine.Serialization;
 
@@ -29,6 +30,9 @@ namespace Game.Framework
         [InspectorName("资源包列表（Packages）")]
         [FormerlySerializedAs("_extraPackages")]
         [SerializeField] private List<AssetPackageConfig> _packages = new() { new AssetPackageConfig(DefaultPackage) };
+
+        [NonSerialized] private List<AssetPackageConfig> _packagesViewSource;
+        [NonSerialized] private ReadOnlyCollection<AssetPackageConfig> _packagesView;
 
         [Tooltip("默认资源包：不带 packageName 的 Load(location) 等便捷重载用它。从上面包列表里选。\n" +
                  "留空 = 无默认包：不带 packageName 的加载、以及未显式指定包的 AssetReference 都会报错；\n" +
@@ -64,6 +68,9 @@ namespace Game.Framework
                  "本地联调端口须等于构建 profile 的 LocalServePort（默认 8080）。留空表示未配置远端。")]
         [InspectorName("CDN 地址列表")]
         [SerializeField] private List<string> _cdnUrls = new() { DefaultLocalCdnUrl };
+
+        [NonSerialized] private List<string> _cdnUrlsViewSource;
+        [NonSerialized] private ReadOnlyCollection<string> _cdnUrlsView;
 
         [Header("下载器配置")]
         [Tooltip("同时下载的最大文件数。值越大并发越高，但占用带宽和系统资源也越多。建议 4-16。")]
@@ -115,11 +122,13 @@ namespace Game.Framework
         /// <summary>编辑器 Play 使用的显式模式。</summary>
         public AssetPlayMode PlayMode => _playMode;
 
-        /// <summary>全部已登记资源包及其启动、按需下载策略。</summary>
-        public IReadOnlyList<AssetPackageConfig> Packages => _packages;
+        /// <summary>全部已登记资源包及其启动、按需下载策略；返回值不允许结构修改。</summary>
+        public IReadOnlyList<AssetPackageConfig> Packages =>
+            GetReadOnlyView(_packages, ref _packagesViewSource, ref _packagesView);
 
-        /// <summary>远端模式依次尝试的 CDN 根地址。</summary>
-        public IReadOnlyList<string> CdnUrls => _cdnUrls;
+        /// <summary>远端模式依次尝试的 CDN 根地址；返回值不允许结构修改。</summary>
+        public IReadOnlyList<string> CdnUrls =>
+            GetReadOnlyView(_cdnUrls, ref _cdnUrlsViewSource, ref _cdnUrlsView);
 
         /// <summary>当前运行环境实际生效的模式。</summary>
         public AssetPlayMode ActualPlayMode
@@ -212,6 +221,30 @@ namespace Game.Framework
             foreach (AssetPackageConfig package in _packages)
                 if (package != null && package.Name == packageName) return package;
             return null;
+        }
+
+        /// <summary>
+        /// 同一序列化 List 复用一份只读包装；Unity 替换字段实例时自动刷新，避免缓存继续指向旧数据。
+        /// </summary>
+        internal static IReadOnlyList<T> GetReadOnlyView<T>(
+            List<T> source,
+            ref List<T> cachedSource,
+            ref ReadOnlyCollection<T> cachedView)
+        {
+            if (source == null)
+            {
+                cachedSource = null;
+                cachedView = null;
+                return Array.Empty<T>();
+            }
+
+            if (!ReferenceEquals(source, cachedSource))
+            {
+                cachedSource = source;
+                cachedView = source.AsReadOnly();
+            }
+
+            return cachedView;
         }
     }
 

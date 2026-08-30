@@ -32,7 +32,7 @@
 
 ### 2. 偏移量 = 构建 / 运行时各一个简单字段，必须手动对齐
 
-偏移之所以能做成普通字段（`FrameworkAssetBuildProfile.FileOffset` + `AssetUtility.Settings` 的运行时 FileOffset），正因为它的“参数”是个**非密钥、两端相同**的数字。两值必须一致（构建插几字节、运行时跳几字节），用 tooltip 约束——与 `LocalServePort` 须等于 CDN 端口是同一种“构建↔运行时手动对齐”约定。
+偏移之所以能做成普通字段（`FrameworkAssetBuildProfile.FileOffset` + 当前生效资源配置的运行时 FileOffset；场景路径来自 `AssetUtility.Settings`，代码路径来自 `Configure` DTO），正因为它的“参数”是个**非密钥、两端相同**的数字。两值必须一致（构建插几字节、运行时跳几字节），用 tooltip 约束——与 `LocalServePort` 须等于 CDN 端口是同一种“构建↔运行时手动对齐”约定。
 
 ### 3. 自定义加密走代码接入位，不做多态配置 UI
 

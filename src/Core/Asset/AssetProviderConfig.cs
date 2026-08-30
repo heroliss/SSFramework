@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 
 namespace Game.Framework
 {
@@ -13,6 +14,8 @@ namespace Game.Framework
     ///   <item><b>Web</b>：用 <see cref="CdnUrls"/>。</item>
     /// </list>
     /// 单个 provider 实现应在初始化时校验自身需要的字段并清晰报错（而不是静默忽略）。
+    /// 调用方可用对象初始化器组装本 DTO；<see cref="AssetUtility.Configure"/> 会接管深拷贝快照，
+    /// 因此之后修改原 DTO 或它引用的集合不会热换已经配置的 Utility。
     /// </summary>
     public sealed class AssetProviderConfig
     {
@@ -45,6 +48,37 @@ namespace Game.Framework
                 && EnableOnDemandDownloadByPackage.TryGetValue(packageName, out var enable))
                 return enable;
             return true;
+        }
+
+        /// <summary>
+        /// 冻结标量并复制集合。Utility 用它隔离调用方与 Provider Adapter 的可变 DTO 所有权，
+        /// 避免任一侧在初始化前后静默改写另一侧观察到的运行配置。
+        /// </summary>
+        internal AssetProviderConfig Snapshot() => new()
+        {
+            CdnUrls = SnapshotList(CdnUrls),
+            EnableOnDemandDownloadByPackage = SnapshotDictionary(EnableOnDemandDownloadByPackage),
+            FileOffset = FileOffset,
+            DownloadingMaxNumber = DownloadingMaxNumber,
+            FailedTryAgain = FailedTryAgain,
+        };
+
+        private static IReadOnlyList<T> SnapshotList<T>(IReadOnlyList<T> source)
+        {
+            if (source == null) return null;
+            var copy = new List<T>(source.Count);
+            for (int i = 0; i < source.Count; i++) copy.Add(source[i]);
+            return copy.AsReadOnly();
+        }
+
+        private static IReadOnlyDictionary<TKey, TValue> SnapshotDictionary<TKey, TValue>(
+            IReadOnlyDictionary<TKey, TValue> source)
+        {
+            if (source == null) return null;
+            var copy = new Dictionary<TKey, TValue>(source.Count);
+            foreach (KeyValuePair<TKey, TValue> pair in source)
+                copy.Add(pair.Key, pair.Value);
+            return new ReadOnlyDictionary<TKey, TValue>(copy);
         }
     }
 }
