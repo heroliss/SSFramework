@@ -145,6 +145,24 @@ namespace Game.Framework.Build
                                      "本次以自定义加密为准、偏移被忽略。建议把 profile 的 FileOffset 置 0。");
 
                 var target = EditorUserBuildSettings.activeBuildTarget;
+                bool requiresOrdinaryAssetBundle = RequiresGeneratedAssetBundleConstants(packages);
+                if (requiresOrdinaryAssetBundle)
+                {
+                    string offsetError = ValidateBuiltInFileOffset(
+                        profile, GameAssetEncryption.CustomBundleEncryptor != null);
+                    if (offsetError != null) return (false, offsetError);
+                }
+
+                // 生成物同时冻结包名与普通 AssetBundle 的引导期 FileOffset。只要本次包含普通 AB，构建前必须验证它；
+                // RawFile / CodePackage 属于独立 Module，不读取这个 offset，也不能被本门禁误拦。
+                if (profile != null && !string.IsNullOrEmpty(profile.PackageConstantsPath) &&
+                    requiresOrdinaryAssetBundle)
+                {
+                    var freshness = AssetPackageConstantsGenerator.ValidateFreshness(profile);
+                    if (!freshness.ok)
+                        return (false, "资源构建常量预检失败：" + freshness.message);
+                }
+
                 var built = new List<string>();    // 正常构建
                 var skipped = new List<string>();  // 空包，跳过
                 var failed = new List<string>();   // 真失败
@@ -354,6 +372,42 @@ namespace Game.Framework.Build
                 return false;
             }
             return false;
+        }
+
+        /// <summary>
+        /// 本次请求是否包含由本 Module 构建的普通 AssetBundle。
+        /// 空包不会产出，RawFile 包归独立构建 Module；只有剩余包才消费生成的 AssetBundleFileOffset。
+        /// </summary>
+        internal static bool RequiresGeneratedAssetBundleConstants(IReadOnlyList<string> packages)
+            => RequiresGeneratedAssetBundleConstants(packages, IsCollectorEmpty, UsesRawFilePackRule);
+
+        internal static bool RequiresGeneratedAssetBundleConstants(
+            IReadOnlyList<string> packages,
+            Func<string, bool> isCollectorEmpty,
+            Func<string, bool> usesRawFilePackRule)
+        {
+            if (packages == null) return false;
+            foreach (string packageName in packages)
+            {
+                if (string.IsNullOrWhiteSpace(packageName)) continue;
+                string normalized = packageName.Trim();
+                if (!isCollectorEmpty(normalized) && !usesRawFilePackRule(normalized))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>校验内置偏移加密的现实资源上限；项目自定义加密接管时本字段不生效。</summary>
+        internal static string ValidateBuiltInFileOffset(
+            FrameworkAssetBuildProfile profile,
+            bool customEncryptorConfigured)
+        {
+            if (customEncryptorConfigured || profile == null || profile.FileOffset == 0) return null;
+            if (profile.FileOffset > AssetProviderConfig.MaxBuiltInFileOffset)
+                return $"文件头偏移 {profile.FileOffset} 超出内置偏移加/解密器支持范围 " +
+                       $"0..{AssetProviderConfig.MaxBuiltInFileOffset}；更大的弱混淆头不会增加实际安全性，" +
+                       "只会放大每个 bundle 的磁盘与构建内存成本。";
+            return null;
         }
 
         // 收集器里这个包是否没有任何收集规则（空包）。包不在收集器、或没有 group / collector 都算空。

@@ -141,10 +141,10 @@ namespace Game.Framework.Build
 
         internal static void GeneratePackageConstants()
         {
-            if (!TryGetProfile("生成资源包名常量", out var profile)) return;
-            if (!FrameworkEditorOperationGate.EnsureCanStart("生成资源包名常量")) return;
+            if (!TryGetProfile("生成资源包名与构建常量", out var profile)) return;
+            if (!FrameworkEditorOperationGate.EnsureCanStart("生成资源包名与构建常量")) return;
             var (ok, message) = AssetPackageConstantsGenerator.Generate(profile);
-            FrameworkEditorFeedback.ReportResult("生成资源包名常量", ok, message);
+            FrameworkEditorFeedback.ReportResult("生成资源包名与构建常量", ok, message);
             if (ok)
             {
                 var asset = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(profile.PackageConstantsPath);

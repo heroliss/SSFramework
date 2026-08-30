@@ -86,6 +86,7 @@ namespace Game.Framework
         [Header("加密")]
         [Tooltip("AssetBundle 文件头偏移加密：运行时加载时跳过的字节数。\n" +
                  "⚠ 必须与构建配置 FrameworkAssetBuildProfile.FileOffset 完全一致。\n" +
+                 "内置实现最大 1 MiB；Web 模式会下载到内存后剥离文件头。\n" +
                  "0 = 不加密；内容加密经 GameAssetDecryption 接入，见 docs/asset-encryption.md。")]
         [InspectorName("文件头偏移字节数")]
         [FormerlySerializedAs("FileOffset")]

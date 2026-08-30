@@ -44,12 +44,12 @@ namespace Game.Framework.Build
                     FrameworkEditorFeedback.ReportSummary("同步资源包列表", summary, profile);
                 }
 
-                if (GUILayout.Button("生成包名常量代码"))
+                if (GUILayout.Button("生成包名与构建常量代码"))
                 {
-                    if (!FrameworkEditorOperationGate.EnsureCanStart("生成资源包名常量")) return;
+                    if (!FrameworkEditorOperationGate.EnsureCanStart("生成资源包名与构建常量")) return;
                     var profile = (FrameworkAssetBuildProfile)target;
                     var (ok, message) = AssetPackageConstantsGenerator.Generate(profile);
-                    FrameworkEditorFeedback.ReportResult("生成资源包名常量", ok, message, profile);
+                    FrameworkEditorFeedback.ReportResult("生成资源包名与构建常量", ok, message, profile);
                 }
             }
         }

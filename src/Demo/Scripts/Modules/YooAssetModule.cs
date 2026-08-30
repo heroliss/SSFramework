@@ -117,9 +117,9 @@ namespace Game.Framework.Demo.Modules
 
             // ── 机制：加密（可选，两端成对）──
             host.AddSectionTitle("机制：资源加密（可选）");
-            host.AddSubNote("加密分构建侧（写加密产物）与运行时侧（读时解密），必须【成对、参数一致】。框架内置“偏移加密”开箱即用：构建配置 `FrameworkAssetBuildProfile.FileOffset` 设 N(>0) → 构建在每个 bundle 头插入 N 字节；运行时在 `AssetUtility` 的资源运行配置中把文件头偏移设为相同 N → 加载时跳过这些字节。两值对不上会读坏所有 bundle。",
+            host.AddSubNote("加密分构建侧（写加密产物）与运行时侧（读时解密），必须【成对、参数一致】。框架内置“偏移加密”开箱即用：构建配置 `FrameworkAssetBuildProfile.FileOffset` 设 N(>0) → 构建在每个普通 AssetBundle 头插入 N 字节；场景 `AssetUtility` 的运行配置填相同 N。首场景早于场景配置，所以 `GameEntry` 改用工作台生成的 `AssetPackages.AssetBundleFileOffset`，构建前还会检查生成物是否过期。两端对不上会读坏所有 bundle。",
                 new CodeRef("Assets/Game/Framework/Build/Editor/GameBundleOffsetEncryptor.cs", "class GameBundleOffsetEncryptor", "构建侧偏移加密器"));
-            host.AddSubNote("偏移是【弱】加密（只换文件头、不动 bundle 正文，解密近乎零成本）。要真加密（XOR/AES 等打乱正文）需自实现 `IBundleEncryptor` + 运行时对应解密器，两端一起换——完整步骤（含清单加密、流式解密、密钥/热更注意点）见 `docs/asset-encryption.md`。",
+            host.AddSubNote("偏移是【弱】加密（只换文件头、不动 bundle 正文），内置上限 1 MiB；继续增大只会浪费空间，不会更安全。Offline / Host 可直接带偏移加载，WebGL 会先下载字节再在内存剥头。独立 RawFile `CodePackage` 不继承这个配置。要真加密（XOR/AES 等打乱正文）需自实现 `IBundleEncryptor` + 运行时对应解密器；Web 自定义解密器还必须实现 `IBundleMemoryDecryptor`。完整步骤见 `docs/asset-encryption.md`。",
                 new CodeRef("Assets/Game/Framework/Asset.Yoo/YooAssetProvider.cs", "private static void ApplyDecryptor(", "运行时侧解密器注册（按 FileOffset）"));
 
             // ── 操作：本地联调 vs 生产 ──

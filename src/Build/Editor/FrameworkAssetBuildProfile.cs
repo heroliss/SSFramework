@@ -55,20 +55,21 @@ namespace Game.Framework.Build
 
         [Header("加密")]
         [Tooltip("AssetBundle 文件头偏移加密：>0 时构建在每个 bundle 头前插入该字节数，挡住直接用 AB 提取工具打开（弱加密，仅防扫魔数）。0 = 不加密。\n" +
-                 "⚠ 必须与场景 AssetUtility 资源运行配置中的文件头偏移【完全一致】——构建插几个字节、运行时就跳几个字节，对不上会读坏所有 bundle。\n" +
+                 "⚠ 场景 AssetUtility 的文件头偏移必须一致；首场景引导值则由下方生成代码派生。构建插几个字节、运行时就跳几个字节，对不上会读坏所有 bundle。\n" +
+                 "修改后先重新生成包名与构建常量，并重编实际部署的 Game.Main / Player。内置实现最大 1 MiB；WebGL 会以内存解密读取。\n" +
                  "要真正的内容加密（XOR / AES 等）见 docs/asset-encryption.md：需自定义构建侧 IBundleEncryptor + 运行时侧解密器，本字段不适用。")]
         [InspectorName("文件头偏移字节数")]
         [Min(0)] [SerializeField] private ulong _fileOffset = 0;
 
         [Header("代码生成")]
-        [Tooltip("「生成包名常量代码」的输出文件路径（必须位于 Assets 子目录，且以 .cs 结尾）。共享输出声明目录会拒绝与其它生成器冲突；类名 = 文件名去掉 .g.cs。\n" +
-                 "生成的 const string 常量供业务代码替代裸包名字符串——收集器改名/删包后重新生成，引用处编译期报错。\n" +
+        [Tooltip("「生成包名与构建常量代码」的输出文件路径（必须位于 Assets 子目录，且以 .cs 结尾）。共享输出声明目录会拒绝与其它生成器冲突；类名 = 文件名去掉 .g.cs。\n" +
+                 "除包名 const string 外，还派生普通 AssetBundle 的 FileOffset，供首场景代码引导使用；收集器或偏移变化后必须重新生成。\n" +
                  "留空 = 不使用此功能。")]
-        [InspectorName("包名常量输出路径")]
+        [InspectorName("包名与构建常量输出路径")]
         [SerializeField] private string _packageConstantsPath = "";
 
-        [Tooltip("包名常量类所在的命名空间（业务层命名空间）。启用代码生成时需与输出程序集一并明确填写。")]
-        [InspectorName("包名常量命名空间")]
+        [Tooltip("包名与构建常量类所在的命名空间（业务层命名空间）。启用代码生成时需与输出程序集一并明确填写。")]
+        [InspectorName("包名与构建常量命名空间")]
         [SerializeField] private string _packageConstantsNamespace = "";
 
         [Header("本地联调（不入库，仅本机测 Host）")]
@@ -95,15 +96,16 @@ namespace Game.Framework.Build
 
         /// <summary>
         /// AssetBundle 文件头偏移加密的字节数（全局，对所有包生效）；0 = 不加密。&gt;0 时构建挂上偏移加密器在每个 bundle 头前插入该字节数。
-        /// 必须与运行时当前生效资源配置的 FileOffset 一致（场景路径来自 Settings，代码路径来自 Configure DTO；
-        /// 构建插几字节、运行时就跳几字节）。自定义内容加密见 <c>docs/asset-encryption.md</c>。
+        /// 必须与运行时当前生效资源配置的 FileOffset 一致（场景路径来自 Settings，首场景代码引导路径使用
+        /// <see cref="AssetPackageConstantsGenerator"/> 派生的生成常量；构建插几字节、运行时就跳几字节）。
+        /// 该值只属于普通 AssetBundle，不作用于 RawFile / CodePackage。自定义内容加密见 <c>docs/asset-encryption.md</c>。
         /// </summary>
         public ulong FileOffset => _fileOffset;
 
-        /// <summary>包名常量生成的输出文件路径（Assets/ 相对，已归一化斜杠）；空 = 功能未启用。</summary>
+        /// <summary>包名与普通 AssetBundle 构建常量的输出文件路径（Assets/ 相对，已归一化斜杠）；空 = 功能未启用。</summary>
         public string PackageConstantsPath => _packageConstantsPath?.Trim().Replace('\\', '/') ?? "";
 
-        /// <summary>包名常量类所在的命名空间。</summary>
+        /// <summary>包名与普通 AssetBundle 构建常量类所在的命名空间。</summary>
         public string PackageConstantsNamespace => _packageConstantsNamespace?.Trim() ?? "";
 
         /// <summary>本地 CDN 服务端口（联调专用，须与当前生效资源配置的 CDN 主地址端口一致）。</summary>

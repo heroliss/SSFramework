@@ -53,7 +53,7 @@ namespace Game.Framework.Build
                 FrameworkMenuPaths.AssetBuild));
             FrameworkGeneratedOutputClaimCatalog.Register(new FrameworkGeneratedOutputClaimSource(
                 AssetPackageConstantsGenerator.OutputClaimSourceId,
-                "资源包名常量",
+                "资源包名与构建常量",
                 AssetPackageConstantsGenerator.CollectRegisteredOutputClaims));
         }
 
@@ -123,7 +123,7 @@ namespace Game.Framework.Build
                     using (new EditorGUI.DisabledScope(!canEditProject))
                     {
                         if (GUILayout.Button("同步 Collector 包列表")) AssetBuildMenu.SyncProfile();
-                        if (GUILayout.Button("生成包名常量")) AssetBuildMenu.GeneratePackageConstants();
+                        if (GUILayout.Button("生成包名与构建常量")) AssetBuildMenu.GeneratePackageConstants();
                     }
                 }
                 else
@@ -134,7 +134,7 @@ namespace Game.Framework.Build
                         using (new EditorGUI.DisabledScope(!canEditProject))
                         {
                             if (GUILayout.Button("同步 Collector 包列表")) AssetBuildMenu.SyncProfile();
-                            if (GUILayout.Button("生成包名常量")) AssetBuildMenu.GeneratePackageConstants();
+                            if (GUILayout.Button("生成包名与构建常量")) AssetBuildMenu.GeneratePackageConstants();
                         }
                     }
                 }
