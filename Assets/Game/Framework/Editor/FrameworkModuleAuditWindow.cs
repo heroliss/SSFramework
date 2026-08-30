@@ -35,7 +35,6 @@ namespace Game.Framework.Editor
         {
             minSize = new Vector2(340f, 360f);
             _responsiveRows = new List<VisualElement>();
-
             var root = rootVisualElement;
             root.Clear();
             FrameworkEditorVisuals.ApplyWindowSurface(root);
@@ -177,8 +176,7 @@ namespace Game.Framework.Editor
                 _refreshButton?.SetEnabled(true);
             }
 
-            float width = rootVisualElement.resolvedStyle.width;
-            ApplyResponsiveLayout(float.IsNaN(width) || width <= 0f ? position.width : width);
+            ApplyResponsiveLayoutForCurrentWidth();
         }
 
         private void ApplyEvidence(FrameworkModuleAuditCache.Entry evidence, bool showNotification)
@@ -279,27 +277,31 @@ namespace Game.Framework.Editor
                 .ToArray();
             if (attentionStatuses.Length > 0)
             {
-                var attention = new Foldout
-                {
-                    name = "module-audit-attention-statuses",
-                    text = $"优先理解的 Module（{attentionStatuses.Length} 个）",
-                    value = true,
-                    style = { marginTop = 4, marginBottom = 4 },
-                };
-                foreach (var status in attentionStatuses)
-                    attention.Add(CreateModuleStatusCard(status));
+                var attention = CreateLazyFoldout(
+                    "module-audit-attention-statuses",
+                    $"优先理解的 Module（{attentionStatuses.Length} 个）",
+                    initiallyExpanded: true,
+                    populate: body =>
+                    {
+                        foreach (var status in attentionStatuses)
+                            body.Add(CreateModuleStatusCard(status));
+                    });
+                attention.style.marginTop = 4;
+                attention.style.marginBottom = 4;
                 _content.Add(attention);
             }
 
-            var moduleStatuses = new Foldout
-            {
-                name = "module-audit-module-statuses",
-                text = $"查看全部 {result.ModuleStatuses.Length} 个 Runtime Module",
-                value = false,
-                style = { marginTop = 4, marginBottom = 4 },
-            };
-            foreach (var status in result.ModuleStatuses)
-                moduleStatuses.Add(CreateModuleStatusCard(status));
+            var moduleStatuses = CreateLazyFoldout(
+                "module-audit-module-statuses",
+                $"查看全部 {result.ModuleStatuses.Length} 个 Runtime Module",
+                initiallyExpanded: false,
+                populate: body =>
+                {
+                    foreach (var status in result.ModuleStatuses)
+                        body.Add(CreateModuleStatusCard(status));
+                });
+            moduleStatuses.style.marginTop = 4;
+            moduleStatuses.style.marginBottom = 4;
             _content.Add(moduleStatuses);
 
             if (result.GlobalPreservations.Length > 0)
@@ -309,52 +311,58 @@ namespace Game.Framework.Editor
             foreach (var profile in result.CommonProfiles)
                 _content.Add(CreateProfileCard(profile, result.ExternalDependencies));
 
-            var advanced = new Foldout
-            {
-                name = "module-audit-advanced-profiles",
-                text = "完整模块、任意入口与热更 Profile（进阶）",
-                value = false,
-                style = { marginTop = 8, marginBottom = 4 },
-            };
-            advanced.Add(CreateProfileCard(result.FullProfile, result.ExternalDependencies));
-            if (result.HotUpdateProfile != null)
-                advanced.Add(CreateProfileCard(result.HotUpdateProfile, result.ExternalDependencies));
-            else
-                advanced.Add(CreateInfoLabel(result.HotUpdateNote));
-            var arbitraryModules = new Foldout
-            {
-                name = "module-audit-module-profiles",
-                text = "任意 Module 作为入口（自动计算依赖闭包）",
-                value = false,
-                style = { marginTop = 5 },
-            };
-            arbitraryModules.Add(CreateInfoLabel(
-                "这不是全局启用开关，而是假设分析（what-if）：假设业务只从某个 Module 进入，会自动带上哪些 Framework 与外部依赖。"));
-            foreach (var profile in result.ModuleProfiles)
-                arbitraryModules.Add(CreateProfileCard(profile, result.ExternalDependencies));
-            advanced.Add(arbitraryModules);
+            var advanced = CreateLazyFoldout(
+                "module-audit-advanced-profiles",
+                "完整模块、任意入口与热更 Profile（进阶）",
+                initiallyExpanded: false,
+                populate: body =>
+                {
+                    body.Add(CreateProfileCard(result.FullProfile, result.ExternalDependencies));
+                    if (result.HotUpdateProfile != null)
+                        body.Add(CreateProfileCard(result.HotUpdateProfile, result.ExternalDependencies));
+                    else
+                        body.Add(CreateInfoLabel(result.HotUpdateNote));
+
+                    var arbitraryModules = CreateLazyFoldout(
+                        "module-audit-module-profiles",
+                        "任意 Module 作为入口（自动计算依赖闭包）",
+                        initiallyExpanded: false,
+                        populate: arbitraryBody =>
+                        {
+                            arbitraryBody.Add(CreateInfoLabel(
+                                "这不是全局启用开关，而是假设分析（what-if）：假设业务只从某个 Module 进入，会自动带上哪些 Framework 与外部依赖。"));
+                            foreach (var profile in result.ModuleProfiles)
+                                arbitraryBody.Add(CreateProfileCard(profile, result.ExternalDependencies));
+                        });
+                    arbitraryModules.style.marginTop = 5;
+                    body.Add(arbitraryModules);
+                });
+            advanced.style.marginTop = 8;
+            advanced.style.marginBottom = 4;
             _content.Add(advanced);
 
             AddSectionTitle("边界检查");
             _content.Add(CreateChecksCard(result));
 
-            var raw = new Foldout
-            {
-                name = "module-audit-raw-details",
-                text = "技术明细与原始报告",
-                value = false,
-                style = { marginTop = 10 },
-            };
-            raw.Add(CreateInfoLabel("这里保留适合排查和粘贴到问题单（issue）的完整文本。日常判断通常不需要展开。"));
-            var rawText = Wrap(new Label(_rawReport));
-            rawText.name = "module-audit-raw-report";
-            rawText.style.fontSize = 11;
-            rawText.style.paddingLeft = 8;
-            rawText.style.paddingRight = 8;
-            rawText.style.paddingTop = 6;
-            rawText.style.paddingBottom = 6;
-            rawText.style.backgroundColor = DetailBackground;
-            raw.Add(rawText);
+            string rawReport = _rawReport;
+            var raw = CreateLazyFoldout(
+                "module-audit-raw-details",
+                "技术明细与原始报告",
+                initiallyExpanded: false,
+                populate: body =>
+                {
+                    body.Add(CreateInfoLabel("这里保留适合排查和粘贴到问题单（issue）的完整文本。日常判断通常不需要展开。"));
+                    var rawText = Wrap(new Label(rawReport));
+                    rawText.name = "module-audit-raw-report";
+                    rawText.style.fontSize = 11;
+                    rawText.style.paddingLeft = 8;
+                    rawText.style.paddingRight = 8;
+                    rawText.style.paddingTop = 6;
+                    rawText.style.paddingBottom = 6;
+                    rawText.style.backgroundColor = DetailBackground;
+                    body.Add(rawText);
+                });
+            raw.style.marginTop = 10;
             _content.Add(raw);
         }
 
@@ -486,16 +494,17 @@ namespace Game.Framework.Editor
                         : "版本 " + evidence.StagedVersion));
                 card.Add(metrics);
 
-                var details = new Foldout
-                {
-                    name = "module-audit-hot-update-details",
-                    text = "查看每一层的证据与恢复入口",
-                    value = evidence.RequiresAttention,
-                    style = { marginTop = 5 },
-                };
-                details.Add(CreateBullet(evidence.SettingsMessage));
-                details.Add(CreateBullet(evidence.GenerationMessage));
-                details.Add(CreateBullet(evidence.StagedMessage));
+                var details = CreateLazyFoldout(
+                    "module-audit-hot-update-details",
+                    "查看每一层的证据与恢复入口",
+                    evidence.RequiresAttention,
+                    body =>
+                    {
+                        body.Add(CreateBullet(evidence.SettingsMessage));
+                        body.Add(CreateBullet(evidence.GenerationMessage));
+                        body.Add(CreateBullet(evidence.StagedMessage));
+                    });
+                details.style.marginTop = 5;
                 card.Add(details);
             }
 
@@ -555,23 +564,25 @@ namespace Game.Framework.Editor
             }
             _content.Add(summary);
 
-            var catalog = new Foldout
-            {
-                name = "module-audit-external-catalog",
-                text = $"查看全部 {result.ExternalDependencies.Length} 组依赖证据",
-                value = false,
-                style = { marginTop = 4, marginBottom = 4 },
-            };
-            foreach (var dependency in result.ExternalDependencies)
-                catalog.Add(CreateExternalDependencyCard(dependency));
+            var catalog = CreateLazyFoldout(
+                "module-audit-external-catalog",
+                $"查看全部 {result.ExternalDependencies.Length} 组依赖证据",
+                initiallyExpanded: false,
+                populate: body =>
+                {
+                    foreach (var dependency in result.ExternalDependencies)
+                        body.Add(CreateExternalDependencyCard(dependency));
+                });
+            catalog.style.marginTop = 4;
+            catalog.style.marginBottom = 4;
             _content.Add(catalog);
         }
 
         private VisualElement CreateExternalDependencyCard(
             FrameworkModuleAudit.ExternalDependencyEvidence dependency)
         {
-            var card = CreateCard("module-audit-external-" +
-                                  dependency.Key.Replace(':', '-').Replace('.', '-').Replace('/', '-'));
+            string elementKey = dependency.Key.Replace(':', '-').Replace('.', '-').Replace('/', '-');
+            var card = CreateCard("module-audit-external-" + elementKey);
             var title = Wrap(new Label(dependency.DisplayName +
                                        (string.IsNullOrWhiteSpace(dependency.PackageVersion)
                                            ? string.Empty
@@ -599,53 +610,55 @@ namespace Game.Framework.Editor
                 "完整一方 asmdef 图"));
             card.Add(metrics);
 
-            var details = new Foldout
-            {
-                text = "查看消费证据与安全处理顺序",
-                value = dependency.HasEvidenceGaps,
-                style = { marginTop = 5 },
-            };
-            AddStringList(details, "程序集", dependency.Assemblies.Select(item => item.AssemblyName));
-            AddStringList(details, "物理来源", dependency.Assemblies.SelectMany(item => item.AllAssetPaths));
-            if (dependency.ActualConsumers.Length > 0)
-            {
-                details.Add(CreateDetailHeading("当前 DLL 直接消费者（真实 AssemblyRef）"));
-                foreach (var edge in dependency.ActualConsumers)
-                    details.Add(CreateBullet(DescribeActualConsumer(edge)));
-            }
-            if (dependency.Introducers.Length > 0)
-            {
-                details.Add(CreateDetailHeading("最初引入者（不重复计算上层传播）"));
-                foreach (var edge in dependency.Introducers)
-                    details.Add(CreateBullet(DescribeActualConsumer(edge)));
-            }
-            if (dependency.DeclaredConsumers.Length > 0)
-            {
-                details.Add(CreateDetailHeading("asmdef 声明消费者（删除后会阻塞编译）"));
-                foreach (var edge in dependency.DeclaredConsumers)
-                    details.Add(CreateBullet(edge.ConsumerAssemblyName + " · " + edge.PlatformScope + " · " +
-                                             (edge.ReferenceKind == FrameworkModuleAudit.DeclaredReferenceKind.PrecompiledAssembly
-                                                 ? "precompiledReferences"
-                                                 : "references")));
-            }
-            AddStringList(details, "直接进入的档位", dependency.DirectProfileKeys.Select(FriendlyProfileKey));
-            AddStringList(details, "经依赖链进入的档位", dependency.TransitiveProfileKeys.Select(FriendlyProfileKey));
-            if (dependency.HasInstalledBinaryMeasurement && !dependency.HasProfileMeasurement)
-                details.Add(CreateInfoLabel("已安装二进制约 " +
-                                            FrameworkModuleAudit.FormatBytes(dependency.InstalledBinaryBytes) +
-                                            "；这只证明磁盘文件存在，不是 what-if Profile 或最终包体。"));
-            if (dependency.EvidenceIssues.Length > 0)
-            {
-                details.Add(CreateDetailHeading("本组证据问题"));
-                foreach (var issue in dependency.EvidenceIssues)
-                    details.Add(CreateBullet($"[{issue.Code}] {issue.Message}"));
-            }
-            details.Add(CreateDetailHeading("移除或替换前"));
-            foreach (string step in dependency.RemovalSteps)
-                details.Add(CreateBullet(step));
-            details.Add(CreateDetailHeading("完成后验证"));
-            foreach (string step in dependency.VerificationSteps)
-                details.Add(CreateBullet(step));
+            var details = CreateLazyFoldout(
+                "module-audit-external-details-" + elementKey,
+                "查看消费证据与安全处理顺序",
+                dependency.HasEvidenceGaps,
+                body =>
+                {
+                    AddStringList(body, "程序集", dependency.Assemblies.Select(item => item.AssemblyName));
+                    AddStringList(body, "物理来源", dependency.Assemblies.SelectMany(item => item.AllAssetPaths));
+                    if (dependency.ActualConsumers.Length > 0)
+                    {
+                        body.Add(CreateDetailHeading("当前 DLL 直接消费者（真实 AssemblyRef）"));
+                        foreach (var edge in dependency.ActualConsumers)
+                            body.Add(CreateBullet(DescribeActualConsumer(edge)));
+                    }
+                    if (dependency.Introducers.Length > 0)
+                    {
+                        body.Add(CreateDetailHeading("最初引入者（不重复计算上层传播）"));
+                        foreach (var edge in dependency.Introducers)
+                            body.Add(CreateBullet(DescribeActualConsumer(edge)));
+                    }
+                    if (dependency.DeclaredConsumers.Length > 0)
+                    {
+                        body.Add(CreateDetailHeading("asmdef 声明消费者（删除后会阻塞编译）"));
+                        foreach (var edge in dependency.DeclaredConsumers)
+                            body.Add(CreateBullet(edge.ConsumerAssemblyName + " · " + edge.PlatformScope + " · " +
+                                                  (edge.ReferenceKind == FrameworkModuleAudit.DeclaredReferenceKind.PrecompiledAssembly
+                                                      ? "precompiledReferences"
+                                                      : "references")));
+                    }
+                    AddStringList(body, "直接进入的档位", dependency.DirectProfileKeys.Select(FriendlyProfileKey));
+                    AddStringList(body, "经依赖链进入的档位", dependency.TransitiveProfileKeys.Select(FriendlyProfileKey));
+                    if (dependency.HasInstalledBinaryMeasurement && !dependency.HasProfileMeasurement)
+                        body.Add(CreateInfoLabel("已安装二进制约 " +
+                                                 FrameworkModuleAudit.FormatBytes(dependency.InstalledBinaryBytes) +
+                                                 "；这只证明磁盘文件存在，不是 what-if Profile 或最终包体。"));
+                    if (dependency.EvidenceIssues.Length > 0)
+                    {
+                        body.Add(CreateDetailHeading("本组证据问题"));
+                        foreach (var issue in dependency.EvidenceIssues)
+                            body.Add(CreateBullet($"[{issue.Code}] {issue.Message}"));
+                    }
+                    body.Add(CreateDetailHeading("移除或替换前"));
+                    foreach (string step in dependency.RemovalSteps)
+                        body.Add(CreateBullet(step));
+                    body.Add(CreateDetailHeading("完成后验证"));
+                    foreach (string step in dependency.VerificationSteps)
+                        body.Add(CreateBullet(step));
+                });
+            details.style.marginTop = 5;
             card.Add(details);
 
             var actions = CreateResponsiveRow("module-audit-external-actions-" + dependency.Key);
@@ -712,7 +725,8 @@ namespace Game.Framework.Editor
 
         private VisualElement CreateModuleStatusCard(FrameworkModuleAudit.ModuleStatus status)
         {
-            var card = CreateCard("module-audit-status-" + status.Module.Name.Replace('.', '-').ToLowerInvariant());
+            string elementKey = status.Module.Name.Replace('.', '-').ToLowerInvariant();
+            var card = CreateCard("module-audit-status-" + elementKey);
             var title = Wrap(new Label(status.Module.Name));
             title.style.fontSize = 14;
             title.style.unityFontStyleAndWeight = FontStyle.Bold;
@@ -759,18 +773,20 @@ namespace Game.Framework.Editor
                 unconditional > 0 ? "可能阻止自动裁剪" : "未发现无条件规则"));
             card.Add(metrics);
 
-            var details = new Foldout
-            {
-                text = "为什么可能进入构建 · 移除前做什么",
-                value = status.HasHotUpdateViolation,
-                style = { marginTop = 5 },
-            };
-            details.Add(CreateDetailHeading("当前可证明的保留输入"));
-            foreach (string reason in status.RetentionReasons)
-                details.Add(CreateBullet(reason));
-            details.Add(CreateDetailHeading("安全移除顺序"));
-            foreach (string step in status.RemovalSteps)
-                details.Add(CreateBullet(step));
+            var details = CreateLazyFoldout(
+                "module-audit-status-details-" + elementKey,
+                "为什么可能进入构建 · 移除前做什么",
+                status.HasHotUpdateViolation,
+                body =>
+                {
+                    body.Add(CreateDetailHeading("当前可证明的保留输入"));
+                    foreach (string reason in status.RetentionReasons)
+                        body.Add(CreateBullet(reason));
+                    body.Add(CreateDetailHeading("安全移除顺序"));
+                    foreach (string step in status.RemovalSteps)
+                        body.Add(CreateBullet(step));
+                });
+            details.style.marginTop = 5;
             card.Add(details);
 
             var actions = CreateResponsiveRow("module-audit-status-actions-" + status.Module.Name);
@@ -794,39 +810,41 @@ namespace Game.Framework.Editor
         private VisualElement CreateGlobalPreservationsFoldout(
             IReadOnlyCollection<FrameworkModuleAudit.LinkerPreservation> preservations)
         {
-            var foldout = new Foldout
-            {
-                name = "module-audit-global-preservations",
-                text = $"全局与生成的 link.xml（{preservations.Count} 条，仅供追踪）",
-                value = false,
-                style = { marginTop = 4, marginBottom = 4 },
-            };
-            foldout.Add(CreateInfoLabel(
-                "这些规则不归属于某个 Framework Module，因此不直接算作模块边界失败。HybridCLRGenerate 是生成物，应修改来源配置后重新 Generate；第三方规则应先确认升级与反射边界，不能在这里一键删除。"));
-
-            foreach (var group in preservations.GroupBy(rule => rule.Path, StringComparer.OrdinalIgnoreCase))
-            {
-                var card = CreateCard("module-audit-global-link-" + Math.Abs(group.Key.GetHashCode()));
-                FrameworkModuleAudit.LinkerPreservation first = group.First();
-                string origin = first.IsGenerated
-                    ? "HybridCLR 生成物"
-                    : !string.IsNullOrWhiteSpace(first.SourcePackageName)
-                        ? "Package " + (!string.IsNullOrWhiteSpace(first.SourcePackageId)
-                            ? first.SourcePackageId
-                            : first.SourcePackageName)
-                        : "项目 / 第三方规则";
-                var title = Wrap(new Label(origin + " · " + group.Key));
-                title.style.unityFontStyleAndWeight = FontStyle.Bold;
-                card.Add(title);
-                foreach (var rule in group)
+            var foldout = CreateLazyFoldout(
+                "module-audit-global-preservations",
+                $"全局与生成的 link.xml（{preservations.Count} 条，仅供追踪）",
+                initiallyExpanded: false,
+                populate: body =>
                 {
-                    string condition = rule.IsUnconditional ? "无条件根" : "仅被引用时生效";
-                    card.Add(CreateBullet(rule.AssemblyName + " · " + rule.Scope + " · " + condition));
-                }
-                card.Add(CreateActionButton("定位 link.xml", () => LocatePath(group.Key),
-                    "在 Unity Project 中选中这份规则；生成文件只用于查看，不应直接修改。"));
-                foldout.Add(card);
-            }
+                    body.Add(CreateInfoLabel(
+                        "这些规则不归属于某个 Framework Module，因此不直接算作模块边界失败。HybridCLRGenerate 是生成物，应修改来源配置后重新 Generate；第三方规则应先确认升级与反射边界，不能在这里一键删除。"));
+
+                    foreach (var group in preservations.GroupBy(rule => rule.Path, StringComparer.OrdinalIgnoreCase))
+                    {
+                        var card = CreateCard("module-audit-global-link-" + Math.Abs(group.Key.GetHashCode()));
+                        FrameworkModuleAudit.LinkerPreservation first = group.First();
+                        string origin = first.IsGenerated
+                            ? "HybridCLR 生成物"
+                            : !string.IsNullOrWhiteSpace(first.SourcePackageName)
+                                ? "Package " + (!string.IsNullOrWhiteSpace(first.SourcePackageId)
+                                    ? first.SourcePackageId
+                                    : first.SourcePackageName)
+                                : "项目 / 第三方规则";
+                        var title = Wrap(new Label(origin + " · " + group.Key));
+                        title.style.unityFontStyleAndWeight = FontStyle.Bold;
+                        card.Add(title);
+                        foreach (var rule in group)
+                        {
+                            string condition = rule.IsUnconditional ? "无条件根" : "仅被引用时生效";
+                            card.Add(CreateBullet(rule.AssemblyName + " · " + rule.Scope + " · " + condition));
+                        }
+                        card.Add(CreateActionButton("定位 link.xml", () => LocatePath(group.Key),
+                            "在 Unity Project 中选中这份规则；生成文件只用于查看，不应直接修改。"));
+                        body.Add(card);
+                    }
+                });
+            foldout.style.marginTop = 4;
+            foldout.style.marginBottom = 4;
             return foldout;
         }
 
@@ -857,31 +875,33 @@ namespace Game.Framework.Editor
                 " 组，原始 DLL"));
             card.Add(metrics);
 
-            var details = new Foldout
-            {
-                text = "查看包含内容",
-                value = false,
-                style = { marginTop = 5 },
-            };
-            AddStringList(details, "入口程序集", profile.Roots);
-            AddStringList(details, "Framework 程序集", profile.Footprint.FrameworkAssemblies);
-            if (profile.Footprint.ProjectAssemblies.Count > 0)
-                AddStringList(details, "项目程序集", profile.Footprint.ProjectAssemblies);
-            if (profile.Footprint.ExternalAssemblies.Count > 0)
-            {
-                details.Add(CreateDetailHeading("外部依赖组（完整消费与移除证据见上方目录）"));
-                foreach (var dependency in externalDependencies
-                             .Where(item => item.AffectedProfileKeys.Contains(profile.Key, StringComparer.Ordinal))
-                             .OrderByDescending(item => item.ProfileRawBytesByKey.TryGetValue(
-                                 profile.Key, out long bytes) ? bytes : 0)
-                             .ThenBy(item => item.DisplayName, StringComparer.Ordinal))
-                    details.Add(CreateDetailLine(dependency.DisplayName,
-                        FrameworkModuleAudit.FormatBytes(dependency.ProfileRawBytesByKey.TryGetValue(
-                            profile.Key, out long bytes) ? bytes : 0)));
-            }
-            if (profile.Footprint.UnresolvedAssemblies.Count > 0)
-                details.Add(new HelpBox("无法定位：" + string.Join("、", profile.Footprint.UnresolvedAssemblies),
-                    HelpBoxMessageType.Warning));
+            var details = CreateLazyFoldout(
+                "module-audit-profile-details-" + profile.Key,
+                "查看包含内容",
+                initiallyExpanded: false,
+                populate: body =>
+                {
+                    AddStringList(body, "入口程序集", profile.Roots);
+                    AddStringList(body, "Framework 程序集", profile.Footprint.FrameworkAssemblies);
+                    if (profile.Footprint.ProjectAssemblies.Count > 0)
+                        AddStringList(body, "项目程序集", profile.Footprint.ProjectAssemblies);
+                    if (profile.Footprint.ExternalAssemblies.Count > 0)
+                    {
+                        body.Add(CreateDetailHeading("外部依赖组（完整消费与移除证据见上方目录）"));
+                        foreach (var dependency in externalDependencies
+                                     .Where(item => item.AffectedProfileKeys.Contains(profile.Key, StringComparer.Ordinal))
+                                     .OrderByDescending(item => item.ProfileRawBytesByKey.TryGetValue(
+                                         profile.Key, out long bytes) ? bytes : 0)
+                                     .ThenBy(item => item.DisplayName, StringComparer.Ordinal))
+                            body.Add(CreateDetailLine(dependency.DisplayName,
+                                FrameworkModuleAudit.FormatBytes(dependency.ProfileRawBytesByKey.TryGetValue(
+                                    profile.Key, out long bytes) ? bytes : 0)));
+                    }
+                    if (profile.Footprint.UnresolvedAssemblies.Count > 0)
+                        body.Add(new HelpBox("无法定位：" + string.Join("、", profile.Footprint.UnresolvedAssemblies),
+                            HelpBoxMessageType.Warning));
+                });
+            details.style.marginTop = 5;
             card.Add(details);
             return card;
         }
@@ -947,8 +967,11 @@ namespace Game.Framework.Editor
             title.style.color = WarningTextColor;
             card.Add(title);
             card.Add(CreateInfoLabel("审计不会把读取失败当成“零依赖”。通常先确认 Unity 已完成编译，再点“重新检测”。"));
-            var details = new Foldout { text = "查看异常信息", value = false };
-            details.Add(CreateInfoLabel(ex.ToString()));
+            var details = CreateLazyFoldout(
+                "module-audit-failure-details",
+                "查看异常信息",
+                initiallyExpanded: false,
+                populate: body => body.Add(CreateInfoLabel(ex.ToString())));
             card.Add(details);
             _content.Add(card);
         }
@@ -956,6 +979,66 @@ namespace Game.Framework.Editor
         private void AddSectionTitle(string text)
         {
             _content.Add(FrameworkEditorVisuals.CreateSectionTitle(text));
+        }
+
+        /// <summary>
+        /// 只先创建 Foldout 导航壳，第一次真正展开时才构建内容；关闭再打开复用同一棵子树。
+        /// 重内容来自已经冻结的审计结果，不会在这里重新扫描 Project 或程序集。
+        /// </summary>
+        private Foldout CreateLazyFoldout(
+            string name,
+            string text,
+            bool initiallyExpanded,
+            Action<VisualElement> populate)
+        {
+            if (string.IsNullOrWhiteSpace(name)) throw new ArgumentException("Foldout 名称不能为空。", nameof(name));
+            if (populate == null) throw new ArgumentNullException(nameof(populate));
+
+            var foldout = new Foldout
+            {
+                name = name,
+                text = text,
+            };
+            bool populated = false;
+
+            void PopulateOnce()
+            {
+                if (populated) return;
+                var body = new VisualElement { name = name + "-body" };
+                populate(body);
+                foldout.Add(body);
+                populated = true;
+
+                // 新增响应式行发生在窗口已经完成一次布局之后，必须立刻应用当前宽度；否则窄窗首次展开
+                // 会短暂出现横向挤压，直到下一次 GeometryChanged 才恢复。
+                ApplyResponsiveLayoutForCurrentWidth();
+            }
+
+            // 鼠标点击标题时，Foldout 会把内部 Toggle 的变化转换成以 Foldout 自己为 target 的
+            // ChangeEvent；直接设置 foldout.value 也走同一条公开路径。过滤 target 后不会被内层
+            // Foldout 的冒泡事件误触发。
+            foldout.RegisterValueChangedCallback(evt =>
+            {
+                if (ReferenceEquals(evt.target, foldout) && evt.newValue) PopulateOnce();
+            });
+
+            // Unity 6 的左右方向键不会写 foldout.value，而会在标题 Toggle 的导航处理器中直接调用
+            // SetValueWithoutNotify。导航处理器早于这里注册，并且 StopPropagation 不会跳过同一 target
+            // 上剩余的回调，因此在它处理完成后检查最终状态，补齐键盘展开路径。
+            var ownToggle = foldout.Q<Toggle>();
+            if (ownToggle == null)
+                throw new InvalidOperationException($"Foldout '{name}' 缺少标题 Toggle，无法建立懒构建边界。");
+            ownToggle.RegisterCallback<NavigationMoveEvent>(_ =>
+            {
+                if (foldout.value) PopulateOnce();
+            });
+            ownToggle.RegisterCallback<KeyDownEvent>(_ =>
+            {
+                if (foldout.value) PopulateOnce();
+            });
+            foldout.SetValueWithoutNotify(initiallyExpanded);
+            if (initiallyExpanded) PopulateOnce();
+            return foldout;
         }
 
         private VisualElement CreateResponsiveRow(string name)
@@ -1180,6 +1263,12 @@ namespace Game.Framework.Editor
             path.StartsWith("Packages/", StringComparison.OrdinalIgnoreCase);
 
         private void OnRootGeometryChanged(GeometryChangedEvent evt) => ApplyResponsiveLayout(evt.newRect.width);
+
+        private void ApplyResponsiveLayoutForCurrentWidth()
+        {
+            float width = rootVisualElement.resolvedStyle.width;
+            ApplyResponsiveLayout(float.IsNaN(width) || width <= 0f ? position.width : width);
+        }
 
         private void ApplyResponsiveLayout(float width)
         {

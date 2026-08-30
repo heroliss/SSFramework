@@ -1649,8 +1649,13 @@ namespace Game.Framework.Editor.Tests
             var window = ScriptableObject.CreateInstance<FrameworkModuleAuditWindow>();
             try
             {
-                window.position = new Rect(0f, 0f, 360f, 520f);
+                // 真实 Panel 才会派发 UI Toolkit ChangeEvent。窗口延迟显示并移到屏幕外，既验证生产事件
+                // 路径，也避免测试期间改变使用者正在观察的编辑器布局。
+                window.Show(false);
+                window.position = new Rect(-10000f, -10000f, 360f, 520f);
                 window.CreateGUI();
+                Assert.That(window.rootVisualElement.panel, Is.Not.Null,
+                    "渐进披露测试必须运行在真实 UI Toolkit Panel 上，不能用直接调用 populate 的假绿 Seam。 ");
 
                 var actions = window.rootVisualElement.Q<VisualElement>("module-audit-actions");
                 var content = window.rootVisualElement.Q<ScrollView>("module-audit-content");
@@ -1660,6 +1665,8 @@ namespace Game.Framework.Editor.Tests
                 Assert.That(window.rootVisualElement.Q<VisualElement>("module-audit-summary"), Is.Null);
 
                 window.RefreshForTests();
+                Assert.That(FrameworkModuleAuditCache.TryGet(out FrameworkModuleAuditCache.Entry cachedEvidence),
+                    Is.True);
 
                 var summary = window.rootVisualElement.Q<VisualElement>("module-audit-summary");
                 var coreProfile = window.rootVisualElement.Q<VisualElement>("module-audit-profile-core");
@@ -1667,7 +1674,7 @@ namespace Game.Framework.Editor.Tests
                 var statuses = window.rootVisualElement.Q<Foldout>("module-audit-module-statuses");
                 var attentionStatuses = window.rootVisualElement.Q<Foldout>(
                     "module-audit-attention-statuses");
-                var moduleProfiles = window.rootVisualElement.Q<Foldout>("module-audit-module-profiles");
+                var advancedProfiles = window.rootVisualElement.Q<Foldout>("module-audit-advanced-profiles");
                 var globalPreservations = window.rootVisualElement.Q<Foldout>(
                     "module-audit-global-preservations");
                 var hotUpdateEvidence = window.rootVisualElement.Q<VisualElement>(
@@ -1680,6 +1687,7 @@ namespace Game.Framework.Editor.Tests
                     "module-audit-external-catalog");
                 var externalMetrics = window.rootVisualElement.Q<VisualElement>(
                     "module-audit-external-metrics");
+                var copyButton = window.rootVisualElement.Q<Button>("module-audit-copy");
                 Assert.That(actions, Is.Not.Null);
                 Assert.That(content, Is.Not.Null);
                 Assert.That(content.horizontalScrollerVisibility, Is.EqualTo(ScrollerVisibility.Hidden));
@@ -1691,8 +1699,16 @@ namespace Game.Framework.Editor.Tests
                 Assert.That(attentionStatuses, Is.Not.Null);
                 Assert.That(attentionStatuses.value, Is.True,
                     "无条件根或热更违规应优先显示，健康 Module 再按需展开。 ");
-                Assert.That(moduleProfiles, Is.Not.Null);
-                Assert.That(moduleProfiles.value, Is.False, "任意 Module 的完整闭包默认折叠，避免淹没主结论。 ");
+                Assert.That(window.rootVisualElement.Q<VisualElement>(
+                    "module-audit-attention-statuses-body"), Is.Not.Null,
+                    "默认展开的风险证据必须立即构建，不能为了性能延迟首要结论。 ");
+                Assert.That(advancedProfiles, Is.Not.Null);
+                Assert.That(advancedProfiles.value, Is.False);
+                Assert.That(window.rootVisualElement.Q<VisualElement>(
+                    "module-audit-advanced-profiles-body"), Is.Null,
+                    "进阶 Profile 折叠时只创建导航壳，不能提前遍历全部任意 Module 组合。 ");
+                Assert.That(window.rootVisualElement.Q<Foldout>("module-audit-module-profiles"), Is.Null,
+                    "内层任意 Module Foldout 应等外层进阶区域首次展开后才创建。 ");
                 Assert.That(globalPreservations, Is.Not.Null);
                 Assert.That(globalPreservations.value, Is.False,
                     "全局和生成规则用于追踪，不应抢占新手的首屏结论。 ");
@@ -1704,6 +1720,23 @@ namespace Game.Framework.Editor.Tests
                     "第三方依赖详情默认折叠，先给来源/用途/证据完整度摘要。 ");
                 Assert.That(externalMetrics, Is.Not.Null);
                 Assert.That(raw.value, Is.False, "程序集明细和原始报告默认折叠，先展示结论与建议。");
+                Assert.That(window.rootVisualElement.Q<VisualElement>(
+                    "module-audit-module-statuses-body"), Is.Null);
+                Assert.That(window.rootVisualElement.Q<VisualElement>(
+                    "module-audit-external-catalog-body"), Is.Null);
+                Assert.That(window.rootVisualElement.Q<VisualElement>(
+                    "module-audit-global-preservations-body"), Is.Null);
+                Assert.That(window.rootVisualElement.Q<Label>("module-audit-raw-report"), Is.Null,
+                    "完整报告字符串不应在原始报告 Foldout 关闭时创建 Label。 ");
+                var coreProfileDetails = window.rootVisualElement.Q<Foldout>(
+                    "module-audit-profile-details-core");
+                Assert.That(coreProfileDetails, Is.Not.Null);
+                Assert.That(window.rootVisualElement.Q<VisualElement>(
+                    "module-audit-profile-details-core-body"), Is.Null,
+                    "常用 Profile 卡片可以立即展示摘要，但长程序集清单仍应第二层按需构建。 ");
+                Assert.That(copyButton, Is.Not.Null);
+                Assert.That(copyButton.enabledSelf, Is.True,
+                    "复制报告读取冻结的证据字符串，不应依赖原始报告 UI 是否已经展开。 ");
                 Assert.That(window.rootVisualElement.Q<TextField>(), Is.Null,
                     "主体不再使用会整片选中、产生横向长行的多行 TextField。");
 
@@ -1719,6 +1752,64 @@ namespace Game.Framework.Editor.Tests
                 Assert.That(hotUpdateMetrics.style.flexDirection.value, Is.EqualTo(FlexDirection.Column));
                 Assert.That(externalMetrics.style.flexDirection.value, Is.EqualTo(FlexDirection.Column));
 
+                void SetExpanded(Foldout foldout, bool expanded)
+                {
+                    foldout.value = expanded;
+                }
+
+                SetExpanded(statuses, true);
+                var statusesBody = window.rootVisualElement.Q<VisualElement>(
+                    "module-audit-module-statuses-body");
+                Assert.That(statusesBody, Is.Not.Null);
+                var lazyStatusMetrics = statusesBody.Query<VisualElement>().ToList()
+                    .First(element => element.name != null &&
+                                      element.name.StartsWith("module-audit-status-metrics-", StringComparison.Ordinal));
+                Assert.That(lazyStatusMetrics.style.flexDirection.value, Is.EqualTo(FlexDirection.Column),
+                    "窄窗首次展开后新建的响应式行必须立即继承 Column 布局。 ");
+                SetExpanded(statuses, false);
+                SetExpanded(statuses, true);
+                Assert.That(window.rootVisualElement.Q<VisualElement>(
+                    "module-audit-module-statuses-body"), Is.SameAs(statusesBody),
+                    "关闭再展开必须复用同一子树，不能重复创建全部 Module 卡片。 ");
+
+                SetExpanded(externalCatalog, true);
+                Assert.That(window.rootVisualElement.Q<VisualElement>(
+                    "module-audit-external-catalog-body"), Is.Not.Null);
+                SetExpanded(globalPreservations, true);
+                Assert.That(window.rootVisualElement.Q<VisualElement>(
+                    "module-audit-global-preservations-body"), Is.Not.Null);
+
+                SetExpanded(advancedProfiles, true);
+                Assert.That(window.rootVisualElement.Q<VisualElement>(
+                    "module-audit-advanced-profiles-body"), Is.Not.Null);
+                var moduleProfiles = window.rootVisualElement.Q<Foldout>("module-audit-module-profiles");
+                Assert.That(moduleProfiles, Is.Not.Null);
+                Assert.That(moduleProfiles.value, Is.False, "任意 Module 的完整闭包默认折叠，避免淹没主结论。 ");
+                Assert.That(window.rootVisualElement.Q<VisualElement>(
+                    "module-audit-module-profiles-body"), Is.Null);
+                var moduleProfilesToggle = moduleProfiles.Q<Toggle>();
+                Assert.That(moduleProfilesToggle, Is.Not.Null);
+                using (NavigationMoveEvent evt = NavigationMoveEvent.GetPooled(
+                           NavigationMoveEvent.Direction.Right, EventModifiers.None))
+                {
+                    evt.target = moduleProfilesToggle;
+                    moduleProfilesToggle.SendEvent(evt);
+                }
+                Assert.That(moduleProfiles.value, Is.True,
+                    "右方向键应通过 Foldout 自带的导航处理器展开当前区域。 ");
+                Assert.That(window.rootVisualElement.Q<VisualElement>(
+                    "module-audit-module-profiles-body"), Is.Not.Null);
+
+                SetExpanded(coreProfileDetails, true);
+                Assert.That(window.rootVisualElement.Q<VisualElement>(
+                    "module-audit-profile-details-core-body"), Is.Not.Null);
+
+                SetExpanded(raw, true);
+                var rawReport = window.rootVisualElement.Q<Label>("module-audit-raw-report");
+                Assert.That(rawReport, Is.Not.Null);
+                Assert.That(rawReport.text, Is.EqualTo(cachedEvidence.Report),
+                    "延迟创建的 Label 必须完整呈现冻结报告，不能只验证一个空壳。 ");
+
                 window.ApplyResponsiveLayoutForTests(900f);
                 Assert.That(actions.style.flexDirection.value, Is.EqualTo(FlexDirection.Row));
                 Assert.That(actions[0].style.flexGrow.value, Is.EqualTo(1f));
@@ -1726,7 +1817,7 @@ namespace Game.Framework.Editor.Tests
             }
             finally
             {
-                UnityEngine.Object.DestroyImmediate(window);
+                window.Close();
                 FrameworkModuleAuditCache.Invalidate();
             }
         }

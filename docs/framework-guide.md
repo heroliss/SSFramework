@@ -3069,6 +3069,8 @@ builder.RegisterOwnedUtility(new WebSocketUtility(serializer: proto));
 
 打开 `SSFramework/诊断与分析/模块与依赖`。窗口会立即显示用途、三步证据链和最近会话状态，但**不会因为打开就扫描工程**；明确点击“采集当前证据”后，才读取 Player / Editor 编译图、全部 asmdef、托管 DLL 元数据、Package 来源和 `link.xml`。同轮 Asset 路径、PluginImporter 与两套编译图只采集一次并由各分析阶段复用；进度条说明当前阶段，结果页保留阶段耗时，便于判断时间花在 Unity API、依赖分析还是报告生成。顶部先比较热更 Profile、HybridCLRSettings、Generate stamp 与当前 DLL 中转清单；Module 区优先显示有 linker 根或热更违规的项，每张卡再把当前 DLL 快照消费者与完整 asmdef 图中的删除阻塞者（无论是否进入 Player）分开，并显示源码来自项目 Assets 还是某个 package 版本。常用组合之外，还能展开“任意 Module 入口”查看代码闭包；项目与已安装 Package 的 `link.xml` 都会被扫描，全局第三方和 `Assets/HybridCLRGenerate/link.xml` 单独折叠显示，后者是 Generate 产物，不应手改。工程、Package、构建场景、目标平台或编译图变化会让会话证据立即失效，避免把旧结论误当当前状态。所有一方 asmdef 已关闭预编译 DLL 的全局 Auto Reference，可删除 Editor Module 也不接受预定义程序集隐式引用；目标平台条件分支仍以真实 Player/HybridCLR 编译为准。这里的原始 DLL 字节用于找候选，不是最终安装包大小。
 
+命中会话缓存也不等于立即创建整份 UI：全量 Module、第三方依赖目录、全局 `link.xml`、进阶组合和原始报告默认只建立轻量 Foldout 壳，第一次展开才创建卡片；每张卡里更长的消费者、程序集与移除步骤再按第二层展开。关闭后重开同一 Foldout 会复用已经创建的子树，不重复分配。需关注项仍默认展开并立即显示，窄窗口后首次展开的新指标行也会直接使用纵向布局，因此性能优化不会把风险证据藏起来或制造一次横向闪烁。
+
 顶部结论的颜色表示“是否需要行动”，不是简单统计有多少条规则：红色 Error 是依赖或删除边界已经违反；黄色 Warning 是证据缺失、来源未知或热更派生状态漂移；蓝色 Advisory 表示结构通过，但存在已知的无条件保留成本；绿色 Clear 才是连这类成本也没有。常见的 `preserve="all"` 属于蓝色说明：它要求 UnityLinker 完整保留所列程序集，通常是反射安全边界，不等于依赖声明有错。保留 Module 时应把它计入体积上界；物理删除 Module 时，其自有 `link.xml` 会一起退出构建。是否值得收窄规则，最终仍要用目标平台 IL2CPP 与 BuildReport 证明。
 
 一个容易踩坑的例子：当前可选 Runtime Module 都引用 Core。若 Core 在热更 Profile 中，那么仍参与 Player 编译的 Fonts / Bridge 等 Module 不能被**单独**取消热更，否则它们会变成引用热更 Core 的 AOT 程序集，构建校验会拒绝。这不是配置工具“太严格”，而是 AOT 必须先于热更代码存在的加载边界。
