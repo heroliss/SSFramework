@@ -4,6 +4,8 @@ using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using System.Threading;
 using Cysharp.Threading.Tasks;
+using Game.Framework.Command;
+using Game.Framework.Common;
 using Game.Framework.Context;
 using Game.Framework.Logging;
 using NUnit.Framework;
@@ -68,6 +70,25 @@ namespace Game.Framework.Config.Tests
         public IEnumerator InvalidManifest_FailsBeforeAssetProviderWork()
         {
             yield return InvalidManifest_FailsBeforeAssetProviderWorkAsync().ToCoroutine();
+        }
+
+        [UnityTest]
+        public IEnumerator ConfigAccessExtensions_PreserveContextAndStableTables()
+        {
+            yield return ConfigAccessExtensions_PreserveContextAndStableTablesAsync().ToCoroutine();
+        }
+
+        [Test]
+        public void GetConfig_BeforeReady_FailsFastWithActionableMessage()
+        {
+            var config = CreateConfig(new[] { "alpha" });
+            config.enabled = false; // 本用例只验证 Idle 同步读取；不要让下一帧 Start 把它推进真实加载流程。
+
+            var error = Assert.Throws<InvalidOperationException>(() => config.GetConfig<TestTables>());
+
+            StringAssert.Contains(typeof(TestTables).FullName, error.Message);
+            StringAssert.Contains("当前状态：Idle", error.Message);
+            StringAssert.Contains("EnsureConfig<TestTables>", error.Message);
         }
 
         private async UniTask SetUpAsync()
@@ -192,10 +213,52 @@ namespace Game.Framework.Config.Tests
                 "无效清单应在进入资源 Module 前失败，避免部分表已经产生 I/O 副作用");
         }
 
+        private async UniTask ConfigAccessExtensions_PreserveContextAndStableTablesAsync()
+        {
+            byte[] expectedBytes = { 6, 2, 8 };
+            byte[] childBytes = { 1, 9, 9 };
+            _provider.SetBytes("alpha", expectedBytes);
+            _provider.SetBytes("child", childBytes);
+            var config = CreateConfig(new[] { "alpha" });
+
+            var ensuredFromLayer = await config.EnsureConfig<TestTables>();
+            Assert.AreSame(ensuredFromLayer, config.GetConfig<TestTables>());
+
+            var contextComponent = _root.transform.GetChild(0).GetComponent<MonoGameContextBase>();
+            ICommandContext commandContext = contextComponent.RawContext;
+            Assert.AreSame(ensuredFromLayer, await commandContext.EnsureConfig<TestTables>());
+            Assert.AreSame(ensuredFromLayer, commandContext.GetConfig<TestTables>());
+            Assert.AreSame(expectedBytes, ensuredFromLayer.Bytes);
+            Assert.AreEqual(1, _provider.LoadBytesCalls,
+                "快捷入口必须复用当前 Context 中的稳定配置实例，不能触发第二次加载");
+
+            var childContextObject = new GameObject("ChildContext");
+            childContextObject.transform.SetParent(contextComponent.transform);
+            var childContext = childContextObject.AddComponent<MonoGameContextBase>();
+            var childConfig = CreateConfig(childContextObject.transform, new[] { "child" });
+
+            var ensuredFromChild = await childConfig.EnsureConfig<TestTables>();
+            ICommandContext childCommandContext = childContext.RawContext;
+            Assert.AreSame(ensuredFromChild, childConfig.GetConfig<TestTables>());
+            Assert.AreSame(ensuredFromChild, childCommandContext.GetConfig<TestTables>());
+            Assert.AreSame(childBytes, ensuredFromChild.Bytes);
+            Assert.AreNotSame(ensuredFromLayer, ensuredFromChild,
+                "子 Context 的同 contract 配置必须覆盖父 Context，快捷入口不能退化为全局 current Tables");
+            Assert.AreSame(ensuredFromLayer, commandContext.GetConfig<TestTables>(),
+                "子 Context 注册不得污染父 Context 的稳定表根");
+            Assert.AreEqual(2, _provider.LoadBytesCalls);
+        }
+
         private TestConfigUtility CreateConfig(IReadOnlyList<string> files, Exception createFailure = null)
+            => CreateConfig(_root.transform.GetChild(0), files, createFailure);
+
+        private static TestConfigUtility CreateConfig(
+            Transform context,
+            IReadOnlyList<string> files,
+            Exception createFailure = null)
         {
             var configObject = new GameObject("ConfigUtility");
-            configObject.transform.SetParent(_root.transform.GetChild(0));
+            configObject.transform.SetParent(context);
             var config = configObject.AddComponent<TestConfigUtility>();
             config.Configure(files, createFailure);
             return config;

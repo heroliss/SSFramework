@@ -1849,36 +1849,44 @@ Object.Destroy(go);                              // 交棒：首场景根 Contex
 |---|---|---|
 | `MonoConfigUtilityBase<TTables>` 子类 | Utility | 自加载：校验并快照清单 → 并行预载 → 调子类工厂构造 → 持有 `Tables` + `ConfigInitState`，自动按 `IConfigUtility<TTables>` 接口注册，对各层只读暴露 |
 
-配置是静态只读引用数据（生成的 `Tables` 本就是数据模型），不占 Model 层、也不像资源系统那样拆「Model + InitSystem」——配置加载没有多包 / CDN / 下载的复杂度，一个自加载 Utility 够了。各层（含 View）直读，查询直接用生成的 `Tables` 强类型 API（`TbItem.Get(id)` / `DataList`），框架不再包查询层：
+配置是静态只读引用数据（生成的 `Tables` 本就是数据模型），不占 Model 层、也不像资源系统那样拆「Model + InitSystem」——配置加载没有多包 / CDN / 下载的复杂度，一个自加载 Utility 够了。各层（含 View）直读，查询直接用生成的 `Tables` 强类型 API（`TbItem.Get(id)` / `TbItem[id]` / `DataList`）；框架只提供 Context 感知的短入口，不再包一层查询 façade：
 
 ```csharp
-// 各层（System / class Command / View）统一获取服务：
+// 已由上游证明 Ready 的零散同步读取：按当前对象所属 Context 精确解析
+var item = this.GetConfig<Tables>().TbItem[id];
+
+// 启动流程 / 进关卡门禁：一次拿到 Tables；失败抛原始异常
+var tables = await this.EnsureConfig<Tables>(cancellationToken);
+var monster = tables.TbMonster[monsterId];
+
+// 高频路径缓存上面的返回值，之后只是普通内存访问
+_tables = tables;
+var cachedItem = _tables.TbItem[id];
+
+// 只有需要持续观察加载状态或字段注入时，才直接获取底层服务：
 var config = this.GetUtility<IConfigUtility<Tables>>();
-
-// 启动流程 / 进关卡门禁：一次拿到 Tables；失败抛原始异常，不手写 State 终态轮询
-var tables = await config.EnsureReady(cancellationToken);
-var item = tables.TbItem.Get(id);
-
-// 也可 [Inject] 字段（View / Model / System 都有 ICanGetUtility）：
 //   [Inject] private IConfigUtility<Tables> _config;
 
 // 响应式界面：订阅 State 驱动加载提示 / 禁用态；收到 Ready 时 Tables 一定可读
 Bag.Subscribe(config.State, s => { if (s == ConfigInitState.Ready) Refresh(); });
 
-// 已知 Ready 的同步热路径直接读普通属性（只读、加载后不变，无 .CurrentValue）
-var cachedItem = config.Tables.TbItem.Get(id);
-// struct Command 里经 ctx：ctx.GetUtility<IConfigUtility<Tables>>().Tables
+// struct Command 使用同一套短入口，不依赖静态全局：
+var commandItem = ctx.GetConfig<Tables>().TbItem[id];
 ```
 
-`State` 和 `EnsureReady` 是两种消费形态，不是重复设计：
+这三种入口分别对应同步读取、流程门禁与持续观察，不是重复设计：
 
 | 需要 | 用什么 | 失败 / 取消语义 |
 |---|---|---|
-| 持续显示 Loading / Ready / Failed，随状态刷新 UI | 订阅 `State` | 状态只表达可观察阶段；收到 Ready 时 `Tables` 已发布 |
-| 在继续流程前必须得到表根 | `await EnsureReady(token)` | 返回同一份 `Tables`；Failed 重新抛出该次加载的原始异常 |
-| 已经由上游证明 Ready 的高频同步读取 | `Tables` | 普通只读属性，不负责等待；未就绪时为 null |
+| 已由上游证明 Ready 的零散同步读取 | `this.GetConfig<Tables>()` / `ctx.GetConfig<Tables>()` | 从精确 Context 返回稳定表根；未就绪时 fail-fast 并指向门禁入口 |
+| 在继续流程前必须得到表根 | `await this.EnsureConfig<Tables>(token)` | 转发同一 `EnsureReady` 契约；Failed 重新抛出该次加载的原始异常 |
+| 持续显示 Loading / Ready / Failed，随状态刷新 UI | 获取 `IConfigUtility<Tables>` 后订阅 `State` | 状态只表达可观察阶段；收到 Ready 时 `Tables` 已发布 |
 
-`EnsureReady` 的调用方 token **只取消这个等待者**，不传给共享的物理加载。一个窗口关闭不能把别的 System 也在等待的配置加载截断；真正的 owner 是配置组件 + Context，它们销毁时才取消加载及全部未完成等待。服务失败后不会偷偷重试：重试应重建所属 Context / 组件，避免旧表与新表在同一作用域并存。
+`EnsureConfig` 只是 Context 解析的短入口，取消与失败语义仍由 `IConfigUtility.EnsureReady` 唯一拥有：调用方 token **只取消这个等待者**，不传给共享的物理加载。一个窗口关闭不能把别的 System 也在等待的配置加载截断；真正的 owner 是配置组件 + Context，它们销毁时才取消加载及全部未完成等待。服务失败后不会偷偷重试：重试应重建所属 Context / 组件，避免旧表与新表在同一作用域并存。
+
+不要把它缩成静态 `TbItem.Get(...)` 或 ambient `Tables.Current`。那会把“当前配置属于哪个 Context、是否是子 Context 覆盖、使用的是哪套配置”变成隐藏状态，并破坏并行测试隔离。`GetConfig<Tables>()` 保留了这一跳有意义的作用域信息；如果项目只有一套配置且仍嫌泛型名长，可以在**项目侧、生成目录外**补一个具名转发（如 `GameTables()`），但不要把它变成框架全局单例。
+
+也不按 View / System 为每张表建立权限矩阵：客户端内的只读表访问不是安全边界，逐表 Interface 只会镜像生成 schema。真正不应进入客户端的数据，用 Luban target / group、独立配置集或服务端归属排除；需要隐藏业务规则时，建立有领域语义的查询 Module / Adapter，而不是给 `TbXxx` 套访问名单。
 
 > **升级兼容性**：继承 `MonoConfigUtilityBase<TTables>` 的项目子类无需修改；若项目绕过基类、直接实现了 `IConfigUtility<TTables>`，需要补 `EnsureReady(token)` 并遵守上表的发布顺序、根异常与 waiter/owner 取消边界。框架没有提供退化的默认实现，因为仅靠 `State == Failed` 无法恢复已经丢失的原始异常。
 
@@ -1937,7 +1945,7 @@ Luban 生成的 `Tables` 构造函数是**同步、一次性构造全表**（每
 - **topModule 别嵌进含 `System` 子命名空间的层级**（如 `Game.Framework.*`）：生成代码裸写 `System.Func` / `System.Collections`，会被就近解析劫持（CS0234）。demo 用顶层 `DemoCfg`。
 - **生成代码目录被 Luban 接管**：它会清理目录里的陌生文件（表清单是 CLI 跑完后由管线补写的），勿手放任何文件进去。
 - **数据文件按普通资源收集（TextAsset），不要用 PackRawFile**：YooAsset 的 bundle 类型是包级二选一，AB 包混入 RawFile 收集器后运行时直接失败（实测）。读取统一用 `Bag.LoadBytes`——它按包构建管线自动路由（普通 AB 包按 TextAsset 取内容、RawFile 包走原生通道），业务无需关心包类型。
-- **流程门禁不要自己 `WaitUntil(State is Ready or Failed)`**：这会重复终态编排，并在 Failed 时丢掉根因。使用 `await EnsureReady(token)`；只有加载提示等持续 UI 才订阅 `State`。
+- **流程门禁不要自己 `WaitUntil(State is Ready or Failed)`**：这会重复终态编排，并在 Failed 时丢掉根因。业务优先使用 `await this.EnsureConfig<Tables>(token)`；已经持有服务时可直接 `EnsureReady(token)`，只有加载提示等持续 UI 才订阅 `State`。
 - 配置是**只读数据，启动一次性加载**：改数值 = 改 `Datas/` → 重新生成 → 数据 `.bytes` 随资源包热更即可；改表**结构**会改生成代码 → 走代码热更 / 发版。
 - `Game.Framework.Config` 引用热更内核，已在热更列表（ADR-0008 铁律：AOT 不引用热更）；`Luban.Runtime` 来自 UPM 包、保持 AOT。
 

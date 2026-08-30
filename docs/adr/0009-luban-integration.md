@@ -28,7 +28,7 @@ cs-bin 生成的 `Tables` 构造函数是**同步** `Func<string, ByteBuf>`，�
 |---|---|---|
 | `MonoConfigUtilityBase<TTables>`（→ 自动注册 `IConfigUtility<TTables>`） | Utility | **自加载**：清单校验/快照 → 并行预载 → 调抽象工厂构造 → 持有 `Tables` + `ConfigInitState`，对各层只读暴露 |
 
-**框架模块不引用 Luban**——只做「清单 → 字节 → 抽象工厂」的通用编排；Luban 接触面收口在项目侧子类的 `CreateTables`（一行 `new Tables(f => new ByteBuf(getBytes(f)))`）与生成代码所在 asmdef。泛型按项目表根闭合（一行子类），各层经 `GetUtility<IConfigUtility<Tables>>().Tables` 直读（View 也有 `ICanGetUtility`，无需查询 Command），查询直接用生成的强类型 API。
+**框架模块不引用 Luban**——只做「清单 → 字节 → 抽象工厂」的通用编排；Luban 接触面收口在项目侧子类的 `CreateTables`（一行 `new Tables(f => new ByteBuf(getBytes(f)))`）与生成代码所在 asmdef。泛型按项目表根闭合（一行子类），各层在已知就绪时经 `GetConfig<Tables>()` 直读、流程门禁经 `EnsureConfig<Tables>(token)`（View 也有 `ICanGetUtility`，无需查询 Command），查询直接用生成的强类型 API。
 
 > **为什么是 Utility 而非 Model**（2026-06-18 修订）：初版仿资源系统拆「Model 持表 + InitSystem 编排」两件套，但配置的访问形态是「全层只读」，而本框架 Model 把 View 挡在外面（无 `GetModel`），导致 View 读配置要绕查询 Command。改为 Utility 后 View 直读（`IUtility : ICanGetUtility`，且 Utility 可取资源服务自加载）；配置加载也比资源系统简单（无多包 / CDN / 下载编排），不必拆 System，合成一个组件。资源系统仍是三件套（加载复杂、且其 Model 持的是可变的运行期配置）。
 
@@ -48,6 +48,12 @@ cs-bin 生成的 `Tables` 构造函数是**同步** `Func<string, ByteBuf>`，�
 
 **失败与清单边界**：Implementation 在任何资源 I/O 前复制并校验 `TableFiles`，拒绝空清单、空 location 与重复 location；同时拒绝 `CreateTables` 返回 null。失败通过统一 `Log` Seam 记录一次根异常，并以 `ExceptionDispatchInfo` 保存给现在或稍后加入的 `EnsureReady` 调用者。完成信号只表达终态，不直接携带异常，避免无人等待时产生未观察的 UniTask 异常。
 
+#### 3.2 Context 感知的短入口，而非全局静态表
+
+`ConfigAccessExtensions` 提供两个语义明确的便利入口：已证明 Ready 的同步路径使用 `this.GetConfig<TTables>()` / `ctx.GetConfig<TTables>()`；需要阻断流程时使用 `await this.EnsureConfig<TTables>(token)`。前者统一 fail-fast 诊断，后者只转发既有 `EnsureReady`，两者都按调用方的精确 Context 解析同一个 `IConfigUtility<TTables>`，不缓存全局引用、不复制表根与 readiness 状态机。高频调用者应缓存返回的 `Tables`，之后直接 `_tables.TbItem[id]`。
+
+不采用静态 `TbItem.Get(...)` / `Tables.Current`：为了少写一个 Context 跳转而引入 ambient state，会破坏父子 Context override、多配置集并存、销毁重建语义和测试隔离。也不默认按 View / System 为每张表生成访问 Interface：客户端已携带的只读数据不是安全边界，逐表名单会镜像 schema、形成浅 Module。需要真正隔离时，在更有 Leverage 的 Seam 处理——不应下发的数据用 Luban target / group、独立配置集或服务端归属；需要隐藏业务解释或冻结可变投影时，再建立领域查询 Interface 与至少两个 Adapter。
+
 ### 4. 程序集与热更归属（开放决策全部落定）
 
 - 工具 CLI：`Tools/Luban/`（不入库）；缺 .NET 8 运行时时管线带 `DOTNET_ROLL_FORWARD=LatestMajor` 运行。
@@ -60,6 +66,7 @@ cs-bin 生成的 `Tables` 构造函数是**同步** `Func<string, ByteBuf>`，�
 - ✅ 配置加载复用 `IAssetUtility`（自加载 Utility 直接 `GetUtility` 取它，靠 `IUtility : ICanGetUtility`），与资源系统同一套初始化/多包/CDN/热更机制。
 - ✅ 框架模块后端无关：换 JSON / 自定义格式只换项目侧工厂；`Assets/Game/Framework/Config/` 可整目录删除，框架其余零感知。
 - ✅ `State`、`EnsureReady` 与 `Tables` 分别覆盖观察、流程门禁和同步读取；调用方无需复制状态机，失败仍保留原始异常与堆栈。
+- ✅ `GetConfig<TTables>` / `EnsureConfig<TTables>` 删除常见的 Utility 解析样板与分散的未就绪判断，同时保留精确 Context、多配置集和可测试性；热路径仍直接使用生成表，不增加逐表 façade。
 - ✅ 清单在资源 I/O 前快照并 fail-fast，避免生成清单被运行中修改或重复 location 造成部分加载副作用。
 - ⚠ `EnsureReady` 是一次有意的 Interface 源码扩展：继承 `MonoConfigUtilityBase<TTables>` 的项目 Adapter 自动获得实现；直接实现 `IConfigUtility<TTables>` 的自定义服务必须补齐同样的发布、根异常与取消语义。不能用默认 Interface 方法从 `Failed` 枚举凭空还原根因。
 - ⚠ 生成代码 namespace（topModule）**不得嵌进含 `System` 子命名空间的层级**（如 `Game.Framework.*`）：生成代码裸写 `System.Func` 会被就近解析劫持（CS0234）。demo 用顶层 `DemoCfg`。
