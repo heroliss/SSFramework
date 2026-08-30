@@ -9,8 +9,9 @@ namespace Game.Framework
     /// 配置表服务：持有整套生成的表根 + 加载状态，作为基础设施 Utility 供各层（含 View）只读取用。
     ///
     /// <para>配置是静态只读引用数据，生成的 <c>Tables</c> / <c>TbXxx</c> 本身就是数据模型——框架不再为它套一层
-    /// Model，而是当「提供数据的服务」放 Utility 层：各层经 <c>this.GetUtility&lt;IConfigUtility&lt;TTables&gt;&gt;()</c>
-    /// 或 <c>[Inject] IConfigUtility&lt;TTables&gt;</c> 直读，无需查询 Command 绕行（View 也有 <c>ICanGetUtility</c>）。</para>
+    /// Model，而是当「提供数据的服务」放 Utility 层：已知就绪时各层经
+    /// <c>this.GetConfig&lt;TTables&gt;()</c> 直读，流程门禁经 <c>await this.EnsureConfig&lt;TTables&gt;(token)</c>；
+    /// 只有需要订阅 <see cref="State"/> 或注入服务时才直接获取本 Interface。无需查询 Command 绕行（View 也有 <c>ICanGetUtility</c>）。</para>
     ///
     /// <para>后端无关——框架只约定「表根 + 就绪契约」，表如何生成 / 何种格式反序列化由项目侧子类决定。</para>
     /// <para>通常继承 <see cref="MonoConfigUtilityBase{TTables}"/> 获得完整实现；直接实现本 Interface 的自定义服务必须同时保持
@@ -21,7 +22,7 @@ namespace Game.Framework
     {
         /// <summary>
         /// 配置表根实例。加载完成前为 <c>null</c>，<see cref="State"/> 到 <see cref="ConfigInitState.Ready"/> 后可用。
-        /// 配置是一次性加载的只读数据、之后不变，所以这里是**普通取值**而非响应流（读法 <c>config.Tables.TbItem.Get(id)</c>，
+        /// 配置是一次性加载的只读数据、之后不变，所以这里是**普通取值**而非响应流（常用读法 <c>this.GetConfig&lt;Tables&gt;().TbItem[id]</c>，
         /// 无需 <c>.CurrentValue</c>）——响应式界面订阅 <see cref="State"/>，命令式启动流程等待 <see cref="EnsureReady"/>；
         /// 不要轮询本属性。
         /// </summary>

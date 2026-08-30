@@ -51,8 +51,9 @@ namespace Game.Framework.Demo.Modules
             // ── 2. 先看结果：各层一行取到强类型表（最常用的一步，先给概念落地） ──
             host.AddSectionTitle("先看结果：各层一行取到强类型表");
             host.AddNote("表由场景里的配置服务在进游戏时加载好（下一节讲它怎么搭）。各层（含 View）一行 " +
-                         "`GetUtility<IConfigUtility<Tables>>()` 拿到表根，查询就是纯内存读、不需要查询 Command——下面按钮真实读 Play 中已加载的表。",
-                new CodeRef("Assets/Game/Framework/Config/IConfigUtility.cs", "interface IConfigUtility", "IConfigUtility · Tables + State + EnsureReady"));
+                         "`this.GetConfig<Tables>()` 拿到当前 Context 已就绪的表根，查询就是纯内存读、不需要查询 Command——" +
+                         "下面按钮真实读 Play 中已加载的表。它不会偷偷使用全局配置；子 Context 仍会解析自己的配置服务。",
+                new CodeRef("Assets/Game/Framework/Config/ConfigAccessExtensions.cs", "public static TTables GetConfig", "Context 感知的短读取入口"));
 
             // 配置是基础设施服务：各层（含本 demo 模块、真实 View）直接 GetUtility 取，无需查询 Command 绕行。
             var config = this.GetUtility<IConfigUtility<Tables>>();
@@ -62,21 +63,22 @@ namespace Game.Framework.Demo.Modules
 
             host.AddTable(
                 new[] { "调用场景", "推荐入口", "为什么" },
-                new[] { "加载提示、按钮禁用态、失败提示", "订阅 `State`", "持续观察状态变化，收到 Ready 时 Tables 已可用" },
-                new[] { "启动流程、进关卡前的硬门禁", "`await EnsureReady(token)`", "一次得到 Tables；失败保留原始异常，不必手写终态轮询" });
+                new[] { "已由上游保证 Ready 的零散读取", "`this.GetConfig<Tables>()`", "短、强类型、仍按当前 Context 解析；未就绪会给出明确错误" },
+                new[] { "启动流程、进关卡前的硬门禁", "`await this.EnsureConfig<Tables>(token)`", "一次得到 Tables；失败保留原始异常，不必手写终态轮询" },
+                new[] { "加载提示、按钮禁用态、失败提示", "获取 `IConfigUtility<Tables>` 后订阅 `State`", "持续观察状态变化，收到 Ready 时 Tables 已可用" });
             var readyLabel = host.AddValueDisplay("（点下方按钮观察命令式等待）");
             host.AddAsyncActionRow("等待配置就绪（启动流程推荐）", async ct =>
             {
                 try
                 {
-                    var tables = await config.EnsureReady(ct);
+                    var tables = await this.EnsureConfig<Tables>(ct);
                     readyLabel.text = $"就绪：拿到同一份 Tables，物品 {tables.TbItem.DataList.Count} 条、怪物 {tables.TbMonster.DataList.Count} 条";
                 }
                 catch (Exception e)
                 {
                     readyLabel.text = $"配置失败：{e.Message}（原始异常也已进入统一日志）";
                 }
-            }, CodeRef.Here("await config.EnsureReady(ct)", "命令式门禁 · 直接取得 Tables 或原始异常"));
+            }, CodeRef.Here("await this.EnsureConfig<Tables>(ct)", "命令式门禁 · 短入口直接取得 Tables 或原始异常"));
             host.AddSubNote("`State` 与 `EnsureReady` 不是两套重复 API：前者是响应式观察，后者把「等待 Ready/Failed → 返回 Tables / 抛根因」收进 Interface。" +
                             "调用方 token 只让当前等待者离开，不会因为一个窗口关闭就中止其他系统共享的配置加载；组件或 Context 销毁才取消真正的 owner。",
                 new CodeRef("Assets/Game/Framework/Config/IConfigUtility.cs", "UniTask<TTables> EnsureReady", "就绪契约 · 取消与失败语义"));
@@ -84,18 +86,19 @@ namespace Game.Framework.Demo.Modules
             var itemLabel = host.AddValueDisplay("（点下方按钮查表）");
             host.AddActionRow("查下一条物品（轮巡 TbItem.DataList）", () =>
             {
-                var t = config.Tables; // 普通取值（配置只读、加载后不变），无需 .CurrentValue
-                if (t == null) { itemLabel.text = "配置未就绪（看上方加载状态）"; return; }
+                if (config.State.CurrentValue != ConfigInitState.Ready) { itemLabel.text = "配置未就绪（看上方加载状态）"; return; }
+                var t = this.GetConfig<Tables>();
                 if (t.TbItem.DataList.Count == 0) { itemLabel.text = "TbItem 没有数据（Datas/item.json 是空的？）"; return; }
-                var item = t.TbItem.DataList[_itemCursor++ % t.TbItem.DataList.Count];
+                int id = t.TbItem.DataList[_itemCursor++ % t.TbItem.DataList.Count].Id;
+                var item = t.TbItem[id];
                 itemLabel.text = $"[{item.Id}] {item.Name}（{item.Quality}）售价 {item.Price}，堆叠上限 {item.StackLimit} —— {item.Desc}";
-            }, CodeRef.Here("t.TbItem.DataList[_itemCursor", "本处查表语句 · 轮巡 TbItem.DataList"));
+            }, CodeRef.Here("var item = t.TbItem[id]", "本处查表语句 · 生成索引器按主键读取"));
 
             var monsterLabel = host.AddValueDisplay("（点下方按钮查表）");
             host.AddActionRow("查下一条怪物（轮巡 TbMonster，Excel 数据源）", () =>
             {
-                var t = config.Tables; // 普通取值（配置只读、加载后不变），无需 .CurrentValue
-                if (t == null) { monsterLabel.text = "配置未就绪（看上方加载状态）"; return; }
+                if (config.State.CurrentValue != ConfigInitState.Ready) { monsterLabel.text = "配置未就绪（看上方加载状态）"; return; }
+                var t = this.GetConfig<Tables>();
                 if (t.TbMonster.DataList.Count == 0) { monsterLabel.text = "TbMonster 没有数据（Datas/monster.xlsx 是空的？）"; return; }
                 var m = t.TbMonster.DataList[_monsterCursor++ % t.TbMonster.DataList.Count];
                 var drop = t.TbItem.GetOrDefault(m.DropItemId);
@@ -106,8 +109,8 @@ namespace Game.Framework.Demo.Modules
             var globalLabel = host.AddValueDisplay("");
             host.AddActionRow("读全局配置（TbGlobalConfig，one 模式单例表）", () =>
             {
-                var t = config.Tables; // 普通取值（配置只读、加载后不变），无需 .CurrentValue
-                if (t == null) { globalLabel.text = "配置未就绪（看上方加载状态）"; return; }
+                if (config.State.CurrentValue != ConfigInitState.Ready) { globalLabel.text = "配置未就绪（看上方加载状态）"; return; }
+                var t = this.GetConfig<Tables>();
                 var g = t.TbGlobalConfig;
                 globalLabel.text = $"背包容量 {g.BagCapacity}，初始金币 {g.InitialGold}，新手物品 [{string.Join(", ", g.NewbieItemIds)}]";
             }, CodeRef.Here("var g = t.TbGlobalConfig", "本处查表语句 · one 模式直接读字段"));
@@ -115,6 +118,9 @@ namespace Game.Framework.Demo.Modules
             host.AddSubNote("map 表按主键取用 `TbItem.Get(id)` / `TbItem[id]`（缺键抛异常）或 `GetOrDefault(id)`；全量遍历用 `DataList`；one 模式表（如 `TbGlobalConfig`）" +
                             "全表只有一条记录、直接读字段。这些访问器都是生成代码自带的——这个链接直接看生成出来的 `TbItem`（只在「想看生成代码长什么样」时点）。",
                 new CodeRef("Assets/Game/Framework/Demo/Config/Gen/TbItem.cs", "public Item Get(int key)", "生成代码 · TbItem 的 Get / GetOrDefault / DataList"));
+            host.AddSubNote("为什么没有做成静态 `TbItem[id]`：那必须隐藏一个“当前 Tables”，会丢掉父子 Context 覆盖、多配置集和测试隔离。" +
+                            "框架只省掉没有信息量的解析样板，保留 `this.GetConfig<Tables>()` 这一小段有意义的作用域声明；高频调用把返回值缓存为字段后就是 `_tables.TbItem[id]`。",
+                new CodeRef("Assets/Game/Framework/Config/ConfigAccessExtensions.cs", "private static TTables RequireReady", "短入口仍保留 Context 与 readiness 防线"));
 
             // ── 3. 运行期：自加载的配置服务（Utility，不是 System） ──
             host.AddSectionTitle("运行期：一个自加载的配置服务（是 Utility，不是 System）");
