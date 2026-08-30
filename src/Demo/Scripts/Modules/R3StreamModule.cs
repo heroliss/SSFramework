@@ -20,7 +20,7 @@ namespace Game.Framework.Demo.Modules
     public sealed class R3StreamModule : DemoModuleBase
     {
         public override string Id => "r3-streams";
-        public override string Title => "R3 · 一切皆流";
+        public override string Title => "响应式流（R3）· 一切皆流";
         public override string Category => "进阶";
         public override int Order => 5; // 排在资源三章（10/15/20）前：它是核心章响应式主题的收束，不依赖构建管线知识
         public override string Summary =>

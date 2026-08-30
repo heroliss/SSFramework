@@ -91,7 +91,7 @@ namespace Game.Framework.Demo.Modules
                 "若某一行的 factory / 挂载失败，`BindList` 会摘除此前已建行并释放所有 rowBag，随后直接抛出根因；调用方拿不到一个半初始化句柄。若 factory 在返回前还创建了其它外部对象，那部分仍由 factory 自己清理。");
             host.AddConcept("增量失败",
                 "集合的 Add / Move 已经提交，容器回调又可能只执行了一半；框架无法安全反改 Model 或猜测 UI 当前层级。因此它会停止本次订阅、尽力释放所有行，并用一条框架 Error 保留终止根因；清理本身若也失败，会有补充 Error，但不会盖掉根因。修复 factory / Adapter 后重进页面或重新绑定。");
-            host.AddTip("`itemFactory`、挂载、摘除、移动和 rowBag 的 Dispose 回调只负责当前行，不是集合写入钩子：不要在其中同步修改正在绑定的同一个 `ObservableList`，否则会产生嵌套索引事件并被明确拒绝。只有 rowBag 清理当前行时释放宿主 Bag 属于正常结束；框架会等当前事件返回后清理余行，也不会再启动 Replace / Reset 后半段的新 factory。");
+            host.AddCaution("`itemFactory`、挂载、摘除、移动和 rowBag 的 Dispose 回调只负责当前行，不是集合写入钩子：不要在其中同步修改正在绑定的同一个 `ObservableList`，否则会产生嵌套索引事件并被明确拒绝。只有 rowBag 清理当前行时释放宿主 Bag 属于正常结束；框架会等当前事件返回后清理余行，也不会再启动 Replace / Reset 后半段的新 factory。");
         }
 
         // 造一行子视图：稳定实例号 + 文本 + 末尾 ✕。实例证据和点击订阅都挂本行专属 rowBag，

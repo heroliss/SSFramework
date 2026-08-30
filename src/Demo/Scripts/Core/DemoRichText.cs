@@ -21,7 +21,7 @@ namespace Game.Framework.Demo.Core
     internal static class DemoRichText
     {
         // 暗底（demo-root rgb(24,25,30)）上的两类强调色：代码偏青、术语偏紫，均低饱和，
-        // 刻意避开蓝（标题 / 源码链接）、黄（Tip）、绿 / 红（状态徽标）等已被占用的语义色。
+        // 刻意避开蓝（导航 / 普通动作）、青绿（Tip）、黄（Caution）、橙（Experiment）、绿 / 红（状态徽标）等语义色。
         private const string CodeColor = "#7DCDD2";
         private const string TermColor = "#C6AAEB";
 

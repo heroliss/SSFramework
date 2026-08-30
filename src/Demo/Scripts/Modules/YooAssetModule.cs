@@ -107,7 +107,7 @@ namespace Game.Framework.Demo.Modules
                 if (assetUtility != null) DemoEditorNav.PingSceneObject(assetUtility.gameObject);
             }, new CodeRef("Assets/Game/Framework/Core/Asset/AssetUtility.cs", "class AssetUtility", "资源系统单入口"));
 #endif
-            host.AddTip("两个最常踩的坑：① 平台——AssetBundle 按平台区分，且编辑器进程本身是 Windows，加载不了为 Android 等移动平台构建的 bundle；要在编辑器里测 Host，先把 Build Target 切到 Standalone Windows 再重新构建，测移动平台请上真机。② 顺序——至少先构建再进 Play；要验证远端更新或加载非内置 bundle，还需部署并启动 CDN。Host 可以在远端失败时回退内置清单，但补构建后仍要重进 Play 才会重新初始化。");
+            host.AddCaution("两个最常踩的坑：① 平台——AssetBundle 按平台区分，且编辑器进程本身是 Windows，加载不了为 Android 等移动平台构建的 bundle；要在编辑器里测 Host，先把 Build Target 切到 Standalone Windows 再重新构建，测移动平台请上真机。② 顺序——至少先构建再进 Play；要验证远端更新或加载非内置 bundle，还需部署并启动 CDN。Host 可以在远端失败时回退内置清单，但补构建后仍要重进 Play 才会重新初始化。");
 
             // ── 机制：清缓存 ──
             host.AddSectionTitle("机制：清缓存");

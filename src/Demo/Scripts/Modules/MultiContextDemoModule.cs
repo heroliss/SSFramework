@@ -14,7 +14,7 @@ namespace Game.Framework.Demo.Modules
     public sealed class MultiContextDemoModule : DemoModuleBase
     {
         public override string Id => "multi-context";
-        public override string Title => "多 Context · 作用域树";
+        public override string Title => "多上下文（Context）· 作用域树";
         public override string Category => "核心";
         public override int Order => 40;   // 紧跟「View」章：复用它的弹窗 prefab 演示「挂哪儿就用哪个作用域」
 
@@ -44,7 +44,7 @@ namespace Game.Framework.Demo.Modules
                 host.AddUnavailable(
                     "`DemoSubContext` 子树中没有 `MonoScoreModel`，因此子作用域没有可覆盖父级的同类型状态。",
                     "把一个 `MonoScoreModel` 节点放到 SubContext 子树下，让它在 Awake 时就近注册进子 Context。",
-                    "恢复后重新进入本章即可观察根/子两份分数；恢复前可先看“Model · 状态与 Inspector”了解 Mono 自动注册。",
+                    "恢复后重新进入本章即可观察根/子两份分数；恢复前可先看“数据模型（Model）· 状态与 Inspector”了解 Mono 自动注册。",
                     new CodeRef(
                         "Assets/Game/Framework/Demo/Scripts/Modules/Support/MonoScoreModel.cs",
                         "class MonoScoreModel",

@@ -1,7 +1,8 @@
 /* ============================================================
    SSFramework Demo —— 整体样式主题（暗色 · 简约）
    风格与内容解耦：模块只挂 class，不写内联样式；换肤只改这一份。
-   配色：深色底 + 单一蓝色强调（accent = rgb(96,165,250)）。
+   配色承担稳定语义：蓝 = 导航 / 普通动作，青绿 = 重点速记，黄 = 注意边界，橙 = 教学实验。
+   颜色始终配合文字标签、边框和卡片结构，不作为唯一识别线索。
    ============================================================ */
 
 .demo-root {
@@ -31,7 +32,7 @@
 
 /* ---- 左侧导航 ---- */
 .demo-nav {
-    width: 238px;
+    width: 270px;
     background-color: rgb(30, 32, 38);
     border-right-width: 1px;
     border-right-color: rgb(44, 47, 55);
@@ -50,10 +51,12 @@
 }
 
 .demo-nav-item {
-    height: 34px;
+    min-height: 36px;
+    height: auto;
     margin: 1px 8px;
-    padding-left: 12px;
+    padding: 6px 12px;
     -unity-text-align: middle-left;
+    white-space: normal;
     background-color: rgba(0, 0, 0, 0);
     border-width: 0;
     border-radius: 7px;
@@ -104,10 +107,15 @@
 
 .demo-content-summary {
     font-size: 13px;
-    color: rgb(150, 156, 168);
-    margin-bottom: 20px;
+    color: rgb(178, 184, 196);
+    margin-bottom: 14px;
+    padding: 10px 13px;
     white-space: normal;
     max-width: 960px;
+    background-color: rgb(30, 32, 38);
+    border-left-width: 3px;
+    border-left-color: rgb(72, 92, 126);
+    border-radius: 6px;
 }
 
 .demo-content-body {
@@ -115,7 +123,187 @@
     max-width: 960px;
 }
 
-/* 窄屏不再硬挤“238px 左栏 + 正文”：导航移到上方成为有限高度的可滚动目录，正文拿回整行宽度。 */
+/* ---- 新手导览：颜色图例 + 高频术语白话解释。关键内容直接可见，tooltip 只补充。 ---- */
+.demo-reading-guide {
+    max-width: 960px;
+    margin-bottom: 18px;
+    background-color: rgb(29, 32, 39);
+    border-width: 1px;
+    border-color: rgb(52, 58, 70);
+    border-radius: 9px;
+    overflow: hidden;
+}
+
+.demo-reading-guide-header {
+    min-height: 54px;
+    padding: 9px 11px;
+    flex-direction: row;
+    align-items: center;
+    background-color: rgb(34, 38, 47);
+}
+
+.demo-reading-guide-marker {
+    flex-shrink: 0;
+    margin-right: 10px;
+    padding: 4px 8px;
+    border-radius: 5px;
+    background-color: rgb(44, 68, 102);
+    color: rgb(154, 199, 255);
+    font-size: 10px;
+    -unity-font-style: bold;
+}
+
+.demo-reading-guide-heading {
+    flex-grow: 1;
+    flex-shrink: 1;
+}
+
+.demo-reading-guide-title {
+    color: rgb(226, 230, 238);
+    font-size: 13px;
+    -unity-font-style: bold;
+    white-space: normal;
+}
+
+.demo-reading-guide-summary {
+    margin-top: 2px;
+    color: rgb(145, 152, 166);
+    font-size: 11px;
+    white-space: normal;
+}
+
+.demo-reading-guide-toggle {
+    flex-shrink: 0;
+    min-width: 92px;
+    min-height: 29px;
+    margin-left: 12px;
+    padding: 4px 9px;
+    white-space: normal;
+    background-color: rgb(39, 44, 54);
+    color: rgb(166, 191, 228);
+    border-width: 1px;
+    border-color: rgb(62, 71, 86);
+    border-radius: 6px;
+    font-size: 11px;
+}
+
+.demo-reading-guide-toggle:hover {
+    background-color: rgb(40, 53, 74);
+    color: rgb(126, 184, 255);
+    border-color: rgb(80, 125, 190);
+}
+
+.demo-reading-guide-body {
+    padding: 10px 12px 13px 12px;
+    border-top-width: 1px;
+    border-top-color: rgb(48, 53, 64);
+}
+
+.demo-reading-guide-section-title {
+    margin-top: 4px;
+    margin-bottom: 7px;
+    color: rgb(210, 215, 225);
+    font-size: 12px;
+    -unity-font-style: bold;
+}
+
+.demo-reading-legend-grid,
+.demo-reading-glossary-grid {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: stretch;
+}
+
+.demo-reading-legend-item {
+    min-width: 205px;
+    flex-basis: 205px;
+    flex-grow: 1;
+    flex-shrink: 1;
+    margin-right: 6px;
+    margin-bottom: 6px;
+    padding: 8px 9px;
+    background-color: rgb(32, 35, 42);
+    border-width: 1px;
+    border-color: rgb(48, 53, 64);
+    border-radius: 6px;
+}
+
+.demo-reading-legend-badge {
+    align-self: flex-start;
+    margin-bottom: 4px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-size: 10px;
+    -unity-font-style: bold;
+}
+
+.demo-reading-legend-badge--concept {
+    background-color: rgba(62, 100, 158, 0.35);
+    color: rgb(135, 190, 255);
+}
+
+.demo-reading-legend-badge--action {
+    background-color: rgb(49, 111, 210);
+    color: rgb(255, 255, 255);
+}
+
+.demo-reading-legend-badge--tip {
+    background-color: rgba(47, 132, 120, 0.38);
+    color: rgb(126, 222, 205);
+}
+
+.demo-reading-legend-badge--caution {
+    background-color: rgba(142, 104, 31, 0.40);
+    color: rgb(245, 205, 130);
+}
+
+.demo-reading-legend-badge--experiment {
+    background-color: rgba(174, 87, 37, 0.42);
+    color: rgb(255, 181, 115);
+}
+
+.demo-reading-legend-text {
+    color: rgb(174, 180, 191);
+    font-size: 11px;
+}
+
+.demo-reading-inline-hint {
+    margin-top: 2px;
+    margin-bottom: 10px;
+    padding: 7px 9px;
+    color: rgb(165, 171, 184);
+    background-color: rgba(0, 0, 0, 0.14);
+    border-radius: 5px;
+    font-size: 11px;
+}
+
+.demo-reading-glossary-item {
+    min-width: 300px;
+    flex-basis: 300px;
+    flex-grow: 1;
+    flex-shrink: 1;
+    margin-right: 6px;
+    margin-bottom: 6px;
+    padding: 8px 10px;
+    background-color: rgb(32, 35, 42);
+    border-left-width: 2px;
+    border-left-color: rgb(83, 104, 140);
+    border-radius: 5px;
+}
+
+.demo-reading-glossary-term {
+    margin-bottom: 3px;
+    color: rgb(164, 196, 238);
+    font-size: 11px;
+    -unity-font-style: bold;
+}
+
+.demo-reading-glossary-desc {
+    color: rgb(170, 176, 188);
+    font-size: 11px;
+}
+
+/* 窄屏不再硬挤“270px 左栏 + 正文”：导航移到上方成为有限高度的可滚动目录，正文拿回整行宽度。 */
 .demo-root--narrow .demo-body {
     flex-direction: column;
 }
@@ -135,6 +323,29 @@
 
 .demo-root--narrow .demo-app-title {
     padding-left: 14px;
+}
+
+.demo-root--narrow .demo-reading-guide-header {
+    align-items: flex-start;
+    flex-wrap: wrap;
+}
+
+.demo-root--narrow .demo-reading-guide-heading {
+    min-width: 180px;
+}
+
+.demo-root--narrow .demo-reading-guide-toggle {
+    width: 100%;
+    margin-top: 7px;
+    margin-left: 0;
+}
+
+.demo-root--narrow .demo-reading-legend-item,
+.demo-root--narrow .demo-reading-glossary-item {
+    width: 100%;
+    min-width: 0;
+    flex-basis: auto;
+    margin-right: 0;
 }
 
 /* 章节底部的线性学习导航：入门/核心提示顺读，能力/进阶保留自由挑选。 */
@@ -188,20 +399,37 @@
 .demo-section-title {
     font-size: 14px;
     -unity-font-style: bold;
-    color: rgb(120, 178, 255);
-    margin-top: 18px;
-    margin-bottom: 8px;
-    padding-bottom: 5px;
-    border-bottom-width: 1px;
-    border-bottom-color: rgb(44, 47, 55);
+    color: rgb(205, 216, 232);
+    margin-top: 20px;
+    margin-bottom: 9px;
+    padding: 6px 9px;
+    background-color: rgb(29, 33, 41);
+    border-left-width: 3px;
+    border-left-color: rgb(72, 101, 145);
+    border-radius: 5px;
     white-space: normal;
     flex-shrink: 1;
 }
 
+/* 章首定位是独立语义，不再与普通小节标题同形。 */
+.demo-positioning {
+    margin-top: 0;
+    margin-bottom: 13px;
+    padding: 10px 13px;
+    background-color: rgb(33, 43, 58);
+    color: rgb(151, 198, 255);
+    border-width: 1px;
+    border-color: rgb(61, 88, 127);
+    border-left-width: 4px;
+    border-left-color: rgb(92, 154, 235);
+    border-radius: 7px;
+    font-size: 13px;
+}
+
 .demo-note {
     font-size: 13px;
-    color: rgb(188, 193, 203);
-    margin-bottom: 5px;
+    color: rgb(196, 201, 211);
+    margin-bottom: 7px;
     white-space: normal;
 }
 
@@ -291,17 +519,55 @@
     white-space: normal;
 }
 
-.demo-tip {
-    font-size: 12px;
-    color: rgb(245, 205, 130);
-    background-color: rgba(120, 90, 30, 0.22);
+.demo-callout {
+    border-width: 1px;
     border-left-width: 3px;
-    border-left-color: rgb(220, 170, 70);
-    border-radius: 4px;
-    padding: 9px 13px;
+    border-radius: 6px;
+    padding: 9px 12px;
     margin-top: 10px;
-    margin-bottom: 6px;
+    margin-bottom: 8px;
+}
+
+.demo-callout-title {
+    margin-bottom: 4px;
+    font-size: 10px;
+    -unity-font-style: bold;
+    letter-spacing: 0.5px;
+}
+
+.demo-callout-body {
+    font-size: 12px;
     white-space: normal;
+}
+
+/* Tip 只表示速记 / 心智模型，不再与风险实验共用黄色。 */
+.demo-tip {
+    background-color: rgba(35, 110, 101, 0.18);
+    border-color: rgba(76, 179, 163, 0.35);
+    border-left-color: rgb(76, 179, 163);
+}
+
+.demo-tip .demo-callout-title {
+    color: rgb(122, 218, 201);
+}
+
+.demo-tip .demo-callout-body {
+    color: rgb(190, 211, 207);
+}
+
+/* Caution 是非实验型错误边界：需要注意，但不会因为这张卡本身执行任何动作。 */
+.demo-caution {
+    background-color: rgba(122, 91, 29, 0.20);
+    border-color: rgba(222, 171, 67, 0.38);
+    border-left-color: rgb(222, 171, 67);
+}
+
+.demo-caution .demo-callout-title {
+    color: rgb(245, 205, 130);
+}
+
+.demo-caution .demo-callout-body {
+    color: rgb(214, 207, 193);
 }
 
 /* 教学实验：任何故意失败或有副作用的动作，都先给出影响、证据与恢复闭环。 */
@@ -309,11 +575,11 @@
     margin-top: 9px;
     margin-bottom: 10px;
     padding: 10px 13px;
-    background-color: rgba(116, 78, 26, 0.20);
+    background-color: rgba(129, 61, 24, 0.22);
     border-width: 1px;
-    border-color: rgba(220, 170, 70, 0.42);
+    border-color: rgba(234, 132, 69, 0.45);
     border-left-width: 3px;
-    border-left-color: rgb(220, 170, 70);
+    border-left-color: rgb(234, 132, 69);
     border-radius: 6px;
 }
 
@@ -328,7 +594,7 @@
     flex-grow: 1;
     flex-shrink: 1;
     white-space: normal;
-    color: rgb(245, 205, 130);
+    color: rgb(255, 177, 116);
     -unity-font-style: bold;
     font-size: 13px;
 }
@@ -344,7 +610,7 @@
     min-width: 76px;
     flex-shrink: 0;
     white-space: normal;
-    color: rgb(230, 185, 105);
+    color: rgb(240, 159, 99);
     -unity-font-style: bold;
     font-size: 12px;
 }
@@ -353,7 +619,7 @@
     flex-grow: 1;
     flex-shrink: 1;
     white-space: normal;
-    color: rgb(208, 202, 190);
+    color: rgb(215, 202, 194);
     font-size: 12px;
 }
 
@@ -366,6 +632,16 @@
     width: auto;
     min-width: 0;
     margin-bottom: 1px;
+}
+
+.demo-root--narrow .demo-concept {
+    flex-direction: column;
+}
+
+.demo-root--narrow .demo-concept-heading {
+    width: auto;
+    margin-right: 0;
+    margin-bottom: 6px;
 }
 
 .demo-root--narrow .demo-chapter-navigation {
@@ -404,22 +680,40 @@
 /* 概念条目：术语 + 说明 的定义列表行（讲解分层职责 / 概念释义） */
 .demo-concept {
     flex-direction: row;
+    flex-wrap: wrap;
     align-items: flex-start; /* 术语换行/说明多行时都从顶部对齐 */
-    margin-bottom: 6px;
-    padding: 9px 13px;
-    background-color: rgb(30, 32, 38);
-    border-radius: 6px;
+    margin-bottom: 8px;
+    padding: 10px 12px;
+    background-color: rgb(32, 35, 42);
+    border-width: 1px;
+    border-color: rgb(48, 53, 64);
     border-left-width: 3px;
-    border-left-color: rgb(60, 78, 110);
+    border-left-color: rgb(69, 97, 140);
+    border-radius: 7px;
+}
+
+.demo-concept-heading {
+    width: 164px;
+    flex-shrink: 0;
+    margin-right: 14px;
+}
+
+.demo-concept-kind {
+    align-self: flex-start;
+    margin-bottom: 4px;
+    padding: 2px 6px;
+    background-color: rgba(64, 104, 166, 0.28);
+    color: rgb(129, 183, 248);
+    border-radius: 4px;
+    font-size: 9px;
+    -unity-font-style: bold;
+    letter-spacing: 0.4px;
 }
 
 .demo-concept-term {
-    width: 124px;
-    flex-shrink: 0;
-    margin-right: 10px;
     white-space: normal; /* 长术语在列内换行，不再溢出列宽压到右侧说明上 */
     -unity-font-style: bold;
-    color: rgb(120, 178, 255);
+    color: rgb(160, 194, 236);
     font-size: 13px;
 }
 
@@ -427,8 +721,37 @@
     flex-grow: 1;
     flex-shrink: 1;
     white-space: normal;
-    color: rgb(190, 195, 205);
+    color: rgb(196, 201, 211);
     font-size: 13px;
+}
+
+/* 当前环境不可用是独立状态，不再伪装成普通概念页。 */
+.demo-unavailable {
+    margin-top: 2px;
+    padding: 4px 12px 10px 12px;
+    background-color: rgba(112, 55, 55, 0.16);
+    border-width: 1px;
+    border-color: rgba(205, 105, 105, 0.38);
+    border-left-width: 4px;
+    border-left-color: rgb(205, 105, 105);
+    border-radius: 8px;
+}
+
+.demo-unavailable-title {
+    background-color: rgba(118, 54, 54, 0.18);
+    border-left-color: rgb(205, 105, 105);
+    color: rgb(242, 168, 168);
+}
+
+.demo-concept--unavailable {
+    background-color: rgba(58, 39, 42, 0.55);
+    border-color: rgba(123, 75, 80, 0.48);
+    border-left-color: rgb(150, 86, 92);
+}
+
+.demo-concept--unavailable .demo-concept-kind {
+    background-color: rgba(139, 73, 80, 0.32);
+    color: rgb(235, 157, 164);
 }
 
 /* 对象池章：左侧控制按钮 + 右侧 UI Toolkit 占位框（UGUI 容器按该框 worldBound 对齐） */
@@ -510,17 +833,17 @@
 }
 
 .demo-btn--experiment {
-    background-color: rgb(156, 104, 38);
+    background-color: rgb(174, 82, 37);
     border-width: 1px;
-    border-color: rgb(220, 170, 70);
+    border-color: rgb(234, 132, 69);
 }
 
 .demo-btn--experiment:hover {
-    background-color: rgb(178, 120, 44);
+    background-color: rgb(202, 98, 43);
 }
 
 .demo-btn--experiment:active {
-    background-color: rgb(128, 82, 31);
+    background-color: rgb(145, 65, 31);
 }
 
 /* 源码跳转：低调的次级按钮，紧挨动作按钮 */

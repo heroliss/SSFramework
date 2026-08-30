@@ -17,7 +17,7 @@ namespace Game.Framework.Demo.Modules
     public sealed class ModelReactiveModule : DemoModuleBase
     {
         public override string Id => "model-reactive";
-        public override string Title => "Model · 状态与 Inspector";
+        public override string Title => "数据模型（Model）· 状态与 Inspector";
         public override string Category => "核心";
         public override int Order => 10;
         public override string Summary =>

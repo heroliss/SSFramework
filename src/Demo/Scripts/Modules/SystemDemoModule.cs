@@ -15,7 +15,7 @@ namespace Game.Framework.Demo.Modules
     public sealed class SystemDemoModule : DemoModuleBase
     {
         public override string Id => "system";
-        public override string Title => "System · 逻辑归位";
+        public override string Title => "逻辑系统（System）· 规则归位";
         public override string Category => "核心";
         public override int Order => 25;
         public override string Summary =>

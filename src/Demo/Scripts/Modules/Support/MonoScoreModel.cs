@@ -5,7 +5,7 @@ using UnityEngine;
 namespace Game.Framework.Demo.Modules
 {
     /// <summary>
-    /// 「Model · 状态与 Inspector」章的 Mono 路径示例：作为 Hierarchy 节点存在（场景里的 ChapterAssets/ScoreModel；
+    /// 「数据模型（Model）· 状态与 Inspector」章的 Mono 路径示例：作为 Hierarchy 节点存在（场景里的 ChapterAssets/ScoreModel；
     /// 多 Context 章另挂一个在 SubContext 子树下演示覆盖）。
     /// </summary>
     /// <remarks>

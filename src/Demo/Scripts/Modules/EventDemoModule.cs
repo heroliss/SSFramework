@@ -14,7 +14,7 @@ namespace Game.Framework.Demo.Modules
     public sealed class EventDemoModule : DemoModuleBase
     {
         public override string Id => "event-bus";
-        public override string Title => "Event · 事件总线";
+        public override string Title => "事件（Event）· 事件总线";
         public override string Category => "核心";
         public override int Order => 30;
         public override string Summary =>

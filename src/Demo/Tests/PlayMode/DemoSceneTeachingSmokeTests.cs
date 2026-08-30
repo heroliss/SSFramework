@@ -126,12 +126,31 @@ namespace Game.Framework.Demo.PlayMode.Tests
             Button button = root.Query<Button>(className: "demo-nav-item").ToList()
                 .Single(candidate => candidate.text == target.Title);
 
+            StringAssert.Contains(target.Summary, button.tooltip,
+                "导航悬停应先预告本章解决什么；关键解释仍由章节正文负责。");
+
             SimulateClick(button);
 
             Assert.AreSame(target, shell.CurrentModule,
                 "左侧导航按钮必须路由到 SelectChapter 语义入口");
             Assert.IsTrue(button.ClassListContains("demo-nav-item--active"),
                 "按钮链路除了切换内容，还必须更新真实选中态");
+        }
+
+        [Test]
+        public void ReadingGuide_ExplainsEverySemanticColorAndCoreTermInTheRealShell()
+        {
+            var shell = FindDemoObject<DemoShellController>();
+            VisualElement root = shell.GetComponent<UIDocument>().rootVisualElement;
+
+            Assert.IsNotNull(root.Q<VisualElement>(className: "demo-reading-guide"));
+            CollectionAssert.AreEquivalent(
+                new[] { "概念", "普通演示", "重点速记", "注意边界", "教学实验" },
+                root.Query<Label>(className: "demo-reading-legend-badge").ToList()
+                    .Select(label => label.text));
+            Assert.AreEqual(8,
+                root.Query<VisualElement>(className: "demo-reading-glossary-item").ToList().Count,
+                "高频专业词应有默认可见的白话解释，不能只依赖鼠标 tooltip。");
         }
 
         [Test]

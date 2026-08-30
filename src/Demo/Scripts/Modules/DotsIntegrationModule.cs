@@ -85,7 +85,7 @@ namespace Game.Framework.Demo.Modules
                 new[] { "级别", "怎么做", "证明什么" },
                 new[] { "逻辑级", "关 Burst（`EnableBurstCompilation=false`，job 走 Mono JIT＝与参考实现同浮点语义），逐 tick **逐位**断言全部聚合值", "移植零逻辑偏差——纯算法搬对了" },
                 new[] { "规格级", "开 Burst，两后端各自独立跑，按波比聚合值", "「同一个游戏、不是逐位同一局」：跨编译域浮点 ulp 差异会被混沌放大成极小的归属漂移，但规格等价" });
-            host.AddTip("关键发现：FloatMode.Strict 也挡不住 Burst×Mono 的 ulp 级差异——lockstep 级确定性（帧同步/回放/断线重连）必须把参与的运算收口在单一编译域。" +
+            host.AddCaution("关键发现：FloatMode.Strict 也挡不住 Burst×Mono 的 ulp 级差异——lockstep 级确定性（帧同步/回放/断线重连）必须把参与的运算收口在单一编译域。" +
                         "把 DOTS 和网络同步结合时，这是绕不开的硬约束。");
 
             // ── 何时值得 ──

@@ -69,10 +69,10 @@ namespace Game.Framework.Demo.Modules
             host.AddNote("下面几点是相互独立的设计，不是一个大功能——按需各看各的。这里每点只一句，细节在框架文档与后续章节：");
             host.AddConcept("编译期权限", "用一组空标记接口，让越权写法直接编译不过（如 View 写不出 `GetModel`）。它不是万能锁——反射等仍能绕过——目的是减少人为出错、降低心智负担，顺手提供便利。");
             host.AddConcept("依赖注入", "一个轻量 DI 容器：按类型注册 / 解析依赖，`[Inject]` 字段自动装配。常规的小能力。");
-            host.AddConcept("多 Context", "`GameContext` 是一棵作用域树，子 Context 解析不到就回退父级——可分出全局 / 场景 / 局部等不同生命周期的作用域。");
+            host.AddConcept("多上下文（Context）", "`GameContext` 是一棵作用域树，子 Context 解析不到就回退父级——可分出全局 / 场景 / 局部等不同生命周期的作用域。");
             host.AddConcept("Mono 自动绑定", "继承 `MonoXxxBase` 的组件在 Awake 自动找到所属 Context 并完成注册 / 注入，免去手动接线；纯 C# 对象走显式绑定。");
             host.AddConcept("统一生命周期", "`DisposableBag` 把订阅 / 资源句柄 / 对象池租借 / 子作用域都登记起来，宿主销毁时批量释放，不用手写一堆退订。");
-            host.AddConcept("树状组织", "上面「多 Context / Mono 自动绑定 / 统一生命周期」三条共享同一个理念：结构性问题都用「树」回答——"
+            host.AddConcept("树状组织", "上面「多上下文（Context）/ Mono 自动绑定 / 统一生命周期」三条共享同一个理念：结构性问题都用「树」回答——"
                 + "Context 嵌套成作用域树（解析回退）、Hierarchy 决定注册去向（就近向上）、Bag 子作用域级联释放。"
                 + "节点放进哪个子树 = 一次说清「依赖从哪来、注册到哪去、何时被清理」。");
             host.AddNote("想看源码（其余见各自章节）：");
@@ -81,7 +81,7 @@ namespace Game.Framework.Demo.Modules
             host.AddCodeLink(new CodeRef("Assets/Game/Framework/Core/Internal/IGameContext.cs",
                 "interface IGameContext", "IGameContext · 能力面"));
             // 只链公共契约（接口 + 业务继承点）；GameContext / DisposableBag 等底层实现不在这里给跳转——
-            // 它们的“怎么用”分别在「多 Context」「生命周期」章里以 demo 用法行呈现。
+            // 它们的“怎么用”分别在「多上下文（Context）」「生命周期」章里以 demo 用法行呈现。
 
             host.AddSectionTitle("怎么逛这个 demo");
             host.AddNote("左侧导航把章节分成四组、由简入深——「核心」建议按顺序通读，「能力」/「进阶」各自独立、挑感兴趣的看：");

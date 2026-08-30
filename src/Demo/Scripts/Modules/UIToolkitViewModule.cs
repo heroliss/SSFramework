@@ -10,7 +10,7 @@ using UnityEngine.UIElements;
 namespace Game.Framework.Demo.Modules
 {
     /// <summary>
-    /// 核心·View（UI Toolkit）：与「View · MonoViewBase」(UGUI) 是<b>同一层、不同载体</b>。
+    /// 核心·View（UI Toolkit）：与「界面（View）· MonoViewBase」(UGUI) 是<b>同一层、不同载体</b>。
     /// 这里弹出一个纯 C# 的 <see cref="UIToolkitViewBase"/>——无需 prefab、代码即可搭；自动注入 + 绑 Bag、
     /// 只读订阅查询 Command、只写经 ExecuteCommand，关闭即 Dispose 退订。状态与 UGUI 章<b>共用同一份</b>
     /// <c>MonoScoreModel</c>，直观证明：核心层（Model / Command / System）对用 UGUI 还是 UI Toolkit 一无所知。
@@ -18,9 +18,9 @@ namespace Game.Framework.Demo.Modules
     public sealed class UIToolkitViewModule : DemoModuleBase
     {
         public override string Id => "uitoolkit-view";
-        public override string Title => "View · UIToolkit";
+        public override string Title => "界面（View）· UI Toolkit";
         public override string Category => "核心";
-        public override int Order => 36; // 紧跟「View · MonoViewBase」(35)
+        public override int Order => 36; // 紧跟「界面（View）· MonoViewBase」(35)
         public override string Summary =>
             "纯 C# 的 UIToolkitViewBase 与 UGUI 的 MonoViewBase 共用 IView 权限、Command 和 Bag，只是 Context 绑定方式不同。" +
             "两章共用同一份 Model，证明核心层不依赖 UI 技术。";
@@ -31,7 +31,7 @@ namespace Game.Framework.Demo.Modules
         {
             // ── 定位 ──
             host.AddPositioning("同一层、换个载体——UI Toolkit");
-            host.AddNote("与「View · MonoViewBase」是**同一层、不同载体**：纯 C# 的 `UIToolkitViewBase` 无需 prefab、代码即可搭；同享 `IView` 权限、自动注入、`Bag`、`ExecuteCommand`。状态与 UGUI 章**共用同一份** `MonoScoreModel`——直观证明核心层对 UI 技术无感。");
+            host.AddNote("与「界面（View）· MonoViewBase」是**同一层、不同载体**：纯 C# 的 `UIToolkitViewBase` 无需 prefab、代码即可搭；同享 `IView` 权限、自动注入、`Bag`、`ExecuteCommand`。状态与 UGUI 章**共用同一份** `MonoScoreModel`——直观证明核心层对 UI 技术无感。");
 
             // ── 动手试 ──
             host.AddSectionTitle("动手试：弹出一个纯 C# UIToolkit View");
@@ -63,8 +63,8 @@ namespace Game.Framework.Demo.Modules
             host.AddCodeLink(CodeRef.Here("Bag.SubscribeClickAsync(delayedBtn", "异步点击 · 生命周期与异常所有权"));
 
             host.AddSectionTitle("核心层对 UI 技术无感");
-            host.AddNote("这张卡片读写的分数，和「View · MonoViewBase」(UGUI) 章是**同一个** `MonoScoreModel`、同一对查询/写命令。切到那一章，分数一致——证明 Model / Command / System 根本不知道上层用的是 UGUI 还是 UI Toolkit。");
-            host.AddSubNote("这里的“同一个”特指 demo **根 Context** 下的 `ChapterAssets/ScoreModel`；`ScoreModel (Sub)` 是「多 Context · 作用域树」章用于演示子级覆盖的另一份独立状态，不应与根分数同步。");
+            host.AddNote("这张卡片读写的分数，和「界面（View）· MonoViewBase」(UGUI) 章是**同一个** `MonoScoreModel`、同一对查询/写命令。切到那一章，分数一致——证明 Model / Command / System 根本不知道上层用的是 UGUI 还是 UI Toolkit。");
+            host.AddSubNote("这里的“同一个”特指 demo **根 Context** 下的 `ChapterAssets/ScoreModel`；`ScoreModel (Sub)` 是「多上下文（Context）· 作用域树」章用于演示子级覆盖的另一份独立状态，不应与根分数同步。");
             host.AddCodeLink(new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/Support/MonoScoreModel.cs", "class MonoScoreModel", "MonoScoreModel · 共用状态"));
             host.AddCodeLink(new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/ModelReactiveModule.cs", "struct GetMonoScoreCommand", "只读查询 Command"));
             host.AddCodeLink(new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/ModelReactiveModule.cs", "struct RaiseMonoScoreCommand", "写操作 Command"));
@@ -89,7 +89,7 @@ namespace Game.Framework.Demo.Modules
     }
 
     /// <summary>
-    /// 「View · UIToolkit」章用的真实纯 C# 视图：代码搭一张小卡片（分数 + 「+1」+「关闭」）。
+    /// 「界面（View）· UI Toolkit」章用的真实纯 C# 视图：代码搭一张小卡片（分数 + 「+1」+「关闭」）。
     /// 继承 <see cref="UIToolkitViewBase"/>——<c>BindTo</c> 后在 <see cref="OnCreated"/> 里接线，
     /// 与 UGUI 的 <c>UGuiDemoView</c> 一一对应，只是载体从 prefab 换成 VisualElement。
     /// </summary>

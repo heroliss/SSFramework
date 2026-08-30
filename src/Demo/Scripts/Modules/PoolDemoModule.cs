@@ -264,7 +264,7 @@ namespace Game.Framework.Demo.Modules
             host.AddConcept("MonoPoolUtility", "Mono：挂 Context 子节点，可在 Inspector 针对各 prefab 配容量 / 预热，随该 GameObject / 场景销毁自动清池。底层复用同一套逻辑。");
             host.AddCodeLink(new CodeRef("Assets/Game/Framework/Demo/Scripts/Core/MonoDemoContext.cs", "builder.RegisterOwnedUtility(new PoolUtility", "demo 注册（RegisterOwnedUtility）"));
 
-            host.AddTip("约定：归还后别再用那个实例（可能已被下一个租借者取走）；状态清理放归还侧（IPoolable.OnReturn 或 GetPool 的 onReturn 委托）。容量上限 maxSize 超限即销毁；GameObject 池可 Prewarm(n, perFrame) / TrimAsync 分帧摊开开销。Editor / Dev 下重复归还、归还外来实例、Dispose 后误用都会报错帮你抓 bug。");
+            host.AddCaution("约定：归还后别再用那个实例（可能已被下一个租借者取走）；状态清理放归还侧（IPoolable.OnReturn 或 GetPool 的 onReturn 委托）。容量上限 maxSize 超限即销毁；GameObject 池可 Prewarm(n, perFrame) / TrimAsync 分帧摊开开销。Editor / Dev 下重复归还、归还外来实例、Dispose 后误用都会报错帮你抓 bug。");
         }
 
 #if UNITY_EDITOR
