@@ -140,9 +140,29 @@ namespace Game.Framework.Editor.Tests
                 bool expectedOdin = (bool)isOdinEnabled.Invoke(null, new object[] { typeof(AssetSystemConfigModel) });
                 registerNow.Invoke(null, null);
                 editor = UnityEditor.Editor.CreateEditor(assetConfig);
-                Assert.That(odinEditorType.IsAssignableFrom(editor.GetType()), Is.EqualTo(expectedOdin),
-                    "Adapter 所有权必须与 Odin Inspector 总开关、程序集分类和逐类型设置一致。" +
+                Type expectedEditor = expectedOdin ? odinEditorType : typeof(MonoModelInspector);
+                Assert.That(expectedEditor.IsAssignableFrom(editor.GetType()), Is.True,
+                    "Adapter 所有权必须与 Odin Inspector 总开关、程序集分类和逐类型设置一致；" +
+                    "禁用或排除 Odin 时还必须明确回退 Framework 原生 Inspector，不能落到无诊断的 OdinEditor。" +
+                    $"期望 Editor：{expectedEditor.AssemblyQualifiedName}\n" +
                     $"实际 Editor：{editor.GetType().AssemblyQualifiedName}");
+
+                Type demoModelType = Type.GetType(
+                    "Game.Framework.Demo.Modules.MonoScoreModel, Game.Framework.Demo");
+                if (demoModelType != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(editor);
+                    editor = null;
+                    Component demoModel = gameObject.AddComponent(demoModelType);
+                    bool demoExpectedOdin = (bool)isOdinEnabled.Invoke(null, new object[] { demoModelType });
+                    registerNow.Invoke(null, null);
+                    editor = UnityEditor.Editor.CreateEditor(demoModel);
+                    Type demoExpectedEditor = demoExpectedOdin ? odinEditorType : typeof(MonoModelInspector);
+                    Assert.That(demoExpectedEditor.IsAssignableFrom(editor.GetType()), Is.True,
+                        "Demo 具体组件也必须落到能绘制 Framework 诊断的 Editor。" +
+                        $"期望 Editor：{demoExpectedEditor.AssemblyQualifiedName}\n" +
+                        $"实际 Editor：{editor.GetType().AssemblyQualifiedName}");
+                }
             }
             finally
             {
