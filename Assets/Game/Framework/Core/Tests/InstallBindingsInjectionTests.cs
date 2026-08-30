@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Game.Framework.Common;
 using Game.Framework.Context;
 using Game.Framework.Internal;
@@ -11,7 +12,7 @@ namespace Game.Framework.Test
 {
     /// <summary>
     /// 测试构建期值绑定的自动注入语义（ADR-0019）：RegisterValue / RegisterOwned 的实例在 GameContext
-    /// 构造时统一 Inject + AttachTo（与 Mono 路径「注册即注入」对称）；工厂产物与被覆盖的孤儿实例不注入。
+    /// 构造时整批 Inject、全部成功后再 AttachTo（与 Mono 路径「注册即注入」对称）；工厂产物与被覆盖的孤儿实例不注入。
     /// 生成的服务安装器（ServiceInstallerGenerator）依赖这套语义开箱可用。
     /// </summary>
     public class InstallBindingsInjectionTests
@@ -50,6 +51,62 @@ namespace Game.Framework.Test
         {
             private GameContext _ctx;
             IGameContext IHasGameContext.Context => _ctx;
+        }
+
+        private sealed class BatchAttachProbeA : IHasGameContext
+        {
+            private GameContext _ctx;
+            IGameContext IHasGameContext.Context => _ctx;
+            internal Func<bool> IsWholeBatchUnattached;
+            internal bool SawWholeBatchUnattached;
+
+            [Inject]
+            private void OnInjected() =>
+                SawWholeBatchUnattached = IsWholeBatchUnattached?.Invoke() == true;
+        }
+
+        private sealed class BatchAttachProbeB : IHasGameContext
+        {
+            private GameContext _ctx;
+            IGameContext IHasGameContext.Context => _ctx;
+            internal Func<bool> IsWholeBatchUnattached;
+            internal bool SawWholeBatchUnattached;
+
+            [Inject]
+            private void OnInjected() =>
+                SawWholeBatchUnattached = IsWholeBatchUnattached?.Invoke() == true;
+        }
+
+        private sealed class PassiveAffinityProbe : IHasGameContext
+        {
+            private GameContext _ctx;
+            IGameContext IHasGameContext.Context => _ctx;
+        }
+
+        private sealed class ThrowingBatchInjectionProbe : IHasGameContext
+        {
+            private GameContext _ctx;
+            IGameContext IHasGameContext.Context => _ctx;
+
+            [Inject]
+            private void OnInjected() => throw new InvalidOperationException("batch-inject-boom");
+        }
+
+        private abstract class InjectionOrderBase
+        {
+            protected readonly List<string> Order;
+            protected InjectionOrderBase(List<string> order) => Order = order;
+
+            [Inject]
+            private void OnBaseInjected() => Order.Add("base");
+        }
+
+        private sealed class InjectionOrderDerived : InjectionOrderBase
+        {
+            internal InjectionOrderDerived(List<string> order) : base(order) { }
+
+            [Inject]
+            private void OnDerivedInjected() => Order.Add("derived");
         }
 
         [Test]
@@ -96,6 +153,71 @@ namespace Game.Framework.Test
             using var ctx = new GameContext(builder.Build(), inheritFromGlobal: false);
 
             Assert.AreEqual(1, service.InjectMethodCalls, "同一实例多契约注册应只注入一次（按引用去重）");
+        }
+
+        [Test]
+        public void GameContextConstruction_MultipleBoundValues_InjectsWholeBatchBeforeAttachingAny()
+        {
+            var first = new BatchAttachProbeA();
+            var second = new BatchAttachProbeB();
+            bool WholeBatchUnattached() =>
+                ((IHasGameContext)first).Context == null &&
+                ((IHasGameContext)second).Context == null;
+            first.IsWholeBatchUnattached = WholeBatchUnattached;
+            second.IsWholeBatchUnattached = WholeBatchUnattached;
+
+            using var builder = new ContainerBuilder();
+            builder.RegisterValue(first, typeof(BatchAttachProbeA));
+            builder.RegisterValue(second, typeof(BatchAttachProbeB));
+            using var context = new GameContext(builder.Build(), inheritFromGlobal: false);
+
+            Assert.IsTrue(first.SawWholeBatchUnattached,
+                "任一值的 [Inject] 回调运行时，整批值都不应提前发布 Context affinity。");
+            Assert.IsTrue(second.SawWholeBatchUnattached,
+                "结果不应依赖 Dictionary 枚举或两个值的注入先后顺序。");
+            Assert.AreSame(context, ((IHasGameContext)first).Context);
+            Assert.AreSame(context, ((IHasGameContext)second).Context);
+        }
+
+        [Test]
+        public void GameContextConstruction_WhenLaterInjectionFails_DoesNotPoisonEarlierAffinity()
+        {
+            var first = new PassiveAffinityProbe();
+            var failing = new ThrowingBatchInjectionProbe();
+            var bindings = new Dictionary<Type, ContainerBinding>
+            {
+                [typeof(PassiveAffinityProbe)] = ContainerBinding.ForValue(first),
+                [typeof(ThrowingBatchInjectionProbe)] = ContainerBinding.ForValue(failing),
+            };
+            var container = new Container(
+                bindings,
+                boundValues: new object[] { first, failing });
+
+            var error = Assert.Catch<Exception>(
+                () => _ = new GameContext(container, inheritFromGlobal: false));
+
+            StringAssert.Contains("batch-inject-boom", error.ToString());
+            Assert.IsNull(((IHasGameContext)first).Context,
+                "后续值注入失败时，前面的非 owned 值不能被永久附着到一个构造失败的 Context。");
+            Assert.IsNull(((IHasGameContext)failing).Context);
+
+            using var retryBuilder = new ContainerBuilder();
+            retryBuilder.RegisterValue(first, typeof(PassiveAffinityProbe));
+            using var retry = new GameContext(retryBuilder.Build(), inheritFromGlobal: false);
+            Assert.AreSame(retry, ((IHasGameContext)first).Context,
+                "失败批次未污染 affinity，实例仍可由后续有效 Context 正常接管。");
+        }
+
+        [Test]
+        public void InjectionPlan_InheritanceOrder_IsBaseBeforeDerived()
+        {
+            var order = new List<string>();
+            using var builder = new ContainerBuilder();
+            builder.RegisterValue(new InjectionOrderDerived(order), typeof(InjectionOrderDerived));
+            using var context = new GameContext(builder.Build(), inheritFromGlobal: false);
+
+            CollectionAssert.AreEqual(new[] { "base", "derived" }, order,
+                "继承层注入顺序是公开契约；计划构建不能沿最派生类型向上执行而与文档相反。");
         }
 
         [Test]

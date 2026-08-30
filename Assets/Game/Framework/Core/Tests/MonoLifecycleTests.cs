@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Reflection;
 using System.Text.RegularExpressions;
+using System.Threading;
 using Cysharp.Threading.Tasks;
 using Game.Framework.Common;
 using Game.Framework.Context;
@@ -29,6 +30,55 @@ namespace Game.Framework.Test
             public string Tag = "default";
         }
 
+        private interface IThrowingMonoModel : IModel { }
+
+        private sealed class ThrowingMonoModel : MonoModelBase, IThrowingMonoModel
+        {
+            [Inject]
+            private void OnInjected() => throw new InvalidOperationException("mono-inject-boom");
+        }
+
+        private sealed class ContextAwareMonoModel : MonoModelBase
+        {
+            internal bool SawContextDuringInjection;
+
+            [Inject]
+            private void OnInjected() =>
+                SawContextDuringInjection = ((IHasGameContext)this).Context != null;
+        }
+
+        private sealed class BindableProbe : IAssetReferenceBindable
+        {
+            private readonly bool _throwOnBind;
+            internal int BindCount;
+            internal int DisposeCount;
+
+            internal BindableProbe(bool throwOnBind) => _throwOnBind = throwOnBind;
+
+            public void Bind(IAssetUtility utility, CancellationToken hostToken)
+            {
+                BindCount++;
+                if (_throwOnBind)
+                    throw new InvalidOperationException("asset-bind-boom");
+            }
+
+            public void Dispose() => DisposeCount++;
+        }
+
+        private abstract class AssetBindingFailureModelBase : MonoModelBase
+        {
+            private readonly BindableProbe _failing = new(throwOnBind: true);
+            internal BindableProbe Failing => _failing;
+        }
+
+        private interface IAssetBindingFailureModel : IModel { }
+
+        private sealed class AssetBindingFailureModel : AssetBindingFailureModelBase, IAssetBindingFailureModel
+        {
+            private readonly BindableProbe _successful = new(throwOnBind: false);
+            internal BindableProbe Successful => _successful;
+        }
+
         private sealed class DisposeProbe : IDisposable
         {
             public int DisposeCount;
@@ -49,6 +99,12 @@ namespace Game.Framework.Test
         {
             [Inject] private ContextMarker _marker;
             internal ContextMarker Marker => _marker;
+        }
+
+        private sealed class ThrowingMonoView : Game.Framework.View.MonoViewBase
+        {
+            [Inject]
+            private void OnInjected() => throw new InvalidOperationException("mono-view-inject-boom");
         }
 
         private sealed class ProxyAffinityTarget : IHasGameContext
@@ -139,12 +195,116 @@ namespace Game.Framework.Test
 
                 Assert.AreSame(model, contextA.GetModel<TestMonoModel>());
                 var error = Assert.Throws<InvalidOperationException>(
-                    () => model.AttachLayer<IModel>(contextB));
+                    () => model.ResolveLayerContext<IModel>(contextB));
 
                 StringAssert.Contains("另一个 Context", error.Message);
                 Assert.IsFalse(contextB.TryResolve(typeof(TestMonoModel), out _),
                     "Mono 自动挂接的归属冲突必须在目标 Container 写入前失败。");
                 Assert.AreSame(contextA, ((IHasGameContext)model).Context);
+            });
+
+        [UnityTest]
+        public IEnumerator MonoLayer_Awake_WhenInjectionThrows_DoesNotPublishRegistration()
+            => UniTask.ToCoroutine(async () =>
+            {
+                var contextGo = new GameObject("InjectionFailureContext");
+                contextGo.transform.SetParent(_root.transform);
+                var context = contextGo.AddComponent<MonoGameContextBase>();
+
+                var modelGo = new GameObject("ThrowingMonoModel");
+                modelGo.SetActive(false);
+                modelGo.transform.SetParent(contextGo.transform);
+                var model = modelGo.AddComponent<ThrowingMonoModel>();
+
+                LogAssert.Expect(LogType.Exception,
+                    new Regex(@"TargetInvocationException|mono-inject-boom"));
+                modelGo.SetActive(true);
+                await UniTask.Yield();
+
+                Assert.IsFalse(context.TryResolve(typeof(ThrowingMonoModel), out _));
+                Assert.IsFalse(context.TryResolve(typeof(IThrowingMonoModel), out _));
+                Assert.IsNull(((IHasGameContext)model).Context,
+                    "注入失败后 provisional Context 必须清空，不能留下无法反注册的半初始化组件。");
+            });
+
+        [UnityTest]
+        public IEnumerator MonoLayer_Awake_ProvidesContextDuringInjection_ThenPublishes()
+            => UniTask.ToCoroutine(async () =>
+            {
+                var contextGo = new GameObject("ProvisionalContext");
+                contextGo.transform.SetParent(_root.transform);
+                var context = contextGo.AddComponent<MonoGameContextBase>();
+
+                var modelGo = new GameObject("ContextAwareMonoModel");
+                modelGo.transform.SetParent(contextGo.transform);
+                var model = modelGo.AddComponent<ContextAwareMonoModel>();
+                await UniTask.Yield();
+
+                Assert.IsTrue(model.SawContextDuringInjection,
+                    "[Inject] 方法运行时应已能使用当前 Mono 层的合法 Context 扩展能力。");
+                Assert.AreSame(model, context.GetModel<ContextAwareMonoModel>());
+            });
+
+        [UnityTest]
+        public IEnumerator MonoLayer_Awake_WhenAssetBindingThrows_RollsBackRegistrationAndBag()
+            => UniTask.ToCoroutine(async () =>
+            {
+                var contextGo = new GameObject("AssetBindingFailureContext");
+                contextGo.transform.SetParent(_root.transform);
+                var context = contextGo.AddComponent<MonoGameContextBase>();
+
+                var assetGo = new GameObject("AssetUtility");
+                assetGo.transform.SetParent(contextGo.transform);
+                var assetUtility = assetGo.AddComponent<AssetUtility>();
+                assetUtility.enabled = false; // 本测试只需要绑定契约，不启动真实包初始化。
+
+                var modelGo = new GameObject("AssetBindingFailureModel");
+                modelGo.SetActive(false);
+                modelGo.transform.SetParent(contextGo.transform);
+                var model = modelGo.AddComponent<AssetBindingFailureModel>();
+
+                LogAssert.Expect(LogType.Exception,
+                    new Regex(@"InvalidOperationException: asset-bind-boom"));
+                modelGo.SetActive(true);
+                await UniTask.Yield();
+
+                Assert.AreEqual(1, model.Successful.BindCount);
+                Assert.AreEqual(1, model.Successful.DisposeCount,
+                    "失败项之前已经进入 Bag 的绑定必须由 Awake 回滚释放。");
+                Assert.AreEqual(1, model.Failing.BindCount);
+                Assert.AreEqual(1, model.Failing.DisposeCount,
+                    "正在 Bind 时抛错的当前项尚未进入 Bag，应由 Binder 自己回滚释放。");
+                Assert.IsFalse(context.TryResolve(typeof(AssetBindingFailureModel), out _));
+                Assert.IsFalse(context.TryResolve(typeof(IAssetBindingFailureModel), out _));
+                Assert.IsNull(((IHasGameContext)model).Context);
+
+                UnityEngine.Object.Destroy(modelGo);
+                await UniTask.Yield();
+                Assert.AreEqual(1, model.Successful.DisposeCount,
+                    "失败事务已经清空 Bag，后续 OnDestroy 不得再次释放同一登记项。");
+                Assert.AreEqual(1, model.Failing.DisposeCount);
+            });
+
+        [UnityTest]
+        public IEnumerator MonoView_Awake_WhenInjectionThrows_ClearsProvisionalContext()
+            => UniTask.ToCoroutine(async () =>
+            {
+                var contextGo = new GameObject("ViewInjectionFailureContext");
+                contextGo.transform.SetParent(_root.transform);
+                contextGo.AddComponent<MonoGameContextBase>();
+
+                var viewGo = new GameObject("ThrowingMonoView");
+                viewGo.SetActive(false);
+                viewGo.transform.SetParent(contextGo.transform);
+                var view = viewGo.AddComponent<ThrowingMonoView>();
+
+                LogAssert.Expect(LogType.Exception,
+                    new Regex(@"TargetInvocationException|mono-view-inject-boom"));
+                viewGo.SetActive(true);
+                await UniTask.Yield();
+
+                Assert.IsNull(((IHasGameContext)view).Context,
+                    "View 注入失败后也必须撤销 provisional Context，不能留下只能等 OnDestroy 才清理的半绑定状态。");
             });
 
         [UnityTest]

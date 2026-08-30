@@ -28,6 +28,8 @@ Outpost 的本地化 adapter 需要先从 Container 解析异步注册的配置�
 - OwnedFactory 要求产物实现 `IDisposable`；首次成功构造后由 **Container** 接管，按对象引用去重，Context Dispose 时逆序且最多释放一次。
 - OwnedFactory 成功返回的 `IDisposable` 在 contract 校验与 owned registry 登记完成前是**待提交产物**：返回类型不匹配等后续失败会立即 Dispose，避免错误结果游离在 Context 之外；回滚 Dispose 自身失败只补充结构化日志，最初的契约异常仍是调用方收到的根因。若同一引用此前已经被该 Container 接管，别名 contract 失败不会提前释放它。
 - 工厂在返回前抛异常时，容器看不到未交出的局部资源；这些资源仍由工厂自己的 `try/finally` 或 `using` 负责。普通 Factory 的外部所有权语义保持不变。
+- Factory 是可重入的用户回调：回调返回后、Singleton 缓存前必须重新证明 Container 仍存活。回调期间同步 Dispose Context 时，本次 Resolve 抛生命周期异常且不发布结果；普通 Factory 的结果仍由外部负责，OwnedFactory 已返回的待提交新产物立即回滚。若它返回的是刚被同一 Context 释放事务处理过的 owned alias，registry 用弱引用历史识别“已经尝试释放”，不会二次 Dispose，也不会让已关闭 Context 强持有服务。
+- Factory 回调也可能写入同 contract 的 runtime override；本次 Resolve 返回前重新读取 override，使“override → binding”的优先级对当前调用和后续调用一致。底层 Factory binding 仍可服务其未被遮蔽的其它 contract。
 - Factory 产物仍不自动 `[Inject]` / `AttachTo`。工厂参数 `Container` 是显式接线 Seam；所有权不能改变注入时机。
 - Eager 构建中若后续工厂失败，临时 Container 立即释放此前已接管的 owned 产物，再把原异常抛出；失败的 Builder 已消费，不能重用。
 - `ContainerBuilder` 本身实现 `IDisposable`：`RegisterOwned` 成功到 `Build` 提交前，Builder 是资源的**临时 owner**；`Build` 后同一 ownership registry 交给 Container。生产代码手工创建 Builder 时用 `using var`，这样 `InstallBindings` 或注册逻辑在 Build 前抛异常也会逆序回滚；Build 成功后 Builder.Dispose 为 no-op，不会提前释放已移交资源。
@@ -44,4 +46,4 @@ Outpost 的本地化 adapter 需要先从 Container 解析异步注册的配置�
 - Builder 与 Container 共享内部 `OwnedDisposables` Module：引用去重、逆序释放、异常隔离与幂等语义只有一个实现。Builder 管 Build 前回滚，Container 承接 Build 后产生的 Lazy 实例与 Context 生命周期；Build 后 Builder 不再参与运行期生命周期。
 - 构建期绑定由内部 `ContainerBinding` 显式建模值 / 工厂，并集中管理 Singleton 缓存与诊断状态；不再拿 `object` 的运行时类型充当 tag，因此 `Func<Container, object>` 本身也可作为普通值注册，多 contract 的解析状态不会分叉。
 - 注册边界与首次解析边界增加参数、类型和循环依赖校验，错误更早、更接近根因暴露。
-- 新语义由容器契约测试覆盖：Lazy 单例、多 contract、引用去重、非 IDisposable、错误 contract 的 Lazy/Eager 待提交产物回滚、回滚异常保留主错误、Build 前 Builder 回滚、所有权移交、Eager 失败清理、GameContext 构造失败回滚、Dispose 后禁止复活。
+- 新语义由容器契约测试覆盖：Lazy 单例、多 contract、引用去重、非 IDisposable、错误 contract 的 Lazy/Eager 待提交产物回滚、回滚异常保留主错误、Build 前 Builder 回滚、所有权移交、Eager 失败清理、GameContext 构造失败回滚、Dispose 后禁止复活，以及 Factory 回调内 Dispose / 写 override 的提交复检。

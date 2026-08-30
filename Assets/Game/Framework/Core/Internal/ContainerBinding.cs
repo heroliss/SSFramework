@@ -58,6 +58,10 @@ namespace Game.Framework.Internal
             try
             {
                 instance = _factory(container);
+
+                // Factory 属于用户回调：它可能同步重入宿主并 Dispose Context。入口检查只能证明“调用前可用”，
+                // 返回后必须再次证明事务仍可提交；否则会把新实例缓存进已经关闭的 Container。
+                container.ThrowIfDisposed();
                 if (instance == null)
                     throw new InvalidOperationException(
                         $"[ContainerBuilder] 契约 '{ContractNames()}' 的工厂返回了 null。");
@@ -83,7 +87,7 @@ namespace Game.Framework.Internal
                 // ownership 提交失败，本次新产物必须立即回滚；已由其它有效绑定持有的同实例继续留给 Container，
                 // 不能因这条错误 alias 提前释放。普通 RegisterFactory 则从未声明所有权，这里不擅自 Dispose。
                 if (_ownsResult && !ownershipTransferred && instance is IDisposable disposable &&
-                    !container.Owns(disposable))
+                    !container.HasEverOwned(disposable))
                 {
                     try
                     {

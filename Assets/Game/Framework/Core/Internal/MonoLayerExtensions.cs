@@ -5,16 +5,17 @@ using UnityEngine;
 namespace Game.Framework.Internal
 {
     /// <summary>
-    /// Mono 层注册辅助。把 MonoXxxBase Awake 里"查目标 Context + 注册 + 注入"的样板收敛到一处。
+    /// Mono 宿主的 Context 解析辅助。只负责“查找 + 可用性/归属预检”，不执行用户注入或 Container 写入；
+    /// 具体基类据此把初始化组织成最后才发布的事务。
     /// </summary>
     internal static class MonoLayerExtensions
     {
         /// <summary>
-        /// 注册并注入一个 Model/System/Utility 类层级。
+        /// 为 Model/System/Utility 类层级解析目标 Context，并在任何用户回调前验证单一归属。
         /// 查找顺序：explicitContext → GetComponentInParent → GameContext.Main（全局兜底）。
         /// 三者都找不到才报错返回 null。
         /// </summary>
-        internal static IGameContext AttachLayer<TLayer>(
+        internal static IGameContext ResolveLayerContext<TLayer>(
             this MonoBehaviour self,
             IGameContext explicitContext = null) where TLayer : class
         {
@@ -31,16 +32,14 @@ namespace Game.Framework.Internal
             // Mono 自动挂接同样先守住 Context 单一归属；否则重复挂接会先污染目标 Container，
             // 随后的 Inject 才发现实例仍属于旧 Context，留下无法自动回滚的半注册状态。
             ContextInternals.ValidateContextAffinity(contextProvider, self);
-            ContextInternals.GetContainer(contextProvider).RegisterFor<TLayer>(self, $"{self.GetType().Name}({self.name})");
-            contextProvider.Inject(self);
             return contextProvider;
         }
 
         /// <summary>
-        /// View 不注册自己，只查目标上下文并执行 [Inject]。
+        /// View 不注册自己；这里只解析目标上下文，注入与资源绑定由 MonoViewBase 在可回滚边界内执行。
         /// 查找顺序：explicitContext → GetComponentInParent → GameContext.Main（全局兜底）。
         /// </summary>
-        internal static IGameContext AttachView(
+        internal static IGameContext ResolveViewContext(
             this MonoBehaviour self,
             IGameContext explicitContext = null)
         {
@@ -52,7 +51,6 @@ namespace Game.Framework.Internal
                 return null;
             }
 
-            contextProvider.Inject(self);
             return contextProvider;
         }
 

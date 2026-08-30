@@ -294,6 +294,13 @@
 - 公共 XML doc、Demo 教学与 guide 全部改教层感知入口；Container 章明确区分普通分层注册与低层精确接线。既有契约测试锁定“具体类型 + Interface 同一实例、层标记不可解析、owned 恰好释放一次”。
 - Outpost 的 `NewRecordPushEvent` type 映射从运行期 System 移回 Composition Root；System 只消费事件并拥有断线重连策略。当前没有第二类安装调用者，故不拆新的注册权限 Interface，避免用浅 Seam 交换更多概念。
 
+### P1 · Context 装配与 Mono 发布事务
+
+- Factory 回调返回后重新确认 Container 仍存活，并让本次解析立即服从回调期间写入的 runtime override；owned 产物在 Context 被重入释放时以弱引用历史识别已释放别名，既避免二次 `Dispose`，也不延长外部对象寿命。
+- 分层动态注册拆为“预检计划 → 用户装配 → 原子提交 → Trace”，恰好一个 Model / System / Utility 标记成为所有 Builder、runtime 与 Mono 入口的一致契约；Mono 层和 View 在注入阶段可访问 provisional Context，但只有注入和资源绑定全部成功后才发布注册，任一步失败都复用同一逆序清理路径。
+- `GameContext` 改为整批先 Inject、再 Attach；后续绑定失败会撤销本批已经写入的 Context 归属并释放 owned 服务。注入计划同时修正为基类成员先于派生成员，匹配公共文档与可预测的继承初始化顺序；任意属性 setter / 方法内部产生的外部副作用仍明确属于用户代码边界，框架不伪装成可回滚数据库事务。
+- `AssetReferenceBinder` 在当前 bindable 的 Bind / Bag.Add 失败时立即清理当前项，Mono owner 再回滚此前成功项。AGENTS、guide 与 ADR-0003/0019/0035 已同步所有权、失败与重入语义；定向 PlayMode 74/74、完整 EditMode 603/603、PlayMode 700/700、Unity 编译 0 错误。
+
 ## 下一批候选（按杠杆排序）
 
 | 优先级 | 候选 | 证据 / 完成标准 |

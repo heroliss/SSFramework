@@ -5,6 +5,33 @@ using UnityEngine;
 namespace Game.Framework.Internal
 {
     /// <summary>
+    /// 一次运行时分层注册的不可变准备结果。准备阶段只计算契约并预检，不公开实例；用户初始化完成后再
+    /// <see cref="ContainerLayerExtensions.CommitRegistration"/>，让 Mono 层不会在 [Inject] 回调期间被解析到。
+    /// </summary>
+    internal readonly struct LayerRegistrationPlan
+    {
+        internal Container Container { get; }
+        internal object Instance { get; }
+        internal Type ConcreteType { get; }
+        internal Type[] Interfaces { get; }
+        internal string Label { get; }
+
+        internal LayerRegistrationPlan(
+            Container container,
+            object instance,
+            Type concreteType,
+            Type[] interfaces,
+            string label)
+        {
+            Container = container;
+            Instance = instance;
+            ConcreteType = concreteType;
+            Interfaces = interfaces;
+            Label = label;
+        }
+    }
+
+    /// <summary>
     /// Container 运行时层级注册扩展。
     /// Model/System/Utility 的动态注册统一走这里，Mono 与纯 C# 路径共享同一套重复检测和反注册语义。
     /// </summary>
@@ -15,23 +42,60 @@ namespace Game.Framework.Internal
         /// </summary>
         public static void RegisterFor<TLayer>(this Container container, object instance, string label) where TLayer : class
         {
+            var plan = container.PrepareRegistrationFor<TLayer>(instance, label);
+            CommitRegistration(plan);
+            TraceRegistration(plan);
+        }
+
+        /// <summary>
+        /// 计算“具体类型 + 层 Interface”并预检完整集合；不写 Container。Mono 初始化在任何用户回调前调用，
+        /// 回调结束后仍须经 <see cref="CommitRegistration"/> 再次预检，防止重入注册造成竞态式覆盖。
+        /// </summary>
+        internal static LayerRegistrationPlan PrepareRegistrationFor<TLayer>(
+            this Container container,
+            object instance,
+            string label) where TLayer : class
+        {
+            if (container == null) throw new ArgumentNullException(nameof(container));
+            if (instance == null) throw new ArgumentNullException(nameof(instance));
+            EnsureUnityObjectAlive(instance, label);
+
             var concreteType = instance.GetType();
-            Type[] interfaces = LayerInterfacesCache.GetLayerInterfaces(concreteType, typeof(TLayer));
+            LayerInterfacesCache.ValidateSingleLayer(
+                concreteType,
+                typeof(TLayer),
+                nameof(Container),
+                nameof(instance));
+            var plan = new LayerRegistrationPlan(
+                container,
+                instance,
+                concreteType,
+                LayerInterfacesCache.GetLayerInterfaces(concreteType, typeof(TLayer)),
+                label);
+            EnsureRegistrationCanCommit(plan);
+            return plan;
+        }
 
-            // 一个层对象会同时占用“具体类型 + 多个层 Interface”。必须先检查完整 contract 集，
-            // 否则后面的共享 Interface 冲突时，前面已经写入的具体类型会成为一次失败注册的幽灵残留。
-            EnsureOverrideCanCommit(container, concreteType, label);
-            for (int i = 0; i < interfaces.Length; i++)
-                EnsureOverrideCanCommit(container, interfaces[i], label);
+        /// <summary>
+        /// 在无用户回调的短临界段内复检并一次写入全部契约。日志刻意不在这里触发，调用方可先记录
+        /// 自己已经提交，再转发到可替换 Log sink，避免同步重入销毁时误判注册状态。
+        /// </summary>
+        internal static void CommitRegistration(LayerRegistrationPlan plan)
+        {
+            EnsureUnityObjectAlive(plan.Instance, plan.Label);
+            EnsureRegistrationCanCommit(plan);
 
-            // Container 主线程独占；预检与下面提交之间没有并发写入，也没有用户回调。
-            container.ReplaceOverride(concreteType, instance);
-            for (int i = 0; i < interfaces.Length; i++)
-                container.ReplaceOverride(interfaces[i], instance);
+            plan.Container.ReplaceOverride(plan.ConcreteType, plan.Instance);
+            for (int i = 0; i < plan.Interfaces.Length; i++)
+                plan.Container.ReplaceOverride(plan.Interfaces[i], plan.Instance);
+        }
 
-            Log.Trace($"[Container] 注册 {concreteType.Name}：{label}");
-            for (int i = 0; i < interfaces.Length; i++)
-                Log.Trace($"[Container] 注册 {interfaces[i].Name}：{label}");
+        /// <summary>提交完成后的可观察 Trace；不参与注册原子性。</summary>
+        internal static void TraceRegistration(LayerRegistrationPlan plan)
+        {
+            Log.Trace($"[Container] 注册 {plan.ConcreteType.Name}：{plan.Label}");
+            for (int i = 0; i < plan.Interfaces.Length; i++)
+                Log.Trace($"[Container] 注册 {plan.Interfaces[i].Name}：{plan.Label}");
         }
 
         /// <summary>取消注册实例。仅当值匹配时才移除，避免误删同名类型的新注册。</summary>
@@ -58,6 +122,20 @@ namespace Game.Framework.Internal
                     $"[Container] 契约 '{contractType.Name}' 重复注册：" +
                     $"'{label}' 与已注册的 '{existing.GetType().Name}' 冲突。");
             }
+        }
+
+        private static void EnsureRegistrationCanCommit(LayerRegistrationPlan plan)
+        {
+            EnsureOverrideCanCommit(plan.Container, plan.ConcreteType, plan.Label);
+            for (int i = 0; i < plan.Interfaces.Length; i++)
+                EnsureOverrideCanCommit(plan.Container, plan.Interfaces[i], plan.Label);
+        }
+
+        private static void EnsureUnityObjectAlive(object instance, string label)
+        {
+            if (instance is UnityEngine.Object unityObject && unityObject == null)
+                throw new MissingReferenceException(
+                    $"[Container] 无法注册已销毁的 Unity 对象：{label ?? instance.GetType().Name}。");
         }
     }
 }

@@ -4,7 +4,7 @@ using UnityEngine;
 namespace Game.Framework.Model
 {
     /// <summary>
-    /// Model 的 Mono 实现基类。挂在 Context 子节点上，Awake 时自动注册到容器、注入 <c>[Inject]</c> 字段，
+    /// Model 的 Mono 实现基类。挂在 Context 子节点上，Awake 时自动注入 <c>[Inject]</c>、绑定资源，成功后注册到容器，
     /// OnDestroy 时自动释放 <see cref="MonoLayerBase{TLayer}.Bag"/> 并反注册。最大的好处是 Inspector 里能实时看到 Model 字段的当前值。
     /// </summary>
     /// <remarks>

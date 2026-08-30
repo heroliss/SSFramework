@@ -66,5 +66,33 @@ namespace Game.Framework.Internal
             _cache[key] = cached;
             return cached;
         }
+
+        /// <summary>
+        /// 验证层感知入口的实例只属于 Model / System / Utility 之一。Builder、运行时 Register 与 Mono 自动挂接
+        /// 必须共用这一口径，否则同一多层类型可能在不同入口表现不一致，并把层权限变成调用方式相关。
+        /// </summary>
+        internal static void ValidateSingleLayer(
+            Type concrete,
+            Type expectedLayer,
+            string source,
+            string parameterName)
+        {
+            if (concrete == null) throw new ArgumentNullException(nameof(concrete));
+            if (expectedLayer == null) throw new ArgumentNullException(nameof(expectedLayer));
+            if (!expectedLayer.IsAssignableFrom(concrete))
+                throw new ArgumentException(
+                    $"[{source}] 类型 '{concrete.Name}' 未实现期望的层标记 '{expectedLayer.Name}'。",
+                    parameterName);
+
+            int layerCount = 0;
+            if (typeof(Game.Framework.Model.IModel).IsAssignableFrom(concrete)) layerCount++;
+            if (typeof(Game.Framework.Systems.ISystem).IsAssignableFrom(concrete)) layerCount++;
+            if (typeof(Game.Framework.Utility.IUtility).IsAssignableFrom(concrete)) layerCount++;
+            if (layerCount != 1)
+                throw new ArgumentException(
+                    $"[{source}] 层感知注册要求类型恰好实现一个层标记；" +
+                    $"'{concrete.Name}' 当前实现了 {layerCount} 个。请修正分层，或用低层 RegisterValue/RegisterOwned 显式接线。",
+                    parameterName);
+        }
     }
 }

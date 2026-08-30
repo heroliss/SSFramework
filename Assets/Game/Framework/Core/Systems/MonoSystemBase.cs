@@ -4,7 +4,7 @@ using UnityEngine;
 namespace Game.Framework.Systems
 {
     /// <summary>
-    /// System 的 Mono 实现基类。挂在 Context 子节点上，Awake 时自动注册到容器、注入 <c>[Inject]</c> 字段，
+    /// System 的 Mono 实现基类。挂在 Context 子节点上，Awake 时自动注入 <c>[Inject]</c>、绑定资源，成功后注册到容器，
     /// OnDestroy 时自动释放 <see cref="MonoLayerBase{TLayer}.Bag"/> 并反注册。业务子类直接继承即可。
     /// </summary>
     /// <remarks>

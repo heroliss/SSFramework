@@ -452,13 +452,15 @@ public class MainContext : MonoGlobalContext
 ```
 -2000  MonoGlobalContext    建容器，设置 GameContext.Main
 -1000  MonoGameContextBase  建容器，识别父级（子/平行上下文用）
- -400  MonoUtilityBase      注册到容器
- -300  MonoModelBase        注册到容器
- -200  MonoSystemBase       注册到容器
- -100  MonoViewBase         注入 [Inject] 字段
+ -400  MonoUtilityBase      注入 / 绑定完成后注册到容器
+ -300  MonoModelBase        注入 / 绑定完成后注册到容器
+ -200  MonoSystemBase       注入 / 绑定完成后注册到容器
+ -100  MonoViewBase         注入 / 绑定（不注册）
 ```
 
 > **提示** — 实际编写时几乎感知不到这个顺序。在任何 `MonoXxxBase` 的 `Awake()` 里调用 `base.Awake()` 后，当前层的注入已完成；若需要引用其他同级服务，在 `Start()` 或第一次调用时懒加载即可，不要在 `Awake()` 里直接访问兄弟节点的服务。
+
+这里采用“先接线、最后发布”：框架先预检 Context 与全部注册键，临时建立仅当前组件可见的 Context，完成 `[Inject]` 和 `AssetReference` / `Bag` 绑定，复检组件、Context 与冲突后才一次写入 Container。因而 `[Inject]` 方法里可以使用本层合法的 `this.GetXxx` 能力，其他对象却不会解析到半初始化组件；任一步抛错都会释放已登记的 Bag 内容、清空临时 Context，且不留下注册。`MonoViewBase` 不注册，但同样会在注入或资源绑定失败时回滚自己的 Bag 与 Context。
 
 ---
 
@@ -1155,6 +1157,8 @@ ctx.GetSystem<IPlayerSystem>()   // ✅
 ctx.GetSystem<ISystem>()         // ❌ 层标记本身不注册
 ```
 
+一个具体类型必须**恰好属于一个层**。同时实现 `IModel` 与 `ISystem`（或任意两个层标记）不是“复用能力”，而是把访问权限、生命周期职责与诊断分类混在一起；Mono 自动挂接、运行时 `RegisterXxx` 和 Builder 层感知入口都会在写入前拒绝。确实属于非分层基础设施或只想暴露少数 contract 时，使用低层 `RegisterValue/RegisterOwned` 显式列出契约。
+
 ### InstallBindings 手动注册
 
 普通纯 C# Model / System / Utility 优先使用**层感知入口**。它按运行时具体类型推导“具体类型 +
@@ -1193,9 +1197,11 @@ builder.RegisterValue(jsonAdapter, typeof(IJsonUtility)); // 刻意不按具体�
 | `RegisterFactory` | Lazy 首次解析 / Eager 构建 | 否 | 否 |
 | `RegisterOwnedFactory` | Lazy 首次解析 / Eager 构建 | 是 | 否 |
 
-**值绑定自动注入**（ADR-0019）：六个层感知入口与低层 `RegisterValue` / `RegisterOwned` 最终都是值绑定，实例在 Context 构造时统一完成 `[Inject]` 注入与 `AttachTo` 附着——与 Mono 路径「注册即注入」对称，纯 C# 服务注册后不用再手动补。两类 Factory 的产物都**不**自动注入：工厂本身就是显式接线位，依赖经工厂参数 `Container.Resolve` 传入。普通 `RegisterFactory` 不接管产物所有权；若产物实现 `IDisposable` 且应随 Context 结束，必须改用 `RegisterOwnedFactory`，否则会泄漏订阅或句柄。OwnedFactory 已经返回对象、但随后发现 contract 不匹配时，容器会立即释放这个“待提交产物”；清理失败只补记日志，不会覆盖最初的契约错误。
+**值绑定自动注入**（ADR-0019）：六个层感知入口与低层 `RegisterValue` / `RegisterOwned` 最终都是值绑定，实例按“整批 Context 归属预检 → 整批 `[Inject]` → 整批 `AttachTo`”装配——与 Mono 路径「注册即注入」对称，纯 C# 服务注册后不用再手动补。先完成全部注入、再发布任何 affinity，避免后续值失败时前面的外部实例被困在一个构造失败的 Context。两类 Factory 的产物都**不**自动注入：工厂本身就是显式接线位，依赖经工厂参数 `Container.Resolve` 传入。普通 `RegisterFactory` 不接管产物所有权；若产物实现 `IDisposable` 且应随 Context 结束，必须改用 `RegisterOwnedFactory`，否则会泄漏订阅或句柄。OwnedFactory 已经返回对象、但随后发现 contract 不匹配时，容器会立即释放这个“待提交产物”；清理失败只补记日志，不会覆盖最初的契约错误。
 
-**构建也是生命周期事务**：Build 前，`ContainerBuilder` 暂时持有 `RegisterOwned` 资源；Build 成功才把所有权移交给 Container。框架的 Mono Context 与 Flow 已自动覆盖这条边界；业务若手工创建 Builder，固定写 `using var builder = new ContainerBuilder()`——这样注册过程或 Build 前逻辑抛异常时资源会自动逆序回滚。`GameContext` 构造期会先整批检查值绑定的 **Context 归属（Context Affinity）**，再开始 Inject / Attach；因此同一个 `IHasGameContext` 实例不能被两个 Context 共享，同一 Context 重复附着则安全幂等。失败会主动释放 Container，所以 Context 要么完整可用，要么失败且已清理，不存在半初始化状态。跨作用域确实要共享的无状态值不应实现 `IHasGameContext`。
+**构建也是生命周期事务**：Build 前，`ContainerBuilder` 暂时持有 `RegisterOwned` 资源；Build 成功才把所有权移交给 Container。框架的 Mono Context 与 Flow 已自动覆盖这条边界；业务若手工创建 Builder，固定写 `using var builder = new ContainerBuilder()`——这样注册过程或 Build 前逻辑抛异常时资源会自动逆序回滚。`GameContext` 构造失败会撤销框架刚写入的 Context affinity 并主动释放 Container，所以调用方拿不到半初始化 Context；但 `[Inject]` 方法或属性 setter 已经发出的事件、文件写入等任意业务副作用无法由通用容器撤销，回调自身仍须幂等并避免在装配期提交一次性外部状态。同一个 `IHasGameContext` 实例不能被两个 Context 共享，同一 Context 重复附着则安全幂等；跨作用域确实要共享的无状态值不应实现 `IHasGameContext`。
+
+Factory 回调同样是可重入边界。它返回后、缓存 Singleton 前，Container 会重新检查生命周期；若回调期间 Context 已被释放，本次解析抛 `ObjectDisposedException` 且不缓存结果。普通 Factory 的返回值仍归外部，OwnedFactory 的新待提交产物会立即回滚；若返回的是刚被同一 Context 释放过的 owned alias，也不会重复 Dispose。回调内若为当前 contract 新增 runtime override，本次 Resolve 会按最终的“override 优先”结果返回，与后续解析保持一致。
 
 ### 服务安装器生成（不手写注册样板）
 
@@ -1236,7 +1242,7 @@ ctx.UnregisterModel(model);
 三步中的每个入口都会先拒绝“已经属于其它 Context”的实例：Register 不会留下半截 override，Inject 不会先改字段再报错，
 Attach 也不会静默保留旧 Context。需要在两个作用域使用同一种服务时，请创建两个实例，而不是搬迁同一个 `IHasGameContext`。
 
-一次运行时分层注册会同时写入“具体类型 + 全部层 Interface”，这组键按事务处理：框架先检查完整集合，任何共享 Interface 已被活实例占用都会在写入前整体失败，不会出现“调用抛了异常，但具体类型或另一个 Interface 已经偷偷留在 Container”的半注册状态。修正冲突后可以直接重试，无需重建 Context 来清理幽灵覆盖。
+一次运行时分层注册会同时写入“具体类型 + 全部层 Interface”，这组键按事务处理：框架先验证实例恰好实现一个层标记，再检查完整集合；多层类型或任何共享 Interface 已被活实例占用都会在写入前整体失败，不会出现“调用抛了异常，但具体类型或另一个 Interface 已经偷偷留在 Container”的半注册状态。修正分层或冲突后可以直接重试，无需重建 Context 来清理幽灵覆盖。
 
 ### Container 不对外暴露
 

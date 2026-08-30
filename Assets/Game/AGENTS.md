@@ -39,6 +39,7 @@
 - 现成且有所有权的服务用 `RegisterOwned`，需解析其他依赖再构造且有所有权的服务用 `RegisterOwnedFactory`；固定目录服务可用“服务注册生成器”，按 `[ExcludeFromInstaller]` opt-out。
 - 业务手工创建 `ContainerBuilder` 时用 `using var`：Build 前 Builder 暂管 owned 资源并在异常路径回滚；Build 成功后所有权移交 Container，不会被 Builder 提前释放。Mono Context / Flow 内部已自动遵守。
 - 运行时同层重复注册抛异常；子级注册可覆盖父级同 contract。
+- 层感知注册要求具体类型恰好属于 Model / System / Utility 之一；同时实现多个层标记是分层错误，Builder、运行时 Register 与 Mono 自动挂接都会在写 Container 前拒绝。需要选择性暴露非分层能力时用低层值绑定显式列 contract，不要用多层类型绕过权限。
 
 ## DisposableBag 是默认生命周期入口
 

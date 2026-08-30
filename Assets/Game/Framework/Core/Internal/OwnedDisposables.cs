@@ -11,6 +11,7 @@ namespace Game.Framework.Internal
     internal sealed class OwnedDisposables
     {
         private readonly List<IDisposable> _items = new();
+        private List<WeakReference<IDisposable>> _released;
         private bool _disposed;
 
         /// <summary>按对象身份登记资源；同一实例经多个契约注册时仍只释放一次。</summary>
@@ -34,6 +35,27 @@ namespace Game.Framework.Internal
             return false;
         }
 
+        /// <summary>
+        /// 判断资源当前由 registry 持有，或已在本 registry 的释放事务中被尝试释放过。
+        /// 历史只保留弱引用，供 Factory 失败回滚避免重复 Dispose，不延长已关闭服务的生命周期。
+        /// </summary>
+        internal bool ContainsCurrentOrReleased(IDisposable item)
+        {
+            if (Contains(item)) return true;
+            if (item == null || _released == null) return false;
+
+            for (int i = _released.Count - 1; i >= 0; i--)
+            {
+                if (!_released[i].TryGetTarget(out var released))
+                {
+                    _released.RemoveAt(i);
+                    continue;
+                }
+                if (ReferenceEquals(released, item)) return true;
+            }
+            return false;
+        }
+
         /// <summary>逆序释放全部资源；单个 Dispose 失败只记录，不阻断其余清理。幂等。</summary>
         internal void Dispose(string category)
         {
@@ -42,7 +64,10 @@ namespace Game.Framework.Internal
 
             for (int i = _items.Count - 1; i >= 0; i--)
             {
-                try { _items[i].Dispose(); }
+                var item = _items[i];
+                (_released ??= new List<WeakReference<IDisposable>>(_items.Count))
+                    .Add(new WeakReference<IDisposable>(item));
+                try { item.Dispose(); }
                 catch (Exception e)
                 {
                     Log.Error(

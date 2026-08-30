@@ -15,8 +15,10 @@
 - **主线程独占**：所有解析/注册不加锁；Editor/Development Build 下 `AssertMainThread` 兜底报错。
 - `Container` 对业务**不可见**（`internal`）：业务只能走 `RegisterModel/System/Utility` 受控通道，保证注册一定带层标记。框架内部经 `ContextInternals.GetContainer` 访问。
 - 运行时分层注册以“具体类型 + 全部派生层 Interface”为一个提交单元：先检查所有精确键是否可写，再统一进入覆盖层。任一活实例冲突都会在写入前失败；已销毁的 Unity 对象仍允许整组替换，不留下半注册 contract。
+- Builder、运行时 Register 与 Mono 自动挂接共用“实例恰好属于一个 Model / System / Utility 层”的校验；多层类型在任何 Container 写入前失败，不能靠换一个注册入口绕过权限模型。
 - Context 初始化采用**提交式事务**：`InstallBindings → Build → GameContext 值注入/Attach → OnInitialized` 全部成功后，`MonoGameContextBase` 才发布 Ready。任一步失败都会释放 Builder/Container 已接管的 owned 资源、保留根异常并进入 Failed；后续调用得到带 inner exception 的明确 `InvalidOperationException`，不会继续在半初始化对象上制造 NRE。父 Context 递归初始化若形成环，也在 `Initializing` 状态边界 fail-fast。
-- 值绑定进入 `GameContext` 时，先整批预检所有 `IHasGameContext` 实例的 **Context 归属（Context Affinity）**，再执行任何 `[Inject]`。公开 `Inject`、运行时 `RegisterModel/System/Utility` 与 Mono 自动挂接也在字段或 Container 写入前执行同一预检。未绑定可继续装配、同一底层 Context 幂等、已属于其它 Context 则 fail-fast；真正无 Context 能力的共享值不受此限制。
+- 值绑定进入 `GameContext` 时，先整批预检所有 `IHasGameContext` 实例的 **Context 归属（Context Affinity）**，再整批 `[Inject]`，全部成功后才整批 Attach。公开 `Inject`、运行时 `RegisterModel/System/Utility` 与 Mono 自动挂接也在字段或 Container 写入前执行同一预检。未绑定可继续装配、同一底层 Context 幂等、已属于其它 Context 则 fail-fast；真正无 Context 能力的共享值不受此限制。用户 `[Inject]` 方法 / setter 的任意外部副作用不可通用回滚，不属于该事务承诺。
+- Mono 层自动挂接采用“注册计划预检 → provisional Context → Inject / AssetReference 绑定 → 存活与冲突复检 → 一次性发布注册”。因此初始化回调可使用自身合法的 Context 能力，但其他对象在完成前解析不到半初始化层；失败与 OnDestroy 共用幂等清理，已进入 Bag 的引用和 Container 注册都会撤销。Mono View 不注册自己，但沿用同一 provisional Context 与 Bag 回滚边界。
 
 ## Consequences
 

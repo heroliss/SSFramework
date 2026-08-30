@@ -74,8 +74,29 @@ namespace Game.Framework.Internal
             for (int i = 0; i < _fields.Length; i++)
             {
                 if (_fields[i].GetValue(target) is not IAssetReferenceBindable bindable) continue;
-                bindable.Bind(utility, hostToken);
-                bag.Add(bindable);
+                try
+                {
+                    bindable.Bind(utility, hostToken);
+                    bag.Add(bindable);
+                }
+                catch
+                {
+                    // Bind 是第三方/业务可实现的用户回调，可能在改变自身状态后才抛错。当前项尚未安全进入
+                    // Bag 时由本层立即回滚；此前成功项由宿主 Awake 事务 Dispose Bag，首异常保持不变。
+                    try
+                    {
+                        bindable.Dispose();
+                    }
+                    catch (Exception cleanupException)
+                    {
+                        Log.Error(
+                            $"AssetReference 字段 '{_fields[i].DeclaringType?.Name}.{_fields[i].Name}' 绑定失败后，回滚释放又抛出异常；仍保留最初的绑定错误。",
+                            cleanupException,
+                            nameof(AssetReferenceBinder),
+                            target as UnityEngine.Object);
+                    }
+                    throw;
+                }
             }
         }
 

@@ -106,14 +106,18 @@ namespace Game.Framework.Internal
         private static InjectionPlan Build(Type type)
         {
             List<Action<object, GameContext>> list = null;
-            // t 沿 BaseType 链上升用于反射取成员；hostType 始终是最派生的具体类型，权限校验按它判。
-            var t = type;
-            while (t != null && t != typeof(object))
+            // 先收集继承链，再反向遍历，兑现“基类先于派生类”的公开顺序契约；hostType 始终是
+            // 最派生的具体类型，权限校验仍按完整角色能力判定。
+            var hierarchy = new List<Type>(4);
+            for (var current = type; current != null && current != typeof(object); current = current.BaseType)
+                hierarchy.Add(current);
+
+            for (int i = hierarchy.Count - 1; i >= 0; i--)
             {
+                var t = hierarchy[i];
                 CollectFields(t, type, ref list);
                 CollectProperties(t, type, ref list);
                 CollectMethods(t, type, ref list);
-                t = t.BaseType;
             }
             return new InjectionPlan(list?.ToArray() ?? _empty);
         }
