@@ -1415,7 +1415,7 @@ await downloader.Download(this.GetCancellationTokenOnDestroy());
 
 ### 初始化、缓存与卸载
 
-`AssetSystemConfigModel` + `AssetUtility` + `AssetInitSystem` 挂在同一 Context 节点。所有包都登记在 `AssetSystemConfigModel.Packages` 列表里，每个包各有「自动初始化」开关：开则启动即拉清单；关则启动不碰它的网络（DLC 懒加载 / 隐私同意 / 选区前不联网的合规启动），业务在合适时机显式调用冷启动它：
+场景只需把 `AssetUtility` 挂到 Context 节点。所有包与运行参数都在其 `Settings` 中；每个包各有“自动初始化”开关：开则 `Start` 拉清单，关则启动不碰它的网络（DLC 懒加载 / 隐私同意 / 选区前不联网的合规启动），业务在合适时机显式冷启动它。配置是资源基础设施设置，不注册成业务 Model，自动初始化也不再需要一个只做转发的 System（见 ADR-0046）：
 
 ```csharp
 await this.GetUtility<IAssetUtility>().Initialize();          // 默认包
@@ -1462,7 +1462,7 @@ switch (asset.GetLocationState("ui/logo"))
 
 `AssetLocationState` 与 `AssetInitState` 刻意正交：前者只回答“当前内容位置能否用于业务决策”，后者回答“包为何尚未工作”。空白 location 无需清单就能确定为 `Invalid`；其他 location 在包非 Ready 时统一为 `PackageNotReady`，且不会下沉到 Adapter。旧 `CheckLocationValid` / `IsNeedDownload` 仅以 `[Obsolete]` 扩展方法保留源码迁移期兼容，仍会把 `PackageNotReady` 压成 false，新代码不要继续使用。
 
-**运行模式按「编辑器 / 玩家包」分开配**：`AssetSystemConfigModel` 有两个模式字段——「编辑器运行模式」只在编辑器 Play 生效（日常 `EditorSimulate` 免打包；也可临时切 Offline / Host 在编辑器里联调真实模式，不影响出包），「玩家包运行模式」是构建出的玩家端实际用的模式（默认 `Offline` 纯内置首包；资源热更选 `Host`）。同一份场景配置两头通用。模拟模式是编辑器专属能力（依赖 AssetDatabase），进不了玩家包——玩家包模式选它会在启动校验时清晰报错，而不是等 provider 初始化才炸。
+**运行模式按“编辑器 / 玩家包”分开配**：`AssetUtility.Settings` 有两个模式字段——“编辑器运行模式”只在编辑器 Play 生效（日常 `EditorSimulate` 免打包；也可临时切 Offline / Host 联调），“玩家包运行模式”是构建出的玩家端实际模式（默认 `Offline`；资源热更选 `Host`）。同一份场景配置两头通用。玩家包误选 EditorSimulate 会在启动校验时报清晰错误。
 
 `Host` 在全新安装且 CDN 暂时不可用时会先尝试远端，失败后显式激活随包内置版本清单；因此“全部内置”的启动必需包仍可离线进入游戏，已有本地清单的老客户端也会继续用当前版本。初始化前会先探测内置版本文件，纯 CDN（`BuiltinCopy=None`）的包不会开启 manifest 复制，也就不会因“没有内置文件”在访问远端前失败。这个回退只覆盖真正随包携带的内容：按 tag / 零内置的 bundle 仍需 CDN。资源构建器会在成功后核对 `StreamingAssets` 的清单和 bundle，`ClearAndCopyAll` 少拷任何文件都会让构建失败，避免产出“清单可用、资源却意外联网”的半成品。
 
@@ -1480,7 +1480,7 @@ switch (asset.GetLocationState("ui/logo"))
 
 `GetLocationState` 与三个 `Create*Downloader` 是同步缓存快照，不能在 Unity 主线程排队等待 Writer。若同包维护正在运行或已经排队，它们会立即抛出带操作名的 `InvalidOperationException`，提示维护完成后重试；这比越过 Writer 读一份中间态统计更安全。正常业务把“清缓存”和“重新统计/建下载器”放在同一个 await 流程里即可，不需要轮询。
 
-Host 模式默认允许 `Load` 对未缓存 bundle 当场按需下载。大型 DLC 若不想“误 Load 一个资源就自动下载”，在 `AssetSystemConfigModel.Packages` 列表里取消该包的「启用按需下载」：之后本包未缓存资源的 `Load` 直接失败，业务必须先用下载器显式预下载并展示进度。包级策略（自动初始化 / 启用按需下载）都在这一处按包配置。
+Host 模式默认允许 `Load` 对未缓存 bundle 当场按需下载。大型 DLC 若不想“误 Load 一个资源就自动下载”，在 `AssetUtility.Settings.Packages` 列表里取消该包的“启用按需下载”：之后本包未缓存资源的 `Load` 直接失败，业务必须先用下载器显式预下载并展示进度。
 
 > **包名别写裸字符串**：`SSFramework/构建与发布/资源构建` 工作台的“生成包名常量”从收集器包列表生成常量类；输出路径与命名空间必须在构建 profile 中指向实际业务程序集，框架不猜项目布局。`Initialize` / `Load` 等的 `packageName` 参数用生成的 `AssetPackages.Xxx`——收集器改名 / 删包后重新生成，引用处编译期报错，不用等运行时才发现。
 
@@ -1804,7 +1804,7 @@ CodePackage 在资源构建 Profile 中应明确关闭“参与构建”，再�
 
 **编辑器旁路**：编辑器下程序集本就在 AppDomain，Launcher 直接反射进入口——不走下载/加载，日常开发与热更机制零接触。
 
-**入口里的代码引导资源栈**：Boot 场景是 AOT 世界、挂不了热更组件（框架组件也是热更的），场景三件套没法放随包场景——首场景加载前的资源初始化由入口代码搭一个最小引导栈完成：
+**入口里的代码引导资源栈**：Boot 场景是 AOT 世界、挂不了热更组件（框架组件也是热更的），首场景内的 `AssetUtility` 此时尚不存在——首场景加载前由入口代码搭一个最小资源栈：
 
 ```csharp
 var go = new GameObject("GameEntryBoot");
@@ -1815,17 +1815,17 @@ assets.Configure(AssetPackages.DefaultPackage,
     new AssetProviderConfig { CdnUrls = cdnUrls }, AssetPlayMode.Host);
 await assets.Initialize();
 await assets.LoadScene("FirstScene");            // Single：卸掉 Boot 场景、拉起首场景
-Object.Destroy(go);                              // 交棒：首场景根 Context 与其场景内三件套接管
+Object.Destroy(go);                              // 交棒：首场景根 Context 与其 AssetUtility 接管
 ```
 
-首场景内的三件套随后照常初始化——provider 对已初始化的包按名复用、不重复拉清单，引导栈与场景三件套两个 `AssetUtility` 实例可安全并存。项目入口通常放在业务 Runtime 程序集中；本仓库的垂直切片另提供一份明确标记为案例的完整实现。
+首场景内的 `AssetUtility` 随后按自己的 Settings 初始化；provider 对已初始化的包按名复用、不重复拉清单，引导栈与场景入口两个 Utility 实例可安全交棒。代码引导必须在 `Start` 前 `Configure`，这会抑制该实例的 Inspector 自动初始化。项目入口通常放在业务 Runtime 程序集中；本仓库的垂直切片另提供一份完整实现。
 
 ### 铁则（违反会在构建期被校验器拦下或真机才爆雷）
 
 - **AOT 不能引用热更**：谁被热更，引用它的程序集必须跟着热更。工作台第 1 步的校验会逐条指出违规与修法。
 - **热更程序集一律 `autoReferenced:false`**；业务代码必须住 asmdef（不能散落到 Assembly-CSharp）。
 - **随包场景（BootScene）只能挂 Boot 程序集的脚本**——框架热更档位下连 `MonoGlobalContext` 都不能进随包场景；业务场景/prefab 一律走 bundle。
-- 代码包与资源包**彻底分家**：CodePackage 归 Boot 管，业务别碰；资源包照常走 `AssetSystemConfigModel` / `AssetInitSystem`。
+- 代码包与资源包**彻底分家**：CodePackage 归 Boot 管，业务别碰；资源包归 `AssetUtility`。
 
 ### 不做代码热更怎么搭（纯 AOT / 只热更资源）
 
@@ -1883,7 +1883,7 @@ Luban 自身会在保存前清理输出目录，而且代码 target 与数据 ta
 |---|---|---|
 | `MonoConfigUtilityBase<TTables>` 子类 | Utility | 自加载：校验并快照清单 → 并行预载 → 调子类工厂构造 → 持有 `Tables` + `ConfigInitState`，自动按 `IConfigUtility<TTables>` 接口注册，对各层只读暴露 |
 
-配置是静态只读引用数据（生成的 `Tables` 本就是数据模型），不占 Model 层、也不像资源系统那样拆「Model + InitSystem」——配置加载没有多包 / CDN / 下载的复杂度，一个自加载 Utility 够了。各层（含 View）直读，查询直接用生成的 `Tables` 强类型 API（`TbItem.Get(id)` / `TbItem[id]` / `DataList`）；框架只提供 Context 感知的短入口，不再包一层查询 façade：
+配置是静态只读引用数据（生成的 `Tables` 本就是数据模型），不占 Model 层；配置加载没有多包 / CDN / 下载的复杂度，一个自加载 Utility 足够。资源系统虽更复杂，也将运行设置、状态机与自动初始化封装进单个深的 `AssetUtility`，而不是用形式化的 Model + InitSystem 拆层。各层（含 View）直读配置，查询直接用生成的 `Tables` 强类型 API（`TbItem.Get(id)` / `TbItem[id]` / `DataList`）；框架只提供 Context 感知的短入口，不再包一层查询 façade：
 
 ```csharp
 // 已由上游证明 Ready 的零散同步读取：按当前对象所属 Context 精确解析

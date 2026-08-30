@@ -77,6 +77,59 @@ namespace Game.Framework.Test
         public IEnumerator EmptyLocation_IsReportedThroughLoggingSeam_BeforeProviderWork()
             => EmptyLocation_IsReportedThroughLoggingSeam_BeforeProviderWorkAsync().ToCoroutine();
 
+        [UnityTest]
+        public IEnumerator EnsureInitialized_BeforeUtilityStart_StartsConfiguredAutoPackage()
+            => EnsureInitialized_BeforeUtilityStart_StartsConfiguredAutoPackageAsync().ToCoroutine();
+
+        [Test]
+        public void ConfigureBeforeStart_SuppressesInspectorAutoInitialization()
+        {
+            Assert.AreEqual(0, _provider.InitializeCalls,
+                "代码引导在 Start 前 Configure 后，AssetUtility 不应再按 Inspector 默认设置额外启动一个包");
+        }
+
+        private async UniTask EnsureInitialized_BeforeUtilityStart_StartsConfiguredAutoPackageAsync()
+        {
+            var contextObject = new GameObject("EarlyAssetContext");
+            contextObject.transform.SetParent(_root.transform);
+            contextObject.AddComponent<MonoGameContextBase>();
+
+            var utilityObject = new GameObject("EarlyAssetUtility");
+            utilityObject.SetActive(false);
+            utilityObject.transform.SetParent(contextObject.transform);
+            var utility = utilityObject.AddComponent<AssetUtility>();
+            var settings = new AssetRuntimeSettings(
+                new[] { new AssetPackageConfig(Package, autoInitialize: true) },
+                Package,
+                AssetPlayMode.EditorSimulate,
+                AssetPlayMode.Offline,
+                Array.Empty<string>(),
+                downloadingMaxNumber: 1,
+                failedTryAgain: 0,
+                fileOffset: 0);
+            var settingsField = typeof(AssetUtility).GetField(
+                "_settings",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            Assert.IsNotNull(settingsField);
+            settingsField.SetValue(utility, settings);
+
+            utilityObject.SetActive(true); // Awake 同步应用 Settings；Start 尚未获得本帧执行机会。
+            var provider = new ControllableAssetProvider();
+            utility.ReplaceProviderForTesting(provider);
+            var initialization = provider.PlanInitialization();
+
+            UniTask waiting = utility.EnsureInitialized(Package);
+            await initialization.Started.Task;
+            Assert.AreEqual(1, provider.InitializeCalls,
+                "已配置自动初始化的包不应因调用早于 AssetUtility.Start 而误报 Idle");
+            initialization.Release.TrySetResult();
+            await waiting;
+            Assert.AreEqual(AssetInitState.Ready, utility.GetInitState(Package).CurrentValue);
+
+            UnityEngine.Object.Destroy(contextObject);
+            await UniTask.Yield();
+        }
+
         private async UniTask SetUpAsync()
         {
             _root = new GameObject(nameof(AssetOperationCoordinationTests));

@@ -136,11 +136,11 @@ namespace Game.Framework.Editor.Tests
             UnityEditor.Editor editor = null;
             try
             {
-                var assetConfig = gameObject.AddComponent<AssetSystemConfigModel>();
-                bool expectedOdin = (bool)isOdinEnabled.Invoke(null, new object[] { typeof(AssetSystemConfigModel) });
+                var assetConfig = gameObject.AddComponent<AssetUtility>();
+                bool expectedOdin = (bool)isOdinEnabled.Invoke(null, new object[] { typeof(AssetUtility) });
                 registerNow.Invoke(null, null);
                 editor = UnityEditor.Editor.CreateEditor(assetConfig);
-                Type expectedEditor = expectedOdin ? odinEditorType : typeof(MonoModelInspector);
+                Type expectedEditor = expectedOdin ? odinEditorType : typeof(MonoUtilityInspector);
                 Assert.That(expectedEditor.IsAssignableFrom(editor.GetType()), Is.True,
                     "Adapter 所有权必须与 Odin Inspector 总开关、程序集分类和逐类型设置一致；" +
                     "禁用或排除 Odin 时还必须明确回退 Framework 原生 Inspector，不能落到无诊断的 OdinEditor。" +

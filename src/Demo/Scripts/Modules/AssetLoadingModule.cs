@@ -44,7 +44,8 @@ namespace Game.Framework.Demo.Modules
         {
             var asset = this.GetUtility<IAssetUtility>();
             var refs = UnityEngine.Object.FindFirstObjectByType<DemoAssetRefs>();
-            var settingsModel = UnityEngine.Object.FindFirstObjectByType<AssetSystemConfigModel>();
+            var assetUtility = UnityEngine.Object.FindFirstObjectByType<AssetUtility>();
+            AssetRuntimeSettings settings = assetUtility?.Settings;
 #if UNITY_EDITOR
             // 模拟断网是共享 AssetUtility 的 Editor 状态，不属于本章。离章时恢复进入前值，避免污染另一资源章节。
             var previousSimulateOffline = asset.SimulateOffline.CurrentValue;
@@ -72,23 +73,23 @@ namespace Game.Framework.Demo.Modules
 #if UNITY_EDITOR
             host.AddActionRow("定位资源系统配置节点（AssetSystem）", () =>
             {
-                if (settingsModel != null) DemoEditorNav.PingSceneObject(settingsModel.gameObject);
+                if (assetUtility != null) DemoEditorNav.PingSceneObject(assetUtility.gameObject);
             });
 #endif
-            host.AddNote("资源系统是 MVCS 三层：`AssetSystemConfigModel`（配置：默认包 / PlayMode / CDN）→ `AssetInitSystem`（进游戏逐包初始化）→ `AssetUtility`（加载 API），挂在同一 `Context` 节点（上面按钮可定位）。业务只经 `this.GetUtility<IAssetUtility>()` / `Bag.Load` 访问。");
+            host.AddNote("资源系统只有一个正式场景入口：`AssetUtility` 同时持有资源运行配置、provider 生命周期、包状态机与自动初始化编排（上面按钮可定位）。配置是基础设施设置，不再伪装成业务 Model；业务仍只经 `this.GetUtility<IAssetUtility>()` / `Bag.Load` 访问。");
             host.AddSubNote("初始化**已经触发**时，`Bag.Load` 会等待同一个 Pending / Initializing attempt 到终态；但包还在 `Idle` 时会 fail-fast，不会替业务擅自联网。要么为该包开启自动初始化，要么先显式 `Initialize` / `Bag.EnsureInitialized()`，再进入正常加载流程。");
 
             // 默认包自动初始化徽标：自动初始化现在是【按包】配置（每包 AutoInitialize），这里展示默认包当前是否自动初始化。
-            var defaultPkg = settingsModel != null ? settingsModel.DefaultPackageName : null;
-            var autoInitOn = settingsModel != null && !string.IsNullOrEmpty(defaultPkg)
-                             && settingsModel.ShouldAutoInitialize(defaultPkg);
+            var defaultPkg = settings?.DefaultPackageName;
+            var autoInitOn = settings != null && !string.IsNullOrEmpty(defaultPkg)
+                             && settings.ShouldAutoInitialize(defaultPkg);
             var autoInitBadge = new Label(autoInitOn
                 ? "默认包自动初始化：开 —— 进 Play 即拉版本 / 清单（Host 会联网）"
                 : "默认包自动初始化：关 —— 启动不联网，等业务调 Initialize 触发（见下方）");
             autoInitBadge.AddToClassList("demo-badge");
             autoInitBadge.AddToClassList(autoInitOn ? "demo-badge--yes" : "demo-badge--no");
             host.Content.Add(autoInitBadge);
-            host.AddSubNote("自动初始化是**按包**的：`AssetSystemConfigModel` 包列表里每个包各有「自动初始化」开关。关掉某包后启动**不碰它的网络**，由业务在合适时机（隐私同意 / 选区 / 流量确认后，或进 DLC 副本时）调下方「初始化失败与重试」的 `Initialize()` 冷启动它——手机端合规启动 / 大型 DLC 懒加载常这么做；把要联网的包全关掉 = 启动前零网络连接。本 demo 的默认包就设了「不自动初始化」，所以本节停在 `Idle`，点下方「初始化」才启动。");
+            host.AddSubNote("自动初始化是**按包**的：`AssetUtility.Settings.Packages` 中每个包各有「自动初始化」开关。关掉某包后启动**不碰它的网络**，由业务在合适时机（隐私同意 / 选区 / 流量确认后，或进 DLC 副本时）调下方 `Initialize()` 冷启动它；把要联网的包全关掉 = 启动前零网络连接。本 demo 的默认包就设了“不自动初始化”，所以本节停在 `Idle`，点下方“初始化”才启动。");
 
             // ── 1b. 初始化失败与重试（init 失败/未初始化的兜底：抛异常 + Initialize）──
             host.AddSectionTitle("初始化失败与重试：加载方法抛异常 + Initialize");
@@ -456,7 +457,7 @@ namespace Game.Framework.Demo.Modules
 
             // ── 5. 下载与清缓存（三种范围的下载器）──
             host.AddSectionTitle("下载与清缓存：下载器（按 tag / 全部 / 按地址）");
-            var dlMode = settingsModel != null ? settingsModel.ActualPlayMode : asset.CurrentPlayMode;
+            var dlMode = settings != null ? settings.ActualPlayMode : asset.CurrentPlayMode;
             bool dlIsReal = dlMode == AssetPlayMode.Host || dlMode == AssetPlayMode.Web;
             var modeBadge = new Label(dlIsReal
                 ? $"当前：真实下载（{dlMode}，从 CDN 拉）"
@@ -607,11 +608,11 @@ namespace Game.Framework.Demo.Modules
                 new[] { "全部内容", "`CreateAllDownloader()`", "`ClearCache(All / Unused)`", "整包预下载 / 回收旧版本" },
                 new[] { "按地址", "`CreateLocationDownloader(...)`", "`ClearCacheByLocations(...)`", "点名资源及其依赖" });
             host.AddNote("三类下载器都订阅 `Progress`（R3 状态流）来驱动进度条，再由 `Download()` 启动物理下载。");
-            host.AddSubNote("单文件失败会按 `AssetSystemConfigModel.FailedTryAgain`（默认 3）自动重试，业务不必手写内层循环；重试耗尽或持续断网导致**整体最终失败**时，`Download()` 才会抛异常。此时先 `try/catch` 给出可恢复提示，再**重建下载器**重试；已完成分片会从缓存跳过，相当于断点续传。");
+            host.AddSubNote("单文件失败会按 `AssetUtility.Settings` 的“失败重试次数”（默认 3）自动重试，业务不必手写内层循环；重试耗尽或持续断网导致**整体最终失败**时，`Download()` 才会抛异常。此时先 `try/catch` 给出可恢复提示，再**重建下载器**重试；已完成分片会从缓存跳过，相当于断点续传。");
             host.AddSubNote("下载器是「创建那一刻的待下载快照」，不是「下载时去看缺什么补什么」：清缓存并不会更新已建好的下载器，得重新 `CreateTagDownloader` 才会按最新缓存重新统计。所以「清缓存 → 重建下载器 → 开始下载」是固定顺序。`GetLocationState` / `Create*Downloader` 又是同步快照：同包维护正在运行或已排队时会立即提示维护后重试，不会卡住 Unity 主线程，也不会越过维护读中间态。");
             host.AddSubNote("取消还有一条容易漏掉的边界：YooAsset 的下载 / 清理一旦开始就不能安全强停，调用者令牌只让当前等待者离开，进程级 package owner 仍观察到真实终态；无人接收的成功 handle 会释放，后台失败会进日志。因此本 demo 在**提交清理前**响应切章取消；提交后用 `CancellationToken.None` 保持本组业务闸门直到物理清理结束，再检查章节令牌且不更新旧 UI。若产品真要“停止网络流量”，需要另设计显式 Stop/终止契约，不能把等待 OCE 当成底层已停。");
             host.AddSubNote("`ClearCacheByTags` 多 tag 是并集（命中任意一个就清）；`ClearCacheByLocations` 与 tag 清一样都是 bundle 粒度——按地址清会连带同 bundle 的其他资源，想精确隔离要在打包时让该资源独占 bundle。");
-            host.AddSubNote("默认 `Load` 未缓存资源时会**当场按需下载**（Host 模式，每包「启用按需下载」默认勾选）。想避免「误 Load 一个资源就自动拖下整批」（典型如大型 DLC）：在 `AssetSystemConfigModel` 的包列表里把该包的「启用按需下载」**取消勾选**，之后 Load 本包未缓存资源**直接失败**（不下载），强制先显式跑下载器（带进度 UI）。按包配置，基础包通常留默认（启用）；仅 Host 模式有意义。");
+            host.AddSubNote("默认 `Load` 未缓存资源时会**当场按需下载**（Host 模式，每包「启用按需下载」默认勾选）。想避免“误 Load 一个资源就自动拖下整批”（典型如大型 DLC）：在 `AssetUtility` 的资源运行配置里取消该包的“启用按需下载”，之后 Load 本包未缓存资源**直接失败**（不下载），强制先显式跑下载器（带进度 UI）。按包配置，基础包通常留默认（启用）；仅 Host 模式有意义。");
             host.AddSubNote("下载缓存目录在哪、各清单文件、各 `PlayMode` 的底层差异——见「YooAsset · 底层实现」章。`EditorSimulate` 下资源全本地、不发生真实下载（下载器恒为 0 个）；要看真实下载进度切 `Host`（配本地 CDN 服务，可在构建 profile 里开限速模拟弱网）。本节只演示框架 API 用法。");
 
             // ── 6. 显式包名加载 ──
@@ -644,7 +645,7 @@ namespace Game.Framework.Demo.Modules
                 crossPreview.style.backgroundImage = StyleKeyword.None;
                 crossLabel.text = "已释放显式包名加载的句柄并清空预览。";
             }, CodeRef.Here("crossBag.Dispose()", "释放本节句柄"));
-            host.AddNote("所有加载方法都有带 `packageName` 的重载；多包项目用它从非默认包加载。本 Demo 当前只登记一个 `FrameworkSamplesPackage`，而且它就是默认包，所以这里诚实地演示的是**显式包名重载**，不是伪造一次跨包：当项目再登记 DLC / 关卡包后，传那个包名就是跨包加载。所有包都登记在 `AssetSystemConfigModel`，`Default Package` 只指定省略包名时落到哪一个；子 `Context` 经 `Container` 父级回退共享父级 `AssetUtility`，不必各挂一套。正式项目的包名建议在 `SSFramework/构建与发布/资源构建` 工作台生成常量；Demo 在框架程序集里引用不到业务生成物，所以保留本地 const。");
+            host.AddNote("所有加载方法都有带 `packageName` 的重载；多包项目用它从非默认包加载。本 Demo 当前只登记一个 `FrameworkSamplesPackage`，而且它就是默认包，所以这里诚实地演示的是**显式包名重载**，不是伪造一次跨包。所有包都登记在 `AssetUtility.Settings.Packages`，默认包只指定省略包名时落到哪一个；子 `Context` 经父级回退共享父级 `AssetUtility`，不必各挂一套。正式项目的包名建议在资源构建工作台生成常量；Demo 在框架程序集里引用不到业务生成物，所以保留本地 const。");
 
             // ── 7. 使用路径 / 注册=生命周期 / 解耦 ──
             host.AddSectionTitle("使用路径");
@@ -653,7 +654,7 @@ namespace Game.Framework.Demo.Modules
             host.AddConcept("IAssetUtility", "手动入口：`this.GetUtility<IAssetUtility>()`——查初始化状态、读 `GetLocationState` 四态快照、建下载器、清下载缓存（`ClearCache`）。");
 
             host.AddSectionTitle("注册 = 生命周期");
-            host.AddConcept("三层 Mono", "`AssetSystemConfigModel` + `AssetUtility` + `AssetInitSystem` 挂同一 `Context` 节点，`Awake` 顺序由 `ExecutionOrder` 保证（`Utility` -400 / `Model` -300 / `System` -200）。");
+            host.AddConcept("单入口 Mono", "只把 `AssetUtility` 挂到 `Context` 节点：Awake 注册并应用设置，Start 自动初始化标记过的包；代码引导若在 Start 前 `Configure`，则显式配置接管启动。");
             host.AddNote("框架与底层库解耦：所有 YooAsset 接触面都收口在 `IAssetProvider`。默认实现由 Adapter 在自己的 Assembly 上注册，Core 不知道 `YooAssetProvider` 类型名；换 Addressables / 自研库时删除旧 Adapter、安装一个新实现并注册即可，`AssetUtility` 与业务 API 不改。若同时注册两个后端，框架会明确报冲突而不是按加载顺序猜。当前 YooAsset 后端的底层原理见「YooAsset · 底层实现」章。",
                 new CodeRef("Assets/Game/Framework/Asset.Yoo/AssemblyInfo.cs", "DefaultAssetProvider", "默认 Provider 注册属于 Adapter"));
 

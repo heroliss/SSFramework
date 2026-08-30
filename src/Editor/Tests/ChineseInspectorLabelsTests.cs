@@ -9,10 +9,10 @@ namespace Game.Framework.Editor.Tests
     /// <summary>锁定最常用框架配置的 Inspector 主标签为中文优先，而不改动序列化字段名。</summary>
     public sealed class ChineseInspectorLabelsTests
     {
-        [TestCase(typeof(AssetSystemConfigModel), "_packages", "资源包列表（Packages）")]
-        [TestCase(typeof(AssetSystemConfigModel), "_defaultPackageName", "默认资源包")]
-        [TestCase(typeof(AssetSystemConfigModel), "_playMode", "编辑器运行模式")]
-        [TestCase(typeof(AssetSystemConfigModel), "_playerPlayMode", "玩家包运行模式")]
+        [TestCase(typeof(AssetRuntimeSettings), "_packages", "资源包列表（Packages）")]
+        [TestCase(typeof(AssetRuntimeSettings), "_defaultPackageName", "默认资源包")]
+        [TestCase(typeof(AssetRuntimeSettings), "_playMode", "编辑器运行模式")]
+        [TestCase(typeof(AssetRuntimeSettings), "_playerPlayMode", "玩家包运行模式")]
         [TestCase(typeof(AssetPackageConfig), "_name", "资源包名")]
         [TestCase(typeof(AssetPackageConfig), "_autoInitialize", "启动时自动初始化")]
         [TestCase(typeof(AssetPackageConfig), "_enableOnDemandDownload", "允许按需下载")]

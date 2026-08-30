@@ -16,7 +16,8 @@ namespace Game.Framework
     /// 配置表服务基类：**自加载**——进游戏时按清单并行预载数据文件 → 构造表根 → 写入自身状态，对各层提供只读访问。
     ///
     /// <para>把原来「配置 Model + 配置初始化 System」两件套折叠成**一个组件**：配置加载比资源系统简单（无多包 / CDN /
-    /// 下载编排），不必拆出 System；做成 Utility 又让 View 也能直读（资源系统三件套是因为加载复杂才拆）。Utility 能取
+    /// 下载编排），不必拆出 System；做成 Utility 又让 View 也能直读。资源系统虽更复杂，也把配置、状态机与自动初始化封装在
+    /// 单个深的 <see cref="AssetUtility"/> 中，而不是按形式拆层。Utility 能取
     /// 其他 Utility（<c>IUtility : ICanGetUtility</c>），故能自己用 <c>IAssetUtility</c> + <c>Bag.LoadBytes</c> 加载。</para>
     ///
     /// <para>项目侧用具体表根类型闭合泛型并补两件事即可成为可挂场景的组件：「预载哪些文件」(<see cref="TableFiles"/>，

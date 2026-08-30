@@ -60,6 +60,15 @@ namespace Game.Framework.Test
         }
 
         [Test]
+        public void AssetRuntimeSettings_IsInfrastructureConfiguration_NotModelOrSystem()
+        {
+            Assert.That(typeof(IModel).IsAssignableFrom(typeof(AssetRuntimeSettings)), Is.False);
+            Assert.That(typeof(ISystem).IsAssignableFrom(typeof(AssetRuntimeSettings)), Is.False);
+            Assert.That(typeof(IUtility).IsAssignableFrom(typeof(AssetUtility)), Is.True,
+                "资源状态机、provider 所有权与启动配置应收敛在同一个 Utility 入口");
+        }
+
+        [Test]
         public void GetModel_ShouldReturnRegisteredModel()
         {
             var model = _gameContext.GetModel<TestModel>();

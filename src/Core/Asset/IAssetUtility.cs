@@ -92,7 +92,8 @@ namespace Game.Framework
 
         /// <summary>
         /// 当前生效的运行模式（EditorSimulate / Offline / Host / Web），决定资源来源与是否走 CDN / 真实下载。
-        /// <see cref="AssetInitSystem"/> 启动包初始化时写入；首次包初始化前为底层默认值（不要在初始化前读取做决策）。
+        /// 由 <see cref="AssetUtility.Settings"/> 或代码引导的 <see cref="AssetUtility.Configure"/> 写入；
+        /// 首次包初始化前不要读取它做业务决策。
         /// </summary>
         AssetPlayMode CurrentPlayMode { get; }
 
@@ -119,7 +120,7 @@ namespace Game.Framework
         /// 初始化指定包（packageName 为空时为默认包）：既是「失败后重试」、也是「未自动初始化的包的冷启动入口」。
         /// <para>语义：包当前为 <see cref="AssetInitState.Idle"/> / <see cref="AssetInitState.Pending"/> / <see cref="AssetInitState.Failed"/>
         /// 时（重新）初始化；已 <see cref="AssetInitState.Ready"/> 则直接返回（幂等）；<see cref="AssetInitState.Initializing"/> 则等待本次完成。</para>
-        /// <para>用 <see cref="AssetInitSystem"/> 启动时写入的运行模式与配置执行；<b>普通初始化失败不抛</b>——结果写回 <see cref="InitState"/> 供订阅方读取。</para>
+        /// <para>使用 <see cref="AssetUtility"/> 已应用的运行模式与配置执行；<b>普通初始化失败不抛</b>——结果写回 <see cref="InitState"/> 供订阅方读取。</para>
         /// <para>调用者 token 只取消当前等待并保持 <see cref="OperationCanceledException"/>；物理初始化由 utility 生命周期继续持有，
         /// 包保持 <see cref="AssetInitState.Initializing"/>，最终仍会转入 <see cref="AssetInitState.Ready"/> / <see cref="AssetInitState.Failed"/>。
         /// 因此取消 loading 页面不会把底层仍在运行的初始化误判成失败，也不会允许同包重入。</para>

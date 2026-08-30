@@ -43,7 +43,7 @@
 ## 2026-07 修订（Outpost M5 构建收口驱动，详见 ADR-0029）
 
 - **运行模式拆成「编辑器 / 玩家包」两字段**：原 `AssetSystemConfigModel` 单一 `_playMode` 全局通吃，但 `EditorSimulate` 分支在 provider 里是 `#if UNITY_EDITOR` 编译的——场景配模拟模式进玩家包直接 `NotSupportedException`，且这个错误配置在编辑器 Play 完全无症状。新增 `_playerPlayMode`（默认 Offline），`ActualPlayMode` 按端选字段；`GetConfigError` 校验玩家包模式不得选 EditorSimulate（fail-fast 于启动校验而非 provider 初始化）。同一份场景配置由此两头通用：编辑器日常模拟、玩家包 Offline/Host。
-- **`AssetUtility.Configure` 提升 public**：热更引导下 Boot 场景只能挂 AOT 组件，场景三件套没法先于首场景存在——首场景加载前的资源初始化必须有代码化路径。入口（GameEntry）用 `MonoGameContextBase + AssetUtility` 双 AddComponent 搭最小引导栈：`Configure → Initialize → LoadScene → Destroy` 交棒；provider 对已初始化的包按名复用（Dispose 不销毁包）正是为这类「多 utility 实例并存」预留的语义，本轮首次被真实消费。
+- **`AssetUtility.Configure` 提升 public**：热更引导下 Boot 场景只能挂 AOT 组件，当时的场景资源三组件没法先于首场景存在——首场景加载前的资源初始化必须有代码化路径。入口（GameEntry）用 `MonoGameContextBase + AssetUtility` 双 AddComponent 搭最小引导栈：`Configure → Initialize → LoadScene → Destroy` 交棒；provider 对已初始化的包按名复用（Dispose 不销毁包）正是为这类「多 utility 实例并存」预留的语义，本轮首次被真实消费。场景路径后来由 ADR-0046 收敛为同一个 `AssetUtility` 单入口，代码引导契约不变。
 
 ## 2026-08 修订（取消等待与物理 operation 所有权）
 

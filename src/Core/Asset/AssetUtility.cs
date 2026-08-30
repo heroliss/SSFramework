@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using Cysharp.Threading.Tasks;
+using Game.Framework.Internal;
 using Game.Framework.Logging;
 using Game.Framework.Utility;
 using R3;
@@ -14,12 +15,14 @@ namespace Game.Framework
     /// <see cref="IAssetUtility"/> 的默认实现，挂在场景中的 Context 节点上。
     ///
     /// 职责边界：
+    /// - 持有场景运行配置，并在 Start 编排标记为自动初始化的包；
     /// - 管理多个 package 的初始化状态、失败异常和等待入口；
     /// - 提供类型化加载 API 与加载结果的类型校验（<see cref="CastHandle{T}"/>）；
     /// - 把具体资源库的初始化、加载（含"Component 请求解析到 GameObject prefab 再取组件"）、handle 包装和下载器适配委托给 provider。
     ///
     /// 每次 Load 都返回独立 handle，调用方可以手动 Dispose；业务层通常通过 <see cref="DisposableBag"/> 托管。
     /// </summary>
+    [DisallowMultipleComponent]
     public class AssetUtility : MonoUtilityBase, IAssetUtility
     {
         private sealed class InitAttempt
@@ -38,11 +41,21 @@ namespace Game.Framework
             public PackageState(string name) => Name = name;
         }
 
+        [SerializeField]
+        [InspectorName("资源运行配置")]
+        [Tooltip("资源包、运行模式、CDN、下载器与加密设置。场景路径会在 Start 自动初始化；代码引导若在 Start 前调用 Configure，则以代码配置为准。")]
+        private AssetRuntimeSettings _settings = new();
+
         private readonly Dictionary<string, PackageState> _packages = new();
+        private readonly HashSet<string> _autoInitializePackages = new();
         private IAssetProvider _provider;
         private CancellationTokenSource _disposeCts;
+        private CancellationTokenSource _startupCts;
         private string _defaultPackageName = "DefaultPackage";
         private AssetProviderConfig _config = new();
+        private string _configurationError;
+        private bool _startupClaimed;
+        private bool _configurationErrorReported;
         private bool _disposedByDestroy;
 
         // 无默认包（DefaultPackageName 留空）时恒为 false——没有「默认包」可言。
@@ -51,6 +64,11 @@ namespace Game.Framework
             GetState(_defaultPackageName).State.Value == AssetInitState.Ready;
         public AssetPlayMode CurrentPlayMode { get; private set; } = AssetPlayMode.EditorSimulate;
         public ReadOnlyReactiveProperty<AssetInitState> InitState => GetState(_defaultPackageName).State;
+
+        /// <summary>
+        /// 当前组件的场景运行配置。业务只读；需要代码引导时请在 <c>Start</c> 前调用 <see cref="Configure"/>。
+        /// </summary>
+        public AssetRuntimeSettings Settings => _settings ??= new AssetRuntimeSettings();
 
 #if UNITY_EDITOR
         /// <summary>原生 Inspector 的只读运行时快照；不参与资源状态机。</summary>
@@ -95,15 +113,38 @@ namespace Game.Framework
 #if UNITY_EDITOR
             _provider.SimulateOffline = () => _simulateOffline.CurrentValue; // 把开关接到 provider（实时读取当前值）
 #endif
-            // 默认包状态在 Configure（拿到真实默认包名后）按需建立；此处不预建，避免留下 field 默认名的「孤儿」状态。
+            // Awake 只应用设置并建立可观察状态；真正的远端 / 清单操作推迟到 Start，给代码引导保留
+            // “AddComponent 后立即 Configure”的确定窗口，也避免 AddComponent 在 Awake 中抢先联网。
+            ApplySettings(Settings);
+        }
+
+        private void Start()
+        {
+            if (_startupClaimed || _disposedByDestroy) return;
+            _startupClaimed = true;
+
+            CancellationToken token = _disposeCts.Token;
+            IGameContext context = ((IHasGameContext)this).Context;
+            if (context != null)
+            {
+                _startupCts = CancellationTokenSource.CreateLinkedTokenSource(
+                    _disposeCts.Token,
+                    context.CancellationToken);
+                token = _startupCts.Token;
+            }
+
+            RunAutoInitializationAsync(token).Forget(ex => Log.Error(
+                "资源系统自动初始化批次异常停止。",
+                ex,
+                nameof(AssetUtility),
+                this));
         }
 
         protected override void OnDestroy()
         {
             _disposedByDestroy = true;
-            _disposeCts?.Cancel();
-            _disposeCts?.Dispose();
-            _disposeCts = null;
+            CancelAndDispose(ref _startupCts, "自动初始化批次");
+            CancelAndDispose(ref _disposeCts, "资源 Utility 生命周期");
             _provider?.Dispose();
             _provider = null;
 
@@ -120,25 +161,86 @@ namespace Game.Framework
             base.OnDestroy();
         }
 
+        private void CancelAndDispose(ref CancellationTokenSource source, string owner)
+        {
+            CancellationTokenSource releasing = source;
+            source = null;
+            if (releasing == null) return;
+            try { releasing.Cancel(); }
+            catch (Exception exception)
+            {
+                // 取消意图已经成立；第三方或业务注册的坏回调不能截断 provider、状态流与容器清理。
+                Log.Error(
+                    $"{owner}的取消回调执行失败；其余资源清理将继续。",
+                    exception,
+                    nameof(AssetUtility),
+                    this);
+            }
+            finally
+            {
+                releasing.Dispose();
+            }
+        }
+
         /// <summary>
-        /// 在初始化前写入运行时配置、默认包名与运行模式。重复调用会更新后续包初始化使用的配置。两类调用方：
-        /// <b>场景三件套路径</b>由 <see cref="AssetInitSystem"/> 从 <see cref="AssetSystemConfigModel"/> 读出后调用（业务勿再调）；
-        /// <b>代码引导路径</b>（热更入口在首场景加载前搭的最小资源栈——Boot 场景只能挂 AOT 组件、场景三件套此刻还不存在）
-        /// 由入口代码直接调用，后接 <see cref="Initialize"/> 与 <c>LoadScene</c> 拉起首场景；首场景内的三件套随后照常初始化，
-        /// provider 对已初始化的包按名复用、不会重复拉清单。
+        /// 在初始化前写入运行时配置、默认包名与运行模式。它面向代码引导路径：在 <c>Start</c> 前调用会明确
+        /// 接管启动过程，抑制 Inspector 设置的自动初始化；随后由入口代码调用 <see cref="Initialize"/> 与
+        /// <c>LoadScene</c>。场景常规路径不必调用，直接编辑 <see cref="Settings"/> 即可。
         /// <para>运行模式在此即写入 <see cref="CurrentPlayMode"/>（而非等到 <see cref="InitializePackageAsync"/>）：
         /// 某些包关闭自动初始化、延迟到业务显式 <c>Initialize</c> 触发时，仍能用正确模式初始化，而不是回落到默认值。</para>
         /// </summary>
         public void Configure(string defaultPackageName, AssetProviderConfig config, AssetPlayMode mode)
         {
             ThrowIfDisposed();
-            // 允许空默认包名（= 无默认包：不带 packageName 的便捷重载会清晰报错，而不是兜一个写死的名字）。
+            _startupClaimed = true;
+            _autoInitializePackages.Clear();
+            _configurationError = null;
+            _configurationErrorReported = false;
+            ApplyConfiguration(defaultPackageName, config, mode);
+        }
+
+        private void ApplyConfiguration(string defaultPackageName, AssetProviderConfig config, AssetPlayMode mode)
+        {
             _defaultPackageName = defaultPackageName?.Trim() ?? string.Empty;
             _config = config ?? new AssetProviderConfig();
             CurrentPlayMode = mode;
             if (!string.IsNullOrWhiteSpace(_defaultPackageName))
                 GetState(_defaultPackageName);
         }
+
+        private void ApplySettings(AssetRuntimeSettings settings)
+        {
+            _settings = settings ?? new AssetRuntimeSettings();
+            _autoInitializePackages.Clear();
+            foreach (string packageName in _settings.EnumeratePackageNames())
+                if (_settings.ShouldAutoInitialize(packageName))
+                    _autoInitializePackages.Add(packageName);
+            _configurationError = _settings.GetConfigError();
+            _configurationErrorReported = false;
+            ApplyConfiguration(
+                _settings.DefaultPackageName,
+                _settings.ToProviderConfig(),
+                _settings.ActualPlayMode);
+        }
+
+        /// <summary>旧场景兼容适配器使用：让旧配置接管新 Utility 的启动，并复用同一批量初始化实现。</summary>
+        internal async UniTask ConfigureAndAutoInitialize(AssetRuntimeSettings settings, CancellationToken token)
+        {
+            ThrowIfDisposed();
+            _startupClaimed = true;
+            ApplySettings(settings);
+            await RunAutoInitializationAsync(token);
+        }
+
+#if UNITY_EDITOR
+        /// <summary>Editor 迁移器写入深拷贝设置；只改序列化数据，不在 Edit Mode 启动资源操作。</summary>
+        internal void ReplaceSettingsForEditorMigration(AssetRuntimeSettings settings)
+        {
+            if (Application.isPlaying)
+                throw new InvalidOperationException("资源配置迁移只能在 Edit Mode 执行。");
+            _settings = settings ?? new AssetRuntimeSettings();
+        }
+#endif
 
         /// <summary>
         /// 用可控实现替换 Awake 创建的默认 provider，供资源状态机的契约测试使用。
@@ -172,8 +274,7 @@ namespace Game.Framework
         {
             ThrowIfDisposed();
             token.ThrowIfCancellationRequested();
-            // 记录当前模式：所有包共享同一 PlayMode（由 AssetInitSystem 用 _settings.ActualPlayMode 串行调用）。
-            // 即便业务后续手动用别的 mode 初始化别的包，CurrentPlayMode 反映最近一次的值，足够 UI 展示用。
+            // 所有包共享同一 PlayMode；CurrentPlayMode 反映最近一次实际初始化使用的模式，供诊断展示。
             CurrentPlayMode = mode;
             packageName = NormalizePackageName(packageName);
             var state = GetState(packageName);
@@ -259,7 +360,7 @@ namespace Game.Framework
         private static string InitFailureHint(AssetPlayMode mode) => mode switch
         {
             AssetPlayMode.Host or AssetPlayMode.Web =>
-                "拉远端清单失败：确认已①构建 ②部署资源，且远端 CDN 可达——本地联调还需③启动本地 CDN 服务，且服务端口与配置的 CDN 列表（AssetSystemConfigModel.CdnUrls）第一条端口一致。开发期可改回 EditorSimulate 免构建。",
+                "拉远端清单失败：确认已①构建 ②部署资源，且远端 CDN 可达——本地联调还需③启动本地 CDN 服务，且服务端口与 AssetUtility.Settings 的 CDN 列表第一条端口一致。开发期可改回 EditorSimulate 免构建。",
             AssetPlayMode.Offline =>
                 "读内置清单失败：确认已构建、且把 bundle 内置进首包（首包 Tags）。开发期可改回 EditorSimulate 免构建。",
             _ =>
@@ -278,9 +379,51 @@ namespace Game.Framework
             attempt.Done.TrySetResult(); // 见 InitializePackageAsync：失败经 Error 传递，不给 TCS 挂异常
         }
 
+        private async UniTask RunAutoInitializationAsync(CancellationToken token)
+        {
+            ReportConfigurationError();
+
+            var packages = new List<string>(_autoInitializePackages.Count);
+            foreach (string packageName in Settings.EnumeratePackageNames())
+                if (_autoInitializePackages.Contains(packageName)) packages.Add(packageName);
+            MarkPackagesPending(packages);
+
+            try
+            {
+                foreach (string packageName in packages)
+                {
+                    if (token.IsCancellationRequested) break;
+                    // 配置错误只封锁默认便捷入口；其它显式命名包仍可初始化，避免一个默认指针错误拖垮全部包。
+                    if (_configurationError != null && packageName == _defaultPackageName) continue;
+                    await InitializePackageAsync(packageName, CurrentPlayMode, token);
+                }
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                // 调用方只取消当前批次的等待；已经开始的物理初始化仍由 Utility 生命周期持有。
+            }
+            finally
+            {
+                AbandonPendingPackages();
+            }
+        }
+
+        private void ReportConfigurationError()
+        {
+            if (_configurationError == null || _configurationErrorReported) return;
+            _configurationErrorReported = true;
+            var exception = new InvalidOperationException("[AssetUtility] " + _configurationError);
+            Log.Error(
+                "资源运行配置无效，默认资源包已标记为失败。",
+                exception,
+                nameof(AssetUtility),
+                this);
+            FailDefaultInitialization(exception);
+        }
+
         /// <summary>
         /// 把这些包标记为 <see cref="AssetInitState.Pending"/>（仅当前为 <see cref="AssetInitState.Idle"/> 时）。
-        /// 由 <see cref="AssetInitSystem"/> 在批量自动初始化「逐个开跑前」统一调用：让「已登记会初始化、但还没轮到」的包
+        /// 由自动初始化批次在「逐个开跑前」统一调用：让「已登记会初始化、但还没轮到」的包
         /// 对并发 Load 表现为「等待」（Pending）而非「未初始化报错」（Idle）——消除批次窗口内的抢跑竞态。
         /// </summary>
         internal void MarkPackagesPending(IEnumerable<string> packageNames)
@@ -298,7 +441,7 @@ namespace Game.Framework
 
         /// <summary>
         /// 把仍停在 <see cref="AssetInitState.Pending"/>（已登记、但批次初始化没轮到就被中止）的包置 <see cref="AssetInitState.Failed"/>，
-        /// 并唤醒其等待者。由 <see cref="AssetInitSystem"/> 在自动初始化批次结束（含被取消）时兜底调用：
+        /// 并唤醒其等待者。由自动初始化批次结束（含被取消）时兜底调用：
         /// 否则这些包的初始化 attempt 永不完成、后续 <c>EnsureInitialized</c> 会无限挂起——与「Pending 等待 / Idle 报错」契约相悖。
         /// 置 Failed（而非退回 Idle）让既有等待者醒来即拿到清晰异常；之后业务可 <see cref="Initialize"/> 重试。
         /// </summary>
@@ -332,11 +475,30 @@ namespace Game.Framework
             if (current == AssetInitState.Ready) return;
             if (current == AssetInitState.Failed)
                 throw attempt.Error ?? new InvalidOperationException($"[AssetUtility] 资源包“{name}”初始化失败。");
-            // Idle = 既没开自动初始化、也没人 Initialize 过它：没人会去完成当前 attempt，等下去就是无限挂起——直接报错引导。
+            // 极早的调用可能发生在本组件 Start 之前。只要包已配置为自动初始化，就由首次调用直接启动并加入同一个 owner；
+            // Start 随后会幂等加入，避免依赖兄弟组件的 Start 顺序。
+            if (current == AssetInitState.Idle && _autoInitializePackages.Contains(name))
+            {
+                if (_configurationError != null && name == _defaultPackageName)
+                {
+                    ReportConfigurationError();
+                    throw GetState(name).Attempt.Error;
+                }
+
+                await InitializePackageAsync(name, CurrentPlayMode, ct);
+                state = GetState(name);
+                attempt = state.Attempt;
+                current = state.State.Value;
+                if (current == AssetInitState.Ready) return;
+                if (current == AssetInitState.Failed)
+                    throw attempt.Error ?? new InvalidOperationException($"[AssetUtility] 资源包“{name}”初始化失败。");
+            }
+
+            // Idle = 没配自动初始化、也没人 Initialize 过它：没人会完成当前 attempt，等待只会永久挂起。
             if (current == AssetInitState.Idle)
                 throw new InvalidOperationException(
                     $"[AssetUtility] 包 '{name}' 未初始化：它既没开启自动初始化、也没被 Initialize 触发过。" +
-                    $"请在 AssetSystemConfigModel 的包列表里为它开启「自动初始化」，或在加载前先调 Initialize(\"{name}\")。");
+                    $"请在 AssetUtility 的资源运行配置里为它开启「自动初始化」，或在加载前先调 Initialize(\"{name}\")。");
 
             // 剩 Pending（已登记排队）/ Initializing（进行中）：等本 attempt 结束。TCS 失败时也以成功完成收尾
             // （不挂异常，见 InitializePackageAsync），所以醒来后读取该 attempt 捕获的 Error；同步重试不会串台。
@@ -358,8 +520,7 @@ namespace Game.Framework
         {
             ThrowIfDisposed();
             var name = RequirePackage(packageName);
-            // 复用 AssetInitSystem 启动时 Configure 写入的 _config、以及上次记录的 CurrentPlayMode（AssetInitSystem 总在 Awake 先跑过一轮 Configure，
-            // 此时 CurrentPlayMode 已是真实模式）。InitializePackageAsync 对 Idle / Pending / Failed 包会（重新）初始化、Ready 直接返回，
+            // 复用场景设置或代码 Configure 写入的 _config 与 CurrentPlayMode。InitializePackageAsync 对 Idle / Pending / Failed 包会（重新）初始化、Ready 直接返回，
             // 故这里幂等；初始化失败不抛、结果写回 InitState（仅「未指定包又无默认包」这种调用方错误会经 RequirePackage 抛）。
             await InitializePackageAsync(name, CurrentPlayMode, ct);
         }
@@ -687,7 +848,7 @@ namespace Game.Framework
             var name = NormalizePackageName(packageName);
             if (string.IsNullOrWhiteSpace(name))
                 throw new InvalidOperationException(
-                    "[AssetUtility] 未配置默认资源包（AssetSystemConfigModel.DefaultPackageName 为空），且本次未指定 packageName——" +
+                    "[AssetUtility] 未配置默认资源包（AssetUtility.Settings.DefaultPackageName 为空），且本次未指定 packageName——" +
                     "请配置默认包，或改用带 packageName 的重载（如 Load(packageName, location)）。");
             return name;
         }

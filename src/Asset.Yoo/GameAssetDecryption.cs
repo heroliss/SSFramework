@@ -6,7 +6,7 @@ namespace Game.Framework
     /// <summary>
     /// 运行时自定义解密接入点（YooAsset 后端）——框架内置「偏移解密」之外的扩展位。
     ///
-    /// <para>项目要用偏移以外的加密（XOR / AES 等）时，在资源初始化【之前】（启动引导里，先于 <c>AssetInitSystem</c> 跑）
+    /// <para>项目要用偏移以外的加密（XOR / AES 等）时，在资源初始化【之前】（早于 <c>AssetUtility.Start</c> 或显式 <c>Initialize</c>）
     /// 设置这里的工厂；<c>YooAssetProvider</c> 注入文件系统时<b>优先</b>用它，否则回退到偏移解密（按 <c>FileOffset</c>）。
     /// 必须与构建侧 <c>Game.Framework.Build.GameAssetEncryption</c> 的对应加密器<b>成对、算法一致</b>，否则整批加载失败。</para>
     ///

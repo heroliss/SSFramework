@@ -72,7 +72,7 @@ Framework 组件临时映射到 `FrameworkOdinInspector`。它先追加 Context/
 因此默认折叠的运行时诊断不会因为 Odin 被关闭而整块消失，也不必等待下一次 Domain Reload。
 初始化字段仍由字段级 Drawer 在 PlayMode 禁改；遵循 Unity 默认 Header 流程的其它业务 Editor 可通过
 `finishedDefaultHeaderGUI` 获得诊断入口。Fonts 等可选 Module 不依赖该回调是否被 Odin 触发，而是把专属诊断
-注册到原生与 Odin Inspector 共用的 contributor 接缝。测试使用真实 `AssetSystemConfigModel` 与 Demo
+注册到原生与 Odin Inspector 共用的 contributor 接缝。测试使用真实 `AssetUtility` 与 Demo
 `MonoScoreModel` 创建 Editor，并分别断言 Odin Adapter / 原生 fallback 所有权，
 不只依赖文档推测。未来的 Attribute Processor、Validator 规则或专用数据宿主仍需独立价值与测试，不能顺手
 堆进 Adapter。

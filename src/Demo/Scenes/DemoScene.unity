@@ -834,9 +834,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1007168410}
-  - component: {fileID: 1007168413}
   - component: {fileID: 1007168412}
-  - component: {fileID: 1007168411}
   m_Layer: 0
   m_Name: AssetSystem
   m_TagString: Untagged
@@ -859,19 +857,6 @@ Transform:
   m_Children: []
   m_Father: {fileID: 962892730}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &1007168411
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1007168409}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 6a4d087758a34164ca175b0304373913, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Game.Framework::Game.Framework.AssetInitSystem
-  _targetContext: {fileID: 0}
 --- !u!114 &1007168412
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -885,33 +870,21 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Game.Framework::Game.Framework.AssetUtility
   _targetContext: {fileID: 0}
+  _settings:
+    _packages:
+    - _name: FrameworkSamplesPackage
+      _autoInitialize: 0
+      _enableOnDemandDownload: 1
+    _defaultPackageName: FrameworkSamplesPackage
+    _playMode: 0
+    _playerPlayMode: 1
+    _cdnUrls:
+    - http://127.0.0.1:8080/
+    _downloadingMaxNumber: 10
+    _failedTryAgain: 3
+    _fileOffset: 0
   _simulateOffline:
     value: 0
---- !u!114 &1007168413
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1007168409}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: e5f5650a4a5040c46ba6789cd530ffbe, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Game.Framework::Game.Framework.AssetSystemConfigModel
-  _targetContext: {fileID: 0}
-  _packages:
-  - _name: FrameworkSamplesPackage
-    _autoInitialize: 0
-    _enableOnDemandDownload: 1
-  _defaultPackageName: FrameworkSamplesPackage
-  _playMode: 0
-  _playerPlayMode: 1
-  _cdnUrls:
-  - http://127.0.0.1:8080/
-  _downloadingMaxNumber: 10
-  _failedTryAgain: 3
-  _fileOffset: 0
 --- !u!1 &1038919719
 GameObject:
   m_ObjectHideFlags: 0

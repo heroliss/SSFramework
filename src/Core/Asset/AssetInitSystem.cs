@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using Game.Framework.Common;
@@ -11,21 +10,17 @@ using UnityEngine;
 namespace Game.Framework
 {
     /// <summary>
-    /// 进入游戏时的资源系统初始化流程。
-    ///
-    /// System 层只负责编排：读取 <see cref="AssetSystemConfigModel"/>、配置 <see cref="AssetUtility"/>、按包触发初始化。
-    /// 具体资源库如何创建包、更新清单、处理远端地址与解密，都由 provider 适配层负责。
-    ///
-    /// 单个 package 初始化失败只会让对应包进入 Failed，不阻塞后续包；业务加载某个包时会等待该包自己的状态。
-    ///
-    /// 自动初始化是<b>按包</b>的（<see cref="AssetPackageConfig.AutoInitialize"/>）：只有标了「自动初始化」的包在启动时拉清单；
-    /// 标「不自动初始化」的包（DLC 懒加载 / 合规延迟联网）保持 Idle，留给业务在合适时机显式调 <see cref="IAssetUtility.Initialize"/> 触发。
-    /// 把全部要联网的包都设为「不自动初始化」= 启动前零网络连接（隐私同意 / 选区后再联网的合规启动）。
+    /// 旧场景兼容适配器：把 <see cref="AssetSystemConfigModel"/> 的序列化数据交给
+    /// <see cref="AssetUtility"/>。新场景不再需要独立初始化 System。
     /// </summary>
+    [Obsolete("请迁移为 AssetUtility 单组件入口；AssetUtility 会自行编排自动初始化。", false)]
+    [AddComponentMenu("")]
     public class AssetInitSystem : MonoSystemBase
     {
         [Inject] private AssetUtility _utility;
+#pragma warning disable CS0618 // 本类型的唯一职责就是桥接旧版配置组件。
         [Inject] private AssetSystemConfigModel _settings;
+#pragma warning restore CS0618
 
         private CancellationTokenSource _cts;
 
@@ -35,7 +30,7 @@ namespace Game.Framework
             _cts = CancellationTokenSource.CreateLinkedTokenSource(
                 this.GetCancellationTokenOnDestroy(),
                 ((IHasGameContext)this).Context.CancellationToken);
-            InitAsync(_cts.Token).Forget();
+            InitializeCompatibilityPathAsync(_cts.Token).Forget();
         }
 
         protected override void OnDestroy()
@@ -46,68 +41,23 @@ namespace Game.Framework
             base.OnDestroy();
         }
 
-        private async UniTaskVoid InitAsync(CancellationToken token)
+        private async UniTaskVoid InitializeCompatibilityPathAsync(CancellationToken token)
         {
             if (_utility == null || _settings == null)
             {
-                var ex = new InvalidOperationException(
-                    "[AssetInitSystem] Context 中找不到 AssetUtility 或 AssetSystemConfigModel。" +
-                    "请将两个组件放在同一个 MonoGameContextBase 下。");
+                var exception = new InvalidOperationException(
+                    "[AssetInitSystem] 旧场景兼容接线不完整：需要同一 Context 中同时存在 " +
+                    "AssetUtility、AssetSystemConfigModel 与 AssetInitSystem。建议执行资源系统单入口迁移。");
                 Log.Error(
-                    "资源系统接线不完整，无法启动自动初始化。",
-                    ex,
+                    "旧版资源系统无法启动。",
+                    exception,
                     nameof(AssetInitSystem),
                     this);
-                _utility?.FailDefaultInitialization(ex);
+                _utility?.FailDefaultInitialization(exception);
                 return;
             }
 
-            // Model→provider 配置 DTO 的映射收口在 Model.ToProviderConfig()（新增配置项只改一处）。
-            // 默认包名 / 运行模式是「初始化身份 / 模式」参数、不在 DTO 里，单独传给 Configure。
-            // 运行模式在此写入 CurrentPlayMode：即便某些包延迟到业务显式 Initialize 触发，也能用正确模式跑。
-            _utility.Configure(_settings.DefaultPackageName, _settings.ToProviderConfig(), _settings.ActualPlayMode);
-
-            // 配置校验：默认包名指向不存在的包会让所有便捷重载失效——把默认包置 Failed 让等待方收到清晰异常，但不拖垮其它包。
-            var configError = _settings.GetConfigError();
-            if (configError != null)
-            {
-                var ex = new InvalidOperationException("[AssetInitSystem] " + configError);
-                Log.Error(
-                    "资源系统配置无效，默认资源包已标记为失败。",
-                    ex,
-                    nameof(AssetInitSystem),
-                    this);
-                _utility.FailDefaultInitialization(ex);
-            }
-
-            // 逐包自动初始化：先把「该自动初始化」的包统一标 Pending（消除批次窗口内 Load 抢跑竞态 → 此时 Load 等待而非报错），
-            // 再依次初始化。标「不自动初始化」的包保持 Idle，待业务 Initialize 触发；全列表都不自动初始化 = 启动零联网（合规启动）。
-            var autoInitPackages = new List<string>();
-            foreach (var packageName in _settings.EnumeratePackageNames())
-                if (_settings.ShouldAutoInitialize(packageName))
-                    autoInitPackages.Add(packageName);
-
-            _utility.MarkPackagesPending(autoInitPackages);
-
-            try
-            {
-                foreach (var packageName in autoInitPackages)
-                {
-                    if (token.IsCancellationRequested) break;
-                    await _utility.InitializePackageAsync(packageName, _settings.ActualPlayMode, token);
-                }
-            }
-            catch (OperationCanceledException) when (token.IsCancellationRequested)
-            {
-                // token 只取消本批次对当前包的等待；已启动的物理初始化仍由 AssetUtility 生命周期持有。
-                // finally 会把尚未轮到的 Pending 包收口，当前包则保持 Initializing，最终自行落到 Ready / Failed。
-            }
-            finally
-            {
-                // 批次正常跑完时这是空操作（已无 Pending）；被取消/中止而提前结束时，把还没轮到、仍停在 Pending 的包置 Failed，
-                // 避免其初始化 attempt 永不完成、后续 EnsureInitialized 永久挂起。（销毁期 AssetUtility 已先 Dispose，则此调用直接短路。）
-                _utility.AbandonPendingPackages();
-            }
+            await _utility.ConfigureAndAutoInitialize(_settings.ToRuntimeSettings(), token);
         }
     }
 }
