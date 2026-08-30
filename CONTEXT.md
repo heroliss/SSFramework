@@ -26,6 +26,10 @@ Demo 教学内容与自动化之间的运行时 Seam。`DemoModuleHost` 在真�
 
 `IAssetUtility.GetLocationState` 对某个 package/location 当前清单与本地缓存的同步四态快照：PackageNotReady、Invalid、AvailableLocally、RequiresDownload。它是资源 Module 的高杠杆 Interface，替调用方收口“先守卫初始化，再拼地址有效性与下载需求”的重复编排；具体未就绪原因仍由正交的 `AssetInitState` 表达，YooAsset 的布尔查询与 Reader/Writer 协调保留在 Adapter Implementation 内。
 
+## Asset Runtime Setup
+
+场景中资源基础设施的唯一正式 Mono 入口：`AssetUtility` 内嵌 `AssetRuntimeSettings`，拥有 provider、包状态机、自动初始化批次与加载/维护能力；配置不是业务 Model，启动薄编排也不是业务 System。场景路径在 Awake 应用设置、Start 自动初始化；代码引导在 Start 前 `Configure` 即接管启动，随后显式 `Initialize`。业务只依赖 `IAssetUtility`，Editor/Demo 才从具体 Utility 读取只读 Settings。`AssetSystemConfigModel` / `AssetInitSystem` 仅是可迁移兼容层，不得用于新场景。
+
 ## Config Readiness
 
 `IConfigUtility<TTables>` 对一次自加载尝试的稳定就绪契约。响应式消费者订阅 `State`；命令式流程通常经 Context 感知的 `await EnsureConfig<TTables>(token)` 得到同一份 `Tables` 或原始失败；已证明 Ready 的同步路径用 `GetConfig<TTables>()`，高频调用再缓存返回值。两个短入口都解析当前精确 Context，不引入全局静态表。调用方取消只脱离自己的 waiter，组件与 Context 共同拥有物理加载并在销毁时取消；失败后不隐式重试。该 Interface 把终态编排、根异常保存和共享所有权藏在 Config Module 内，业务不再复制 `WaitUntil(Ready or Failed)`。

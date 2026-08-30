@@ -186,7 +186,7 @@ namespace Game.Framework.Editor
             var text = string.IsNullOrEmpty(current) ? defaultLabel : current;
             var tooltip = string.IsNullOrEmpty(current)
                 ? (noDefault
-                    ? "⚠ 未配置默认包：留空的引用 Get() 会报错。请在此显式指定包，或给 AssetSystemConfigModel 配置“默认资源包”。"
+                    ? "⚠ 未配置默认包：留空的引用 Get() 会报错。请在此显式指定包，或给 AssetUtility 的资源运行配置设置“默认资源包”。"
                     : $"留空 = 用默认包（当前默认包：{defaultPkg}）")
                 : $"显式指定包：{current}";
             if (!GUI.Button(rect, new GUIContent(text, tooltip), EditorStyles.popup)) return;
@@ -224,12 +224,17 @@ namespace Game.Framework.Editor
             return new Rect(x, y, size.x, size.y);
         }
 
-        // 解析当前场景里 AssetSystemConfigModel 配的默认包名，用于把「留空」显示成「默认: 具体包名」。
+        // 解析当前场景里 AssetUtility 配的默认包名，用于把「留空」显示成「默认: 具体包名」。
         private static string ResolveDefaultPackageName()
         {
-            foreach (var setting in Resources.FindObjectsOfTypeAll<AssetSystemConfigModel>())
-                if (setting != null && !string.IsNullOrWhiteSpace(setting.DefaultPackageName))
-                    return setting.DefaultPackageName;
+            foreach (AssetUtility utility in Resources.FindObjectsOfTypeAll<AssetUtility>())
+                if (utility != null && !string.IsNullOrWhiteSpace(utility.Settings.DefaultPackageName))
+                    return utility.Settings.DefaultPackageName;
+#pragma warning disable CS0618 // 未迁移的外部场景仍需正确绘制 AssetReference。
+            foreach (AssetSystemConfigModel legacy in Resources.FindObjectsOfTypeAll<AssetSystemConfigModel>())
+                if (legacy != null && !string.IsNullOrWhiteSpace(legacy.DefaultPackageName))
+                    return legacy.DefaultPackageName;
+#pragma warning restore CS0618
             return "";
         }
 
@@ -237,16 +242,26 @@ namespace Game.Framework.Editor
         {
             var result = new List<string>();
             var seen = new HashSet<string>();
-            var settings = Resources.FindObjectsOfTypeAll<AssetSystemConfigModel>();
-            foreach (var setting in settings)
+            foreach (AssetUtility utility in Resources.FindObjectsOfTypeAll<AssetUtility>())
             {
-                if (setting == null) continue;
-                foreach (var name in setting.EnumeratePackageNames())
+                if (utility == null) continue;
+                foreach (string name in utility.Settings.EnumeratePackageNames())
                 {
                     if (string.IsNullOrWhiteSpace(name) || !seen.Add(name)) continue;
                     result.Add(name);
                 }
             }
+#pragma warning disable CS0618 // 未迁移的外部场景仍需正确绘制 AssetReference。
+            foreach (AssetSystemConfigModel legacy in Resources.FindObjectsOfTypeAll<AssetSystemConfigModel>())
+            {
+                if (legacy == null) continue;
+                foreach (string name in legacy.EnumeratePackageNames())
+                {
+                    if (string.IsNullOrWhiteSpace(name) || !seen.Add(name)) continue;
+                    result.Add(name);
+                }
+            }
+#pragma warning restore CS0618
             result.Sort(StringComparer.Ordinal);
             return result;
         }

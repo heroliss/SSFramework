@@ -51,3 +51,4 @@
 | [0043](0043-editor-menu-navigation-workbenches.md) | Editor 菜单只导航：副作用操作进入 Module 工作台，自动化与上下文入口显式例外 | Accepted |
 | [0044](0044-unity-cli-external-automation-adapter.md) | Unity CLI 作为工程外启动 Adapter：ProjectVersion 单一真值、Direct 回退、Pipeline 延迟接入 | Accepted |
 | [0045](0045-build-editor-module-split.md) | 资源构建与 HybridCLR 热更新构建拆分：单向依赖、RawFile 显式归属与删除测试 | Accepted |
+| [0046](0046-asset-utility-single-runtime-entry.md) | 资源运行时单入口：配置、生命周期与自动初始化收敛到 AssetUtility，旧三组件可迁移 | Accepted |

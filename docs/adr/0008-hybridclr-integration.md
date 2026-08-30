@@ -70,7 +70,7 @@ Boot 场景（唯一随包场景：Launcher + 朴素进度 UI，只挂 Boot 程�
   → 从 bundle 加载真正的首场景
 ```
 
-- 代码包与资源包**彻底分家**：CodePackage 归 Boot，资源包归框架 `AssetInitSystem`，互不知晓，无「包被初始化两次」纠缠。
+- 代码包与资源包**彻底分家**：CodePackage 归 Boot，资源包归框架 `AssetUtility`（运行时单入口见 ADR-0046），互不知晓，无“包被初始化两次”纠缠。
 - **编辑器/非 IL2CPP 旁路用运行时判断，不用 define**：程序集已在 AppDomain，直接反射入口——单一代码路径，开发体验零变化。
 - DLL 防明文：YooAsset 加密钩子（`IBundleMemoryDecryptor`）已在 Provider 接口面预留，需要时启用。
 

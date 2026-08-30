@@ -2,7 +2,7 @@
 
 > 速查图谱：资源系统在「进游戏 → 加载资源 → 下载/清缓存」各阶段到底发生了什么、哪步联网、哪步会抛/返 null。
 > 配套：使用约定见 [`Assets/Game/AGENTS.md`「模块使用不变量」的资源条目](../Assets/Game/AGENTS.md#模块使用不变量)，底层库踩坑见 [`docs/yooasset-pitfalls.md`](yooasset-pitfalls.md)，原生 API 改造背景见 [ADR 0013](adr/0013-yooasset-native-rewrite.md)，资源加密 / 构建过程开关见 [`docs/asset-encryption.md`](asset-encryption.md)。
-> 三层职责拆分（Model/System/Utility）与代码位置见 [`docs/framework-guide.md`](framework-guide.md)。
+> 单入口取舍与兼容迁移见 [ADR 0046](adr/0046-asset-utility-single-runtime-entry.md)，完整 API 见 [`docs/framework-guide.md`](framework-guide.md)。
 
 ---
 
@@ -11,45 +11,37 @@
 ```mermaid
 flowchart LR
     Biz["业务 View / System / Command"]
-    subgraph ctx["同一 Context 节点（三件套）"]
-      Cfg["AssetSystemConfigModel<br/>Model · 配置数据"]
-      Util["AssetUtility : IAssetUtility<br/>Utility · 加载 API"]
-      Sys["AssetInitSystem<br/>System · 初始化编排"]
+    subgraph ctx["Context 中的资源单入口"]
+      Util["AssetUtility : IAssetUtility<br/>Settings + 状态机 + 生命周期 + API"]
     end
     Biz -->|"this.GetUtility / Bag.Load"| Util
-    Cfg -. 读取配置 .-> Sys
-    Sys -->|"Configure / InitializePackageAsync"| Util
     Util -->|"IAssetProvider 接口"| Prov["YooAssetProvider<br/>唯一 YooAsset 接触面"]
     Prov --> Yoo[("YooAsset 3.0<br/>StreamingAssets / CDN / 沙盒缓存")]
 ```
 
 - 业务**只经** `this.GetUtility<IAssetUtility>()` 或 `Bag.Load`，看不到 YooAsset。
+- `AssetRuntimeSettings` 是资源基础设施配置，不注册为业务 Model；自动初始化是 Utility 自己的生命周期，不另占一个 System。
 - 换底层库（Addressables / 自研）只需实现一个新 `IAssetProvider`，上层零改动（`AssetProviderFactory.CreateDefault()` 里 new provider 是唯一切换点）。
 
 ---
 
 ## 2. 启动初始化全流程：Play 后立刻做什么
 
-**Awake 顺序由 `DefaultExecutionOrder` 保证**：Utility(-400) → Model(-300) → System(-200)。所以 `AssetInitSystem` 跑 Awake 时，`AssetUtility` 与 `ConfigModel` 已注册好，`[Inject]` 拿得到。
+`AssetUtility.Awake` 先注册到 Context、创建 provider、应用 Inspector 设置并识别哪些包需要自动初始化；`Start` 才启动物理初始化。代码引导可在 `AddComponent` 后、`Start` 前调用 `Configure` 接管启动，避免 Inspector 默认配置抢跑。
 
 ```mermaid
 sequenceDiagram
     autonumber
     participant U as Unity
     participant Util as AssetUtility
-    participant Cfg as ConfigModel
-    participant Sys as AssetInitSystem
     participant Prov as YooAssetProvider
     participant Yoo as YooAsset / CDN
 
-    Note over U,Sys: Awake 顺序 ExecutionOrder：Utility -400 → Model -300 → System -200
-    U->>Util: Awake 注册 Utility
-    U->>Cfg: Awake 注册 Config
-    U->>Sys: Awake 注册 + 注入 _utility/_settings
-    Sys->>Sys: InitAsync().Forget()
-    Sys->>Util: Configure(默认包名, ToProviderConfig())
-    loop 每个配置的包 EnumeratePackageNames
-        Sys->>Util: InitializePackageAsync(包名, ActualPlayMode)
+    U->>Util: Awake 注册 + 应用 Settings（不联网）
+    U->>Util: Start 启动自动初始化批次
+    Util->>Util: 自动包统一标 Pending
+    loop 每个标记自动初始化的包
+        Util->>Util: InitializePackageAsync(包名, ActualPlayMode)
         Util->>Prov: InitializeAsync(...)
         Prov->>Yoo: CreatePackage + InitializePackageAsync 挂文件系统
         Note over Prov,Yoo: 仅本地脚手架，尚未联网
@@ -59,7 +51,7 @@ sequenceDiagram
         Note right of Yoo: Host 下载清单文件<br/>⚠ 不下载 bundle 内容
         Yoo-->>Prov: 成功
     end
-    Util-->>Sys: InitState 回写 Ready / Failed
+    Util->>Util: InitState 回写 Ready / Failed
 ```
 
 **初始化做了 / 没做：**
@@ -143,7 +135,7 @@ flowchart TD
 - 并发有两层护栏：`AssetUtility` 串行自身的同包维护；Yoo Adapter 再按实际 `ResourcePackage` 做进程级公平 Reader/Writer 协调，跨 Utility/Provider 覆盖按需 Load、显式 Download 与维护。调用者取消只离开等待；排队且已无人等待的项跳过，原生 operation 一旦开始就运行到真实终态。
 - 每次 `ClearCache*` 到达终态都会推进缓存世代（失败也按可能部分改盘处理）；旧 downloader 会明确报“重建”，不会拿创建时快照静默续跑。
 - `GetLocationState` / `Create*Downloader` 是同步快照：Writer 活跃或已排队时立即拒绝并提示维护后重试，不阻塞 Unity 主线程，也不越过 Writer 读取中间态。
-- Host 默认允许 `Load` 对未缓存 bundle 当场按需下载；大型 DLC 可在 `AssetSystemConfigModel.Packages` 列表里取消该包的「启用按需下载」，让未缓存 `Load` 直接失败，强制先走显式下载器和进度 UI。
+- Host 默认允许 `Load` 对未缓存 bundle 当场按需下载；大型 DLC 可在 `AssetUtility.Settings.Packages` 列表里取消该包的「启用按需下载」，让未缓存 `Load` 直接失败，强制先走显式下载器和进度 UI。
 
 ---
 
@@ -151,7 +143,7 @@ flowchart TD
 
 自动初始化是**按包**的（`AssetPackageConfig.AutoInitialize`，默认开）。每个包独立决定启动时机：
 
-- **自动初始化（默认）**：包标了「自动初始化」→ `AssetInitSystem` 启动就为它拉版本/清单。多数游戏的基础包都这样，资源尽早就绪。
+- **自动初始化（默认）**：包标了「自动初始化」→ `AssetUtility.Start` 就为它拉版本/清单。多数游戏的基础包都这样，资源尽早就绪。
 - **延迟初始化**：包标了「不自动初始化」→ 启动不碰它的网络（包停在 `Idle`），由业务在合适时机显式 `Initialize("包名")` 冷启动。两类典型场景：
   - **大型 DLC 懒加载**：进副本 / 进 DLC 内容时再 init，平时不拉它的清单。
   - **合规延迟联网**：隐私同意 / 权限弹窗 / 选区前**不得发起任何网络连接**——把要联网的包全设「不自动初始化」，同意后再逐个 `Initialize`。

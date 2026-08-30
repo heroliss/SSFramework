@@ -22,10 +22,10 @@
 | 改哪 | 字段 | 含义 |
 |---|---|---|
 | 构建配置 `FrameworkAssetBuildProfile`（工作台 `SSFramework/构建与发布/资源构建`） | `FileOffset` | 构建时每个 bundle 头插入的字节数 |
-| 场景节点 `AssetSystemConfigModel`（Inspector「加密」栏） | `FileOffset` | 运行时跳过的字节数 |
+| 场景节点 `AssetUtility` 的“资源运行配置 / 加密” | `FileOffset` | 运行时跳过的字节数 |
 
 两个值**必须完全相等**：构建插几个字节、运行时就跳几个字节，对不上会读坏**所有** bundle。`0` = 不加密（默认）。
-（这与已有的「`profile.LocalServePort` 必须等于 `AssetSystemConfigModel.CdnUrls` 端口」是同一种「构建↔运行时手动对齐」约定。）
+（这与“`profile.LocalServePort` 必须等于 `AssetUtility.Settings.CdnUrls` 端口”是同一种“构建↔运行时手动对齐”约定。）
 
 改完重新构建即生效。验证：加密产物的 hash 会变（YooAsset 对**加密后**的文件算 hash 写清单），首次构建后全量产物都会更新。
 
@@ -34,7 +34,7 @@
 ### 原理 / 落点
 
 - 构建：`profile.FileOffset > 0` 时，`FrameworkAssetBuilder.BuildPackage` 挂上 `GameBundleOffsetEncryptor`——读原文件、头部插入 N 个**确定性**字节（按 bundle 名 FNV-1a 派生，保证内容不变的包每次构建产出同样的头，不破坏增量发布），返回加密数据。
-- 运行时：`AssetSystemConfigModel.FileOffset` 经 `ToProviderConfig()` → `AssetProviderConfig.FileOffset` → `YooAssetProvider.ApplyDecryptor` 注册 `GameBundleOffsetDecryptor`（同时作 `AssetBundleDecryptor` / `RawBundleDecryptor` / `AssetBundleFallbackDecryptor`）。它实现 `IBundleOffsetDecryptor`（带偏移直接加载）+ `IBundleMemoryDecryptor`（内存兜底：剥头后从内存加载）。
+- 运行时：`AssetUtility.Settings` 的 `FileOffset` 经 `AssetRuntimeSettings.ToProviderConfig()` → `AssetProviderConfig.FileOffset` → `YooAssetProvider.ApplyDecryptor` 注册 `GameBundleOffsetDecryptor`（同时作 `AssetBundleDecryptor` / `RawBundleDecryptor` / `AssetBundleFallbackDecryptor`）。它实现 `IBundleOffsetDecryptor`（带偏移直接加载）+ `IBundleMemoryDecryptor`（内存兜底：剥头后从内存加载）。
 
 ---
 
@@ -120,7 +120,7 @@ internal static class MyEncryptionInstaller
 
 XOR/AES 这类内容加密用 `IBundleMemoryDecryptor`（大文件用 `IBundleStreamDecryptor`）。清单加密则另实现 `IManifestDecryptor`。
 
-**挂到运行时（不改框架源码）**：在资源初始化【之前】（启动引导里，先于 `AssetInitSystem` 跑）设到接入点 `GameAssetDecryption`，`YooAssetProvider.ApplyDecryptor` 会优先用它（否则回退偏移解密）：
+**挂到运行时（不改框架源码）**：在资源初始化【之前】设置接入点 `GameAssetDecryption`（场景路径须早于 `AssetUtility.Start`；代码引导须早于 `Initialize`），`YooAssetProvider.ApplyDecryptor` 会优先用它（否则回退偏移解密）：
 
 ```csharp
 using Game.Framework;
@@ -146,7 +146,7 @@ GameAssetDecryption.BundleDecryptorFactory = () => new MyXorBundleDecryptor(/* k
 | 端 | 接入点 | 程序集 | 设置时机 |
 |---|---|---|---|
 | 构建 | `Game.Framework.Build.GameAssetEncryption`（`CustomBundleEncryptor` 等） | `Game.Framework.Build.Editor` | 项目 Editor 程序集 `[InitializeOnLoadMethod]` |
-| 运行时 | `Game.Framework.GameAssetDecryption`（`BundleDecryptorFactory` 等） | `Game.Framework.Asset.Yoo` | 启动引导，早于 `AssetInitSystem` |
+| 运行时 | `Game.Framework.GameAssetDecryption`（`BundleDecryptorFactory` 等） | `Game.Framework.Asset.Yoo` | 早于 `AssetUtility.Start` / 显式 `Initialize` |
 
 - 这两端是**同一套算法的两半**，必须成对、算法一致；任一边漏设或不匹配 → 运行时整批加载失败。建议把「加密方式 + 密钥来源」收一处、两边引用。
 - **框架不内置 AES**：正确的强加密（AES-CTR 可 Seek 流）实现复杂、有加载耗时，且密钥管理是项目级决策——硬塞一个固定密钥的 AES 是虚假安全。需要时由项目经上面接入位接入（或将来按需补一个独立可选模块），不污染框架核心。

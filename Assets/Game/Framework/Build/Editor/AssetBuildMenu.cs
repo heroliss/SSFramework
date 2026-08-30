@@ -176,7 +176,7 @@ namespace Game.Framework.Build
         /// <summary>
         /// 在 <c>AssetBuild/Deploy</c> 起 HTTP 服务（端口取自 profile）。<c>LocalServeThrottleKBps</c>&gt;0 时用限速脚本模拟弱网，
         /// 否则用 <c>python -m http.server</c>。端口已监听则复用现有进程（改限速要先关掉它）。Play 模式安全（不涉及构建管线）。
-        /// ⚠ 端口须与场景 AssetSystemConfigModel.CdnUrls 第一条（主）一致，Host 才下得到。
+        /// ⚠ 端口须与场景 AssetUtility.Settings.CdnUrls 第一条（主）一致，Host 才下得到。
         /// </summary>
         public static string StartServer(FrameworkAssetBuildProfile profile)
         {

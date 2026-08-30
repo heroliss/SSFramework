@@ -33,7 +33,7 @@ cs-bin 生成的 `Tables` 构造函数是**同步** `Func<string, ByteBuf>`，�
 
 **框架模块不引用 Luban**——只做「清单 → 字节 → 抽象工厂」的通用编排；Luban 接触面收口在项目侧子类的 `CreateTables`（一行 `new Tables(f => new ByteBuf(getBytes(f)))`）与生成代码所在 asmdef。泛型按项目表根闭合（一行子类），各层在已知就绪时经 `GetConfig<Tables>()` 直读、流程门禁经 `EnsureConfig<Tables>(token)`（View 也有 `ICanGetUtility`，无需查询 Command），查询直接用生成的强类型 API。
 
-> **为什么是 Utility 而非 Model**（2026-06-18 修订）：初版仿资源系统拆「Model 持表 + InitSystem 编排」两件套，但配置的访问形态是「全层只读」，而本框架 Model 把 View 挡在外面（无 `GetModel`），导致 View 读配置要绕查询 Command。改为 Utility 后 View 直读（`IUtility : ICanGetUtility`，且 Utility 可取资源服务自加载）；配置加载也比资源系统简单（无多包 / CDN / 下载编排），不必拆 System，合成一个组件。资源系统仍是三件套（加载复杂、且其 Model 持的是可变的运行期配置）。
+> **为什么是 Utility 而非 Model**（2026-06-18 修订，2026-08-30 对齐 ADR-0046）：初版仿资源系统拆“Model 持表 + InitSystem 编排”，但配置的访问形态是全层只读，本框架 Model 又刻意不向 View 开放，导致 View 读配置要绕查询 Command。改为 Utility 后 View 可直读，且 Utility 能取资源服务自加载。资源系统后来也按同一原则复核：其运行参数不是业务 Model，薄初始化编排不值得独占 System，已收敛为 `AssetUtility + AssetRuntimeSettings` 单入口；多包/CDN 的复杂性留在同一个深 Utility 内。
 
 #### 3.1 Config Readiness：观察状态与阻断流程分开
 

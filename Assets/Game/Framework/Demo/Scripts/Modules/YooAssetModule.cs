@@ -21,7 +21,8 @@ namespace Game.Framework.Demo.Modules
 
         public override void Build(DemoModuleHost host)
         {
-            var settingsModel = UnityEngine.Object.FindFirstObjectByType<AssetSystemConfigModel>();
+            var assetUtility = UnityEngine.Object.FindFirstObjectByType<AssetUtility>();
+            AssetRuntimeSettings settings = assetUtility?.Settings;
 
             // ── 定位 ──
             host.AddPositioning("YooAsset 是「当前默认后端」，不是框架契约");
@@ -36,8 +37,8 @@ namespace Game.Framework.Demo.Modules
                 new[] { "`Offline`", "随包内置(StreamingAssets)", "是", "SBP", "内置清单 + 版本清单 + bundle", "单机 / 无热更" },
                 new[] { "`Host`", "内置首包 + 远端 CDN", "是", "SBP", "内置清单→版本→清单→按需下载", "需热更的主流方案" },
                 new[] { "`Web`", "纯远端 HTTP", "是", "SBP", "远端清单 / bundle（不落缓存）", "WebGL" });
-            if (settingsModel != null)
-                host.AddSubNote($"当前场景配置：PlayMode = {settingsModel.PlayMode}（WebGL 构建会强制 Web）。");
+            if (settings != null)
+                host.AddSubNote($"当前场景配置：PlayMode = {settings.PlayMode}（WebGL 构建会强制 Web）。");
 
             // ── 表②·目录 ──
             host.AddSectionTitle("目录都装什么（构建相关目录都收在 AssetBuild/ 下）");
@@ -80,7 +81,7 @@ namespace Game.Framework.Demo.Modules
 
             // ── 底层流程：EditorSimulate ──
             host.AddSectionTitle("底层流程 · EditorSimulate（开发期）");
-            host.AddStep("①", "进 Play → `AssetInitSystem` 触发初始化 → provider 在 `EditorSimulate` 分支自动跑一次 ESBP（模拟构建）。",
+            host.AddStep("①", "进 Play → `AssetUtility.Start` 编排自动初始化 → provider 在 `EditorSimulate` 分支自动跑一次 ESBP（模拟构建）。",
                 new CodeRef("Assets/Game/Framework/Asset.Yoo/YooAssetProvider.cs", "case AssetPlayMode.EditorSimulate", "EditorSimulate 自动模拟构建"));
             host.AddStep("②", "ESBP 生成「地址→AssetDatabase 路径」模拟清单 → 运行时直接读工程源资源：免打包、免下载、改完即时生效，也与平台无关。");
 
@@ -92,19 +93,19 @@ namespace Game.Framework.Demo.Modules
                 new CodeRef("Assets/Game/Framework/Build/Editor/FrameworkAssetBuildProfile.cs", "class FrameworkAssetBuildProfile", "构建配置（按包）"));
             host.AddStep("②", "部署：产物按「每个包一个子目录」拷到 项目根/`AssetBuild/Deploy`（本地联调）或 CI 上传真实 CDN。`GameRemoteService` 按 {CDN}/{包名}/{文件} 取址。",
                 new CodeRef("Assets/Game/Framework/Asset.Yoo/YooAssetProvider.cs", "class GameRemoteService", "远端取址实现"));
-            host.AddStep("③", "起服务：资源构建工作台的“启动本地 CDN 服务”= python -m http.server（端口取自构建 profile 的 `LocalServePort`，须与场景 `AssetSystemConfigModel.CdnUrls` 第一条端口一致）；生产里这步换成 CDN 厂商。",
+            host.AddStep("③", "起服务：资源构建工作台的“启动本地 CDN 服务”= python -m http.server（端口取自构建 profile 的 `LocalServePort`，须与场景 `AssetUtility.Settings.CdnUrls` 第一条端口一致）；生产里这步换成 CDN 厂商。",
                 new CodeRef("Assets/Game/Framework/Build/Editor/AssetBuildMenu.cs", "public static string StartServer(", "本地起服务（仅联调）"));
             host.AddStep("④", "进 Play(`Host`)：先读 `StreamingAssets` 的 `BuiltinCatalog` → 拉远端 `.version` / 对应清单；远端不可用则激活随包内置版本清单 → 缺的非内置 bundle 按需从 CDN 下载并缓存到 项目根/`AssetBuild/Downloaded/<包>`。",
                 new CodeRef("Assets/Game/Framework/Asset.Yoo/YooAssetProvider.cs", "case AssetPlayMode.Host", "Host 初始化实现"));
             host.AddSubNote("`CdnUrls` 是候选列表：本地联调通常只填 `http://127.0.0.1:8080/`，多条时版本号 / 清单请求会随 YooAsset 的失败计数轮转重试；候选必须是等价镜像。包级「启用按需下载」（默认勾选）只影响 Host 下未缓存 bundle 的 `Load`：取消勾选后直接失败，强制先显式跑下载器。",
-                new CodeRef("Assets/Game/Framework/Core/Asset/AssetSystemConfigModel.cs", "public IReadOnlyList<string> CdnUrls =>", "运行时 CDN 配置"));
+                new CodeRef("Assets/Game/Framework/Core/Asset/AssetRuntimeSettings.cs", "public IReadOnlyList<string> CdnUrls =>", "运行时 CDN 配置"));
 #if UNITY_EDITOR
             host.AddActionRow("定位 Collector 分包配置（构建按它执行）", () =>
                 DemoEditorNav.PingAsset("Assets/Game/Framework/Settings/AssetBundleCollectorSetting.asset"));
             host.AddActionRow("定位 AssetSystem 配置节点（切 PlayMode 在这）", () =>
             {
-                if (settingsModel != null) DemoEditorNav.PingSceneObject(settingsModel.gameObject);
-            }, new CodeRef("Assets/Game/Framework/Core/Asset/AssetSystemConfigModel.cs", "class AssetSystemConfigModel", "资源系统配置(Model)"));
+                if (assetUtility != null) DemoEditorNav.PingSceneObject(assetUtility.gameObject);
+            }, new CodeRef("Assets/Game/Framework/Core/Asset/AssetUtility.cs", "class AssetUtility", "资源系统单入口"));
 #endif
             host.AddTip("两个最常踩的坑：① 平台——AssetBundle 按平台区分，且编辑器进程本身是 Windows，加载不了为 Android 等移动平台构建的 bundle；要在编辑器里测 Host，先把 Build Target 切到 Standalone Windows 再重新构建，测移动平台请上真机。② 顺序——至少先构建再进 Play；要验证远端更新或加载非内置 bundle，还需部署并启动 CDN。Host 可以在远端失败时回退内置清单，但补构建后仍要重进 Play 才会重新初始化。");
 
@@ -114,7 +115,7 @@ namespace Game.Framework.Demo.Modules
 
             // ── 机制：加密（可选，两端成对）──
             host.AddSectionTitle("机制：资源加密（可选）");
-            host.AddSubNote("加密分构建侧（写加密产物）与运行时侧（读时解密），必须【成对、参数一致】。框架内置「偏移加密」开箱即用：构建配置 `FrameworkAssetBuildProfile.FileOffset` 设 N(>0) → 构建在每个 bundle 头插入 N 字节，挡住直接用 AB 提取工具打开；运行时 `AssetSystemConfigModel.FileOffset` 设【相同】 N → 加载时跳过这 N 字节。两值对不上会读坏所有 bundle。",
+            host.AddSubNote("加密分构建侧（写加密产物）与运行时侧（读时解密），必须【成对、参数一致】。框架内置“偏移加密”开箱即用：构建配置 `FrameworkAssetBuildProfile.FileOffset` 设 N(>0) → 构建在每个 bundle 头插入 N 字节；运行时在 `AssetUtility` 的资源运行配置中把文件头偏移设为相同 N → 加载时跳过这些字节。两值对不上会读坏所有 bundle。",
                 new CodeRef("Assets/Game/Framework/Build/Editor/GameBundleOffsetEncryptor.cs", "class GameBundleOffsetEncryptor", "构建侧偏移加密器"));
             host.AddSubNote("偏移是【弱】加密（只换文件头、不动 bundle 正文，解密近乎零成本）。要真加密（XOR/AES 等打乱正文）需自实现 `IBundleEncryptor` + 运行时对应解密器，两端一起换——完整步骤（含清单加密、流式解密、密钥/热更注意点）见 `docs/asset-encryption.md`。",
                 new CodeRef("Assets/Game/Framework/Asset.Yoo/YooAssetProvider.cs", "private static void ApplyDecryptor(", "运行时侧解密器注册（按 FileOffset）"));

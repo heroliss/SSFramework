@@ -130,7 +130,8 @@ namespace Game.Framework.Demo.Modules
             host.AddNote("场景里 `ConfigService` 节点只挂一个组件 `DemoConfigUtility`——配置做成**自加载的 Utility 服务**：进游戏自己按清单预载数据、" +
                          "构造表根、对外只读暴露。**为什么是 Utility 而不是 Model / System**：配置是全层只读引用数据，而本框架 Model 把 View 挡在外面" +
                          "（View 没有 `GetModel`），做成 Utility 才让 View 也能直读（View 有 `ICanGetUtility`）；配置加载又没有资源系统那种多包 / CDN / 下载的" +
-                         "复杂度，不必拆出 System——一个组件就够（资源系统才是「Model + System + Utility」三件套，因为它加载复杂、且持的是可变运行期配置）。",
+                         "复杂度，不必拆出 System——一个组件就够。资源系统虽然有多包 / CDN / 下载与状态机等复杂性，也把这些高内聚职责封装在一个深的 `AssetUtility` 中；" +
+                         "它的运行参数是内嵌 Settings，不是业务 Model，启动薄编排也不再伪装成独立 System。",
                 new CodeRef("Assets/Game/Framework/Demo/Config/DemoConfigUtility.cs", "class DemoConfigUtility", "Demo 接入 · 仅两个 override"));
 #if UNITY_EDITOR
             host.AddActionRow("选中 ConfigService 节点（DemoConfigUtility · 自加载配置服务）",

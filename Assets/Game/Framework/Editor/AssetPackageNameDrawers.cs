@@ -73,8 +73,15 @@ namespace Game.Framework.Editor
             var seen = new HashSet<string>(StringComparer.Ordinal);
             foreach (UnityEngine.Object target in serializedObject.targetObjects)
             {
-                if (target is not AssetSystemConfigModel config) continue;
-                foreach (string name in config.EnumeratePackageNames())
+                IEnumerable<string> packageNames = target switch
+                {
+                    AssetUtility utility => utility.Settings.EnumeratePackageNames(),
+#pragma warning disable CS0618 // 旧场景在执行迁移前仍需可编辑。
+                    AssetSystemConfigModel legacy => legacy.EnumeratePackageNames(),
+#pragma warning restore CS0618
+                    _ => Array.Empty<string>(),
+                };
+                foreach (string name in packageNames)
                     if (!string.IsNullOrWhiteSpace(name) && seen.Add(name)) result.Add(name);
             }
             result.Sort(StringComparer.Ordinal);

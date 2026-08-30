@@ -19,7 +19,7 @@ namespace Game.Framework.Test
     /// <summary>
     /// YooAsset 资源加载测试。
     /// 覆盖：AssetUtility.Load 路径加载、AssetReference 缓存/并发/生命周期、AssetReferenceList 批量加载。
-    /// 测试在内存中搭建一个最小 Context：Settings + Utility + InitSystem，等 init 完成后跑断言。
+    /// 测试在内存中搭建一个最小 Context + AssetUtility，等单入口自动初始化完成后跑断言。
     /// </summary>
     public class YooAssetLoadTests
     {
@@ -57,9 +57,8 @@ namespace Game.Framework.Test
         // ── 测试环境搭建 ──────────────────────────────────────────────
 
         /// <summary>
-        /// 在内存中搭一棵最小的资源系统树：
-        /// Root → Context → [Settings, Utility, InitSystem]。
-        /// AddComponent 的顺序决定 Awake 顺序：Context 先，Settings/Utility 注册到容器，最后 InitSystem 触发 init pipeline。
+        /// 在内存中搭一棵最小的资源系统树：Root → Context → AssetUtility。
+        /// Utility 节点先保持 inactive，以便在 Awake 前写入与场景序列化等价的 Settings。
         /// </summary>
         private async UniTask BuildAssetEnvironment()
         {
@@ -69,11 +68,14 @@ namespace Game.Framework.Test
             contextGo.transform.SetParent(_root.transform);
             _context = contextGo.AddComponent<MonoGameContextBase>();
 
-            var settingsGo = new GameObject("Settings");
-            settingsGo.transform.SetParent(contextGo.transform);
-            var settings = settingsGo.AddComponent<AssetSystemConfigModel>();
+            var utilityGo = new GameObject("AssetUtility");
+            utilityGo.SetActive(false);
+            utilityGo.transform.SetParent(contextGo.transform);
+            _utility = utilityGo.AddComponent<AssetUtility>();
+
+            var settings = new AssetRuntimeSettings();
             // 框架样例资源已从 DefaultPackage 分到 FrameworkSamplesPackage（见 collector），测试随之指向该包。
-            // 多包模型下默认包必须同时登记在 Packages 列表（AssetInitSystem 启动校验默认包在列表中），两个字段都要设。
+            // 默认包必须同时登记在 Packages 列表，两个字段都要设。
             const string testPackage = "FrameworkSamplesPackage";
             SetPrivateField(settings, "_packages", new List<AssetPackageConfig> { new(testPackage) });
             SetPrivateField(settings, "_defaultPackageName", testPackage);
@@ -81,18 +83,12 @@ namespace Game.Framework.Test
 #if UNITY_EDITOR
             SetPrivateField(settings, "_playMode", AssetPlayMode.EditorSimulate);
 #else
-            SetPrivateField(settings, "_playMode", AssetPlayMode.Offline);
+            SetPrivateField(settings, "_playerPlayMode", AssetPlayMode.Offline);
 #endif
+            SetPrivateField(_utility, "_settings", settings);
+            utilityGo.SetActive(true);
 
-            var utilityGo = new GameObject("Utility");
-            utilityGo.transform.SetParent(contextGo.transform);
-            _utility = utilityGo.AddComponent<AssetUtility>();
-
-            var systemGo = new GameObject("InitSystem");
-            systemGo.transform.SetParent(contextGo.transform);
-            systemGo.AddComponent<AssetInitSystem>();
-
-            // 让所有 Awake 跑完（Unity 在当前帧调度）。
+            // 让 AssetUtility.Start 启动场景配置中的自动初始化。
             await UniTask.Yield();
             await _utility.EnsureInitialized();
 
@@ -418,11 +414,12 @@ namespace Game.Framework.Test
             return true;
         }
 
-        private static void SetPrivateField<T>(AssetSystemConfigModel settings, string fieldName, T value)
+        private static void SetPrivateField<T>(object target, string fieldName, T value)
         {
-            var field = typeof(AssetSystemConfigModel).GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.IsNotNull(field, $"AssetSystemConfigModel field '{fieldName}' not found.");
-            field.SetValue(settings, value);
+            System.Type owner = target.GetType();
+            var field = owner.GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.IsNotNull(field, $"{owner.Name} field '{fieldName}' not found.");
+            field.SetValue(target, value);
         }
 
         private static YooAssetTestConfig LoadTestConfig()

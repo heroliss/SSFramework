@@ -39,7 +39,8 @@ namespace Game.Framework.Demo.Modules
         public override void Build(DemoModuleHost host)
         {
             var asset = this.GetUtility<IAssetUtility>();
-            var settingsModel = UnityEngine.Object.FindFirstObjectByType<AssetSystemConfigModel>();
+            var assetUtility = UnityEngine.Object.FindFirstObjectByType<AssetUtility>();
+            AssetRuntimeSettings settings = assetUtility?.Settings;
 #if UNITY_EDITOR
             // 模拟断网属于共享 AssetUtility 的进程级调试状态。本章只借用它做实验，离章必须归还进入前的值，
             // 否则用户在这里开过断网后，后续资源章节会表现成无缘无故的网络故障。
@@ -52,8 +53,8 @@ namespace Game.Framework.Demo.Modules
 
             // 本次流程要处理的包：demo 用配置里登记的全部包。
             var packages = new List<string>();
-            if (settingsModel != null)
-                foreach (var name in settingsModel.EnumeratePackageNames())
+            if (settings != null)
+                foreach (var name in settings.EnumeratePackageNames())
                     packages.Add(name);
 
             // ── 定位 ──
@@ -70,14 +71,14 @@ namespace Game.Framework.Demo.Modules
             var versionLabel = host.AddValueDisplay("", CodeRef.Here("var v = asset.GetPackageVersion(pkg)", "读包版本"));
             versionLabel.style.whiteSpace = WhiteSpace.Normal;
 #if UNITY_EDITOR
-            if (settingsModel != null)
-                host.AddActionRow("选中资源配置节点 AssetSystemConfigModel（包列表 / CDN）",
-                    () => DemoEditorNav.PingSceneObject(settingsModel.gameObject));
+            if (assetUtility != null)
+                host.AddActionRow("选中资源入口 AssetUtility（包列表 / CDN）",
+                    () => DemoEditorNav.PingSceneObject(assetUtility.gameObject));
 #endif
 
             void RefreshVersions()
             {
-                if (packages.Count == 0) { versionLabel.text = "场景里没有 AssetSystemConfigModel / 未登记任何包。"; return; }
+                if (packages.Count == 0) { versionLabel.text = "场景里没有 AssetUtility / 未登记任何包。"; return; }
                 var lines = new List<string>(packages.Count);
                 foreach (var pkg in packages)
                 {
@@ -109,7 +110,7 @@ namespace Game.Framework.Demo.Modules
 
             // ── 客户端侧：启动更新流程 ──
             host.AddSectionTitle("客户端侧：启动更新流程（强更）");
-            var mode = settingsModel != null ? settingsModel.ActualPlayMode : asset.CurrentPlayMode;
+            var mode = settings != null ? settings.ActualPlayMode : asset.CurrentPlayMode;
             bool isReal = mode == AssetPlayMode.Host || mode == AssetPlayMode.Web;
             var modeBadge = new Label(isReal
                 ? $"当前：{mode} —— 从 CDN 真实检查 / 下载，可完整观察链路"
@@ -134,7 +135,7 @@ namespace Game.Framework.Demo.Modules
 
             host.AddAsyncActionRow("▶ 运行启动更新流程（检查 → 下载 → 回收旧缓存）", async ct =>
             {
-                if (packages.Count == 0) { AppendLog("没有可处理的包（场景缺 AssetSystemConfigModel）。"); return; }
+                if (packages.Count == 0) { AppendLog("没有可处理的包（场景缺 AssetUtility 或未登记包）。"); return; }
                 if (!_operationGate.TryEnter(out var lease)) { AppendLog("上一项资源操作仍在取消 / 收尾，请稍候。"); return; }
                 using (lease)
                 {
