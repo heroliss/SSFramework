@@ -14,7 +14,7 @@ namespace Game.Framework.Storage
     /// </summary>
     /// <remarks>
     /// <b>何时用：</b>想在 Inspector 看到 / 配置存储目录、或希望存储随某个 Context 节点生命周期释放时用本类；
-    /// 全局共享、纯代码配置用 <c>builder.RegisterOwned(new StorageUtility(), typeof(IStorageUtility))</c>（纯 C# 路径）。<br/>
+    /// 全局共享、纯代码配置用 <c>builder.RegisterOwnedUtility(new StorageUtility())</c>（纯 C# 路径）。<br/>
     /// <b>生命周期：</b>继承 <see cref="MonoUtilityBase"/>——Awake 注册为 <see cref="IStorageUtility"/>（+ <c>IUtility</c>），
     /// OnDestroy 反注册并 Dispose 底层实现。<br/>
     /// <b>实现：</b>组合而非继承底层（同 <c>MonoPoolUtility</c> 模式），全部成员转发给内部 <see cref="StorageUtility"/>。

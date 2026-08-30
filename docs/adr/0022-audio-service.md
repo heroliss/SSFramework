@@ -92,7 +92,7 @@ public interface IAudioUtility : IUtility
 
 **得到：**
 
-- BGM 切换（交叉淡变）、一次性/循环音效、设置页三条音量滑条（主 / 音乐 / 音效）开箱即用，零场景配置（`RegisterOwned(new AudioUtility(), ...)` 一行）。
+- BGM 切换（交叉淡变）、一次性/循环音效、设置页三条音量滑条（主 / 音乐 / 音效）开箱即用，零场景配置（`RegisterOwnedUtility(new AudioUtility())` 一行）。
 - 循环音效进 Bag 随宿主自动停——音频生命周期并入框架统一心智，业务不用记「哪里还有环境声没停」。
 - 音量设置与存储模块天然组合（demo 演示 `SettingsData` 持久化回灌），两个模块互相成为对方的活样板。
 

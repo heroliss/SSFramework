@@ -9,9 +9,9 @@ namespace Game.Framework.Pool
     /// <see cref="IPoolUtility"/> 的默认实现：按类型缓存 <see cref="ObjectPool{T}"/>（纯 C# 对象），按 prefab 缓存 <see cref="GameObjectPool"/>。
     /// </summary>
     /// <remarks>
-    /// <b>注册（按生命周期选）：</b>纯 C# 跟随 Context 用 <c>builder.RegisterOwned(new PoolUtility(), typeof(IPoolUtility))</c>——
-    /// 随 <c>GameContext.Dispose</c> 自动清池（销毁停放根 + 空闲实例），可安全 per-Context 注册；不关心释放（全局唯一、随进程退出）
-    /// 用 <c>RegisterValue</c>（不被容器拥有、不会被 Dispose）；需 Inspector 配参数 / 跟随 GameObject 生命周期用 <see cref="MonoPoolUtility"/>。三者复用本类同一套逻辑。<br/>
+    /// <b>注册（按生命周期选）：</b>纯 C# 跟随 Context 用 <c>builder.RegisterOwnedUtility(new PoolUtility())</c>——
+    /// 随 <c>GameContext.Dispose</c> 自动清池（销毁停放根 + 空闲实例），可安全 per-Context 注册；已有外部 owner 时
+    /// 用 <c>RegisterUtility</c>（不被容器拥有）；需 Inspector 配参数 / 跟随 GameObject 生命周期用 <see cref="MonoPoolUtility"/>。三者复用本类同一套逻辑。<br/>
     /// <b>不依赖 Context</b>（无 IGameContext/IAssetUtility 引用），可被父子 Context 共享（子级解析未命中会回退父级）。主线程独占。<br/>
     /// GameObject 池首次使用时惰性创建一个停用的 DontDestroyOnLoad parking 节点存放空闲实例——这让本工具触及 Unity 场景，
     /// 但仍不依赖框架 Context；位置加载交由调用方先 <c>Bag.Load&lt;GameObject&gt;(location)</c> 再建池，刻意不把 IAssetUtility 拉进来。
@@ -133,7 +133,7 @@ namespace Game.Framework.Pool
         /// 已 Spawn 出去的活动实例挂在调用方节点下、不在停放区，<b>不</b>受影响（归调用方生命周期）。幂等。
         /// </summary>
         /// <remarks>
-        /// 由 <c>ContainerBuilder.RegisterOwned</c> + <c>GameContext.Dispose</c>（纯 C# 路径），
+        /// 由 <c>ContainerBuilder.RegisterOwnedUtility</c> + <c>GameContext.Dispose</c>（纯 C# 路径），
         /// 或 <c>MonoPoolUtility.OnDestroy</c>（Mono 路径）调用，让池生命周期跟随其归属 Context / GameObject。
         /// </remarks>
         public void Dispose()

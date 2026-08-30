@@ -59,7 +59,7 @@ namespace Game.Framework.Flow
     /// </remarks>
     public sealed class GameFlow : IGameFlow, IHasGameContext, IDisposable
     {
-        private GameContext _context; // RegisterOwned 注册即注入时由 AttachTo 回填
+        private GameContext _context; // RegisterOwnedSystem 注册即注入时由 AttachTo 回填
         private FlowState _current;
         private FlowState _exiting;   // OnExit 已开始但尚未物理结束；Dispose 必须能立即撤其 scope
         private FlowState _entering;  // 在途进入的状态：Dispose 需要能直接撤它的子 Context
@@ -179,7 +179,7 @@ namespace Game.Framework.Flow
                     }
 
                     // 2) 构建新状态的子 Context：宿主容器为父级 + 状态私有绑定。
-                    //    RegisterOwned 的绑定在 GameContext 构造时注入+回填（ADR-0019），状态内子 flow 等由此成活。
+                    //    RegisterOwnedSystem 的值绑定在 GameContext 构造时注入+回填（ADR-0019），状态内子 flow 等由此成活。
                     GameContext scope = null;
                     try
                     {
@@ -284,7 +284,7 @@ namespace Game.Framework.Flow
 
         /// <summary>
         /// 释放流程：取消排队与在途进入，当前 / 半进入状态的子 Context 整棵撤。幂等。
-        /// 由宿主 <c>GameContext.Dispose</c>（RegisterOwned 逆序释放）调用；转换循环若在途，
+        /// 由宿主 <c>GameContext.Dispose</c>（RegisterOwnedSystem 逆序释放）调用；转换循环若在途，
         /// 恢复后自查 Dispose 标记收尾（DisposeScope 幂等，先撤不冲突）。
         /// </summary>
         public void Dispose()

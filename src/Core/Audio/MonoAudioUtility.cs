@@ -11,7 +11,7 @@ namespace Game.Framework.Audio
     /// </summary>
     /// <remarks>
     /// <b>何时用：</b>想在 Inspector 配置初始音量并在运行时观察音频状态、或希望音频随某个 Context 节点生命周期释放时用本类；
-    /// 全局共享、纯代码配置用 <c>builder.RegisterOwned(new AudioUtility(), typeof(IAudioUtility))</c>（纯 C# 路径）。<br/>
+    /// 全局共享、纯代码配置用 <c>builder.RegisterOwnedUtility(new AudioUtility())</c>（纯 C# 路径）。<br/>
     /// <b>生命周期：</b>继承 <see cref="MonoUtilityBase"/>——Awake 注册为 <see cref="IAudioUtility"/>（+ <c>IUtility</c>），
     /// OnDestroy 反注册并 Dispose 底层实现（销毁音频根节点，全部停声）。<br/>
     /// <b>实现：</b>组合而非继承底层（同 <c>MonoPoolUtility</c> / <c>MonoStorageUtility</c> 模式），

@@ -9,7 +9,7 @@ namespace Game.Framework.Utility
     /// </summary>
     /// <remarks>
     /// <b>谁该用：</b>需要 Inspector 配置（如 <c>EncryptUtility._key</c>）、Unity 生命周期或 Hierarchy 可见性的 Utility。
-    /// 不需要 MonoBehaviour 的纯 C# Utility 按所有权用 <c>RegisterValue</c> / <c>RegisterOwned</c> 注册，无需此基类。<br/>
+    /// 不需要 MonoBehaviour 的纯 C# Utility 按所有权用 <c>RegisterUtility</c> / <c>RegisterOwnedUtility</c> 注册，无需此基类。<br/>
     /// <b>执行顺序：</b><c>DefaultExecutionOrder(-400)</c>，最早执行。
     /// Utility 不依赖任何业务层，先注册让后续 Model/System Awake 可以 <c>[Inject]</c> 到。<br/>
     /// <b>边界：</b>

@@ -23,8 +23,8 @@ namespace Game.Framework.Demo.Modules
 
         public override void InstallBindings(ContainerBuilder builder)
         {
-            builder.RegisterValue(new WalletModel(), typeof(WalletModel));
-            builder.RegisterValue(new ShopSystem(), typeof(IShopSystem));
+            builder.RegisterModel(new WalletModel());
+            builder.RegisterSystem(new ShopSystem());
         }
 
         public override void Build(DemoModuleHost host)

@@ -12,7 +12,7 @@ namespace Game.Framework.Demo.Modules
     /// <summary>
     /// 能力·音频：全局播放编排——音乐单通道（切换自动交叉淡变）、池化音效（一次性播完自动回收、
     /// 循环音效 handle 进 Bag 随宿主自动停）、分组音量（主 × 组 × 单次，滑条即时生效）。
-    /// 本章的 <see cref="IAudioUtility"/> 经 <see cref="InstallBindings"/> 用 RegisterOwned 注册（纯 C# 服务的标准路径）。
+    /// 本章的 <see cref="IAudioUtility"/> 经 <see cref="InstallBindings"/> 用 RegisterOwnedUtility 注册（纯 C# 服务的标准路径）。
     /// </summary>
     public sealed class AudioDemoModule : DemoModuleBase
     {
@@ -33,13 +33,14 @@ namespace Game.Framework.Demo.Modules
         private AudioHandle _loopHandle;
 
         /// <summary>
-        /// 纯 C# 服务的标准注册路径：RegisterOwned = 随 Context Dispose 自动全停（这里即退出 Play / 切走本章）。
+        /// 纯 C# 服务的标准注册路径：RegisterOwnedUtility 自动推导具体类型与 Utility Interface，
+        /// 并随 Context Dispose 自动全停（这里即退出 Play / 切走本章）。
         /// 挂场景节点、要 Inspector 配初始音量的项目用 MonoAudioUtility（同一套逻辑的 Mono 壳）。
         /// 本阶段只声明注册关系；Build 需要的运行时对象仍从 Context 解析，让所有权与 View 权限保持清晰。
         /// </summary>
         public override void InstallBindings(ContainerBuilder builder)
         {
-            builder.RegisterOwned(new AudioUtility(), typeof(IAudioUtility));
+            builder.RegisterOwnedUtility(new AudioUtility());
         }
 
         public override void Build(DemoModuleHost host)
@@ -69,8 +70,8 @@ namespace Game.Framework.Demo.Modules
 
             // ── 注册方式 ──
             host.AddSectionTitle("注册：纯 C# 服务的三选一");
-            host.AddNote("本章的 `IAudioUtility` 在 `InstallBindings` 里 `RegisterOwned` 注册（随 Context Dispose 自动全停，纯 C# 服务推荐路径）。另两条路：全局唯一不管释放用 `RegisterValue`；要 Inspector 配初始音量 / 跟随场景节点用 `MonoAudioUtility`（同一套逻辑的 Mono 壳，挂 Context 子节点即注册）。",
-                CodeRef.Here("builder.RegisterOwned(new AudioUtility()", "本章的注册代码"));
+            host.AddNote("本章的 `IAudioUtility` 在 `InstallBindings` 里 `RegisterOwnedUtility` 注册：自动登记具体类型与 Utility Interface，并随 Context Dispose 自动全停。另两条路：生命周期由外部持有时用 `RegisterUtility`；要 Inspector 配初始音量 / 跟随场景节点用 `MonoAudioUtility`（同一套逻辑的 Mono 壳，挂 Context 子节点即注册）。",
+                CodeRef.Here("builder.RegisterOwnedUtility(new AudioUtility()", "本章的注册代码"));
 
             // ── 音乐单通道 ──
             host.AddSectionTitle("音乐：全局单通道，切换自动交叉淡变");

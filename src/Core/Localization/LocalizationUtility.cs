@@ -10,7 +10,7 @@ namespace Game.Framework.Localization
     /// 集中执行「源可用性 → 当前 locale → fallbackLocale → 裸 key」查询链。纯 C#、除 R3 外零依赖。
     /// </summary>
     /// <remarks>
-    /// <b>注册：</b>已有 source 时用 <c>builder.RegisterOwned(new LocalizationUtility(source, "zh-CN", fallbackLocale: "en"), typeof(ILocalizationUtility))</c>；
+    /// <b>注册：</b>已有 source 时用 <c>builder.RegisterOwnedUtility(new LocalizationUtility(source, "zh-CN", fallbackLocale: "en"))</c>；
     /// source 需从容器解析其他服务时用 <c>RegisterOwnedFactory</c>，既延迟接线又保留 Context 所有权。<br/>
     /// <b>缺 key 警告去重</b>：同一 (locale, key) 只警告一次——绑定标签每次推送都会重查，不去重会刷屏。<br/>
     /// <b>Dispose</b>：完结 <see cref="Locale"/> 订阅（随宿主 Context 释放）；之后 <see cref="Get(string)"/> 仍可安全调用
