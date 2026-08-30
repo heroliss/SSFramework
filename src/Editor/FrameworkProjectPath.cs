@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using UnityEngine;
 
 namespace Game.Framework.Editor
@@ -11,6 +13,27 @@ namespace Game.Framework.Editor
     /// </summary>
     public static class FrameworkProjectPath
     {
+        /// <summary>
+        /// 一次递归读取所得的物理目录树。目录和文件都是规范化绝对路径；采集遇到 symlink、junction
+        /// 或其它 reparse point 会在返回前失败，因此调用方可安全地继续只读、复制或清理。
+        /// </summary>
+        public sealed class PhysicalTreeSnapshot
+        {
+            /// <summary>规范化后的扫描根目录。</summary>
+            public string Root { get; }
+            /// <summary>根目录下的全部子目录，不包含 <see cref="Root"/>。</summary>
+            public IReadOnlyList<string> Directories { get; }
+            /// <summary>符合文件名模式的全部文件。</summary>
+            public IReadOnlyList<string> Files { get; }
+
+            internal PhysicalTreeSnapshot(string root, string[] directories, string[] files)
+            {
+                Root = root;
+                Directories = directories;
+                Files = files;
+            }
+        }
+
         /// <summary>
         /// 解析工程相对路径。成功时返回使用正斜杠的规范化工程相对路径和绝对路径；空值、绝对路径、
         /// 非法路径或通过 <c>..</c> 逃出工程根目录时返回 <c>false</c>，并在 <paramref name="error"/> 说明原因。
@@ -50,6 +73,11 @@ namespace Game.Framework.Editor
                 if (!IsSameOrChild(resolved, projectRoot, FileSystemPathComparison))
                 {
                     error = $"路径越过了工程根目录：{configuredPath}";
+                    return false;
+                }
+                if (!TryValidatePhysicalPath(projectRoot, resolved, out string physicalError))
+                {
+                    error = ToStableProjectError(physicalError, projectRoot);
                     return false;
                 }
 
@@ -176,14 +204,173 @@ namespace Game.Framework.Editor
                     Path.GetFullPath(rightPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
                     PortableAssetPathComparison);
 
+        /// <summary>
+        /// 按跨平台保守口径判断 <paramref name="candidateAbsolutePath"/> 是否等于或位于
+        /// <paramref name="absoluteDirectory"/> 内。参数必须是已经解析的绝对路径。
+        /// </summary>
+        internal static bool ContainsPath(string absoluteDirectory, string candidateAbsolutePath) =>
+            IsSameOrChild(candidateAbsolutePath, absoluteDirectory, PortableAssetPathComparison);
+
+        /// <summary>
+        /// 验证绝对候选路径位于指定绝对边界内，并逐级拒绝已经存在的 symlink、junction、其它 reparse point
+        /// 与阻塞后续子路径的普通文件。候选末端可以是普通文件、目录或尚不存在；本方法不扫描其子树。
+        /// </summary>
+        public static bool TryValidatePhysicalPath(
+            string boundaryAbsoluteDirectory,
+            string candidateAbsolutePath,
+            out string error)
+        {
+            error = string.Empty;
+            if (string.IsNullOrWhiteSpace(boundaryAbsoluteDirectory) ||
+                string.IsNullOrWhiteSpace(candidateAbsolutePath))
+            {
+                error = "物理路径边界与候选路径都不能为空。";
+                return false;
+            }
+            if (!Path.IsPathRooted(boundaryAbsoluteDirectory) || !Path.IsPathRooted(candidateAbsolutePath))
+            {
+                error = "物理路径安全检查只接受绝对路径。";
+                return false;
+            }
+
+            try
+            {
+                string boundary = NormalizeAbsolutePath(boundaryAbsoluteDirectory);
+                string candidate = NormalizeAbsolutePath(candidateAbsolutePath);
+                if (!Directory.Exists(boundary))
+                {
+                    error = "物理路径边界不存在或不是目录：" + boundary;
+                    return false;
+                }
+                if (!IsSameOrChild(candidate, boundary, FileSystemPathComparison))
+                {
+                    error = $"物理路径越过了受信边界：{candidate}（边界：{boundary}）";
+                    return false;
+                }
+
+                string relative = Path.GetRelativePath(boundary, candidate);
+                string[] segments = relative == "."
+                    ? Array.Empty<string>()
+                    : relative.Split(
+                        new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
+                        StringSplitOptions.RemoveEmptyEntries);
+                string current = boundary;
+                if (!TryValidateExistingNode(current, allowFile: false, out error)) return false;
+                for (int index = 0; index < segments.Length; index++)
+                {
+                    current = Path.Combine(current, segments[index]);
+                    if (!TryGetAttributes(current, out FileAttributes attributes)) break;
+                    if ((attributes & FileAttributes.ReparsePoint) != 0)
+                    {
+                        error = "路径不允许穿过符号链接、目录联接或其它 reparse point：" + current;
+                        return false;
+                    }
+                    bool isDirectory = (attributes & FileAttributes.Directory) != 0;
+                    if (!isDirectory && index < segments.Length - 1)
+                    {
+                        error = "路径中的父级已被普通文件占用：" + current;
+                        return false;
+                    }
+                }
+                return true;
+            }
+            catch (Exception exception) when (
+                exception is ArgumentException or NotSupportedException or PathTooLongException or
+                IOException or UnauthorizedAccessException)
+            {
+                error = $"无法验证物理路径：{exception.GetType().Name}: {exception.Message}";
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 递归采集物理目录树，但绝不跟随 symlink、junction 或其它 reparse point。文件名模式只能是
+        /// <c>*.proto</c> 这类单段模式，不能包含目录分隔符；任何不安全节点都会让整次采集在返回前失败。
+        /// </summary>
+        public static PhysicalTreeSnapshot CapturePhysicalTree(
+            string absoluteRootDirectory,
+            string searchPattern = "*")
+        {
+            if (string.IsNullOrWhiteSpace(absoluteRootDirectory))
+                throw new ArgumentException("扫描根目录不能为空。", nameof(absoluteRootDirectory));
+            if (!Path.IsPathRooted(absoluteRootDirectory))
+                throw new ArgumentException("扫描根目录必须是绝对路径。", nameof(absoluteRootDirectory));
+            ValidateSearchPattern(searchPattern);
+
+            string root = NormalizeAbsolutePath(absoluteRootDirectory);
+            if (!Directory.Exists(root))
+                throw new DirectoryNotFoundException("扫描根目录不存在：" + root);
+            if (!TryValidatePhysicalPath(root, root, out string rootError))
+                throw new InvalidDataException(rootError);
+
+            var directories = new List<string>();
+            var files = new List<string>();
+            var pending = new Stack<string>();
+            pending.Push(root);
+            while (pending.Count > 0)
+            {
+                string directory = pending.Pop();
+                string[] childDirectories = Directory.GetDirectories(
+                    directory, "*", SearchOption.TopDirectoryOnly);
+                foreach (string childDirectory in childDirectories)
+                {
+                    EnsureNotReparsePoint(childDirectory);
+                    directories.Add(Path.GetFullPath(childDirectory));
+                    pending.Push(childDirectory);
+                }
+
+                string[] allFiles = Directory.GetFiles(directory, "*", SearchOption.TopDirectoryOnly);
+                foreach (string file in allFiles) EnsureNotReparsePoint(file);
+                IEnumerable<string> matchingFiles = searchPattern == "*"
+                    ? allFiles
+                    : Directory.GetFiles(directory, searchPattern, SearchOption.TopDirectoryOnly);
+                files.AddRange(matchingFiles.Select(Path.GetFullPath));
+            }
+
+            return new PhysicalTreeSnapshot(
+                root,
+                directories.Distinct(FileSystemPathComparer)
+                    .OrderBy(path => path, StringComparer.Ordinal)
+                    .ToArray(),
+                files.Distinct(FileSystemPathComparer)
+                    .OrderBy(path => path, StringComparer.Ordinal)
+                    .ToArray());
+        }
+
+        /// <summary>
+        /// 删除边界内部的一棵目录树。删除前先完整验证目标与全部后代都不是 reparse point，目标不能等于边界；
+        /// 因此遇到符号链接时不会先删一半再失败，也不会跟随链接删除边界外内容。
+        /// </summary>
+        public static void DeleteDirectoryWithinBoundary(
+            string absoluteDirectory,
+            string boundaryAbsoluteDirectory)
+        {
+            if (!TryValidatePhysicalPath(
+                    boundaryAbsoluteDirectory, absoluteDirectory, out string validationError))
+                throw new InvalidOperationException(validationError);
+            string directory = NormalizeAbsolutePath(absoluteDirectory);
+            string boundary = NormalizeAbsolutePath(boundaryAbsoluteDirectory);
+            if (directory.Equals(boundary, FileSystemPathComparison))
+                throw new InvalidOperationException("拒绝删除受信边界本身：" + boundary);
+            if (!Directory.Exists(directory)) return;
+
+            PhysicalTreeSnapshot tree = CapturePhysicalTree(directory);
+            foreach (string file in tree.Files) File.Delete(file);
+            foreach (string child in tree.Directories.OrderByDescending(path => path.Length))
+                Directory.Delete(child, recursive: false);
+            Directory.Delete(directory, recursive: false);
+        }
+
         private static bool IsSameOrChild(string path, string root, StringComparison comparison)
         {
-            string normalizedPath = Path.GetFullPath(path)
-                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            string normalizedRoot = Path.GetFullPath(root)
-                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            string normalizedPath = NormalizeAbsolutePath(path);
+            string normalizedRoot = NormalizeAbsolutePath(root);
             if (normalizedPath.Equals(normalizedRoot, comparison)) return true;
-            return normalizedPath.StartsWith(normalizedRoot + Path.DirectorySeparatorChar, comparison);
+            string rootPrefix = normalizedRoot.EndsWith(Path.DirectorySeparatorChar.ToString(), comparison) ||
+                                normalizedRoot.EndsWith(Path.AltDirectorySeparatorChar.ToString(), comparison)
+                ? normalizedRoot
+                : normalizedRoot + Path.DirectorySeparatorChar;
+            return normalizedPath.StartsWith(rootPrefix, comparison);
         }
 
         private static bool LooksLikeAbsolutePath(string path) =>
@@ -191,6 +378,75 @@ namespace Game.Framework.Editor
             (path.Length >= 2 && char.IsLetter(path[0]) && path[1] == ':') ||
             path.StartsWith("\\\\", StringComparison.Ordinal) ||
             path.StartsWith("//", StringComparison.Ordinal);
+
+        private static string NormalizeAbsolutePath(string path)
+        {
+            string full = Path.GetFullPath(path);
+            string root = Path.GetPathRoot(full) ?? string.Empty;
+            return full.Equals(root, FileSystemPathComparison)
+                ? full
+                : full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
+
+        private static bool TryValidateExistingNode(string path, bool allowFile, out string error)
+        {
+            error = string.Empty;
+            if (!TryGetAttributes(path, out FileAttributes attributes))
+            {
+                error = "物理路径节点不存在：" + path;
+                return false;
+            }
+            if ((attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                error = "路径不允许穿过符号链接、目录联接或其它 reparse point：" + path;
+                return false;
+            }
+            if (!allowFile && (attributes & FileAttributes.Directory) == 0)
+            {
+                error = "物理路径边界不是目录：" + path;
+                return false;
+            }
+            return true;
+        }
+
+        private static bool TryGetAttributes(string path, out FileAttributes attributes)
+        {
+            try
+            {
+                attributes = File.GetAttributes(path);
+                return true;
+            }
+            catch (FileNotFoundException)
+            {
+                attributes = default;
+                return false;
+            }
+            catch (DirectoryNotFoundException)
+            {
+                attributes = default;
+                return false;
+            }
+        }
+
+        private static void EnsureNotReparsePoint(string path)
+        {
+            FileAttributes attributes = File.GetAttributes(path);
+            if ((attributes & FileAttributes.ReparsePoint) != 0)
+                throw new InvalidDataException(
+                    "递归文件操作不允许符号链接、目录联接或其它 reparse point：" + path);
+        }
+
+        private static void ValidateSearchPattern(string searchPattern)
+        {
+            if (string.IsNullOrWhiteSpace(searchPattern) ||
+                Path.IsPathRooted(searchPattern) ||
+                searchPattern.IndexOf('/') >= 0 ||
+                searchPattern.IndexOf('\\') >= 0 ||
+                searchPattern is "." or "..")
+                throw new ArgumentException(
+                    "文件名模式不能为空、不能是 . / ..，也不能包含根路径或目录分隔符。",
+                    nameof(searchPattern));
+        }
 
         private static bool TryFindBlockingFileAncestor(
             string absoluteTargetPath,
@@ -220,10 +476,31 @@ namespace Game.Framework.Editor
             return false;
         }
 
+        private static string ToStableProjectError(string physicalError, string projectRoot)
+        {
+            if (string.IsNullOrEmpty(physicalError)) return string.Empty;
+            string normalizedRoot = NormalizeAbsolutePath(projectRoot);
+            int rootIndex = physicalError.IndexOf(normalizedRoot, FileSystemPathComparison);
+            if (rootIndex < 0) return physicalError;
+
+            int suffixStart = rootIndex + normalizedRoot.Length;
+            while (suffixStart < physicalError.Length &&
+                   (physicalError[suffixStart] == Path.DirectorySeparatorChar ||
+                    physicalError[suffixStart] == Path.AltDirectorySeparatorChar))
+                suffixStart++;
+            string relative = physicalError[suffixStart..].Replace('\\', '/');
+            return physicalError[..rootIndex] + (string.IsNullOrEmpty(relative) ? "." : relative);
+        }
+
         private static StringComparison FileSystemPathComparison =>
             Application.platform == RuntimePlatform.WindowsEditor
                 ? StringComparison.OrdinalIgnoreCase
                 : StringComparison.Ordinal;
+
+        private static StringComparer FileSystemPathComparer =>
+            Application.platform == RuntimePlatform.WindowsEditor
+                ? StringComparer.OrdinalIgnoreCase
+                : StringComparer.Ordinal;
 
         // Unity Asset Path 会入库并在 Windows/macOS/Linux 间流转。所有权检查用最保守的大小写口径，
         // 防止两个仅大小写不同的配置在另一开发机上合并成同一真实产物。
