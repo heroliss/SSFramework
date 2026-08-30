@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using Cysharp.Threading.Tasks;
+using Game.Framework.Command;
 using Game.Framework.Common;
 using Game.Framework.Context;
 using Game.Framework.Demo.Core;
@@ -38,7 +39,8 @@ namespace Game.Framework.Demo.Modules
 
         public override void Build(DemoModuleHost host)
         {
-            var flow = this.GetUtility<IGameFlow>();
+            // DemoModuleBase 与真实 View 权限一致：只通过一次查询 Command 取得只读投影，不直接拿可写 System。
+            var flowView = this.ExecuteCommand<GetFlowProjectionCommand, FlowProjection>(default);
 
             // ── 定位 ──
             host.AddPositioning("游戏宏观阶段的显式结构 + 作用域整棵撤");
@@ -48,16 +50,18 @@ namespace Game.Framework.Demo.Modules
 
             // ── 注册方式 ──
             host.AddSectionTitle("注册：RegisterOwned，随宿主 Context 存亡");
-            host.AddNote("本章的 `IGameFlow` 在 `InstallBindings` 里 `RegisterOwned` 注册——「注册即注入」自动回填宿主 Context，宿主 Dispose 时 flow 连同当前状态子 Context 一并撤。流程比场景活得长，刻意没有 Mono 版。",
+            host.AddNote("本章的 `IGameFlow` System 在 `InstallBindings` 里 `RegisterOwned` 注册——「注册即注入」自动回填宿主 Context，宿主 Dispose 时 flow 连同当前状态子 Context 一并撤。流程比场景活得长，刻意没有 Mono 版。",
                 CodeRef.Here("builder.RegisterOwned(new GameFlow()", "本章的注册代码"));
+            host.AddSubNote("View 不直接取得可写的 `IGameFlow`：流转意图经异步 Command 发出；持续状态经查询 Command 一次取得只读投影。这样按钮仍只能表达“做什么”，转换、排队、取消和阶段作用域所有权都留在 System。",
+                CodeRef.Here("struct RequestFlowStateCommand", "View → Command → Flow System"));
 
             // ── 状态面板 ──
             host.AddSectionTitle("当前阶段与流转日志");
             var stateLabel = host.AddValueDisplay();
             stateLabel.schedule.Execute(() =>
             {
-                stateLabel.text = $"当前阶段：{flow.Current?.ToString() ?? "（未启动）"}" +
-                                  (flow.IsTransitioning ? "　|　转换中…" : string.Empty);
+                stateLabel.text = $"当前阶段：{flowView.Current?.ToString() ?? "（未启动）"}" +
+                                  (flowView.IsTransitioning ? "　|　转换中…" : string.Empty);
             }).Every(100);
 
             var logLabel = host.AddValueDisplay("（流转日志将出现在这里）");
@@ -83,18 +87,18 @@ namespace Game.Framework.Demo.Modules
 
             // ── 转换按钮 ──
             host.AddSectionTitle("流转：GoTo 是唯一动词");
-            host.AddAsyncActionRow("进「启动」（模拟初始化 1s）", ct => Go(flow, new BootDemoState(report), report, ct),
+            host.AddAsyncActionRow("进「启动」（模拟初始化 1s）", ct => Go(new BootDemoState(report), report, ct),
                 CodeRef.Here("new BootDemoState(report)", "进入启动"));
-            host.AddAsyncActionRow("进「登录」", ct => Go(flow, new LoginDemoState(report), report, ct),
+            host.AddAsyncActionRow("进「登录」", ct => Go(new LoginDemoState(report), report, ct),
                 CodeRef.Here("new LoginDemoState(report)", "进入登录"));
-            host.AddAsyncActionRow("登录成功 → 「大厅」（注册阶段私有服务）", ct => Go(flow, new LobbyDemoState(report), report, ct),
+            host.AddAsyncActionRow("登录成功 → 「大厅」（注册阶段私有服务）", ct => Go(new LobbyDemoState(report), report, ct),
                 CodeRef.Here("new LobbyDemoState(report)", "进入大厅"));
 
             var levelSlider = new SliderInt("关卡号（构造参数）", 1, 10) { value = 3, showInputField = true };
             levelSlider.AddToClassList("demo-slider");
             host.Content.Add(levelSlider);
             host.AddAsyncActionRow("进「战斗」（带关卡号，模拟加载 1.5s）",
-                ct => Go(flow, new BattleDemoState(levelSlider.value, report), report, ct),
+                ct => Go(new BattleDemoState(levelSlider.value, report), report, ct),
                 CodeRef.Here("new BattleDemoState(levelSlider.value", "带参进入战斗"));
 
             host.AddNote("**观察整棵撤**：进大厅时日志出现「宝箱服务已注册」（`LobbyDemoState.InstallBindings` 里 RegisterOwned 的阶段私有服务）；切去任意别处时出现「宝箱服务已随子 Context 撤除」——没有任何手写清理代码，这就是「每状态一个子 Context」买到的东西。",
@@ -113,8 +117,7 @@ namespace Game.Framework.Demo.Modules
         }
 
         // GoTo 的三种结局都写进日志：完成 / 被更新的 GoTo 顶替（取消）/ Enter 失败（异常冒出，调用方决定去处）。
-        private static async UniTask Go(
-            IGameFlow flow,
+        private async UniTask Go(
             FlowState next,
             Action<string> report,
             CancellationToken chapterCt)
@@ -122,7 +125,7 @@ namespace Game.Framework.Demo.Modules
             try
             {
                 chapterCt.ThrowIfCancellationRequested();
-                await flow.GoTo(next);
+                await this.ExecuteCommandAsync(new RequestFlowStateCommand(next), chapterCt);
                 chapterCt.ThrowIfCancellationRequested();
                 report($"GoTo {next} 完成 ✓");
             }
@@ -137,6 +140,42 @@ namespace Game.Framework.Demo.Modules
             catch (Exception e)
             {
                 report($"GoTo {next} 失败：{e.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 查询 Command 返回的只读投影：只委托稳定读操作，不把 <see cref="IGameFlow.GoTo"/> 泄漏给 View。
+        /// 投影不持有独立状态、不进容器，唯一真源仍是 GameFlow System。
+        /// </summary>
+        private sealed class FlowProjection
+        {
+            private readonly IGameFlow _flow;
+
+            public FlowProjection(IGameFlow flow) => _flow = flow;
+            public FlowState Current => _flow.Current;
+            public bool IsTransitioning => _flow.IsTransitioning;
+        }
+
+        private readonly struct GetFlowProjectionCommand : ICommand<FlowProjection>
+        {
+            public FlowProjection Execute(ICommandContext ctx) => new(ctx.GetSystem<IGameFlow>());
+        }
+
+        /// <summary>
+        /// View 的流程写入口。调用方取消只停止本章后续 UI 反馈，不会擅自撤销已经交给全局 Flow 的业务意图；
+        /// 物理转换仍由本 Command 等到终态，确保失败不会成为无人观察的 UniTask。
+        /// </summary>
+        private readonly struct RequestFlowStateCommand : IAsyncCommand
+        {
+            private readonly FlowState _next;
+
+            public RequestFlowStateCommand(FlowState next) => _next = next;
+
+            public async UniTask ExecuteAsync(ICommandContext ctx, CancellationToken cancellationToken)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                await ctx.GetSystem<IGameFlow>().GoTo(_next);
+                cancellationToken.ThrowIfCancellationRequested();
             }
         }
 

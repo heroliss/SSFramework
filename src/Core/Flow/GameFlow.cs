@@ -8,8 +8,8 @@ using Game.Framework.Logging;
 namespace Game.Framework.Flow
 {
     /// <summary>
-    /// <see cref="IGameFlow"/> 的默认实现：串行转换循环 + 最新意图胜排队（一格）+ 每状态一个子 Context。
-    /// 纯 C#、零第三方依赖（仅 UniTask），不发明新作用域机制——只是把 <c>SetParent</c> /
+    /// <see cref="IGameFlow"/> System 的默认实现：串行转换循环 + 最新意图胜排队（一格）+ 每状态一个子 Context。
+    /// 纯 C#、零 Unity 对象依赖（异步仅用 UniTask），不发明新作用域机制——只是把 <c>SetParent</c> /
     /// <c>InstallBindings</c> / <c>Dispose</c> / CancellationToken 这些既有原语按正确顺序编排起来。
     /// </summary>
     /// <remarks>
@@ -172,10 +172,18 @@ namespace Game.Framework.Flow
                         transitionFrom = null;
                         tcs.TrySetResult();
                     }
-                    catch (OperationCanceledException)
+                    catch (OperationCanceledException) when (_enterCts.IsCancellationRequested)
                     {
                         next.DisposeScope();
                         tcs.TrySetCanceled();
+                    }
+                    catch (OperationCanceledException e)
+                    {
+                        next.DisposeScope();
+                        tcs.TrySetException(new InvalidOperationException(
+                            $"FlowState '{next.GetType().Name}' 的 OnEnter 在 GameFlow 未请求取消时抛出了 OperationCanceledException。" +
+                            "这通常表示下游操作自行取消；请在状态内决定重试、降级或改抛能说明原因的异常。",
+                            e));
                     }
                     catch (Exception e)
                     {
