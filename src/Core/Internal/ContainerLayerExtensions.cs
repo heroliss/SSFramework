@@ -16,9 +16,22 @@ namespace Game.Framework.Internal
         public static void RegisterFor<TLayer>(this Container container, object instance, string label) where TLayer : class
         {
             var concreteType = instance.GetType();
-            container.RegisterOverride(concreteType, instance, label);
-            foreach (var iface in LayerInterfacesCache.GetLayerInterfaces(concreteType, typeof(TLayer)))
-                container.RegisterOverride(iface, instance, label);
+            Type[] interfaces = LayerInterfacesCache.GetLayerInterfaces(concreteType, typeof(TLayer));
+
+            // 一个层对象会同时占用“具体类型 + 多个层 Interface”。必须先检查完整 contract 集，
+            // 否则后面的共享 Interface 冲突时，前面已经写入的具体类型会成为一次失败注册的幽灵残留。
+            EnsureOverrideCanCommit(container, concreteType, label);
+            for (int i = 0; i < interfaces.Length; i++)
+                EnsureOverrideCanCommit(container, interfaces[i], label);
+
+            // Container 主线程独占；预检与下面提交之间没有并发写入，也没有用户回调。
+            container.ReplaceOverride(concreteType, instance);
+            for (int i = 0; i < interfaces.Length; i++)
+                container.ReplaceOverride(interfaces[i], instance);
+
+            Log.Trace($"[Container] 注册 {concreteType.Name}：{label}");
+            for (int i = 0; i < interfaces.Length; i++)
+                Log.Trace($"[Container] 注册 {interfaces[i].Name}：{label}");
         }
 
         /// <summary>取消注册实例。仅当值匹配时才移除，避免误删同名类型的新注册。</summary>
@@ -30,28 +43,21 @@ namespace Game.Framework.Internal
                 container.RemoveOverride(iface, instance);
         }
 
-        /// <summary>
-        /// 注册运行时覆盖项。同层同契约重复注册会抛异常；已销毁的 UnityEngine.Object 允许替换。
-        /// </summary>
-        public static void RegisterOverride(this Container container, Type contractType, object instance, string label)
+        /// <summary>预检单个运行时覆盖键；完整 contract 集全部通过后才由调用方统一提交。</summary>
+        private static void EnsureOverrideCanCommit(
+            Container container,
+            Type contractType,
+            string label)
         {
             if (container.TryGetOverride(contractType, out var existing))
             {
                 if (existing is UnityEngine.Object uObj && uObj == null)
-                {
-                    container.ReplaceOverride(contractType, instance);
-                    Log.Trace($"[Container] 替换 {contractType.Name}：{label}（旧实例已销毁）");
                     return;
-                }
 
                 throw new InvalidOperationException(
                     $"[Container] 契约 '{contractType.Name}' 重复注册：" +
                     $"'{label}' 与已注册的 '{existing.GetType().Name}' 冲突。");
             }
-
-            container.ReplaceOverride(contractType, instance);
-            // 容器每注册一次就走这里：插值处理器让 Verbose 关时连字符串都不拼（旧的 LogVerbose(string) 是先拼好再丢弃）。
-            Log.Trace($"[Container] 注册 {contractType.Name}：{label}");
         }
     }
 }
