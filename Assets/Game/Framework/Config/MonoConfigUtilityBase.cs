@@ -27,6 +27,10 @@ namespace Game.Framework
     /// 并行读进内存，再用同步取字节委托一次性构造。数据文件按普通资源收集（<c>.bytes</c> 即 TextAsset），经
     /// <c>Bag.LoadBytes</c> 直读（拷出即释放句柄），本类不持任何资源句柄；加载会等资源系统就绪，业务无需关心时序。
     /// 失败置 <see cref="ConfigInitState.Failed"/> 并落日志；命令式调用方可经 <see cref="EnsureReady"/> 取得表根或重新收到原始异常。</para>
+    ///
+    /// <para><b>生命周期：</b>Context 取消会终止共享加载及未完成的 <see cref="EnsureReady"/> 等待；
+    /// 配置组件销毁还会 Dispose <see cref="State"/> 使订阅正常完结。取消回调即使抛异常也不会截断状态流、
+    /// Bag 与 Context 反注册的后续清理。</para>
     /// </summary>
     /// <typeparam name="TTables">配置表根类型。</typeparam>
     [DefaultExecutionOrder(-400)]
@@ -91,19 +95,54 @@ namespace Game.Framework
         // 子类自己声明 Start() 会静默顶掉这里的加载且无编译警告；virtual 让子类必须写 override（并调 base.Start()）。
         protected virtual void Start()
         {
+            // 只链接 Context；组件自身销毁由 OnDestroy 在 try/catch 边界内显式 Cancel。
+            // Unity 的 GetCancellationTokenOnDestroy 会在 OnDestroy 之前先取消，直接链它会让 Provider 的坏回调
+            // 越过本类的异常隔离、先落到 Unity 原生销毁通道。
             _cts = CancellationTokenSource.CreateLinkedTokenSource(
-                this.GetCancellationTokenOnDestroy(),
                 ((IHasGameContext)this).Context.CancellationToken);
             LoadAsync(_cts.Token).Forget();
         }
 
         protected override void OnDestroy()
         {
-            _cts?.Cancel();
-            _completion.TrySetCanceled();
-            _cts?.Dispose();
+            var owner = _cts;
             _cts = null;
-            base.OnDestroy();
+            try
+            {
+                if (owner != null)
+                {
+                    try
+                    {
+                        owner.Cancel();
+                    }
+                    catch (Exception exception)
+                    {
+                        // Provider / 等待者可以向 owner token 注册回调；单个坏回调不能把 Mono 清理停在半途。
+                        Log.Error(
+                            "配置共享加载的取消回调执行失败；状态流、Bag 与 Context 反注册仍会继续。",
+                            exception,
+                            "ConfigUtility",
+                            this);
+                    }
+                    finally
+                    {
+                        owner.Dispose();
+                    }
+                }
+            }
+            finally
+            {
+                _completion.TrySetCanceled();
+                try
+                {
+                    // 显式写出 true 锁定公开长期源的完结契约，不把 R3 无参重载的默认值变成隐藏知识。
+                    _state.Dispose(callOnCompleted: true);
+                }
+                finally
+                {
+                    base.OnDestroy();
+                }
+            }
         }
 
         private async UniTaskVoid LoadAsync(CancellationToken token)
@@ -161,6 +200,17 @@ namespace Game.Framework
             catch (OperationCanceledException)
             {
                 // 宿主或 Context 销毁导致的取消是正常退出路径，不算失败。
+                _completion.TrySetCanceled(token);
+            }
+            catch (Exception e) when (token.IsCancellationRequested)
+            {
+                // Bag / Provider 可以再链接 owner token。深层取消回调抛错时，某些 Adapter 会让加载 task
+                // 以普通异常而非 OCE 退场；owner 意图已成立，不能因此把即将销毁的配置服务误发布为 Failed。
+                Log.Error(
+                    "配置共享加载在 owner 取消收尾时有下游回调抛出异常；服务仍按生命周期取消并继续清理。",
+                    e,
+                    "ConfigUtility",
+                    this);
                 _completion.TrySetCanceled(token);
             }
             catch (Exception e)
