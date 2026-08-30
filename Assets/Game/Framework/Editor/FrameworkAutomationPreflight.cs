@@ -91,7 +91,11 @@ namespace Game.Framework.Editor
                 throw new InvalidOperationException("PlayMode 自动化预检当前不可执行：" + blockedReason);
         }
 
-        private static List<Scene> CollectDirtyScenes()
+        /// <summary>
+        /// 捕获当前已加载的脏场景。拆出确定性查询 Seam，让保存事务测试不必等待或伪造
+        /// Editor 的编译 / 资源导入全局状态。
+        /// </summary>
+        internal static List<Scene> CollectDirtyScenes()
         {
             var dirtyScenes = new List<Scene>();
             for (int i = 0; i < SceneManager.sceneCount; i++)
