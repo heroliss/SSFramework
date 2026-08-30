@@ -31,7 +31,11 @@ namespace Game.Framework
         /// </summary>
         public string AssetGUID => _assetGUID;
 
-        /// <summary>显式指定的资源包名；为空表示使用默认包。</summary>
+        /// <summary>
+        /// 显式指定的资源包名；为空表示在加载时使用当前绑定 <see cref="IAssetUtility"/> 的默认包。
+        /// 空值不会在序列化或 Inspector 阶段绑定到某个全局包，因此各宿主独立持有的引用实例可随其 Context
+        /// 使用不同默认配置；同一个引用实例仍只有一个 Utility 与 handle owner，不能并发绑定到多个 Context。
+        /// </summary>
         public string PackageName => string.IsNullOrEmpty(_packageName) ? null : _packageName;
 
         /// <summary>GUID 是否已配置（非空字符串）。注意此属性不验证 GUID 对应的资源是否真实存在。</summary>
@@ -45,6 +49,8 @@ namespace Game.Framework
         /// ScriptableObject 或纯 C# 对象没有 Mono 生命周期自动绑定时，需要由调用方指定资源归属。
         /// hostToken 触发时引用侧的加载等待会取消并拒绝晚到结果；provider 已经启动的共享物理操作可能继续到终态，
         /// 其无人接收的 handle 由 provider 释放。
+        /// 一个引用实例只能由一个生命周期 owner 持有；若同一配置需要服务多个 Context，应为各 owner 创建独立实例或副本，
+        /// 不要把同一个实例登记进多个 Bag。
         /// </summary>
         public void Bind(IAssetUtility utility, CancellationToken hostToken)
         {
