@@ -133,6 +133,7 @@ namespace Game.Framework.Demo.Modules
             host.AddConcept("prefab 即插即用", "内含 `MonoXxxBase` 的 prefab 实例化到哪个子树就接入哪个作用域——换挂载位置 = 换依赖来源，上面的弹窗演示的就是这件事。");
             host.AddNote("「树状思维」贯穿框架：Context 作用域树（解析回退）、Hierarchy 就近注册（本章演示的）、`Bag` 子作用域级联释放（「生命周期」章）——"
                 + "把节点放进哪个子树，就一次说清「依赖从哪来、注册到哪去、何时被清理」。深入见框架手册 §1「树状思维」。");
+            host.AddTip("本章先从使用效果认识 Context；下一章再下钻 Container，解释每个 Context 内部如何保存“类型 → 实例/工厂”的映射，以及 `[Inject]` 为什么能拿到同一份依赖。");
         }
 
     }

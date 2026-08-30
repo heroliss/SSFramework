@@ -22,7 +22,7 @@ using Object = UnityEngine.Object;
 namespace Game.Framework.Demo.PlayMode.Tests
 {
     /// <summary>
-    /// 穿过真实 DemoScene Composition Root 与 Shell 逐章构建，验证 32 个章节的运行时教学契约和缺依赖降级路径。
+    /// 穿过真实 DemoScene Composition Root 与 Shell 逐章构建，验证 33 个章节的运行时教学契约和缺依赖降级路径。
     /// </summary>
     public sealed class DemoSceneTeachingSmokeTests
     {
@@ -99,7 +99,7 @@ namespace Game.Framework.Demo.PlayMode.Tests
             {
                 var shell = FindDemoObject<DemoShellController>();
                 Assert.IsNotNull(shell);
-                Assert.AreEqual(32, shell.Modules.Count);
+                Assert.AreEqual(33, shell.Modules.Count);
 
                 // 这里不模拟鼠标，也不逐个派发 Button 点击事件。测试直接走 Shell 与导航按钮共用的语义入口，
                 // 让真实选中态、标题、内容和 Catalog 生命周期保持一份真源；每章让出一帧，用于暴露切章后的清理/挂载问题。
@@ -135,22 +135,6 @@ namespace Game.Framework.Demo.PlayMode.Tests
                 "左侧导航按钮必须路由到 SelectChapter 语义入口");
             Assert.IsTrue(button.ClassListContains("demo-nav-item--active"),
                 "按钮链路除了切换内容，还必须更新真实选中态");
-        }
-
-        [Test]
-        public void ReadingGuide_ExplainsEverySemanticColorAndCoreTermInTheRealShell()
-        {
-            var shell = FindDemoObject<DemoShellController>();
-            VisualElement root = shell.GetComponent<UIDocument>().rootVisualElement;
-
-            Assert.IsNotNull(root.Q<VisualElement>(className: "demo-reading-guide"));
-            CollectionAssert.AreEquivalent(
-                new[] { "概念", "普通演示", "重点速记", "注意边界", "教学实验" },
-                root.Query<Label>(className: "demo-reading-legend-badge").ToList()
-                    .Select(label => label.text));
-            Assert.AreEqual(8,
-                root.Query<VisualElement>(className: "demo-reading-glossary-item").ToList().Count,
-                "高频专业词应有默认可见的白话解释，不能只依赖鼠标 tooltip。");
         }
 
         [Test]
@@ -336,7 +320,7 @@ namespace Game.Framework.Demo.PlayMode.Tests
                 .FirstOrDefault(candidate => candidate != null && candidate is Component component &&
                                              component.gameObject.scene.path == DemoScenePath);
 
-        // 只在一个窄测试里驱动 UI Toolkit 自己的 Clickable；32 章广度验证继续直达语义入口。
+        // 只在一个窄测试里驱动 UI Toolkit 自己的 Clickable；33 章广度验证继续直达语义入口。
         // 这不移动系统鼠标、不依赖 Editor 焦点，也不会抢用户前台窗口。
         private static void SimulateClick(Button button)
         {

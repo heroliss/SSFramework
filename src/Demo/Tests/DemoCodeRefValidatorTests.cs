@@ -182,8 +182,8 @@ namespace Game.Framework.Demo.Tests
         public void ModuleCatalog_MetadataSatisfiesRuntimeContract()
         {
             using var catalog = DemoModuleCatalog.Discover();
-            Assert.AreEqual(32, catalog.Modules.Count, "章节增删时应同步检查学习路径、module map 与目录元数据。");
-            Assert.AreEqual(2, catalog.Modules.Count(module => module.TeachingKind == DemoTeachingKind.Concept));
+            Assert.AreEqual(33, catalog.Modules.Count, "章节增删时应同步检查学习路径、module map 与目录元数据。");
+            Assert.AreEqual(3, catalog.Modules.Count(module => module.TeachingKind == DemoTeachingKind.Concept));
             Assert.AreEqual(6, catalog.Modules.Count(module => module.TeachingKind == DemoTeachingKind.Workflow));
             Assert.AreEqual(24, catalog.Modules.Count(module => module.TeachingKind == DemoTeachingKind.Capability));
         }

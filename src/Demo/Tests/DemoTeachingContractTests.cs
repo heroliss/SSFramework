@@ -196,31 +196,6 @@ namespace Game.Framework.Demo.Tests
                 host.AddExperimentActionRow("仍不能执行", () => { }));
         }
 
-        [Test]
-        public void ReadingGuide_ShowsVisualLegendAndPlainLanguageGlossaryBeforeHoverDetails()
-        {
-            bool? observedExpanded = null;
-            var guide = new DemoReadingGuide(
-                initiallyExpanded: true,
-                expanded => observedExpanded = expanded);
-
-            var legendLabels = guide.Root.Query<Label>(className: "demo-reading-legend-badge")
-                .ToList();
-            CollectionAssert.AreEquivalent(
-                new[] { "概念", "普通演示", "重点速记", "注意边界", "教学实验" },
-                legendLabels.ConvertAll(label => label.text));
-            Assert.AreEqual(8,
-                guide.Root.Query<VisualElement>(className: "demo-reading-glossary-item").ToList().Count);
-            Assert.IsTrue(guide.IsExpanded);
-
-            guide.SetExpanded(false);
-
-            Assert.IsFalse(guide.IsExpanded);
-            Assert.AreEqual(false, observedExpanded);
-            Assert.AreEqual(DisplayStyle.None,
-                guide.Root.Q<VisualElement>(className: "demo-reading-guide-body").style.display.value);
-        }
-
         private static void ActivateOnce(ContractModule module)
         {
             using var catalog = new DemoModuleCatalog(new[] { module });

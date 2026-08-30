@@ -73,6 +73,7 @@ namespace Game.Framework.Demo.Modules
             }, new CodeRef("Assets/Game/Framework/Demo/Scripts/Core/MonoDemoContext.cs", "class MonoDemoContext", "demo 根 Context 定义"));
             host.AddNote("各章纯 C# 的 Model / Service 都注册在这个 `Context` 的容器里——它们是运行时对象，Inspector 看不到。想 Inspector 可视化就走 Mono 路径（见「数据模型（Model）· 状态与 Inspector」）；想直接翻这个容器的注册表（契约 → 实例），开诊断窗口选中它即可（见「框架诊断面板」章）。");
 #endif
+            host.AddTip("到这里，Context 与 Container 的关系可以压成一句话：Context 定义作用域、父子回退与释放时机，Container 保存本作用域的注册映射。下一章「生命周期」会把订阅、资源和局部任务也纳入同一套释放边界。");
         }
     }
 

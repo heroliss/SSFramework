@@ -83,12 +83,14 @@ namespace Game.Framework.Demo.Modules
             // 只链公共契约（接口 + 业务继承点）；GameContext / DisposableBag 等底层实现不在这里给跳转——
             // 它们的“怎么用”分别在「多上下文（Context）」「生命周期」章里以 demo 用法行呈现。
 
-            host.AddSectionTitle("怎么逛这个 demo");
-            host.AddNote("左侧导航把章节分成四组、由简入深——「核心」建议按顺序通读，「能力」/「进阶」各自独立、挑感兴趣的看：");
+            host.AddSectionTitle("推荐阅读顺序（只在总览说明一次）");
+            host.AddNote("后续章节不会重复放一块“新手导览”；它们会直接在正文里承接前置知识、解释易混点与使用边界。第一次阅读建议顺着「入门 → 核心」，「能力」和「进阶」再按项目需要选读。");
             host.AddConcept("入门", "本页总览 + 「最小闭环」计数器 + 「接入你的项目」：先把 View →(Command)→ Model 这一圈单向数据流亲手跑通，再看怎么把骨架搬进自己的项目。");
-            host.AddConcept("核心", "MVCS 骨架与依赖注入——Model 状态、Command 三态、System 逻辑、Event、View（UGUI / UIToolkit 两种载体）、多 Context 作用域树、容器与生命周期，最后用「框架诊断面板」把这些运行时状态看个透。");
+            host.AddConcept("核心① · 数据如何流动", "按 Model → Command → System → Event 阅读：先知道状态放哪，再学习写入入口、规则归位，以及“持续状态”和“瞬时通知”的区别。");
+            host.AddConcept("核心② · UI 如何接入", "接着比较 UGUI 与 UI Toolkit 两种 View：载体不同，读写权限、Command 接缝和 Bag 生命周期完全相同。");
+            host.AddConcept("核心③ · 运行时如何组织", "最后看 Context 作用域树 → Container 注册/注入 → DisposableBag 清理 → 诊断面板，把“依赖从哪来、何时释放、怎么观察”连成一条线。");
             host.AddConcept("能力", "建在核心之上、彼此独立的横切功能：对象池、资源加载、本地存储、音频、游戏流程、本地化 / 字体、UI 框架、响应式列表、网络——按需取用。");
-            host.AddConcept("进阶", "底层原理与「可替换后端」思路：R3 操作符、YooAsset 底层、资源运营链路、热更、配置表、DOTS 融合。");
+            host.AddConcept("进阶", "理解原理或优化工程时再读：R3 操作符、YooAsset、资源运营、热更、配置表、DOTS、服务注册生成，以及模块依赖与构建裁剪。");
             host.AddTip("每个“查看源码”按钮都能跳进真实代码：演示自身的代码用 CodeRef.Here() 指向本文件，" +
                         "跳框架源码则用显式路径。点点看，能直接落到对应的类 / 方法定义那一行。");
         }

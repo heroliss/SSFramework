@@ -1,5 +1,4 @@
 using Game.Framework.Demo.Core;
-using Game.Framework.Logging;
 using UnityEngine;
 
 namespace Game.Framework.Demo.Modules
@@ -11,10 +10,6 @@ namespace Game.Framework.Demo.Modules
     /// </summary>
     public sealed class ProjectSetupModule : DemoModuleBase
     {
-        private const string ModuleAuditMenu = "SSFramework/诊断与分析/模块与依赖";
-        private const string BuildSizeProbeMenu = "SSFramework/诊断与分析/真实构建体积";
-        private const string ConfigCenterMenu = "SSFramework/配置中心";
-
         public override string Id => "project-setup";
         public override string Title => "接入你的项目";
         public override string Category => "入门";
@@ -37,6 +32,7 @@ namespace Game.Framework.Demo.Modules
             host.AddStep("②", "**功能层**：两条路进容器——Mono 路径把 `MonoModelBase` / `MonoSystemBase` / `MonoUtilityBase` 子类挂在 Context 子树下（Awake 自动注册 + Inspector 可视）；纯 C# 路径在 `InstallBindings` 里注册（可热更、可单测）。两条路怎么选见「数据模型（Model）· 状态与 Inspector」章。");
             host.AddStep("③", "**View**：`MonoViewBase` 子类挂进（或运行时 Instantiate 进）Context 子树，`Awake` 里订阅查询 Command 刷 UI、按钮点击发 Command——写法就是「最小闭环」那一圈，界面复杂后再引入「UI 框架」章的窗口调度。");
             host.AddNote("五层各一段、完整可抄的最小代码在 `docs/framework-guide.md` §3「快速开始」（Context / Model / System / Command / View 串成一圈）；目录与程序集怎么摆见 §26「推荐项目结构」。");
+            host.AddCaution("如果业务代码放在自己的 asmdef 中，要显式 reference `Game.Framework`；代码直接出现 `RP<T>` / `UniTask` 类型时，也分别 reference `R3` / `UniTask`。这一步只是让编译依赖可见，不需要在首次接入时理解 Linker 或构建裁剪。");
 
             // ── demo 即样板 ──
             host.AddSectionTitle("demo 场景自身就是一份接入样板");
@@ -51,56 +47,22 @@ namespace Game.Framework.Demo.Modules
 #endif
             host.AddSubNote("一个取舍细节：demo 的根 Context 用的是场景级 `MonoGameContextBase`、**刻意不用** `MonoGlobalContext`——demo 只是「别人项目里的一个客座场景」，不该把 `GameContext.Main` 设成自己、抢走宿主项目的全局根。你的项目**主场景**才是 Global 的位置；被嵌进别人工程的场景（demo / 插件样例 / 子游戏）用场景级 Context。");
 
-            // ── 程序集接线与模块选择 ──
-            host.AddSectionTitle("程序集接线：显式引用不等于自动瘦身");
-            host.AddNote("框架程序集 `Game.Framework` 是 `autoReferenced:false`——业务 asmdef 必须**显式**把它加进 references 才能用；业务代码直接使用 `R3`（如 `RP<T>`）或 `UniTask` 类型时，也显式引用对应程序集。这样能看清依赖方向，但不能单凭 references 判断最终包体。");
+            // ── 容易混淆 ──
+            host.AddSectionTitle("第一次接入最容易混淆的四组关系");
             host.AddTable(
-                new[] { "状态", "回答什么", "不要误读成" },
-                new[] { "源码 / Package 存在", "目录、导入器、asmdef 已安装", "已经被业务使用" },
-                new[] { "参与 Player 编译", "当前平台会产出 DLL", "最终 Player 一定保留" },
-                new[] { "DLL 真实引用", "Framework / 项目谁直接消费它", "能看见字符串反射或场景根" },
-                new[] { "linker / 热更根", "link.xml 是否保留；Profile 是否部署完整 DLL", "已经完成同步和 Generate" },
-                new[] { "目标平台 Build", "IL2CPP、引擎模块、压缩后的结果", "能从 Windows 外推到 WebGL" });
-            host.AddSubNote("一个关键例外：当前可选 Runtime Module 都引用 Core。若 Core 热更，只要某个 Module 仍参与 Player 编译，它就不能被单独留在 AOT；否则会形成 `AOT → 热更` 引用，校验器会拒绝。",
-                new CodeRef("Assets/Game/Framework/Build/HybridCLR/Editor/HotUpdateAssemblyGraph.cs", "class HotUpdateAssemblyGraph", "热更传播约束 · AOT 不引用热更"));
+                new[] { "容易混淆", "正确关系", "判断方法" },
+                new[] { "Context 与 Container", "Context 拥有容器、父子回退和生命周期；Container 只保存“类型 → 实例/工厂”的注册", "问“依赖从哪来、何时释放”看 Context；问“这个类型映射到谁”看 Container" },
+                new[] { "Mono 与纯 C#", "只是两种注册载体，不是两套架构；注册后都从同一 Context 解析", "要 Inspector 配置选 Mono；要单测/热更/无 Unity 依赖选纯 C#" },
+                new[] { "View 绑定与层注册", "View 是消费者，只绑定 Context 并接受注入；Model/System/Utility 才作为依赖注册", "是否会被其他对象按类型 Resolve，是两者的分界" },
+                new[] { "Global 与场景 Context", "Global 是应用唯一根；场景 Context 是可销毁的局部作用域", "跨场景共享放 Global；客座场景和关卡私有状态放局部" });
 
-            // ── Editor 工具装配 ──
-            host.AddSectionTitle("编辑器工具也跟着 Module 走");
-            host.AddNote("配置中心不是一张写死全部 Profile 类型的中央名单：每个可选 Editor Module 只登记自己拥有的配置卡片。删除 Module 并完成域重载后，对应注册和卡片会一起消失；新增配置也只改所属 Module。");
-            host.AddConcept("为什么让 Module 自己登记", "中央窗口只依赖一个很窄的 Registry Seam，不反向引用 Build、Fonts、Proto、UGUI 等可选实现。这样既保留统一入口，也避免为了显示一张卡片把可选程序集重新耦合回 Core；代价是每个新配置类型都要写一条本地注册，并由契约测试检查 id、顺序和菜单入口。");
-#if UNITY_EDITOR
-            host.AddActionRow("打开配置中心（观察已安装 Module 的卡片）",
-                () => RunMenu(ConfigCenterMenu),
-                new CodeRef("Assets/Game/Framework/Editor/FrameworkConfigRegistry.cs", "public static class FrameworkConfigRegistry", "FrameworkConfigRegistry · Module 自注册 Seam"));
-#endif
-
-            // ── 裁剪工作流 ──
-            host.AddSectionTitle("小体积 / Web：先查原因，再做结构裁剪");
-            host.AddNote("先用模块裁剪审计分开查看 Player 真实消费者与全 asmdef 删除阻塞者（含 Demo / Editor / Tests），再看热更传播和 `link.xml` 根；它还能把任意 Module 当入口做 what-if。然后用隔离构建探针物理排除未选目录，读取当前目标平台 Player BuildReport 的可比较体积上界。");
-            host.AddStep("①", "从 Core-only 起步，只按需加入 UI Core 与一个后端；Bridge、Fonts、Yoo、Proto 等由真实需求驱动，不为‘也许会用’提前接入。");
-            host.AddStep("②", "准备移除时先迁移审计列出的直接消费者；若受热更传播约束，把**退出 Player 编译图**与**清理热更 Profile**作为同一次代码变更，不要先单独取消并同步。");
-            host.AddStep("③", "让 Module 自有 `link.xml` 随目录消失；若只是改成条件保留，先验证反射入口，再做 IL2CPP 回归。随后同步热更设置、重新 Generate / 构建代码包。");
-            host.AddStep("④", "最后跑 Module Audit、Unity 测试和目标平台真实构建。Console 安静只证明没显式报错，不证明 Module 已从发布物消失。");
-            host.AddConcept("和 Unity Package Manager 的分工", "asmdef 管编译依赖，UnityLinker 管成员裁剪，HybridCLR Profile 管热更部署，UPM 管 package 安装与版本。当前工具只给证据和移除清单，不自动删目录或改 manifest；稳定的粗粒度边界以后再抽成独立 UPM package。");
-            host.AddSubNote("Module 的职责、依赖方向与删除测试集中记录在 `docs/framework-module-map.md`；新增程序集时先证明它有独立变化原因，而不是按文件数量机械拆分。");
-#if UNITY_EDITOR
-            host.AddActionRow("打开模块裁剪审计（逐 Module 保留原因 / 任意入口）",
-                () => RunMenu(ModuleAuditMenu),
-                new CodeRef("Assets/Game/Framework/Editor/FrameworkModuleAudit.cs", "internal static class FrameworkModuleAudit", "Framework Module Audit · 真实引用闭包"));
-            host.AddActionRow("打开真实构建体积证据（隔离删除 / 任意 Module）",
-                () => RunMenu(BuildSizeProbeMenu),
-                new CodeRef("Assets/Game/Framework/Editor/FrameworkBuildSizeProbe.cs", "internal static class FrameworkBuildSizeProbe", "Framework Build Size Probe · 隔离删除构建"));
-#endif
-
-            host.AddTip("速记：主场景根 = MonoGlobalContext 子类；功能层 = 挂子树或 InstallBindings；View = 挂进子树、只发 Command。模块裁剪要分清五种状态，完整工作流见 guide §26 / ADR-0039。");
+            // ── 完成标准与下一步 ──
+            host.AddSectionTitle("第一次接入做到什么程度就够了");
+            host.AddConcept("能启动", "根 Context 正常进入 Ready，没有重复 Global，也没有未命名或未绑定的 View。");
+            host.AddConcept("能走通一圈", "按钮经 Command 改 Model，标签订阅只读状态自动刷新；先证明最小闭环，再扩展功能。");
+            host.AddConcept("能正确清理", "销毁 View 或局部 Context 后，其订阅和资源随 Bag 释放，不留下迟到回调或重复监听。");
+            host.AddCaution("第一次接入不要同时搭满 Model、System、Event、Utility、多个 Context 和所有可选 Module。先用一个 Model + 两个 Command + 一个 View 跑通闭环；规则出现后再加 System，需要广播事实再加 Event，需要隔离生命周期再加子 Context。");
+            host.AddTip("推荐下一步按左侧「核心」顺序阅读：先看 Model 两种注册方式，再看 Command 三态与 System 分界，随后比较 Event、两种 View、Context、Container 和 Bag。发布前才需要的 asmdef、link.xml、热更根与真实构建裁剪，已单独放到「进阶 / 模块化 · 依赖与裁剪」，不必在第一次接入时背下来。");
         }
-
-#if UNITY_EDITOR
-        private static void RunMenu(string path)
-        {
-            if (!UnityEditor.EditorApplication.ExecuteMenuItem(path))
-                Log.Warning($"[Demo] 菜单不存在：{path}");
-        }
-#endif
     }
 }

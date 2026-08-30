@@ -31,7 +31,7 @@ namespace Game.Framework.Demo.Modules
         {
             // ── 定位 ──
             host.AddPositioning("同一种状态，两条进容器的路");
-            host.AddNote("Model 用 `RP<T>` 持有响应式状态（RP 基础见「最小闭环」）。本章焦点是**两条注册路径**：纯 C#（代码 new + 注册，原理透明、可热更可单测）vs Mono（挂成 Hierarchy 节点，自动注册 + Inspector 实时可见可配）。同一份状态，两种进容器方式。");
+            host.AddNote("「最小闭环」已经用纯 C# Model 保存计数；本章沿着「接入你的项目」的两条注册路径继续展开：纯 C#（代码 new + 注册，原理透明、可热更可单测）vs Mono（挂成 Hierarchy 节点，自动注册 + Inspector 实时可见可配）。两者仍用同一个 `RP<T>` 状态模型。");
 
             // ── 纯 C# 路径：原理最透明 ──
             host.AddSectionTitle("纯 C# Model（白盒原理）");
@@ -63,9 +63,18 @@ namespace Game.Framework.Demo.Modules
             host.AddConcept("Mono", "需要 Inspector 可视化、策划要填初值或拖引用的状态。自动注册、所见即所得。");
             host.AddNote("两者都用同一个 `RP<T>` 持有状态、都经 Command 读写、都进同一个 `Context`——区别只在“怎么进容器”。");
 
+            host.AddSectionTitle("容易混淆：Mono 只是载体，运行时值也不是序列化初值");
+            host.AddTable(
+                new[] { "疑问", "正确理解" },
+                new[] { "Mono Model 是不是 View？", "不是。Mono 只表示它借 MonoBehaviour 获得 Hierarchy / Inspector 能力；职责仍是持有业务状态。" },
+                new[] { "为何 Model、UGUI、UI Toolkit 三章的分数会联动？", "三章读写的是根 Context 中同一个 `MonoScoreModel` 实例，不是各自复制一份演示数据。" },
+                new[] { "为何退出 Play 后分数又变回去？", "Play 中改的是运行时 `RP.Value`；退出后场景回到序列化初值。要改下次启动值，应在非 Play 状态修改并保存场景。" },
+                new[] { "ScriptableObject 配置也是 Model 吗？", "不一定。静态配置通常是资源数据；只有需要作为当前业务状态被订阅、随 Context 管理时，才建成 Model。" });
+
             host.AddSectionTitle("生命周期边界：更新状态，不热换实例");
             host.AddNote("Context 构建完成后，把注册进去的 Model 当作该作用域内的稳定身份：运行时更新它的字段与 RP，不替换整个实例。");
             host.AddSubNote("`[Inject]` 字段和已建立的订阅都保存了旧引用，热换会制造同一作用域里的两份真相。确实需要整套状态替换时，创建新的子 Context 或重建当前 Context，让身份与生命周期一起切换。设计取舍见 `docs/adr/0005-no-runtime-hot-swap-of-layers.md`。");
+            host.AddTip("到这里，状态“放哪里、怎么进 Context”已经清楚；下一章只解决“外部如何读写它”——同步、异步、查询三种 Command 都是同一条受控入口。");
         }
 
 #if UNITY_EDITOR
