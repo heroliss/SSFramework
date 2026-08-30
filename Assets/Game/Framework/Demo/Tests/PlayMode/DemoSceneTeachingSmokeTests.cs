@@ -2,6 +2,7 @@
 using System;
 using System.Collections;
 using System.Linq;
+using System.Reflection;
 using Cysharp.Threading.Tasks;
 using Game.Framework.Context;
 using Game.Framework.Demo.Core;
@@ -111,6 +112,26 @@ namespace Game.Framework.Demo.PlayMode.Tests
                     await UniTask.Yield(PlayerLoopTiming.Update);
                 }
             });
+        }
+
+        [Test]
+        public void SidebarNavigationButton_ClickableRoutesToTheSharedSemanticEntry()
+        {
+            var shell = FindDemoObject<DemoShellController>();
+            Assert.IsNotNull(shell);
+            Assert.Greater(shell.Modules.Count, 1);
+            var target = shell.Modules[1];
+
+            VisualElement root = shell.GetComponent<UIDocument>().rootVisualElement;
+            Button button = root.Query<Button>(className: "demo-nav-item").ToList()
+                .Single(candidate => candidate.text == target.Title);
+
+            SimulateClick(button);
+
+            Assert.AreSame(target, shell.CurrentModule,
+                "左侧导航按钮必须路由到 SelectChapter 语义入口");
+            Assert.IsTrue(button.ClassListContains("demo-nav-item--active"),
+                "按钮链路除了切换内容，还必须更新真实选中态");
         }
 
         [Test]
@@ -295,6 +316,17 @@ namespace Game.Framework.Demo.PlayMode.Tests
             => Object.FindObjectsByType<T>(FindObjectsInactive.Include, FindObjectsSortMode.None)
                 .FirstOrDefault(candidate => candidate != null && candidate is Component component &&
                                              component.gameObject.scene.path == DemoScenePath);
+
+        // 只在一个窄测试里驱动 UI Toolkit 自己的 Clickable；32 章广度验证继续直达语义入口。
+        // 这不移动系统鼠标、不依赖 Editor 焦点，也不会抢用户前台窗口。
+        private static void SimulateClick(Button button)
+        {
+            MethodInfo simulate = typeof(Clickable).GetMethod(
+                "SimulateSingleClick",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.IsNotNull(simulate, "Unity UI Toolkit Clickable 的测试驱动入口已变更。");
+            simulate.Invoke(button.clickable, new object[] { null, 0 });
+        }
 
         private static async UniTask WaitUntil(Func<bool> condition, string milestone, float timeoutSeconds)
         {
