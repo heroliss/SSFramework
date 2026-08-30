@@ -44,6 +44,11 @@ namespace Game.Framework.Test
         private interface ILayerUtility : IUtility { }
         private sealed class LayerUtility : ILayerUtility { }
 
+        private interface ISharedRuntimeUtility : IUtility { }
+        private interface ISecondRuntimeUtility : IUtility { }
+        private sealed class FirstRuntimeUtility : ISharedRuntimeUtility { }
+        private sealed class ConflictingRuntimeUtility : ISharedRuntimeUtility, ISecondRuntimeUtility { }
+
         private sealed class DynamicDisposableModel : IModel, IDisposable
         {
             public int DisposeCount;
@@ -217,6 +222,26 @@ namespace Game.Framework.Test
             Assert.Throws<InvalidOperationException>(
                 () => ctx.RegisterUtility(util2),
                 "运行期同层同具体类型重复 RegisterUtility 应抛 InvalidOperationException");
+        }
+
+        [Test]
+        public void RegisterUtility_InterfaceConflict_DoesNotLeavePartialContracts()
+        {
+            using var builder = new ContainerBuilder();
+            using var ctx = new GameContext(builder.Build(), inheritFromGlobal: false);
+            var first = new FirstRuntimeUtility();
+            var conflicting = new ConflictingRuntimeUtility();
+            ctx.RegisterUtility(first);
+
+            Assert.Throws<InvalidOperationException>(() => ctx.RegisterUtility(conflicting),
+                "不同具体类型共享同一层 Interface 时必须拒绝第二次注册");
+
+            Assert.AreSame(first, ctx.GetUtility<ISharedRuntimeUtility>(),
+                "冲突失败不能覆盖原有 Interface");
+            Assert.IsFalse(ctx.TryResolve(typeof(ConflictingRuntimeUtility), out _),
+                "冲突发生在 Interface 时，预先处理的具体类型也不能残留");
+            Assert.IsFalse(ctx.TryResolve(typeof(ISecondRuntimeUtility), out _),
+                "失败注册的其它独有 Interface 同样不能部分提交");
         }
 
         // ── 运行期：先 Unregister 再注册 → 成功 ──────────────────────────

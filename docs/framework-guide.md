@@ -1214,6 +1214,8 @@ ctx.UnregisterModel(model);
 `ctx.AttachTo(instance)`，实例最终仍由创建它的调用方释放。希望 Context 接管生命周期时，应在构建期使用
 `RegisterOwnedModel/System/Utility` 或低层 `RegisterOwned`，不要把运行时 Register 当作 owned 注册。
 
+一次运行时分层注册会同时写入“具体类型 + 全部层 Interface”，这组键按事务处理：框架先检查完整集合，任何共享 Interface 已被活实例占用都会在写入前整体失败，不会出现“调用抛了异常，但具体类型或另一个 Interface 已经偷偷留在 Container”的半注册状态。修正冲突后可以直接重试，无需重建 Context 来清理幽灵覆盖。
+
 ### Container 不对外暴露
 
 `IGameContext` 接口故意**不暴露 `Container`**。`GameContext.Container` 和 `MonoGameContextBase.Container` 都是 `internal`，业务再也拿不到容器直接 `Container.RegisterFor<TLayer>(...)`。这是为了保证：

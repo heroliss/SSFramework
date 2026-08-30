@@ -14,6 +14,7 @@
 - 构建期字典的 value 是内部 `ContainerBinding`，显式区分现成值与 Factory；绑定自身管理 Singleton 缓存与诊断状态，不用 `object is Func<...>` 猜类型。构造时机与生命周期所有权的四种组合见 ADR-0035。
 - **主线程独占**：所有解析/注册不加锁；Editor/Development Build 下 `AssertMainThread` 兜底报错。
 - `Container` 对业务**不可见**（`internal`）：业务只能走 `RegisterModel/System/Utility` 受控通道，保证注册一定带层标记。框架内部经 `ContextInternals.GetContainer` 访问。
+- 运行时分层注册以“具体类型 + 全部派生层 Interface”为一个提交单元：先检查所有精确键是否可写，再统一进入覆盖层。任一活实例冲突都会在写入前失败；已销毁的 Unity 对象仍允许整组替换，不留下半注册 contract。
 - Context 初始化采用**提交式事务**：`InstallBindings → Build → GameContext 值注入/Attach → OnInitialized` 全部成功后，`MonoGameContextBase` 才发布 Ready。任一步失败都会释放 Builder/Container 已接管的 owned 资源、保留根异常并进入 Failed；后续调用得到带 inner exception 的明确 `InvalidOperationException`，不会继续在半初始化对象上制造 NRE。父 Context 递归初始化若形成环，也在 `Initializing` 状态边界 fail-fast。
 
 ## Consequences

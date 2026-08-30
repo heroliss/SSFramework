@@ -48,7 +48,7 @@ Demo 教学内容与自动化之间的运行时 Seam。`DemoModuleHost` 在真�
 
 ## Layer-Aware Composition Registration
 
-手写 `InstallBindings` 中的普通纯 C# 分层对象统一走 `RegisterModel/System/Utility` 或对应 `RegisterOwnedXxx`：由运行时具体类型一次推导“具体 Implementation + 所有派生自该层标记的 Interface”，不登记层标记本身。低层 `RegisterValue/RegisterOwned(value, contracts)` 只留给 `ICommandSystem` 等非分层基础设施、刻意选择性暴露契约和需要在 `.g.cs` 中展示最终清单的生成安装器；Factory 是显式接线 Seam，继续显式列 contract。该约定让手写、Mono 自动注册与生成路径共享契约口径，同时避免调用点重复维护 `typeof(I...Utility)`。
+手写 `InstallBindings` 中的普通纯 C# 分层对象统一走 `RegisterModel/System/Utility` 或对应 `RegisterOwnedXxx`：由运行时具体类型一次推导“具体 Implementation + 所有派生自该层标记的 Interface”，不登记层标记本身。低层 `RegisterValue/RegisterOwned(value, contracts)` 只留给 `ICommandSystem` 等非分层基础设施、刻意选择性暴露契约和需要在 `.g.cs` 中展示最终清单的生成安装器；Factory 是显式接线 Seam，继续显式列 contract。该约定让手写、Mono 自动注册与生成路径共享契约口径，同时避免调用点重复维护 `typeof(I...Utility)`。运行时分层注册会先预检完整 contract 集再一次提交；任一共享 Interface 冲突都不会留下具体类型或其它 Interface 的部分覆盖。
 
 ## Context Resolution Evidence
 
