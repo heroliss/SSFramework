@@ -113,6 +113,35 @@ namespace Game.Framework.Test
         [TearDown]
         public void TearDown() => _http.Dispose();
 
+        [Test]
+        public void HttpResponse_BodyText_ReflectsInPlaceAndReplacementBodyChanges()
+        {
+            byte[] body = Encoding.UTF8.GetBytes("first");
+            var response = new HttpResponse { Body = body };
+
+            Assert.AreEqual("first", response.BodyText);
+
+            body[0] = (byte)'F';
+            Assert.AreEqual("First", response.BodyText,
+                "Body 是兼容既有调用方的可变 byte[]，原地修改后不能返回过期的文本缓存");
+
+            response.Body = Encoding.UTF8.GetBytes("second");
+            Assert.AreEqual("second", response.BodyText,
+                "对象初始化器或调用方整体替换 Body 后，BodyText 应读取当前数组");
+        }
+
+        [Test]
+        public void HttpResponse_DefaultHeaders_CannotBeMutatedAcrossInstances()
+        {
+            var first = new HttpResponse();
+            var second = new HttpResponse();
+
+            if (first.Headers is IDictionary<string, string> mutableView)
+                Assert.Throws<NotSupportedException>(() => mutableView["X-Leaked"] = "value");
+            Assert.IsFalse(second.Headers.ContainsKey("X-Leaked"),
+                "共享的默认空 Headers 必须冻结；不暴露 IDictionary 或写入抛异常都不能让一个响应污染后续响应");
+        }
+
         [UnityTest]
         public IEnumerator Post_Roundtrip_SerializesRequest_DeserializesResponse() => UniTask.ToCoroutine(async () =>
         {

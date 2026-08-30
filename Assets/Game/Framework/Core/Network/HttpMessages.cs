@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Text;
 
 namespace Game.Framework.Network
@@ -45,11 +46,14 @@ namespace Game.Framework.Network
 
         public bool IsSuccess => StatusCode >= 200 && StatusCode < 300;
 
-        /// <summary>响应体按 UTF-8 解码的文本（惰性、缓存）。空体返回空串。</summary>
-        public string BodyText => _bodyText ??= Body.Length == 0 ? string.Empty : Encoding.UTF8.GetString(Body);
+        /// <summary>
+        /// 当前 <see cref="Body"/> 按 UTF-8 解码的文本；空体返回空串。
+        /// 每次访问都重新解码，因为兼容 API 允许调用方替换数组或原地修改字节，缓存会产生与原始响应体不一致的旧文本。
+        /// 高频重复读取时由调用方保存一次结果即可。
+        /// </summary>
+        public string BodyText => Body.Length == 0 ? string.Empty : Encoding.UTF8.GetString(Body);
 
-        private string _bodyText;
-
-        private static readonly IReadOnlyDictionary<string, string> EmptyHeaders = new Dictionary<string, string>();
+        private static readonly IReadOnlyDictionary<string, string> EmptyHeaders =
+            new ReadOnlyDictionary<string, string>(new Dictionary<string, string>());
     }
 }
