@@ -1,6 +1,6 @@
 # ADR-0009：Luban 配置表集成 —— 构建期生成 + 运行期经资源系统加载
 
-**Status:** Accepted（2026-06-12 落地：框架模块 + 生成管线 + Demo 章节；本文件由 Proposed 设计稿更新而来。**2026-06-18 修订 §3**：配置从「Model + InitSystem 两件套」改为**单个自加载的配置 Utility 服务**；**2026-08-26 修订 §3.1**：把命令式就绪、根异常与调用方取消收进 Interface，避免业务重复轮询终态；**2026-08-28 修订 §1**：生成改为暂存校验后的双目录可恢复事务；**2026-08-30 修订 §3.2**：增加保留 Context 的短读取 / 门禁入口，并明确拒绝全局静态表与默认逐表权限矩阵）
+**Status:** Accepted（2026-06-12 落地：框架模块 + 生成管线 + Demo 章节；本文件由 Proposed 设计稿更新而来。**2026-06-18 修订 §3**：配置从「Model + InitSystem 两件套」改为**单个自加载的配置 Utility 服务**；**2026-08-26 修订 §3.1**：把命令式就绪、根异常与调用方取消收进 Interface，避免业务重复轮询终态；**2026-08-28 修订 §1**：生成改为暂存校验后的双目录可恢复事务；**2026-08-30 修订 §3.1**：配置 owner 销毁时完结 `State` 并隔离取消回调异常；**2026-08-30 修订 §3.2**：增加保留 Context 的短读取 / 门禁入口，并明确拒绝全局静态表与默认逐表权限矩阵）
 
 ## Context
 
@@ -49,6 +49,8 @@ cs-bin 生成的 `Tables` 构造函数是**同步** `Func<string, ByteBuf>`，�
 
 **取消所有权**：传给 `EnsureReady` 的 token 只让该 waiter 离开，不传给物理加载；一个界面切走不能截断其他 System 共享的配置加载。组件与 Context 的 owner token 才会取消物理加载及剩余等待。加载仍是一锤子自加载，失败后不隐式重试；需要重试就重建所属 Context / 组件，保持同一作用域内表根身份稳定。
 
+**观察源所有权**：`State` 是配置组件持有的长期源。Context 取消会终止共享加载和未完成的 `EnsureReady`；组件销毁还必须让 `State` 正常完结，并继续 Bag 释放与 Context 反注册。正常的 Context 宿主销毁会随 Unity 层级继续销毁配置组件，但手动 Dispose 纯 C# Context 不等于销毁 MonoBehaviour，契约不混淆二者。Provider 可向 owner token 注册回调，单个坏回调的异常会记录但不得截断后续清理。
+
 **失败与清单边界**：Implementation 在任何资源 I/O 前复制并校验 `TableFiles`，拒绝空清单、空 location 与重复 location；同时拒绝 `CreateTables` 返回 null。失败通过统一 `Log` Seam 记录一次根异常，并以 `ExceptionDispatchInfo` 保存给现在或稍后加入的 `EnsureReady` 调用者。完成信号只表达终态，不直接携带异常，避免无人等待时产生未观察的 UniTask 异常。
 
 #### 3.2 Context 感知的短入口，而非全局静态表
@@ -68,7 +70,7 @@ cs-bin 生成的 `Tables` 构造函数是**同步** `Func<string, ByteBuf>`，�
 
 - ✅ 配置加载复用 `IAssetUtility`（自加载 Utility 直接 `GetUtility` 取它，靠 `IUtility : ICanGetUtility`），与资源系统同一套初始化/多包/CDN/热更机制。
 - ✅ 框架模块后端无关：换 JSON / 自定义格式只换项目侧工厂；`Assets/Game/Framework/Config/` 可整目录删除，框架其余零感知。
-- ✅ `State`、`EnsureReady` 与 `Tables` 分别覆盖观察、流程门禁和同步读取；调用方无需复制状态机，失败仍保留原始异常与堆栈。
+- ✅ `State`、`EnsureReady` 与 `Tables` 分别覆盖观察、流程门禁和同步读取；调用方无需复制状态机，失败仍保留原始异常与堆栈，服务销毁时订阅源也会主动完结。
 - ✅ `GetConfig<TTables>` / `EnsureConfig<TTables>` 删除常见的 Utility 解析样板与分散的未就绪判断，同时保留精确 Context、多配置集和可测试性；热路径仍直接使用生成表，不增加逐表 façade。
 - ✅ 清单在资源 I/O 前快照并 fail-fast，避免生成清单被运行中修改或重复 location 造成部分加载副作用。
 - ✅ CLI 失败与校验失败不再触碰正式目录；可恢复发布把代码、数据和清单的代际一致性从“成功路径约定”变成测试锁定的事务契约，同时避免未变化文件引发无谓重编译。

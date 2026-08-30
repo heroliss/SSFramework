@@ -30,7 +30,7 @@ namespace Game.Framework
 
         /// <summary>
         /// 加载状态流。订阅即得当前值；适合驱动加载提示、禁用态与失败提示等响应式界面。
-        /// 收到 <see cref="ConfigInitState.Ready"/> 时 <see cref="Tables"/> 已可用。
+        /// 收到 <see cref="ConfigInitState.Ready"/> 时 <see cref="Tables"/> 已可用；配置组件销毁时该流完结。
         /// </summary>
         ReadOnlyReactiveProperty<ConfigInitState> State { get; }
 

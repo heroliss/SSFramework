@@ -9,6 +9,7 @@ using Game.Framework.Common;
 using Game.Framework.Context;
 using Game.Framework.Logging;
 using NUnit.Framework;
+using R3;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.TestTools;
@@ -64,6 +65,12 @@ namespace Game.Framework.Config.Tests
         public IEnumerator Destroy_CancelsSharedLoadAndWaiter()
         {
             yield return Destroy_CancelsSharedLoadAndWaiterAsync().ToCoroutine();
+        }
+
+        [UnityTest]
+        public IEnumerator Destroy_WhenOwnerCancellationCallbackThrows_StillFinishesLifecycle()
+        {
+            yield return Destroy_WhenOwnerCancellationCallbackThrows_StillFinishesLifecycleAsync().ToCoroutine();
         }
 
         [UnityTest]
@@ -188,14 +195,48 @@ namespace Game.Framework.Config.Tests
         {
             var gate = _provider.PlanLoad(new byte[] { 4, 5, 6 });
             var config = CreateConfig(new[] { "alpha" });
+            bool stateCompleted = false;
+            using var stateSubscription = config.State.Subscribe(
+                _ => { },
+                _ => stateCompleted = true);
             var waiting = config.EnsureReady();
             await gate.Started.Task;
 
             UnityEngine.Object.Destroy(config.gameObject);
 
             Assert.IsTrue(await IsCanceled(waiting));
+            // CTS 取消可在 OnDestroy 内同步恢复本 continuation；让出一帧再观察整个 Mono 终态。
+            await UniTask.Yield(PlayerLoopTiming.Update);
             Assert.IsTrue(gate.OwnerToken.IsCancellationRequested,
                 "配置组件销毁必须取消它拥有的物理加载，而不只是让 waiter 离开");
+            Assert.IsTrue(stateCompleted,
+                "配置服务销毁时必须完结 State 源，不能让订阅继续持有已销毁的 Mono 组件");
+        }
+
+        private async UniTask Destroy_WhenOwnerCancellationCallbackThrows_StillFinishesLifecycleAsync()
+        {
+            var gate = _provider.PlanLoad(new byte[] { 9 });
+            var config = CreateConfig(new[] { "alpha" });
+            var context = _root.transform.GetChild(0).GetComponent<MonoGameContextBase>();
+            bool stateCompleted = false;
+            using var stateSubscription = config.State.Subscribe(
+                _ => { },
+                _ => stateCompleted = true);
+            var waiting = config.EnsureReady();
+            await gate.Started.Task;
+            using var failingCancellationCallback = gate.OwnerToken.Register(
+                () => throw new InvalidOperationException("config-owner-cancellation-probe"));
+
+            LogAssert.Expect(LogType.Error,
+                new Regex(@"\[ConfigUtility\].*配置共享加载的取消回调执行失败"));
+            LogAssert.Expect(LogType.Exception, new Regex("config-owner-cancellation-probe"));
+            UnityEngine.Object.Destroy(config.gameObject);
+
+            Assert.IsTrue(await IsCanceled(waiting));
+            await UniTask.Yield(PlayerLoopTiming.Update);
+            Assert.IsTrue(stateCompleted, "坏取消回调不能截断 State 完结");
+            Assert.IsFalse(context.RawContext.TryResolve(typeof(IConfigUtility<TestTables>), out _),
+                "坏取消回调不能跳过 MonoUtilityBase 的 Context 反注册");
         }
 
         private async UniTask InvalidManifest_FailsBeforeAssetProviderWorkAsync()

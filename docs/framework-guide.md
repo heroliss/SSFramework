@@ -1920,7 +1920,7 @@ var commandItem = ctx.GetConfig<Tables>().TbItem[id];
 | 在继续流程前必须得到表根 | `await this.EnsureConfig<Tables>(token)` | 转发同一 `EnsureReady` 契约；Failed 重新抛出该次加载的原始异常 |
 | 持续显示 Loading / Ready / Failed，随状态刷新 UI | 获取 `IConfigUtility<Tables>` 后订阅 `State` | 状态只表达可观察阶段；收到 Ready 时 `Tables` 已发布 |
 
-`EnsureConfig` 只是 Context 解析的短入口，取消与失败语义仍由 `IConfigUtility.EnsureReady` 唯一拥有：调用方 token **只取消这个等待者**，不传给共享的物理加载。一个窗口关闭不能把别的 System 也在等待的配置加载截断；真正的 owner 是配置组件 + Context，它们销毁时才取消加载及全部未完成等待。服务失败后不会偷偷重试：重试应重建所属 Context / 组件，避免旧表与新表在同一作用域并存。
+`EnsureConfig` 只是 Context 解析的短入口，取消与失败语义仍由 `IConfigUtility.EnsureReady` 唯一拥有：调用方 token **只取消这个等待者**，不传给共享的物理加载。一个窗口关闭不能把别的 System 也在等待的配置加载截断；真正的 owner 是配置组件 + Context，Context 取消或组件销毁才会终止共享加载及全部未完成等待，而组件销毁还会完结 `State` 流以释放订阅。正常的 Context 宿主销毁会随层级继续销毁其配置组件；若代码只手动 Dispose 纯 C# Context，则不要把它误当作 Unity 组件已经销毁。即使 Provider 的取消回调抛异常，也不会截断 Bag 释放和 Context 反注册。服务失败后不会偷偷重试：重试应重建所属 Context / 组件，避免旧表与新表在同一作用域并存。
 
 不要把它缩成静态 `TbItem.Get(...)` 或 ambient `Tables.Current`。那会把“当前配置属于哪个 Context、是否是子 Context 覆盖、使用的是哪套配置”变成隐藏状态，并破坏并行测试隔离。`GetConfig<Tables>()` 保留了这一跳有意义的作用域信息；如果项目只有一套配置且仍嫌泛型名长，可以在**项目侧、生成目录外**补一个具名转发（如 `GameTables()`），但不要把它变成框架全局单例。
 
