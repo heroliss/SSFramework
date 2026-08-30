@@ -25,3 +25,4 @@
 - ⚠️ 精确类型键意味着"注册 `IFoo` 不能用 `Foo` 解析"，Mono 路径自动两者都注册、手动 `InstallBindings` 需自己补。
 - ⚠️ **依赖图绑定到场景图是双刃**：「拖动 GameObject = 改 Context 归属」便利，但场景组织还受渲染/裁剪/Prefab 工作流/团队分工牵引，可能与期望的 DI 作用域冲突；且这种改动**没有编译错误兜底**，`GameContext.Main` 全局回退反而会把"接错线"的层静默解析成功，把 wiring bug 推迟到运行期才暴露。
   - **何时改用显式 `_targetContext`（不依赖 Hierarchy 自动查找）**：多人协作、Context 边界与视觉/Prefab 边界不一致、或某层必须钉死在特定 Context（不随 Hierarchy 漂移）时——在 Inspector 显式拖入目标 Context。纯展示性、边界与视觉一致的嵌套才放心用自动向上查找。
+  - **如何识别被 Main 掩盖的接线问题**：Editor 诊断把静态策略“`可→Main`”与实际成功证据“`→Main ×N`”分开；明细按契约显示最终来源和解析次数。`HasBinding`、失败探测与只读观察不记账，玩家包不含采集代码。实际 Main 回退不必然是 bug，但本应隔离的 Context 一旦出现该证据，应优先检查本地注册、显式父级和 Hierarchy。

@@ -163,13 +163,29 @@ namespace Game.Framework.Context
         }
 
         /// <summary>尝试解析类型。查找顺序：本容器（含父级链）→ GameContext.Main（可选）。</summary>
+        /// <remarks>
+        /// Editor 诊断只记录成功离开本 Container 的实际回退；允许 Main、失败探测与只读诊断不会记账。
+        /// 计数表达 Resolve 次数，不等于业务使用次数。
+        /// </remarks>
         public bool TryResolve(Type type, out object instance)
         {
             ThrowIfDisposed();
             if (type == null) throw new ArgumentNullException(nameof(type));
             if (_container.TryResolve(type, out instance)) return true;
             if (_inheritFromGlobal && Main != null && Main != this)
+#if UNITY_EDITOR
+            {
+                Main.ThrowIfDisposed();
+                if (Main._container.TryResolveWithSource(type, out instance, out var source))
+                {
+                    _container.RecordFallback(type, source, ContainerFallbackKind.Main);
+                    return true;
+                }
+                return false;
+            }
+#else
                 return Main.TryResolve(type, out instance);
+#endif
             instance = null;
             return false;
         }

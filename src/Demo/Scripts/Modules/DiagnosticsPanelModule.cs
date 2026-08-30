@@ -19,7 +19,7 @@ namespace Game.Framework.Demo.Modules
         public override int Order => 55;
         public override DemoTeachingKind TeachingKind => DemoTeachingKind.Workflow;
         public override string Summary =>
-            "前面各章「看不见的运行时」其实都可见：Context 作用域树 / 容器注册表 / Command 流水 / Bag 存活趋势，" +
+            "前面各章「看不见的运行时」其实都可见：Context 作用域树 / 实际解析回退 / 容器注册表 / Command 流水 / Bag 存活趋势，" +
             "聚合在一个调试器窗口里（左树 · 右明细 · 下流水）。Demo 已接好 Command 流水，打开即看；设计见 ADR-0026。";
 
         public override void Build(DemoModuleHost host)
@@ -33,9 +33,11 @@ namespace Game.Framework.Demo.Modules
             host.AddActionRow("打开框架诊断面板", () => RunMenu(PanelMenu),
                 new CodeRef("Assets/Game/Framework/Editor/FrameworkDiagnosticsWindow.cs", "class FrameworkDiagnosticsWindow", "面板实现（EditorWindow）"));
             host.AddNote("打开后回 demo 随便点几个按钮再看面板——三块区域都能和前面的章节对上号：");
-            host.AddStep("①", "**Context 树（左）**：能找到 demo 根 Context 和「多 Context」章的 SubContext——作用域树在这里成像，双击 Mono 节点直接定位场景对象。去「游戏流程」章 `GoTo` 几个阶段，还能看到状态子 Context 随进入出现、随切走消失——「整棵撤」的直观证据。");
-            host.AddStep("②", "**注册明细（右）**：选中 demo 根 Context——各章 `InstallBindings` 注册的纯 C# 层（`CounterModel`、`IPoolUtility`…）全在注册表里（契约 → 实例，工厂项**不触发构造**、观察不改变系统）；「依赖注入」章说 Inspector 看不到的，这里看得到。");
+            host.AddStep("①", "**Context 树（左）**：能找到 demo 根 Context 和「多 Context」章的 SubContext——作用域树在这里成像，双击 Mono 节点直接定位场景对象。`可→Main` 只表示允许兜底；真正命中过 Main 后才变成警示色 `→Main ×N`。去「游戏流程」章 `GoTo` 几个阶段，还能看到状态子 Context 随进入出现、随切走消失——「整棵撤」的直观证据。");
+            host.AddStep("②", "**注册与回退明细（右）**：选中 demo 根 Context——各章 `InstallBindings` 注册的纯 C# 层（`CounterModel`、`IPoolUtility`…）全在注册表里（契约 → 实例，工厂项**不触发构造**、观察不改变系统）；有真实父链 / Main 命中时，“解析回退”会列出契约、最终来源和 Resolve 次数。");
             host.AddStep("③", "**Command 流水（下）**：刚才每个按钮发的 Command 都在——时间 / 帧 / 同步异步 / 耗时 / 状态，新的在上、错误红字、超慢着色；支持搜索、「仅错误」过滤、复制 TSV。异步命令 await 完成后才落账，耗时才有意义。");
+            host.AddConcept("策略与证据", "`可→Main` 是 Context 能力，不是已经发生；`→Main ×N` 才表示实际成功解析。失败 TryResolve、HasBinding 和面板只读观察都不计数。");
+            host.AddConcept("解析次数", "N 表示 Resolve 次数，不是业务使用次数或静态依赖图；缓存后的服务被反复调用不会反复增长。");
             host.AddNote("流水是 **opt-in** 的：来自 `LoggingCommandSystem`——`ICommandSystem` 的**装饰器**（「命令分发可替换」的现成活样板），根 Context 注册它替换默认 `CommandSystem` 即得；泛型直转发、struct 路径保持零装箱、异常照原样冒出，不改任何执行语义。demo 根 Context 已这样注册：",
                 new CodeRef("Assets/Game/Framework/Demo/Scripts/Core/MonoDemoContext.cs", "new LoggingCommandSystem()", "demo 的接入（一行替换注册）"));
 
@@ -60,7 +62,7 @@ namespace Game.Framework.Demo.Modules
             host.AddSectionTitle("边界");
             host.AddNote("采集仅在 Editor（玩家包连 Development Build 都编译消除、零成本）；真机诊断走「日志」章那套（`Log` + `CaptureUnityLogs` + `FileLogSink` 落盘）。纯 C# `new GameContext(...)` 时顺手设 `DebugName`（诊断专用、业务逻辑不得依赖），树上就不会出现匿名节点——场景 Context 与 Flow 状态子 Context 框架已自动命名。");
 
-            host.AddTip("速记：进 Play → 菜单 SSFramework/诊断与分析/运行时诊断；Mono 问题先看“根因”而非“影响数”，再分当前 / 历史；Command 流水 = 根 Context 注册 LoggingCommandSystem（demo 已接）；泄漏看趋势线 + 订阅计数 + 树上残影。深度见 framework-guide §23 / ADR-0026。");
+            host.AddTip("速记：进 Play → 菜单 SSFramework/诊断与分析/运行时诊断；`可→Main` 是策略、`→Main ×N` 才是实际解析；Mono 问题先看“根因”而非“影响数”，再分当前 / 历史；Command 流水 = 根 Context 注册 LoggingCommandSystem（demo 已接）；泄漏看趋势线 + 订阅计数 + 树上残影。深度见 framework-guide §23 / ADR-0026。");
         }
 
         private static void RunMenu(string path)

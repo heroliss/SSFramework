@@ -77,6 +77,133 @@ namespace Game.Framework.Test
         }
 
         [Test]
+        public void ResolutionEvidence_TracksOnlySuccessfulParentFallbacks()
+        {
+            using var parentBuilder = new ContainerBuilder();
+            parentBuilder.RegisterValue("from-parent", typeof(string));
+            using var parent = new GameContext(parentBuilder.Build(), inheritFromGlobal: false)
+            {
+                DebugName = "Parent",
+            };
+
+            using var childBuilder = new ContainerBuilder();
+            childBuilder.SetParent(parent.Container);
+            childBuilder.RegisterValue(42, typeof(int));
+            using var child = new GameContext(childBuilder.Build(), inheritFromGlobal: false)
+            {
+                DebugName = "Child",
+            };
+
+            Assert.AreEqual(42, child.Resolve(typeof(int)), "本地命中不应成为回退证据");
+            Assert.IsFalse(child.TryResolve(typeof(Guid), out _), "失败探测不应成为回退证据");
+            Assert.AreEqual("from-parent", child.Resolve(typeof(string)));
+            Assert.AreEqual("from-parent", child.Resolve(typeof(string)));
+
+            var evidence = child.Container.FallbackResolutionDetails.ToList();
+            Assert.That(evidence, Has.Count.EqualTo(1));
+            Assert.That(evidence[0].Contract, Is.EqualTo(typeof(string)));
+            Assert.That(evidence[0].Source, Is.SameAs(parent.Container));
+            Assert.That(evidence[0].Kind, Is.EqualTo(ContainerFallbackKind.ParentChain));
+            Assert.That(evidence[0].Count, Is.EqualTo(2));
+        }
+
+        [Test]
+        public void ResolutionEvidence_MultiLevelFallbackBelongsOnlyToOriginalRequester()
+        {
+            using var rootBuilder = new ContainerBuilder();
+            rootBuilder.RegisterValue("from-root", typeof(string));
+            using var root = new GameContext(rootBuilder.Build(), inheritFromGlobal: false);
+
+            using var middleBuilder = new ContainerBuilder();
+            middleBuilder.SetParent(root.Container);
+            using var middle = new GameContext(middleBuilder.Build(), inheritFromGlobal: false);
+
+            using var leafBuilder = new ContainerBuilder();
+            leafBuilder.SetParent(middle.Container);
+            using var leaf = new GameContext(leafBuilder.Build(), inheritFromGlobal: false);
+
+            Assert.AreEqual("from-root", leaf.Resolve(typeof(string)));
+
+            var evidence = leaf.Container.FallbackResolutionDetails.Single();
+            Assert.That(evidence.Source, Is.SameAs(root.Container));
+            Assert.That(evidence.Count, Is.EqualTo(1));
+            Assert.That(middle.Container.FallbackResolutionDetails, Is.Empty,
+                "递归经过的中间 Container 没有发起解析，不应被重复记账");
+            Assert.That(root.Container.FallbackResolutionDetails, Is.Empty);
+        }
+
+        [Test]
+        public void ResolutionEvidence_TracksParentDependencyResolvedInsideFactory()
+        {
+            using var parentBuilder = new ContainerBuilder();
+            parentBuilder.RegisterValue(7, typeof(int));
+            using var parent = new GameContext(parentBuilder.Build(), inheritFromGlobal: false);
+
+            using var childBuilder = new ContainerBuilder();
+            childBuilder.SetParent(parent.Container);
+            childBuilder.RegisterFactory(
+                container => new Version((int)container.Resolve(typeof(int)), 0),
+                typeof(Version));
+            using var child = new GameContext(childBuilder.Build(), inheritFromGlobal: false);
+
+            Assert.That(child.Resolve(typeof(Version)), Is.EqualTo(new Version(7, 0)));
+
+            var evidence = child.Container.FallbackResolutionDetails.Single();
+            Assert.That(evidence.Contract, Is.EqualTo(typeof(int)),
+                "应记录工厂真正跨层解析的依赖，而不是本地工厂产物");
+            Assert.That(evidence.Source, Is.SameAs(parent.Container));
+            Assert.That(evidence.Count, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void ResolutionEvidence_DistinguishesAllowedFromActualMainFallback()
+        {
+            GameContext previousMain = GameContext.Main;
+            using var mainBuilder = new ContainerBuilder();
+            mainBuilder.RegisterValue("from-main", typeof(string));
+            using var main = new GameContext(mainBuilder.Build(), inheritFromGlobal: false)
+            {
+                DebugName = "Main",
+            };
+            GameContext.Main = main;
+
+            try
+            {
+                using var childBuilder = new ContainerBuilder();
+                using var child = new GameContext(childBuilder.Build(), inheritFromGlobal: true)
+                {
+                    DebugName = "Orphan",
+                };
+
+                Assert.That(child.InheritsFromGlobal, Is.True);
+                Assert.That(child.Container.FallbackResolutionDetails, Is.Empty,
+                    "允许回退只是策略，尚未解析时不能冒充运行证据");
+                Assert.That(child.TryResolve(typeof(Guid), out _), Is.False,
+                    "Main 未命中不应产生回退证据");
+
+                Assert.AreEqual("from-main", child.Resolve(typeof(string)));
+                Assert.AreEqual("from-main", child.Resolve(typeof(string)));
+
+                using var isolatedBuilder = new ContainerBuilder();
+                using var isolated = new GameContext(isolatedBuilder.Build(), inheritFromGlobal: false);
+                Assert.That(isolated.TryResolve(typeof(string), out _), Is.False,
+                    "显式隔离的 Context 不应查询 Main");
+                Assert.That(isolated.Container.FallbackResolutionDetails, Is.Empty);
+
+                var evidence = child.Container.FallbackResolutionDetails.ToList();
+                Assert.That(evidence, Has.Count.EqualTo(1));
+                Assert.That(evidence[0].Contract, Is.EqualTo(typeof(string)));
+                Assert.That(evidence[0].Source, Is.SameAs(main.Container));
+                Assert.That(evidence[0].Kind, Is.EqualTo(ContainerFallbackKind.Main));
+                Assert.That(evidence[0].Count, Is.EqualTo(2));
+            }
+            finally
+            {
+                GameContext.Main = previousMain;
+            }
+        }
+
+        [Test]
         public void DebugName_DefaultsNullAndSettable()
         {
             var ctx = CreateContext();

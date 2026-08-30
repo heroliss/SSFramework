@@ -27,6 +27,7 @@ roadmap 中期第六项：把散在各组件 Inspector「运行时诊断」折�
 - **存活 Context 登记表**：`GameContext` 构造时登记、`Dispose` 时注销。父子关系不新建机制——沿既有 `Container._parent` 链反查「哪个存活 Context 拥有父容器」还原作用域树。
 - **DisposableBag 计数**：构造 +1、Dispose -1，只记全局存活数与累计创建数（泄漏排查看趋势即可，不做逐实例列表——登记每个 bag 的持有点要抓栈，分配大、收益低）。
 - **事件订阅计数**：`GameContext.RegisterEvent` 通道上包一层计数 disposable（per-Context `Dictionary<Type,int>`，订阅 +1、退订 -1）。`Bag.Subscribe<TEvent>` 走的就是这条通道，全量覆盖。
+- **实际解析回退证据**：`Container` 只在成功离开请求 Container 时，按契约 / 最终来源 / 父链或 Main 路径聚合 Resolve 次数。最初请求者记一次，递归经过的中间 Container 不重复记账；Factory 内部主动解析父级依赖也自然覆盖。Main 只有实际返回实例才记账，允许回退、`HasBinding` 与失败 `TryResolve` 都不是证据。来源使用弱引用，避免已替换 Main 被诊断延寿。
 - **采集条件编译 `UNITY_EDITOR`**（比框架惯用的 `UNITY_EDITOR || DEVELOPMENT_BUILD` 更窄）：展示层是 EditorWindow，真机采了也没人看；登记表持强引用会改变 GC 行为，不该带进真机。真机诊断已有分工——冒烟走 `FrameworkSelfCheck`，日志走 `FrameworkLog`。
 - **域重载/Play 会话边界**：`RuntimeInitializeOnLoadMethod(SubsystemRegistration)` 清空登记表与计数，上一次 Play 泄漏的 Context 不跨会话残留（关闭 Domain Reload 的 Enter Play Mode 同样正确）。
 
@@ -51,8 +52,8 @@ roadmap 中期第六项：把散在各组件 Inspector「运行时诊断」折�
 
 **UI Toolkit 实现的调试器风格布局**（TreeView / MultiColumnListView 现成控件，也顺应框架「面向 UI Toolkit」的技术栈方向），全部只读：
 
-1. **左：Context 作用域树**（TreeView）——存活 Context 按 `Container.Parent` 链成树，节点带徽标（Main / Mono·C# / →Main 回退）与「注册 · 订阅 · 存活时长」摘要；工具栏搜索按「名称 / 注册契约 / 事件类型」过滤（保留祖先链）；双击定位场景对象。
-2. **右：选中 Context 明细**——本地注册表（契约 → 实例，运行时 / 构建时 / 工厂徽标——**绝不触发工厂**，诊断不得改变被观察系统；Unity 对象带定位按钮）、本地 `IGameFlow` 的 Current / 进入中 / 退出中 / 待处理事务、事件订阅计数（异常增长 = 泄漏嫌疑）、本地 `IPoolUtility` 池借出 / 空闲。流程诊断只读已构造绑定：自定义 Adapter 使用公共 `Current / IsTransitioning`，默认 `GameFlow` 通过 Editor-only 内部快照补充事务阶段，不为调试扩张业务 Interface，也不触发 Lazy Factory。
+1. **左：Context 作用域树**（TreeView）——存活 Context 按 `Container.Parent` 链成树，节点带徽标（Main / Mono·C# / `可→Main` 策略 / `→Main ×N` 实际成功解析）与「注册 · 订阅 · 存活时长」摘要；工具栏搜索按「名称 / 注册契约 / 回退契约与来源 / 事件类型」过滤（保留祖先链）；双击定位场景对象。
+2. **右：选中 Context 明细**——本地注册表（契约 → 实例，运行时 / 构建时 / 工厂徽标——**绝不触发工厂**，诊断不得改变被观察系统；Unity 对象带定位按钮）、实际解析回退（契约 → 最终来源、父链 / Main、解析次数）、本地 `IGameFlow` 的 Current / 进入中 / 退出中 / 待处理事务、事件订阅计数（异常增长 = 泄漏嫌疑）、本地 `IPoolUtility` 池借出 / 空闲。流程诊断只读已构造绑定：自定义 Adapter 使用公共 `Current / IsTransitioning`，默认 `GameFlow` 通过 Editor-only 内部快照补充事务阶段，不为调试扩张业务 Interface，也不触发 Lazy Factory。
 3. **下：Command 流水表格**（MultiColumnListView）——`LoggingCommandSystem` 环形缓冲，新的在上；耗时着色（≥1 帧 / ≥100ms）、过滤 + 仅错误开关 + TSV 复制导出；未接入时显示一行接入指引，不报错。
 4. **顶栏计数条**：存活 Context / Bag 存活（各带约 30 秒窗口的趋势 sparkline，Painter2D 自绘）/ 命令累计。Play 模式外树区显示提示（登记表只在运行期有内容）。
 
@@ -76,3 +77,5 @@ roadmap 中期第六项：把散在各组件 Inspector「运行时诊断」折�
 **2026-08-23 失败宿主补诊断，2026-08-25 根因聚合：**初始化事务失败的 `MonoGameContextBase` 不会发布 `GameContext`，因此无法进入 `LiveContexts` 作用域树。Core 提供 Editor-only 只读快照（状态、已解析父级、Context、异常），窗口复用场景扫描在树上方单列问题；不制造假的 Context，也不增加静态强引用登记。父级初始化失败会被子级包装并继续传播，窗口按“同一最深异常对象 + 实际 Mono 父子链”聚合为根因组，显示最先失败宿主与受影响链；相同类型 / 文案但无父子关系的异常仍保持独立。没有异常的 `Uninitialized/Initializing` 只按实际父子链聚合为“时序提醒”，不计入根因数，也不宣称已经发生异常。运行中标为“当前 Play”，退出后保留的 `Failed` 标为“历史证据”，避免把上次运行残留误读成当前故障。Edit Mode 下普通 MonoBehaviour 尚未执行 `Awake`，`Uninitialized` 是正常场景资产状态，不显示为异常；Play Mode 中激活宿主仍为 `Uninitialized/Initializing` 才提示时序问题。该边界由 Editor 纯分析与状态分类契约测试锁定。
 
 **2026-08-29 Inspector 渐进披露：**Framework Mono 组件不再各自重复显示“打开完整框架诊断”按钮；总览入口只保留在顶部菜单、工具中心和 Demo 教学中。组件内的“运行时诊断”按目标实例记录展开状态并默认折叠，只有展开后才枚举注册契约、服务状态和可选 Module contributor。折叠不等于隐藏故障：失败 Context、当前 Play 中激活但仍未初始化的 Context，以及没有解析到 Context 的激活层组件仍显示一条摘要；普通 Edit Mode 不制造噪音。原生 fallback、Odin Adapter 与默认 Header 接缝复用同一绘制器，且 Odin 被禁用或排除时必须明确归还原生 fallback，不能落到不含诊断的 `OdinEditor`。
+
+**2026-08-30 解析回退证据：**过去树上的 `→Main` 只表达 `inheritFromGlobal` 策略，却容易被误读成“已经从 Main 取过服务”。现在未发生成功回退时显示 `可→Main`；真正命中后才显示警示色 `→Main ×N`，右侧列出契约、最终来源与 Resolve 次数。父链命中也进入明细，但作为正常组合语义而非默认告警。采集位于作出解析决策的 Container / GameContext Implementation，保持 Locality；窗口只读快照，不调用 Resolve，也不会触发 Lazy Factory。
