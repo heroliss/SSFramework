@@ -28,7 +28,7 @@ Framework 工具和教学不得使用一个“已启用”布尔值合并以下�
 
 `SSFramework/诊断与分析/模块与依赖` 继续从实际 Player 编译图、asmdef、DLL 元数据、热更 Profile，以及项目 Assets 与全部已注册 Package 中的 `link.xml` 派生 Catalog，不新增“已安装 Module”资产，也不让用户重复维护依赖。asmdef、linker 规则与模板的读取统一经过 `FrameworkModuleSourceCatalog`；稳定 Asset Path 用于定位和报告，真实 Physical Path 用于 I/O，因此 registry/Git 包位于 `Library/PackageCache` 时不会被误判为缺失。详见 ADR-0040。
 
-一次显式采集先冻结 AssetDatabase 路径、PluginImporter 列表，以及 Player / Editor 编译程序集图，再让后续 Module、外部依赖与 linker 分析复用同一份输入；热更分析中最昂贵的 Generate stamp 校验也复用其中的 Asset 路径与 Player 编译图。热更新生成证据的文件内容缓存只活在这一轮采集内；同一 response file、Analyzer、预编译 DLL 或序列化根只读一次，下一次显式采集仍重新读取当前磁盘。Player linker 根按“根集合 + 可达依赖并集”一次批量查询，不保留对最终裁剪无影响的逐根归属，也不让共享 Resources 闭包被数百个根重复遍历。Unity API 仍在主线程同步读取，不伪装成可后台并行；窗口用进度与阶段耗时解释等待，Cache 只保存已完成快照，并在工程或编译图变化后失效。这样既避免同轮重复全量扫描，也避免报告前后分别读取到两套工程状态。
+一次显式采集先冻结 AssetDatabase 路径、PluginImporter 列表，以及 Player / Editor 编译程序集图，再让后续 Module、外部依赖与 linker 分析复用同一份输入；热更分析中最昂贵的 Generate stamp 校验也复用其中的 Asset 路径与 Player 编译图。热更新生成证据的文件内容缓存只活在这一轮采集内；同一 response file、Analyzer、预编译 DLL 或序列化根只读一次，下一次显式采集仍重新读取当前磁盘。Player linker 根按“根集合 + 可达依赖并集”一次批量查询，不保留对最终裁剪无影响的逐根归属，也不让共享 Resources 闭包被数百个根重复遍历。Unity API 仍在主线程同步读取，不伪装成可后台并行；窗口用进度与阶段耗时解释等待，Cache 只保存已完成快照，并在工程、Package、构建场景、目标平台或编译图变化后失效。这样既避免同轮重复全量扫描，也避免报告前后分别读取到两套工程状态。
 
 HybridCLR 热更新构建 Module 额外提供只读派生证据：比较唯一 Profile 与 HybridCLRSettings、复用代码包构建门禁校验 Generate stamp，并把当前热更拓扑顺序及 `AOTGenericReferences.PatchedAOTAssemblyList` 与 `Assets/HotUpdateDlls` 中转 manifest、实际文件互相核对。通用 Editor 通过反射读取这个可删除 Module，不建立编译期反向依赖；资源构建 Module 是否安装与该证据正交。空 Profile 不强制 Generate，但审计会检查启用场景是否仍依赖 `HotUpdateLauncher`：保留 Launcher 时仍要求其 Player 分支读取的空清单 CodePackage，只有直接 AOT composition root 才把中转视为可选。缺失 / 重复 Profile 不冒充明确配置。中转一致只证明结构与文件存在，不证明 DLL 内容相对源码新鲜，也不冒充 YooAsset bundle、Deploy 目录或 CDN 已更新。
 
