@@ -2,6 +2,15 @@ using UnityEngine;
 
 namespace Game.Framework.Pool
 {
+    /// <summary>单个池化实例的内部租借事务状态；不向业务暴露。</summary>
+    internal enum PooledInstanceState
+    {
+        Inactive,
+        Renting,
+        Active,
+        Returning,
+    }
+
     /// <summary>
     /// 池化 GameObject 的运行时标记组件，由 <see cref="GameObjectPool"/> 在实例化时自动挂上，业务不应手动添加。
     /// </summary>
@@ -20,7 +29,9 @@ namespace Game.Framework.Pool
         /// <summary>实例化时缓存的 <see cref="IPoolable"/> 组件（含未激活子节点），可能为空数组。</summary>
         internal IPoolable[] Poolables;
 
-        /// <summary>当前是否处于"已 Spawn 出去"状态，用于诊断重复归还。</summary>
-        internal bool IsSpawned;
+        /// <summary>
+        /// 当前租借事务状态。Renting / Returning 会阻断钩子里的同步重入，避免同一实例被提前入池或重复发布。
+        /// </summary>
+        internal PooledInstanceState State;
     }
 }

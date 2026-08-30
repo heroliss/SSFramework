@@ -20,16 +20,22 @@ namespace Game.Framework.Pool
         int CountInactive { get; }
 
         /// <summary>
-        /// 当前借出未归还的实例数（Rent +1、Return -1）。持续增长 = 漏归还嫌疑。
-        /// C# 池不跟踪实例归属（见 <see cref="ObjectPool{T}"/>），Release 下归还外来实例等误用会让计数漂移（钳到 ≥0）——
-        /// Editor / Development Build 有误用防护，计数精确。
+        /// 当前借出未归还的实例数。池在所有构建中按引用身份跟踪 lease，重复 / 外来 Return 会被拒绝，因此计数精确；
+        /// 持续增长 = 漏归还嫌疑。
         /// </summary>
         int CountActive { get; }
 
-        /// <summary>取一个实例：池中有则复用，否则用工厂新建。会触发 onRent / <see cref="IPoolable.OnRent"/>。</summary>
+        /// <summary>
+        /// 取一个实例：池中有则复用，否则用工厂新建。会触发 onRent / <see cref="IPoolable.OnRent"/>。
+        /// 工厂返回 null / 重复引用或租借钩子失败时不发布 lease；已触发钩子的实例会先 best-effort 执行归还补偿，再丢弃并重抛首异常。
+        /// </summary>
         T Rent();
 
-        /// <summary>归还实例：触发 onReturn / <see cref="IPoolable.OnReturn"/> 后入池（超过容量上限则丢弃交 GC）。null 安全。</summary>
+        /// <summary>
+        /// 归还实例：触发 onReturn / <see cref="IPoolable.OnReturn"/> 后入池（超过容量上限则丢弃交 GC）。null 安全；
+        /// 重复归还、归还外来引用或钩子重入会被拒绝（Editor/Development Build 额外记录错误）。归还钩子失败时仍完成其余清理、关闭 lease 并丢弃脏实例，然后重抛首异常。
+        /// 所属 Utility 已释放时，既有 lease 仍可做最后一次 Return，但只清理、不再入池。
+        /// </summary>
         void Return(T instance);
 
         /// <summary>预创建 <paramref name="count"/> 个实例放入池中（受容量上限约束），避免运行期首次租借的分配尖峰。</summary>
@@ -53,6 +59,28 @@ namespace Game.Framework.Pool
     }
 
     /// <summary>
+    /// PoolUtility 的内部生命周期接缝：封闭新租借并清空 idle，但允许已发布 lease 做最后一次 Return/Despawn。
+    /// 不进入公共接口，避免业务手动终止由 Utility 管理的单池。
+    /// </summary>
+    internal interface IPoolLifetime
+    {
+        void Terminate();
+    }
+
+    /// <summary>把类型擦除后的实例归还给真实来源池；仅供 PoolUtility 的引用身份路由使用。</summary>
+    internal interface IPoolReturnRoute
+    {
+        void ReturnObject(object instance);
+    }
+
+    /// <summary>PoolUtility 管理的 C# lease 来源表；直接构造的 ObjectPool 不需要此接缝。</summary>
+    internal interface IPoolLeaseRegistry
+    {
+        void RegisterLease(object instance, IPoolReturnRoute route);
+        void UnregisterLease(object instance, IPoolReturnRoute route);
+    }
+
+    /// <summary>
     /// 对象池工具：按类型管理一组 <see cref="IObjectPool{T}"/>，框架统一的池入口。
     /// 经 <c>this.GetUtility&lt;IPoolUtility&gt;()</c> 访问；或在 <c>MonoXxxBase</c> 子类里用 <c>Bag.Rent&lt;T&gt;()</c> 租借并随宿主自动归还。
     /// </summary>
@@ -60,6 +88,7 @@ namespace Game.Framework.Pool
     /// <b>注册（按池生命周期选）：</b>纯 C# 跟随 Context 用 <c>builder.RegisterOwnedUtility(new PoolUtility())</c>（随 <c>GameContext.Dispose</c> 清池）；
     /// 已有外部 owner 时用 <c>RegisterUtility</c>；需 Inspector 配参数 / 跟随 GameObject 生命周期用 <see cref="MonoPoolUtility"/>。三者复用同一套池逻辑。<br/>
     /// <b>首次配置生效：</b>同一类型的池在首次配置（带工厂/钩子的 <c>GetPool</c>）时按参数创建；之后再取返回同一池，忽略后续参数。需要自定义工厂或钩子时，在首次使用前显式配置一次。<br/>
+    /// <b>关闭：</b>Utility 释放后立即拒绝新建池与新租借；此前已借出的实例仍按引用身份路由回真实来源池，完成一次清理后丢弃。<br/>
     /// <b>线程：</b>主线程独占。
     /// </remarks>
     public interface IPoolUtility : IUtility
@@ -76,8 +105,11 @@ namespace Game.Framework.Pool
         /// <summary>从 <typeparamref name="T"/> 的默认池租借一个实例（等价 <c>GetPool&lt;T&gt;().Rent()</c>）。</summary>
         T Rent<T>() where T : class, new();
 
-        /// <summary>把实例归还到 <typeparamref name="T"/> 的默认池（等价 <c>GetPool&lt;T&gt;().Return(instance)</c>）。</summary>
-        void Return<T>(T instance) where T : class, new();
+        /// <summary>
+        /// 按实例的引用身份把 lease 归还到真实来源池，不依赖调用点的静态 <typeparamref name="T"/>；
+        /// 因此实例上转型后仍能正确归还。外来 / 重复实例会被忽略（Editor/Development Build 额外记录错误），绝不为 Return 新建池。
+        /// </summary>
+        void Return<T>(T instance) where T : class;
 
         // ── GameObject / Prefab 池 ──────────────────────────────────────────
         // 按 prefab 键控，与上面的纯 C# 对象池共用同一个工具入口。

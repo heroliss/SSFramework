@@ -46,7 +46,9 @@ roadmap 中期第六项：把散在各组件 Inspector「运行时诊断」折�
 
 ### 5. 对象池补「借出」计数
 
-`IObjectPool<T>` / `IGameObjectPool` 增加 `CountActive`（Rent/Spawn +1、Return/Despawn -1）——roadmap 要的「占用/空闲」里缺的那半。`GetPoolDiagnostics()` 字符串同步补上（`MonoPoolUtility` Inspector 白得增强）。边界：C# 池不跟踪实例归属（刻意，见 ADR-0007），归还外来实例会让计数漂移——钳到 ≥0 并在文档标注「误用下是近似值」；GameObject 实例被外部 Destroy 不再归还，计数停在借出侧——这本身就是要暴露的信息。
+`IObjectPool<T>` / `IGameObjectPool` 增加 `CountActive`，补齐 roadmap 所需的「借出 / 空闲」两半；`GetPoolDiagnostics()` 和 `MonoPoolUtility` Inspector 同步展示。后续 ADR-0007 的租借事务完善后，计数语义收紧为：只有 `Rent` / `Spawn` 已完整通过钩子并成功发布的 `Active` lease 才计入，`Renting` / `Returning` 事务态不计入。
+
+C# 池在所有构建中按引用身份维护完整实例状态，`PoolUtility` 还按真实来源池路由归还；外来、重复、上转型错配和钩子重入不会让计数漂移，因此 `CountActive` 是精确值。GameObject 同样以 `PooledObject` 状态保护租借，但活动实例若被调用方直接 `Destroy`，池没有可收到的归还事件，计数会刻意停在借出侧——它表示“已发布但没有正常结束的 lease”，正是泄漏排查需要暴露的证据。Unity fake-null 的 idle 死槽会在空闲计数与容量相关操作前剔除，不计入 `CountInactive`。
 
 ### 6. Editor 窗口 `FrameworkDiagnosticsWindow`（菜单 `SSFramework/诊断与分析/运行时诊断`）
 

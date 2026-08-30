@@ -30,6 +30,10 @@ Demo 教学内容与自动化之间的运行时 Seam。`DemoModuleHost` 在真�
 
 项目 composition layer 把物理返回输入（Input Action、Esc、Android Back 或平台事件）映射到 `IUIUtility.Back()` 的浅接线。UI Module 只拥有 Popup → Window → Page、`BackClosable` 与过渡中吞键等深导航语义，不依赖或探测任何输入 Package。Demo 的 `DemoInputSystemBackKeyDriver` 是可搬走的 Input System 样板，不是 Framework Runtime API；项目可按自己的输入路由替换它，而无需新增 UI Core Seam。
 
+## Object Pool Lease
+
+一次成功的 `Rent` / `Spawn` 会发布一份 lease（租借所有权），实例在 `Return` / `Despawn` 前只归当前调用方使用；池在所有构建中按引用身份维护 Inactive → Renting → Active → Returning 状态，钩子异常或重入只能让事务补偿并丢弃脏实例，不能发布半初始化对象或把同一引用交给两个 owner。`PoolUtility` 按实例的真实来源路由 C# 归还，并以两阶段关闭封闭新工作、保留旧 lease 的 terminal 归还出口；`DisposableBag` 不会发布关闭过程中晚到的 lease。GameObject 池还负责剔除 Unity fake-null 空闲槽、在可重入回调后复核提交时容量，并把活动 clone 从 `DontDestroyOnLoad` parking 显式迁回目标 Scene；已被外部 Destroy 的活动实例则保留在借出计数侧作为未正常结束 lease 的诊断证据。
+
 ## Asset Location Snapshot
 
 `IAssetUtility.GetLocationState` 对某个 package/location 当前清单与本地缓存的同步四态快照：PackageNotReady、Invalid、AvailableLocally、RequiresDownload。它是资源 Module 的高杠杆 Interface，替调用方收口“先守卫初始化，再拼地址有效性与下载需求”的重复编排；具体未就绪原因仍由正交的 `AssetInitState` 表达，YooAsset 的布尔查询与 Reader/Writer 协调保留在 Adapter Implementation 内。

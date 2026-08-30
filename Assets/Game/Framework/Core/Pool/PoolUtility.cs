@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using Game.Framework.Logging;
 using UnityEngine;
 
@@ -16,13 +17,18 @@ namespace Game.Framework.Pool
     /// GameObject 池首次使用时惰性创建一个停用的 DontDestroyOnLoad parking 节点存放空闲实例——这让本工具触及 Unity 场景，
     /// 但仍不依赖框架 Context；位置加载交由调用方先 <c>Bag.Load&lt;GameObject&gt;(location)</c> 再建池，刻意不把 IAssetUtility 拉进来。
     /// parking 节点（总根及各 prefab 子节点）若被外部销毁，会在下次归还 / 预热时自愈重建（见 <see cref="EnsureParkingFor"/>），归还实例不会散落到场景根。<br/>
-    /// <b>Dispose 后不可再用：</b><see cref="Dispose"/> 后停放根被销毁，任何继续的 Spawn/Rent/Despawn 都<b>不</b>会复活停放根
-    /// （Dispose 后归还的实例直接 Destroy，避免泄漏一个永不回收的 DontDestroyOnLoad 节点）；Editor/Dev 构建下对 Dispose 后的调用会 LogError 帮你抓到过期引用。
+    /// <b>Dispose 后封闭新租借：</b><see cref="Dispose"/> 会终止全部单池并销毁停放根；Get/Rent/Spawn/Prewarm 等新工作 fail-fast。
+    /// Dispose 前已经发布的 lease 仍允许做一次 terminal Return/Despawn，以执行清理钩子；随后纯 C# 实例被丢弃、GameObject 被 Destroy，
+    /// 均不会复活缓存或 DontDestroyOnLoad 停放根。
     /// </remarks>
-    public sealed class PoolUtility : IPoolUtility, IDisposable
+    public sealed class PoolUtility : IPoolUtility, IDisposable, IPoolLeaseRegistry
     {
         // key = 池化类型 T；value = IObjectPool<T>（按 T 装箱存储，取出时还原）
         private readonly Dictionary<Type, object> _pools = new();
+
+        // C# lease 的真实来源池：Return<T> 不能依赖调用点静态 T，否则上转型会把实例送进错误池。
+        private readonly Dictionary<object, IPoolReturnRoute> _leaseRoutes =
+            new(ReferenceComparer.Instance);
 
         // key = 源 prefab；value = 其 GameObject 池。仅在首次用到 GameObject 池时分配。
         private Dictionary<GameObject, IGameObjectPool> _goPools;
@@ -48,7 +54,7 @@ namespace Game.Framework.Pool
         private IObjectPool<T> GetPoolCore<T>(Func<T> factory, Action<T> onRent, Action<T> onReturn, int maxSize, bool explicitConfig)
             where T : class
         {
-            WarnIfDisposed(nameof(GetPool));
+            ThrowIfDisposed(nameof(GetPool));
             if (_pools.TryGetValue(typeof(T), out var existing))
             {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
@@ -61,21 +67,34 @@ namespace Game.Framework.Pool
                 return (IObjectPool<T>)existing;
             }
 
-            var pool = new ObjectPool<T>(factory, onRent, onReturn, maxSize);
+            var pool = new ObjectPool<T>(factory, onRent, onReturn, maxSize, this);
             _pools[typeof(T)] = pool;
             return pool;
         }
 
         public T Rent<T>() where T : class, new() => GetPool<T>().Rent();
 
-        public void Return<T>(T instance) where T : class, new() => GetPool<T>().Return(instance);
+        public void Return<T>(T instance) where T : class
+        {
+            if (instance == null) return;
+            if (!_leaseRoutes.TryGetValue(instance, out IPoolReturnRoute route))
+            {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+                Log.Error(
+                    $"Return<{typeof(T).Name}> 的实例没有活动来源记录（可能是外来或重复归还），已忽略。",
+                    category: nameof(PoolUtility));
+#endif
+                return;
+            }
+            route.ReturnObject(instance);
+        }
 
         // ── GameObject / Prefab 池 ──────────────────────────────────────────
 
         public IGameObjectPool GetGameObjectPool(GameObject prefab, int maxSize = 0)
         {
             if (prefab == null) throw new ArgumentNullException(nameof(prefab));
-            WarnIfDisposed(nameof(GetGameObjectPool));
+            ThrowIfDisposed(nameof(GetGameObjectPool));
             _goPools ??= new Dictionary<GameObject, IGameObjectPool>();
             if (_goPools.TryGetValue(prefab, out var existing))
                 return existing;
@@ -96,7 +115,6 @@ namespace Game.Framework.Pool
         public void Despawn(GameObject instance)
         {
             if (instance == null) return;
-            WarnIfDisposed(nameof(Despawn));
             var marker = instance.GetComponent<PooledObject>();
             if (marker == null || marker.OwningPool == null)
             {
@@ -129,8 +147,8 @@ namespace Game.Framework.Pool
         }
 
         /// <summary>
-        /// 释放池工具：销毁 GameObject 池的停放总根（连带所有子停放节点与池中空闲实例）、清空所有池缓存。
-        /// 已 Spawn 出去的活动实例挂在调用方节点下、不在停放区，<b>不</b>受影响（归调用方生命周期）。幂等。
+        /// 释放池工具：终止全部单池、清掉空闲实例并销毁 GameObject 停放根。
+        /// 已借出的活动实例暂归调用方持有，仍可做一次 terminal Return/Despawn 完成清理，但不会重新入池。幂等。
         /// </summary>
         /// <remarks>
         /// 由 <c>ContainerBuilder.RegisterOwnedUtility</c> + <c>GameContext.Dispose</c>（纯 C# 路径），
@@ -141,15 +159,22 @@ namespace Game.Framework.Pool
             if (_disposed) return;
             _disposed = true;
 
+            // 先封闭每个池的新工作并清理 idle；保留池对象本身，给已发布 lease 的 convenience Return / marker 路由收尾。
+            foreach (object pool in _pools.Values)
+                ((IPoolLifetime)pool).Terminate();
+            if (_goPools != null)
+                foreach (IGameObjectPool pool in _goPools.Values)
+                    ((IPoolLifetime)pool).Terminate();
+
+            // acquisition catalog 到此失效；活动 C# lease 由 _leaseRoutes 精确保留其 retired pool，直到 terminal Return。
+            _pools.Clear();
+            _goPools?.Clear();
+
             // GameObject 池：销毁停放总根，连带子停放节点 + 池中空闲实例一起回收。
             if (_parkingRoot != null)
                 UnityEngine.Object.Destroy(_parkingRoot.gameObject);
             _parkingRoot = null;
             _parkings?.Clear();
-            _goPools?.Clear();
-
-            // C# 对象池：纯托管对象，清引用交 GC。
-            _pools.Clear();
         }
 
         // 惰性创建统一的 parking 根：停用（空闲实例不渲染/不 Update）+ DontDestroyOnLoad（跨场景存活，随工具生命周期）。
@@ -186,14 +211,40 @@ namespace Game.Framework.Pool
             return parking;
         }
 
-        // Dispose 后误用诊断：池已随其归属 Context/GameObject 释放，继续用多半是持有了过期引用。
-        // 仅 Editor/Dev 生效（对齐本层其它防护风格）；不阻断调用——归还路径已能安全地不复活停放根。
-        private void WarnIfDisposed(string op)
+        private void ThrowIfDisposed(string op)
         {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
             if (_disposed)
-                Log.Error($"'{op}' 在 Dispose 后被调用——池已释放，检查是否持有了过期的 IPoolUtility 引用。", category: "PoolUtility");
-#endif
+                throw new ObjectDisposedException(
+                    nameof(PoolUtility),
+                    $"'{op}' 在 Dispose 后被调用——池已随 Context/GameObject 释放；旧 lease 只允许 Return/Despawn。");
+        }
+
+        void IPoolLeaseRegistry.RegisterLease(object instance, IPoolReturnRoute route)
+        {
+            if (_disposed)
+                throw new ObjectDisposedException(nameof(PoolUtility), "池工具已释放，不能再发布新的 C# lease。");
+            if (_leaseRoutes.TryGetValue(instance, out IPoolReturnRoute existing))
+                throw new InvalidOperationException(
+                    $"同一实例引用已由另一个池发布：{existing.GetType().Name}；factory 不能跨池复用活动实例。");
+            _leaseRoutes.Add(instance, route);
+        }
+
+        void IPoolLeaseRegistry.UnregisterLease(object instance, IPoolReturnRoute route)
+        {
+            if (_leaseRoutes.TryGetValue(instance, out IPoolReturnRoute existing) && ReferenceEquals(existing, route))
+            {
+                _leaseRoutes.Remove(instance);
+                return;
+            }
+
+            Log.Error("C# 对象池关闭 lease 时未找到匹配的来源路由；池状态可能已损坏。", category: nameof(PoolUtility));
+        }
+
+        private sealed class ReferenceComparer : IEqualityComparer<object>
+        {
+            internal static readonly ReferenceComparer Instance = new();
+            public new bool Equals(object x, object y) => ReferenceEquals(x, y);
+            public int GetHashCode(object obj) => RuntimeHelpers.GetHashCode(obj);
         }
     }
 }
