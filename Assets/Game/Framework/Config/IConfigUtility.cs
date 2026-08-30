@@ -40,10 +40,15 @@ namespace Game.Framework
         /// <remarks>
         /// <paramref name="cancellationToken"/> 只取消当前调用者的等待，不会停止由组件与 Context 生命周期共同拥有的共享加载；
         /// 其他调用者仍可继续等待同一次结果。组件或 Context 销毁会取消共享加载及尚未完成的等待。
+        /// 活跃且启用的组件可在 Unity 调用 <c>Start</c> 前先收到本调用并等待同一次加载；组件仍为 Idle 且已禁用或
+        /// GameObject 未激活时会立即失败，因为 Unity 不会为该组件调用 <c>Start</c>。
+        /// 只有 owner token 已取消时，下游 <see cref="System.OperationCanceledException"/> 才按生命周期取消发布；
+        /// Provider / Adapter 在 owner 未取消时自发抛出的取消异常会包装为 <see cref="System.InvalidOperationException"/> 并发布 Failed。
         /// 本服务是一次性自加载，不在失败后隐式重试；需要重试时应重建其所属 Context / 组件，避免一部分调用者看到旧表、另一部分看到新表。
         /// </remarks>
         /// <exception cref="System.OperationCanceledException">调用者取消等待，或拥有该加载的组件 / Context 已销毁。</exception>
-        /// <exception cref="System.Exception">清单、资源加载或表根构造失败时，保留并重新抛出原始异常。</exception>
+        /// <exception cref="System.InvalidOperationException">服务仍为 Idle 但组件不能收到 Start，或下游在 owner 未取消时自发取消。</exception>
+        /// <exception cref="System.Exception">清单、资源加载或表根构造失败时，保留并重新抛出原始异常；非 owner 取消会保留为内部异常。</exception>
         UniTask<TTables> EnsureReady(CancellationToken cancellationToken = default);
     }
 }
