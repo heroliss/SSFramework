@@ -34,6 +34,10 @@ Demo 教学内容与自动化之间的运行时 Seam。`DemoModuleHost` 在真�
 
 `IGameFlow` 是 System 层的宏观业务阶段 Interface；`GameFlow` Implementation 把 `FlowState` 当前状态、最新意图排队、协作取消和每状态子 Context 的所有权保持在同一个深 Module 内。它用 `RegisterOwnedSystem(new GameFlow())` 进入宿主 Context：层感知注册自动登记具体类型与 Interface，宿主拥有 flow，flow 再拥有当前状态子 Context；全局性来自注册在持久根 Context，不来自另造 Mono 状态机。View 在 Command Seam 表达流转意图，持续展示时由查询 Command 返回只读投影；System 与 FlowState 内部可直接解析该 System。项目侧 `FlowNav` 是只观察 fire-and-forget 终态的 Adapter：正常顶替/销毁取消静默，真实进入失败进入 Log Seam，它不拥有转换规则。`Current` 不单拆 Model，因为它只是转换不变量的一部分；保留在同一 Implementation 能提高 Locality，避免增加一条只做镜像同步的浅 Interface。Editor 诊断直接读取同一 Implementation 的 Current / 进入中 / 退出中 / 待处理快照，并用 Context 树展示状态子 Context，不制造第二份状态真源。
 
+## Command Dispatcher Seam
+
+`ICommandSystem` 是 Context 内统一执行 Command 的可替换命令分发器 Interface；`CommandSystem` 是默认 Implementation，`LoggingCommandSystem` 是已被真实使用的装饰器 Adapter。类型名中的 `System` 是兼容保留的早期公共命名，不代表五层业务 `ISystem`：它不获得 System 层能力，也必须用精确契约 `RegisterValue(..., typeof(ICommandSystem))` 注册，而不是 `RegisterSystem`。这个 Interface 通过日志、回放、撤销和测试拦截保持有价值的 Seam；当前不新增 `ICommandDispatcher` 别名，因为容器按精确类型键解析，双 Interface 会制造两份可分叉注册。若未来破坏性版本改名，应一次性迁移 Interface、默认 Implementation、装饰器与 DI key。
+
 ## Context Resolution Evidence
 
 `Container` 在 Editor 内为每个请求 Context 惰性聚合的实际成功解析回退：区分正常父链与 `GameContext.Main` 兜底，并记录契约、最终来源和解析次数。“可→Main”只是构造策略；只有本地与父链未命中、且 Main 真正返回实例后才成为“→Main ×N”运行证据。`HasBinding`、失败的 `TryResolve` 与诊断读取都不制造证据；工厂内部跨父级解析会记在真正发起请求的 Context，中间 Container 不重复记账。次数表示 Resolve 次数，不是业务使用次数或静态依赖图。来源采用弱引用，避免旧 Main 因诊断被延寿；整个采集与字段在玩家程序集编译消除。

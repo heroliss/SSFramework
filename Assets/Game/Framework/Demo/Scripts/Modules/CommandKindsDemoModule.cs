@@ -33,7 +33,7 @@ namespace Game.Framework.Demo.Modules
 
             host.AddSectionTitle("为什么 View 不直接调用 System");
             host.AddNote("Command 把所有外部意图收口到一个可观察接缝，日志、测试替身、回放、取消和权限检查都能在这里获得高杠杆，而 View 不必知道逻辑实现。",
-                new CodeRef("Assets/Game/Framework/Core/Systems/ICommandSystem.cs", "interface ICommandSystem", "ICommandSystem · 可替换执行接缝"));
+                new CodeRef("Assets/Game/Framework/Core/Systems/ICommandSystem.cs", "interface ICommandSystem", "ICommandSystem · 可替换命令分发器接缝"));
             host.AddSubNote("代价是多一个小类型。简单操作让 `readonly struct Command` 直接改 Model 即可；规则复用或多步协调时再委托给 System，不需要为了一行赋值强造厚 System。");
 
             // ── 异步（带取消）──
@@ -85,7 +85,7 @@ namespace Game.Framework.Demo.Modules
             }, CodeRef.Here("struct RunTaskTwiceCommand", "RunTaskTwiceCommand"));
             host.AddNote("命令内经 `ctx` 组合子命令：同步 `ctx.ExecuteCommand(...)`、异步 `await ctx.ExecuteCommandAsync(cmd, cancellationToken)`"
                 + "（把本命令的取消令牌透传给子命令，取消随父命令级联）。`RunTaskTwiceCommand` 把 `RunTaskCommand` 作为异步子命令 await 两次，"
-                + "上方「已完成」会累加 2。子命令的价值是「能被 CommandSystem 装饰器统一拦截」（日志/回放/事务）；不需要拦截时直接调 System 更直接。",
+                + "上方「已完成」会累加 2。子命令的价值是「能被命令分发器装饰器统一拦截」（日志/回放/事务）；不需要拦截时直接调 System 更直接。",
                 CodeRef.Here("struct RunTaskTwiceCommand", "异步子命令组合"));
 
             // ── 查询（返回值）──

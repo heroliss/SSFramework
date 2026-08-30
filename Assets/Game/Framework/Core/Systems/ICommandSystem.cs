@@ -6,14 +6,19 @@ using Game.Framework.Context;
 namespace Game.Framework.Systems
 {
     /// <summary>
-    /// 命令处理系统接口——所有 Command 的执行都经此 dispatcher 统一分发，业务可替换实现以加入横切逻辑
+    /// 命令分发器接口——所有 Command 的执行都经此 dispatcher 统一分发，业务可替换实现以加入横切逻辑
     /// （日志 / 回放 / 撤销 / 优先级队列 / 调试拦截…）。
     /// </summary>
     /// <remarks>
+    /// <b>层级定位：</b>名称中的 <c>System</c> 是早期公共命名，不表示五层业务 <see cref="ISystem"/>；
+    /// 本接口是 Context 持有的基础设施 Seam，既不继承 <see cref="ISystem"/>，也不通过
+    /// <c>RegisterSystem</c> 注册。容器按精确契约解析，应使用
+    /// <c>builder.RegisterValue(dispatcher, typeof(ICommandSystem))</c>。<br/>
+    ///
     /// <b>设计要点：</b>无状态 dispatcher——每次执行都用调用方传入的 <see cref="GameContext"/>，
     /// 跨级继承时仍能正确响应每个上下文的局部 DI 注册（子级覆盖父级）。自定义实现保持无状态约定即可。<br/>
     ///
-    /// <b>怎么替换：</b>实现本接口并通过 <c>builder.RegisterValue(new MyCommandSystem(), typeof(ICommandSystem))</c>
+    /// <b>怎么替换：</b>实现本接口并通过 <c>builder.RegisterValue(new MyCommandDispatcher(), typeof(ICommandSystem))</c>
     /// 覆盖默认的 <see cref="CommandSystem"/>。装饰器模式可叠加多层横切（包住内层、六个重载泛型直转发）——
     /// 框架自带的 <see cref="LoggingCommandSystem"/>（命令流水记录，供诊断面板）就是这个模式的现成样板，
     /// 自定义装饰器（回放 / 撤销 / 拦截）照它写即可。
