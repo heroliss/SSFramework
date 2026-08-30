@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using Game.Framework.Context;
+using Game.Framework.Flow;
 using Game.Framework.Internal;
 using Game.Framework.Systems;
 using NUnit.Framework;
@@ -150,6 +151,33 @@ namespace Game.Framework.Editor.Tests
             Assert.That(compact, Does.Not.Contain("builder.RegisterValue"));
             Assert.That(full, Does.Contain("builder.RegisterValue"));
             Assert.That(full, Does.Contain(nameof(LoggingCommandSystem)));
+        }
+
+        [Test]
+        public void LocalGameFlowLookup_ReadsConstructedBindingWithoutTriggeringFactory()
+        {
+            var flow = new GameFlow();
+            using var directBuilder = new ContainerBuilder();
+            directBuilder.RegisterOwnedSystem(flow);
+            directBuilder.RegisterValue(new CommandSystem(), typeof(ICommandSystem));
+            using var directContext = new GameContext(directBuilder.Build(), inheritFromGlobal: false);
+
+            Assert.That(FrameworkDiagnosticsWindow.ResolveLocalGameFlow(directContext), Is.SameAs(flow));
+
+            int factoryCalls = 0;
+            using var factoryBuilder = new ContainerBuilder();
+            factoryBuilder.RegisterOwnedFactory(
+                _ =>
+                {
+                    factoryCalls++;
+                    return new GameFlow();
+                },
+                typeof(IGameFlow));
+            factoryBuilder.RegisterValue(new CommandSystem(), typeof(ICommandSystem));
+            using var factoryContext = new GameContext(factoryBuilder.Build(), inheritFromGlobal: false);
+
+            Assert.That(FrameworkDiagnosticsWindow.ResolveLocalGameFlow(factoryContext), Is.Null);
+            Assert.That(factoryCalls, Is.Zero, "诊断读取不得让 Lazy Factory 产生运行时副作用");
         }
 
         [Test]

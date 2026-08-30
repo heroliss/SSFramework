@@ -52,7 +52,7 @@ roadmap 中期第六项：把散在各组件 Inspector「运行时诊断」折�
 **UI Toolkit 实现的调试器风格布局**（TreeView / MultiColumnListView 现成控件，也顺应框架「面向 UI Toolkit」的技术栈方向），全部只读：
 
 1. **左：Context 作用域树**（TreeView）——存活 Context 按 `Container.Parent` 链成树，节点带徽标（Main / Mono·C# / →Main 回退）与「注册 · 订阅 · 存活时长」摘要；工具栏搜索按「名称 / 注册契约 / 事件类型」过滤（保留祖先链）；双击定位场景对象。
-2. **右：选中 Context 明细**——本地注册表（契约 → 实例，运行时 / 构建时 / 工厂徽标——**绝不触发工厂**，诊断不得改变被观察系统；Unity 对象带定位按钮）、事件订阅计数（异常增长 = 泄漏嫌疑）、本地 `IPoolUtility` 池借出 / 空闲。
+2. **右：选中 Context 明细**——本地注册表（契约 → 实例，运行时 / 构建时 / 工厂徽标——**绝不触发工厂**，诊断不得改变被观察系统；Unity 对象带定位按钮）、本地 `IGameFlow` 的 Current / 进入中 / 退出中 / 待处理事务、事件订阅计数（异常增长 = 泄漏嫌疑）、本地 `IPoolUtility` 池借出 / 空闲。流程诊断只读已构造绑定：自定义 Adapter 使用公共 `Current / IsTransitioning`，默认 `GameFlow` 通过 Editor-only 内部快照补充事务阶段，不为调试扩张业务 Interface，也不触发 Lazy Factory。
 3. **下：Command 流水表格**（MultiColumnListView）——`LoggingCommandSystem` 环形缓冲，新的在上；耗时着色（≥1 帧 / ≥100ms）、过滤 + 仅错误开关 + TSV 复制导出；未接入时显示一行接入指引，不报错。
 4. **顶栏计数条**：存活 Context / Bag 存活（各带约 30 秒窗口的趋势 sparkline，Painter2D 自绘）/ 命令累计。Play 模式外树区显示提示（登记表只在运行期有内容）。
 

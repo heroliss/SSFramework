@@ -13,8 +13,9 @@ namespace Game.Framework.Flow
     /// <b>分层：</b>流程拥有业务阶段转换、取消排队与子 Context 生命周期，属于“怎么切换阶段”的 System，
     /// 不是供所有层直接写入的基础设施 Utility，也不把仅占其不变量一部分的 <see cref="Current"/> 拆成旁路 Model。
     /// View 通过 Command 发起意图或取得只读投影；Command / System / FlowState 内部经 <c>GetSystem&lt;IGameFlow&gt;()</c> 访问。<br/>
-    /// <b>注册：</b><c>builder.RegisterOwned(new GameFlow(), typeof(IGameFlow))</c>——注册即注入（ADR-0019）
-    /// 自动回填宿主 Context；宿主 Context Dispose 时 flow 连同当前状态子 Context 一并撤。<br/>
+    /// <b>注册：</b><c>builder.RegisterOwnedSystem(new GameFlow())</c>——层感知入口自动登记
+    /// <see cref="GameFlow"/> 与本 Interface，注册即注入（ADR-0019）回填宿主 Context；宿主 Context Dispose 时
+    /// flow 连同当前状态子 Context 一并撤。低层 <c>RegisterOwned(value, contracts)</c> 只在需要选择性暴露契约时使用。<br/>
     /// <b>转换语义：</b>全程串行（退旧 → 撤旧子 Context → 建新子 Context → 进新）；转换进行中再调
     /// <see cref="GoTo"/> = <b>最新意图胜</b>——排队槽只有一格、新请求顶替旧排队，在途 <c>OnEnter</c> 被协作取消。
     /// 被顶替 / 取消的 GoTo 返回的 task 以取消结束。宿主在 <c>OnExit</c> 期间释放时也不会等待业务任务：

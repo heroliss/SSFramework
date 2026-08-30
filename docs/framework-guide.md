@@ -1135,26 +1135,43 @@ ctx.GetSystem<ISystem>()         // ❌ 层标记本身不注册
 
 ### InstallBindings 手动注册
 
-手动注册只写入你显式传入的 contracts，没有自动推导。注册了什么类型，就只能用什么类型解析：
+普通纯 C# Model / System / Utility 优先使用**层感知入口**。它按运行时具体类型推导“具体类型 +
+所有派生自对应层标记的 Interface”（不登记层标记本身），与 Mono 自动注册、服务安装器保持同一口径：
 
 ```csharp
-builder.RegisterValue(new JsonUtility(), typeof(IJsonUtility));
-ctx.GetUtility<IJsonUtility>()  // ✅
-ctx.GetUtility<JsonUtility>()   // ❌ 具体类型未注册
+builder.RegisterModel(new PlayerModel());
+builder.RegisterSystem(new InventorySystem());
+builder.RegisterOwnedSystem(new GameFlow());       // IDisposable，所有权随 Context
+builder.RegisterOwnedUtility(new StorageUtility());
+
+ctx.GetSystem<IGameFlow>(); // ✅ Interface
+ctx.GetSystem<GameFlow>();  // ✅ 具体 Implementation；业务通常仍依赖上面的 Interface
 ```
 
-这与 Mono 路径不同——Mono 路径会同时注册具体类型和接口，而手动路径完全由你控制。如有需要可以手动补上具体类型，但通常调用方依赖接口就够了。
+`GameFlow` 与 `IGameFlow` 不是重复结构：前者是默认 Implementation，后者是调用者与测试 Adapter 共同依赖的
+Interface；注册的工作是把“用哪个 Implementation 满足哪些精确类型键”提交给当前 Context。层感知入口把这段机械映射
+藏起来，但没有删除 Interface Seam。
+
+低层 `RegisterValue(value, contracts)` / `RegisterOwned(value, contracts)` 仍然只登记显式 contract，用于三类场景：
+非分层基础设施（如 `ICommandSystem`）、刻意只暴露部分 contract、生成安装器需要让契约清单直接出现在 `.g.cs` diff 中。
+
+```csharp
+builder.RegisterValue(new LoggingCommandSystem(), typeof(ICommandSystem));
+builder.RegisterValue(jsonAdapter, typeof(IJsonUtility)); // 刻意不按具体类型暴露
+```
 
 构造时机与生命周期所有权是两条正交轴（ADR-0035）：
 
 | 注册 API | 构造时机 | Context 负责 Dispose | 自动 Inject + Attach |
 |---|---|---:|---:|
+| `RegisterModel/System/Utility` | 调用方已构造 | 否 | 是 |
+| `RegisterOwnedModel/System/Utility` | 调用方已构造 | 是 | 是 |
 | `RegisterValue` | 调用方已构造 | 否 | 是 |
 | `RegisterOwned` | 调用方已构造 | 是 | 是 |
 | `RegisterFactory` | Lazy 首次解析 / Eager 构建 | 否 | 否 |
 | `RegisterOwnedFactory` | Lazy 首次解析 / Eager 构建 | 是 | 否 |
 
-**值绑定自动注入**（ADR-0019）：`RegisterValue` / `RegisterOwned` 的实例在 Context 构造时统一完成 `[Inject]` 注入与 `AttachTo` 附着——与 Mono 路径「注册即注入」对称，纯 C# 服务注册后不用再手动补。两类 Factory 的产物都**不**自动注入：工厂本身就是显式接线位，依赖经工厂参数 `Container.Resolve` 传入。普通 `RegisterFactory` 不接管产物所有权；若产物实现 `IDisposable` 且应随 Context 结束，必须改用 `RegisterOwnedFactory`，否则会泄漏订阅或句柄。
+**值绑定自动注入**（ADR-0019）：六个层感知入口与低层 `RegisterValue` / `RegisterOwned` 最终都是值绑定，实例在 Context 构造时统一完成 `[Inject]` 注入与 `AttachTo` 附着——与 Mono 路径「注册即注入」对称，纯 C# 服务注册后不用再手动补。两类 Factory 的产物都**不**自动注入：工厂本身就是显式接线位，依赖经工厂参数 `Container.Resolve` 传入。普通 `RegisterFactory` 不接管产物所有权；若产物实现 `IDisposable` 且应随 Context 结束，必须改用 `RegisterOwnedFactory`，否则会泄漏订阅或句柄。
 
 **构建也是生命周期事务**：Build 前，`ContainerBuilder` 暂时持有 `RegisterOwned` 资源；Build 成功才把所有权移交给 Container。框架的 Mono Context 与 Flow 已自动覆盖这条边界；业务若手工创建 Builder，固定写 `using var builder = new ContainerBuilder()`——这样注册过程或 Build 前逻辑抛异常时资源会自动逆序回滚。`GameContext` 构造期的 Inject / Attach 失败也会主动释放 Container，因此 Context 要么完整可用，要么失败且已清理，不存在半初始化状态。
 
@@ -1178,7 +1195,7 @@ protected override void InstallBindings(ContainerBuilder builder)
     => MainServicesInstaller.Install(builder);
 ```
 
-扫描口径：目录下「文件名 = 类名」的顶层非抽象 class、实现恰一个层标记（`IModel` / `ISystem` / `IUtility`）体系、非 `UnityEngine.Object`、有公共无参构造。契约推导与 Mono 路径同口径（具体类型 + 派生自层标记的接口）；`IDisposable` 服务自动用 `RegisterOwned`。不想被扫的类标 `[ExcludeFromInstaller]`（需要懒构造 / 带参构造的服务标上后回落手写）。同一安装器内两个实现撞同一接口契约会在生成期报错。
+扫描口径：目录下「文件名 = 类名」的顶层非抽象 class、实现恰一个层标记（`IModel` / `ISystem` / `IUtility`）体系、非 `UnityEngine.Object`、有公共无参构造。契约推导与 Mono / 层感知手写入口同口径（具体类型 + 派生自层标记的接口）；`IDisposable` 服务自动用 `RegisterOwned`。生成物刻意使用低层入口把最终 contract 逐个写进 `.g.cs`，而不是把审查证据藏回运行时推导。不想被扫的类标 `[ExcludeFromInstaller]`（需要懒构造 / 带参构造的服务标上后回落手写）。同一安装器内两个实现撞同一接口契约会在生成期报错。
 
 生成前有两层边界。第一层是**写入安全**：空条目、不在 `Assets` 内的输出或规范化后重复的 `.cs` 所有权会让整批在写盘前停止，避免一份配置覆盖另一份。第二层是**条目就绪**：命名空间、扫描目录以及实际反射扫描按条目独立；一份 Profile 中 1/2 条就绪时，按钮会明确写出比例，生成有效条目并逐条报告其余失败。这样既不拿安全换“尽量生成”，也不会让一个尚在配置中的条目阻塞已经可用的安装器。设计取舍见 `docs/adr/0019-service-installer-codegen.md`；活样板（服务目录 + profile + 生成产物 + 一行接线）见 demo「服务注册生成 · 安装器」章。
 
@@ -2372,8 +2389,8 @@ builder.RegisterOwned(new FmodAudioUtility(), typeof(IAudioUtility));
 ### 快速开始
 
 ```csharp
-// 注册（IGameFlow 是 System 契约；RegisterOwned 同时表达 Context 所有权）：
-builder.RegisterOwned(new GameFlow(), typeof(IGameFlow));
+// 注册：自动登记 GameFlow + IGameFlow；Owned 表达宿主 Context 的生命周期所有权
+builder.RegisterOwnedSystem(new GameFlow());
 
 // 定义阶段（一次性实例：传参走构造函数，重进同类状态 = new 新实例）：
 public sealed class BattleState : FlowState
@@ -2408,6 +2425,24 @@ await this.ExecuteCommandAsync(new EnterBattleCommand(levelId));
 ```
 
 `IGameFlow` 属于 System，不是 Utility：它编排的是“如何切换业务阶段”，并拥有排队、取消与状态子 Context 的生命周期；把它放进 Utility 只为少写一层 Command，会把可写的 `GoTo` 同时暴露给 View 与其它基础设施。它也不是 Model：`Current` 只是整个转换不变量的一部分，把这一个字段拆出去会新增同步接缝、降低 Locality，却没有减少状态机复杂度。需要展示当前阶段的 View，可让查询 Command 返回只读投影；System 与 FlowState 内部则直接 `GetSystem<IGameFlow>()`。
+
+`GameFlow`、Context 与普通 System 的关系不是三种并列容器，而是一条所有权链：
+
+```text
+宿主 GameContext
+└─ owns GameFlow（以 IGameFlow / System Interface 解析）
+   └─ owns 当前 FlowState 的子 GameContext
+      ├─ 状态私有 Model / System / Utility
+      └─ 状态 Bag 中的订阅、资源与句柄
+```
+
+`GameFlow` 是宿主 Context 里的一个普通纯 C# System；它“管理 Context”只表示它负责为每个阶段建立和撤销一个
+**子 Context 生命周期事务**，并不等于它自己是 Context，也不拥有根 Context。状态子 Container 以宿主 Container 为父，
+所以阶段私有注册优先、未命中再回退全局能力。
+
+流程是否全局由**注册作用域**决定：注册在唯一根 `MonoGlobalContext`，便跨场景保持；注册在某个 `FlowState` 子 Context，
+就是随外层阶段撤销的局部子流程。`DontDestroyOnLoad` 只是让承载根 Context 的 GameObject 不被场景切换销毁，不能替代
+Container 所有权，也不会阻止显式 `GameContext.Dispose()`。反过来，纯 C# `GameFlow` 无需单独成为 MonoBehaviour，照样随持久根 Context 全局存在。
 
 ### 转换语义（框架拍板，业务不用自己处理竞态）
 
@@ -2446,10 +2481,10 @@ private static async UniTask Observe(IGameFlow flow, FlowState next)
 ### 刻意不做
 
 - **转换表 / 守卫**：任意 GoTo 合法，「哪些转换允许」是业务 if 的事（按钮置灰 / Command 查状态），框架不做规则引擎。
-- **分层状态机（HSM）**：战斗内的子阶段机 = 在 `BattleState.InstallBindings` 里再 RegisterOwned 一个 `GameFlow`——子 Context 里的注册遮蔽父级，外层状态退出时子 flow 连同其当前状态级联撤，组合即嵌套。
+- **分层状态机（HSM）**：战斗内的子阶段机 = 在 `BattleState.InstallBindings` 里再 `RegisterOwnedSystem(new GameFlow())`——子 Context 里的注册遮蔽父级，外层状态退出时子 flow 连同其当前状态级联撤，组合即嵌套。
 - **场景绑定**：状态 ≠ 场景（多状态共享一场景、一状态多场景都常见），状态在 OnEnter 自己 `Bag.LoadScene`。
 - **历史栈**：「返回上一状态」业务记个变量再 GoTo；UI 返回栈已归 UI 框架（§17），流程层再来一个会打架。
-- **Mono 版**：流程比场景活得长，也没有 Inspector 可配项；运行时观察走后续的框架诊断面板。
+- **第二份 Mono 流程 Implementation**：流程没有 Inspector 配置或逐帧 Unity 回调需求；只为观察再做一份状态机，会制造两套注册方式和状态真源。根 `MonoGlobalContext` 已是 Unity 宿主，运行时诊断窗口直接读取同一 `GameFlow` 的 Current / 进入中 / 退出中 / 待处理状态，并在 Context 树展示状态子 Context。
 
 > **要点回顾**
 >
@@ -2618,10 +2653,15 @@ CJK 全量字库体积大（单字体 15~30MB），全量随包不现实；砍�
 | **顶栏计数条** | 存活 Context 数、DisposableBag 存活 / 累计创建、命令累计——前两项带 **趋势 sparkline**（约 30 秒窗口） | Bag / Context 折线只升不降 = 有宿主没释放 |
 | **Mono 初始化问题**（左上，按需出现） | 把父级失败引发的多层 Context 失败聚合为“根因组”，显示最先失败对象、受影响链和当前 / 历史证据 | 先修哪一个异常；看到“影响 3 个”时不会误判成 3 个独立 bug |
 | **Context 作用域树**（左） | 所有存活 `GameContext` 按父子成树（含纯 C# Context——GameFlow 状态子 Context 首次可见）；节点带徽标（`Main` / `Mono`·`C#` / `→Main` 回退）与「注册 N · 订阅 M · 存活时长」摘要 | 切走的阶段 / 关卡 Context 还在树上 = 忘了 Dispose |
-| **Context 明细**（右） | 选中节点的本地注册表（契约 → 实例，标注运行时 / 构建时 / 工厂——**不触发工厂**，观察不改变系统；Unity 对象带「定位」按钮）、事件订阅计数、池借出 / 空闲 | 「这个 Context 里到底注册了什么」「哪个事件订阅数在涨」不再逐个点场景节点 |
+| **Context 明细**（右） | 选中节点的本地注册表（契约 → 实例，标注运行时 / 构建时 / 工厂——**不触发工厂**，观察不改变系统；Unity 对象带「定位」按钮）、本地 `IGameFlow` 的 Current / 退出中 / 进入中 / 待处理、事件订阅计数、池借出 / 空闲 | 「这个 Context 里到底注册了什么」「流程卡在哪个事务阶段」「哪个事件订阅数在涨」不再逐个点场景节点 |
 | **Command 流水表格**（下） | `LoggingCommandSystem` 最近记录：时间 / 帧 / 同步异步 / 命令 / Context / 耗时 / 状态，新的在上；**耗时着色**（≥1 帧黄、≥100ms 红）、错误行红字，选中行底部展开完整信息 | 用户操作到底触发了哪些命令、谁在偷偷发命令、哪个命令异常 / 超慢 |
 
 **交互**：工具栏搜索过滤 Context 树（匹配名称 / 注册契约 / 事件类型，保留祖先链）；**双击树节点定位场景对象**（Mono Context）；命令表格独立搜索 + 「仅错误」开关 + **「复制」导出 TSV**（可直接粘进表格软件）+ 清空；「自动刷新」可关（冻结快照细看），展开 / 折叠一键全树。
+
+流程观察不需要 `MonoGameFlow`：选中注册 `IGameFlow` 的宿主 Context，右侧“游戏流程（Flow）”显示同一
+Implementation 的事务快照；当前状态对应的 `Flow:状态类型名` 子 Context 位于左侧树，继续选中它即可检查阶段私有注册和订阅。
+自定义 `IGameFlow` Adapter 至少显示公共 `Current / IsTransitioning`；只有默认 `GameFlow` 展示内部进入 / 退出 / 排队细节，
+这些细节保持 Editor-only，不扩张业务 Interface。
 
 ### Mono 初始化问题怎么读
 

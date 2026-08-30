@@ -54,8 +54,8 @@ public abstract class FlowState
 
 ### 3. 载体与注册：纯 C# 进内核 `Core/Flow/`，契约属于 System
 
-- `GameFlow`（纯 C#，`IDisposable`，`IHasGameContext`）：零 Unity 对象依赖（异步只用 UniTask），进内核。`IGameFlow : ISystem` 决定编译期访问权限；容器所有权仍用 `builder.RegisterOwned(new GameFlow(), typeof(IGameFlow))`，ADR-0019 注入语义自动回填宿主 Context。宿主 Context Dispose → flow Dispose → 当前 / 进入中 / 退出中状态的子 Context 撤除（不会为了销毁补调尚未开始的 `OnExit`）。
-- **不做 Mono 版**：flow 没有 Inspector 可配项（状态是代码 new 的），也不该跟随场景节点（流程比场景活得长）。要看运行时状态，走后续的框架诊断面板（roadmap 中期⑥）。
+- `GameFlow`（纯 C#，`IDisposable`，`IHasGameContext`）：零 Unity 对象依赖（异步只用 UniTask），进内核。`IGameFlow : ISystem` 决定编译期访问权限；用层感知的 `builder.RegisterOwnedSystem(new GameFlow())` 自动登记具体类型与 Interface，并同时表达 Context 所有权，ADR-0019 注入语义自动回填宿主 Context。宿主 Context Dispose → flow Dispose → 当前 / 进入中 / 退出中状态的子 Context 撤除（不会为了销毁补调尚未开始的 `OnExit`）。低层 `RegisterOwned(value, contracts)` 仍可用于刻意限制解析契约的高级接线。
+- **不做第二份 Mono 流程 Implementation**：flow 没有 Inspector 可配项（状态是代码 new 的），也不需要 Unity 逐帧回调。全局性由它注册在持久根 Context 决定；`DontDestroyOnLoad` 只负责根 Mono Context 的 Unity 载体。只为 Inspector 再实现一套会制造双注册方式与双状态真源；框架诊断窗口直接读取默认 Implementation 的 Editor-only Current / 进入中 / 退出中 / 待处理快照，并用 Context 树展示状态子 Context。若未来出现真实 Inspector 配置或 Unity 生命周期需求，再增加委托同一流程内核的 Mono Adapter，而不是复制状态机。
 - **子流程 = 组合**：战斗内的阶段机（准备→作战→结算）就是在 `BattleState.InstallBindings` 里再注册一个 `GameFlow`——作用域树天然嵌套，不做 HSM（分层状态机）专门支持。
 
 ### 4. 转换语义：串行化 + 最新意图胜
@@ -89,5 +89,5 @@ public abstract class FlowState
 - 转换语义（最新意图胜、Enter 失败无状态）是**框架拍板**的约定——换取业务不必自己处理竞态；不合口味的项目自己包一层排队策略。
 - 状态机自身无 Unity 对象，PlayMode 测试可全程无场景跑（转换/取消/失败/事件全可同步或短 await 断言），batchmode 无风险。
 - 没有取消 token 的 `OnExit` 不再拥有 flow 的逻辑寿命：宿主释放可立即完成 flow 收尾，同时由一个窄的物理 owner 保留异常观察。这增加了一条明确边界，但避免第三方上报、存档等退出任务把 Context 永久挂住。
-- `IGameFlow` 从 Utility 修订为 System 是一次有意的源码兼容性调整：注册语句和运行时所有权不变；调用端将 `GetUtility<IGameFlow>()` 改为 `GetSystem<IGameFlow>()`，View 端改走 Command / 只读投影。换来的是编译器重新阻止 View 与 Utility 直接驱动业务流程。
+- `IGameFlow` 从 Utility 修订为 System 是一次有意的源码兼容性调整：运行时所有权不变，注册可用层感知入口简化为 `RegisterOwnedSystem(new GameFlow())`；调用端将 `GetUtility<IGameFlow>()` 改为 `GetSystem<IGameFlow>()`，View 端改走 Command / 只读投影。换来的是编译器重新阻止 View 与 Utility 直接驱动业务流程。
 - demo 章做「启动→登录→大厅→战斗」四状态迷你 Flow：面板实时显示 Current / 流转日志（含 GoTo 三种结局），大厅注册阶段私有服务演示整棵撤，战斗带构造参数 + 1.5s 模拟加载供手动验证最新意图胜。

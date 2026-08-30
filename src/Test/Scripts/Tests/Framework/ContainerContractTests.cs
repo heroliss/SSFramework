@@ -35,6 +35,88 @@ namespace Game.Framework.Test
             IGameContext IHasGameContext.Context => _ctx;
         }
 
+        private interface ILayerModel : IModel { }
+        private sealed class LayerModel : ILayerModel { }
+
+        private interface ILayerSystem : ISystem { }
+        private sealed class LayerSystem : ILayerSystem { }
+
+        private interface ILayerUtility : IUtility { }
+        private sealed class LayerUtility : ILayerUtility { }
+
+        private interface IOwnedLayerModel : IModel { }
+        private sealed class OwnedLayerModel : IOwnedLayerModel, IDisposable
+        {
+            public int DisposeCount;
+            public void Dispose() => DisposeCount++;
+        }
+
+        private interface IOwnedLayerSystem : ISystem { }
+        private sealed class OwnedLayerSystem : IOwnedLayerSystem, IDisposable
+        {
+            public int DisposeCount;
+            public void Dispose() => DisposeCount++;
+        }
+
+        private interface IOwnedLayerUtility : IUtility { }
+        private sealed class OwnedLayerUtility : IOwnedLayerUtility, IDisposable
+        {
+            public int DisposeCount;
+            public void Dispose() => DisposeCount++;
+        }
+
+        private sealed class InvalidMultiLayer : IModel, ISystem { }
+
+        [Test]
+        public void Builder_LayerAwareRegistration_RegistersConcreteAndLayerInterfaces()
+        {
+            var model = new LayerModel();
+            var system = new LayerSystem();
+            var utility = new LayerUtility();
+            var ownedModel = new OwnedLayerModel();
+            var ownedSystem = new OwnedLayerSystem();
+            var ownedUtility = new OwnedLayerUtility();
+            using var builder = new ContainerBuilder();
+            builder.RegisterModel(model);
+            builder.RegisterSystem(system);
+            builder.RegisterUtility(utility);
+            builder.RegisterOwnedModel(ownedModel);
+            builder.RegisterOwnedSystem(ownedSystem);
+            builder.RegisterOwnedUtility(ownedUtility);
+            builder.RegisterValue(new CommandSystem(), typeof(ICommandSystem));
+            using var ctx = new GameContext(builder.Build(), inheritFromGlobal: false);
+
+            Assert.AreSame(model, ctx.GetModel<LayerModel>());
+            Assert.AreSame(model, ctx.GetModel<ILayerModel>());
+            Assert.AreSame(system, ctx.GetSystem<LayerSystem>());
+            Assert.AreSame(system, ctx.GetSystem<ILayerSystem>());
+            Assert.AreSame(utility, ctx.GetUtility<LayerUtility>());
+            Assert.AreSame(utility, ctx.GetUtility<ILayerUtility>());
+            Assert.AreSame(ownedModel, ctx.GetModel<IOwnedLayerModel>());
+            Assert.AreSame(ownedSystem, ctx.GetSystem<IOwnedLayerSystem>());
+            Assert.AreSame(ownedUtility, ctx.GetUtility<IOwnedLayerUtility>());
+            Assert.IsFalse(ctx.TryResolve(typeof(IModel), out _), "层标记本身不应成为可解析契约");
+            Assert.IsFalse(ctx.TryResolve(typeof(ISystem), out _), "层标记本身不应成为可解析契约");
+            Assert.IsFalse(ctx.TryResolve(typeof(IUtility), out _), "层标记本身不应成为可解析契约");
+
+            ctx.Dispose();
+            Assert.AreEqual(1, ownedModel.DisposeCount);
+            Assert.AreEqual(1, ownedSystem.DisposeCount);
+            Assert.AreEqual(1, ownedUtility.DisposeCount);
+        }
+
+        [Test]
+        public void Builder_LayerAwareRegistration_MultipleLayerMarkersFailFast()
+        {
+            using var builder = new ContainerBuilder();
+
+            var error = Assert.Throws<ArgumentException>(
+                () => builder.RegisterSystem(new InvalidMultiLayer()));
+
+            StringAssert.Contains("恰好实现一个层标记", error.Message);
+            StringAssert.Contains(nameof(InvalidMultiLayer), error.Message);
+        }
+
         // ── 构建期：同 contract 重复注册 → 后注册胜出（不抛） ──────────────
 
         [Test]

@@ -7,14 +7,47 @@ using Game.Framework.Logging;
 
 namespace Game.Framework.Flow
 {
+#if UNITY_EDITOR
+    /// <summary>
+    /// 默认流程 Implementation 的 Editor 只读诊断快照。保持在内部 Seam，避免业务把进入中 / 退出中等
+    /// 事务细节当成控制 Interface；编辑器窗口只观察，不持有或修改状态实例。
+    /// </summary>
+    internal readonly struct GameFlowDiagnosticSnapshot
+    {
+        internal readonly FlowState Current;
+        internal readonly FlowState Exiting;
+        internal readonly FlowState Entering;
+        internal readonly FlowState Pending;
+        internal readonly bool IsRunning;
+        internal readonly bool IsDisposed;
+
+        internal GameFlowDiagnosticSnapshot(
+            FlowState current,
+            FlowState exiting,
+            FlowState entering,
+            FlowState pending,
+            bool isRunning,
+            bool isDisposed)
+        {
+            Current = current;
+            Exiting = exiting;
+            Entering = entering;
+            Pending = pending;
+            IsRunning = isRunning;
+            IsDisposed = isDisposed;
+        }
+    }
+#endif
+
     /// <summary>
     /// <see cref="IGameFlow"/> System 的默认实现：串行转换循环 + 最新意图胜排队（一格）+ 每状态一个子 Context。
     /// 纯 C#、零 Unity 对象依赖（异步仅用 UniTask），不发明新作用域机制——只是把 <c>SetParent</c> /
     /// <c>InstallBindings</c> / <c>Dispose</c> / CancellationToken 这些既有原语按正确顺序编排起来。
     /// </summary>
     /// <remarks>
-    /// <b>注册：</b><c>builder.RegisterOwned(new GameFlow(), typeof(IGameFlow))</c>——注册即注入（ADR-0019）
-    /// 回填宿主 Context（<see cref="IHasGameContext"/> 字段），脱离容器直接 new 后调 GoTo 会抛
+    /// <b>注册：</b><c>builder.RegisterOwnedSystem(new GameFlow())</c>——层感知入口自动登记具体类型与
+    /// <see cref="IGameFlow"/>，注册即注入（ADR-0019）回填宿主 Context（<see cref="IHasGameContext"/> 字段），
+    /// 脱离容器直接 new 后调 GoTo 会抛
     /// <see cref="InvalidOperationException"/>。<br/>
     /// <b>Dispose</b>（宿主 Context Dispose 时由容器逆序调用）：取消在途进入、当前 / 半进入状态的
     /// 子 Context 整棵撤；若已在等待 <c>OnExit</c>，则立即取消逻辑转换并撤掉正在退出的子 Context，
@@ -44,6 +77,19 @@ namespace Game.Framework.Flow
 
         public bool IsTransitioning => !_disposed && _running;
 
+#if UNITY_EDITOR
+        /// <summary>
+        /// 供框架诊断窗口读取转换事务的真实阶段；不进入玩家包，也不扩张 <see cref="IGameFlow"/> Interface。
+        /// </summary>
+        internal GameFlowDiagnosticSnapshot DiagnosticSnapshot => new(
+            _current,
+            _exiting,
+            _entering,
+            _pendingState,
+            _running,
+            _disposed);
+#endif
+
         public bool IsIn<TState>() where TState : FlowState => _current is TState;
 
         public UniTask GoTo(FlowState next)
@@ -58,7 +104,7 @@ namespace Game.Framework.Flow
                     nameof(next));
             if (_context == null)
                 throw new InvalidOperationException(
-                    "[GameFlow] 尚未挂到宿主 Context——用 builder.RegisterOwned(new GameFlow(), typeof(IGameFlow)) 注册（注册即注入自动回填），不要脱离容器直接使用。");
+                    "[GameFlow] 尚未挂到宿主 Context——用 builder.RegisterOwnedSystem(new GameFlow()) 注册（层感知注册即注入自动回填），不要脱离容器直接使用。");
 
             next.Consumed = true;
 

@@ -56,7 +56,7 @@ namespace Game.Framework.Flow
 
         /// <summary>
         /// 注册本状态私有的服务（<c>RegisterOwned</c> 的实例随状态退出自动 Dispose）。
-        /// 战斗内的子阶段机也在这里注册（再 RegisterOwned 一个 <see cref="GameFlow"/>，作用域树天然嵌套）。
+        /// 战斗内的子阶段机也在这里注册（再 <c>RegisterOwnedSystem(new GameFlow())</c>，作用域树天然嵌套）。
         /// 默认不注册任何东西。
         /// </summary>
         protected internal virtual void InstallBindings(ContainerBuilder builder) { }

@@ -24,7 +24,7 @@ namespace Game.Framework.Test
         {
             using var builder = new ContainerBuilder();
             _flow = new GameFlow();
-            builder.RegisterOwned(_flow, typeof(IGameFlow));
+            builder.RegisterOwnedSystem(_flow);
             _context = new GameContext(builder.Build(), inheritFromGlobal: false);
             _backend = new ConfigurableBackend();
             _ui = new UIUtility(_context, _backend);

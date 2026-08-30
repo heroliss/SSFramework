@@ -1,11 +1,14 @@
 using System;
 using System.Collections.Generic;
 using Game.Framework.Internal;
+using Game.Framework.Model;
+using Game.Framework.Systems;
+using Game.Framework.Utility;
 
 namespace Game.Framework.Context
 {
     /// <summary>
-    /// 精简容器构建器。支持值注册、工厂注册、父级容器、Eager 解析。
+    /// 精简容器构建器。支持层感知注册、值注册、工厂注册、父级容器、Eager 解析。
     /// 解析语义为"后注册覆盖先注册"，因此同一契约多次注册时仅保留最后一次写入。
     /// </summary>
     public sealed class ContainerBuilder : IDisposable
@@ -25,6 +28,51 @@ namespace Game.Framework.Context
             _parent = parent;
             return this;
         }
+
+        /// <summary>
+        /// 注册一个纯 C# Model，并自动登记“运行时具体类型 + 所有派生自 <see cref="IModel"/> 的 Interface”。
+        /// 这是 <see cref="RegisterValue"/> 的层感知常用入口；实例所有权仍由调用方持有。
+        /// </summary>
+        public ContainerBuilder RegisterModel<TModel>(TModel value) where TModel : class, IModel
+            => RegisterValue(value, GetLayerContracts(value, typeof(IModel)));
+
+        /// <summary>
+        /// 注册一个由 Context 拥有的纯 C# Model。契约推导与 <see cref="RegisterModel{TModel}"/> 相同，
+        /// Context 结束时还会逆序释放该实例。
+        /// </summary>
+        public ContainerBuilder RegisterOwnedModel<TModel>(TModel value)
+            where TModel : class, IModel, IDisposable
+            => RegisterOwned(value, GetLayerContracts(value, typeof(IModel)));
+
+        /// <summary>
+        /// 注册一个纯 C# System，并自动登记“运行时具体类型 + 所有派生自 <see cref="ISystem"/> 的 Interface”。
+        /// 这是 <see cref="RegisterValue"/> 的层感知常用入口；实例所有权仍由调用方持有。
+        /// </summary>
+        public ContainerBuilder RegisterSystem<TSystem>(TSystem value) where TSystem : class, ISystem
+            => RegisterValue(value, GetLayerContracts(value, typeof(ISystem)));
+
+        /// <summary>
+        /// 注册一个由 Context 拥有的纯 C# System。契约推导与 <see cref="RegisterSystem{TSystem}"/> 相同，
+        /// Context 结束时还会逆序释放该实例。
+        /// </summary>
+        public ContainerBuilder RegisterOwnedSystem<TSystem>(TSystem value)
+            where TSystem : class, ISystem, IDisposable
+            => RegisterOwned(value, GetLayerContracts(value, typeof(ISystem)));
+
+        /// <summary>
+        /// 注册一个纯 C# Utility，并自动登记“运行时具体类型 + 所有派生自 <see cref="IUtility"/> 的 Interface”。
+        /// 这是 <see cref="RegisterValue"/> 的层感知常用入口；实例所有权仍由调用方持有。
+        /// </summary>
+        public ContainerBuilder RegisterUtility<TUtility>(TUtility value) where TUtility : class, IUtility
+            => RegisterValue(value, GetLayerContracts(value, typeof(IUtility)));
+
+        /// <summary>
+        /// 注册一个由 Context 拥有的纯 C# Utility。契约推导与 <see cref="RegisterUtility{TUtility}"/> 相同，
+        /// Context 结束时还会逆序释放该实例。
+        /// </summary>
+        public ContainerBuilder RegisterOwnedUtility<TUtility>(TUtility value)
+            where TUtility : class, IUtility, IDisposable
+            => RegisterOwned(value, GetLayerContracts(value, typeof(IUtility)));
 
         /// <summary>
         /// 注册一个值实例到指定的契约类型。
@@ -203,6 +251,32 @@ namespace Game.Framework.Context
                     throw new ArgumentException(
                         $"[ContainerBuilder] 值 '{instance.GetType().Name}' 不能赋给契约 '{contracts[i].Name}'。",
                         nameof(contracts));
+        }
+
+        /// <summary>
+        /// 层感知入口与 Mono 自动注册、服务安装器生成保持同一口径。低层 <c>RegisterValue/RegisterOwned</c>
+        /// 仍只登记调用方显式给出的 contract，供非分层对象或选择性暴露契约的高级接线使用。
+        /// </summary>
+        private static Type[] GetLayerContracts(object value, Type expectedLayer)
+        {
+            if (value == null) throw new ArgumentNullException(nameof(value));
+
+            Type concreteType = value.GetType();
+            int layerCount = 0;
+            if (typeof(IModel).IsAssignableFrom(concreteType)) layerCount++;
+            if (typeof(ISystem).IsAssignableFrom(concreteType)) layerCount++;
+            if (typeof(IUtility).IsAssignableFrom(concreteType)) layerCount++;
+            if (layerCount != 1)
+                throw new ArgumentException(
+                    $"[ContainerBuilder] 层感知注册要求类型恰好实现一个层标记；" +
+                    $"'{concreteType.Name}' 当前实现了 {layerCount} 个。请修正分层，或用低层 RegisterValue/RegisterOwned 显式接线。",
+                    nameof(value));
+
+            Type[] interfaces = LayerInterfacesCache.GetLayerInterfaces(concreteType, expectedLayer);
+            var contracts = new Type[interfaces.Length + 1];
+            contracts[0] = concreteType;
+            Array.Copy(interfaces, 0, contracts, 1, interfaces.Length);
+            return contracts;
         }
 
         /// <summary>
