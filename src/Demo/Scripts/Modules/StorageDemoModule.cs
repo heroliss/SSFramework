@@ -87,7 +87,7 @@ namespace Game.Framework.Demo.Modules
 
             // ── 注册方式 ──
             host.AddSectionTitle("注册：纯 C# 服务的三选一");
-            host.AddNote("本章的 `IStorageUtility` 在 `InstallBindings` 里 `RegisterOwnedUtility` 注册：自动登记具体类型与 Utility Interface，并随 Context Dispose 自动释放 provider。另两条路：生命周期由外部持有时用 `RegisterUtility`；要 Inspector 配根目录 / 跟随场景节点用 `MonoStorageUtility`（同一套逻辑的 Mono 壳，挂 Context 子节点即注册）。",
+            host.AddNote("本章的 `IStorageUtility` 在 `InstallBindings` 里 `RegisterOwnedUtility` 注册：自动登记具体类型与 Utility Interface，并随 Context Dispose 自动释放 provider。另两条路：生命周期由外部持有时用 `RegisterUtility`；要 Inspector 配根目录 / 跟随场景节点用 `MonoStorageUtility`（同一套逻辑的 Mono 壳，挂 Context 子节点即注册）。它的目录字段只接受 `persistentDataPath` 下的单个可移植名称（英文字母/数字/-/_），不是相对或绝对路径；改名等同切换数据集。",
                 CodeRef.Here("builder.RegisterOwnedUtility(new StorageUtility(new FileStorageProvider", "本章的注册代码"));
 
             // ── 基础操作 ──

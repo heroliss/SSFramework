@@ -21,6 +21,7 @@ namespace Game.Framework.Storage
     ///   <item><b>写必须防损坏</b>：任何时刻介质上都要有一份完整可读的数据（临时写 + 原子替换 + 上一版备份，或介质自身的事务）。</item>
     ///   <item>读不到（不存在 / IO 失败）返回 <c>null</c>（IO 失败打日志）；<b>写失败抛异常</b>。</item>
     ///   <item>方法从主线程被调用、经全局 FIFO 串行（无并发调用）；耗时 IO 应自行切线程池，完成后回主线程返回。</item>
+    ///   <item><see cref="IDisposable.Dispose"/> 是全部已接纳方法完成后的唯一终端调用，不会与其它方法并发；实现无需自行协调排空。</item>
     /// </list>
     /// </remarks>
     public interface IStorageProvider : IDisposable

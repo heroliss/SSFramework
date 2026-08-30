@@ -2271,7 +2271,7 @@ public class PlayerSaveData
 
 // 注册（三选一，同对象池）：
 builder.RegisterOwnedUtility(new StorageUtility());  // 纯 C#，自动推导契约并随 Context Dispose 释放（推荐）
-// 或 RegisterUtility（已有外部 owner）；或场景挂 MonoStorageUtility（Inspector 配根目录名）
+// 或 RegisterUtility（已有外部 owner）；或场景挂 MonoStorageUtility（Inspector 配单个可移植目录名）
 
 // 任意层（含 View）使用：
 var storage = this.GetUtility<IStorageUtility>();
@@ -2303,7 +2303,9 @@ var loaded = await storage.Load<PlayerSaveData>("save/slot1");  // null = 无可
 
 回退成功只说明“读到了健康备份”，坏主文件仍在。要主动修复成健康的主/备双份数据，需要把回退对象连续 `Save` 两次：第一次重建主文件时，原坏主文件可能被推进 `.bak`；第二次才把健康主文件推进备份。Demo 的 ③/④ 步骤会精确展示 2 条 Warning 与这个双写恢复过程，并提供只删除本章白名单 key 的幂等重置，避免测试数据跨 Play 干扰后续学习。
 
-所有操作内部走**全局 FIFO 串行**（同 key 竞态、读写交错天然消失；存储低频，串行无感知），文件 IO 切线程池不卡帧。**别 fire-and-forget Save**——await 它（`Exists` 是不排队的同步快照，紧跟未落盘的写可能看不到）。
+所有操作内部走**全局 FIFO 串行**（同 key 竞态、读写交错天然消失；存储低频，串行无感知），文件 IO 切线程池不卡帧。**别 fire-and-forget Save**——await 它（`Exists` 是不排队的同步快照，紧跟未落盘的写可能看不到）。`Dispose` 会立即拒绝新请求，但不为等待未完成的队列而同步阻塞：已入队操作继续按 FIFO 做完，provider 最后释放；因此带连接的 SQLite / 云存储 Adapter 不会在排队请求仍存活时被提前拆掉。队列已空时同步 `provider.Dispose` 可能内联执行，所以 Adapter 的释放逻辑仍应短小。
+
+`MonoStorageUtility` 的 `_rootFolder` 是 `persistentDataPath` 下的**单个目录名**，长度 1–255，仅允许英文字母、数字、`-`、`_`，不是任意相对/绝对路径。非法配置会在注册前 fail-fast，Inspector 诊断也会直接显示原因；框架不会 Trim、兜底或自动改名，因为目录名本身就是持久数据契约。确需由代码指定任意绝对目录（工具、测试或专用 Adapter）时，显式构造 `FileStorageProvider`。
 
 ### 版本迁移的姿势
 
@@ -2320,6 +2322,7 @@ var loaded = await storage.Load<PlayerSaveData>("save/slot1");  // null = 无可
 >
 > - `[Serializable]` 类 + 常量 key + `await Save/Load`；null = 无可用数据 → 开新档
 > - 断电安全框架兜住（原子写 + 备份回退），业务不再手写临时文件样板
+> - Dispose 先封入口、再排空 FIFO、最后释放 provider；Mono 根目录只能是安全的直接子目录名
 > - 迁移 = Version 字段 + 链式 switch；多槽位 = key 分段 + `ListKeys` 前缀
 > - 换介质 / 换格式两个正交扩展点，构造注入、业务零改动
 
