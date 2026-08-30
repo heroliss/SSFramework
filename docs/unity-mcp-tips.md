@@ -88,6 +88,12 @@ PlayMode `PreparePlayModeRunTask` 内临时设置 `Application.runInBackground =
 启动的测试不需要 Unity 一直处于前台，也不必每轮再用 `execute_code` 重复设置。单个 fixture 只有在脱离标准 Runner 也必须自洽，
 或它明确验证后台/焦点语义时，才需要自己保存和恢复该值。
 
+但 `Application.runInBackground` 只保证 PlayerLoop 继续推进，不会改写 Input System 的设备失焦策略。使用
+`InputSystem.AddDevice` / `QueueStateEvent` 模拟键鼠、手柄并要求后台可重复运行的 fixture，应在 SetUp 保存
+`InputSystem.settings.backgroundBehavior`，临时设为 `InputSettings.BackgroundBehavior.IgnoreFocus`，再在 TearDown 精确恢复；
+否则 Unity 失焦时新建测试设备可能被禁用，程序化事件也不会抵达 action。这个设置只属于测试隔离，不应写入产品初始化，也不能替代
+需要真实窗口焦点、物理设备或 OS 输入链路的端到端验证。
+
 Test Framework 还会在运行期间把 Editor Interaction Mode 临时切到 `NoThrottling`，避免后台空闲节流拖慢任务，结束后恢复。
 不应把该设置永久改成 `NoThrottling`：它不会解决原生模态框或真实输入焦点问题，只会让空闲 Editor 持续占用更多 CPU 与功耗。
 
