@@ -1,9 +1,9 @@
 #if UNITY_EDITOR
 using System;
 using System.Collections.Generic;
-using Game.Framework.Logging;
 using UnityEditor;
 using UnityEditor.SceneManagement;
+using UnityEngine;
 using UnityEngine.SceneManagement;
 
 namespace Game.Framework.Editor
@@ -39,8 +39,7 @@ namespace Game.Framework.Editor
             string detail = savedPaths.Count == 0
                 ? "没有脏场景"
                 : $"已保存 {savedPaths.Count} 个场景：{string.Join(", ", savedPaths)}";
-            Log.Info($"[SSFramework.Automation] READY — {detail}。现在可以启动 PlayMode 测试。",
-                "EditorAutomation");
+            ReportReady(detail);
             return savedPaths;
         }
 
@@ -77,13 +76,22 @@ namespace Game.Framework.Editor
             }
             catch (Exception exception)
             {
-                Log.Error(
-                    "[SSFramework.Automation] BLOCKED — PlayMode 测试预检失败；测试未启动。",
-                    exception,
-                    "EditorAutomation");
+                ReportBlocked(exception);
                 throw;
             }
         }
+
+        // READY / BLOCKED 是 MCP / CI 读取的机器协议标记，不是可按业务策略路由的普通日志。
+        // 直接写 Unity Console，避免项目或测试临时 ClearSinks 后出现“动作成功但协议静默”的不可判定状态。
+        [HideInCallstack]
+        internal static void ReportReady(string detail)
+            => Debug.Log($"[EditorAutomation] [SSFramework.Automation] READY — {detail}。现在可以启动 PlayMode 测试。");
+
+        [HideInCallstack]
+        internal static void ReportBlocked(Exception exception)
+            => Debug.LogError(
+                "[EditorAutomation] [SSFramework.Automation] BLOCKED — PlayMode 测试预检失败；测试未启动。\n" +
+                exception);
 
         private static void EnsureEditorIsReady()
         {

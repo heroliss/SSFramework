@@ -1,11 +1,14 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
+using Game.Framework.Logging;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using UnityEngine.TestTools;
 
 namespace Game.Framework.Editor.Tests
 {
@@ -105,6 +108,25 @@ namespace Game.Framework.Editor.Tests
             Assert.That(exception.Message, Does.Contain("未命名"));
             Assert.That(_assetScene.isDirty, Is.True, "整批验证失败时，有路径的场景也不得被提前保存");
             Assert.That(_previewScene.path, Is.Empty);
+        }
+
+        [Test]
+        public void ReadyMarker_RemainsVisibleWhenFrameworkSinksAreEmpty()
+        {
+            var previousSinks = Log.Sinks.ToArray();
+            try
+            {
+                Log.ClearSinks();
+                LogAssert.Expect(LogType.Log,
+                    new Regex(@"\[SSFramework\.Automation\] READY — 无 sink 契约测试"));
+
+                FrameworkAutomationPreflight.ReportReady("无 sink 契约测试");
+            }
+            finally
+            {
+                Log.ClearSinks();
+                foreach (var sink in previousSinks) Log.AddSink(sink);
+            }
         }
 
         private void EnsureTempFolder()
