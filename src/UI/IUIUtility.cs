@@ -13,10 +13,14 @@ namespace Game.Framework.UI
     /// 心智同 <c>Bag.Load</c>）、System、Command（经 <c>ctx</c>）。需要被 CommandSystem 拦截（日志/回放）的业务语义流程可另包 Command。<br/>
     /// <b>窗口元数据</b>由窗口类上的 <see cref="UIWindowAttribute"/> 提供（层 / 资源 / 缓存 / 模态）。<br/>
     /// <b>渲染无关：</b>同一套 API 在 UGUI 与 UI Toolkit 后端下行为一致，由 <see cref="IUIBackend"/> 吸收差异。<br/>
+    /// <b>所有权：</b><see cref="Open{T}(CancellationToken)"/> / <see cref="Get{T}"/> 返回的是借用窗口引用；
+    /// 窗口的物理对象、资源句柄、缓存与销毁均由本 Utility 和后端持有。调用方不得自行 Destroy / Dispose，
+    /// 只通过 Close / CloseAll 表达关闭意图。<br/>
     /// <b>异步：</b><see cref="Open{T}(object, CancellationToken)"/> 内部走资源系统加载窗口资源；Adapter 未能创建，
     /// 或 UI 生命周期在创建期间结束而未获得实例时返回 null；
     /// Flow 主页面等不可缺席的路径使用 <see cref="UIUtilityExtensions.OpenRequired{T}(IUIUtility, CancellationToken)"/>，
-    /// 让失败阻止上层状态提交。
+    /// 让失败阻止上层状态提交。调用方取消保持 <see cref="OperationCanceledException"/>；非预期的后端异常原样传播，
+    /// 窗口生命周期 hook 的异常则由核心记录并隔离，避免单个表现回调破坏整个窗口栈。
     /// </remarks>
     public interface IUIUtility : IUtility
     {

@@ -58,6 +58,9 @@ namespace Game.Framework.UI.Toolkit
 
         public async UniTask<IUIWindow> CreateWindow(UIWindowMeta meta, IGameContext context, CancellationToken ct)
         {
+            if (meta == null) throw new ArgumentNullException(nameof(meta));
+            if (context == null) throw new ArgumentNullException(nameof(context));
+            ct.ThrowIfCancellationRequested();
             if (!typeof(UIToolkitWindowBase).IsAssignableFrom(meta.WindowType))
             {
                 Log.Error($"{meta.WindowType.Name} 不是 {nameof(UIToolkitWindowBase)} 派生类型。",
@@ -73,29 +76,54 @@ namespace Game.Framework.UI.Toolkit
                 return null;
             }
 
-            VisualElement root;
+            VisualElement root = null;
             DisposableBag wbag = null;
-            if (!string.IsNullOrEmpty(meta.Asset))
+            UIToolkitWindowBase window = null;
+            bool committed = false;
+            try
             {
-                wbag = (_loadBag ??= context.CreateBag()).CreateChild();
-                var vta = await wbag.Load<VisualTreeAsset>(meta.Asset, ct);
-                if (vta == null) { wbag.Dispose(); return null; } // 加载失败，资源系统已打日志
-                root = vta.Instantiate();
+                if (!string.IsNullOrEmpty(meta.Asset))
+                {
+                    wbag = (_loadBag ??= context.CreateBag()).CreateChild();
+                    var vta = await wbag.Load<VisualTreeAsset>(meta.Asset, ct);
+                    if (vta == null) return null; // 加载失败，资源系统已打日志；finally 释放本窗口子 bag
+                    ct.ThrowIfCancellationRequested();
+                    root = vta.Instantiate();
+                }
+                else
+                {
+                    root = new VisualElement(); // 纯代码搭建：窗口在 OnCreated 里往 Root 加元素
+                }
+
+                window = (UIToolkitWindowBase)Activator.CreateInstance(meta.WindowType);
+                window.BindContextInternal(context, root); // 绑定 Context，不调 OnCreated（由框架 OnCreate hook 触发）
+                ct.ThrowIfCancellationRequested();
+
+                Stretch(root);
+                root.pickingMode = PickingMode.Ignore; // 窗口根不吃事件，由其内容/遮罩负责
+                _layerRoots[meta.Layer].Add(root);     // 末尾 = 栈顶
+                ct.ThrowIfCancellationRequested();
+
+                _slots[window] = new Slot { View = window, Element = root, LoadBag = wbag };
+                committed = true;
+                return window;
             }
-            else
+            finally
             {
-                root = new VisualElement(); // 纯代码搭建：窗口在 OnCreated 里往 Root 加元素
+                // 只有完成物理映射才移交给 Slot；此前任何取消/异常都必须释放 View、摘除可视树并释放 UXML handle。
+                if (!committed)
+                {
+                    try
+                    {
+                        if (window != null) DisposeViewSafely(window, "回滚未提交窗口");
+                        else root?.RemoveFromHierarchy();
+                    }
+                    finally
+                    {
+                        wbag?.Dispose();
+                    }
+                }
             }
-
-            var window = (UIToolkitWindowBase)Activator.CreateInstance(meta.WindowType);
-            window.BindContextInternal(context, root); // 绑定 Context，不调 OnCreated（由框架 OnCreate hook 触发）
-
-            Stretch(root);
-            root.pickingMode = PickingMode.Ignore; // 窗口根不吃事件，由其内容/遮罩负责
-            _layerRoots[meta.Layer].Add(root);     // 末尾 = 栈顶
-
-            _slots[window] = new Slot { View = window, Element = root, LoadBag = wbag };
-            return window;
         }
 
         public void BringToFront(IUIWindow window)
@@ -159,8 +187,14 @@ namespace Game.Framework.UI.Toolkit
             if (!_slots.TryGetValue(window, out var s)) return;
             _slots.Remove(window);
             s.Mask?.RemoveFromHierarchy();
-            s.View.Dispose();     // Bag.Dispose + Root.RemoveFromHierarchy
-            s.LoadBag?.Dispose(); // 释放 UXML handle
+            try
+            {
+                DisposeViewSafely(s.View, "销毁窗口"); // Bag.Dispose + Root.RemoveFromHierarchy
+            }
+            finally
+            {
+                s.LoadBag?.Dispose(); // 释放 UXML handle
+            }
         }
 
         public void Teardown()
@@ -168,7 +202,14 @@ namespace Game.Framework.UI.Toolkit
             foreach (var s in _slots.Values)
             {
                 s.Mask?.RemoveFromHierarchy();
-                s.View.Dispose();
+                try
+                {
+                    DisposeViewSafely(s.View, "拆除 UI 后端");
+                }
+                finally
+                {
+                    s.LoadBag?.Dispose();
+                }
             }
             _slots.Clear();
             _loadBag?.Dispose();
@@ -177,6 +218,24 @@ namespace Game.Framework.UI.Toolkit
             foreach (var c in _layerRoots.Values) c.RemoveFromHierarchy();
             _layerRoots.Clear();
             _initialized = false;
+        }
+
+        // Toolkit View 的 OnDisposing 是业务可覆写 hook。它失败时，UIToolkitViewBase 仍会穷尽 Bag/Root 清理；
+        // Adapter 再把异常送入 Log Seam，避免一个坏窗口阻断其它窗口与层根的物理拆除。
+        private static void DisposeViewSafely(UIToolkitWindowBase view, string operation)
+        {
+            try
+            {
+                view?.Dispose();
+            }
+            catch (Exception exception)
+            {
+                Log.Error(
+                    $"{operation}时，窗口 {view?.GetType().Name ?? "<unknown>"} 的 OnDisposing 抛出异常；" +
+                    "视图 Bag 与可视树已继续清理。",
+                    exception,
+                    nameof(ToolkitBackend));
+            }
         }
 
         private static void Stretch(VisualElement e)

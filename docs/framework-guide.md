@@ -2004,7 +2004,7 @@ View 之上的 UI 调度：打开/关闭窗口、固定有序层级、Page 返�
 ```
 业务 View / Command  ──Open<T>() / OpenRequired<T>()──►  IUIUtility（核心：栈/层/缓存/生命周期编排）
                                               │
-                                         IUIBackend（port）
+                                         IUIBackend（物理窗口 Seam）
                                           ┌────┴────┐
                                        UGui       Toolkit
                                   Canvas/RectXform   UIDocument/VisualElement
@@ -2037,6 +2037,11 @@ ui.CloseAll(UILayer.Popup);                                      // 关某层全
 var opened = ui.Get<ShopWindow>();                               // 取已打开实例（未开返回 null）
 ```
 
+`Open` / `Get` 返回的是**借用窗口引用**：物理 GameObject / VisualElement、资源 handle、缓存与销毁都由
+`IUIUtility → IUIBackend` 持有，业务不要自行 `Destroy` / `Dispose`，只调用 `Close` / `CloseAll` 表达关闭意图。
+Adapter 的 `CreateWindow` 以“完整绑定并进入物理映射”作为提交点；调用方取消保持 `OperationCanceledException`，加载或绑定异常
+原样传播，但返回前会回滚已经创建的部分层级、View 和资源子 Bag，不把半窗口留到整个 UI 销毁时才兜底。
+
 两种入口共用同一套 UI Implementation，只在失败策略上不同：
 
 | 入口 | Adapter 未创建窗口时 | 适用范围 |
@@ -2044,7 +2049,7 @@ var opened = ui.Get<ShopWindow>();                               // 取已打开
 | `Open<T>()` | 未获得实例时返回 `null` | 提示、活动入口等允许缺席，且调用点准备了隐藏、替代内容或重试策略的可选窗口 |
 | `OpenRequired<T>()` | 抛带窗口类型与 `UIWindow.Asset` 的异常；取消仍是 `OperationCanceledException` | Flow 主页面、启动门禁、必须出现才能继续当前动作的窗口 |
 
-不要因为“不想写异常处理”就把所有窗口都设为宽松：如果主页面没出现却让 `FlowState.OnEnter` 正常返回，`GameFlow` 会把一个无页面状态提交为 `Current`。相反，可选提示窗也不必一律抛错；用 `Open` 判空后就地降级更符合其业务语义。`OpenRequired` 是扩展方法，没有扩张 `IUIUtility` Interface，因此自定义 Adapter 不需要增加第二套实现。它只保证“获得了非 null 窗口实例”：`OnCreate` / `OnOpen` hook 仍按核心契约隔离异常，也不构成事务式开窗。
+不要因为“不想写异常处理”就把所有窗口都设为宽松：如果主页面没出现却让 `FlowState.OnEnter` 正常返回，`GameFlow` 会把一个无页面状态提交为 `Current`。相反，可选提示窗也不必一律抛错；用 `Open` 判空后就地降级更符合其业务语义。`OpenRequired` 是扩展方法，没有扩张 `IUIUtility` Interface，因此自定义 Adapter 不需要增加第二套实现。它只保证“获得了非 null 窗口实例”：Adapter 的**物理创建**会在取消/异常时回滚，但 `OnCreate` / `OnOpen` hook 仍按核心契约记录并隔离异常，所以整个业务开窗并不是事务提交。
 
 已打开同类型窗口再次调用任一入口都会置顶并重新 `OnOpen(args)`，不重建（若它原本不在同层栈顶，旧栈顶收 `OnCover`、它自己收 `OnReveal`）。
 
@@ -2202,6 +2207,7 @@ Bag.SubscribeClickAsync(button, async ct =>   // 异步点击：随 Bag 取消�
 - **cover/reveal 按层内计算**：跨层覆盖（Popup 盖 Page）不触发下层 cover，需要时业务自行处理。
 - **UI Toolkit 窗口需无参构造**（框架 `Activator` 实例化）；数据经 `OnOpen(args)`，不走构造函数。
 - **UI Toolkit 窗口 Context 由框架显式注入**（不在 GameObject 父链上）；UGUI 窗口沿父链自动注入（实例化到层根下即可）。
+- **窗口引用是借用值**：不自行 Destroy / Dispose；取消或 Adapter 异常由物理创建事务回滚，业务只处理 null、OCE 或传播的真实异常。
 - **先判断窗口是否允许缺席**：可选窗口 `Open<T>()` 后处理 null；Flow 主页面等必需窗口用 `OpenRequired<T>()`，不能让创建失败静默变成成功状态。
 - **异步 UI 动作必须有 owner**：Toolkit 点击优先 `Bag.SubscribeClickAsync`；同步生命周期 hook 无法 `await` 时必须显式观察异常，不能裸 `.Forget()` / `UniTaskVoid`。
 - 三个 UI asmdef 引用热更内核，已在热更列表（ADR-0008 铁律）；输入 Package 只应由项目 composition layer 按真实方案引用。

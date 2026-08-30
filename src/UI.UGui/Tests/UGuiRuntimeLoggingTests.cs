@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -13,8 +14,8 @@ using UnityEngine;
 namespace Game.Framework.Test
 {
     /// <summary>
-    /// UGUI Adapter 的日志 Seam 契约：配置错误必须在产生资源或层级副作用前 fail-fast，
-    /// 并把 category、消息与 Unity context 交给 <see cref="ILogSink"/>，而不只写入当前 Editor Console。
+    /// UGUI Adapter 的日志与创建事务契约：配置错误或调用方取消必须在产生窗口副作用前收口；
+    /// 配置错误还要把 category、消息与 Unity context 交给 <see cref="ILogSink"/>，而不只写入当前 Editor Console。
     /// </summary>
     public sealed class UGuiRuntimeLoggingTests
     {
@@ -51,7 +52,8 @@ namespace Game.Framework.Test
         public void UGuiBackend_RejectsNonUGuiWindow_BeforeCreatingHierarchy()
         {
             var canvasObject = new GameObject("ugui-log-probe", typeof(RectTransform), typeof(Canvas));
-            using var context = new GameContext(new ContainerBuilder().Build(), inheritFromGlobal: false);
+            using var builder = new ContainerBuilder();
+            using var context = new GameContext(builder.Build(), inheritFromGlobal: false);
             try
             {
                 var backend = new UGuiBackend(canvasObject.GetComponent<Canvas>());
@@ -66,6 +68,36 @@ namespace Game.Framework.Test
             }
             finally
             {
+                UnityEngine.Object.DestroyImmediate(canvasObject);
+            }
+        }
+
+        [Test]
+        public void UGuiBackend_PreCancelledCreate_DoesNotCreateAWindowOrLogAnError()
+        {
+            var canvasObject = new GameObject("ugui-cancel-probe", typeof(RectTransform), typeof(Canvas));
+            using var builder = new ContainerBuilder();
+            using var context = new GameContext(builder.Build(), inheritFromGlobal: false);
+            var backend = new UGuiBackend(canvasObject.GetComponent<Canvas>());
+            try
+            {
+                backend.Initialize();
+                int layerRootCount = canvasObject.transform.childCount;
+                using var cancellation = new CancellationTokenSource();
+                cancellation.Cancel();
+
+                Assert.Throws<OperationCanceledException>(() =>
+                    backend.CreateWindow(
+                            UIWindowMeta.Of(typeof(CancelProbeUGuiWindow)), context, cancellation.Token)
+                        .GetAwaiter().GetResult());
+
+                Assert.AreEqual(layerRootCount, canvasObject.transform.childCount,
+                    "已取消的创建只能保留 Initialize 建立的层根，不能留下窗口 GameObject");
+                Assert.AreEqual(0, _sink.Entries.Count, "生命周期取消是正常收口，不应记录成 Adapter Error");
+            }
+            finally
+            {
+                backend.Teardown();
                 UnityEngine.Object.DestroyImmediate(canvasObject);
             }
         }
@@ -126,5 +158,8 @@ namespace Game.Framework.Test
         {
             public GameObject FindMissingNode() => BindGameObject("Missing/Node");
         }
+
+        [UIWindow]
+        private sealed class CancelProbeUGuiWindow : UGuiWindowBase { }
     }
 }

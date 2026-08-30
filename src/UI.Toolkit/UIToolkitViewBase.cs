@@ -87,15 +87,30 @@ namespace Game.Framework.UI.Toolkit
         /// </summary>
         protected virtual void OnCreated() { }
 
-        /// <summary>释放视图：先跑 <see cref="OnDisposing"/>，再释放 <see cref="Bag"/>（退订 + 释放资源），最后把 <see cref="Root"/> 摘出可视树。幂等。</summary>
+        /// <summary>
+        /// 释放视图：先跑 <see cref="OnDisposing"/>，再释放 <see cref="Bag"/>（退订 + 释放资源），最后把
+        /// <see cref="Root"/> 摘出可视树。幂等；<see cref="OnDisposing"/> 即使抛异常也不会截断后两步，异常在完成清理后原样传播。
+        /// </summary>
         public void Dispose()
         {
             if (_disposed) return;
             _disposed = true;
-            OnDisposing();
-            _bag?.Dispose();
-            _bag = null;
-            Root?.RemoveFromHierarchy();
+            try
+            {
+                OnDisposing();
+            }
+            finally
+            {
+                try
+                {
+                    _bag?.Dispose();
+                }
+                finally
+                {
+                    _bag = null;
+                    Root?.RemoveFromHierarchy();
+                }
+            }
         }
 
         /// <summary>释放前的子类钩子（在 <see cref="Bag"/> 释放之前调用）。一般无需重写——订阅都进 Bag 自动清理。
