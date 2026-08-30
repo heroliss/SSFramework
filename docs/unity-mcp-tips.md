@@ -36,7 +36,7 @@ EditorWindow 截图不等于通用交互：可表达的菜单、查询、滚动�
 
 ## 5. 跑测试用 advanced_tool 的 testing 工具
 
-`Game.Framework.Test` 是 PlayMode 程序集。经 `unity_advanced_tool` 的 testing 类工具跑：
+`Game.Framework.Tests` 是 Core 的 PlayMode 测试程序集。经 `unity_advanced_tool` 的 testing 类工具跑：
 `unity_testing_run_tests`（params：`mode: "PlayMode"` + `assemblies` / `testNames` / `groupNames`）→ 返回 jobId → `unity_testing_get_job` 查结果。注意参数名是 `mode` 不是 `testMode`，程序集过滤名是 `assemblies` 不是 `assemblyNames`；传错字段可能被忽略，造成错跑或范围失真。
 
 定向运行前，先用 `unity_testing_list_tests` 传入相同 `mode` 与 `nameFilter`，确认目标 fixture 确实存在于该模式，再把类名交给
