@@ -19,17 +19,7 @@ namespace Game.Framework.Editor
     /// </remarks>
     public sealed class SceneShortcutProfile : ScriptableObject
     {
-        private static SceneShortcutProfile _cached;
-        private static bool _cacheInitialized;
-
-        static SceneShortcutProfile()
-        {
-            EditorApplication.projectChanged += () =>
-            {
-                _cached = null;
-                _cacheInitialized = false;
-            };
-        }
+        private static int _duplicateWarningRevision = -1;
 
         /// <summary>一条场景快捷入口 = 菜单里的一个「打开场景」项。</summary>
         [Serializable]
@@ -85,25 +75,19 @@ namespace Game.Framework.Editor
         /// <summary>定位全工程唯一配置；不存在返回 <c>null</c>（不创建，供 validate 等只读场景用）。</summary>
         public static SceneShortcutProfile Find()
         {
-            if (_cacheInitialized) return _cached;
-
-            var paths = AssetDatabase.FindAssets("t:" + nameof(SceneShortcutProfile))
-                .Select(AssetDatabase.GUIDToAssetPath)
-                .OrderBy(path => path, StringComparer.Ordinal)
-                .ToArray();
-            if (paths.Length == 0)
-            {
-                _cacheInitialized = true;
-                _cached = null;
+            if (!FrameworkEditorProfileCatalog.TryResolveFirst(
+                    out SceneShortcutProfile profile, out IReadOnlyList<string> paths))
                 return null;
-            }
-            // CreateAssetMenu 未开放（单例，不该手建多份）；万一 FindAssets 命中多份仍明确警告，避免「改了不生效」难排查。
-            if (paths.Length > 1)
+
+            // CreateAssetMenu 未开放（单例，不该手建多份）；万一按类型命中多份仍明确警告，避免「改了不生效」难排查。
+            int revision = FrameworkEditorProfileCatalog.Revision;
+            if (paths.Count > 1 && _duplicateWarningRevision != revision)
+            {
+                _duplicateWarningRevision = revision;
                 Debug.LogWarning("[场景快捷入口] 找到多个配置，仅第一个生效，请删到只剩一个：\n  " +
                                  string.Join("\n  ", paths));
-            _cached = AssetDatabase.LoadAssetAtPath<SceneShortcutProfile>(paths[0]);
-            _cacheInitialized = true;
-            return _cached;
+            }
+            return profile;
         }
 
         /// <summary>定位配置；不存在则创建并从 Build Settings 导入初始场景。此写入 API 只供工作台明确创建动作调用。</summary>
@@ -112,18 +96,26 @@ namespace Game.Framework.Editor
             var existing = Find();
             if (existing != null) return existing;
 
-            var profile = CreateInstance<SceneShortcutProfile>();
-            profile.SeedDefaults();
-
+            FrameworkEditorProfileCatalog.Refresh(typeof(SceneShortcutProfile));
+            existing = Find();
+            if (existing != null) return existing;
             string dir = FrameworkProjectSettingsLocation.EnsureDirectory();
             string path = dir + "/SceneShortcutProfile.asset";
+            existing = FrameworkProjectSettingsLocation.GetExistingProfileOrThrow<SceneShortcutProfile>(path);
+            if (existing != null) return existing;
+
+            var profile = CreateInstance<SceneShortcutProfile>();
+            profile.SeedDefaults();
             AssetDatabase.CreateAsset(profile, path);
             AssetDatabase.SaveAssets();
-            _cached = profile;
-            _cacheInitialized = true;
+            FrameworkEditorProfileCatalog.Refresh(typeof(SceneShortcutProfile));
+            SceneShortcutProfile effective = Find();
+            if (effective == null || effective != profile)
+                throw new InvalidOperationException(
+                    $"场景快捷入口配置已写入但未成为稳定排序后的生效项：{path}。请检查重复配置后重试。");
             Debug.Log($"[场景快捷入口] 已按用户请求创建配置：{path}。" +
                       $"从 Build Settings 导入了 {profile.Entries.Count} 个已启用场景；可在 Inspector 自由增删。");
-            return profile;
+            return effective;
         }
 
         // Build Settings 是 Unity 自己维护的项目场景清单，能提供通用且可解释的初始值；
