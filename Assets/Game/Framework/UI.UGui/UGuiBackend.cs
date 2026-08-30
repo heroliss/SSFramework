@@ -57,6 +57,9 @@ namespace Game.Framework.UI.UGui
 
         public async UniTask<IUIWindow> CreateWindow(UIWindowMeta meta, IGameContext context, CancellationToken ct)
         {
+            if (meta == null) throw new ArgumentNullException(nameof(meta));
+            if (context == null) throw new ArgumentNullException(nameof(context));
+            ct.ThrowIfCancellationRequested();
             if (!typeof(UGuiWindowBase).IsAssignableFrom(meta.WindowType))
             {
                 Log.Error($"{meta.WindowType.Name} 不是 {nameof(UGuiWindowBase)} 派生类型。",
@@ -65,42 +68,57 @@ namespace Game.Framework.UI.UGui
             }
 
             var parent = _layerRoots[meta.Layer];
-            GameObject go;
+            GameObject go = null;
             DisposableBag wbag = null;
-
-            if (string.IsNullOrEmpty(meta.Asset))
+            bool committed = false;
+            try
             {
-                // 纯代码搭建（无 prefab）：空 GameObject + AddComponent 窗口类型，窗口在 OnCreated 里代码搭 UGUI。
-                // 先挂到层根再 AddComponent，使 MonoViewBase.Awake 能沿父链找到 Context 自动注入。
-                go = new GameObject(meta.WindowType.Name, typeof(RectTransform));
-                go.transform.SetParent(parent, false);
-                Stretch((RectTransform)go.transform);
-                go.AddComponent(meta.WindowType);
-            }
-            else
-            {
-                _loadBag ??= context.CreateBag();
-                wbag = _loadBag.CreateChild();
-                var prefab = await wbag.Load<GameObject>(meta.Asset, ct);
-                if (prefab == null) { wbag.Dispose(); return null; } // 加载失败，资源系统已打日志
-                // Instantiate 到层根下：prefab 上的 MonoViewBase 在 Awake 沿父链找到 Context 自动注入。
-                go = Object.Instantiate(prefab, parent);
-            }
+                if (string.IsNullOrEmpty(meta.Asset))
+                {
+                    // 纯代码搭建（无 prefab）：空 GameObject + AddComponent 窗口类型，窗口在 OnCreated 里代码搭 UGUI。
+                    // 先挂到层根再 AddComponent，使 MonoViewBase.Awake 能沿父链找到 Context 自动注入。
+                    go = new GameObject(meta.WindowType.Name, typeof(RectTransform));
+                    go.transform.SetParent(parent, false);
+                    Stretch((RectTransform)go.transform);
+                    ct.ThrowIfCancellationRequested();
+                    go.AddComponent(meta.WindowType);
+                }
+                else
+                {
+                    _loadBag ??= context.CreateBag();
+                    wbag = _loadBag.CreateChild();
+                    var prefab = await wbag.Load<GameObject>(meta.Asset, ct);
+                    if (prefab == null) return null; // 加载失败，资源系统已打日志；finally 释放本窗口子 bag
+                    ct.ThrowIfCancellationRequested();
+                    // Instantiate 到层根下：prefab 上的 MonoViewBase 在 Awake 沿父链找到 Context 自动注入。
+                    go = Object.Instantiate(prefab, parent);
+                }
 
-            var window = go.GetComponent(meta.WindowType) as IUIWindow;
-            if (window == null)
-            {
-                Log.Error($"{meta.WindowType.Name} 组件未出现在" +
-                          (string.IsNullOrEmpty(meta.Asset) ? "代码创建的窗口根节点。" : $" prefab '{meta.Asset}' 根节点。"),
-                    category: nameof(UGuiBackend));
-                Object.Destroy(go);
-                wbag?.Dispose();
-                return null;
-            }
+                ct.ThrowIfCancellationRequested();
+                var window = go.GetComponent(meta.WindowType) as IUIWindow;
+                if (window == null)
+                {
+                    Log.Error($"{meta.WindowType.Name} 组件未出现在" +
+                              (string.IsNullOrEmpty(meta.Asset) ? "代码创建的窗口根节点。" : $" prefab '{meta.Asset}' 根节点。"),
+                        category: nameof(UGuiBackend));
+                    return null;
+                }
 
-            go.transform.SetAsLastSibling();
-            _slots[window] = new Slot { Go = go, LoadBag = wbag };
-            return window;
+                go.transform.SetAsLastSibling();
+                _slots[window] = new Slot { Go = go, LoadBag = wbag };
+                committed = true;
+                return window;
+            }
+            finally
+            {
+                // CreateWindow 的提交点是 _slots 登记。取消、加载异常、无效 prefab 或 AddComponent 失败时，
+                // 立即回滚本次创建，而不是把部分层级/handle 留到整个 UI Teardown 才清理。
+                if (!committed)
+                {
+                    if (go != null) Object.Destroy(go);
+                    wbag?.Dispose();
+                }
+            }
         }
 
         public void BringToFront(IUIWindow window)
