@@ -117,8 +117,8 @@ IWebSocketUtility ── WebSocketUtility（状态机 / envelope / 推送注册�
 
 ### 7. 注册与生命周期
 
-- `builder.RegisterOwned(new HttpUtility("https://api.xxx.com"), typeof(IHttpUtility))`——环境切换（dev/prod）= 注册时传不同 baseUrl，构造定死、运行期不可变。
-- `WebSocketUtility` 实现 `IHasGameContext`（`SendEvent` 所需），`RegisterOwned` 注册即注入时由 `AttachTo` 回填 Context（照 `GameFlow` 姿势）；脱离容器 new 后未 Attach 就 `Connect` 抛。
+- `builder.RegisterOwnedUtility(new HttpUtility("https://api.xxx.com"))`——环境切换（dev/prod）= 注册时传不同 baseUrl，构造定死、运行期不可变；层感知入口自动登记具体类型与 `IHttpUtility`。
+- `WebSocketUtility` 实现 `IHasGameContext`（`SendEvent` 所需），`RegisterOwnedUtility` 注册即注入时由 `AttachTo` 回填 Context（照 `GameFlow` 姿势）；脱离容器 new 后未 Attach 就 `Connect` 抛。推送 type 映射属于一次性装配，优先在 `InstallBindings` 与实例注册放在一起；运行期 System 只消费事件并决定重连策略。
 - 每次成功 Connect 建立一个私有 **Connection Session**：它是该代接收 token、发送 token、发送 FIFO 与 exactly-once 终态 claim 的唯一 owner。是否仍有全局发布权按对象 identity 判断，generation 只用于诊断；迟到的旧 Receive / Send continuation 只能结束自己。发送传输失败与接收失败同样终结 current session，避免只等 Receive 报错而留下假 Connected。
 - `Disconnect` 把“逻辑已断开”和“旧 Close / Send owner 已清场”分开：先建一个永不 fault 的 teardown barrier，再置公开 State=Disconnected；Connect 可立即表达重连意图，但会等待 barrier 后重新校验。它不直接 await 上一个公共 Disconnect task，避免把旧调用者的 OCE 传播给新调用者。barrier 不承诺违规 Adapter 中忽略取消的旧 Receive 已物理返回；正确性由“方法入口固定物理 socket + session identity”共同保证。
 - 主动断开先取消本代发送并等 FIFO 退场，再 best-effort 发 Close，最后取消接收；关闭期间远端 Close / 接收异常因 session 已 claim 不会重复发事件。意外断开也进入 best-effort Close 收尾，再清 owner、发布 ClosedEvent；事件回调可以安全表达重连。所有响应式 State 发布前先安装/摘除对应 owner，旧 Connect 的 finally 只按 identity 清自己，允许订阅者同步取消或重试而不丢 owner。

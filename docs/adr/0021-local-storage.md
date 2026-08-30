@@ -83,7 +83,7 @@ IStorageUtility（业务入口，GetUtility 解析）
 ### 7. 存储位置与注册
 
 - 根目录 = `Application.persistentDataPath/<folder>/`（默认 `storage`），Editor 与真机同语义；调试经 demo 章「打开存档目录」。
-- 注册与池同款三选一：`builder.RegisterOwned(new StorageUtility(), typeof(IStorageUtility))`（推荐，随 Context Dispose 释放 provider）/ `RegisterValue`（全局不管释放）/ `MonoStorageUtility` 挂 Context 节点（Inspector 配目录名，组合纯 C# 实现）。
+- 注册与池同款三选一：`builder.RegisterOwnedUtility(new StorageUtility())`（推荐，自动推导具体类型与 Utility Interface，并随 Context Dispose 释放 provider）/ `RegisterUtility`（生命周期由外部 owner 管理）/ `MonoStorageUtility` 挂 Context 节点（Inspector 配目录名，组合纯 C# 实现）。
 
 ### 8. 刻意不做（记录在案，等真实需求）
 

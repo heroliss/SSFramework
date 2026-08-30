@@ -62,7 +62,7 @@ namespace Game.Framework.Demo.Modules
 
             var ws = new WebSocketUtility();
             // 先交给 Builder 暂管再做配置：若映射配置抛异常，using Builder 也能释放半配置实例。
-            builder.RegisterOwned(ws, typeof(IWebSocketUtility));
+            builder.RegisterOwnedUtility(ws);
             ws.RegisterPush<ServerTickEvent>("tick"); // 服务器周期推送
             ws.RegisterPush<ChatEchoEvent>("chat");   // 服务器回显客户端消息
         }

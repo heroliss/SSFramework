@@ -14,6 +14,10 @@ Demo 章节实例、排序校验与生命周期的唯一 owner。它一次构造
 
 Demo 教学内容与自动化之间的运行时 Seam。`DemoModuleHost` 在真实 Build 中记录定位、步骤、概念、动作、结果与源码引用等语义，`DemoModuleCatalog` 再按 Capability / Concept / Workflow 三种教学形态校验；缺少场景 Adapter 时改查“原因 → 恢复 → 继续学习”的结构化降级闭环。故意失败或带持久/共享副作用的动作使用 Experiment Notice + Experiment Action，在同一小节形成“影响范围 → 预期证据 → 恢复方式 → 可执行动作”的机器可读顺序；预期异常由 Module 本地精确捕获，Host 兜底只表示真实 Demo 缺陷。契约验证实际执行的内容，不扫描源码 token，也不猜测 USS / VisualElement Implementation。
 
+## Demo Server Physical Task Owner
+
+`DemoGameServer` Implementation 内统一登记并观察 HTTP / WebSocket accept、HTTP handler 与 connection task 的私有 owner。`Stop` 先发布逻辑停止并取消 server token，再关闭 listener 与活动 socket；慢 HTTP 不占用睡眠线程，connection 只有在内部 tick loop 收尾后才到物理终态。公共 `IDemoGameServer` Interface 保持同步停止，因为章节调用方只关心“后续连接失败”的可见语义；物理 drain 是 Demo 测试和 Domain Reload 卫生使用的内部 Seam，不扩张到 Core Network Module。
+
 ## UI Async Action Binding
 
 `Game.Framework.UI.Toolkit` Adapter 中连接 `Button.clicked` 与 View 生命周期所有权的窄 Interface。`Bag.SubscribeClickAsync` 负责解绑、把取消 token 交给 handler，并把未处理异常送到 `Log` Seam；生命周期取消静默收口。它不决定按钮禁用、去抖、single-flight 或面向玩家的错误呈现。通常异步操作跟随 Bag 取消；若包下载等物理操作必须在 View 消失后走到终态，handler 可明确不透传 View token，但仍由绑定观察完成，且不得向旧 UI 发布。该能力保持在 Toolkit Module，以免 Core `DisposableBag` 获得渲染后端语义。
@@ -41,6 +45,10 @@ Demo 教学内容与自动化之间的运行时 Seam。`DemoModuleHost` 在真�
 ## Command Dispatcher Seam
 
 `ICommandSystem` 是 Context 内统一执行 Command 的可替换命令分发器 Interface；`CommandSystem` 是默认 Implementation，`LoggingCommandSystem` 是已被真实使用的装饰器 Adapter。类型名中的 `System` 是兼容保留的早期公共命名，不代表五层业务 `ISystem`：它不获得 System 层能力，也必须用精确契约 `RegisterValue(..., typeof(ICommandSystem))` 注册，而不是 `RegisterSystem`。这个 Interface 通过日志、回放、撤销和测试拦截保持有价值的 Seam；当前不新增 `ICommandDispatcher` 别名，因为容器按精确类型键解析，双 Interface 会制造两份可分叉注册。若未来破坏性版本改名，应一次性迁移 Interface、默认 Implementation、装饰器与 DI key。
+
+## Layer-Aware Composition Registration
+
+手写 `InstallBindings` 中的普通纯 C# 分层对象统一走 `RegisterModel/System/Utility` 或对应 `RegisterOwnedXxx`：由运行时具体类型一次推导“具体 Implementation + 所有派生自该层标记的 Interface”，不登记层标记本身。低层 `RegisterValue/RegisterOwned(value, contracts)` 只留给 `ICommandSystem` 等非分层基础设施、刻意选择性暴露契约和需要在 `.g.cs` 中展示最终清单的生成安装器；Factory 是显式接线 Seam，继续显式列 contract。该约定让手写、Mono 自动注册与生成路径共享契约口径，同时避免调用点重复维护 `typeof(I...Utility)`。
 
 ## Context Resolution Evidence
 

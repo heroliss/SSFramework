@@ -21,7 +21,7 @@ namespace Game.Framework.Demo.Modules
             "按类型订阅 / 发送事件（View 能订阅、不能发；发要在 Command/System）。核心对比：状态(Model/RP) 有当前值、随时可读；事件只在发生时通知 N 个监听者、没有当前值。";
 
         public override void InstallBindings(ContainerBuilder builder)
-            => builder.RegisterValue(new TickModel(), typeof(TickModel));
+            => builder.RegisterModel(new TickModel());
 
         public override void Build(DemoModuleHost host)
         {

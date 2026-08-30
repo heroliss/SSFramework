@@ -32,8 +32,8 @@ namespace Game.Framework.Demo.Core
             // 命令分发用 LoggingCommandSystem 装饰默认 CommandSystem（可插拔的活样板）：demo 里点任何按钮，
             // 「SSFramework/诊断与分析/运行时诊断」的 Command 流水即实时可见；不需要流水时注册 CommandSystem 即可。
             builder.RegisterValue(new LoggingCommandSystem(), typeof(ICommandSystem));
-            // 池工具用 RegisterOwned：随本 Context.Dispose 自动清池（停放节点 + 空闲实例），不靠 DontDestroyOnLoad 长留。
-            builder.RegisterOwned(new PoolUtility(), typeof(IPoolUtility));
+            // 池工具用层感知 owned 入口：自动登记 PoolUtility + IPoolUtility，并随本 Context.Dispose 自动清池。
+            builder.RegisterOwnedUtility(new PoolUtility());
 
             _moduleCatalog.InstallBindings(builder);
         }

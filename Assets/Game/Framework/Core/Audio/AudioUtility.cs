@@ -14,8 +14,8 @@ namespace Game.Framework.Audio
     /// </summary>
     /// <remarks>
     /// <b>注册（按生命周期选，同 PoolUtility 三选一）：</b>纯 C# 跟随 Context 用
-    /// <c>builder.RegisterOwned(new AudioUtility(), typeof(IAudioUtility))</c>（随 Context Dispose 全停，推荐）；
-    /// 全局唯一、不关心释放用 <c>RegisterValue</c>；要 Inspector 配初始音量 / 跟随场景节点用 <see cref="MonoAudioUtility"/>。<br/>
+    /// <c>builder.RegisterOwnedUtility(new AudioUtility())</c>（随 Context Dispose 全停，推荐）；
+    /// 已有外部 owner 时用 <c>RegisterUtility</c>；要 Inspector 配初始音量 / 跟随场景节点用 <see cref="MonoAudioUtility"/>。<br/>
     /// <b>不依赖 Context / 其它工具</b>：池化用的是 <see cref="ObjectPool{T}"/> 类而非 IPoolUtility 服务
     /// （工具间不互拉依赖，同 PoolUtility 不拉 IAssetUtility 的先例）。主线程独占。<br/>
     /// 首次播放时惰性创建一个 DontDestroyOnLoad 的 <c>[Game.Framework Audio]</c> 根节点，池化 AudioSource 全挂它下面
@@ -228,7 +228,7 @@ namespace Game.Framework.Audio
         /// 之后的调用是安全 no-op（Editor/Dev <see cref="Log.Error"/> 帮抓过期引用）。幂等。
         /// </summary>
         /// <remarks>
-        /// 由 <c>ContainerBuilder.RegisterOwned</c> + <c>GameContext.Dispose</c>（纯 C# 路径），
+        /// 由 <c>ContainerBuilder.RegisterOwnedUtility</c> + <c>GameContext.Dispose</c>（纯 C# 路径），
         /// 或 <c>MonoAudioUtility.OnDestroy</c>（Mono 路径）调用，让音频生命周期跟随其归属 Context / GameObject。
         /// </remarks>
         public void Dispose()

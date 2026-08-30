@@ -14,8 +14,8 @@ namespace Game.Framework.Storage
     /// </summary>
     /// <remarks>
     /// <b>注册（按生命周期选，同 PoolUtility 三选一）：</b>纯 C# 跟随 Context 用
-    /// <c>builder.RegisterOwned(new StorageUtility(), typeof(IStorageUtility))</c>（随 Context Dispose 释放 provider，推荐）；
-    /// 全局唯一、不关心释放用 <c>RegisterValue</c>；要 Inspector 配根目录 / 跟随场景节点用 <see cref="MonoStorageUtility"/>。<br/>
+    /// <c>builder.RegisterOwnedUtility(new StorageUtility())</c>（随 Context Dispose 释放 provider，推荐）；
+    /// 已有外部 owner 时用 <c>RegisterUtility</c>；要 Inspector 配根目录 / 跟随场景节点用 <see cref="MonoStorageUtility"/>。<br/>
     /// <b>不依赖 Context</b>（无 IGameContext 引用），可被父子 Context 共享（子级解析回退父级）。公共 API 主线程调用。<br/>
     /// <b>并发模型</b>：所有操作进全局 FIFO 队列逐个执行（同 key 竞态 / 读写交错天然消失；存储低频，串行无感知）；
     /// 队列哨兵在 finally 里必然完成，单个操作的异常只传给它自己的调用方、不毒化队列。

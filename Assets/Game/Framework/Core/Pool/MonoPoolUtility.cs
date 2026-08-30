@@ -14,7 +14,7 @@ namespace Game.Framework.Pool
     /// </summary>
     /// <remarks>
     /// <b>何时用：</b>想在 Inspector 配各 prefab 池参数（容量 / 预热）、或希望池随某个 Context 节点 / 场景生命周期销毁时用本类；
-    /// 全局共享、纯代码配置的场景用 <c>builder.RegisterOwned(new PoolUtility(), …)</c>（纯 C# 路径，随 <c>Context.Dispose</c> 清理）。<br/>
+    /// 全局共享、纯代码配置的场景用 <c>builder.RegisterOwnedUtility(new PoolUtility())</c>（纯 C# 路径，随 <c>Context.Dispose</c> 清理）。<br/>
     /// <b>生命周期：</b>继承 <see cref="MonoUtilityBase"/>——Awake 注册为 <see cref="IPoolUtility"/>（+ <c>IUtility</c>），
     /// OnDestroy 释放 Bag 并反注册，并 Dispose 底层 <see cref="PoolUtility"/>（销毁停放节点 + 空闲实例），天然跟随宿主 GameObject / 场景。<br/>
     /// <b>实现：</b>组合而非继承底层（<see cref="PoolUtility"/> 为 sealed、本类基类已是 <see cref="MonoUtilityBase"/>），

@@ -11,8 +11,8 @@ namespace Game.Framework.Network
     /// 传输与格式分别委托给 <see cref="IHttpProvider"/> / <see cref="INetworkSerializer"/>（构造注入，默认 UnityWebRequest + JSON）。
     /// </summary>
     /// <remarks>
-    /// <b>注册：</b><c>builder.RegisterOwned(new HttpUtility(baseUrl), typeof(IHttpUtility))</c>（推荐，随 Context
-    /// Dispose 取消在途请求）；全局唯一、不关心释放用 <c>RegisterValue</c>。不依赖 Context，可被父子 Context 共享。<br/>
+    /// <b>注册：</b><c>builder.RegisterOwnedUtility(new HttpUtility(baseUrl))</c>（推荐，随 Context
+    /// Dispose 取消在途请求）；已有外部 owner 时用 <c>RegisterUtility</c>。不依赖 Context，可被父子 Context 共享。<br/>
     /// <b>超时实现</b>：每个请求有独立 owner；外部 ct、生命周期与 deadline 只向该 owner 发出取消意图，
     /// provider 只需尊重 owner token。deadline 使用显式 Send-vs-Delay 竞速后安全取消，不让
     /// <c>CancelAfter</c> 的 timer 线程直接承接第三方取消回调异常。<br/>

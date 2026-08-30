@@ -20,7 +20,7 @@ namespace Game.Framework.Network
     /// PUT / DELETE / raw 字节 / 每请求头等低频形态。</para>
     /// </summary>
     /// <remarks>
-    /// <b>注册：</b><c>builder.RegisterOwned(new HttpUtility("https://api.xxx.com"), typeof(IHttpUtility))</c>——
+    /// <b>注册：</b><c>builder.RegisterOwnedUtility(new HttpUtility("https://api.xxx.com"))</c>——
     /// 随 Context Dispose 取消所有在途请求。环境切换（dev / prod）= 注册时传不同 baseUrl（构造定死，运行期不可变）。<br/>
     /// <b>线程：</b>公共 API 主线程调用（框架统一契约）；默认传输走 UnityWebRequest 引擎异步、全程不下线程池
     /// （WebGL 兼容的来源）。自定义 provider 可以在任意线程完成，Utility 会在成功、失败或取消完成公共调用前

@@ -1,8 +1,13 @@
 using System;
+using System.Collections;
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
+using System.Text;
+using Cysharp.Threading.Tasks;
 using Game.Framework.Demo.Modules.Services;
 using NUnit.Framework;
+using UnityEngine.TestTools;
 
 namespace Game.Framework.Demo.Tests
 {
@@ -48,5 +53,38 @@ namespace Game.Framework.Demo.Tests
             Assert.DoesNotThrow(server.Dispose);
             Assert.IsFalse(server.IsRunning);
         }
+
+        [UnityTest]
+        public IEnumerator Dispose_CancelsSlowHttpAndDrainsAllOwnedTasks() => UniTask.ToCoroutine(async () =>
+        {
+            var server = new DemoGameServer();
+            try
+            {
+                var endpoint = new Uri(server.HttpBaseUrl);
+                using var client = new TcpClient();
+                await client.ConnectAsync(IPAddress.Loopback, endpoint.Port);
+                byte[] request = Encoding.ASCII.GetBytes(
+                    "GET /api/slow?ms=20000 HTTP/1.1\r\n" +
+                    $"Host: 127.0.0.1:{endpoint.Port}\r\n" +
+                    "Connection: close\r\n\r\n");
+                await client.GetStream().WriteAsync(request, 0, request.Length);
+
+                await UniTask.WaitUntil(() => server.PendingTaskCount >= 3)
+                    .Timeout(TimeSpan.FromSeconds(2));
+
+                var stopwatch = Stopwatch.StartNew();
+                server.Dispose();
+                await server.WaitForPhysicalStop();
+                stopwatch.Stop();
+
+                Assert.That(server.PendingTaskCount, Is.Zero);
+                Assert.That(stopwatch.Elapsed, Is.LessThan(TimeSpan.FromSeconds(2)),
+                    "20 秒慢请求必须由服务器生命周期 token 立即取消，不能在 Domain Reload 后继续占用线程");
+            }
+            finally
+            {
+                server.Dispose();
+            }
+        });
     }
 }

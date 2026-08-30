@@ -55,7 +55,7 @@ namespace Game.Framework.Flow
         }
 
         /// <summary>
-        /// 注册本状态私有的服务（<c>RegisterOwned</c> 的实例随状态退出自动 Dispose）。
+        /// 注册本状态私有的服务（分层对象优先用 <c>RegisterOwnedModel/System/Utility</c>；非分层服务用低层 <c>RegisterOwned</c>）。
         /// 战斗内的子阶段机也在这里注册（再 <c>RegisterOwnedSystem(new GameFlow())</c>，作用域树天然嵌套）。
         /// 默认不注册任何东西。
         /// </summary>

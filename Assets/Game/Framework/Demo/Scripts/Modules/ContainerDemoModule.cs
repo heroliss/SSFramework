@@ -9,7 +9,7 @@ using UnityEngine;
 namespace Game.Framework.Demo.Modules
 {
     /// <summary>
-    /// 核心·Container：值/工厂/owned 注册 + [Inject] + 精确类型键解析。
+    /// 核心·Container：层感知值注册 / 工厂 / owned 注册 + [Inject] + 精确类型键解析。
     /// 解析顺序 / 父子回退留给「多 Context」章，避免重复。
     /// </summary>
     public sealed class ContainerDemoModule : DemoModuleBase
@@ -19,7 +19,7 @@ namespace Game.Framework.Demo.Modules
         public override string Category => "核心";
         public override int Order => 45;   // 排在「多 Context」后：先看作用域树的使用观感，再进注册/注入机制细节
         public override string Summary =>
-            "依赖注入容器：现成实例或工厂注册、按精确类型键解析；工厂可懒构造并缓存为单例，IDisposable 产物用 OwnedFactory 把所有权交给 Context。";
+            "依赖注入容器：普通分层对象自动推导契约，非分层对象显式列契约；工厂可懒构造并缓存为单例，IDisposable 产物用 OwnedFactory 把所有权交给 Context。";
 
         public override void InstallBindings(ContainerBuilder builder)
             => builder.RegisterOwnedFactory(c => new LazyService(), typeof(ILazyService));
@@ -56,9 +56,11 @@ namespace Game.Framework.Demo.Modules
             host.AddSubNote("权限对 `[Inject]` 一视同仁：注入目标按宿主层的权限闸门校验（与 `this.GetXxx` 同源）——View 注 Model/System、Model 注 System 等越权在注入期 `LogError` 拦下，不是绕权限的后门。Command 例外（经 `ctx` 有完整层访问权）；`GameContext`/`IGameContext` 始终禁注（万能门会绕过权限接口）。");
 
             host.AddSectionTitle("注册与注入");
-            host.AddConcept("RegisterValue", "直接给现成实例——前面各章注册 Model 用的就是它。");
+            host.AddConcept("RegisterModel/System/Utility", "普通分层对象的默认入口：直接给现成实例，自动登记具体类型与该层的 Interface；实例生命周期仍由外部持有。");
+            host.AddConcept("RegisterValue", "低层精确接线：只登记显式列出的 contract，留给 `ICommandSystem` 等非分层基础设施、选择性暴露和生成代码。");
             host.AddConcept("RegisterFactory", "给工厂，首次 Resolve 才构造、缓存为单例（也可 Eager）；容器不负责 Dispose 产物，适合普通对象或所有权明确在外部的对象。");
-            host.AddConcept("RegisterOwned", "给一个 `IDisposable` 实例、并把它的生命周期交给容器：随 `Context.Dispose` 逆序、幂等地 `Dispose`（如 `PoolUtility`）。对比 `RegisterValue`——后者给的现成实例容器不负责释放。");
+            host.AddConcept("RegisterOwnedModel/System/Utility", "普通分层对象的 owned 入口：自动推导契约，并把 `IDisposable` 实例交给 Context 逆序释放（如 `PoolUtility`）。");
+            host.AddConcept("RegisterOwned", "低层 owned 接线：生命周期同样交给 Context，但 contract 必须显式列出；适合非分层服务或刻意限制解析面。");
             host.AddConcept("RegisterOwnedFactory", "依赖要从 Container 现取、又必须随 Context 释放时用：懒/Eager 构造 + Singleton 缓存 + owned Dispose 一次完成。工厂产物仍由工厂显式接线，不自动 `[Inject]`。");
             host.AddConcept("[Inject] / this.GetXxx", "层与 class Command 可用 `[Inject]` 字段拿依赖（执行 / `Awake` 前注入、快照）；层里也可改用 `this.GetXxx<T>()` 实时解析。struct Command 不能 `[Inject]`（反射改的是装箱副本），只能 `ctx.GetXxx`。");
             host.AddNote("Container 按精确类型键解析、不做继承扫描——注册成什么类型，就用那个类型取。"

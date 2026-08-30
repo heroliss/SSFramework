@@ -53,7 +53,7 @@ namespace Game.Framework.Network
     /// 实现 <see cref="IWebSocketEnvelopeSerializer"/> 接管 envelope 编解码与帧类型（payload 全程 byte[]、二进制帧）。</para>
     /// </summary>
     /// <remarks>
-    /// <b>注册：</b><c>builder.RegisterOwned(new WebSocketUtility(), typeof(IWebSocketUtility))</c>——注册即注入
+    /// <b>注册：</b><c>builder.RegisterOwnedUtility(new WebSocketUtility())</c>——注册即注入
     /// （ADR-0019）回填 Context（<see cref="Send{T}"/> 转事件所需）；脱离容器 new 后未 Attach 就 <see cref="Connect"/> 抛。
     /// 战斗专用连接注册进 <c>FlowState</c> 子 Context，退出阶段整棵撤（含断开）。<br/>
     /// <b>线程：</b>公共 API 主线程调用；接收循环在后台收帧、每条消息切回主线程后再解析 + <c>SendEvent</c>

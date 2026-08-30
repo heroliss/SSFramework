@@ -27,7 +27,11 @@ namespace Game.Framework.Demo.Modules.Services
         /// <summary>服务器是否在运行（demo 的「停止服务器」按钮之后为 false，用来演示 ConnectionError）。</summary>
         bool IsRunning { get; }
 
-        /// <summary>停止服务器（演示连接失败），同时关闭已建立的 WS 连接（客户端立刻收到意外断开事件）。Dispose 也会停。</summary>
+        /// <summary>
+        /// 停止接收新请求并关闭已建立的 WS 连接（客户端立刻收到意外断开事件）。
+        /// 返回时 <see cref="IsRunning"/> 已为 false；后台 IO 的物理终态由 Implementation 继续观察，调用者不需要等待。
+        /// <see cref="IDisposable.Dispose"/> 也会停止。
+        /// </summary>
         void Stop();
     }
 
@@ -38,7 +42,8 @@ namespace Game.Framework.Demo.Modules.Services
     /// </summary>
     /// <remarks>
     /// 全部 IO 在后台线程 / 线程池（不碰任何 Unity API）；构造即启动、<see cref="Dispose"/> / <see cref="Stop"/> 停。
-    /// 每个 WS 连接一个读循环 + 一个 2s tick 推送循环，两者写同一 socket 用锁串行（NetworkStream 不允许并发写）。
+    /// accept、HTTP handler 与 WS connection task 都由本类登记并观察异常；慢 HTTP 用服务器 token 取消，不在 Stop 后继续占用线程。
+    /// 每个 WS connection 内部拥有读循环 + 2s tick 推送循环，两者写同一 socket 用锁串行，且 connection 只有等 tick 收尾后才到物理终态。
     /// </remarks>
     public sealed class DemoGameServer : IDemoGameServer, IDisposable
     {
@@ -48,7 +53,10 @@ namespace Game.Framework.Demo.Modules.Services
         private readonly HttpListener _http;
         private readonly TcpListener _wsListener;
         private readonly CancellationTokenSource _cts = new();
+        private readonly CancellationToken _stopToken;
         private readonly List<TcpClient> _wsClients = new(); // 活跃 WS 连接（lock 保护）：Stop 时主动关闭，让客户端立刻收到断开
+        private readonly object _tasksGate = new();
+        private readonly HashSet<Task> _ownedTasks = new();
         private volatile bool _running;
         private bool _disposed;
 
@@ -58,6 +66,7 @@ namespace Game.Framework.Demo.Modules.Services
 
         public DemoGameServer()
         {
+            _stopToken = _cts.Token;
             HttpListener http = null;
             TcpListener wsListener = null;
             try
@@ -74,8 +83,8 @@ namespace Game.Framework.Demo.Modules.Services
                 HttpBaseUrl = $"http://127.0.0.1:{httpPort}";
                 WsUrl = $"ws://127.0.0.1:{wsPort}/";
                 _running = true;
-                _ = HttpAcceptLoop();
-                _ = WsAcceptLoop();
+                Own(Task.Run(HttpAcceptLoop), "HTTP accept loop");
+                Own(Task.Run(WsAcceptLoop), "WebSocket accept loop");
             }
             catch
             {
@@ -121,6 +130,53 @@ namespace Game.Framework.Demo.Modules.Services
             try { _cts.Dispose(); } catch { }
         }
 
+        /// <summary>测试/Domain Reload 守卫读取：尚未到物理终态的服务器 task 数。</summary>
+        internal int PendingTaskCount
+        {
+            get { lock (_tasksGate) return _ownedTasks.Count; }
+        }
+
+        /// <summary>
+        /// 等待 Stop 已发出的关闭意图到达全部物理 task 终态。公共 Interface 刻意不暴露：Demo 调用方只关心逻辑停止，
+        /// 该等待只用于证明 Implementation 没有在 Domain Reload 后遗留 handler。
+        /// </summary>
+        internal async Task WaitForPhysicalStop()
+        {
+            while (true)
+            {
+                Task[] pending;
+                lock (_tasksGate)
+                {
+                    if (_ownedTasks.Count == 0) return;
+                    pending = new Task[_ownedTasks.Count];
+                    _ownedTasks.CopyTo(pending);
+                }
+
+                try { await Task.WhenAll(pending); }
+                catch { /* Own 已统一记录根异常；这里的职责只是等所有 task 到终态。 */ }
+            }
+        }
+
+        private void Own(Task task, string operation)
+        {
+            if (task == null) throw new ArgumentNullException(nameof(task));
+            lock (_tasksGate) _ownedTasks.Add(task);
+            _ = task.ContinueWith(
+                completed =>
+                {
+                    lock (_tasksGate) _ownedTasks.Remove(completed);
+                    if (!completed.IsFaulted) return;
+                    Exception exception = completed.Exception?.GetBaseException() ?? completed.Exception;
+                    Log.Error(
+                        $"Demo 服务器后台任务“{operation}”异常停止。",
+                        exception,
+                        "DemoServer");
+                },
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+        }
+
         // ── HTTP ────────────────────────────────────────────────────────────
 
         private static int FindFreeHttpPort(out HttpListener listener)
@@ -164,15 +220,18 @@ namespace Game.Framework.Demo.Modules.Services
             {
                 HttpListenerContext ctx;
                 try { ctx = await _http.GetContextAsync(); }
-                catch { break; } // Stop/Close 后 GetContextAsync 抛出 = 正常退出
-                _ = Task.Run(() => HandleHttp(ctx));
+                catch (Exception) when (!_running || _stopToken.IsCancellationRequested) { break; }
+                Own(
+                    Task.Run(() => HandleHttp(ctx, _stopToken)),
+                    $"HTTP {ctx.Request.Url?.AbsolutePath ?? "request"}");
             }
         }
 
-        private static void HandleHttp(HttpListenerContext ctx)
+        private static async Task HandleHttp(HttpListenerContext ctx, CancellationToken stopToken)
         {
             try
             {
+                stopToken.ThrowIfCancellationRequested();
                 var req = ctx.Request;
                 switch (req.Url.AbsolutePath)
                 {
@@ -192,8 +251,8 @@ namespace Game.Framework.Demo.Modules.Services
 
                     case "/api/slow":
                     {
-                        int ms = int.TryParse(req.QueryString["ms"], out int m) ? Math.Min(m, 20000) : 3000;
-                        Thread.Sleep(ms); // 线程池线程，睡它演示超时 / 取消
+                        int ms = int.TryParse(req.QueryString["ms"], out int m) ? Math.Clamp(m, 0, 20000) : 3000;
+                        await Task.Delay(ms, stopToken); // 不阻塞线程；服务器 Stop 后也能立即结束物理 handler
                         WriteJson(ctx.Response, 200, "{\"message\":\"慢响应终于回来了\"}");
                         break;
                     }
@@ -209,6 +268,10 @@ namespace Game.Framework.Demo.Modules.Services
                         WriteJson(ctx.Response, 404, "{\"error\":\"没有这个路由\"}");
                         break;
                 }
+            }
+            catch (OperationCanceledException) when (stopToken.IsCancellationRequested)
+            {
+                try { ctx.Response.Abort(); } catch { }
             }
             catch
             {
@@ -248,8 +311,8 @@ namespace Game.Framework.Demo.Modules.Services
             {
                 TcpClient client;
                 try { client = await _wsListener.AcceptTcpClientAsync(); }
-                catch { break; } // Stop 后 AcceptTcpClientAsync 抛出 = 正常退出
-                _ = Task.Run(() => HandleWsClient(client));
+                catch (Exception) when (!_running || _stopToken.IsCancellationRequested) { break; }
+                Own(Task.Run(() => HandleWsClient(client)), "WebSocket connection");
             }
         }
 
@@ -260,8 +323,9 @@ namespace Game.Framework.Demo.Modules.Services
                 if (!_running) { client.Close(); return; } // Stop 与 Accept 竞态：晚到的连接直接关
                 _wsClients.Add(client);
             }
-            var connCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+            var connCts = CancellationTokenSource.CreateLinkedTokenSource(_stopToken);
             var writeLock = new object();
+            Task tickTask = Task.CompletedTask;
             try
             {
                 using (client)
@@ -271,17 +335,7 @@ namespace Game.Framework.Demo.Modules.Services
 
                     // 推送循环：每 2s 发一条 tick（count++）。与读循环的 echo 写同一 socket，用 writeLock 串行。
                     int tick = 0;
-                    _ = Task.Run(async () =>
-                    {
-                        while (!connCts.IsCancellationRequested)
-                        {
-                            try { await Task.Delay(2000, connCts.Token); }
-                            catch { return; }
-                            int n = Interlocked.Increment(ref tick);
-                            string frame = $"{{\"type\":\"tick\",\"payload\":\"{{\\\"count\\\":{n}}}\"}}";
-                            TryWriteText(stream, writeLock, frame);
-                        }
-                    });
+                    tickTask = PushTicks(stream, writeLock, connCts.Token, () => Interlocked.Increment(ref tick));
 
                     // 读循环：收到文本帧原样回显（客户端注册的 "chat" 推送即收到回显）；收到 close 帧退出。
                     while (!connCts.IsCancellationRequested)
@@ -301,9 +355,35 @@ namespace Game.Framework.Demo.Modules.Services
             catch { /* 连接异常断开：静默收尾 */ }
             finally
             {
-                connCts.Cancel();
-                connCts.Dispose();
+                try { connCts.Cancel(); }
+                finally
+                {
+                    try { await tickTask; }
+                    finally { connCts.Dispose(); }
+                }
                 lock (_wsClients) _wsClients.Remove(client);
+            }
+        }
+
+        private static async Task PushTicks(
+            NetworkStream stream,
+            object writeLock,
+            CancellationToken token,
+            Func<int> nextTick)
+        {
+            try
+            {
+                while (true)
+                {
+                    await Task.Delay(2000, token);
+                    int n = nextTick();
+                    string frame = $"{{\"type\":\"tick\",\"payload\":\"{{\\\"count\\\":{n}}}\"}}";
+                    TryWriteText(stream, writeLock, frame);
+                }
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                // connection owner 取消：物理推送循环已到终态。
             }
         }
 

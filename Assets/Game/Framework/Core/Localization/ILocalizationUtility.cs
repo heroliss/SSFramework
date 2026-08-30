@@ -9,7 +9,7 @@ namespace Game.Framework.Localization
     /// 文本数据来自 <see cref="ILocalizedTextSource"/> 接缝（业务包自己的配置表，或用内置字典源）。ADR-0024。
     /// </summary>
     /// <remarks>
-    /// <b>注册：</b>已有 source 时用 <c>builder.RegisterOwned(new LocalizationUtility(source, initialLocale, fallbackLocale), typeof(ILocalizationUtility))</c>；
+    /// <b>注册：</b>已有 source 时用 <c>builder.RegisterOwnedUtility(new LocalizationUtility(source, initialLocale, fallbackLocale))</c>；
     /// source 需从容器解析其他服务时改用 <c>RegisterOwnedFactory</c>，不要用不接管生命周期的普通 Factory；
     /// 文本源经构造注入（同存储 provider 姿势）。<br/>
     /// <b>locale code 是开放字符串 + 业务常量</b>（"zh-CN" / "en"……与音频组、存储 key 同一「常量管理字符串契约」姿势）；

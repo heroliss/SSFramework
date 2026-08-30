@@ -259,10 +259,10 @@ namespace Game.Framework.Demo.Modules
             host.AddConcept("IPoolUtility", "手动控制：`this.GetUtility<IPoolUtility>().Rent<T>()` / `.Return(obj)` 一行直接借还（默认池，不必先 `GetPool`）。只有要读 `CountInactive`、反复操作同一个池、或配自定义工厂 / 钩子时，才先 `GetPool<T>(...)` 拿到池——本 demo 为显示“池中空闲”才走 `GetPool`。`Prewarm` / `Trim` 运维也在池上；C# 池与 GameObject 池共用同一入口。");
 
             host.AddSectionTitle("注册 = 生命周期");
-            host.AddConcept("RegisterOwned", "纯 C#、随 `Context.Dispose` 自动清池（销毁停放节点 + 空闲实例），可安全 per-Context 注册——demo 根 Context 用的就是它。");
-            host.AddConcept("RegisterValue", "纯 C#、不被容器释放，适合全局唯一、随进程长存的池。");
+            host.AddConcept("RegisterOwnedUtility", "纯 C#、自动登记具体类型与 Utility Interface，并随 `Context.Dispose` 自动清池（销毁停放节点 + 空闲实例）——demo 根 Context 用的就是它。");
+            host.AddConcept("RegisterUtility", "纯 C#、同样自动推导契约，但生命周期由外部持有；只在已有明确 owner 时使用。");
             host.AddConcept("MonoPoolUtility", "Mono：挂 Context 子节点，可在 Inspector 针对各 prefab 配容量 / 预热，随该 GameObject / 场景销毁自动清池。底层复用同一套逻辑。");
-            host.AddCodeLink(new CodeRef("Assets/Game/Framework/Demo/Scripts/Core/MonoDemoContext.cs", "builder.RegisterOwned(new PoolUtility", "demo 注册（RegisterOwned）"));
+            host.AddCodeLink(new CodeRef("Assets/Game/Framework/Demo/Scripts/Core/MonoDemoContext.cs", "builder.RegisterOwnedUtility(new PoolUtility", "demo 注册（RegisterOwnedUtility）"));
 
             host.AddTip("约定：归还后别再用那个实例（可能已被下一个租借者取走）；状态清理放归还侧（IPoolable.OnReturn 或 GetPool 的 onReturn 委托）。容量上限 maxSize 超限即销毁；GameObject 池可 Prewarm(n, perFrame) / TrimAsync 分帧摊开开销。Editor / Dev 下重复归还、归还外来实例、Dispose 后误用都会报错帮你抓 bug。");
         }

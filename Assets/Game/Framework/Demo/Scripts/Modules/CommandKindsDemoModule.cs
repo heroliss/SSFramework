@@ -23,7 +23,7 @@ namespace Game.Framework.Demo.Modules
             "Command 三种形态：同步（ICommand，计数器已演）、异步（IAsyncCommand，带取消令牌）、查询（ICommand<T>，返回值）。本章聚焦异步与查询，含查询的进阶形态「只读投影」（一面板一查询）。";
 
         public override void InstallBindings(ContainerBuilder builder)
-            => builder.RegisterValue(new TaskModel(), typeof(TaskModel));
+            => builder.RegisterModel(new TaskModel());
 
         public override void Build(DemoModuleHost host)
         {

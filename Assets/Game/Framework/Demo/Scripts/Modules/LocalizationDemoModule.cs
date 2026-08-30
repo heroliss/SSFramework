@@ -37,7 +37,7 @@ namespace Game.Framework.Demo.Modules
         /// <summary>
         /// 注册路径：文本源要吃配置表服务（另一个 Utility）——用 <c>RegisterOwnedFactory</c> 让容器解决依赖顺序：
         /// 首次解析（打开本章）时，场景里的配置服务早已注册完成；LocalizationUtility 仍随根 Context 释放。
-        /// 不依赖其他服务的源（如字典源）直接 RegisterOwned 即可（见 LocalizationTests）。
+        /// 不依赖其他服务的源（如字典源）直接 RegisterOwnedUtility 即可（见 LocalizationTests）。
         /// </summary>
         public override void InstallBindings(ContainerBuilder builder)
         {

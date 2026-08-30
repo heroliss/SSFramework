@@ -21,8 +21,8 @@
 | Framework Module | 31 个 asmdef Module（含测试与可选 Odin / HybridCLR Editor Adapter）；依赖与删除测试见 `framework-module-map.md` |
 | Demo | 32 个自动发现章节；Catalog 集中拥有 Adapter 生命周期，并按 Capability / Concept / Workflow 校验真实 Build 教学语义 |
 | 教程 | `framework-guide.md` 28 章 |
-| ADR | 0001–0045；0040 为 UPM-aware 源码目录，0041/0042 补齐依赖证据，0043 收口 Editor 菜单与工作台，0044 固化 Unity CLI 工程外 Adapter 边界，0045 拆分资源与 HybridCLR 构建依赖 |
-| 测试 | PlayMode 545 + EditMode 573，共 1118 项全绿；交互式 MCP 后台运行且 PlayMode 先预检，命令行入口默认 EditMode + PlayMode |
+| ADR | 0001–0046；0040 为 UPM-aware 源码目录，0041/0042 补齐依赖证据，0043 收口 Editor 菜单与工作台，0044 固化 Unity CLI 工程外 Adapter 边界，0045 拆分资源与 HybridCLR 构建依赖，0046 收敛资源运行时入口 |
+| 测试 | PlayMode 565 + EditMode 577，共 1142 项全绿；交互式 MCP 后台运行且 PlayMode 先预检，命令行入口默认 EditMode + PlayMode |
 | Demo CodeRef | 317 处可打开源码跳转；完整门禁通过后以精准命中为基线，注释、文案与外部文档路径不计入源码构造点 |
 | AI 常驻规则预算 | 最深 AGENTS 链 30.48 KiB，低于 Codex 默认 32 KiB 项目指令上限；本轮已压缩 Demo 教程式规则，新增常驻规则前仍须优先外移可测试/可按需加载内容 |
 
@@ -268,11 +268,29 @@
 - 内部 `ReclaimUnusedCache` Seam 明确区分页面 caller、`ClearCache` waiter 与 `AssetUtility` 物理 owner：页面取消不会提前释放共享 gate，也不向旧 UI 发布迟到结果；同时发生的物理失败仍保留原异常，物理生命周期取消则原样传播 OCE。预取消、正常成功、可恢复失败、caller 取消后的物理成功/失败与物理取消共 6 项契约全部覆盖。
 - Demo 与 guide 同步说明为什么「新内容可用」与「旧缓存已删除」是两个不同成功条件，并将 `None` 解释为不让 waiter 提前脱离，不再误称业务页面拥有物理操作。独立只读评审的 Medium/Low 已全部闭环；Demo 教学与 CodeRef 31/31、DemoScene 6/6，最终 EditMode 370/370、PlayMode 545/545，共 915/915。
 
+### P1 · Runtime 日志调用面闭环
+
+- Core 与可选 Runtime Adapter 中剩余的裸 `Debug.*` 只在 `FrameworkSelfCheck` 和 `LoggingCommandSystem`：前者改经 `Log` 写入并携带自身 Unity context，后者的 opt-in echo 改经同一 Seam 写 Info，保留命令类型、Context 名、同步/异步、耗时与失败文字。
+- AOT `Game.Framework.Boot` 仍保留原生日志，因为它必须在 Runtime Framework 加载前独立自举；Logging Implementation 内的 `Debug.*` 是默认 Console Adapter，不是未迁移调用点。Editor 工具与 Demo 的裸日志捕获实验同样是刻意边界。
+- `DiagnosticsTests` 穿过真实装饰器与捕获 sink 锁定 echo 的 category、级别与消息，不用源码 token 冒充行为验证。
+
+### P2 · Demo 服务器物理任务所有权
+
+- `DemoGameServer` 用内部 task registry 统一拥有并观察 HTTP / WebSocket accept、HTTP handler 与 connection task；未知 fault 进入 Logging Seam，Stop/Close 导致的 listener 终止仍作为正常收尾。
+- `/api/slow` 从阻塞线程的 `Thread.Sleep` 改为 server token 驱动的 `Task.Delay`；每个 WS connection 将 tick task 纳入自身物理终态，`Dispose` 后不会留下未观察的推送循环或 20 秒睡眠 handler。
+- 公共 `IDemoGameServer.Stop` 仍保持同步逻辑停止，不为单一 Demo 调用方扩张异步 Interface；内部 drain Seam 只供测试证明 Domain Reload 卫生。定向用例真实发起 20 秒慢请求，验证 Dispose 后 2 秒内全部 task 归零。
+
+### P1 · 手写分层注册与 WebSocket 装配职责收敛
+
+- Demo、Outpost 与真机自检中的普通纯 C# Model / System / Utility 统一迁移到 `RegisterModel/System/Utility` 或对应 `RegisterOwnedXxx`；调用点不再重复维护具体类型和 `typeof(I...Utility)`，具体 Implementation 与层 Interface 仍是可解析的真实契约。
+- `RegisterValue/RegisterOwned` 继续服务 `ICommandSystem`、非分层服务、选择性暴露与生成安装器；Factory 继续显式列 contract。没有为机械统一隐藏生成清单或新增一套 Layer-aware Factory API。
+- 公共 XML doc、Demo 教学与 guide 全部改教层感知入口；Container 章明确区分普通分层注册与低层精确接线。既有契约测试锁定“具体类型 + Interface 同一实例、层标记不可解析、owned 恰好释放一次”。
+- Outpost 的 `NewRecordPushEvent` type 映射从运行期 System 移回 Composition Root；System 只消费事件并拥有断线重连策略。当前没有第二类安装调用者，故不拆新的注册权限 Interface，避免用浅 Seam 交换更多概念。
+
 ## 下一批候选（按杠杆排序）
 
 | 优先级 | 候选 | 证据 / 完成标准 |
 |---|---|---|
-| P1 | 日志调用面继续收敛 | ADR-0034 已 Accepted；Fonts、UI、Asset/Yoo、Audio 与 Config Runtime 已收敛；AOT Boot 已确认必须保留原生日志。继续按 Module 审查其余历史裸 `Debug.*`，保留 Logging Implementation、第三方内部日志和 Editor 工具；测试守住消息、context、异常和双击定位语义。 |
 | P1 | 公共 API 注释审计 | 优先生命周期、取消、异常、所有权与 Adapter 接缝；删除复述代码或记录历史的注释。以“调用者能否仅靠悬浮提示正确释放/取消”为完成标准。 |
 | P1 | CI Runner 与发布真正接线 | 资源构建 workflow 已复用 ProjectVersion + Unity CLI / Direct Adapter；下一步是在真实自建 Runner 验证授权、Android/iOS/WebGL Module、缓存与 CDN 上传凭据，并把一次成功 artifact 固化为基线。 |
 | P1 | 中文友好性继续收口 | 高频 Inspector、诊断状态、资源/配置/YooAsset、Context/DI/Pool/Bag，以及 Flow / Audio / UI Toolkit 的已发现低频反馈已完成；下一步继续审查 Lifecycle、Profile 与其他边缘路径。始终保留类型、参数和第三方原始错误供检索，不引入过度的运行时多语言系统。 |
@@ -282,8 +300,6 @@
 | P2 | 物理路径跨平台门禁矩阵 | `FrameworkProjectPath.TryResolve` 已让所有生成器在写盘前拒绝现存路径链上的 symlink / junction / reparse point，递归树操作还会验证全部后代；Windows junction 集成门禁已有覆盖。下一步只补 macOS/Linux 目录与文件 symlink 的 CI 矩阵，验证同一 `FileAttributes` 契约在各平台成立；发现平台差异再改共享 Module，不重复实现各生成器局部门禁。 |
 | P2 | 字体输入语义与扫描成本量化 | 重叠目录/模式可能重复读取同一文件，JSON/C# 中的 `\uXXXX` 也不等同于已提取真实字形。先用真实本地化数据统计缺字与扫描成本，再决定是否引入文件去重、格式解码 Adapter 或明确维持“源码字面字符”语义。 |
 | P2 | Asset 维护 operation / 更新 session | Demo 已有两处为区分 caller waiter 与物理维护 owner 而手拼 gate、`CancellationToken.None` 和章节 token；Demo 与 Outpost 也出现 Initialize → Ready → 快照下载轮廓。启动流程已直接锁定「waiter 在物理清理终态前仍为 Pending」、「页面取消不发迟到 UI，但物理失败仍保留原异常」及「非取消的旧缓存回收失败只降级为 Warning」；出现第三个生产调用方后再决定是否形成有状态 session，避免把业务重试/确认策略塞回 Core。 |
-| P2 | Demo 服务器物理任务 owner | `Stop` 已拥有逻辑取消、监听器与 socket，但 accept/handler/tick task 仍 fire-and-forget，Dispose 未等待物理终态。先用内部 task registry、统一异常观察和 CTS token 快照覆盖 Domain Reload / in-flight slow HTTP / WS handler 竞态；只有真实调用方需要等待时才扩 `IDemoGameServer`。 |
-| P2 | WebSocket 安装期注册权限 | `RegisterPush` 与运行期 Connect/Send 共处一个较宽 Interface，Outpost 又在运行 System 中登记映射。先把映射移回 composition root 并补退避重连 Adapter 测试；是否拆注册 Seam 需单独评估兼容性，不在本批破坏公共 Interface。 |
 | P2 | UI 窗口 lease 语义 | `Open → Bag.Add(Close<T>)` 已在多个 Flow 状态重复，但当前同类型全局单实例，简单 `OpenOwned` 会让多个 owner 互相误关。先定义独占或引用计数所有权并证明并发需求，再决定是否形成窗口 lease Module。 |
 
 ## 每批完成门禁

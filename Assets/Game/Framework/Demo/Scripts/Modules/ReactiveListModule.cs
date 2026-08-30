@@ -30,7 +30,7 @@ namespace Game.Framework.Demo.Modules
             "每行独享子 bag，行内订阅随行移除自动退订。";
 
         public override void InstallBindings(ContainerBuilder builder)
-            => builder.RegisterValue(new TodoBoardModel(), typeof(TodoBoardModel));
+            => builder.RegisterModel(new TodoBoardModel());
 
         public override void Build(DemoModuleHost host)
         {

@@ -437,8 +437,8 @@ public class MainContext : MonoGlobalContext
     protected override void InstallBindings(ContainerBuilder builder)
     {
         // 在这里注册纯 C# 服务——不需要挂在场景节点上的对象
-        builder.RegisterValue(new CommandSystem(), typeof(ICommandSystem));
-        builder.RegisterValue(new JsonUtility(),   typeof(IJsonUtility));
+        builder.RegisterValue(new CommandSystem(), typeof(ICommandSystem)); // 非分层基础设施，精确契约
+        builder.RegisterUtility(new JsonUtility());                         // 普通 Utility，自动推导契约
     }
 }
 ```
@@ -585,7 +585,7 @@ public class AudioSystem : ISystem, IHasGameContext, IAudioSystem
 }
 
 // 构建期注册（推荐）：值绑定实例在 Context 构造时自动完成 [Inject] 注入 + AttachTo（ADR-0019），无需手动补
-builder.RegisterValue(new AudioSystem(), typeof(IAudioSystem));
+builder.RegisterSystem(new AudioSystem());
 
 // 运行时动态注册：错过了构建期时机，才需要手动补两步
 var audio = new AudioSystem();
@@ -621,13 +621,13 @@ Bag.Subscribe(Observable.EveryUpdate(), _ => Tick());
 
 #### 纯 C# 路径（推荐）
 
-不需要 Inspector 与 MonoBehaviour 生命周期的 Utility 优先写成纯 C#；无状态实例用 `RegisterValue`，需要随 Context 释放的服务用 `RegisterOwned`。最小注册示例：
+不需要 Inspector 与 MonoBehaviour 生命周期的 Utility 优先写成纯 C#；已有外部 owner 的实例用 `RegisterUtility`，需要随 Context 释放的服务用 `RegisterOwnedUtility`。两者都会自动登记运行时具体类型与所有 Utility Interface，无需重复写 `typeof(...)`。最小注册示例：
 
 ```csharp
 public interface IEncryptUtility : IUtility { string Encrypt(string data); }
 public class EncryptUtility : IEncryptUtility { public string Encrypt(string data) => /* ... */; }
 
-builder.RegisterValue(new EncryptUtility(), typeof(IEncryptUtility));
+builder.RegisterUtility(new EncryptUtility());
 ```
 
 #### Mono 路径
@@ -650,13 +650,13 @@ public class EncryptUtility : MonoUtilityBase, IEncryptUtility
 
 ```csharp
 // 1) 纯 C# · 跟随 Context：随 GameContext.Dispose 一起清池（推荐——不靠 DontDestroyOnLoad 残留）
-builder.RegisterOwned(new PoolUtility(), typeof(IPoolUtility));
-// 2) 纯 C# · 不关心释放（全局唯一、随进程退出）：RegisterValue 即可（不被 Context 拥有，不会被 Dispose）
-builder.RegisterValue(new PoolUtility(), typeof(IPoolUtility));
+builder.RegisterOwnedUtility(new PoolUtility());
+// 2) 纯 C# · 已有外部 owner：RegisterUtility 不接管释放（调用方必须在自己的生命周期末 Dispose）
+builder.RegisterUtility(externallyOwnedPool);
 // 3) Mono · Inspector 配置：在 Context 子节点挂 MonoPoolUtility，可视化配各 prefab 容量/预热，随该 GameObject/场景销毁自动清池
 ```
 
-`MonoPoolUtility` 继承 `MonoUtilityBase`、内部复用同一套 `PoolUtility` 逻辑——它在 Inspector 暴露「prefab 池容量 / 预热数」配置，启动时按配置建池并分帧预热，宿主销毁时 Dispose 底层池（销毁停放节点与空闲实例）。需要按池配参数、或希望池跟随某个 Context 节点 / 场景生命周期时用它；全局共享、纯代码配置用上面的 `RegisterOwned`。
+`MonoPoolUtility` 继承 `MonoUtilityBase`、内部复用同一套 `PoolUtility` 逻辑——它在 Inspector 暴露「prefab 池容量 / 预热数」配置，启动时按配置建池并分帧预热，宿主销毁时 Dispose 底层池（销毁停放节点与空闲实例）。需要按池配参数、或希望池跟随某个 Context 节点 / 场景生命周期时用它；纯代码配置且生命周期跟随 Context 用上面的 `RegisterOwnedUtility`。
 
 最常用的是 `Bag.Rent<T>()`——租借一个对象，宿主销毁 / `bag.Dispose` 时**自动归还**，和 `Bag.Load` 一样无感知：
 
@@ -1246,8 +1246,8 @@ ctx.UnregisterModel(model);
 // 构建容器，注册服务——值绑定实例在 Context 构造时自动 Inject + AttachTo（ADR-0019）
 using var builder = new ContainerBuilder();
 builder.RegisterValue(new CommandSystem(), typeof(ICommandSystem));
-builder.RegisterValue(new InventoryModel(), typeof(InventoryModel));
-builder.RegisterValue(new InventorySystem(), typeof(IInventorySystem));
+builder.RegisterModel(new InventoryModel());
+builder.RegisterSystem(new InventorySystem());
 
 // 创建 Context，inheritFromGlobal: false 表示完全自给自足
 var ctx = new GameContext(builder.Build(), inheritFromGlobal: false);
@@ -2228,8 +2228,8 @@ public class PlayerSaveData
 }
 
 // 注册（三选一，同对象池）：
-builder.RegisterOwned(new StorageUtility(), typeof(IStorageUtility));  // 纯 C#，随 Context Dispose 释放（推荐）
-// 或 RegisterValue（全局唯一不管释放）；或场景挂 MonoStorageUtility（Inspector 配根目录名）
+builder.RegisterOwnedUtility(new StorageUtility());  // 纯 C#，自动推导契约并随 Context Dispose 释放（推荐）
+// 或 RegisterUtility（已有外部 owner）；或场景挂 MonoStorageUtility（Inspector 配根目录名）
 
 // 任意层（含 View）使用：
 var storage = this.GetUtility<IStorageUtility>();
@@ -2291,8 +2291,8 @@ var loaded = await storage.Load<PlayerSaveData>("save/slot1");  // null = 无可
 
 ```csharp
 // 注册（三选一，同对象池 / 存储）：
-builder.RegisterOwned(new AudioUtility(), typeof(IAudioUtility));  // 纯 C#，随 Context Dispose 全停（推荐）
-// 或 RegisterValue（全局唯一不管释放）；或场景挂 MonoAudioUtility（Inspector 配初始音量）
+builder.RegisterOwnedUtility(new AudioUtility());  // 纯 C#，自动推导契约并随 Context Dispose 全停（推荐）
+// 或 RegisterUtility（已有外部 owner）；或场景挂 MonoAudioUtility（Inspector 配初始音量）
 
 // 任意层（含 View）使用：
 var audio = this.GetUtility<IAudioUtility>();
@@ -2370,7 +2370,7 @@ public sealed class FmodAudioUtility : IAudioUtility, IAudioHandleOwner, IDispos
 }
 
 // 注册处一行换实现，业务层 GetUtility<IAudioUtility>() 全部照旧：
-builder.RegisterOwned(new FmodAudioUtility(), typeof(IAudioUtility));
+builder.RegisterOwnedUtility(new FmodAudioUtility());
 ```
 
 要点：中间件的「事件 / Bank / 总线」概念留在适配类内部消化（clip → 事件路径的映射是项目自己的约定）；分组音量映射到 FMOD 的 VCA / Wwise 的 Bus；`AudioHandle` 语义契约不变——陈旧句柄安全 no-op、`Dispose()` = 立即停。业务代码、demo、教程全部无感。
@@ -2527,9 +2527,8 @@ public sealed class TableTextSource : ILocalizedTextSource
 }
 
 // 注册（源经构造注入，同存储 provider 姿势）；初始语言 = 读存档或 SystemLanguage 映射
-builder.RegisterOwned(
-    new LocalizationUtility(new TableTextSource(tables), initialLocale: savedLocale, fallbackLocale: "zh-CN"),
-    typeof(ILocalizationUtility));
+builder.RegisterOwnedUtility(
+    new LocalizationUtility(new TableTextSource(tables), initialLocale: savedLocale, fallbackLocale: "zh-CN"));
 
 // UI 绑定（UI Toolkit）：文本绑 key，换语言自动重取，随 Bag 退订
 Bag.BindLocalizedText(titleLabel, "menu/start");
@@ -2541,7 +2540,7 @@ loc.SetLocale("en");
 
 locale code 是**开放字符串 + 业务常量**（与音频组、存储 key 同一「常量管理字符串契约」姿势）；语言列表、`SystemLanguage` → code 映射、语言选择持久化（设置数据走 §18 存储，启动回灌）都归业务。
 
-> 表 Adapter 的**活实物**在 demo「本地化 · 多语言」章（`LubanTextSource`，连 `TbL10N` 表定义 / `l10n.xlsx` 数据一起）。注意一个注册细节：**源要吃别的服务**（配置表 Utility）时用 `RegisterOwnedFactory(c => new LocalizationUtility(new LubanTextSource((IConfigUtility<Tables>)c.Resolve(...)), ...))`——容器在首次解析时解决依赖顺序，同时仍负责释放 `LocalizationUtility`；普通 `RegisterFactory` 只管构造和缓存、不拥有产物。不依赖其他服务的源（字典源）直接 `RegisterOwned`。
+> 表 Adapter 的**活实物**在 demo「本地化 · 多语言」章（`LubanTextSource`，连 `TbL10N` 表定义 / `l10n.xlsx` 数据一起）。注意一个注册细节：**源要吃别的服务**（配置表 Utility）时用 `RegisterOwnedFactory(c => new LocalizationUtility(new LubanTextSource((IConfigUtility<Tables>)c.Resolve(...)), ...), typeof(ILocalizationUtility))`——容器在首次解析时解决依赖顺序，同时仍负责释放 `LocalizationUtility`；Factory 是显式接线位，所以仍需列出契约。普通 `RegisterFactory` 只管构造和缓存、不拥有产物。不依赖其他服务的源（字典源）直接 `RegisterOwnedUtility`。
 
 ### 延迟文本源：不可用不等于缺失
 
@@ -2841,8 +2840,10 @@ Bag.Subscribe(source.ObserveChanged(), _ => { list.itemsSource = source.ToList()
 
 ```csharp
 // 注册（HTTP 全局；WS 可注册进 FlowState 子 Context 随战斗阶段整棵撤）：
-builder.RegisterOwned(new HttpUtility("https://api.example.com"), typeof(IHttpUtility));
-builder.RegisterOwned(new WebSocketUtility(), typeof(IWebSocketUtility));
+builder.RegisterOwnedUtility(new HttpUtility("https://api.example.com"));
+var webSocket = new WebSocketUtility();
+builder.RegisterOwnedUtility(webSocket);
+webSocket.RegisterPush<ChatPushEvent>("chat");  // type 映射属于一次性装配，和注册放在组合根
 
 // ── HTTP 请求-响应：await 拿返回值 ──
 var http = this.GetUtility<IHttpUtility>();
@@ -2852,7 +2853,6 @@ var board = await http.Get<Leaderboard>($"api/rank?count={n}"); // query 写在 
 
 // ── WebSocket 推送转事件 ──
 var ws = this.GetUtility<IWebSocketUtility>();
-ws.RegisterPush<ChatPushEvent>("chat");          // 把推送 type 映射为强类型事件（连接前后均可注册）
 await ws.Connect("wss://push.example.com/game");
 Bag.Subscribe(ws.State, s => statusLabel.text = s.ToString());  // 连接状态响应式
 Bag.Subscribe<ChatPushEvent>(e => AppendChat(e.From, e.Text));  // 消费推送，和订 Model 事件无差别
@@ -2969,7 +2969,7 @@ var proto = new ProtobufNetworkSerializer()
             return m;
         });
 // 注册时换一行（HTTP 体自动带 application/x-protobuf）：
-builder.RegisterOwned(new HttpUtility(baseUrl, serializer: proto), typeof(IHttpUtility));
+builder.RegisterOwnedUtility(new HttpUtility(baseUrl, serializer: proto));
 ```
 
 **WS 的二进制格式还差一步**：默认 envelope 是「JSON `{type, payload}` + payload 文本二次编码 + 文本帧」，对二进制字节是破坏性的。`ProtobufNetworkSerializer` 已实现可选接缝 **`IWebSocketEnvelopeSerializer`**——整体接管 envelope 编解码（proto 消息 `{string type=1; bytes payload=2}`）与帧类型（二进制帧），payload 全程 `byte[]`。自写二进制序列化器（MemoryPack 等）照此接口补三个成员即可；JSON 序列化器不实现它，走原兼容路径、wire 字节不变。
@@ -2984,8 +2984,8 @@ builder.RegisterOwned(new HttpUtility(baseUrl, serializer: proto), typeof(IHttpU
 // 生成代码里每个 .proto 文件有一个 XxxReflection.Descriptor，整文件注册免逐消息点名：
 var proto = new GoogleProtobufNetworkSerializer()
     .RegisterFile(OutpostNetReflection.Descriptor); // 加消息 / import 新文件重新生成即自动纳入
-builder.RegisterOwned(new HttpUtility(baseUrl, serializer: proto), typeof(IHttpUtility));
-builder.RegisterOwned(new WebSocketUtility(serializer: proto), typeof(IWebSocketUtility));
+builder.RegisterOwnedUtility(new HttpUtility(baseUrl, serializer: proto));
+builder.RegisterOwnedUtility(new WebSocketUtility(serializer: proto));
 // 推送事件：protoc 生成的 IMessage 是 class，用 partial 补 IEvent 即可 RegisterPush（class 消息合法，见 §25 推送约定）。
 ```
 

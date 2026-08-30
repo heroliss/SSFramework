@@ -22,7 +22,7 @@ namespace Game.Framework.Demo.Modules
 
         // 模块自带的框架层：把 CounterModel 注册进 demo Context。
         public override void InstallBindings(ContainerBuilder builder)
-            => builder.RegisterValue(new CounterModel(), typeof(CounterModel));
+            => builder.RegisterModel(new CounterModel());
 
         public override void Build(DemoModuleHost host)
         {

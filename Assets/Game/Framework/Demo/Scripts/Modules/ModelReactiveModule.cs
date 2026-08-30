@@ -24,7 +24,7 @@ namespace Game.Framework.Demo.Modules
             "Model 用 RP<T> 持有响应式状态。两条注册路径：纯 C#（代码 new + 注册，原理透明）vs Mono（挂成 Hierarchy 节点，自动注册 + Inspector 实时可见、可设初值）。";
 
         public override void InstallBindings(ContainerBuilder builder)
-            => builder.RegisterValue(new CodeScoreModel(), typeof(CodeScoreModel));
+            => builder.RegisterModel(new CodeScoreModel());
         // 注：MonoScoreModel 不在这里注册——它作为场景节点走 Mono 路径，在自己的 Awake 自动注册进同一个 Context。
 
         public override void Build(DemoModuleHost host)

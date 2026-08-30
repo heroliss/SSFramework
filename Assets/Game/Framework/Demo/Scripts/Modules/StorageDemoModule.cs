@@ -16,7 +16,7 @@ namespace Game.Framework.Demo.Modules
     /// <summary>
     /// 能力·本地存储：类型化整存整取的存档 / 设置——Save / Load / Exists / Delete / ListKeys 五个 API，
     /// 防损坏（原子写 + 上一版备份自动回退）由框架兜住，版本迁移姿势 = 数据里的 Version 字段 + Load 后 switch。
-    /// 本章的 <see cref="IStorageUtility"/> 经 <see cref="InstallBindings"/> 用 RegisterOwned 注册（纯 C# 服务的标准路径）。
+    /// 本章的 <see cref="IStorageUtility"/> 经 <see cref="InstallBindings"/> 用 RegisterOwnedUtility 注册（纯 C# 服务的标准路径）。
     /// </summary>
     public sealed class StorageDemoModule : DemoModuleBase
     {
@@ -65,13 +65,14 @@ namespace Game.Framework.Demo.Modules
         private readonly DemoOperationGate _profileOperationGate = new();
 
         /// <summary>
-        /// 纯 C# 服务的标准注册路径：RegisterOwned = 随 Context Dispose 自动释放（这里即退出 Play / 关闭 demo）。
+        /// 纯 C# 服务的标准注册路径：RegisterOwnedUtility 自动推导具体类型与 Utility Interface，
+        /// 并随 Context Dispose 自动释放（这里即退出 Play / 关闭 demo）。
         /// 挂场景节点、要 Inspector 配目录的项目用 MonoStorageUtility（同一套逻辑的 Mono 壳）。
         /// 本阶段只声明注册关系；Build 需要的运行时对象仍从 Context 解析，让所有权与 View 权限保持清晰。
         /// </summary>
         public override void InstallBindings(ContainerBuilder builder)
         {
-            builder.RegisterOwned(new StorageUtility(new FileStorageProvider(DemoRootPath)), typeof(IStorageUtility));
+            builder.RegisterOwnedUtility(new StorageUtility(new FileStorageProvider(DemoRootPath)));
         }
 
         public override void Build(DemoModuleHost host)
@@ -86,8 +87,8 @@ namespace Game.Framework.Demo.Modules
 
             // ── 注册方式 ──
             host.AddSectionTitle("注册：纯 C# 服务的三选一");
-            host.AddNote("本章的 `IStorageUtility` 在 `InstallBindings` 里 `RegisterOwned` 注册（随 Context Dispose 自动释放 provider，纯 C# 服务推荐路径；也正是「服务注册生成」章会替你生成的那类代码）。另两条路：全局唯一不管释放用 `RegisterValue`；要 Inspector 配根目录 / 跟随场景节点用 `MonoStorageUtility`（同一套逻辑的 Mono 壳，挂 Context 子节点即注册）。",
-                CodeRef.Here("builder.RegisterOwned(new StorageUtility(new FileStorageProvider", "本章的注册代码"));
+            host.AddNote("本章的 `IStorageUtility` 在 `InstallBindings` 里 `RegisterOwnedUtility` 注册：自动登记具体类型与 Utility Interface，并随 Context Dispose 自动释放 provider。另两条路：生命周期由外部持有时用 `RegisterUtility`；要 Inspector 配根目录 / 跟随场景节点用 `MonoStorageUtility`（同一套逻辑的 Mono 壳，挂 Context 子节点即注册）。",
+                CodeRef.Here("builder.RegisterOwnedUtility(new StorageUtility(new FileStorageProvider", "本章的注册代码"));
 
             // ── 基础操作 ──
             host.AddSectionTitle("基础操作：Save / Load / Exists / Delete（原子按钮）");

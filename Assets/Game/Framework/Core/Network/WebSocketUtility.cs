@@ -17,7 +17,7 @@ namespace Game.Framework.Network
     /// <see cref="INetworkSerializer"/>（构造注入，默认 ClientWebSocket + JSON）。
     /// </summary>
     /// <remarks>
-    /// <b>Context 回填</b>：实现 <see cref="IHasGameContext"/>，<c>RegisterOwned</c> 注册即注入时 <c>AttachTo</c>
+    /// <b>Context 回填</b>：实现 <see cref="IHasGameContext"/>，<c>RegisterOwnedUtility</c> 注册即注入时 <c>AttachTo</c>
     /// 反射回写 <see cref="_context"/>（照 GameFlow 姿势）——<see cref="Send{T}"/> 转事件需要它。<br/>
     /// <b>Connection Session</b>：每次成功 Connect 建立一个内部代际 owner，独占接收 token、发送 token 与 FIFO 队尾；
     /// 只有仍是 current 的 session 能发布终态。旧接收 continuation 迟到只结束自己，旧排队帧以 ConnectionError 收口，
@@ -138,7 +138,7 @@ namespace Game.Framework.Network
         private readonly RP<NetworkConnectionState> _state = new(NetworkConnectionState.Disconnected);
         private readonly CancellationTokenSource _lifetimeCts = new();
 
-        private GameContext _context; // RegisterOwned 注册即注入时由 AttachTo 回填
+        private GameContext _context; // RegisterOwnedUtility 注册即注入时由 AttachTo 回填
         private ConnectAttempt _connectAttempt;
         private ConnectionSession _activeSession;
         private UniTask _disconnectBarrier = UniTask.CompletedTask; // 只等待旧 Close/Send owner 清场；永远成功，不泄露其调用者取消
@@ -205,7 +205,7 @@ namespace Game.Framework.Network
             ThrowIfDisposed();
             if (_context == null)
                 throw new InvalidOperationException(
-                    "[WebSocketUtility] 尚未挂到宿主 Context——用 builder.RegisterOwned(new WebSocketUtility(), typeof(IWebSocketUtility)) 注册（注册即注入自动回填），不要脱离容器直接使用。");
+                    "[WebSocketUtility] 尚未挂到宿主 Context——用 builder.RegisterOwnedUtility(new WebSocketUtility()) 注册（注册即注入自动回填），不要脱离容器直接使用。");
             if (string.IsNullOrEmpty(url)) throw new ArgumentException("url 不能为空。", nameof(url));
             if (_state.Value != NetworkConnectionState.Disconnected)
                 throw new InvalidOperationException($"[WebSocketUtility] 当前状态 {_state.Value}，不能重复 Connect——先 Disconnect。");
