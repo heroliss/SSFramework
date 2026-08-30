@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Threading;
 using UnityEngine;
 using Debug = UnityEngine.Debug;
 
@@ -38,12 +39,32 @@ namespace Game.Framework.Logging
         /// 「开 Verbose」= 把它设成 <see cref="LogLevel.Trace"/>（Editor 的“运行时诊断”窗口下拉；本会话有效）。
         /// <see cref="LogLevel.Trace"/> 另有「仅 Editor/Development」的编译期门控。
         /// </remarks>
-        public static LogLevel MinLevel = LogLevel.Info;
+        private static int _minLevel = (int)LogLevel.Info;
 
-        // sink 列表用 copy-on-write：广播（热路径）读快照无锁，仅增删时在锁内重建数组。
-        // volatile 保证其它线程看到新数组引用；元素不就地修改，故引用级 volatile 足够。
-        private static volatile ILogSink[] _sinks = { new UnityDebugLogSink() };
+        public static LogLevel MinLevel
+        {
+            get => (LogLevel)Volatile.Read(ref _minLevel);
+            set => Volatile.Write(ref _minLevel, (int)value);
+        }
+
+        // sink 列表用 copy-on-write：广播（热路径）读快照无锁，仅增删时在锁内重建。
+        // 数组只留在内部热路径；对外只暴露同一代的 ReadOnlyCollection，避免调用方强转后破坏快照。
+        // volatile 保证其它线程看到完整的新一代；一个 holder 同时承载投递数组和自省视图，两者不会跨代。
+        private static volatile SinkSnapshot _sinkSnapshot =
+            new(new ILogSink[] { new UnityDebugLogSink() });
         private static readonly object _gate = new();
+
+        private sealed class SinkSnapshot
+        {
+            internal readonly ILogSink[] Items;
+            internal readonly IReadOnlyList<ILogSink> View;
+
+            internal SinkSnapshot(ILogSink[] items)
+            {
+                Items = items;
+                View = Array.AsReadOnly(items);
+            }
+        }
 
         // ── sink 管理 ──────────────────────────────────────────────────────
 
@@ -53,11 +74,11 @@ namespace Game.Framework.Logging
             if (sink == null) return;
             lock (_gate)
             {
-                var old = _sinks;
+                var old = _sinkSnapshot.Items;
                 var arr = new ILogSink[old.Length + 1];
                 Array.Copy(old, arr, old.Length);
                 arr[old.Length] = sink;
-                _sinks = arr;
+                _sinkSnapshot = new SinkSnapshot(arr);
             }
         }
 
@@ -67,13 +88,13 @@ namespace Game.Framework.Logging
             if (sink == null) return false;
             lock (_gate)
             {
-                var old = _sinks;
+                var old = _sinkSnapshot.Items;
                 int idx = Array.IndexOf(old, sink);
                 if (idx < 0) return false;
                 var arr = new ILogSink[old.Length - 1];
                 Array.Copy(old, 0, arr, 0, idx);
                 Array.Copy(old, idx + 1, arr, idx, old.Length - idx - 1);
-                _sinks = arr;
+                _sinkSnapshot = new SinkSnapshot(arr);
                 return true;
             }
         }
@@ -81,7 +102,7 @@ namespace Game.Framework.Logging
         /// <summary>清空所有 sink（含默认 Console）。测试常用——静音后装一个可捕获 sink。</summary>
         public static void ClearSinks()
         {
-            lock (_gate) _sinks = Array.Empty<ILogSink>();
+            lock (_gate) _sinkSnapshot = new SinkSnapshot(Array.Empty<ILogSink>());
         }
 
         /// <summary>
@@ -89,8 +110,11 @@ namespace Game.Framework.Logging
         /// 出问题时（「我的日志怎么没落盘？」）没有别的地方能查是不是压根没装 / <see cref="ILogSink.MinLevel"/> 卡掉了。
         /// 「框架诊断面板」的日志一栏读的就是它。
         /// </summary>
-        /// <remarks>返回的是 copy-on-write 的当前快照数组，元素永不就地修改；请勿强转回数组去改。</remarks>
-        public static IReadOnlyList<ILogSink> Sinks => _sinks;
+        /// <remarks>
+        /// 返回 copy-on-write 的稳定只读视图：后续增删 sink 不改变已取到的这份快照，
+        /// 且它不能强转成内部数组进行篡改。
+        /// </remarks>
+        public static IReadOnlyList<ILogSink> Sinks => _sinkSnapshot.View;
 
         /// <summary>是否已接管 Unity 日志流（见 <see cref="CaptureUnityLogs"/>）。同样是自省用。</summary>
         public static bool IsCapturingUnityLogs => UnityLogBridge.Enabled;
@@ -110,7 +134,7 @@ namespace Game.Framework.Logging
 #endif
             if (level < MinLevel) return false;          // 总闸门
 
-            var sinks = _sinks;
+            var sinks = _sinkSnapshot.Items;
             for (int i = 0; i < sinks.Length; i++)
             {
                 var sink = sinks[i];
@@ -232,7 +256,7 @@ namespace Game.Framework.Logging
             // Unity 桥接进来的条目——低于它的日志连 LogEntry 都不构造、不抓栈。
             if (level < MinLevel) return;
 
-            var sinks = _sinks;   // 快照
+            var sinks = _sinkSnapshot.Items;   // 快照
             if (sinks.Length == 0) return;
 
             // error 且既没异常（异常自带栈）也没现成的栈（桥接条目由 Unity 传栈）→ 现抓一份。

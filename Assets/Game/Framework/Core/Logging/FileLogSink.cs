@@ -12,7 +12,8 @@ namespace Game.Framework.Logging
     /// 用法：<c>Log.AddSink(new FileLogSink(Path.Combine(Application.persistentDataPath, "logs", "framework.log")))</c>；
     /// 不再需要时 <see cref="Dispose"/>（或 <c>Log.RemoveSink</c> 后 Dispose）关闭句柄。<br/>
     /// 配合 <c>Log.CaptureUnityLogs()</c> 一起开，引擎报错 / 第三方日志 / 未捕获异常也会落进本文件（最该捞到的正是它们）。<br/>
-    /// <b>线程安全</b>：<see cref="Log"/> 全程持锁，可从任意线程调用（如网络后台线程）。<br/>
+    /// <b>线程安全</b>：<see cref="Log"/> 无锁广播 copy-on-write 快照，本 sink 自己用锁串行写入 / 滚动，
+    /// 可从任意线程调用（如网络后台线程）。<br/>
     /// <b>可靠性</b>：<c>AutoFlush</c> 开，崩溃前的日志不滞留缓冲；写入 / 滚动异常被吞掉并只告警一次，绝不打断业务。
     /// 定位是「够用的落盘」——不做异步批处理 / 按时间滚动 / 结构化，要那些上 ZLogger 模块（ADR-0034）。
     /// </remarks>

@@ -147,6 +147,29 @@ namespace Game.Framework.Test
         }
 
         [Test]
+        public void Sinks_ReturnsStableReadOnlySnapshot_NotMutableBackingArray()
+        {
+            var first = new CapturingSink();
+            var second = new CapturingSink();
+            Log.AddSink(first);
+
+            var snapshot = Log.Sinks;
+            Assert.IsFalse(snapshot is ILogSink[],
+                "自省 API 不得泄漏内部 copy-on-write 数组，否则强转后可绕过锁篡改投递路由");
+            Assert.AreEqual(1, snapshot.Count);
+            Assert.AreSame(first, snapshot[0]);
+
+            Log.AddSink(second);
+            Assert.AreEqual(1, snapshot.Count,
+                "已取得的自省视图应保持同一代快照，不随后续注册原地变化");
+            Assert.AreEqual(2, Log.Sinks.Count);
+
+            if (snapshot is IList<ILogSink> list)
+                Assert.Throws<NotSupportedException>(() => list[0] = second,
+                    "即使调用方强转到 IList，只读快照也应拒绝写入");
+        }
+
+        [Test]
         public void IsEnabled_FalseWhenEverySinkFiltersLevelOut()
         {
             Log.AddSink(new CapturingSink { MinLevel = LogLevel.Error });
@@ -452,6 +475,26 @@ namespace Game.Framework.Test
             Assert.AreEqual(1, sink.Entries.Count,
                 "门面日志经 UnityDebugLogSink 回到 Console 后，不应被桥接当成新日志重复计入（重入 guard 生效）");
             Assert.IsFalse(sink.Entries[0].FromUnity);
+        }
+
+        [Test]
+        public void UnityLogBridge_NestedEmitScope_DoesNotReleaseOuterEchoGuardEarly()
+        {
+            Assert.IsFalse(UnityLogBridge.Emitting);
+            UnityLogBridge.BeginEmit();
+            try
+            {
+                Assert.IsTrue(UnityLogBridge.Emitting);
+                UnityLogBridge.BeginEmit();
+                UnityLogBridge.EndEmit();
+                Assert.IsTrue(UnityLogBridge.Emitting,
+                    "内层门面退出不得提前释放外层回声保护，否则 Error 的后续 LogException 会重复回灌");
+            }
+            finally
+            {
+                UnityLogBridge.EndEmit();
+            }
+            Assert.IsFalse(UnityLogBridge.Emitting, "最外层输出结束后 guard 应准确归零");
         }
 
         [Test]
