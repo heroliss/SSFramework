@@ -23,6 +23,7 @@
 5. 保留 `AssetSystemConfigModel` 与 `AssetInitSystem` 作为 `[Obsolete]`、隐藏 Add Component 的旧场景兼容层：前者维持旧字段名并能深拷贝成新设置，后者只把旧设置交给 Utility 的同一批量初始化实现。兼容层不再是新设计扩展点。
 6. 提供基于真实 GameObject 选择的 Editor 迁移操作：深拷贝配置到同节点 `AssetUtility`，再经 Undo 删除两个旧组件并标记场景为脏；缺少同节点 Utility 时 fail-fast，不跨 Context 猜目标。
 7. 仓库内 DemoScene 与 OutpostGame 通过 Unity Editor 迁移为单组件入口。Demo、主指南、资源流程与加密文档统一使用 `AssetUtility.Settings` 术语。
+8. 单入口也是唯一销毁事务 owner：宿主销毁先取消初始化 / 维护任务，再释放 Provider 并完结所有已发布状态流，最后从 Context 反注册。可替换 Provider 的 `Dispose` 异常只记录，不得截断后续阶段；销毁后的旧 Utility 引用查询状态必须 fail-fast，不能重新创建一份脱离 Context 的状态。
 
 ## 影响与取舍
 

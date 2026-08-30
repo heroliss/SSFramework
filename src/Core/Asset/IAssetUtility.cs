@@ -74,6 +74,10 @@ namespace Game.Framework
     /// - 全部异步公共方法返回 <c>UniTask</c>，按“无同步对应版本”约定统一省略 <c>Async</c> 后缀（加载 / 清缓存 / 卸载 / 初始化等）。
     /// </summary>
     /// <remarks>
+    /// <b>Utility 生命周期：</b>宿主组件销毁会取消仍在运行的初始化 / 维护 owner，并正常完结已经取得的
+    /// <see cref="InitState"/> / <see cref="GetInitState(string)"/> 状态流；之后通过旧 Utility 引用重新查询状态会抛
+    /// <see cref="ObjectDisposedException"/>，不会悄悄创建一个脱离 Context 的新状态流。Provider 释放异常会进入日志，
+    /// 但不会截断状态流完结与 Context 反注册。<br/>
     /// <b>包生命周期：</b>已初始化的 package 在 utility 整个生命周期内**视为全局单例**，框架不提供 <c>UnloadPackage</c> API。
     /// 原因：单个 package 内有大量散落的 <see cref="IAssetHandle{T}"/>（散布在各 Bag、AssetReference 中），框架无法可靠确认它们都已释放；
     /// 强制卸载会让仍持有 handle 的业务收到不可预期的 null Asset / 异常。
@@ -100,10 +104,14 @@ namespace Game.Framework
         /// <summary>
         /// 默认资源包初始化状态流。
         /// View 通过 <c>Bag.Subscribe(InitState, ...)</c> 订阅启动进度，订阅时立即拿到当前状态（R3 内置）。
+        /// Utility 销毁时流正常完结；销毁后重新读取抛 <see cref="ObjectDisposedException"/>。
         /// </summary>
         ReadOnlyReactiveProperty<AssetInitState> InitState { get; }
 
-        /// <summary>查询指定包的初始化状态；packageName 为空时返回默认包状态。</summary>
+        /// <summary>
+        /// 查询指定包的初始化状态；packageName 为空时返回默认包状态。Utility 销毁时已取得的流正常完结；
+        /// 销毁后重新查询抛 <see cref="ObjectDisposedException"/>。
+        /// </summary>
         ReadOnlyReactiveProperty<AssetInitState> GetInitState(string packageName);
 
         /// <summary>
