@@ -77,12 +77,19 @@ IStorageUtility（业务入口，GetUtility 解析）
 
 - 公共 API **主线程调用**（框架统一契约）；内部所有操作进**全局 FIFO 队列**逐个执行——同 key 并发写、读写交错、`Save` 未落盘就 `Delete` 等竞态全部消失。存档操作天然低频，串行无感知；per-key 并行是没有收益的复杂度。
 - 队列实现：尾任务链（前驱在 finally 里必然完成，异常只传给各自调用方、不毒化队列）。
+- `Dispose` 分成两个时刻：同步发布“逻辑已释放”并拒绝新请求；此前已入队操作仍按 FIFO 排空，provider 作为 terminal 最后释放。
+  它不会为了等待未完成的队列而同步阻塞，也不会让 SQLite / 云存储等有连接的 provider 与在途操作并发释放；但队列已空时同步
+  `provider.Dispose` 可以内联执行，因此 Adapter 的释放实现仍应短小。物理释放失败只能记 Error，
+  因为延后发生的异常无法再可靠地同步交还 `Dispose` 调用方；重复 `Dispose` 仍只安排一次 terminal。
 - **序列化在主线程**（`JsonUtility` 最稳妥；典型存档体积的序列化耗时可忽略），**文件 IO 切线程池**（大存档写盘不卡帧），完成后回主线程返回。
 - `Exists` 是同步快照（不排队）：`await` 完 `Save` 再查询是一致的；对 fire-and-forget 的写它可能暂时返回 false——文档明示「别 fire-and-forget Save」。
 
 ### 7. 存储位置与注册
 
 - 根目录 = `Application.persistentDataPath/<folder>/`（默认 `storage`），Editor 与真机同语义；调试经 demo 章「打开存档目录」。
+  `MonoStorageUtility` 的 Inspector 字段是**单个可移植目录名**，长度 1–255，仅允许 `[A-Za-z0-9_-]`，并拒绝 Windows 保留设备名；它不是相对路径或绝对路径。
+  解析后还会证明结果是 `persistentDataPath` 的直接子目录，避免 `..` / rooted path 越界和意外递归扫描。配置非法会在注册前 fail-fast，
+  不 Trim、不兜底、不自动搬数据；确需显式绝对路径的工具或测试应代码构造 `FileStorageProvider`。
 - 注册与池同款三选一：`builder.RegisterOwnedUtility(new StorageUtility())`（推荐，自动推导具体类型与 Utility Interface，并随 Context Dispose 释放 provider）/ `RegisterUtility`（生命周期由外部 owner 管理）/ `MonoStorageUtility` 挂 Context 节点（Inspector 配目录名，组合纯 C# 实现）。
 
 ### 8. 刻意不做（记录在案，等真实需求）

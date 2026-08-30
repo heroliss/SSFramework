@@ -21,7 +21,9 @@ namespace Game.Framework.Storage
     /// 队列哨兵在 finally 里必然完成，单个操作的异常只传给它自己的调用方、不毒化队列。
     /// 序列化在主线程（JsonUtility 最稳、典型存档体积耗时可忽略），文件 IO 由 provider 切线程池。<br/>
     /// <b>Dispose 后不可再用</b>（抛 <see cref="ObjectDisposedException"/>——写丢失必须 fail-fast，不学池的宽容警告）；
-    /// Dispose 不等待队列中未完成的操作（默认文件 provider 的原子写保证介质上始终有完整数据可回退）。
+    /// Dispose 会立即发布逻辑终态、拒绝新请求，但不会同步等待尚未完成的 FIFO：此前已入队的操作仍会排空，
+    /// provider 作为队列的最后一步释放。因此物理释放可能延后，但绝不会与已入队操作并发，也不会让排队操作访问已释放 provider。
+    /// 队列已空时 provider.Dispose 可能在当前调用栈内完成，所以 Adapter 的同步释放实现仍应保持短小。
     /// </remarks>
     public sealed class StorageUtility : IStorageUtility, IDisposable
     {
@@ -47,6 +49,8 @@ namespace Game.Framework.Storage
             if (data == null) throw new ArgumentNullException(nameof(data), $"Save('{key}') 的数据不能为 null——删除数据用 Delete。");
 
             byte[] bytes = _serializer.Serialize(data); // 主线程序列化（ADR-0021 §6），失败在入队前就抛给调用方
+            // serializer 是可替换的同步扩展点；若其回调重入 Context.Dispose，不能在 terminal 之后再把 Write 塞进队列。
+            ThrowIfDisposed();
             await Enqueue(() => _provider.WriteAsync(key, bytes, ct));
         }
 
@@ -96,12 +100,17 @@ namespace Game.Framework.Storage
             return await Enqueue(() => _provider.ListKeysAsync(prefix, ct));
         }
 
-        /// <summary>释放 provider 并拒绝后续调用。不等待队列中未完成的操作（见类型 remarks）。</summary>
+        /// <summary>
+        /// 立即拒绝后续调用，并在已接纳的 FIFO 操作全部完成后释放 provider。
+        /// 本方法不为等待尚未完成的 FIFO 而同步阻塞；队列已空时同步 provider.Dispose 可内联执行。
+        /// 物理释放失败会记录 Error，因为它可能延后发生，无法可靠地同步交还调用方。
+        /// </summary>
         public void Dispose()
         {
             if (_disposed) return;
             _disposed = true;
-            _provider.Dispose();
+            EnqueueProviderDisposal().Forget(e =>
+                Log.Error("存储 FIFO terminal 意外停止。", e, nameof(StorageUtility)));
         }
 
         private void ThrowIfDisposed()
@@ -133,6 +142,25 @@ namespace Game.Framework.Storage
             await prev;
             try { return await op(); }
             finally { gate.TrySetResult(); }
+        }
+
+        // Dispose 是 FIFO 的 terminal：逻辑终态已由 _disposed 同步发布，物理资源则等全部已接纳操作完成后再释放。
+        // provider.Dispose 的异常必须在这里观察；延后的 fire-and-forget 异常既不能丢，也不能反向打断 Context Dispose。
+        private UniTask EnqueueProviderDisposal()
+        {
+            return Enqueue(() =>
+            {
+                try
+                {
+                    _provider.Dispose();
+                }
+                catch (Exception e)
+                {
+                    Log.Error("存储 Provider 在 FIFO 队列排空后释放失败。", e, nameof(StorageUtility));
+                }
+
+                return UniTask.CompletedTask;
+            });
         }
 
         // 反序列化一份字节：bytes 为 null（不存在 / 读失败）或解析失败 / 解析出 null 都返回 null。
