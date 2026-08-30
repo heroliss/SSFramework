@@ -57,6 +57,8 @@ menuPath: SSFramework/诊断/AI 自动化/PlayMode 测试预检（保存脏场�
 
 项目侧 `FrameworkAutomationPreflight` 会保存所有“已加载 + 脏 + 已有资产路径”的场景，并打印稳定标记 `[SSFramework.Automation] READY`；若 Editor 正忙、仍在 PlayMode、存在未命名脏场景或保存失败，则打印 `BLOCKED` 并 fail-fast，**不会打开新弹窗，也不会丢弃改动**。只有看到菜单调用成功且 Editor 编译空闲后，才调用 `unity_testing_run_tests`。
 
+`READY / BLOCKED` 直写 Unity Console，不依赖当前项目的 `Log.Sinks`；即使测试或业务暂时清空了框架日志接收器，机器协议仍可观察。菜单工具返回 success 只说明命令被调用，仍须读取该标记判断预检结果。
+
 这不是全局自动保存 Hook：人工点击 Play / Test Runner 仍保留 Unity 原有确认语义，只有自动化显式选择预检才会落盘。若弹窗已经出现，先人工点 Save，再从预检重新开始；不要重复提交已经排队的测试命令。
 
 ### AI 自动化菜单为什么点击即执行
