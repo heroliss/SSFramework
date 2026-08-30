@@ -59,6 +59,7 @@ protected override void InstallBindings(ContainerBuilder builder)
 
 - **契约 = 具体类型 + 所有派生自对应层标记的接口（不含标记本身）**——与 `ContainerLayerExtensions.RegisterFor` 完全同口径，消除两条路径的注册面漂移。
 - **`IDisposable` → `RegisterOwned`，否则 `RegisterValue`**；一律直接 `new`（服务启动即就绪，与 Mono 路径 Awake 注册的时序心智一致）。要懒构造 / 带参构造的服务 → opt-out 后手写工厂（工厂经 `c.Resolve` 显式接线）；产物应随 Context 释放时用 `RegisterOwnedFactory`，否则才用普通 `RegisterFactory`（所有权语义见 ADR-0035）。
+- 普通手写 `InstallBindings` 使用 `RegisterModel/System/Utility` 或对应 `RegisterOwnedXxx` 层感知入口，同样自动推导上述契约；生成器仍刻意输出低层 `RegisterValue/RegisterOwned(value, typeof(...))`，让最终契约清单直接出现在 `.g.cs` diff 中。非分层基础设施、选择性暴露 contract 与 Factory 继续使用低层入口。
 
 ### 4. 生成期查重复契约：同安装器内接口契约冲突 = 生成失败
 
@@ -81,6 +82,7 @@ protected override void InstallBindings(ContainerBuilder builder)
 ## Consequences
 
 - **注册样板消失**：固定目录放服务类 → 生成 → Context 一行接线；新增服务重跑生成即入列，漏注册在生成 diff 里可见。
+- **少量手写接线不再重复 contract**：层感知入口在编译期约束 Model / System / Utility（owned 入口同时约束 `IDisposable`），并自动登记具体类型与层 Interface；`builder.RegisterOwnedSystem(new GameFlow())` 不再要求调用者手写 `typeof(IGameFlow)`。Interface 与 Implementation 仍是容器里的真实 Seam，只是机械映射获得 Locality。
 - **文件名=类名成为扫描前提**：一文件多类的次要类型扫不到（与 ①③ 同一约定，项目内一致）；违反约定的类型静默漏扫是已知代价，靠 code review 与约定兜底。
 - **无参构造 / 单层标记 / 非 Unity 类型**是硬入选条件，不满足的服务回落手写——生成器不试图覆盖 100%，覆盖「常规服务」这 90% 即可（no-over-engineering）。
 - **自动注入是全局语义变更**：此前「注册了但从未注入」的值实例开始走注入路径——若其 `[Inject]` 字段违反层权限（如 Model 注 System），以前静默 null、现在启动期报错。这是 fail-fast 修正而非回归；`AttachTo` 只作用于显式实现 `IHasGameContext` 的类型，无关类型零影响。

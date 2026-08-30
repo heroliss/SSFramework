@@ -35,7 +35,7 @@ namespace Game.Framework.Test
             _hostMarker = new HostMarker();
             var builder = new ContainerBuilder();
             _flow = new GameFlow();
-            builder.RegisterOwned(_flow, typeof(IGameFlow));
+            builder.RegisterOwnedSystem(_flow);
             builder.RegisterValue(_hostMarker, typeof(HostMarker));
             _host = new GameContext(builder.Build(), inheritFromGlobal: false);
         }
@@ -675,7 +675,7 @@ namespace Game.Framework.Test
                 install: b =>
                 {
                     subFlow = new GameFlow(); // 战斗内子阶段机的姿势：状态作用域里再注册一个 flow
-                    b.RegisterOwned(subFlow, typeof(IGameFlow));
+                    b.RegisterOwnedSystem(subFlow);
                 },
                 enter: _ =>
                 {

@@ -28,13 +28,14 @@ namespace Game.Framework.Demo.Modules
             "退出整棵撤（切阶段漏清理被结构性消灭）；转换串行 + 最新意图胜。ADR-0023。";
 
         /// <summary>
-        /// 流程状态机的标准注册路径：RegisterOwned = 注册即注入回填宿主 Context（ADR-0019），
+        /// 流程状态机的标准注册路径：RegisterOwnedSystem 自动推导具体类型与 System Interface，
+        /// 同时通过注册即注入回填宿主 Context（ADR-0019），
         /// 宿主 Context Dispose 时 flow 连同当前状态子 Context 一并撤。
         /// 本阶段只声明注册关系；Build 需要的运行时对象仍从 Context 解析，让所有权与 View 权限保持清晰。
         /// </summary>
         public override void InstallBindings(ContainerBuilder builder)
         {
-            builder.RegisterOwned(new GameFlow(), typeof(IGameFlow));
+            builder.RegisterOwnedSystem(new GameFlow());
         }
 
         public override void Build(DemoModuleHost host)
@@ -49,9 +50,9 @@ namespace Game.Framework.Demo.Modules
             host.AddSubNote("状态是**一次性实例**：`GoTo(new BattleDemoState(level, …))`——传参走构造函数，每次进入全新对象（无残留脏状态）；重进同类状态就 new 一个新实例，复用已消费的实例抛参数异常。");
 
             // ── 注册方式 ──
-            host.AddSectionTitle("注册：RegisterOwned，随宿主 Context 存亡");
-            host.AddNote("本章的 `IGameFlow` System 在 `InstallBindings` 里 `RegisterOwned` 注册——「注册即注入」自动回填宿主 Context，宿主 Dispose 时 flow 连同当前状态子 Context 一并撤。流程比场景活得长，刻意没有 Mono 版。",
-                CodeRef.Here("builder.RegisterOwned(new GameFlow()", "本章的注册代码"));
+            host.AddSectionTitle("注册：层感知 + Context 所有权");
+            host.AddNote("本章用 `RegisterOwnedSystem(new GameFlow())` 注册：层感知入口自动登记具体类型与 `IGameFlow`，「注册即注入」回填宿主 Context，宿主 Dispose 时 flow 连同当前状态子 Context 一并撤。流程比场景活得长；运行时观察集中在框架诊断窗口，不另造第二份 Mono 状态机。",
+                CodeRef.Here("builder.RegisterOwnedSystem(new GameFlow())", "本章的注册代码"));
             host.AddSubNote("View 不直接取得可写的 `IGameFlow`：流转意图经异步 Command 发出；持续状态经查询 Command 一次取得只读投影。这样按钮仍只能表达“做什么”，转换、排队、取消和阶段作用域所有权都留在 System。",
                 CodeRef.Here("struct RequestFlowStateCommand", "View → Command → Flow System"));
 

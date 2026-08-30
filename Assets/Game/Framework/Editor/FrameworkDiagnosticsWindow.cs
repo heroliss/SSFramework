@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Text;
 using Game.Framework.Context;
 using Game.Framework.Diagnostics;
+using Game.Framework.Flow;
 using Game.Framework.Logging;
 using Game.Framework.Pool;
 using Game.Framework.Systems;
@@ -129,7 +130,7 @@ namespace Game.Framework.Editor
         private readonly List<LoggingCommandSystem.Entry> _cmdRows = new(); // 过滤后（新 → 旧），表格数据源
         private long _lastTotalRecorded = -1;
         private bool _cmdFilterDirty = true;
-        private bool _secRegOpen = true, _secEvtOpen = true, _secPoolOpen = true;
+        private bool _secRegOpen, _secFlowOpen = true, _secEvtOpen = true, _secPoolOpen = true;
         private LayoutMode? _layoutMode;
 
         /// <summary>树节点数据：TreeView item 里只挂 Context 引用，其余现算（每次重绑都拿最新值）。</summary>
@@ -723,6 +724,70 @@ namespace Game.Framework.Editor
             }
             _detail.Add(regFold);
 
+            // 游戏流程：只读取本 Context 已经实例化的本地 IGameFlow，不经 Resolve、不触发工厂。
+            // 默认 GameFlow 还能通过 Editor-only 内部快照展示进入中 / 退出中 / 排队；自定义 Adapter
+            // 至少展示公共 Interface 的 Current / IsTransitioning，诊断不要求业务实现第二套接口。
+            var flow = ResolveLocalGameFlow(ctx);
+            if (flow != null)
+            {
+                var flowFold = Section("游戏流程（Flow）", _secFlowOpen, v => _secFlowOpen = v);
+                string currentName = FlowStateName(flow.Current);
+                string statusText;
+                Color statusColor;
+                string statusTooltip;
+                if (flow is GameFlow defaultFlow && defaultFlow.DiagnosticSnapshot.IsDisposed)
+                {
+                    statusText = "已释放";
+                    statusColor = ColError;
+                    statusTooltip = "流程 Implementation 已释放；若宿主 Context 仍存活，说明所有权被外部提前终止。";
+                }
+                else if (flow.IsTransitioning)
+                {
+                    statusText = "转换中";
+                    statusColor = ColRuntime;
+                    statusTooltip = "正在退出旧状态、进入新状态，或已有最新意图排队。";
+                }
+                else if (flow.Current != null)
+                {
+                    statusText = "稳定";
+                    statusColor = ColMain;
+                    statusTooltip = "当前状态已经完整进入，没有转换正在进行。";
+                }
+                else
+                {
+                    statusText = "无当前状态";
+                    statusColor = ColBuild;
+                    statusTooltip = "流程尚未启动，或上一次 OnEnter 失败后稳定处于无状态。";
+                }
+
+                var summary = new VisualElement
+                {
+                    style = { flexDirection = FlexDirection.Row, alignItems = Align.Center, flexWrap = Wrap.Wrap },
+                };
+                summary.Add(new Label($"当前：{currentName}")
+                {
+                    style = { fontSize = 11, unityFontStyleAndWeight = FontStyle.Bold, flexShrink = 1 },
+                });
+                summary.Add(Badge(statusText, statusColor, statusTooltip));
+                flowFold.Add(summary);
+
+                if (flow is GameFlow gameFlow)
+                {
+                    GameFlowDiagnosticSnapshot snapshot = gameFlow.DiagnosticSnapshot;
+                    flowFold.Add(FlowStateLine("退出中", snapshot.Exiting));
+                    flowFold.Add(FlowStateLine("进入中", snapshot.Entering));
+                    flowFold.Add(FlowStateLine("待处理", snapshot.Pending));
+                }
+                else
+                {
+                    flowFold.Add(MutedLabel($"Implementation：{flow.GetType().Name}（自定义 IGameFlow Adapter）"));
+                }
+
+                flowFold.Add(MutedLabel(
+                    "状态的子 Context 会以“Flow:状态类型名”出现在左侧树中；选择它可查看阶段私有注册、订阅与资源所有权。"));
+                _detail.Add(flowFold);
+            }
+
             // 事件订阅计数。
             var events = ctx.EventSubscriptionCounts?.Where(kv => kv.Value > 0).OrderByDescending(kv => kv.Value).ToList();
             int totalSubs = events?.Sum(kv => kv.Value) ?? 0;
@@ -762,8 +827,65 @@ namespace Game.Framework.Editor
             if (pool != null)
                 foreach (string s in pool.GetPoolDiagnostics())
                     sb.Append(s).Append(';');
+            var flow = ResolveLocalGameFlow(ctx);
+            if (flow is GameFlow gameFlow)
+            {
+                GameFlowDiagnosticSnapshot snapshot = gameFlow.DiagnosticSnapshot;
+                sb.Append("flow:")
+                  .Append(FlowStateName(snapshot.Current)).Append('|')
+                  .Append(FlowStateName(snapshot.Exiting)).Append('|')
+                  .Append(FlowStateName(snapshot.Entering)).Append('|')
+                  .Append(FlowStateName(snapshot.Pending)).Append('|')
+                  .Append(snapshot.IsRunning).Append('|').Append(snapshot.IsDisposed).Append(';');
+            }
+            else if (flow != null)
+            {
+                sb.Append("flow:").Append(flow.GetType().Name).Append('|')
+                  .Append(FlowStateName(flow.Current)).Append('|').Append(flow.IsTransitioning).Append(';');
+            }
             return sb.ToString();
         }
+
+        /// <summary>
+        /// 读取本 Context 已经构造的本地流程。按 contract 快照扫描，不调用 Resolve，因此 Lazy Factory
+        /// 仍保持未构造；父级流程也只在父节点展示，避免每个子 Context 重复一份“全局流程”。
+        /// </summary>
+        internal static IGameFlow ResolveLocalGameFlow(GameContext ctx)
+        {
+            foreach (var detail in ctx.Container.LocalRegistrationDetails)
+                if (detail.Contract == typeof(IGameFlow) && detail.Instance is IGameFlow flow)
+                    return flow;
+            return null;
+        }
+
+        private static VisualElement FlowStateLine(string label, FlowState state)
+        {
+            var row = new VisualElement
+            {
+                style =
+                {
+                    flexDirection = FlexDirection.Row,
+                    alignItems = Align.Center,
+                    marginTop = 2,
+                },
+            };
+            row.Add(new Label(label)
+            {
+                style = { width = 52, fontSize = 11, color = ColMuted },
+            });
+            row.Add(new Label(FlowStateName(state))
+            {
+                style =
+                {
+                    fontSize = 11,
+                    unityFontStyleAndWeight = state == null ? FontStyle.Normal : FontStyle.Bold,
+                    color = state == null ? ColMuted : FrameworkEditorVisuals.ActiveTextColor,
+                },
+            });
+            return row;
+        }
+
+        private static string FlowStateName(FlowState state) => state == null ? "（无）" : state.GetType().Name;
 
         // 取本 Context 本地注册的池实现（不经 Resolve——不触发工厂、不吃父级回退）。
         private static PoolUtility ResolveLocalPool(GameContext ctx)
