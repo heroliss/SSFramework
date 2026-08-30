@@ -13,6 +13,6 @@ MonoBehaviour:
   m_Name: TestProtoProfile
   m_EditorClassIdentifier: Game.Framework.Network.Proto.Editor::Game.Framework.Network.Proto.Editor.ProtoConfigProfile
   _protocDir: Tools/Protoc
-  _protoDir: Assets/Game/Framework/Test/Proto~
-  _outputCodeDir: Assets/Game/Framework/Test/Scripts/Tests/Framework/ProtoGen
+  _protoDir: Assets/Game/Framework/Network.Proto/Tests/Proto~
+  _outputCodeDir: Assets/Game/Framework/Network.Proto/Tests/ProtoGen
   _extraArgs: 
