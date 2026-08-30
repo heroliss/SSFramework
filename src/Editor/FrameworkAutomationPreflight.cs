@@ -87,13 +87,8 @@ namespace Game.Framework.Editor
 
         private static void EnsureEditorIsReady()
         {
-            if (EditorApplication.isPlayingOrWillChangePlaymode)
-                throw new InvalidOperationException(
-                    "PlayMode 自动化预检只能在 Edit Mode 执行；请先停止当前 PlayMode。");
-
-            if (EditorApplication.isCompiling || EditorApplication.isUpdating)
-                throw new InvalidOperationException(
-                    "Unity 正在编译或刷新资产；请等待 Editor 空闲后再运行 PlayMode 自动化预检。");
+            if (!FrameworkEditorOperationGate.CanStart(requireEditMode: true, out string blockedReason))
+                throw new InvalidOperationException("PlayMode 自动化预检当前不可执行：" + blockedReason);
         }
 
         private static List<Scene> CollectDirtyScenes()

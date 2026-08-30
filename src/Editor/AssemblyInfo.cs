@@ -5,3 +5,4 @@ using System.Runtime.CompilerServices;
 [assembly: InternalsVisibleTo("Game.Framework.Odin.Editor")]
 [assembly: InternalsVisibleTo("Game.Framework.Build.Editor")]
 [assembly: InternalsVisibleTo("Game.Framework.Build.HybridCLR.Editor")]
+[assembly: InternalsVisibleTo("Game.Framework.UI.UGui.Editor")]
