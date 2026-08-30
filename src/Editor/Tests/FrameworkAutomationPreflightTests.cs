@@ -1,5 +1,4 @@
 using System;
-using System.Collections;
 using System.IO;
 using System.Linq;
 using NUnit.Framework;
@@ -7,7 +6,6 @@ using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.SceneManagement;
-using UnityEngine.TestTools;
 
 namespace Game.Framework.Editor.Tests
 {
@@ -53,8 +51,8 @@ namespace Game.Framework.Editor.Tests
             }
         }
 
-        [UnityTest]
-        public IEnumerator PreparePlayModeTests_SavesDirtyAssetBackedScene()
+        [Test]
+        public void DirtySceneCollectionAndSave_SaveOwnedAssetBackedScene()
         {
             EnsureTempFolder();
             string sourceScenePath = FindAnyProjectScene();
@@ -69,16 +67,12 @@ namespace Game.Framework.Editor.Tests
             EditorSceneManager.MarkSceneDirty(_assetScene);
             Assert.That(_assetScene.isDirty, Is.True);
 
-            // CopyAsset 以及同批 EditMode 用例触发的导入可能跨过当前 Editor 帧；预检本身应当
-            // 对繁忙状态 fail-fast，因此测试先等到真实调用前置条件成立，而不是削弱生产保护。
-            double timeoutAt = EditorApplication.timeSinceStartup + 30d;
-            while ((EditorApplication.isCompiling || EditorApplication.isUpdating) &&
-                   EditorApplication.timeSinceStartup < timeoutAt)
-                yield return null;
-            Assert.That(EditorApplication.isCompiling || EditorApplication.isUpdating, Is.False,
-                "等待 Unity 完成测试资产导入超时");
-
-            var savedPaths = FrameworkAutomationPreflight.PreparePlayModeTests();
+            Assert.That(
+                FrameworkAutomationPreflight.CollectDirtyScenes().Select(scene => scene.path),
+                Does.Contain(_tempScenePath),
+                "预检必须从已加载场景中发现本用例拥有的脏场景。 ");
+            var savedPaths = FrameworkAutomationPreflight.SaveDirtyScenesAfterValidation(
+                new[] { _assetScene });
 
             Assert.That(savedPaths, Does.Contain(_tempScenePath));
             Assert.That(_assetScene.isDirty, Is.False);
