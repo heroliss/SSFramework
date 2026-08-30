@@ -113,9 +113,9 @@ namespace Game.Framework.Demo.Modules
                 new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/Support/MonoScoreModel.cs", "class MonoScoreModel", "Mono Model 定义"));
             host.AddActionRow("选中 根作用域的 ScoreModel", () =>
             {
-                // 根作用域那份 = 场景里不在 SubContext 子树下的另一个 MonoScoreModel。
-                foreach (var m in Object.FindObjectsByType<MonoScoreModel>(FindObjectsSortMode.None))
-                    if (m != subScore) { DemoEditorNav.PingSceneObject(m.gameObject); return; }
+                var rootContext = Object.FindFirstObjectByType<MonoDemoContext>();
+                var rootScore = DemoEditorNav.FindComponentOwnedBy<MonoScoreModel>(rootContext);
+                if (rootScore != null) DemoEditorNav.PingSceneObject(rootScore.gameObject);
             }, new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/Support/MonoScoreModel.cs", "class MonoScoreModel", "Mono Model 定义"));
             host.AddTip("点上面按钮去 Hierarchy 看结构：Main Context（根 Context）→ ChapterAssets/SubContext（DemoSubContext）→ 它的 ScoreModel (Sub)。"
                 + "运行时在 Inspector 里直接改任一实例的 Score，上方对应标签实时刷新——哪个作用域的数据一目了然。");

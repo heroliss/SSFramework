@@ -136,6 +136,42 @@ namespace Game.Framework.Demo.PlayMode.Tests
                 "样板通过同节点解析 IUIUtility；移动组件后必须保持 composition 接线关系。");
         }
 
+        [Test]
+        public void ScoreModelNavigation_UsesTheInstanceOwnedByTheRequestedContext()
+        {
+            var rootContext = FindDemoObject<MonoDemoContext>();
+            var subContext = FindDemoObject<DemoSubContext>();
+            var rootScore = DemoEditorNav.FindComponentOwnedBy<MonoScoreModel>(rootContext);
+            var subScore = DemoEditorNav.FindComponentOwnedBy<MonoScoreModel>(subContext);
+
+            Assert.IsNotNull(rootScore);
+            Assert.IsNotNull(subScore);
+            Assert.AreNotSame(rootScore, subScore,
+                "父、子 Context 的 Inspector 导航必须各自解析自己的 MonoScoreModel。");
+            Assert.IsNull(rootScore.GetComponentInParent<DemoSubContext>(true),
+                "根作用域导航不能因为 FindFirstObjectByType 的顺序而误选子作用域实例。");
+            Assert.AreSame(subContext, subScore.GetComponentInParent<DemoSubContext>(true));
+        }
+
+        [Test]
+        public void UIToolkitView_PopupSlotImmediatelyFollowsItsTrigger()
+        {
+            var shell = FindDemoObject<DemoShellController>();
+            var module = shell.Modules.Single(candidate => candidate.Id == "uitoolkit-view");
+            shell.SelectChapter(module);
+
+            VisualElement root = shell.GetComponent<UIDocument>().rootVisualElement;
+            Button trigger = root.Query<Button>().ToList()
+                .Single(button => button.text == "弹出 UIToolkit View（无 prefab）");
+            VisualElement slot = root.Q<VisualElement>(className: "demo-inline-view-slot");
+            VisualElement actionRow = trigger.parent;
+
+            Assert.IsNotNull(slot, "动态 View 应有稳定的就地挂载插槽。");
+            Assert.AreSame(actionRow.parent, slot.parent);
+            Assert.AreEqual(actionRow.parent.IndexOf(actionRow) + 1, actionRow.parent.IndexOf(slot),
+                "弹出的 View 必须紧跟触发按钮，不能再追加到整章最下方。");
+        }
+
         [UnityTest]
         public IEnumerator InputSystemBackWiring_EscapeClosesTheRealTopWindow()
         {
