@@ -1,6 +1,5 @@
 using System.Collections;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Reflection;
 using System.Text.RegularExpressions;
 using Cysharp.Threading.Tasks;
@@ -33,7 +32,7 @@ namespace Game.Framework.Test
         {
             _config = LoadTestConfig();
             if (_config == null)
-                Assert.Fail("未找到 YooAssetTestConfig，请在 Test/Data/ 下创建配置文件");
+                Assert.Fail("未找到 YooAssetTestConfig，请检查 Asset.Yoo/Tests/Fixtures 测试夹具");
 
             yield return BuildAssetEnvironment().ToCoroutine();
         }
@@ -152,42 +151,6 @@ namespace Game.Framework.Test
             StringAssert.Contains("__NonExistentAsset__", sink.Entries[0].Message);
         }
 
-        /// <summary>
-        /// 未显式绑定的旧引用仍可从 Main 迁移回退，但必须留下所有权警告，并跟随 Main 取消信号；
-        /// 回退不会把引用登记进任何 Bag，调用方仍需自行 Dispose。
-        /// </summary>
-        [Test]
-        public void AssetReference_UnboundMainFallback_IsVisibleAndUsesMainLifetime()
-        {
-            if (!IsReferenceValid(_config.PrefabReference, "PrefabReference")) return;
-
-            var previousMain = GameContext.Main;
-            var previousMinLevel = Log.MinLevel;
-            try
-            {
-                Log.MinLevel = LogLevel.Warning;
-                _config.PrefabReference.Unload();
-                _config.PrefabReference.Bind(null, default);
-                GameContext.Main = _context.RawContext;
-
-                LogAssert.Expect(LogType.Warning,
-                    new Regex(@"\[AssetReference\].*回退使用 GameContext\.Main.*必须手动释放"));
-                var resolved = _config.PrefabReference.ResolveUtility();
-
-                Assert.AreSame(_utility, resolved);
-                Assert.IsTrue(_config.PrefabReference.IsBound,
-                    "首次回退后应缓存 utility，避免每次 Get 重复解析和重复警告。");
-                Assert.AreEqual(_context.CancellationToken, _config.PrefabReference.HostToken,
-                    "旧用法至少应跟随 Main 生命周期取消等待，但这不等于被 Bag 托管。");
-            }
-            finally
-            {
-                _config.PrefabReference.Bind(_utility, default);
-                GameContext.Main = previousMain;
-                Log.MinLevel = previousMinLevel;
-            }
-        }
-
         // ── AssetReference 缓存测试 ───────────────────────────────────
 
         /// <summary>多次调用 Get 应返回同一缓存实例，不重复加载。</summary>
@@ -284,12 +247,6 @@ namespace Game.Framework.Test
                 _config.PrefabReference.Unload();
                 _config.PrefabReference.Unload();
             });
-        }
-
-        [UnityTest]
-        public IEnumerator SimulatedDelayMs_WhenConfigured_ShouldDelayTestLoad()
-        {
-            return SimulatedDelayMs_WhenConfigured_ShouldDelayTestLoadAsync().ToCoroutine();
         }
 
         [UnityTest]
@@ -434,32 +391,6 @@ namespace Game.Framework.Test
 #endif
         }
 
-        private async UniTask SimulatedDelayMs_WhenConfigured_ShouldDelayTestLoadAsync()
-        {
-            if (!IsReferenceValid(_config.PrefabReference, "PrefabReference")) return;
-
-            int originalDelayMs = _config.SimulatedDelayMs;
-            const int testDelayMs = 80;
-
-            try
-            {
-                _config.PrefabReference.Unload();
-                _config.SimulatedDelayMs = testDelayMs;
-
-                var stopwatch = Stopwatch.StartNew();
-                GameObject loaded = await LoadPrefabReferenceWithConfiguredDelay();
-                stopwatch.Stop();
-
-                Assert.IsNotNull(loaded, "SimulatedDelayMs should not prevent asset loading");
-                Assert.GreaterOrEqual(stopwatch.ElapsedMilliseconds, testDelayMs,
-                    "SimulatedDelayMs did not delay the test load path");
-            }
-            finally
-            {
-                _config.SimulatedDelayMs = originalDelayMs;
-            }
-        }
-
         private async UniTask DownloaderCreatedBeforeCacheMaintenance_IsRejectedAndFreshDownloaderSucceedsAsync()
         {
             // EditorSimulate 不访问 Host/CDN，下载器通常是空快照；仍必须先检查缓存世代，不能被
@@ -552,18 +483,6 @@ namespace Game.Framework.Test
             AsyncOperation operation = SceneManager.UnloadSceneAsync(scene);
             if (operation != null)
                 await operation.ToUniTask();
-        }
-
-        private async UniTask ApplyConfiguredDelay()
-        {
-            if (_config == null || _config.SimulatedDelayMs <= 0) return;
-            await UniTask.Delay(_config.SimulatedDelayMs);
-        }
-
-        private async UniTask<GameObject> LoadPrefabReferenceWithConfiguredDelay()
-        {
-            await ApplyConfiguredDelay();
-            return await _config.PrefabReference.Get();
         }
 
         private sealed class CapturingSink : ILogSink

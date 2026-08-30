@@ -1,10 +1,10 @@
 {
-    "name": "Game.Framework.Test",
-    "rootNamespace": "Game.Framework",
+    "name": "Game.Framework.Asset.Yoo.PlayMode.Tests",
+    "rootNamespace": "Game.Framework.Test",
     "references": [
-        "UniTask",
+        "Game.Framework.Asset.Yoo",
         "Game.Framework",
-        "R3.Unity",
+        "UniTask",
         "UnityEngine.TestRunner"
     ],
     "includePlatforms": [],
@@ -12,9 +12,7 @@
     "allowUnsafeCode": false,
     "overrideReferences": true,
     "precompiledReferences": [
-        "nunit.framework.dll",
-        "R3.dll",
-        "Microsoft.Bcl.TimeProvider.dll"
+        "nunit.framework.dll"
     ],
     "autoReferenced": false,
     "defineConstraints": [

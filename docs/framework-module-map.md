@@ -51,6 +51,7 @@ Editor 反向引用。Adapter 不得随 Framework 分发付费插件本体。详
 | `Game.Framework` | `Core/` | Context、Container、MVCS 权限、Command/Event、生命周期与通用 Interface；含零第三方实现的 Storage/Audio/Flow/Localization/Logging/Network 等能力。 | 不可删除；其余运行时 Module 的稳定依赖方向指向它。 |
 | `Game.Framework.Asset.Yoo` | `Asset.Yoo/` | `IAssetProvider` 的 YooAsset Adapter；YooAsset 接触面和 `[assembly: DefaultAssetProvider]` 默认装配都集中在这里。 | 删除后仅失去 YooAsset Implementation；Core 不含 Yoo 类型名，安装另一个注册 Adapter 即可替换。 |
 | `Game.Framework.Asset.Yoo.Tests` | `Asset.Yoo/Tests/Editor/` | Yoo package 进程级 Reader/Writer、取消、缓存世代、同步快照与后台终态的纯 EditMode 契约。 | 随 Yoo Adapter 删除；不进入玩家构建，也不让通用 Core Test 反向依赖可选 Adapter。 |
+| `Game.Framework.Asset.Yoo.PlayMode.Tests` | `Asset.Yoo/Tests/PlayMode/` | 真实 EditorSimulate Provider、资源引用缓存/并发/释放、下载器缓存世代与挂起场景激活门契约；所需 Prefab、材质、场景及配置集中在相邻 `Fixtures/`。 | 随 Yoo Adapter 与 Fixtures 一起删除；通用 Core Test 不引用 YooAsset，Collector 路径也不再指向通用 `Test/`。 |
 | `Game.Framework.Config` | `Config/` | 配置运行时编排与 `IConfigUtility<TTables>`；不依赖 Luban。 | 删除后失去配置表 Module，Core 不改。 |
 | `Game.Framework.Config.Editor` | `Config/Editor/` | Luban CLI/Profile/配置总览，以及代码 + 数据 + manifest 的暂存校验、双树差量发布与失败回滚；复用通用 Editor 反馈和输出 claim Catalog。 | 可与 Config 一起删除；不向 Runtime 泄漏 Editor 依赖，也不把 Luban 双树语义塞进 Proto。 |
 | `Game.Framework.Config.Editor.Tests` | `Config/Editor/Tests/` | Luban 配置/claim 注册、受控 CLI 参数、暂存产物边界、`.meta` 保留、零写盘差量与双目录回滚契约。 | 随 Config Editor Module 删除；不进入玩家构建。 |
@@ -84,7 +85,7 @@ Editor 反向引用。Adapter 不得随 Framework 分发付费插件本体。详
 | `Game.Framework.Demo` | `Demo/` | 32 个可运行教学章节，是所有 Module 的消费方与集成样板；Catalog 集中拥有章节 Adapter、生命周期与 Host 教学语义校验。包含 Input System → `IUIUtility.Back()` 等项目 composition 样板，但这些不是 Framework Runtime API。 | 可整体删除；`UNITY_EDITOR` define 保证不进玩家包。 |
 | `Game.Framework.Demo.Tests` | `Demo/Tests/` | Demo 专属 EditMode 门禁：章节生命周期/回滚、教学形态与结构化降级契约、内嵌服务器、关键示例行为及全部 CodeRef 防腐。 | 随 Demo 一起删除；不让 Demo 专属依赖反向进入通用 Test Module。 |
 | `Game.Framework.Demo.PlayMode.Tests` | `Demo/Tests/PlayMode/` | 加载真实 DemoScene，穿过 Context、Catalog 与 Shell 逐章 Build 32 个 Adapter，并验证真实缺依赖降级页。 | 随 Demo 一起删除；不进入玩家构建，也不把场景集成依赖塞回纯 EditMode 门禁。 |
-| `Game.Framework.Test` | `Test/Scripts/` | Core 与尚待迁移的 YooAsset PlayMode 契约及回归测试；`Test/Res/SuspendedSceneProbe` 是无业务 Awake 的 Yoo 场景激活门 fixture。UI、Fonts 与 Proto 的独立契约已迁回各自 owner。 | 产品运行不依赖；开发/CI 不应删除。 |
+| `Game.Framework.Test` | `Test/Scripts/` | Core 的 PlayMode/EditMode 契约及回归测试；可选 UI、Fonts、Proto、YooAsset Module 的独立契约和第三方引用均已迁回各自 owner。 | 产品运行不依赖；开发/CI 不应删除。 |
 
 ## 维护检查清单
 

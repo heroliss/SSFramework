@@ -2,7 +2,7 @@ using UnityEngine;
 
 namespace Game.Framework.Test
 {
-    [CreateAssetMenu(fileName = "YooAssetTestConfig", menuName = "Framework/Test/YooAsset Test Config")]
+    [CreateAssetMenu(fileName = "YooAssetTestConfig", menuName = "Framework/Asset Yoo Tests/YooAsset Test Config")]
     public class YooAssetTestConfig : ScriptableObject
     {
         [Header("路径加载测试数据")]
@@ -15,9 +15,5 @@ namespace Game.Framework.Test
 
         [Tooltip("用于测试 AssetReferenceList 批量加载（可拖入多个 Sprite）")]
         public AssetReferenceList<Sprite> ImageList;
-
-        [Header("模拟延迟配置")]
-        [Tooltip("模拟加载前延迟（毫秒），0 表示不延迟")]
-        public int SimulatedDelayMs;
     }
 }

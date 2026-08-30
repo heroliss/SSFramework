@@ -15,13 +15,15 @@ using UnityEngine.TestTools;
 namespace Game.Framework.Test
 {
     /// <summary>
-    /// 通过可控 provider 验证 AssetUtility 的包级异步所有权；不依赖 YooAsset 时序或真实文件系统速度。
+    /// 通过可控 provider 验证 AssetUtility 的包级异步所有权，并覆盖 AssetReference 的 Core 兼容边界；
+    /// 不依赖 YooAsset 时序、真实文件系统速度或 Adapter 测试夹具。
     /// </summary>
     public sealed class AssetOperationCoordinationTests
     {
         private const string Package = "CoordinationTestPackage";
 
         private GameObject _root;
+        private MonoGameContextBase _context;
         private AssetUtility _utility;
         private ControllableAssetProvider _provider;
 
@@ -36,6 +38,7 @@ namespace Game.Framework.Test
         {
             if (_root != null) UnityEngine.Object.Destroy(_root);
             _root = null;
+            _context = null;
             _utility = null;
             _provider = null;
             yield return null;
@@ -88,6 +91,39 @@ namespace Game.Framework.Test
                 "代码引导在 Start 前 Configure 后，AssetUtility 不应再按 Inspector 默认设置额外启动一个包");
         }
 
+        /// <summary>
+        /// 未显式绑定的旧引用仍可从 Main 迁移回退，但必须留下所有权警告，并跟随 Main 取消信号；
+        /// 这是 Core 的兼容契约，不应依赖 YooAsset fixture 或 Adapter 内部实现。
+        /// </summary>
+        [Test]
+        public void AssetReference_UnboundMainFallback_IsVisibleAndUsesMainLifetime()
+        {
+            var reference = new AssetReference<GameObject>();
+            var previousMain = GameContext.Main;
+            var previousMinLevel = Log.MinLevel;
+            try
+            {
+                Log.MinLevel = LogLevel.Warning;
+                GameContext.Main = _context.RawContext;
+
+                LogAssert.Expect(LogType.Warning,
+                    new Regex(@"\[AssetReference\].*回退使用 GameContext\.Main.*必须手动释放"));
+                var resolved = reference.ResolveUtility();
+
+                Assert.AreSame(_utility, resolved);
+                Assert.IsTrue(reference.IsBound,
+                    "首次回退后应缓存 utility，避免每次 Get 重复解析和重复警告。");
+                Assert.AreEqual(_context.CancellationToken, reference.HostToken,
+                    "旧用法至少应跟随 Main 生命周期取消等待，但这不等于被 Bag 托管。");
+            }
+            finally
+            {
+                reference.Bind(null, default);
+                GameContext.Main = previousMain;
+                Log.MinLevel = previousMinLevel;
+            }
+        }
+
         private async UniTask EnsureInitialized_BeforeUtilityStart_StartsConfiguredAutoPackageAsync()
         {
             var contextObject = new GameObject("EarlyAssetContext");
@@ -136,7 +172,7 @@ namespace Game.Framework.Test
 
             var contextObject = new GameObject("Context");
             contextObject.transform.SetParent(_root.transform);
-            contextObject.AddComponent<MonoGameContextBase>();
+            _context = contextObject.AddComponent<MonoGameContextBase>();
 
             var utilityObject = new GameObject("AssetUtility");
             utilityObject.transform.SetParent(contextObject.transform);
