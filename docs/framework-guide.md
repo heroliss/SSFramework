@@ -405,19 +405,19 @@ public class HudView : MonoViewBase
 
 业务按钮也不必“同生共死”。资源工作台里，构建和部署需要至少一个启用包，本地服务器只需要已有 Deploy 目录；因此零启用包不会阻止你继续查看已经部署的内容。服务安装器会先整批拒绝不安全输出路径和跨 Profile 的 `.g.cs` 所有权冲突，因为这两类问题可能覆盖别人的文件；命名空间、扫描目录或扫描结果则按条目独立报告，有一条就绪就可以先生成它。窗口显示的是同一份判定，不是另外猜的一套规则。
 
-Luban 与 Protobuf 也遵循相同的两级口径：同一生成器内的输出目录冲突会暂停整批，避免清理或覆盖别的配置；CLI、`luban.conf`、protoc、`.proto` 源文件等缺项只让对应卡片不可生成。所有权只比较已经能规范化为安全 `Assets` 路径的输出声明：刚新建、尚未填写输出的 Profile 不会冻结其它可用配置；但一个 Profile 即使还缺 CLI 或输入，只要已经声明了有效输出，该目录仍参与冲突比较，不能被另一套产物清理。存在部分可用配置时，按钮会明确写成“生成可用配置（x/y）”，并且只把这些配置交给动作层；零项可用时按钮直接写“暂无可生成配置”。字体字集稍有不同：逃逸工程的扫描路径、包含目录段的文件模式或无效输出路径会阻断；某个扫描目录暂不存在只会警告并跳过，因为 ASCII 与“额外字符”仍可能构成一份合法字集。三类工具都在真正写入或启动进程前复验同一份 Module 内判定。
+Luban 与 Protobuf 也遵循相同的两级口径：同一生成器内的输出目录冲突会暂停整批，避免清理或覆盖别的配置；CLI、`luban.conf`、protoc、`.proto` 源文件等缺项只让对应卡片不可生成。所有权只比较已经能规范化为安全 `Assets` 路径的输出声明：刚新建、尚未填写输出的 Profile 不会冻结其它可用配置；但一个 Profile 即使还缺 CLI 或输入，只要已经声明了有效输出，该目录仍参与冲突比较，不能被另一套产物清理。存在部分可用配置时，按钮会明确写成“生成可用配置（x/y）”，并且只把这些配置交给动作层；零项可用时按钮直接写“暂无可生成配置”。字体字集稍有不同：逃逸工程的扫描路径、包含目录段的文件模式或无效输出路径会阻断；某个扫描目录暂不存在只会警告并跳过，因为 ASCII 与“额外字符”仍可能构成一份合法字集。所有工具都在真正写入或启动进程前复验 owner Module 的输入条件与共享输出声明。
 
-所有写入 `Assets` 的通用路径先经过 `FrameworkProjectPath`：除了防止 `Assets/../..` 逃逸和目录/文件类型用反，也会检查目标的任一父级是否已被普通文件占用，避免外部生成器跑完后才在建目录阶段失败。显式填写的 C# 命名空间会在写盘前验证；由文件名、Prefab 名、节点名或包名派生的类名、字段名和常量名则统一清洗非法字符、数字开头与保留关键字（例如 `class` 稳定变成 `_class`）。前者保留配置错误的可见性，后者减少内容命名给新手造成的无谓编译错误。
+所有写入 `Assets` 的通用路径先经过 `FrameworkProjectPath`：除了防止 `Assets/../..` 逃逸和目录/文件类型用反，也会检查目标的任一父级是否已被普通文件占用，避免外部生成器跑完后才在建目录阶段失败。递归扫描、复制、指纹和清理还会拒绝 symbolic link、Windows junction 与其它 reparse point，并在删除前先验证整棵物理树；因此一个词法上位于 `Assets` 内、实际指向工程外的目录也不会被跟随。显式填写的 C# 命名空间会在写盘前验证；由文件名、Prefab 名、节点名或包名派生的类名、字段名和常量名则统一清洗非法字符、数字开头与保留关键字（例如 `class` 稳定变成 `_class`）。前者保留配置错误的可见性，后者减少内容命名给新手造成的无谓编译错误。
 
-当前输出所有权验证由各可删除生成器 Module 自己拥有，还不会跨 Luban、Protobuf、服务安装器等不同工具推断彼此的清理规则。项目应给不同生成器分配互不相同、互不嵌套的顶层生成目录；尤其不要把服务安装器或 Luban 的 `.g.cs` 放进 Protobuf 会递归清理的输出树。跨 Module 的中立 output-claim catalog 已列入架构候选，在它有明确的目录/文件/后缀所有权模型前，不让 Core 反向硬编码可选生成器类型。
+跨 Module 输出由 `FrameworkGeneratedOutputClaimCatalog` 统一核对，但生成规则仍留在 owner Module。当前三种 claim 是：Luban 代码/数据的独占目录，Protobuf 的递归 `*.g.cs` 清理范围，以及服务安装器、UI Binding 两份 partial、资源包名常量和字体字集的精确文件。独占目录与目录树内任何其它输出冲突；递归后缀只拒绝落在范围内且后缀相交的文件；两个精确文件只在规范路径相同时冲突。因此手写 `Main.cs` 可以与 Protobuf 的 `*.g.cs` 清理树共存，而 `Main.nodes.g.cs` 会被明确拒绝。可选 Module 自注册只读 collector，Core 不引用它们的类型；删除 Module 后声明自然消失。窗口预览只读取已有外部快照；冷启动或工程变化后的缺失来源会明确显示“尚无预览快照”，不会因画窗口暗中扫描工程。真正创建、覆盖或清理前仍强制重采集全部来源，不能拿缺失或过期配置冒充安全证据。UI Binding 不再在每次核对时加载全工程所有 Prefab：第一次完整建立“根上含 `UIBindingData`”的会话索引，之后增量检查发生导入、移动或删除的 Prefab，并利用同时持久化的 Prefab Variant 依赖重验后代；脚本域重载从 `SessionState` 恢复快照。collector 仍读取命中 Prefab 的当前条目和覆盖配置，真实写盘时索引缺失则完整补扫。
 
-- `SSFramework/配置中心`：只读汇总各 Module 自注册的 Profile 类型、数量、位置和单例健康状态；缺配置时不暗中创建。删除可选 Module 后对应卡片自然消失，中央窗口不保留程序集名特例。
+- `SSFramework/配置中心`：只读汇总各 Module 自注册的 Profile 类型、数量、位置和单例健康状态；缺配置时不暗中创建。所有 Framework Profile owner、配置中心与只读审计共享按工程 revision 缓存的路径发现快照，工程变化时统一失效；单例 stable-first 快照的首路径刚移动或删除时会只刷新该类型并重试。单例的重复 Warning、默认初始化、创建和业务校验仍由所属 Module 决定；固定路径创建会在任何目录写入前强制重扫，拒绝 reparse 与路径碰撞，并在写入后确认新资产确实是稳定生效项。窗口首次打开先显示轻量壳，需要立即确认磁盘状态时点击“重新扫描”。删除可选 Module 后对应卡片自然消失，中央窗口不保留程序集名特例。
 - `构建与发布`：资源包与代码热更新的分步流水线。
 - `代码生成`：Luban、Protobuf、服务安装器与 UI 绑定，各自在自己的输入/输出上下文里操作。
 - `开发辅助`：场景快捷入口、常用目录与可选 Odin Adapter；字体字集归在会产出文件的 `代码生成`。
 - `诊断与分析`：运行时状态、Module 依赖/裁剪证据与真实 Player Build 体积。
 
-`Assets/SSFramework`、`GameObject/SSFramework` 保留有选择上下文的操作；`SSFramework/诊断/AI 自动化` 保留给 MCP/CI 的稳定无窗口入口。两者都是有意的例外，不表示普通人工命令应重新回到即时菜单。设计取舍见 ADR-0043。
+`Assets/SSFramework`、`GameObject/SSFramework` 保留有选择上下文的操作；`SSFramework/诊断/AI 自动化` 保留给 MCP/CI 的稳定无窗口入口。后三个机器菜单点击即执行且不弹确认框，因为无人值守流程需要稳定命令 Interface，模态框会阻塞 Unity 主线程。人工不确定用途时先打开同目录的 **“使用说明（人工入口）”**：它逐项解释影响、完成判据和对应工作台，本身不执行预检或构建。两类菜单都是有意的例外，不表示普通人工命令应重新回到即时菜单。设计取舍见 ADR-0043。
 
 ---
 
@@ -1764,6 +1764,8 @@ CodePackage 在资源构建 Profile 中应明确关闭“参与构建”，再�
 `HybridCLRData/SSFramework/generation-stamp.json`。构建代码包时任一项不一致都会提前失败，并要求重跑第 2 步；有热更程序集时，
 `AOTGenericReferences.cs` 缺失、格式异常、意外生成空清单，或任一裁剪 AOT DLL 缺失也会直接失败。这样不会把编辑器旁路下看不见的旧生成物问题推迟到 IL2CPP 真机启动。
 
+当前 stamp 格式为 v5。它把 Player linker 图按“根集合 + 可达依赖并集”一次批量采集，并在同一轮里复用 response file、Analyzer、预编译 DLL 和序列化根的内容 SHA；缓存不跨审计或构建调用，所以下一次仍验证当前磁盘。校验按成本从低到高进行，一层已经证明过期就停止后续昂贵扫描；代码包入口也会在 `CompileDll` 前先预检 stamp 版本。由 v4 升级后会明确提示“发现 v4，当前要求 v5”，需要执行一次 `2. 生成桥接与裁剪文件` 建立新基线；只读审计不会自动改写 stamp。
+
 热更元数据拓扑覆盖 TypeDef / MethodDef / 字段布局、泛型约束与实例、Attribute 构造/命名参数、类型转发、P/Invoke / calli 以及 IL 中的元数据操作数，并保留条目数量；普通算术、分支和常量不参与。AOT 侧无法在日常校验时凭空得到尚未构建的目标 DLL，因此采用更保守但可证明的输入哈希：任一非热更 Player 源文件、asmdef、Player define、编译器选项、response file、Roslyn Analyzer / Source Generator 输入或非 Unity 内置预编译 DLL 变化都要求重新 Generate。Linker 根另行记录依赖图、动态 linker processor 实现，并对 `.unity` / `.prefab` / `.asset` 等序列化根哈希内容；`Assets/HybridCLRGenerate/link.xml` 是输出而非输入，明确排除。自定义 processor 若读取框架不知道的外部配置，配置变化后仍须主动 Generate。这里刻意不读取 `CompilationPipeline.GetAssemblies(Player).outputPath`；Unity 6000 可能仍返回 `Library/ScriptAssemblies` 的 Editor DLL。
 
 想在真正构建前先看当前处于哪一层，打开 `SSFramework/诊断与分析/模块与依赖`：顶部“热更产物链”只读比较唯一 FrameworkHotUpdateProfile、HybridCLRSettings、Generate stamp、当前拓扑加载顺序、`AOTGenericReferences.PatchedAOTAssemblyList` 与 `Assets/HotUpdateDlls/hotupdate_manifest.bytes`，分别提示该执行 1、2 还是 3。绿色只代表**清单结构与当前派生输入相符、所列文件存在**，不证明 DLL 内容已经包含最新源码；YooAsset bundle 是否构建、`AssetBuild/Deploy` 是否更新、CDN 是否上传仍属于步骤 3 / 4 与发布流水线。空 Profile 明确选择纯 AOT 时不要求 Generate；若启用的 Player 场景仍依赖 `HotUpdateLauncher`，其 Player 分支仍会读取 manifest，因此必须执行步骤 3 产出空清单 CodePackage。只有启用场景不再使用 Launcher、改由直接 AOT composition root 启动时，DLL 中转才是可选项。缺少 Profile 不会被静默当成纯 AOT；代码热更新工作台会要求用户明确创建配置。
@@ -1829,7 +1831,7 @@ Object.Destroy(go);                              // 交棒：首场景根 Contex
 
 表定义（XML）与数据（JSON / Excel）放在一处 conf 源目录；可用 `~` 后缀让 Unity 不导入这类纯构建期输入。工作台跑 Luban CLI 生成**配置 C# 类 + 二进制数据 + 表清单** → 运行期由一个自加载的配置 Utility 服务持表，数据文件随资源包打包与热更。设计原理与取舍见 ADR-0009；源 / 输出目录在模块里怎么摆见 §26「推荐项目结构」。
 
-> **多套并存**：每套配置 = 一个 `LubanConfigProfile`（各自的 conf 源 + 输出目录 + topModule），可按数据域、客户端/服务端目标或可选内容拆分。所有代码 / 数据输出都必须是 `Assets` 内彼此不相同、不嵌套的独立子目录；工作台在任何目录创建或 CLI 启动前统一预检，保证多套不会互相整理或覆盖。`ResolveAll()` 返回全部，多套集中管理也在同一窗口。路径不可从框架推导，因此没有 profile 时只给出明确空状态，不自动创建指向样例目录的假配置。
+> **多套并存**：每套配置 = 一个 `LubanConfigProfile`（各自的 conf 源 + 输出目录 + topModule），可按数据域、客户端/服务端目标或可选内容拆分。所有代码 / 数据输出都必须是 `Assets` 内彼此不相同、不嵌套的独立子目录，并且不得与其它生成器的写入 / 清理 claim 重叠；工作台在 CLI 前与正式发布前各核对一次。`ResolveAll()` 返回全部，多套集中管理也在同一窗口。路径不可从框架推导，因此没有 profile 时只给出明确空状态，不自动创建指向样例目录的假配置。
 
 ### 心智模型：构建期生成，运行期只是读字节
 
@@ -1841,7 +1843,20 @@ Object.Destroy(go);                              // 交棒：首场景根 Contex
 | 二进制数据（`*.bytes`） | 资源收集范围内的目录（普通资源收集，按文件名寻址） | 运行期按 TextAsset 加载取字节 |
 | 表清单（`LubanTableManifest.g.cs`） | 随生成代码 | 配置服务据此并行预载 |
 
-**为什么要表清单**：生成的 `Tables` 构造函数是**同步**逐表向 loader 要字节，而框架资源加载是异步——先按清单把全部数据文件并行预载进内存，再用同步取字节的委托一次性构造。清单与代码/数据同一次生成（`LubanCodeGenerator` 在 CLI 跑完后扫数据目录产出），不存在手工维护漏表，机制同热更代码包的 manifest。
+**为什么要表清单**：生成的 `Tables` 构造函数是**同步**逐表向 loader 要字节，而框架资源加载是异步——先按清单把全部数据文件并行预载进内存，再用同步取字节的委托一次性构造。清单由已经通过校验的暂存 `*.bytes` 快照生成，与同代代码 / 数据一起提交，不存在手工维护漏表，机制同热更代码包的 manifest。
+
+### 生成期：双目录可恢复事务
+
+Luban 自身会在保存前清理输出目录，而且代码 target 与数据 target 可并发进行；让 CLI 直接写正式目录时，数据校验失败、超时或单边写入异常都可能留下“新代码 + 旧数据”或缺 manifest。框架因此把一次 Profile 生成收口为 `LubanGenerationTransaction`：
+
+1. CLI 只写工程临时区的 `code/` 与 `data/`；管线强制 `validationFailAsError`，让 Luban validator 失败返回非零而不是留下可发布产物。`ExtraArgs` 支持引号与普通过滤参数，但不能重复设置管线拥有的 target / codeTarget / dataTarget / conf / validator 策略 / 输出目录，也禁用会让一次性动作常驻的 watchDir。为避免第三方 parser 用短选项 bundle 隐藏受控参数，compact 形式只允许明确的 `-xkey=value`，其它短选项和值必须分开。
+2. CLI 成功后先验证至少一份非空 UTF-8 C# 与根目录非空 `.bytes`，拒绝陌生扩展名、嵌套数据、大小写冲突和 symlink / junction；生成代码统一规范为无 BOM 的 LF，再由数据快照生成同样稳定换行的 manifest。
+3. 正式写盘前重新采集全部生成输出 claim；随后比较两棵正式目录，未变文件不写，更新保留 `.meta`，陈旧文件、孤儿 `.meta` 与快照不再需要的空目录会按独占目录语义清理。
+4. 第一次修改前同时备份代码与数据树；发布任一步失败就恢复两边。回滚本身失败时保留 recovery 路径供人工恢复；全部成功后才让 Unity 刷新一次，全未变则不刷新。
+
+这保证当前 Editor 进程可捕获异常下的代际一致性，不声称两个任意目录能在断电或强杀进程时完成文件系统级原子 rename。Protobuf 只认领单目录 `*.g.cs` 后缀，所有权不同，因此没有为表面相似抽一条会丢语义的通用 publisher。
+
+> **Editor API namespace 迁移**：Luban Profile / Generator / 工作台现在属于 `Game.Framework.Config.Editor`（程序集仍为同名 `Game.Framework.Config.Editor`）。旧代码若直接写过 `using Game.Framework.Build` 来调用这些 Editor 类型，只需更新 `using`；脚本 GUID 未变，已有 Profile 资产无需重建。
 
 ### 运行期：自加载的配置服务（Utility）
 
@@ -1904,7 +1919,7 @@ var commandItem = ctx.GetConfig<Tables>().TbItem[id];
 1. Luban CLI 解压到 `Tools/Luban/`（**不入库**，官方 release 可重下；缺 .NET 8 运行时时管线自动 `DOTNET_ROLL_FORWARD=LatestMajor`）。
 2. 建一处 conf 源目录：`luban.conf`（入口）+ `Defines/*.xml`（表定义）+ `Datas/`（数据）。放哪都行（路径填进 profile）；想随某模块一起删 / 抽包就放该模块目录下、用 `~` 后缀避免 Unity 导入。
 3. 在“配置总览”显式新建一个 `LubanConfigProfile`：填 conf 源、输出目录、topModule（见下方铁则）。需要多套时继续新建，并为每项代码 / 数据产物分配互不嵌套的独立输出目录。
-4. 打开 `SSFramework/代码生成/配置表 (Luban)` 工作台。卡片会先检查 CLI、`luban.conf`、字段与输出所有权；全部就绪时点“生成全部”，只有部分就绪时点“生成可用配置（x/y）”，逐套产出代码 / 数据 / 清单。
+4. 打开 `SSFramework/代码生成/配置表 (Luban)` 工作台。卡片会先检查 CLI、`luban.conf`、固定的 `cs-bin + bin` 组合与输出所有权；全部就绪时点“生成全部”，只有部分就绪时点“生成可用配置（x/y）”。每套独立执行暂存 → 校验 → 差量事务发布：前一套成功、后一套失败时，前者保持完整新代，后者保持完整旧代。
 5. 确认数据输出目录在某个 YooAsset 收集器范围内（`.bytes` 按普通资源收集成 TextAsset、按文件名寻址）；demo 复用现成的 `FrameworkDemoGroup` 收集器，真实项目通常加进 DefaultPackage 的收集组。
 6. 写一个一行子类闭合泛型 `class GameConfigUtility : MonoConfigUtilityBase<Tables>`，补上面两个 override（`TableFiles` / `CreateTables`）；挂在 Context 子节点即可（与资源系统同 Context，靠容器父级回退共享 `IAssetUtility`，不必单独再挂一套资源系统）。
 7. 生成代码所在 asmdef 引用 `Luban.Runtime` + `Game.Framework.Config`；若业务程序集热更，它天然在热更侧（数据文件本就随资源包热更）。
@@ -1914,15 +1929,14 @@ var commandItem = ctx.GetConfig<Tables>().TbItem[id];
 - 数据源**按表选格式、同项目混搭**，表定义的 `input` 一个属性决定——demo 两种都有活样例：`item.json`（JSON 文本：git diff 可读、AI 可直接维护）+ `monster.xlsx`（Excel：策划直接编辑）。
 - JSON input 语法：`*@item.json` = 单文件多记录（根是数组），目录 input = 每文件一条记录。
 - Excel 布局约定：**A 列是标记列**——`##var` 行写字段名、`##` 行是注释行，数据行 A 列留空、数据从 B 列起；多 sheet 用 `表单名@文件.xlsx`。`monster.xlsx` 是活样例（程序生成的 xlsx Luban 也照常读，无需真装 Office）。
-- 输出格式用 **bin**（与 `cs-bin` 代码模板配对，紧凑、解析快）；需要肉眼调试数据时换 `-d json` + `cs-simple-json`。
+- 本框架运行时输出固定用 **bin + cs-bin**（紧凑、解析快，清单按根目录 `.bytes` 建立）。JSON / Excel 是可混搭的**输入源**，不要与 Luban 的 json 输出 target 混淆；需要查看内容时直接看源数据。若要支持 `cs-simple-json + json`，需先新增理解该输出 location 与反序列化方式的独立 Adapter，不能只改 Profile 字符串。
+- `codeTarget` / `dataTarget` 已不是 Profile 可编辑字段，而由生成管线固定为 `cs-bin` / `bin`；旧公开 getter 只为 Editor 源码迁移兼容返回常量，不能据此切换格式。
 
 **LubanConfigProfile 字段速查**：
 
 | 字段 | 常见起点 | 项目约束 |
 |---|---|---|
 | 生成目标 target | `client` | `luban.conf` 里 `targets[].name`——决定 topModule 与 groups 过滤；前后端共表时可加 `server` target 各取所需字段 |
-| 代码模板 codeTarget | `cs-bin` | 与数据格式配对换：`cs-simple-json`（肉眼可调试）等；非 C# 端有 `java-bin` / `ts-json` / `go-bin` / `lua-bin` 等 |
-| 数据格式 dataTarget | `bin` | 与代码模板配对：`json` / `bson` / `lua` 等（cs-bin↔bin、cs-simple-json↔json 必须成对） |
 | 输出代码目录 | 必填 | 目标业务程序集下，如 `Assets/Scripts/Config/Generated`（该 asmdef 引用 `Luban.Runtime` + `Game.Framework.Config`） |
 | 输出数据目录 | 必填 | 某个资源收集器范围内，如 `Assets/Content/Configs` |
 | 清单命名空间 | 与 topModule 同步 | topModule 有值时填同名顶层短名（如 `Cfg`，避开 `Game.Framework.*`）；topModule 为空时可留空，生成到全局命名空间 |
@@ -1943,7 +1957,7 @@ Luban 生成的 `Tables` 构造函数是**同步、一次性构造全表**（每
 ### 铁则与坑
 
 - **topModule 别嵌进含 `System` 子命名空间的层级**（如 `Game.Framework.*`）：生成代码裸写 `System.Func` / `System.Collections`，会被就近解析劫持（CS0234）。demo 用顶层 `DemoCfg`。
-- **生成代码目录被 Luban 接管**：它会清理目录里的陌生文件（表清单是 CLI 跑完后由管线补写的），勿手放任何文件进去。
+- **代码与数据输出目录被事务独占**：本次暂存快照没有的陌生文件会作为陈旧产物清理，勿手放任何文件进去；保留文件的 `.meta` 不会重造。输出路径现存链上的 symlink / junction 会在正式写盘前被拒绝。
 - **数据文件按普通资源收集（TextAsset），不要用 PackRawFile**：YooAsset 的 bundle 类型是包级二选一，AB 包混入 RawFile 收集器后运行时直接失败（实测）。读取统一用 `Bag.LoadBytes`——它按包构建管线自动路由（普通 AB 包按 TextAsset 取内容、RawFile 包走原生通道），业务无需关心包类型。
 - **流程门禁不要自己 `WaitUntil(State is Ready or Failed)`**：这会重复终态编排，并在 Failed 时丢掉根因。业务优先使用 `await this.EnsureConfig<Tables>(token)`；已经持有服务时可直接 `EnsureReady(token)`，只有加载提示等持续 UI 才订阅 `State`。
 - 配置是**只读数据，启动一次性加载**：改数值 = 改 `Datas/` → 重新生成 → 数据 `.bytes` 随资源包热更即可；改表**结构**会改生成代码 → 走代码热更 / 发版。
@@ -1951,8 +1965,8 @@ Luban 生成的 `Tables` 构造函数是**同步、一次性构造全表**（每
 
 > **要点回顾**
 >
-> - 构建期工作台生成「代码 + 数据 + 清单」三件套；运行期只是按清单预载字节、构造一次 `Tables`
-> - 运行期是一个自加载的配置 Utility 服务（不占 Model、不拆 System）：流程 `await EnsureReady(token)`，响应式 UI 订 `State`，已就绪热路径读 `Tables`
+> - 构建期工作台经暂存校验与双目录可恢复事务发布「代码 + 数据 + 清单」三件套；运行期只是按清单预载字节、构造一次 `Tables`
+> - 运行期是一个自加载的配置 Utility 服务（不占 Model、不拆 System）：流程 `await this.EnsureConfig<Tables>(token)`，响应式 UI 订 `State`，已就绪路径 `this.GetConfig<Tables>()`；高频调用缓存返回的 `Tables`
 > - 框架 `Game.Framework.Config` 模块后端无关（不引用 Luban）——接触 Luban 的只有项目侧 `CreateTables` 一行
 > - 数据文件走资源包通道：打包 / 下载 / 热更与普通资源同一套机制
 
@@ -2595,7 +2609,7 @@ CJK 全量字库体积大（单字体 15~30MB），全量随包不现实；砍�
 
 ## 23. 框架诊断面板
 
-菜单 **`SSFramework/诊断与分析/运行时诊断`**——把散在各组件 Inspector「运行时诊断」折叠组里的信息聚合成一个调试器风格窗口（UI Toolkit），定位是**调试与泄漏排查入口**：进 Play 后打开，框架运行时状态实时可见（500ms 增量刷新，结构没变只重绑、树的展开与选中不丢）。设计取舍见 ADR-0026。
+菜单 **`SSFramework/诊断与分析/运行时诊断`**——把散在各组件 Inspector「运行时诊断」折叠组里的信息聚合成一个调试器风格窗口（UI Toolkit），定位是**调试与泄漏排查入口**：进 Play 后打开，框架运行时状态实时可见（500ms 增量刷新，结构没变只重绑、树的展开与选中不丢）。每个 Framework Mono Inspector 只保留默认折叠的就地摘要，不再重复放“打开完整框架诊断”按钮；展开状态按组件实例保存，折叠时仍会直接显示失败或当前 Play 未就绪告警。设计取舍见 ADR-0026。
 
 ### 界面布局（调试器风格：左树 · 右明细 · 下流水）
 
@@ -2910,7 +2924,7 @@ builder.RegisterOwned(new HttpUtility(baseUrl, serializer: proto), typeof(IHttpU
 内置实现的定位是「消息不多的自建后端 / dev server」（Outpost 的排行榜是完整落地样例）：消息多到手写吃力、或要 `.proto` 契约共享 / map / oneof / 有符号 / 浮点，换官方 Google.Protobuf——框架已提供**增强模块 `Game.Framework.Network.Proto`** 承接这一档（可选启用，同 `Asset.Yoo` 收口姿势：Google.Protobuf 依赖收口于模块、内核仍零依赖，可整块删/抽 UPM）。接入三步：
 
 1. **加引用 + 装 DLL**：业务 asmdef 引用 `Game.Framework.Network.Proto`；Google.Protobuf 经 NuGetForUnity 装入（模块自带 link.xml 防 IL2CPP 裁剪）。
-2. **配 + 生成**：打开 `SSFramework/代码生成/Protobuf` 工作台，新建 `ProtoConfigProfile` → Inspector 填 protoc 工具目录、.proto 源目录（放模块下的 `Proto~`，`~` 后缀不被 Unity 导入源文件）与 C# 输出目录 → 按套或批量生成（差量同步：内容未变不落盘、陈旧 `*.g.cs` 自动清理）。卡片会递归统计 `.proto`，并在点击前一次列出缺失的 protoc、源目录或空输入；部分配置就绪时，批量按钮只生成可用项。每套配置必须独占一个位于 `Assets` 内的子目录；相同或父子嵌套目录会暂停整批，因为清理边界就是整棵输出目录。跨模块配置健康检查在 `SSFramework/配置中心`。
+2. **配 + 生成**：打开 `SSFramework/代码生成/Protobuf` 工作台，新建 `ProtoConfigProfile` → Inspector 填 protoc 工具目录、.proto 源目录（放模块下的 `Proto~`，`~` 后缀不被 Unity 导入源文件）与 C# 输出目录 → 点“重新扫描”采集当前输入 → 按套或批量生成（差量同步：内容未变不落盘、陈旧 `*.g.cs` 自动清理）。卡片会递归统计 `.proto`，并在点击前一次列出缺失的 protoc、源目录或空输入；该输入快照在 IMGUI Layout / Repaint 间复用，工程或 Profile 路径变化后只标记失效，不在绘制期间暗中重扫。真正生成不信任这份预览，会重新检查当前磁盘与输出 claim。部分配置就绪时，批量按钮只生成可用项。每套配置必须独占一个位于 `Assets` 内的子目录；相同或父子嵌套目录会暂停整批，因为清理边界就是整棵输出目录。跨模块配置健康检查在 `SSFramework/配置中心`。
 3. **装配序列化器**：`RegisterFile` 整文件注册一个 .proto 的全部消息（含嵌套、跳过 map entry，并**递归 `import` 的依赖文件**——多 .proto 拆分时只给顶层 file、依赖自动带上），换真库后业务调用代码零改动：
 
 ```csharp
@@ -2971,7 +2985,9 @@ builder.RegisterOwned(new WebSocketUtility(serializer: proto), typeof(IWebSocket
 
 #### 先查原因，再决定是否值得拆
 
-打开 `SSFramework/诊断与分析/模块与依赖`。顶部先比较热更 Profile、HybridCLRSettings、Generate stamp 与当前 DLL 中转清单；Module 区优先显示有 linker 根或热更违规的项，每张卡再把当前 DLL 快照消费者与完整 asmdef 图中的删除阻塞者（无论是否进入 Player）分开，并显示源码来自项目 Assets 还是某个 package 版本。常用组合之外，还能展开“任意 Module 入口”查看代码闭包；项目与已安装 Package 的 `link.xml` 都会被扫描，全局第三方和 `Assets/HybridCLRGenerate/link.xml` 单独折叠显示，后者是 Generate 产物，不应手改。所有一方 asmdef 已关闭预编译 DLL 的全局 Auto Reference，可删除 Editor Module 也不接受预定义程序集隐式引用；目标平台条件分支仍以真实 Player/HybridCLR 编译为准。这里的原始 DLL 字节用于找候选，不是最终安装包大小。
+打开 `SSFramework/诊断与分析/模块与依赖`。窗口会立即显示用途、三步证据链和最近会话状态，但**不会因为打开就扫描工程**；明确点击“采集当前证据”后，才读取 Player / Editor 编译图、全部 asmdef、托管 DLL 元数据、Package 来源和 `link.xml`。同轮 Asset 路径、PluginImporter 与两套编译图只采集一次并由各分析阶段复用；进度条说明当前阶段，结果页保留阶段耗时，便于判断时间花在 Unity API、依赖分析还是报告生成。顶部先比较热更 Profile、HybridCLRSettings、Generate stamp 与当前 DLL 中转清单；Module 区优先显示有 linker 根或热更违规的项，每张卡再把当前 DLL 快照消费者与完整 asmdef 图中的删除阻塞者（无论是否进入 Player）分开，并显示源码来自项目 Assets 还是某个 package 版本。常用组合之外，还能展开“任意 Module 入口”查看代码闭包；项目与已安装 Package 的 `link.xml` 都会被扫描，全局第三方和 `Assets/HybridCLRGenerate/link.xml` 单独折叠显示，后者是 Generate 产物，不应手改。工程、Package、构建场景、目标平台或编译图变化会让会话证据立即失效，避免把旧结论误当当前状态。所有一方 asmdef 已关闭预编译 DLL 的全局 Auto Reference，可删除 Editor Module 也不接受预定义程序集隐式引用；目标平台条件分支仍以真实 Player/HybridCLR 编译为准。这里的原始 DLL 字节用于找候选，不是最终安装包大小。
+
+顶部结论的颜色表示“是否需要行动”，不是简单统计有多少条规则：红色 Error 是依赖或删除边界已经违反；黄色 Warning 是证据缺失、来源未知或热更派生状态漂移；蓝色 Advisory 表示结构通过，但存在已知的无条件保留成本；绿色 Clear 才是连这类成本也没有。常见的 `preserve="all"` 属于蓝色说明：它要求 UnityLinker 完整保留所列程序集，通常是反射安全边界，不等于依赖声明有错。保留 Module 时应把它计入体积上界；物理删除 Module 时，其自有 `link.xml` 会一起退出构建。是否值得收窄规则，最终仍要用目标平台 IL2CPP 与 BuildReport 证明。
 
 一个容易踩坑的例子：当前可选 Runtime Module 都引用 Core。若 Core 在热更 Profile 中，那么仍参与 Player 编译的 Fonts / Bridge 等 Module 不能被**单独**取消热更，否则它们会变成引用热更 Core 的 AOT 程序集，构建校验会拒绝。这不是配置工具“太严格”，而是 AOT 必须先于热更代码存在的加载边界。
 
@@ -2987,7 +3003,7 @@ Core 是稳定上游，不作为普通可删除 Module。对强体积约束项�
 
 #### 用真实构建回答“值不值得”
 
-打开 `SSFramework/诊断与分析/真实构建体积`。探针在 `Library` 下创建隔离空工程，每档只从 Source Catalog 记录的真实物理目录复制审计闭包中的 Runtime Module；Module 在 `Assets`、嵌入式 Package 或 registry/Git PackageCache 都适用，报告同时记录稳定资产目录、package 身份和实际复制文件的内容指纹。主工程业务场景、未选目录、HybridCLR 生成物和未选 Module 的 `link.xml` 都不会混入。复制前会把当前来源重新与启动时冻结 SHA-256 比较，复制后再验证目的内容；构建期间源码或本地 Package 有写入就终止剩余档位，不能拿旧 SHA 标记新内容。复制目录使用可读职责名加程序集标识，既避免多个 Package 的 `Runtime/` 撞名，也避开“目录与 asmdef 同名”的 Unity 导入歧义；每档切换还会清掉子工程的 `Library` / `Temp` / `obj`。子进程在 Player Build 前核对每个期望程序集存在且包含源码，随后以目标平台 `BuildPipeline` 成功作为真实编译门禁；不拿可能仍指向 Editor DLL 的 `CompilationPipeline.outputPath` 冒充 Player 产物。除 Core / 两套 UI / full 外，“任意 Module 入口”默认折叠且不勾选，可按需验证 Yoo、Proto、Fonts、Bridge 等组合。若 Domain Reload 后档位拓扑、package 或源码内容发生变化，探针会完成已附着的当前子进程后停止，避免一份报告混入两套来源。
+打开 `SSFramework/诊断与分析/真实构建体积`。打开窗口只读取环境与已有报告；点击“读取可构建组合”才做用于选择的轻量审计，不会预先为每个组合哈希整棵源码树。点击“构建所选组合”时，动作层会重新采集最新拓扑，并且只为勾选档位冻结 manifest、源码与 Package 指纹，窗口预览不会被当作构建证据。探针在 `Library` 下创建隔离空工程，每档只从 Source Catalog 记录的真实物理目录复制审计闭包中的 Runtime Module；Module 在 `Assets`、嵌入式 Package 或 registry/Git PackageCache 都适用，报告同时记录稳定资产目录、package 身份和实际复制文件的内容指纹。主工程业务场景、未选目录、HybridCLR 生成物和未选 Module 的 `link.xml` 都不会混入。复制、指纹与递归清理在动作前验证完整物理树，拒绝 symbolic link、Windows junction 和其它 reparse point；Windows 长路径复制使用扩展路径语义，不会因深层 Package 路径静默漏证据。复制前会把当前来源重新与启动时冻结 SHA-256 比较，复制后再验证目的内容；构建期间源码或本地 Package 有写入就终止剩余档位，不能拿旧 SHA 标记新内容。复制目录使用可读职责名加程序集标识，既避免多个 Package 的 `Runtime/` 撞名，也避开“目录与 asmdef 同名”的 Unity 导入歧义；每档切换还会清掉子工程的 `Library` / `Temp` / `obj`。子进程在 Player Build 前核对每个期望程序集存在且包含源码，随后以目标平台 `BuildPipeline` 成功作为真实编译门禁；不拿可能仍指向 Editor DLL 的 `CompilationPipeline.outputPath` 冒充 Player 产物。除 Core / 两套 UI / full 外，“任意 Module 入口”默认折叠且不勾选，可按需验证 Yoo、Proto、Fonts、Bridge 等组合。若 Domain Reload 后档位拓扑、package 或源码内容发生变化，探针会完成已附着的当前子进程后停止，避免一份报告混入两套来源。
 
 CI / AI 只需做最小删除测试时，可直接执行无窗口菜单 `SSFramework/诊断/AI 自动化/Core 隔离构建（Player Build）`；要回归常用 UI 边界则执行相邻的 `常用档位隔离构建（Core + UGUI + Toolkit）`，三档进入同一报告并可直接比较相对 Core 的差值。两者都不依赖窗口焦点、按钮状态或 MCP `execute_code`。
 

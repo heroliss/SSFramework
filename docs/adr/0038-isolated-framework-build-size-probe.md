@@ -60,7 +60,7 @@ Module 源码不假设位于 `Assets/Game/Framework`。审计先经 `FrameworkMo
 
 #### 窗口预览与执行证据分离（2026-08-29）
 
-`FrameworkBuildSizeProbeWindow.CreateGUI` 只建立布局、读取已落盘结果和会话内只读快照；打开窗口不再隐式运行 Module Audit、遍历全部 asmdef 或为所有档位计算源码 / Package SHA-256。用户明确点击“读取可构建组合”时才刷新用于选择的审计预览，工程或编译图变化后预览立即失效并给出提示。
+`FrameworkBuildSizeProbeWindow.CreateGUI` 只建立布局、读取已落盘结果和会话内只读快照；打开窗口不再隐式运行 Module Audit、遍历全部 asmdef 或为所有档位计算源码 / Package SHA-256。用户明确点击“读取可构建组合”时才刷新用于选择的审计预览，工程、Package、构建场景、目标平台或编译图变化后预览立即失效并给出提示。
 
 预览缓存不是构建输入。点击构建或调用无窗口机器菜单时，动作 Implementation 必须重新采集当前审计证据，并且只为请求的 Profile 计算闭包、manifest 与内容指纹；不能为了方便复用可能陈旧的窗口对象，也不应先为未选组合做昂贵哈希。这样把“打开工作台”“理解并选择”“冻结真实执行证据”分成三个明确阶段，同时保留启动时 fail-fast 与整轮漂移检测。
 

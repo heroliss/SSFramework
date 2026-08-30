@@ -59,6 +59,16 @@ menuPath: SSFramework/诊断/AI 自动化/PlayMode 测试预检（保存脏场�
 
 这不是全局自动保存 Hook：人工点击 Play / Test Runner 仍保留 Unity 原有确认语义，只有自动化显式选择预检才会落盘。若弹窗已经出现，先人工点 Save，再从预检重新开始；不要重复提交已经排队的测试命令。
 
+### AI 自动化菜单为什么点击即执行
+
+`SSFramework/诊断/AI 自动化` 中除“使用说明（人工入口）”外，其余三项都是给 MCP / CI 调用的稳定命令 Interface，不是普通窗口导航：
+
+- `PlayMode 测试预检（保存脏场景）`：可能保存已有路径的脏场景；以 Console 的 `READY / BLOCKED` 判定，不代表测试已经运行。
+- `Core 隔离构建（Player Build）`：立即启动 Core 删除测试；以最近一轮 `report.json` / 窗口终态判定，菜单返回只表示命令已受理。
+- `常用档位隔离构建（Core + UGUI + Toolkit）`：立即启动三档顺序构建；同样需要轮询整轮报告，不能把菜单调用成功当成构建成功。
+
+它们刻意不弹确认框，否则无人值守任务会卡住 Unity 主线程。人工先看说明、选择组合或查看历史结果时，分别使用“使用说明（人工入口）”“模块与依赖”“真实构建体积”窗口。
+
 ## 6. 改场景必须先退出 Play 模式
 
 场景结构改动（增删节点 / 加组件 / 改属性）前先确认编辑器**不在 Play 模式**（`EditorApplication.isPlayingOrWillChangePlaymode`）。Play 下的场景修改是运行时状态——**停止运行即全部回滚**，工具返回 success 也是白做；且 Play 下 GameObject 路径解析可能异常（见过 `component_add` 报 "GameObject not found"）。在 Play 就先停掉再动手，改完 `unity_scene_save` 落盘。
@@ -126,7 +136,7 @@ Seam，由测试显式完成旧、新 owner；真实音频设备等焦点敏感�
 
 ## 12. Module 体积矩阵走隔离构建探针
 
-Core / UGUI / Toolkit 的真实体积比较不要在主工程临时改 `link.xml`、HybridCLR 清单或 Build Settings。人工组合用 `SSFramework/诊断与分析/真实构建体积`；AI / CI 的常用回归直接执行无窗口菜单 `SSFramework/诊断/AI 自动化/常用档位隔离构建（Core + UGUI + Toolkit）`，只验证内核时用相邻的 Core 菜单。它们都在 `Library/SSFramework/BuildSizeProbe/` 创建无 MCP 插件的最小 Unity 子工程，物理删除未选 Module 后顺序构建。
+Core / UGUI / Toolkit 的真实体积比较不要在主工程临时改 `link.xml`、HybridCLR 清单或 Build Settings。人工组合用 `SSFramework/诊断与分析/真实构建体积`；打开窗口本身不扫描，先点“读取可构建组合”，确认后再构建。AI / CI 的常用回归直接执行无窗口菜单 `SSFramework/诊断/AI 自动化/常用档位隔离构建（Core + UGUI + Toolkit）`，只验证内核时用相邻的 Core 菜单。它们都在 `Library/SSFramework/BuildSizeProbe/` 创建无 MCP 插件的最小 Unity 子工程，物理删除未选 Module 后顺序构建；执行入口会重新采集当前审计并只为请求档位计算指纹，不复用窗口预览。
 
 - 先正常切到想测的 BuildTarget；探针不会替 Agent 静默切平台。
 - 启动后轮询最近一轮 `report.json` 或窗口状态；不要因为单次 MCP 超时重复点击构建。

@@ -28,11 +28,15 @@ Demo 教学内容与自动化之间的运行时 Seam。`DemoModuleHost` 在真�
 
 ## Config Readiness
 
-`IConfigUtility<TTables>` 对一次自加载尝试的稳定就绪契约。响应式消费者订阅 `State`，命令式流程 `await EnsureReady(token)` 直接得到同一份 `Tables` 或原始失败；已证明 Ready 的同步热路径才直接读 `Tables`。调用方取消只脱离自己的 waiter，组件与 Context 共同拥有物理加载并在销毁时取消；失败后不隐式重试。该 Interface 把终态编排、根异常保存和共享所有权藏在 Config Module 内，业务不再复制 `WaitUntil(Ready or Failed)`。
+`IConfigUtility<TTables>` 对一次自加载尝试的稳定就绪契约。响应式消费者订阅 `State`；命令式流程通常经 Context 感知的 `await EnsureConfig<TTables>(token)` 得到同一份 `Tables` 或原始失败；已证明 Ready 的同步路径用 `GetConfig<TTables>()`，高频调用再缓存返回值。两个短入口都解析当前精确 Context，不引入全局静态表。调用方取消只脱离自己的 waiter，组件与 Context 共同拥有物理加载并在销毁时取消；失败后不隐式重试。该 Interface 把终态编排、根异常保存和共享所有权藏在 Config Module 内，业务不再复制 `WaitUntil(Ready or Failed)`。
 
 ## Game Flow
 
 `IGameFlow` 是 System 层的宏观业务阶段 Interface；`GameFlow` Implementation 把 `FlowState` 当前状态、最新意图排队、协作取消和每状态子 Context 的所有权保持在同一个深 Module 内。View 在 Command Seam 表达流转意图，持续展示时由查询 Command 返回只读投影；System 与 FlowState 内部可直接解析该 System。项目侧 `FlowNav` 是只观察 fire-and-forget 终态的 Adapter：正常顶替/销毁取消静默，真实进入失败进入 Log Seam，它不拥有转换规则。`Current` 不单拆 Model，因为它只是转换不变量的一部分；保留在同一 Implementation 能提高 Locality，避免增加一条只做镜像同步的浅 Interface。
+
+## Luban Generation Transaction
+
+`Game.Framework.Config.Editor` 内一套 Luban Profile 的可恢复发布 owner。CLI 只写工程临时区；Implementation 先验证 `cs-bin` 代码、根目录 `*.bytes` 数据与由其生成的 manifest，再为正式代码 / 数据两棵独占目录计算同一份差量提交。未变化文件不写并保留 `.meta`，陈旧文件连配对 `.meta` 清理；首次修改前备份两棵树，当前进程内任一步失败就同时恢复，回滚失败则保留 recovery 目录。正式写盘前会重新核对 Generated Output Claim Catalog，并拒绝输出路径现存链上的 symlink / junction；强杀 Editor 或断电不在跨目录原子保证内。这个深 Module 保持在 Config Editor，本身不是 Protobuf 单目录后缀同步的通用 Interface。
 
 ## HTTP Request Owner
 
@@ -48,7 +52,7 @@ Demo 教学内容与自动化之间的运行时 Seam。`DemoModuleHost` 在真�
 
 ## Framework Module Audit
 
-编辑器侧的 Module Catalog、删除计划与体积证据入口。它以当前目标平台的 Player 编译图确定候选 Module，再读 asmdef、当前已编译 DLL 快照的元数据引用、FrameworkHotUpdateProfile，以及项目 Assets 与已注册 Packages 的全部 `link.xml`，把“源码存在、参与编译、预定义程序集隐式引用规则、当前 DLL 快照消费、全 asmdef 删除阻塞、linker 根、热更完整 DLL 部署、最终 Player 证据”保持正交；`autoReferenced:false` 只关闭 Assembly-CSharp 等预定义程序集的隐式引用，不叫“按需启用”，也不代表 Module 退出 Player 编译图。Core / Boot 删除门禁同时比较 asmdef 声明与当前 DLL 元数据闭包：Core 不得接触任意可选 Framework Player Module（含 Boot），Boot 不得接触 Framework Runtime；闭包中的缺失目标也不能因未进入当前 Catalog 而假绿。审计还经只读反射接缝比较可删除 HybridCLR 热更新构建 Module 所拥有的 HybridCLRSettings、Generate stamp、当前热更拓扑 / AOT 补元数据清单与 DLL 中转 manifest；资源构建 Module 是否安装与这份热更证据保持正交。它不把当前 Editor 中可得的 DLL 变体冒充目标平台 Player，也不把文件存在冒充 DLL 内容相对源码新鲜或已部署，并区分空 Profile 的显式纯 AOT 与缺失 / 重复 Profile。它报告常用组合与任意 Module 入口闭包，并解释受热更依赖传播约束的安全移除事务；不提供含糊的 `SetEnabled(bool)`，也不接管 UPM 安装/版本管理。原始 DLL 字节只用于组合对比，最终包体仍以目标平台 Player BuildReport 为准。
+编辑器侧的 Module Catalog、删除计划与体积证据入口。它以当前目标平台的 Player 编译图确定候选 Module，再读 asmdef、当前已编译 DLL 快照的元数据引用、FrameworkHotUpdateProfile，以及项目 Assets 与已注册 Packages 的全部 `link.xml`，把“源码存在、参与编译、预定义程序集隐式引用规则、当前 DLL 快照消费、全 asmdef 删除阻塞、linker 根、热更完整 DLL 部署、最终 Player 证据”保持正交；`autoReferenced:false` 只关闭 Assembly-CSharp 等预定义程序集的隐式引用，不叫“按需启用”，也不代表 Module 退出 Player 编译图。Core / Boot 删除门禁同时比较 asmdef 声明与当前 DLL 元数据闭包：Core 不得接触任意可选 Framework Player Module（含 Boot），Boot 不得接触 Framework Runtime；闭包中的缺失目标也不能因未进入当前 Catalog 而假绿。审计还经只读反射接缝比较可删除 HybridCLR 热更新构建 Module 所拥有的 HybridCLRSettings、Generate stamp、当前热更拓扑 / AOT 补元数据清单与 DLL 中转 manifest；资源构建 Module 是否安装与这份热更证据保持正交。它不把当前 Editor 中可得的 DLL 变体冒充目标平台 Player，也不把文件存在冒充 DLL 内容相对源码新鲜或已部署，并区分空 Profile 的显式纯 AOT 与缺失 / 重复 Profile。它报告常用组合与任意 Module 入口闭包，并解释受热更依赖传播约束的安全移除事务；不提供含糊的 `SetEnabled(bool)`，也不接管 UPM 安装/版本管理。结论固定分为 Error（结构错误）、Warning（证据缺口或派生状态漂移）、Advisory（已知无条件 linker 保留成本）和 Clear；Module 自有 `preserve="all"` 只会形成蓝色说明，不再把“依赖一致但有意完整保留”渲染成长期黄色故障。窗口打开只绘制轻量说明或会话缓存，明确点击“采集当前证据”才扫描；一次采集冻结并复用 Asset 路径、PluginImporter 和 Player / Editor 编译图快照，热更新 stamp 校验继续消费同一份 Asset / Player 输入，并仅在本轮复用已读取文件。Player linker 根按“根集合 + 可达依赖并集”一次批量查询，同一共享闭包不再按每个 Resources 根重复遍历；任何下一轮采集仍重新读取当前状态。审计报告阶段耗时，缓存随工程、Package、构建场景、目标平台或编译图变化失效。原始 DLL 字节只用于组合对比，最终包体仍以目标平台 Player BuildReport 为准。
 
 ## Framework Build Module Split
 
@@ -60,7 +64,7 @@ Framework Module Audit 内部拥有的第三方依赖证据 Module。它以一�
 
 ## Framework Build Size Probe
 
-Framework Module Audit 的真实玩家构建验证 Adapter。它在 `Library` 下创建隔离空工程，只复制某个审计组合的 Runtime Module Implementation 与当前版本依赖，再调用当前目标平台 Player Build；主工程的业务场景、未选 Module、`link.xml` 和 HybridCLR 生成物都不进入证据。实际 DLL 闭包与 asmdef 声明闭包共同决定需要复制、完整保留的 Framework Module，declared-only 依赖不会因当前 IL 未使用而缺席。外部依赖再由 Framework Module Source Catalog 唯一决定 Package 名、安装来源和物理目录：registry Package 复用主工程版本与 scoped registry，并在整轮启动时按档冻结 manifest 文本与指纹；Git / embedded / local / tarball Package 从已解析源码根整体复制，身份去掉本机路径与 Git URL 凭据并记录内容指纹；复制 Package 中的相对 `file:` 传递依赖 fail-fast；Assets 外部依赖或未知显式来源同样 fail-fast，不维护 Module 名称映射。运行目录与结果/日志路径不进入分享 JSON，恢复时由本机 latest-run 指针重建。聚合 `nuget-packages` 仍是一个物理复制边界，不冒充单 DLL 可卸载能力。所选程序集完整保留，因此结果是确定性的体积上界，不是假装成具体游戏实际用量的包体承诺。
+Framework Module Audit 的真实玩家构建验证 Adapter。它在 `Library` 下创建隔离空工程，只复制某个审计组合的 Runtime Module Implementation 与当前版本依赖，再调用当前目标平台 Player Build；主工程的业务场景、未选 Module、`link.xml` 和 HybridCLR 生成物都不进入证据。实际 DLL 闭包与 asmdef 声明闭包共同决定需要复制、完整保留的 Framework Module，declared-only 依赖不会因当前 IL 未使用而缺席。外部依赖再由 Framework Module Source Catalog 唯一决定 Package 名、安装来源和物理目录：registry Package 复用主工程版本与 scoped registry，并在整轮启动时按档冻结 manifest 文本与指纹；Git / embedded / local / tarball Package 从已解析源码根整体复制，身份去掉本机路径与 Git URL 凭据并记录内容指纹；复制 Package 中的相对 `file:` 传递依赖 fail-fast；Assets 外部依赖或未知显式来源同样 fail-fast，不维护 Module 名称映射。任何递归读取、复制、指纹与清理先验证完整物理目录树，遇到 symbolic link、junction 或其它 reparse point 会在改动前 fail-fast，避免词法上仍在工程内的路径穿透到外部目录。窗口打开与档位预览不计算全矩阵内容指纹；真正启动时重新采集 Audit，并只冻结所请求档位，预览缓存绝不充当执行证据。运行目录与结果/日志路径不进入分享 JSON，恢复时由本机 latest-run 指针重建。聚合 `nuget-packages` 仍是一个物理复制边界，不冒充单 DLL 可卸载能力。所选程序集完整保留，因此结果是确定性的体积上界，不是假装成具体游戏实际用量的包体承诺。
 
 ## Framework Module Source Catalog
 
@@ -68,7 +72,19 @@ Editor 侧把 Unity 资产身份还原为物理源码与 Package 所有权的唯
 
 ## Framework Editor Catalog
 
-通用工具中心与配置中心使用的 Editor-only 导航 Catalog。可选 Module 分别通过 `FrameworkToolRegistry` 和 `FrameworkConfigRegistry` 登记自己的标题、说明、工作台路径，以及 Profile 的真实类型和数量语义；中央窗口只消费稳定快照，不维护可选程序集限定类型名，也不复制生成、构建或配置 Implementation。删除 Module 后，其注册随域重载自然消失；相同 id 的不同元数据 fail-fast，避免后加载 Adapter 静默覆盖卡片。这个 Seam 只负责发现与导航，不创建资产、不执行副作用，也不代替 Unity Package Manager。
+通用工具中心与配置中心使用的 Editor-only 导航 Catalog。可选 Module 分别通过 `FrameworkToolRegistry` 和 `FrameworkConfigRegistry` 登记自己的标题、说明、工作台路径，以及 Profile 的真实类型和数量语义；中央窗口只消费稳定快照，不维护可选程序集限定类型名，也不复制生成、构建或配置 Implementation。`FrameworkEditorProfileCatalog` 缓存“某类型有哪些资产路径”的发现快照，按 revision 在 `projectChanged` 时统一失效，并供配置中心、所有 Framework Profile owner 与只读审计复用；通用 stable-first loader 遇到“非空首路径已无法加载”这类确定陈旧证据时，只刷新该类型并重试一次。单例 owner 仍负责每 revision 一次的多份 Warning，多份 owner、默认初始化、创建与业务校验同样留在所属 Module。固定路径自动创建先强制刷新类型、确认默认目录与目标没有 reparse / 异类型 / 未导入文件碰撞，创建后再刷新并验证新资产就是稳定生效项；显式类型刷新本身不清空其它快照，但 Unity 随后的全局 `projectChanged` 仍可统一失效它们。删除 Module 后，其注册随域重载自然消失；相同 id 的不同元数据 fail-fast，避免后加载 Adapter 静默覆盖卡片。这个 Seam 只负责发现与安全加载，不创建资产、不执行副作用，也不代替 Unity Package Manager。
+
+## Framework Generated Output Claim Catalog
+
+可选 Editor 生成器之间共享的输出与清理边界 Seam。每个 Module 自注册只读 collector，把已成立的目标描述成独占目录（Exclusive Directory）、递归文件后缀（Recursive File Suffix）或精确文件（Exact File）；Catalog 只比较经 `FrameworkProjectPath` 规范化的声明，不读取生成器 Profile 类型，也不接管输入、工具链或写盘 Implementation。工作台预览严格只消费已有外部快照；冷启动或 `projectChanged` 后缺少的 Module 会明确标成“待写盘前重采”，不会在窗口绘制链暗中执行 collector。任何创建、覆盖或清理动作前必须强制重采集；collector 失败会 fail-fast，不能把证据缺失解释成没有冲突。删除一个 Module 后，其声明来源随域重载自然消失。
+
+## UI Binding Prefab Catalog
+
+`Game.Framework.UI.UGui.Editor` 内用于输出 claim 的候选 Prefab 索引。首次需要完整写盘证据或人工点击“重新扫描”时加载全工程 Prefab 一次；之后由 AssetPostprocessor 检查导入、移动和删除的 Prefab，并沿会话内记录的 Prefab Variant 依赖图重验后代，即使 Unity 回调只报告基 Prefab 也不会留下陈旧候选。候选路径与 Variant 依赖一起用 `SessionState` 跨脚本域重载复用。索引只回答“根上是否有 `UIBindingData`”，不缓存条目、Profile 或目录覆盖；collector 仍重新加载命中的少量 Prefab 并解析当前输出。预览缺少快照时只报告待采，不暗中扫描；真实写盘证据缺失时必须回退完整扫描，不能把不完整增量集合冒充安全。这个深 Implementation 留在 UI.UGui Editor Module；删除该 Module 后索引、Postprocessor 与 claim 来源一起消失，不为单一消费者抽中央资产引用 Interface。
+
+## Protobuf Generation Preview
+
+`Game.Framework.Network.Proto.Editor` 工作台对一组 `ProtoConfigProfile` 的只读输入快照。只有人工点击“重新扫描”才递归读取 `.proto` 目录；IMGUI Layout / Repaint 只消费快照。`FrameworkEditorProfileCatalog` revision 或 Profile 的 protoc / 源 / 输出路径变化会廉价标记快照失效，不在重绘中自动重扫。这份预览只决定卡片与按钮状态；真正生成仍绕过缓存，重新验证当前磁盘、工具和输出 claim。
 
 ## Mono Context Initialization Issue Group
 

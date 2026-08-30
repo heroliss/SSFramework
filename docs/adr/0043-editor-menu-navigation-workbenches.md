@@ -15,29 +15,32 @@
 2. 工作台必须在按钮附近解释用途、前置条件、主要影响和失败后的下一步；按钮禁用只改善体验，动作 Implementation 仍调用 `FrameworkEditorOperationGate` 二次检查。窗口与动作层必须消费同一套 Unity 状态语义，并把阻止原因显示在点击前：编译、资产导入和 Player Build 一律阻止副作用动作；需要 Edit Mode 的动作还会阻止 Play / 即将切换 Play。
    `requireEditMode:false` 表示“有副作用但可在 Play 中执行”，例如部署或启动本地服务，并不表示只读。真正只读的校验、刷新、定位和查看动作不应为了复用布尔参数而误接 Gate。
 3. `FrameworkToolsWindow` 是意图导航 hub，不复制 Module 的业务逻辑。可选 Editor Module 通过 `FrameworkToolRegistry` 登记描述符；删除整个 Module 后，其卡片自然消失。
-4. `FrameworkConfigOverviewWindow` 保持只读配置发现 hub。拥有 Profile 的 Module 通过 `FrameworkConfigRegistry` 登记真实资产类型、单例/多份语义、附属配置与工作台路径；中央窗口不维护可选程序集限定类型名。只读/导航路径使用 `TryResolve`，缺配置时显示显式“创建”按钮；查看目录不创建空目录。
+4. `FrameworkConfigOverviewWindow` 保持只读配置发现 hub。拥有 Profile 的 Module 通过 `FrameworkConfigRegistry` 登记真实资产类型、单例/多份语义、附属配置与工作台路径；中央窗口不维护可选程序集限定类型名。`FrameworkEditorProfileCatalog` 缓存按类型发现的资产路径快照，供中央窗口、全部 Framework Profile owner 与只读审计复用；`projectChanged` 统一失效，人工按钮明确称为“重新扫描”，首次打开先绘制窗口壳再延迟采集。Catalog 的 stable-first loader 只在非空缓存的首路径已无法加载时按类型刷新一次，不接管单例/多份、默认初始化、创建或业务校验；这些语义仍留在 owner Module。单例 owner 把重复 Warning 限为每 revision 一次；固定路径创建在任何默认目录写入前强制刷新，拒绝 reparse 与路径占用，创建后再刷新并确认新资产是稳定生效项。显式按类型刷新不会主动清空其它快照，但后续 Unity `projectChanged` 仍可执行全局失效。只读/导航路径使用 `TryResolve`，缺配置时显示显式“创建”按钮；查看目录不创建空目录。
 5. 保留两类例外：
    - `Assets/SSFramework`、`GameObject/SSFramework` 等拥有真实选择上下文的操作；
    - `SSFramework/诊断/AI 自动化/*` 下由 ADR 锁定路径、供 MCP/CI 使用的稳定机器 Interface。
-   配置驱动的 `SSFramework/场景/*` 动态项也保留，因为它们只执行明确导航，并已有保存/退出 Play 安全语义。
+   后一类点击即执行且不弹确认框：无人值守调用需要确定终态，弹窗反而会占住 Unity 主线程。人工说明由同目录的“使用说明（人工入口）”窗口承载，逐项列出影响、完成判据与对应工作台；三个既有机器路径保持不变。配置驱动的 `SSFramework/场景/*` 动态项也保留，因为它们只执行明确导航，并已有保存/退出 Play 安全语义。
 6. `FrameworkMenuContractTests` 反射全部 `[MenuItem]`：除自动化白名单外，所有人工 `SSFramework/` 顶部入口的声明类型必须是 `EditorWindow`，执行路径必须唯一。
 7. Demo 特有维护入口归 `SSFramework/Demo 教学/维护与校验`，不注册进通用工具中心。
 8. 共用的 `FrameworkProjectPath` 在写盘前把配置路径规范化并验证工程 / `Assets` 边界；只检查
-   `StartsWith("Assets/")` 不足以阻止 `Assets/../..`。具有整理或清理语义的生成器还必须声明输出所有权：
-   Protobuf / Luban 拒绝相同或嵌套目录，服务安装器拒绝重复文件，避免后执行配置覆盖前一份产物。
+   `StartsWith("Assets/")` 不足以阻止 `Assets/../..`，词法 containment 也不足以阻止 symbolic link、Windows junction 或其它 reparse point 穿透边界。递归读取、复制、指纹与删除会先验证整棵物理树，发现重解析节点就在任何 mutation 前 fail-fast；删除只接受严格位于已验证 boundary 内的目标，并按当前文件系统的大小写语义判断 containment。`FrameworkGeneratedOutputClaimCatalog` 再把跨生成器写入或清理范围收敛为三种中立声明：独占目录、递归文件后缀、精确文件。Luban、Protobuf、服务安装器、UI Binding、资源包名常量与字体字集分别在自己的可删除 Editor Module 中注册 collector；Core 只比较规范路径与后缀，不硬编码 Profile 或生成器类型。工作台预览只核对已有快照，缺失来源必须显示为待写盘前重采，不能从窗口绘制链冷启动 collector；任何创建、覆盖或清理前强制重采集，长耗时 Luban CLI 还会在 staging 完成、事务 commit 前再次重采。collector 异常 fail-fast，删除 Module 后声明自然消失。
 9. 资源包名与版本号同时是磁盘目录和 CDN URL 段，统一经 `FrameworkBuildArtifactPath` 限制为可移植叶子名；
    构建与部署在任何递归清理前再次证明目标是声明根目录的直接子项，并按大小写不敏感口径拒绝重复包名。
 10. `FrameworkEditorOperationGate` 只拥有跨 Module 一致的 Unity Editor 状态，不接收 Profile、工具路径、输入文件或输出所有权等业务条件。廉价且确定的业务前置检查留在所属 Module，窗口用于提前解释，Generator / Builder 仍在真正写入前复验，避免 GUI 绘制到点击之间的状态竞态。
 11. Core 的测试只锁定 Gate evaluator 与 Core 自有窗口。可选 Editor Module 在自己的测试程序集内证明窗口消费共享 Gate；Core 不通过源码路径或类型名反向拥有可删除 Module。
+12. 工具窗口使用一套窄的 Editor 视觉 helper 统一 hero、语义色、卡片、指标与响应式换行；它只表达通用视觉语法，不抽象各 Module 的业务布局。窗口 `CreateGUI` 必须保持轻量，昂贵扫描、文件哈希和外部进程只能由明确动作触发；IMGUI 的 Layout / Repaint 也只能消费已完成快照，不得直接递归读盘。Protobuf 工作台的递归 `.proto` 检查因此改由“重新扫描”明确采集，工程 revision 或 Profile 路径变化只标记预览失效。UI Binding 的配置窗口同样只读共享 Profile 快照；输出 claim 所需的 Prefab 候选首次完整建立后，以 AssetPostprocessor 增量维护，并沿记录的 Prefab Variant 依赖重验后代，再经 `SessionState` 跨脚本域重载复用；真正采集仍读取候选的当前绑定与覆盖配置。会话缓存随工程、Package、构建场景、目标平台或编译图变化失效，写入/构建动作仍重新采证；预览证据不存在时明确标记待采，真实动作则完整补采，不能以缓存命中率换安全。同步的 Module Audit 显式显示阶段进度，并在结果中保留各阶段耗时；一次动作内的全局 Asset、Importer 与编译图输入只采集一次。
 
 ## Consequences
 
 - 菜单树从“命令清单”变成可预测的导航目录；新用户在执行前能理解步骤与风险。
-- Module 的交互说明与 Implementation 保持 Locality，Core 只持有路径/注册 Seam，不反向引用可选模块。
+- Module 的交互说明与 Implementation 保持 Locality，Core 只持有路径/注册 Seam，不反向引用可选模块；新增生成器只需贡献自己的 claim Adapter。
 - “按钮为什么是灰的”与点击后动作层的拒绝原因一致；AI 可以读取窗口说明或稳定 Console 反馈，不需要靠抢前台焦点试点按钮。只读诊断仍可在 Play 中使用。
+- 机器菜单为何即时执行、会影响什么、怎样判定完成现在有可发现的人工说明入口；无需给稳定自动化 Interface 塞入模态确认。
 - 常用操作多一次“打开窗口”的动作，但窗口可连续执行同一流水线并保留上下文，整体操作成本更低。
 - 既有人工菜单字符串发生迁移；Demo、guide 和生成代码注释必须同步。机器自动化路径保持不变，避免破坏 MCP/CI。
-- 错误输出路径现在在任何目录创建、覆盖或清理前失败；已有把输出写到 `Assets` 外的配置需要迁回项目资产目录。
+- 错误路径或跨生成器输出冲突现在在任何目录创建、覆盖或清理前失败；已有把输出写到 `Assets` 外、放进其它生成器独占/清理范围的配置需要迁移。
+- 配置中心、工作台、构建入口与只读审计不再各自重复全工程 Profile 搜索；发现快照可复用，确定陈旧路径会自修复，固定路径创建不会覆盖已有或边界外资产，owner Module 仍保留自己的配置语义。
+- 递归文件操作不会跟随工程内的 symbolic link / junction 访问或删除边界外内容；代价是有意使用这类链接承载生成输入的项目需要改为真实目录或显式的外部工具流程。
 - 本决策不引入通用 command bus，也不替代 Unity Package Manager；窗口仍调用既有 Builder/Generator Implementation。
 
 ## Alternatives considered

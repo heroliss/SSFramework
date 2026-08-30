@@ -13,7 +13,7 @@
 5. **Demo + guide + AI 规则同步**：教学和协作约束不能继续推荐旧路径；
 6. **全量验证**：编译、EditMode、PlayMode、Demo 防腐检查与文档一致性。
 
-## 已验证基线（2026-08-28）
+## 已验证基线（2026-08-30）
 
 | 维度 | 当前事实 |
 |---|---|
@@ -22,8 +22,8 @@
 | Demo | 32 个自动发现章节；Catalog 集中拥有 Adapter 生命周期，并按 Capability / Concept / Workflow 校验真实 Build 教学语义 |
 | 教程 | `framework-guide.md` 28 章 |
 | ADR | 0001–0045；0040 为 UPM-aware 源码目录，0041/0042 补齐依赖证据，0043 收口 Editor 菜单与工作台，0044 固化 Unity CLI 工程外 Adapter 边界，0045 拆分资源与 HybridCLR 构建依赖 |
-| 测试 | PlayMode 545 + EditMode 471，共 1016 项全绿；交互式 MCP 后台运行且 PlayMode 先预检，命令行入口默认 EditMode + PlayMode |
-| Demo CodeRef | 315 处可打开源码跳转；完整门禁通过后以精准命中为基线，注释、文案与外部文档路径不计入源码构造点 |
+| 测试 | PlayMode 545 + EditMode 573，共 1118 项全绿；交互式 MCP 后台运行且 PlayMode 先预检，命令行入口默认 EditMode + PlayMode |
+| Demo CodeRef | 317 处可打开源码跳转；完整门禁通过后以精准命中为基线，注释、文案与外部文档路径不计入源码构造点 |
 | AI 常驻规则预算 | 最深 AGENTS 链 30.48 KiB，低于 Codex 默认 32 KiB 项目指令上限；本轮已压缩 Demo 教程式规则，新增常驻规则前仍须优先外移可测试/可按需加载内容 |
 
 ## 已完成的高优先级闭环
@@ -109,6 +109,9 @@
 - 调用方取消只脱离自己的 waiter，配置组件与 Context 继续拥有共享加载；owner 销毁才取消物理操作和剩余等待。完成信号只表达终态，根异常由 `ExceptionDispatchInfo` 保存，避免无人等待时出现未观察的 UniTask 异常。
 - `MonoConfigUtilityBase` 在任何资源 I/O 前快照并校验清单，拒绝空项、重复项及空表根；Outpost 战斗启动迁移到新契约，Demo、guide、ADR-0009、领域词汇与业务规则同步解释选择标准和失败/取消边界。
 - 独立 `Game.Framework.Config.Tests` 以真实 Mono Context + AssetUtility + 可控 Provider 覆盖 Start 前等待、稳定表根、原始失败与日志 context、调用方取消不截断 owner、owner 销毁取消物理加载，以及无效清单在 Adapter 工作前 fail-fast；测试随 Config 目录整体删除，不反向黏住通用 Test Module。
+- 常用调用新增 Context 感知的 `GetConfig<TTables>()` / `EnsureConfig<TTables>(token)`：删除重复的 Utility 泛型解析和分散的未就绪判断，但不复制 readiness 状态机；Outpost 的长寿命 System 只在初始化 Seam 等待一次，之后继续缓存 `Tables` 直读。
+- 明确拒绝静态 `TbItem` / `Tables.Current` 与默认逐表层级权限矩阵：前者会隐藏父子 Context、多配置集与测试身份，后者只镜像生成 schema。客户端/服务端归属用 Luban target、独立配置集或程序集处理，业务解释才建立领域查询 Adapter。
+- Config 契约测试补充同步早读 fail-fast、层对象与 Command 解析同一 Context、快捷入口不触发二次加载；Demo 用真实索引器 `TbItem[id]` 展示最短安全路径，并说明高频调用应缓存表根。
 
 ### P1 · 本地化延迟 Source 失效语义
 
@@ -138,6 +141,7 @@
 - 报告 Core-only / Core + UGUI / Core + Toolkit / 全部 Runtime / 当前 HybridCLR 热更档位的原始托管闭包，并机器执行 Core、两个 UI 后端与 Bridge 的删除测试。窗口改为“健康结论 → 关键数字 → 通俗建议 → 常用组合卡片”的渐进披露；完整模块、热更配置、程序集清单和原始报告默认折叠，620px 以下按钮与指标卡纵排且使用内容高度，避免裁剪和重叠。
 - Core、Fonts、Proto、UI 与两个后端的真实外部依赖全部回写 asmdef 显式声明，审计不再发现隐式依赖；ADR-0010/0027、Module 地图、guide §24/§26、Framework AGENTS 与 Demo 接入章同步依赖语义。
 - 原始 DLL 字节明确不等于最终包体；先用它发现值得实测的候选，再以 WebGL/小游戏 Player BuildReport 决定是否拆 `ReactiveListBinding` 或 Core 能力，避免为理论体积制造浅 Module。
+- 审计结论拆成 Error / Warning / Advisory / Clear：依赖错误、证据缺口与已知 `preserve="all"` 成本不再混成一个黄色提醒；无条件保留仍进入体积解释，但不会冒充结构故障。一次采集复用 Asset 路径、PluginImporter 与 Player / Editor 编译图输入，窗口显示进度和阶段耗时。
 
 ### P1 · 隔离 Player Build 体积证据
 
@@ -182,7 +186,12 @@
 
 - Module Audit 不再把 asmdef `references` 与 `precompiledReferences` 合并成一类：前者只匹配 asmdef 程序集，后者只在 `overrideReferences:true` 时匹配预编译 DLL。Framework、Demo、业务与可选 Odin Adapter 的直接 DLL 依赖已经迁移到真实字段；所有一方 Runtime、Editor 与测试 asmdef 均退出插件 Auto Reference，可删除 Editor Module 同时关闭预定义程序集隐式引用，并由门禁阻止回退。
 - 工具中心与配置中心都改为 Module-local 注册：前者登记工作台导航，后者登记真实 Profile 类型、单例/多份语义和附属配置。中央窗口不再维护可选程序集字符串表，删除 Module 后两类卡片随域重载自然消失。
+- 新增 `FrameworkEditorProfileCatalog`，把配置中心、批量 Profile owner 与只读审计重复执行的 `AssetDatabase.FindAssets` 收敛为按类型、按工程 revision 的发现快照；显式“重新扫描”与 `projectChanged` 失效，创建和业务校验仍由 owner Module 负责。
+- Profile Catalog 接入已经覆盖全部 Framework owner：资源构建、HybridCLR 热更新、字体字集与场景快捷入口删除各自的 `_cached + projectChanged + FindAssets`，和 Luban、Protobuf、Service Installer、UI Binding 一起消费同一 revision。Catalog 的窄 stable-first loader 只修复“非空首路径已无法加载”的确定陈旧快照，不接管 owner 的 Warning、默认初始化或创建；单例仍把重复 Warning 限为每 revision 一次。五个固定路径自动创建 owner 会在任何默认目录 mutation 前强制刷新，拒绝 reparse、异类型或尚未导入文件占位，写入后再验证新资产就是稳定生效项；显式类型刷新不主动清空其它缓存，但 Unity `projectChanged` 仍可全局失效。旧 `Assets/Game/Settings` 资产不移动；字体配置同时复用 `FrameworkProjectSettingsLocation`，删除重复目录创建 Implementation。最终完整 EditMode 572/572、PlayMode 545/545，共 1117/1117 通过。
+- 配置中心从 IMGUI 灰色长列表迁到共用 UI Toolkit 视觉语法：用途 hero、Module / 资产 / 单例三项摘要、分组卡片和窄窗纵排形成明确层级；窗口壳先显示，Profile 发现经 root scheduler 延迟执行，Domain Reload 后也不会停在永久 loading。
+- `FrameworkProjectPath` 深化为物理目录树安全 Seam：递归读取、复制、指纹和删除统一拒绝 symbolic link / junction / reparse point，且删除在任何 mutation 前验证整棵树；Windows junction 集成测试证明工程内链接不能触及边界外标记文件。
 - HybridCLR Generate stamp 升级为 v4：热更侧读取 HybridCLR 针对目标平台编译的 DLL 元数据拓扑（定义、布局、签名、泛型、Attribute、P/Invoke / calli 与元数据操作数），AOT 侧哈希非热更 Player 源文件、asmdef、defines 与非 Unity 内置预编译 DLL；另记录 source `link.xml`、启用场景、Resources / Preloaded 资产和序列化依赖组成的 Player linker 根，避免误用 `Library/ScriptAssemblies` 的 Editor 变体或漏掉“代码未变、裁剪根已变”。普通热更算术、分支和常量变化不失效；AOT / linker 输入或会改变 MethodBridge 的结构变化要求重新 Generate。重新生成的 AOT / linker / CodePackage 清单已移除 Sirenix。
+- Generate stamp v5 保持 v4 的证据范围，把 linker 图深化为“根集合 + 可达依赖并集”的一次批量采集，并在单轮指纹会话内去重 source/compiler/DLL/序列化资产读取；Module Audit 把已冻结的 Asset 路径和 Player 图沿可删除反射 Seam 交给热更新 Module。旧 v4 stamp 明确要求一次 Generate 迁移，不在只读审计中写盘。相同 AOT + linker 基准由 25.215s 降至 2.878s（约 88.6%），且缓存不跨轮，新鲜度语义不放松。
 - Generate 的迷你 Player Build 会原地清空启用了 `Clear Dynamic Data On Build` 的 TMP / TextCore 源字体。构建器现在按序列化标记通用发现资产，Generate 前保存字节，无论 Generate 成败都逐文件尝试恢复；若生成与恢复同时失败则聚合两边异常，避免自动化流程污染项目工作树或遮蔽根因，不硬编码 Demo 路径。
 - 默认资源装配从 Core 的 Yoo 程序集限定字符串迁移到 Adapter Assembly 注册。Core 只拥有 `DefaultAssetProviderAttribute` 与严格的零/一/多注册校验；删除 Yoo 后可安装另一个 Adapter，无需修改 Core。取舍与门禁见 ADR-0041。
 
@@ -233,6 +242,19 @@
 - Core 测试只拥有 evaluator 与 Service Installer；五个可删除 Editor Module 在各自测试程序集内锁定接入，不把可选窗口类型或源码路径反向写进 Core。真实 Utility 窗口已用 Unity MCP `PrintWindow` 在 280–320px 复查，资源、Proto、Installer 与 HotUpdate 的纵排、长文换行和 Play 状态双按钮原因均无横向裁切。审查补出的“业务原因被 Gate 覆盖 / 无 Profile 次按钮空提示”由 HybridCLR 模块内纯 evaluator 锁定；本轮业务前置检查最终定向 29/29、完整 EditMode 412/412、PlayMode 545/545，共 957/957 通过。
 - 第一批 owner Module 业务前置检查已落地：资源工作台把“构建 / 部署 / 伺服已有 Deploy”按真实依赖分别判定，零启用包不会误伤本地服务器；动作层在保存脏场景、确认全量重建或触碰 SBP 前再次拒绝无效请求。服务安装器把输出路径安全与全局所有权作为整批写入门禁，把命名空间、扫描目录与扫描失败保留为逐条结果；总览和 Inspector 会显示可生成条目数，坏条目不再隐藏好条目，也不会到点击后才暴露跨 Profile 冲突。
 - 第二批 owner Module 已把 Luban、Protobuf 与字体字集的廉价前置条件前移：Luban 一次报告 CLI / conf 缺项，Protobuf 一次报告当前平台 protoc / 源目录并递归统计输入，两个批量入口只提交已就绪 Profile；输出所有权只比较已成立的安全声明，空白新 Profile 不再冻结其它配置，但未就绪 Profile 的有效声明仍能阻止冲突。字体把工程边界错误与“目录暂不存在、可能空字集”的可恢复警告分开，并拒绝能逃逸扫描根的文件模式。窗口与 Generator 共用 Module 内只读报告，GUI 不预跑外部进程、解析器或完整生成，也没有为表面相似抽中央泛型工作台。共享 `FrameworkProjectPath` 进一步拒绝被普通文件占用的目标/父级，UGUI 删除重复路径实现；四个真实生成器复用 `FrameworkCSharpSyntax`，集中命名空间验证与关键字安全标识符清洗。最终定向 107/107、完整 EditMode 471/471、PlayMode 545/545，共 1016/1016 通过。
+- 新增 Editor-only `FrameworkGeneratedOutputClaimCatalog` Seam：独占目录、递归文件后缀、精确文件三种 claim 足以表达当前清理边界，Luban、Protobuf、服务安装器、UI Binding、资源包名常量与字体字集由 owner Module 自注册 collector，Core 不引用可选生成器类型。预览只消费随 `projectChanged` 失效的既有快照，冷启动证据缺口明确显示且不执行 collector；任何真实写入前强制重采集且 collector 失败 fail-fast。跨 Module 冲突、同来源内部冲突、claim id 唯一性、大小写/规范路径、后缀子集、Asset/绝对路径身份、冷预览与写盘刷新由 Core 矩阵测试锁定，各可选程序集另锁定自己的注册 Adapter。初版完整 EditMode 491/491、PlayMode 545/545，共 1036/1036 通过。
+- Luban 生成改为 Module-local `LubanGenerationTransaction`：CLI 只写 `Temp` staging，代码 / 数据格式由管线固定为 `cs-bin + bin`，不再暴露可编辑但唯一合法的 Profile 字段；强制 `validationFailAsError`，受控参数拒绝 ExtraArgs 覆盖、短选项 bundle 绕过与 watch 常驻。非空 UTF-8 C# 规范成无 BOM LF，并与根目录 `.bytes`、由其生成的 manifest 一起校验；commit 前再次重采输出 claim，再对代码 / 数据两棵独占树做联合差量，保留未变文件和 retained `.meta`，清理陈旧产物、孤儿 `.meta` 与空目录，支持大小写目录变化和目录 / 文件拓扑替换。首次正式修改前备份两树，数据或代码发布故障会同时回滚并保留原始根因；回滚失败保留 recovery 路径，断电 / 强杀不冒充文件系统级原子保证。受控 `ILubanCliRunner` 锁定 CLI 半产出失败不触碰正式目录，真实 Demo CLI 冒烟确认 10 个 `.cs` + 4 个顶层 `.bytes` 满足校验。未因 Proto 的单目录后缀同步而抽丢两者不同所有权语义；生产与测试 namespace 也从误挂的 `Game.Framework.Build(.Tests)` 收回各自 asmdef 已声明的 `Game.Framework.Config.Editor(.Tests)`，不改脚本 GUID 或资产身份。Config Editor 专项 71/71，最终完整 EditMode 542/542、PlayMode 545/545，共 1087/1087 通过。
+- Protobuf 工作台不再把 `CapturePhysicalTree("*.proto")` 绑到 IMGUI `OnGUI`：卡片、批量按钮与摘要共用 Module-local 输入快照，只有“重新扫描”显式采集。Profile Catalog revision 或 protoc / 源 / 输出路径变化只廉价失效，不在 Layout / Repaint 期间暗中读盘；`Generate` 仍直接重验当前输入与写盘 claim，预览缓存不进入真实生成证据。
+- UI Binding 输出 claim collector 不再在任意其它生成器写盘前 `LoadAssetAtPath` 全工程所有 Prefab：Module-local 候选索引首次完整建立，随后经 AssetPostprocessor 增量维护，并把候选与 Prefab Variant 依赖图一起放进 `SessionState` 跨脚本域重载复用；基 Prefab 单独变化也会递归重验后代。真正采集只加载根上含 `UIBindingData` 的候选，仍按当前 Profile、目录覆盖与 Prefab 内容计算精确文件声明；其它工作台的冷预览只显示证据待采，不会沿 collector 触发首次全扫。UI 配置窗口同时迁到共享 Profile Catalog 与 UI Toolkit 视觉原语，用 hero、摘要指标、覆盖链说明和分层配置卡替代灰色逐行表单；首次绘制只显示轻量说明，“重新扫描”才完整刷新配置与候选索引，CreateGUI / 重绘不再逐次 `FindAssets` 目录配置。两类刷新任一步失败都会共同丢弃快照，避免拼接新旧证据。索引完全留在可删除 UI.UGui Editor Module，没有为单一消费者扩张 Core Interface。最终完整 EditMode 565/565、PlayMode 545/545，共 1110/1110 通过。
+- Demo 输入返回键的 PlayMode fixture 区分了“PlayerLoop 后台推进”与“Input System 设备失焦投递”：SetUp 暂时使用 `InputSettings.BackgroundBehavior.IgnoreFocus`，TearDown 恢复消费项目原值，使程序化键盘事件在 `editor_unfocused` 下仍确定可测，同时不把测试策略写进产品行为。
+
+### P1 · Editor 诊断渐进披露与打开性能
+
+- Framework Mono Inspector 删除每个组件重复的“打开完整框架诊断”，低频运行时诊断改为按实例、默认折叠；折叠时仍暴露失败 Context、当前 Play 未初始化和未解析 Context 的摘要。视觉复核顺带修正 Odin 禁用 / 排除时没有把具体类型归还原生 fallback 的所有权漏洞。
+- 模块裁剪审计与真实构建体积窗口不再在 `CreateGUI` 同步扫描工程、解析全部程序集并哈希全部档位。打开耗时从本机实测约 18.9 秒降到约 0.8 秒；昂贵采集改由明确按钮触发，工程、Package、构建场景、目标平台或编译图变化会使会话预览失效。
+- 性能优化没有削弱证据：真正构建会重新采集当前 Audit，并只为所选 Profile 计算闭包、manifest、Runtime 与 Package 指纹；缓存只服务只读预览。工具中心、两个证据窗口与 AI 自动化说明采用窄视觉 helper 统一 hero、语义色、卡片和响应式指标，不抽中央业务工作台。
+- `SSFramework/诊断/AI 自动化` 保留三个点击即执行的稳定机器 Interface，并新增只读人工说明入口，逐项解释副作用、完成判据与人工工作台；PlayMode 预检的忙碌门禁改为复用共享 Gate，补上 Player Build 状态。
+- 该批在 Unity 6000.3.22f1 的回归基线为 EditMode 546/546、PlayMode 545/545，共 1091/1091；后续批次的当前总基线见上文最新完成项。
 
 ### P1 · UI 必需窗口与 Flow 错误边界
 
@@ -257,12 +279,8 @@
 | P2 | 大文件按职责复查 | `DiagnosticsWindow`、`YooAssetProvider`、`AssetUtility` 等只在发现两个独立变化轴或测试 Seam 时拆；单纯行数不是理由。 |
 | P2 | WebGL / 小游戏固定 Runner 基线 | 隔离探针已能在当前目标平台生成真实 Player BuildReport 上界；下一步等确定发布平台与 CI Runner 后保存同环境 artifact / 阈值，避免把本机 Windows 数字当 WebGL 基线。 |
 | P1 | UPM 分发依赖标准化与干净消费矩阵 | 当前体积探针把源码复制到临时工程的 `Assets`，尚未证明真实 UPM 安装/移除。下一步先确定 Core / Yoo / UI 等发布 Package 拓扑和 Git、embedded NuGet 依赖来源，再以工程外临时 Unity 项目验证 core → add Yoo → remove Yoo（保留 Library）的编译与 Player Build，不在框架内复制第二套 Package Manager。 |
-| P1 | 跨代码生成器输出 claim catalog | 当前 Luban / Protobuf / 服务安装器各自在 owner Module 内证明同类 Profile 的输出独占，但不知道其它可选生成器；若 Protobuf 输出树包住 Luban 或安装器的 `.g.cs`，递归陈旧清理仍可能误删。先定义目录 / 文件 / 后缀清理粒度的中立 claim，由可选 Module 自注册、Core 只比较规范路径且不硬编码类型；删除 Module 后声明自然消失，并以跨 Module 删除与冲突测试证明。完成前文档要求不同生成器使用互不嵌套的顶层目录。 |
-| P1 | Luban 暂存发布事务 | 当前 CLI 直接写正式代码 / 数据目录，进程失败时可能留下半新半旧产物；专题设计 staging → 产物校验 → 差量发布与失败回滚，并验证清单始终与同一代代码/数据一起提交。不要仅因 Proto 已用临时目录就抽一个忽略两者清理语义差异的通用管线。 |
-| P2 | 代码生成工作台快照缓存 | Protobuf 卡片当前在每次 OnGUI 时递归统计 `.proto`；先用大目录量化 Layout/Repaint 开销，再把快照失效收敛到显式刷新、`projectChanged` 与 Profile 变化，保证窗口不因缓存隐藏刚发生的输入变更。 |
-| P2 | 生成路径物理边界验证 | `Path.GetFullPath` 已证明词法工程边界与父级对象类型，但 Assets 内 junction / symlink 仍可能把物理写入导向工程外。先明确 Unity、Windows junction 与 macOS/Linux symlink 的支持策略和可移植测试，再决定拒绝、解析 realpath 或只警告；不能用不完整检查冒充安全承诺。 |
+| P2 | 物理路径跨平台门禁矩阵 | `FrameworkProjectPath.TryResolve` 已让所有生成器在写盘前拒绝现存路径链上的 symlink / junction / reparse point，递归树操作还会验证全部后代；Windows junction 集成门禁已有覆盖。下一步只补 macOS/Linux 目录与文件 symlink 的 CI 矩阵，验证同一 `FileAttributes` 契约在各平台成立；发现平台差异再改共享 Module，不重复实现各生成器局部门禁。 |
 | P2 | 字体输入语义与扫描成本量化 | 重叠目录/模式可能重复读取同一文件，JSON/C# 中的 `\uXXXX` 也不等同于已提取真实字形。先用真实本地化数据统计缺字与扫描成本，再决定是否引入文件去重、格式解码 Adapter 或明确维持“源码字面字符”语义。 |
-| P2 | Editor Profile 发现 Module | 8 处以上重复了精确类型扫描、稳定排序、多份诊断、缓存与 `projectChanged` 失效。先补移动/删除资产后的缓存失效、多份稳定顺序和无隐式创建测试，再评估内部 discovery/catalog Interface；各可选 Module 继续拥有默认值与业务校验，不抽泛型工作台。 |
 | P2 | Asset 维护 operation / 更新 session | Demo 已有两处为区分 caller waiter 与物理维护 owner 而手拼 gate、`CancellationToken.None` 和章节 token；Demo 与 Outpost 也出现 Initialize → Ready → 快照下载轮廓。启动流程已直接锁定「waiter 在物理清理终态前仍为 Pending」、「页面取消不发迟到 UI，但物理失败仍保留原异常」及「非取消的旧缓存回收失败只降级为 Warning」；出现第三个生产调用方后再决定是否形成有状态 session，避免把业务重试/确认策略塞回 Core。 |
 | P2 | Demo 服务器物理任务 owner | `Stop` 已拥有逻辑取消、监听器与 socket，但 accept/handler/tick task 仍 fire-and-forget，Dispose 未等待物理终态。先用内部 task registry、统一异常观察和 CTS token 快照覆盖 Domain Reload / in-flight slow HTTP / WS handler 竞态；只有真实调用方需要等待时才扩 `IDemoGameServer`。 |
 | P2 | WebSocket 安装期注册权限 | `RegisterPush` 与运行期 Connect/Send 共处一个较宽 Interface，Outpost 又在运行 System 中登记映射。先把映射移回 composition root 并补退避重连 Adapter 测试；是否拆注册 Seam 需单独评估兼容性，不在本批破坏公共 Interface。 |
