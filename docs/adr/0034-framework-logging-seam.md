@@ -21,7 +21,7 @@ roadmap「Cysharp 生态候选」里 **ZLogger**（零分配结构化日志）�
 日志必须在**任何地方**可用——包括没有 `Context`、身处 DI 之下的内核基础设施（`Container` / `InjectionPlan` / 构造期）。它们不能反向依赖 DI 去 `GetUtility` 取 logger（循环依赖 + 时序倒置）。`FrameworkLog` 现在正因此是静态。所以接缝**保持静态门面**，不做 `ILogUtility` 那种 DI 服务。
 
 - `FrameworkLog` 升级为门面：`Trace / Info / Warning / Error(+ exception)`，每条带 `category`（默认取调用方类型名 / caller）与可选结构化字段。保留旧 `Verbose` / `LogVerbose` 语义（`Verbose=true` = 放行 `Trace` 级到 Console），既有调用点零改动。
-- `ILogSink`：`void Log(in LogEntry entry)`。可注册**多个** sink 广播；每个 sink 自带 `MinLevel` 过滤。门面提供 `AddSink / RemoveSink / ClearSinks`。
+- `ILogSink`：`void Log(in LogEntry entry)`。可注册**多个** sink 广播；每个 sink 自带 `MinLevel` 过滤。门面提供 `AddSink / RemoveSink / ClearSinks`，并把外部 sink 的 `MinLevel` getter 与 `Log` 投递纳入同一个异常隔离范围：坏去向只降级告警，不能阻断后续 sink 或覆盖业务根异常。
 - `LogEntry`：`readonly struct`，携 `LogLevel` + `category` + `message` + 可选结构化字段 + `exception` + `timestamp` + caller。以 `in` 传递；热路径只在**有 sink 会消费该级别**时才构造 message（`Verbose` 关时 `Trace` 直接短路，同现状零成本）。
 
 ### 2. 内核默认两个**零依赖** sink（覆盖最常用 ①②）
@@ -140,6 +140,6 @@ roadmap「Cysharp 生态候选」里 **ZLogger**（零分配结构化日志）�
 
 - ① ADR：本文。
 - ② 接口在内核、实现在模块：`Core/Logging/`（`Log` 门面 + `ILogSink` + 两个默认 sink + `UnityLogBridge` + 插值处理器 & polyfill）✅；`Game.Framework.Logging.ZLogger/`（可选 sink 模块）——实测放弃、未落地（见「实测复盘」）。
-- ③ 测试：`LoggingTests`（PlayMode）✅ 覆盖多播 / per-sink `MinLevel` / `IsEnabled` / Trace 门控 / **插值惰性求值（兼跨程序集处理器识别的回归测试）** / 异常与自动抓栈 / `context` 透传 / sink 异常隔离 / **Unity 日志流桥接 + 防回声** / `FileLogSink` 落盘·会话头·滚动；`UIRuntimeLoggingTests` 穿过 UI Adapter 验证 category、context 与 fail-fast 副作用顺序；`DiagnosticsTests` 锁定命令 echo 的消息与 category；`AssetOperationCoordinationTests` / `YooAssetLoadTests` 则锁定资源 Core 守卫、初始化根异常与 Yoo Adapter 分类。
+- ③ 测试：`LoggingTests`（PlayMode）✅ 覆盖多播 / per-sink `MinLevel` / `IsEnabled` / Trace 门控 / **插值惰性求值（兼跨程序集处理器识别的回归测试）** / 异常与自动抓栈 / `context` 透传 / sink `MinLevel` getter 与投递异常隔离 / **Unity 日志流桥接 + 防回声** / `FileLogSink` 落盘·会话头·滚动；`UIRuntimeLoggingTests` 穿过 UI Adapter 验证 category、context 与 fail-fast 副作用顺序；`DiagnosticsTests` 锁定命令 echo 的消息与 category；`AssetOperationCoordinationTests` / `YooAssetLoadTests` 则锁定资源 Core 守卫、初始化根异常与 Yoo Adapter 分类。
 - ④ demo：能力章「日志 · 分级 + 可插拔 sink」（`LoggingDemoModule`）✅——装 demo 捕获 sink 看多播、调其 `MinLevel` 看每 sink 独立过滤、**用一个计数器亲眼验证「Verbose 关时插值表达式一次都没求值」**、点「发一条裸 `Debug.LogError`」看它经桥接进入 sink、装 `FileLogSink` 看落盘、`Write(fields)` 看结构化字段。（原判「无业务 API、参照 ADR-0026 诊断面板 demo 不适用」——后修正：门面/sink 虽是基础设施，但「可替换接缝 + 广播 + 分级 + 惰性求值」这套心智值得一个可点的章，尤其惰性求值这种「看不见的行为」，用计数器演示远胜纯文字。）
 - ⑤ guide §28 + AGENTS #18 / #34 ✅。

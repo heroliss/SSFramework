@@ -1,5 +1,6 @@
 using System;
 using Game.Framework.Internal;
+using Game.Framework.Logging;
 using Game.Framework.View;
 using UnityEngine.UIElements;
 
@@ -18,8 +19,9 @@ namespace Game.Framework.UI.Toolkit
     /// Context 的引导代码调用 <see cref="BindTo"/>。<br/>
     /// <b>边界（与 <see cref="IView"/> 对齐）：</b>子类拿不到完整 <see cref="IGameContext"/>（显式接口实现），
     /// 只能 ExecuteCommand / RegisterEvent / GetUtility——不能 GetModel / GetSystem / SendEvent。<br/>
-    /// <b>生命周期：</b>每个视图一个 <see cref="Bag"/>，<see cref="Dispose"/> 时统一释放订阅与资源句柄，
-    /// 并把 <see cref="Root"/> 从可视树摘除。
+    /// <b>生命周期：</b>Context 是借用的作用域能力，不拥有此 View；创建方仍须在自己的生命周期结束时调用
+    /// <see cref="Dispose"/>。每个视图一个 <see cref="Bag"/>，释放时统一清理订阅与资源句柄，并把
+    /// <see cref="Root"/> 从可视树摘除；Context 取消本身不会代替这次物理清理。
     /// </remarks>
     public abstract class UIToolkitViewBase : IView, IHasGameContext, IDisposable
     {
@@ -54,11 +56,43 @@ namespace Game.Framework.UI.Toolkit
         /// 视图根。传入已构建的可视树（如 UXML clone 的结果）；留空则新建一个空 <see cref="VisualElement"/>，
         /// 由子类在 <see cref="OnCreated"/> 里往里搭 UI。
         /// </param>
+        /// <exception cref="ArgumentNullException"><paramref name="context"/> 为 <c>null</c>。</exception>
+        /// <exception cref="InvalidOperationException">同一实例重复绑定，或 <see cref="OnCreated"/> 期间自行释放。</exception>
+        /// <exception cref="ObjectDisposedException">视图已经释放。</exception>
+        /// <remarks>
+        /// 绑定是一次事务提交：若字段注入或 <see cref="OnCreated"/> 失败，或创建期间自行释放，本方法会先尽力释放
+        /// 已经登记的 <see cref="Bag"/> 内容并摘除 <see cref="Root"/>，再保留原始异常抛出。失败实例已经释放，不可复用。
+        /// </remarks>
         public VisualElement BindTo(IGameContext context, VisualElement root = null)
         {
-            BindContextInternal(context, root);
-            OnCreated();
-            return Root;
+            EnsureCanBind(context);
+            try
+            {
+                BindContextCore(context, root);
+                OnCreated();
+                if (_disposed)
+                    throw new InvalidOperationException(
+                        $"[{GetType().Name}] 在 OnCreated 期间释放了自己，BindTo 无法返回可用 Root；" +
+                        "需要按初始状态决定是否显示时，请由创建方在绑定前判断，或在绑定成功后再关闭。");
+                return Root;
+            }
+            catch
+            {
+                try
+                {
+                    Dispose();
+                }
+                catch (Exception cleanupException)
+                {
+                    // 创建异常是根因；清理 hook 的次生异常进入统一日志，不能反过来覆盖根因。
+                    Log.Error(
+                        $"[{GetType().Name}] BindTo 失败后的回滚清理又抛出异常；" +
+                        "视图 Bag 与可视树已继续清理，当前仍抛出最初的绑定异常。",
+                        cleanupException,
+                        nameof(UIToolkitViewBase));
+                }
+                throw;
+            }
         }
 
         /// <summary>
@@ -68,10 +102,22 @@ namespace Game.Framework.UI.Toolkit
         /// </summary>
         internal void BindContextInternal(IGameContext context, VisualElement root)
         {
+            EnsureCanBind(context);
+            BindContextCore(context, root);
+        }
+
+        private void EnsureCanBind(IGameContext context)
+        {
             if (context == null) throw new ArgumentNullException(nameof(context));
+            if (_disposed) throw new ObjectDisposedException(
+                GetType().Name,
+                $"[{GetType().Name}] 已释放，不能再绑定 Context；请创建新的 View 实例。");
             if (_context != null) throw new InvalidOperationException(
                 $"[{GetType().Name}] 已绑定 Context，不能重复绑定；每个 UI Toolkit View 实例只能绑定一次。");
+        }
 
+        private void BindContextCore(IGameContext context, VisualElement root)
+        {
             _context = context;
             Root = root ?? new VisualElement();
             context.Inject(this); // [Inject] 受层权限校验：View 注 Model/System 会被拦，注普通服务可以。
@@ -114,7 +160,8 @@ namespace Game.Framework.UI.Toolkit
         }
 
         /// <summary>释放前的子类钩子（在 <see cref="Bag"/> 释放之前调用）。一般无需重写——订阅都进 Bag 自动清理。
-        /// <b>注意：</b>Context 销毁触发的统一释放也会走到这里，此时 <see cref="IGameContext"/> 可能正在销毁——不要在此 <c>ExecuteCommand</c> / <c>GetUtility</c> / 访问 Context。</summary>
+        /// <b>注意：</b>独立 View 由创建 owner 显式释放；正式 Window 由 UI Backend 在宿主拆除路径中释放。
+        /// 两条路径都可能发生在所属 Context 正在销毁时，因此不要在此 <c>ExecuteCommand</c> / <c>GetUtility</c> / 访问 Context。</summary>
         protected virtual void OnDisposing() { }
     }
 }

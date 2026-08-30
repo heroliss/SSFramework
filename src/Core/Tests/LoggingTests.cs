@@ -36,6 +36,12 @@ namespace Game.Framework.Test
             public void Log(in LogEntry entry) => throw new InvalidOperationException("sink boom");
         }
 
+        private sealed class ThrowingMinLevelSink : ILogSink
+        {
+            public LogLevel MinLevel => throw new InvalidOperationException("min-level boom");
+            public void Log(in LogEntry entry) { }
+        }
+
         // 插值惰性求值的探针：被求值就自增。
         private static int _touchCount;
         private static string Touch()
@@ -393,6 +399,24 @@ namespace Game.Framework.Test
             Log.Info("survives");
 
             Assert.AreEqual(1, good.Entries.Count, "一个 sink 抛异常不应阻断其它 sink");
+        }
+
+        [Test]
+        public void SinkMinLevelException_DoesNotEscapeOrBlockOtherSinks()
+        {
+            var good = new CapturingSink();
+            Log.AddSink(new ThrowingMinLevelSink());
+            Log.AddSink(good);
+
+            LogAssert.Expect(LogType.Warning, new Regex("sink ThrowingMinLevelSink 抛异常"));
+            Assert.IsTrue(Log.IsEnabled(LogLevel.Info),
+                "坏 sink 的过滤 getter 不能阻断后续正常 sink 的可用性判断。");
+
+            LogAssert.Expect(LogType.Warning, new Regex("sink ThrowingMinLevelSink 抛异常"));
+            Assert.DoesNotThrow(() => Log.Info("survives-min-level"),
+                "日志去向的配置读取失败也不能冒泡打断业务。");
+            Assert.AreEqual(1, good.Entries.Count);
+            Assert.AreEqual("survives-min-level", good.Entries[0].Message);
         }
 
         // ── Unity 日志流接管 ──────────────────────────────────────────────

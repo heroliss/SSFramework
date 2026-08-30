@@ -128,6 +128,77 @@ namespace Game.Framework.Test
         }
 
         [Test]
+        public void ToolkitView_BindFailureRollsBackAndPreservesThePrimaryException()
+        {
+            using var builder = new ContainerBuilder();
+            using var context = new GameContext(builder.Build(), inheritFromGlobal: false);
+            var parent = new VisualElement();
+            var root = new VisualElement();
+            parent.Add(root);
+            var createFailure = new InvalidOperationException("create-probe");
+            var cleanupFailure = new InvalidOperationException("cleanup-probe");
+            var view = new FailingCreateToolkitView(createFailure, cleanupFailure);
+
+            var error = Assert.Throws<InvalidOperationException>(() => view.BindTo(context, root));
+
+            Assert.AreSame(createFailure, error, "回滚阶段的次生异常不能覆盖 OnCreated 根因。");
+            Assert.IsTrue(view.IsDisposed, "绑定失败的半成品实例必须进入已释放状态，不能被误复用。");
+            Assert.IsTrue(view.OwnedResourceDisposed,
+                "OnCreated 已登记的 Bag 资源必须在 BindTo 返回失败前释放。");
+            Assert.IsNull(root.parent, "失败时即使 Root 已在可视树中，也必须完成物理摘除。");
+            Assert.Throws<ObjectDisposedException>(() => view.BindTo(context),
+                "失败实例已经释放，后续调用应提示创建新实例。");
+
+            Assert.AreEqual(1, _sink.Entries.Count,
+                "回滚 hook 的次生失败应记录一次，同时不重复记录调用方仍会收到的创建根因。");
+            Assert.AreEqual(nameof(UIToolkitViewBase), _sink.Entries[0].Category);
+            Assert.AreSame(cleanupFailure, _sink.Entries[0].Exception);
+            StringAssert.Contains("最初的绑定异常", _sink.Entries[0].Message);
+        }
+
+        [Test]
+        public void ToolkitView_OnCreatedCannotCommitAfterSelfDisposal()
+        {
+            using var builder = new ContainerBuilder();
+            using var context = new GameContext(builder.Build(), inheritFromGlobal: false);
+            var parent = new VisualElement();
+            var root = new VisualElement();
+            parent.Add(root);
+            var view = new SelfDisposingToolkitView();
+
+            var error = Assert.Throws<InvalidOperationException>(() => view.BindTo(context, root));
+
+            StringAssert.Contains(nameof(SelfDisposingToolkitView), error.Message);
+            StringAssert.Contains("OnCreated", error.Message);
+            StringAssert.Contains("无法返回可用 Root", error.Message);
+            Assert.IsTrue(view.IsDisposed);
+            Assert.IsNull(root.parent,
+                "OnCreated 自行释放后不能让 BindTo 把已失去 Bag 的 Root 重新交给创建方挂载。");
+            Assert.AreEqual(0, _sink.Entries.Count, "正常的幂等回滚不应产生次生错误日志。");
+        }
+
+        [Test]
+        public void ToolkitView_ContextDisposalDoesNotReplaceOwnerDisposal()
+        {
+            using var builder = new ContainerBuilder();
+            using var context = new GameContext(builder.Build(), inheritFromGlobal: false);
+            var parent = new VisualElement();
+            var view = new BindingOnceToolkitView();
+            VisualElement root = view.BindTo(context);
+            parent.Add(root);
+
+            context.Dispose();
+
+            Assert.IsFalse(view.IsDisposed,
+                "Context 只提供借用的作用域能力，不接管独立 View 的物理生命周期。");
+            Assert.AreSame(parent, root.parent,
+                "Context 取消不会自动把独立 View 的 Root 摘出可视树。");
+
+            view.Dispose();
+            Assert.IsNull(root.parent, "创建 owner 仍须显式 Dispose 才完成物理清理。");
+        }
+
+        [Test]
         public void ToolkitView_OnDisposingFailure_StillDisposesBagAndDetachesRoot()
         {
             using var builder = new ContainerBuilder();
@@ -183,6 +254,33 @@ namespace Game.Framework.Test
 
             protected override void OnDisposing()
                 => throw new InvalidOperationException("dispose-probe");
+        }
+
+        private sealed class FailingCreateToolkitView : UIToolkitViewBase
+        {
+            private readonly Exception _createFailure;
+            private readonly Exception _cleanupFailure;
+
+            internal FailingCreateToolkitView(Exception createFailure, Exception cleanupFailure)
+            {
+                _createFailure = createFailure;
+                _cleanupFailure = cleanupFailure;
+            }
+
+            internal bool OwnedResourceDisposed { get; private set; }
+
+            protected override void OnCreated()
+            {
+                Bag.Add(new DisposeProbe(() => OwnedResourceDisposed = true));
+                throw _createFailure;
+            }
+
+            protected override void OnDisposing() => throw _cleanupFailure;
+        }
+
+        private sealed class SelfDisposingToolkitView : UIToolkitViewBase
+        {
+            protected override void OnCreated() => Dispose();
         }
 
         private sealed class DisposeProbe : IDisposable

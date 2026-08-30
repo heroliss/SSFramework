@@ -4,6 +4,7 @@ using Game.Framework.Common;
 using Game.Framework.Demo.Core;
 using Game.Framework.Internal;
 using Game.Framework.UI.Toolkit;
+using R3;
 using UnityEngine;
 using UnityEngine.UIElements;
 
@@ -29,6 +30,14 @@ namespace Game.Framework.Demo.Modules
 
         public override void Build(DemoModuleHost host)
         {
+            // 每轮 Build 只登记一个当前实例 owner。独立 View 可提前自行 Dispose；切章时这里仍会兜底清理。
+            // 不把每次新实例逐个 Add 到章节 Bag，避免反复开关时保留一串已释放对象直到 Teardown。
+            Bag.Add(Disposable.Create(() =>
+            {
+                _view?.Dispose();
+                _view = null;
+            }));
+
             // ── 定位 ──
             host.AddPositioning("同一层、换个载体——UI Toolkit");
             host.AddNote("与「界面（View）· MonoViewBase」是**同一层、不同载体**：纯 C# 的 `UIToolkitViewBase` 无需 prefab、代码即可搭；同享 `IView` 权限、自动注入、`Bag`、`ExecuteCommand`。状态与 UGUI 章**共用同一份** `MonoScoreModel`——直观证明核心层对 UI 技术无感。");
@@ -41,13 +50,12 @@ namespace Game.Framework.Demo.Modules
             {
                 if (_view != null && !_view.IsDisposed) return; // 已经开着就不重复弹
 
-                // demo 模块在这里充当"持有 Context 的引导方"：通过框架内部的合法逃逸口拿到自己的 Context，
+                // demo 模块在这里充当 composition Adapter：通过框架内部的合法逃逸口拿到自己的 Context，
                 // 交给纯 C# 视图（UIToolkit 视图不在 GameObject 父链上，必须显式绑定）。
                 // 业务里这一步通常由 UI 框架的 IUIUtility 代劳（开窗时自动绑定），无需手写。
-                var ctx = ((IHasGameContext)this).Context;
-                _view = new UIToolkitDemoView(CloseView);
-                viewSlot.Add(_view.BindTo(ctx));
-                Bag.Add(_view); // 切走本章（Teardown → Bag.Dispose）时自动释放视图，订阅随之退订
+                var context = ((IHasGameContext)this).Context;
+                _view = new UIToolkitDemoView();
+                viewSlot.Add(_view.BindTo(context));
             }, CodeRef.Here("class UIToolkitDemoView", "UIToolkitDemoView · 纯 C# View"));
             // 动态结果必须留在触发动作旁边；直接追加到 host.Content 会落到整章末尾，点击后在当前视口里看不到反馈。
             host.Content.Add(viewSlot);
@@ -57,7 +65,9 @@ namespace Game.Framework.Demo.Modules
 
             host.AddSectionTitle("和 UGUI View 比，差在哪");
             host.AddConcept("载体不同", "UGUI 是 MonoBehaviour + prefab（所见即所得、可拖引用）；UIToolkit 视图是纯 C# + VisualElement，本例直接代码搭，无需 authored 资产。");
-            host.AddConcept("接入相同", "两者都实现 `IView`：自动注入、`Bag` 生命周期、`ExecuteCommand` / `RegisterEvent` / `GetUtility` 完全一致——只是 UGUI 走 `MonoViewBase`（Awake 沿父链找 Context），UIToolkit 走 `BindTo`（创建方显式交 Context）。");
+            host.AddConcept("Context 从哪来", "两者都实现 `IView`，但 UGUI 能沿 Transform 父链找 Context；纯 C# `VisualElement` 没有父级 GameObject，因此创建它的 composition Adapter 必须用 `BindTo(context)` 明确选择作用域。普通 View 逻辑不应强转取得完整 Context。");
+            host.AddConcept("关闭所有权", "本例是独立 View，关闭就是自行 `Dispose()`：取消自己的 `Bag` 并摘除 `Root`；正式 `UIToolkitWindowBase` 由 UI 框架拥有，必须请求 `IUIUtility.Close(this)`，让窗口栈、模态、缓存与过渡一并更新，不能直接 Dispose。");
+            host.AddConcept("接入相同", "Context 绑定完成后，两种载体的自动注入、`Bag` 生命周期、`ExecuteCommand` / `RegisterEvent` / `GetUtility` 完全一致。");
             host.AddConcept("绑定相同", "都用 R3 订阅：UGUI `Bag.Subscribe(rop, …)`，UIToolkit `Bag.BindText(label, rop)`——一套心智，没有第二套数据绑定。");
             host.AddConcept("异步所有权", "`SubscribeClickAsync` 把 View 生命周期 token 交给 handler，并统一观察漏出的异常；它不自动禁按钮、去抖或单飞，因为是否允许并发点击属于具体交互策略。");
             host.AddCodeLink(CodeRef.Here("Bag.SubscribeClickAsync(delayedBtn", "异步点击 · 生命周期与异常所有权"));
@@ -79,13 +89,6 @@ namespace Game.Framework.Demo.Modules
 
             host.AddTip("本章只演示「UIToolkit 视图怎么接入框架」这一层；真正的窗口/层级/模态/栈管理在「UI 框架 · 窗口/层级」章。若按核心顺序继续，下一章先看 Context：同一个 View 挂到不同子树，为什么会自动读写不同作用域的数据。");
         }
-
-        // 关闭视图：Dispose 幂等，释放 Bag + 摘出可视树；置空让下次可重新弹。
-        private void CloseView()
-        {
-            _view?.Dispose();
-            _view = null;
-        }
     }
 
     /// <summary>
@@ -95,10 +98,6 @@ namespace Game.Framework.Demo.Modules
     /// </summary>
     public sealed class UIToolkitDemoView : UIToolkitViewBase
     {
-        private readonly Action _onCloseRequested;
-
-        public UIToolkitDemoView(Action onCloseRequested) => _onCloseRequested = onCloseRequested;
-
         // BindTo 之后调用一次：此时 Context 已绑定、各层就绪，可直接 ExecuteCommand 订阅状态。
         protected override void OnCreated()
         {
@@ -155,8 +154,8 @@ namespace Game.Framework.Demo.Modules
                 await UniTask.Delay(TimeSpan.FromMilliseconds(600), cancellationToken: ct);
                 this.ExecuteCommand(new RaiseMonoScoreCommand());
             });
-            // 关闭：请求宿主销毁自己 → Dispose → Bag 释放 + 退订。
-            Bag.SubscribeClick(closeBtn, () => _onCloseRequested());
+            // 独立 View 自己拥有 Bag + Root，关闭可直接 Dispose；正式窗口则必须请求 IUIUtility.Close(this)。
+            Bag.SubscribeClick(closeBtn, Dispose);
         }
     }
 }

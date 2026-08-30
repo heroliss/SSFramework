@@ -112,7 +112,17 @@ namespace Game.Framework.Logging
 
             var sinks = _sinks;
             for (int i = 0; i < sinks.Length; i++)
-                if (level >= sinks[i].MinLevel) return true;
+            {
+                var sink = sinks[i];
+                try
+                {
+                    if (level >= sink.MinLevel) return true;
+                }
+                catch (Exception e)
+                {
+                    ReportSinkFailure(sink, e);
+                }
+            }
             return false;   // 全部 sink 的分闸门都高于它 —— 记了也没人收
         }
 
@@ -234,20 +244,34 @@ namespace Game.Framework.Logging
             for (int i = 0; i < sinks.Length; i++)
             {
                 var sink = sinks[i];
-                if (level < sink.MinLevel) continue;   // 分闸门
                 try
                 {
+                    // MinLevel 也是外部 sink 的可执行代码，必须和真正投递处在同一个故障隔离范围。
+                    if (level < sink.MinLevel) continue;   // 分闸门
                     sink.Log(in entry);
                 }
                 catch (Exception e)
                 {
-                    // sink 故障不得扩散、也不能递归回本门面。
-                    // 必须裹在 BeginEmit/EndEmit 里：否则这条 Debug.LogWarning 会被 Unity 桥接回调再抓回来 →
-                    // 再广播 → 同一个坏 sink 再抛 → 无限递归。
-                    UnityLogBridge.BeginEmit();
-                    try { Debug.LogWarning($"[Log] sink {sink.GetType().Name} 抛异常：{e}"); }
-                    finally { UnityLogBridge.EndEmit(); }
+                    ReportSinkFailure(sink, e);
                 }
+            }
+        }
+
+        [HideInCallstack]
+        private static void ReportSinkFailure(ILogSink sink, Exception exception)
+        {
+            // sink 故障不得扩散、也不能递归回本门面。必须裹在 BeginEmit/EndEmit 里：否则这条
+            // Debug.LogWarning 会被 Unity 桥接回调再次广播给同一个坏 sink，形成无限递归。
+            UnityLogBridge.BeginEmit();
+            try
+            {
+                // 日志系统的最后降级出口也不能反过来打断业务；Unity Console 极端不可用时静默放弃告警。
+                try { Debug.LogWarning($"[Log] sink {sink.GetType().Name} 抛异常：{exception}"); }
+                catch { }
+            }
+            finally
+            {
+                UnityLogBridge.EndEmit();
             }
         }
     }

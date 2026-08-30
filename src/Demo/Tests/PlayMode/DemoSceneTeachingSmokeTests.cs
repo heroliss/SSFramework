@@ -186,7 +186,7 @@ namespace Game.Framework.Demo.PlayMode.Tests
         }
 
         [Test]
-        public void UIToolkitView_PopupSlotImmediatelyFollowsItsTrigger()
+        public void UIToolkitView_StaysBesideItsTriggerAndSupportsCloseReopenTeardown()
         {
             var shell = FindDemoObject<DemoShellController>();
             var module = shell.Modules.Single(candidate => candidate.Id == "uitoolkit-view");
@@ -202,6 +202,25 @@ namespace Game.Framework.Demo.PlayMode.Tests
             Assert.AreSame(actionRow.parent, slot.parent);
             Assert.AreEqual(actionRow.parent.IndexOf(actionRow) + 1, actionRow.parent.IndexOf(slot),
                 "弹出的 View 必须紧跟触发按钮，不能再追加到整章最下方。");
+
+            SimulateClick(trigger);
+            Assert.AreEqual(1, slot.childCount, "首次点击应立即在按钮下方显示一张卡片。");
+            VisualElement firstRoot = slot[0];
+            Button close = firstRoot.Query<Button>().ToList()
+                .Single(button => button.text == "关闭");
+
+            SimulateClick(close);
+            Assert.AreEqual(0, slot.childCount,
+                "独立 UIToolkit View 自行 Dispose 后应立即摘除 Root。");
+            Assert.IsNull(firstRoot.parent);
+
+            SimulateClick(trigger);
+            Assert.AreEqual(1, slot.childCount, "已关闭实例不能阻止重新打开。");
+            Assert.AreNotSame(firstRoot, slot[0], "重新打开应创建新的独立 View 实例。");
+
+            shell.SelectChapter(shell.Modules.First(candidate => candidate != module));
+            Assert.AreEqual(0, slot.childCount,
+                "切章时 Module Bag 仍须兜底 Dispose 当前打开的 View。");
         }
 
         [UnityTest]
