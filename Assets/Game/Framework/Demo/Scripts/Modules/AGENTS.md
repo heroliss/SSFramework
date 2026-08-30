@@ -21,7 +21,7 @@
 - 同步用 `AddActionRow`；异步用 `AddAsyncActionRow(async ct => ...)` 并透传 token。禁止 `async void`、丢弃 UniTask/Task、`.Forget()` 或 `UniTaskVoid` 包装。
 - “取消只离开等待”的物理操作：提交前检查章节 token，提交后由 owner token 等终态，再检查章节 token 且不发布旧 UI；调用点解释原因。
 - 多按钮共享可变资源时，用模块字段 `DemoOperationGate` 覆盖整个收尾期；不用 Build 局部 gate 或迟到 finally 会误释放的裸 bool。
-- Concept 不为凑操作硬塞按钮；主干用短 `AddNote`，原因与坑放 `AddSubNote`/`AddTip`。
+- Concept 不为凑操作硬塞按钮；主干用短 `AddNote`，次级原因放 `AddSubNote`，心智模型 / 口诀 / 延伸阅读放 `AddTip`，忽略后会导致错误、泄漏或误判的非实验边界放 `AddCaution`。
 
 ### 故意失败与副作用实验
 
@@ -33,6 +33,7 @@
 ## 文案与结构
 
 - 每条 `AddNote` 不超过两句且只讲一个意思；并列释义用 `AddConcept`，有序步骤用 `AddStep`，横向比较用 `AddTable`。
+- 专业词首次出现优先写“中文白话（English / API 原名）”；关键定义必须直接可见，tooltip 只做鼠标用户的补充，不能成为唯一解释。
 - 富文本只用 `` `code` ``、`「术语」`、`**强调**`；禁止 `<b>/<i>/<color>` 等 HTML（会作为字面量显示）。
 - `Summary` 不超过 160 字、两句，只写“是什么 + 关键边界”。
 - 目录元数据是运行时契约：`Id` 唯一 kebab-case，`Title` 唯一非空，`Category` 仅「入门/核心/能力/进阶/规划中」，同分类 `Order` 不重复。

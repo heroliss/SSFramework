@@ -227,7 +227,7 @@ MainContext
 - **关卡 / 副本 / 面板的局部世界**：局部状态注册在局部 Context，切场景整层 Dispose，临时注册不泄漏到全局。
 - **prefab 即插即用**：内含 `MonoXxxBase` 的 prefab 实例化到任何位置，沿父链就近接入宿主作用域；换挂载位置 = 换依赖来源，拖一下节点完成。
 
-可运行演示见 demo「多 Context · 作用域树」章：同一个 Command 在子 / 根 Context 上执行，作用于各自作用域的数据。
+可运行演示见 demo「多上下文（Context）· 作用域树」章：同一个 Command 在子 / 根 Context 上执行，作用于各自作用域的数据。
 
 ---
 
@@ -1074,7 +1074,7 @@ public class BossContext : MonoGameContextBase
 > ① **测试沙盒**：场景里拖一个子 Context、挂上被测层（缺的依赖回退父级、要替换的注册 Mock 覆盖），不启动整个游戏即可联调，测完删子树即净；
 > ② **关卡 / 副本局部世界**：局部 Model/System 注册在局部 Context，结束整层 Dispose，不污染全局；
 > ③ **自带 Context 的 prefab**：实例化到哪个子树就接入哪个作用域，换位置 = 换依赖来源。
-> 设计理念见 §1「树状思维」；可运行演示见 demo「多 Context · 作用域树」章。
+> 设计理念见 §1「树状思维」；可运行演示见 demo「多上下文（Context）· 作用域树」章。
 
 ### 平行上下文
 
@@ -2222,7 +2222,7 @@ Bag.SubscribeClickAsync(button, async ct =>   // 异步点击：随 Bag 取消�
 > - 窗口 = View 的一种：自动注入 / Bag / 读写分离；元数据用 `[UIWindow]` 声明层 / 缓存 / 模态 / 返回键可关性
 > - 过渡动画重写 `OnOpenTransition` / `OnCloseTransition`，框架统一挡输入；项目把返回 Input Action 映射到 `IUIUtility.Back()`
 > - 核心渲染中立、可单测；换 UGUI ↔ UI Toolkit 业务零改，`IUIBackend` 吸收差异
-> - 数据绑定一套 R3 订阅；Toolkit 异步点击用 `SubscribeClickAsync` 明确生命周期与异常 owner；活样例见 demo「View · UIToolkit」+「UI 框架 · 窗口/层级」章
+> - 数据绑定一套 R3 订阅；Toolkit 异步点击用 `SubscribeClickAsync` 明确生命周期与异常 owner；活样例见 demo「界面（View）· UI Toolkit」+「UI 框架 · 窗口/层级」章
 
 ---
 
@@ -2299,7 +2299,7 @@ var loaded = await storage.Load<PlayerSaveData>("save/slot1");  // null = 无可
 
 ## 19. 音频（BGM / 音效）
 
-框架统一的全局播放入口 `IAudioUtility`（`Game.Framework.Audio`）：**音乐单通道**（切换自动交叉淡入淡出）+ **池化音效**（一次性播完自动回收、循环音效 handle 进 Bag 随宿主自动停）+ **分组音量**（主 × 组 × 单次三级乘法，滑条即时生效）。它管「全局播放编排」，**不替代**挂在对象上的 `AudioSource` 组件——需要跟随对象移动的持续 3D 音源（引擎声、脚步循环）直接用组件（引擎组件可跨层）。设计取舍见 ADR-0022，活样例见 demo「音频 · BGM 与音效」章。
+框架统一的全局播放入口 `IAudioUtility`（`Game.Framework.Audio`）：**音乐单通道**（切换自动交叉淡入淡出）+ **池化音效**（一次性播完自动回收、循环音效 handle 进 Bag 随宿主自动停）+ **分组音量**（主 × 组 × 单次三级乘法，滑条即时生效）。它管「全局播放编排」，**不替代**挂在对象上的 `AudioSource` 组件——需要跟随对象移动的持续 3D 音源（引擎声、脚步循环）直接用组件（引擎组件可跨层）。设计取舍见 ADR-0022，活样例见 demo「音频 · 背景音乐（BGM）与音效」章。
 
 ### 快速开始
 

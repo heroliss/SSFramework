@@ -11,6 +11,7 @@ namespace Game.Framework.Demo.Core
         Note,
         SubNote,
         Tip,
+        Caution,
         Step,
         Concept,
         Table,
@@ -63,6 +64,7 @@ namespace Game.Framework.Demo.Core
                 case DemoTeachingElement.Note:
                 case DemoTeachingElement.SubNote:
                 case DemoTeachingElement.Tip:
+                case DemoTeachingElement.Caution:
                     ExplanationCount++;
                     break;
                 case DemoTeachingElement.Step:

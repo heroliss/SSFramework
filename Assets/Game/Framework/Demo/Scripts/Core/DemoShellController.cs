@@ -25,7 +25,7 @@ namespace Game.Framework.Demo.Core
     public sealed class DemoShellController : MonoBehaviour
     {
         // 小于这个宽度时，固定左栏会吞掉大部分正文空间；切成“上导航、下正文”比继续压缩两列更可读。
-        private const float NarrowLayoutWidth = 720f;
+        private const float NarrowLayoutWidth = 780f;
 
         [SerializeField] private UIDocument _document;
         [Tooltip("整体样式表 DemoTheme.uss。")]
@@ -46,6 +46,7 @@ namespace Game.Framework.Demo.Core
         private Button _previousChapterButton;
         private Button _nextChapterButton;
         private Label _chapterNavigationHint;
+        private bool _readingGuideExpanded = true;
 
         /// <summary>真实场景冒烟测试使用的稳定章节 Interface；不暴露可变集合。</summary>
         internal IReadOnlyList<IDemoModule> Modules => _modules;
@@ -163,6 +164,11 @@ namespace Game.Framework.Demo.Core
             _headerSummary.enableRichText = false; // 简介里可能出现 RP<T> 等泛型，关掉富文本免得 <T> 被当标签吞掉
             contentRoot.Add(_headerSummary);
 
+            var readingGuide = new DemoReadingGuide(
+                _readingGuideExpanded,
+                expanded => _readingGuideExpanded = expanded);
+            contentRoot.Add(readingGuide.Root);
+
             _contentArea = new VisualElement();
             _contentArea.AddToClassList("demo-content-body");
             contentRoot.Add(_contentArea);
@@ -212,6 +218,7 @@ namespace Game.Framework.Demo.Core
                 var module = m; // 闭包捕获
                 var btn = new Button(() => SelectChapter(module)) { text = m.Title };
                 btn.AddToClassList("demo-nav-item");
+                btn.tooltip = BuildChapterTooltip(m);
                 if (m.IsComingSoon) btn.AddToClassList("demo-nav-item--soon");
                 _navList.Add(btn);
                 _navButtons[m.Id] = btn;
@@ -298,11 +305,22 @@ namespace Game.Framework.Demo.Core
             bool hasPrevious = absoluteIndex > 0;
             _previousChapterButton.SetEnabled(hasPrevious);
             _previousChapterButton.text = hasPrevious ? $"← {_modules[absoluteIndex - 1].Title}" : "← 已到起点";
+            _previousChapterButton.tooltip = hasPrevious
+                ? BuildChapterTooltip(_modules[absoluteIndex - 1])
+                : "已经是全部教程的第一章";
 
             bool hasNext = absoluteIndex >= 0 && absoluteIndex < _modules.Count - 1;
             _nextChapterButton.SetEnabled(hasNext);
             _nextChapterButton.text = hasNext ? $"{_modules[absoluteIndex + 1].Title} →" : "已到终点 →";
+            _nextChapterButton.tooltip = hasNext
+                ? BuildChapterTooltip(_modules[absoluteIndex + 1])
+                : "已经是全部教程的最后一章";
         }
+
+        private static string BuildChapterTooltip(IDemoModule module)
+            => string.IsNullOrWhiteSpace(module.Summary)
+                ? module.Title
+                : module.Title + "\n\n" + module.Summary;
 
         private int IndexOfModule(IDemoModule module)
         {

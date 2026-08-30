@@ -162,6 +162,65 @@ namespace Game.Framework.Demo.Tests
                 host.AddExperimentActionRow("不能借用上一节提示卡", () => { }));
         }
 
+        [Test]
+        public void ConceptAndCallouts_ExposeMeaningWithoutDependingOnColor()
+        {
+            var root = new VisualElement();
+            using var host = new DemoModuleHost(root);
+
+            var concept = host.AddConcept("Context", "带生命周期的作用域容器。");
+            var tipBody = host.AddTip("这是帮助记忆的口诀。");
+            var cautionBody = host.AddCaution("忽略后会产生错误结论。");
+
+            Assert.AreEqual("概念", concept.Q<Label>(className: "demo-concept-kind").text);
+            Assert.AreEqual("带生命周期的作用域容器。",
+                concept.Q<Label>(className: "demo-concept-term").tooltip,
+                "悬停可以补充解释，但同一解释仍必须直接显示在正文中。");
+            Assert.AreEqual("重点速记",
+                tipBody.parent.Q<Label>(className: "demo-callout-title").text);
+            Assert.IsTrue(tipBody.parent.ClassListContains("demo-tip"));
+            Assert.AreEqual("注意边界",
+                cautionBody.parent.Q<Label>(className: "demo-callout-title").text);
+            Assert.IsTrue(cautionBody.parent.ClassListContains("demo-caution"));
+            CollectionAssert.Contains(host.TeachingTrace.Elements, DemoTeachingElement.Caution);
+        }
+
+        [Test]
+        public void Caution_DoesNotAuthorizeAnExperimentAction()
+        {
+            using var host = new DemoModuleHost(new VisualElement());
+            host.AddSectionTitle("错误边界");
+            host.AddCaution("这里只是在解释风险，并未提供影响—证据—恢复闭环。");
+
+            Assert.Throws<InvalidOperationException>(() =>
+                host.AddExperimentActionRow("仍不能执行", () => { }));
+        }
+
+        [Test]
+        public void ReadingGuide_ShowsVisualLegendAndPlainLanguageGlossaryBeforeHoverDetails()
+        {
+            bool? observedExpanded = null;
+            var guide = new DemoReadingGuide(
+                initiallyExpanded: true,
+                expanded => observedExpanded = expanded);
+
+            var legendLabels = guide.Root.Query<Label>(className: "demo-reading-legend-badge")
+                .ToList();
+            CollectionAssert.AreEquivalent(
+                new[] { "概念", "普通演示", "重点速记", "注意边界", "教学实验" },
+                legendLabels.ConvertAll(label => label.text));
+            Assert.AreEqual(8,
+                guide.Root.Query<VisualElement>(className: "demo-reading-glossary-item").ToList().Count);
+            Assert.IsTrue(guide.IsExpanded);
+
+            guide.SetExpanded(false);
+
+            Assert.IsFalse(guide.IsExpanded);
+            Assert.AreEqual(false, observedExpanded);
+            Assert.AreEqual(DisplayStyle.None,
+                guide.Root.Q<VisualElement>(className: "demo-reading-guide-body").style.display.value);
+        }
+
         private static void ActivateOnce(ContractModule module)
         {
             using var catalog = new DemoModuleCatalog(new[] { module });

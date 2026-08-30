@@ -26,14 +26,14 @@ namespace Game.Framework.Demo.Modules
         {
             // ── 定位 ──
             host.AddPositioning("把前面各章「看不见的运行时」变成一个窗口");
-            host.AddNote("「依赖注入」章说纯 C# 注册在 Inspector 看不到、「多 Context」章的作用域树只能靠想象、Command 执行更是无影无踪——诊断面板把它们全部可视化：**左侧 Context 作用域树 · 右侧选中 Context 的注册明细 · 底部 Command 流水**，顶栏还有 Context / Bag 存活计数（带约 30 秒趋势线）。进 Play 后打开，自动增量刷新，定位是**调试与泄漏排查入口**。");
+            host.AddNote("「依赖注入」章说纯 C# 注册在 Inspector 看不到、「多上下文（Context）」章的作用域树只能靠想象、Command 执行更是无影无踪——诊断面板把它们全部可视化：**左侧 Context 作用域树 · 右侧选中 Context 的注册明细 · 底部 Command 流水**，顶栏还有 Context / Bag 存活计数（带约 30 秒趋势线）。进 Play 后打开，自动增量刷新，定位是**调试与泄漏排查入口**。");
 
             // ── 动手试 ──
             host.AddSectionTitle("动手试：打开面板，边玩 demo 边看");
             host.AddActionRow("打开框架诊断面板", () => RunMenu(PanelMenu),
                 new CodeRef("Assets/Game/Framework/Editor/FrameworkDiagnosticsWindow.cs", "class FrameworkDiagnosticsWindow", "面板实现（EditorWindow）"));
             host.AddNote("打开后回 demo 随便点几个按钮再看面板——三块区域都能和前面的章节对上号：");
-            host.AddStep("①", "**Context 树（左）**：能找到 demo 根 Context 和「多 Context」章的 SubContext——作用域树在这里成像，双击 Mono 节点直接定位场景对象。`可→Main` 只表示允许兜底；真正命中过 Main 后才变成警示色 `→Main ×N`。去「游戏流程」章 `GoTo` 几个阶段，还能看到状态子 Context 随进入出现、随切走消失——「整棵撤」的直观证据。");
+            host.AddStep("①", "**Context 树（左）**：能找到 demo 根 Context 和「多上下文（Context）」章的 SubContext——作用域树在这里成像，双击 Mono 节点直接定位场景对象。`可→Main` 只表示允许兜底；真正命中过 Main 后才变成警示色 `→Main ×N`。去「游戏流程」章 `GoTo` 几个阶段，还能看到状态子 Context 随进入出现、随切走消失——「整棵撤」的直观证据。");
             host.AddStep("②", "**注册与回退明细（右）**：选中 demo 根 Context——各章 `InstallBindings` 注册的纯 C# 层（`CounterModel`、`IPoolUtility`…）全在注册表里（契约 → 实例，工厂项**不触发构造**、观察不改变系统）；有真实父链 / Main 命中时，“解析回退”会列出契约、最终来源和 Resolve 次数。");
             host.AddStep("③", "**Command 流水（下）**：刚才每个按钮发的 Command 都在——时间 / 帧 / 同步异步 / 耗时 / 状态，新的在上、错误红字、超慢着色；支持搜索、「仅错误」过滤、复制 TSV。异步命令 await 完成后才落账，耗时才有意义。");
             host.AddConcept("策略与证据", "`可→Main` 是 Context 能力，不是已经发生；`→Main ×N` 才表示实际成功解析。失败 TryResolve、HasBinding 和面板只读观察都不计数。");

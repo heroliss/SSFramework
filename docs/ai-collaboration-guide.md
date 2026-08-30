@@ -46,7 +46,7 @@ SSFramework/
 
 - PlayMode 测试前的脏场景处理由 `SSFramework/诊断/AI 自动化/PlayMode 测试预检（保存脏场景）` 承担；
 - Editor 副作用动作由 `FrameworkEditorOperationGate` 在 UI 与 Implementation 两层校验；
-- Module 依赖、菜单契约、Demo CodeRef 与真实构建体积都有项目内验证入口；
+- Module 依赖、菜单契约、Demo CodeRef 与真实构建体积都有项目内验证入口；Demo 教学内容还由 `DemoTeachingContract` 区分 Tip / Caution / Experiment 等实际 Build 语义；
 - 工程外 Unity 发现与 headless 自动化经 `Tools/UnityAutomation.psm1` 统一，避免每个 Agent 重写机器路径。
 
 这些 Seam 比某个客户端 Hook 更靠近事件源，也能被人工、MCP 与 CI 共同复用。具体流程见 `docs/unity-mcp-tips.md`、`docs/unity-cli-automation.md` 和相关 ADR。
@@ -93,11 +93,11 @@ Codex 从项目根沿当前工作目录向下拼接 `AGENTS.md`，越近的文�
 | 最深工作位置 | 累计字节 | 约合 |
 |---|---:|---:|
 | 项目根 | 7,134 | 6.97 KiB |
-| `Assets/Game` | 14,826 | 14.48 KiB |
-| `Assets/Game/Framework` | 24,431 | 23.86 KiB |
-| Demo Modules | 28,622 | 27.95 KiB |
+| `Assets/Game` | 15,082 | 14.73 KiB |
+| `Assets/Game/Framework` | 24,687 | 24.11 KiB |
+| Demo Modules | 29,177 | 28.49 KiB |
 
-最深链还剩 4,146 字节（约 4.05 KiB）。维护时测量**根到最深目录的 UTF-8 合计**，不要只看单文件行数；新增细节优先下沉到 guide、ADR 或 Skill。
+最深链还剩 3,591 字节（约 3.51 KiB）。维护时测量**根到最深目录的 UTF-8 合计**，不要只看单文件行数；新增细节优先下沉到 guide、ADR 或 Skill。
 
 PowerShell 测量示例：
 

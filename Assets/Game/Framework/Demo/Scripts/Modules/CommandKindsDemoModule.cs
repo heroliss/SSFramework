@@ -16,7 +16,7 @@ namespace Game.Framework.Demo.Modules
     public sealed class CommandKindsDemoModule : DemoModuleBase
     {
         public override string Id => "command-kinds";
-        public override string Title => "Command · 三态";
+        public override string Title => "命令（Command）· 三种形态";
         public override string Category => "核心";
         public override int Order => 20;
         public override string Summary =>

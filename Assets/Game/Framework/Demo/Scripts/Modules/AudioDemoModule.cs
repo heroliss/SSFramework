@@ -17,7 +17,7 @@ namespace Game.Framework.Demo.Modules
     public sealed class AudioDemoModule : DemoModuleBase
     {
         public override string Id => "audio";
-        public override string Title => "音频 · BGM 与音效";
+        public override string Title => "音频 · 背景音乐（BGM）与音效";
         public override string Category => "能力";
         public override int Order => 40;
         public override string Summary =>

@@ -10,14 +10,14 @@ namespace Game.Framework.Demo.Modules
 {
     /// <summary>
     /// 核心·Container：层感知值注册 / 工厂 / owned 注册 + [Inject] + 精确类型键解析。
-    /// 解析顺序 / 父子回退留给「多 Context」章，避免重复。
+    /// 解析顺序 / 父子回退留给「多上下文（Context）」章，避免重复。
     /// </summary>
     public sealed class ContainerDemoModule : DemoModuleBase
     {
         public override string Id => "container";
-        public override string Title => "依赖注入 · Container";
+        public override string Title => "依赖注入 · 容器（Container）";
         public override string Category => "核心";
-        public override int Order => 45;   // 排在「多 Context」后：先看作用域树的使用观感，再进注册/注入机制细节
+        public override int Order => 45;   // 排在「多上下文（Context）」后：先看作用域树的使用观感，再进注册/注入机制细节
         public override string Summary =>
             "依赖注入容器：普通分层对象自动推导契约，非分层对象显式列契约；工厂可懒构造并缓存为单例，IDisposable 产物用 OwnedFactory 把所有权交给 Context。";
 
@@ -64,14 +64,14 @@ namespace Game.Framework.Demo.Modules
             host.AddConcept("RegisterOwnedFactory", "依赖要从 Container 现取、又必须随 Context 释放时用：懒/Eager 构造 + Singleton 缓存 + owned Dispose 一次完成。工厂产物仍由工厂显式接线，不自动 `[Inject]`。");
             host.AddConcept("[Inject] / this.GetXxx", "层与 class Command 可用 `[Inject]` 字段拿依赖（执行 / `Awake` 前注入、快照）；层里也可改用 `this.GetXxx<T>()` 实时解析。struct Command 不能 `[Inject]`（反射改的是装箱副本），只能 `ctx.GetXxx`。");
             host.AddNote("Container 按精确类型键解析、不做继承扫描——注册成什么类型，就用那个类型取。"
-                + "解析顺序与父子 `Context` 回退见「多 Context · 作用域树」一章。");
+                + "解析顺序与父子 `Context` 回退见「多上下文（Context）· 作用域树」一章。");
 #if UNITY_EDITOR
             host.AddActionRow("选中 demo 根 Context 节点", () =>
             {
                 var ctx = UnityEngine.Object.FindFirstObjectByType<MonoDemoContext>();
                 if (ctx != null) DemoEditorNav.PingSceneObject(ctx.gameObject);
             }, new CodeRef("Assets/Game/Framework/Demo/Scripts/Core/MonoDemoContext.cs", "class MonoDemoContext", "demo 根 Context 定义"));
-            host.AddNote("各章纯 C# 的 Model / Service 都注册在这个 `Context` 的容器里——它们是运行时对象，Inspector 看不到。想 Inspector 可视化就走 Mono 路径（见「Model · 状态与 Inspector」）；想直接翻这个容器的注册表（契约 → 实例），开诊断窗口选中它即可（见「框架诊断面板」章）。");
+            host.AddNote("各章纯 C# 的 Model / Service 都注册在这个 `Context` 的容器里——它们是运行时对象，Inspector 看不到。想 Inspector 可视化就走 Mono 路径（见「数据模型（Model）· 状态与 Inspector」）；想直接翻这个容器的注册表（契约 → 实例），开诊断窗口选中它即可（见「框架诊断面板」章）。");
 #endif
         }
     }

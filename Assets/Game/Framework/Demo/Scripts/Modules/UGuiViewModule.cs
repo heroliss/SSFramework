@@ -10,7 +10,7 @@ namespace Game.Framework.Demo.Modules
     public sealed class UGuiViewModule : DemoModuleBase
     {
         public override string Id => "ugui-view";
-        public override string Title => "View · MonoViewBase";
+        public override string Title => "界面（View）· MonoViewBase";
         public override string Category => "核心";
         public override int Order => 35;
         public override string Summary =>
@@ -53,7 +53,7 @@ namespace Game.Framework.Demo.Modules
 
             host.AddSectionTitle("它绑定到哪个 Context");
             host.AddNote("View 实例化在 demo 根子树下，`Awake` 沿父链找到最近的 Context = `MonoDemoContext`（demo 的根 Context）并绑定。注意：View 不“注册”进容器（它不被别人依赖），只是把自己注入 + 绑定 `Bag`。"
-                + "「多 Context」章会把**同一个 prefab** 弹进子 Context 子树——绑定随挂载位置换成子级，读写的就是子作用域那份状态，零代码切换。");
+                + "「多上下文（Context）」章会把**同一个 prefab** 弹进子 Context 子树——绑定随挂载位置换成子级，读写的就是子作用域那份状态，零代码切换。");
 #if UNITY_EDITOR
             host.AddActionRow("选中它绑定的 Context（demo 根）", () =>
             {

@@ -95,7 +95,9 @@ namespace Game.Framework.Demo.Core
         {
             _experimentNoticeAvailableInSection = false;
             _teachingTrace.Record(DemoTeachingElement.Positioning);
-            return AddSectionTitleCore("定位：" + text);
+            var label = AddSectionTitleCore("本章定位 · " + text);
+            label.AddToClassList("demo-positioning");
+            return label;
         }
 
         /// <summary>小节标题。开篇定位请使用 <see cref="AddPositioning"/>。</summary>
@@ -202,16 +204,45 @@ namespace Game.Framework.Demo.Core
             return l;
         }
 
-        /// <summary>提示 / 注意事项（强调样式）。自动换行。</summary>
+        /// <summary>
+        /// 重点速记：提炼心智模型、操作口诀或延伸阅读，本身不表示风险。
+        /// 必须注意的错误边界使用 <see cref="AddCaution"/>；会故意失败或改变持久 / 共享状态的动作使用
+        /// <see cref="AddExperimentNotice"/> + Experiment Action。
+        /// </summary>
         public Label AddTip(string text)
+            => AddCallout("重点速记", text, "demo-tip", DemoTeachingElement.Tip);
+
+        /// <summary>
+        /// 非实验型注意事项：说明如果忽略就可能产生错误、泄漏或错误结论的边界。
+        /// 它不授权有副作用的实验动作，也不能替代教学实验的影响—证据—恢复闭环。
+        /// </summary>
+        public Label AddCaution(string text)
+            => AddCallout("注意边界", text, "demo-caution", DemoTeachingElement.Caution);
+
+        private Label AddCallout(
+            string title,
+            string text,
+            string className,
+            DemoTeachingElement element)
         {
-            _teachingTrace.Record(DemoTeachingElement.Tip);
-            var l = new Label(text);
-            l.AddToClassList("demo-tip");
-            l.style.whiteSpace = WhiteSpace.Normal;
-            l.enableRichText = false;
-            Target.Add(l);
-            return l;
+            _teachingTrace.Record(element);
+
+            var card = new VisualElement();
+            card.AddToClassList("demo-callout");
+            card.AddToClassList(className);
+
+            var heading = new Label(title);
+            heading.AddToClassList("demo-callout-title");
+            heading.enableRichText = false;
+            card.Add(heading);
+
+            var body = new Label(DemoRichText.Render(text));
+            body.AddToClassList("demo-callout-body");
+            body.style.whiteSpace = WhiteSpace.Normal;
+            card.Add(body);
+
+            Target.Add(card);
+            return body;
         }
 
         /// <summary>
@@ -220,20 +251,43 @@ namespace Game.Framework.Demo.Core
         public VisualElement AddConcept(string term, string description)
         {
             _teachingTrace.Record(DemoTeachingElement.Concept);
+            var row = BuildConcept(term, description);
+            Target.Add(row);
+            return row;
+        }
+
+        private static VisualElement BuildConcept(
+            string term,
+            string description,
+            CodeRef code = default,
+            bool isUnavailable = false)
+        {
             var row = new VisualElement();
             row.AddToClassList("demo-concept");
+            if (isUnavailable) row.AddToClassList("demo-concept--unavailable");
+
+            var heading = new VisualElement();
+            heading.AddToClassList("demo-concept-heading");
+
+            var kind = new Label(isUnavailable ? "处理建议" : "概念");
+            kind.AddToClassList("demo-concept-kind");
+            kind.enableRichText = false;
+            heading.Add(kind);
 
             var t = new Label(term);
             t.AddToClassList("demo-concept-term");
             t.enableRichText = false;
-            row.Add(t);
+            t.tooltip = description;
+            heading.Add(t);
+            row.Add(heading);
 
             var d = new Label(DemoRichText.Render(description));
             d.AddToClassList("demo-concept-desc");
             d.style.whiteSpace = WhiteSpace.Normal;
+            d.style.flexGrow = 1;
             row.Add(d);
 
-            Target.Add(row);
+            AppendCodeLink(row, code);
             return row;
         }
 
@@ -556,30 +610,23 @@ namespace Game.Framework.Demo.Core
         public void AddUnavailable(string reason, string recovery, string continuation, CodeRef setupCode)
         {
             _teachingTrace.RecordUnavailable(reason, recovery, continuation, setupCode);
-            AddSectionTitleCore("本章当前暂不可运行");
-            AddConceptCore("为什么不可用", reason);
-            AddConceptCore("如何恢复", recovery);
-            AddConceptCore("接下来怎么学", continuation, setupCode);
+            var card = new VisualElement();
+            card.AddToClassList("demo-unavailable");
+            Target.Add(card);
+
+            using (Into(card))
+            {
+                var title = AddSectionTitleCore("本章当前暂不可运行");
+                title.AddToClassList("demo-unavailable-title");
+                AddConceptCore("为什么不可用", reason);
+                AddConceptCore("如何恢复", recovery);
+                AddConceptCore("接下来怎么学", continuation, setupCode);
+            }
         }
 
         private void AddConceptCore(string term, string description, CodeRef code = default)
         {
-            var row = new VisualElement();
-            row.AddToClassList("demo-concept");
-
-            var t = new Label(term);
-            t.AddToClassList("demo-concept-term");
-            t.enableRichText = false;
-            row.Add(t);
-
-            var d = new Label(DemoRichText.Render(description));
-            d.AddToClassList("demo-concept-desc");
-            d.style.whiteSpace = WhiteSpace.Normal;
-            d.style.flexGrow = 1;
-            row.Add(d);
-
-            AppendCodeLink(row, code);
-            Target.Add(row);
+            Target.Add(BuildConcept(term, description, code, isUnavailable: true));
         }
 
         // 若 code 有效且当前可跳转，往 row 追加一个源码链接按钮。返回是否追加了。
