@@ -50,6 +50,10 @@ Demo 教学内容与自动化之间的运行时 Seam。`DemoModuleHost` 在真�
 
 手写 `InstallBindings` 中的普通纯 C# 分层对象统一走 `RegisterModel/System/Utility` 或对应 `RegisterOwnedXxx`：由运行时具体类型一次推导“具体 Implementation + 所有派生自该层标记的 Interface”，不登记层标记本身。低层 `RegisterValue/RegisterOwned(value, contracts)` 只留给 `ICommandSystem` 等非分层基础设施、刻意选择性暴露契约和需要在 `.g.cs` 中展示最终清单的生成安装器；Factory 是显式接线 Seam，继续显式列 contract。该约定让手写、Mono 自动注册与生成路径共享契约口径，同时避免调用点重复维护 `typeof(I...Utility)`。运行时分层注册会先预检完整 contract 集再一次提交；任一共享 Interface 冲突都不会留下具体类型或其它 Interface 的部分覆盖。
 
+## Context Affinity
+
+持有 `IHasGameContext` 的实例只能处于“尚未绑定”或“属于唯一底层 `GameContext`”两种状态。同一底层 Context（包括它的 Mono 代理）重复附着是幂等操作，跨 Context 附着则 fail-fast。构建期值组合会在任何 `[Inject]` 前预检整批实例；公开 `Inject`、运行时 `RegisterModel/System/Utility` 与 Mono 自动挂接也在字段或 Container 写入前执行同一检查。失败时回滚已接管的 owned 资源且不留下动态 override，避免出现“字段快照来自 Context B、扩展方法仍通过 Context A 解析”的双重真源。真正不读取 Context 的无状态值可不实现 `IHasGameContext` 并由多个作用域共享；需要 Context 能力的服务则应按作用域创建独立实例。
+
 ## Context Resolution Evidence
 
 `Container` 在 Editor 内为每个请求 Context 惰性聚合的实际成功解析回退：区分正常父链与 `GameContext.Main` 兜底，并记录契约、最终来源和解析次数。“可→Main”只是构造策略；只有本地与父链未命中、且 Main 真正返回实例后才成为“→Main ×N”运行证据。`HasBinding`、失败的 `TryResolve` 与诊断读取都不制造证据；工厂内部跨父级解析会记在真正发起请求的 Context，中间 Container 不重复记账。次数表示 Resolve 次数，不是业务使用次数或静态依赖图。来源采用弱引用，避免旧 Main 因诊断被延寿；整个采集与字段在玩家程序集编译消除。

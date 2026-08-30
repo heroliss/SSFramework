@@ -5,6 +5,10 @@ namespace Game.Framework.Internal
     /// 通过此接口拿到上下文，避免依赖 <see cref="Game.Framework.Context.GameContext.Main"/> 静态全局。
     /// </summary>
     /// <remarks>
+    /// <b>归属约束：</b>一个实例至多属于一个底层 <see cref="Game.Framework.Context.GameContext"/>。
+    /// 重复附着到同一 Context（包括它的 Mono 代理）是幂等操作，跨 Context 复用则会 fail-fast；
+    /// 真正需要跨作用域共享的无状态值不应实现本接口。这样可避免 <c>[Inject]</c> 依赖来自新 Context、
+    /// 扩展方法却仍通过旧 Context 解析的“双重真源”。<br/>
     /// <b>谁该实现：</b>
     /// <list type="bullet">
     ///   <item>所有 <c>MonoXxxBase</c> 子类——框架已自动实现，业务派生类不用关心。</item>

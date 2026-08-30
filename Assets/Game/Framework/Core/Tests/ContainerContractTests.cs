@@ -370,6 +370,17 @@ namespace Game.Framework.Test
             public void Dispose() => DisposeCount++;
         }
 
+        private sealed class ThrowingRollbackDisposable : IDisposable
+        {
+            public int DisposeCount;
+
+            public void Dispose()
+            {
+                DisposeCount++;
+                throw new InvalidOperationException("factory-rollback-dispose-boom");
+            }
+        }
+
         private sealed class ThrowingInjectedDisposable : IDisposable
         {
             public int DisposeCount;
@@ -675,6 +686,91 @@ namespace Game.Framework.Test
 
             StringAssert.Contains("未实现 IDisposable", error.Message);
             StringAssert.Contains(nameof(ModelA), error.Message);
+        }
+
+        [TestCase(Resolution.Lazy)]
+        [TestCase(Resolution.Eager)]
+        public void RegisterOwnedFactory_IncompatibleDisposableResult_RollsBackExactlyOnce(Resolution resolution)
+        {
+            var produced = new TrackedDisposable();
+            using var builder = new ContainerBuilder();
+            builder.RegisterOwnedFactory(_ => produced, resolution, typeof(SystemA));
+
+            InvalidOperationException error;
+            if (resolution == Resolution.Eager)
+            {
+                error = Assert.Throws<InvalidOperationException>(() => builder.Build());
+            }
+            else
+            {
+                using var context = new GameContext(builder.Build(), inheritFromGlobal: false);
+                error = Assert.Throws<InvalidOperationException>(() => context.Resolve(typeof(SystemA)));
+                context.Dispose();
+            }
+
+            StringAssert.Contains("不能赋给契约", error.Message);
+            StringAssert.Contains(nameof(TrackedDisposable), error.Message);
+            StringAssert.Contains(nameof(SystemA), error.Message);
+            Assert.AreEqual(1, produced.DisposeCount,
+                "OwnedFactory 已返回但无法提交的 IDisposable 必须立即回滚，且不能再被 Container 重复释放。");
+        }
+
+        [Test]
+        public void RegisterOwnedFactory_RollbackDisposeFailure_PreservesPrimaryContractError()
+        {
+            var produced = new ThrowingRollbackDisposable();
+            using var builder = new ContainerBuilder();
+            builder.RegisterOwnedFactory(_ => produced, typeof(SystemA));
+            using var context = new GameContext(builder.Build(), inheritFromGlobal: false);
+
+            LogAssert.Expect(LogType.Error,
+                new Regex(@"\[ContainerBinding\].*托管工厂产物.*回滚释放.*最初.*错误"));
+            LogAssert.Expect(LogType.Exception,
+                new Regex(@"InvalidOperationException: factory-rollback-dispose-boom"));
+            var error = Assert.Throws<InvalidOperationException>(() => context.Resolve(typeof(SystemA)));
+
+            StringAssert.Contains("不能赋给契约", error.Message,
+                "回滚 Dispose 的次生失败不能覆盖最初的 contract 校验错误。");
+            StringAssert.Contains(nameof(ThrowingRollbackDisposable), error.Message);
+            Assert.AreEqual(1, produced.DisposeCount);
+        }
+
+        [Test]
+        public void RegisterOwnedFactory_IncompatibleAliasOfAlreadyOwnedInstance_DoesNotDisposeEarly()
+        {
+            var produced = new TrackedDisposable();
+            using var builder = new ContainerBuilder();
+            builder.RegisterOwned(produced, typeof(TrackedDisposable));
+            builder.RegisterOwnedFactory(_ => produced, typeof(SystemA));
+            using var context = new GameContext(builder.Build(), inheritFromGlobal: false);
+
+            var error = Assert.Throws<InvalidOperationException>(() => context.Resolve(typeof(SystemA)));
+
+            StringAssert.Contains("不能赋给契约", error.Message);
+            Assert.AreEqual(0, produced.DisposeCount,
+                "错误 alias 返回的实例若已由同一 Container 持有，不能把有效绑定的资源提前释放。");
+            Assert.AreSame(produced, context.Resolve(typeof(TrackedDisposable)));
+
+            context.Dispose();
+            Assert.AreEqual(1, produced.DisposeCount,
+                "已有 owned 实例仍应在 Context 结束时且仅在此时释放一次。");
+        }
+
+        [Test]
+        public void RegisterFactory_IncompatibleDisposableResult_RemainsExternallyOwned()
+        {
+            using var produced = new TrackedDisposable();
+            using var builder = new ContainerBuilder();
+            builder.RegisterFactory(_ => produced, typeof(SystemA));
+            using var context = new GameContext(builder.Build(), inheritFromGlobal: false);
+
+            var error = Assert.Throws<InvalidOperationException>(() => context.Resolve(typeof(SystemA)));
+
+            StringAssert.Contains("不能赋给契约", error.Message);
+            Assert.AreEqual(0, produced.DisposeCount,
+                "普通 Factory 即使返回 IDisposable 且 contract 校验失败，Container 也不得猜测并接管外部所有权。");
+            context.Dispose();
+            Assert.AreEqual(0, produced.DisposeCount);
         }
 
         [Test]
