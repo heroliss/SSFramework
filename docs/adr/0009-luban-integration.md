@@ -1,6 +1,6 @@
 # ADR-0009：Luban 配置表集成 —— 构建期生成 + 运行期经资源系统加载
 
-**Status:** Accepted（2026-06-12 落地：框架模块 + 生成管线 + Demo 章节；本文件由 Proposed 设计稿更新而来。**2026-06-18 修订 §3**：配置从「Model + InitSystem 两件套」改为**单个自加载的配置 Utility 服务**；**2026-08-26 修订 §3.1**：把命令式就绪、根异常与调用方取消收进 Interface，避免业务重复轮询终态）
+**Status:** Accepted（2026-06-12 落地：框架模块 + 生成管线 + Demo 章节；本文件由 Proposed 设计稿更新而来。**2026-06-18 修订 §3**：配置从「Model + InitSystem 两件套」改为**单个自加载的配置 Utility 服务**；**2026-08-26 修订 §3.1**：把命令式就绪、根异常与调用方取消收进 Interface，避免业务重复轮询终态；**2026-08-28 修订 §1**：生成改为暂存校验后的双目录可恢复事务；**2026-08-30 修订 §3.2**：增加保留 Context 的短读取 / 门禁入口，并明确拒绝全局静态表与默认逐表权限矩阵）
 
 ## Context
 
@@ -11,7 +11,10 @@
 ### 1. 构建期（codegen）
 
 - 表定义（XML）与数据（JSON / Excel）放各自的 conf 源目录（demo 那套在 `Demo/Configs~/`，`~` 后缀不被 Unity 导入）；Editor 工作台 `SSFramework/代码生成/配置表 (Luban)` 封装 Luban CLI。路径与目标收口在 `LubanConfigProfile`（每套配置一份 SO），生成逻辑在 `LubanCodeGenerator`（均属 `Game.Framework.Config.Editor`）。工程可并存多套 profile（demo + 正式游戏），`ResolveAll()` 返回全部、逐套生成。
-- 一次生成产出**三件套**：配置 C# 类（cs-bin）+ 二进制数据（bin → `*.bytes`，落资源收集范围内）+ **表清单**（`LubanTableManifest.g.cs`，CLI 跑完后由管线扫数据目录补写）。
+- 一次生成产出**三件套**：配置 C# 类（cs-bin）+ 二进制数据（bin → 根目录 `*.bytes`，落资源收集范围内）+ **表清单**（`LubanTableManifest.g.cs`，由已验证的数据快照生成）。当前运行时与清单只支持 `cs-bin + bin`，两者由生成管线固定，不再作为 Profile 的假配置轴；旧公开 getter 仅返回常量供 Editor 源码迁移兼容。
+- CLI 的 target / codeTarget / dataTarget / conf / `outputCodeDir` / `outputDataDir` 由管线统一提供，并强制 `validationFailAsError` 把 Luban validator 失败提升为非零退出；附加参数不能重复设置，watchDir 也因常驻循环被拒绝。CLI 非零、超时、只产出半套、出现空文件、非 UTF-8 C#、非 `.cs` / `.bytes` 文件、嵌套数据或大小写冲突时直接丢弃 staging，正式目录不变。通过校验的 C# 与 manifest 固定为无 BOM 的 LF，避免不同 OS 反复重写；长耗时 CLI 结束后、真正写盘前再次强制重采跨 Module 输出 claim。
+- `LubanGenerationTransaction` 为代码与数据两棵独占目录计算联合差量：未变文件不写并保留 `.meta`，更新保留原 `.meta`，陈旧文件连配对 `.meta`、孤儿 `.meta` 与快照不再需要的空目录一并清理，manifest 随代码树最后发布；大小写目录变化和目录 / 文件拓扑替换会先清旧拓扑再写新产物。首次修改前完整备份两棵树；当前进程内任一步失败会同时回滚，回滚也失败则保留 recovery 路径并聚合两类错误。提交期间抑制 Unity 自动刷新，全部成功后才刷新一次；全未变不刷新。
+- 这是 Config Editor 内部的专属 Implementation，不抽成与 Protobuf 共用的发布管线：后者只认领单目录 `*.g.cs` 后缀并必须保留邻居文件，Luban 则独占两个目录且 manifest 与数据集合耦合。跨两个任意目录无法承诺 Editor 被强杀或断电时仍原子；那需要持久 journal 与下次启动恢复，不属于当前保证。
 - 输出格式定 **binary**（紧凑、解析快）；数据源按表选、同项目混搭（表定义的 `input` 决定）——demo 双样例：`item.json`（JSON 文本，git diff 可读、AI 可维护）+ `monster.xlsx`（Excel，策划直接编辑）。
 
 ### 2. 运行期加载：清单预载 + 同步构造
@@ -68,9 +71,12 @@ cs-bin 生成的 `Tables` 构造函数是**同步** `Func<string, ByteBuf>`，�
 - ✅ `State`、`EnsureReady` 与 `Tables` 分别覆盖观察、流程门禁和同步读取；调用方无需复制状态机，失败仍保留原始异常与堆栈。
 - ✅ `GetConfig<TTables>` / `EnsureConfig<TTables>` 删除常见的 Utility 解析样板与分散的未就绪判断，同时保留精确 Context、多配置集和可测试性；热路径仍直接使用生成表，不增加逐表 façade。
 - ✅ 清单在资源 I/O 前快照并 fail-fast，避免生成清单被运行中修改或重复 location 造成部分加载副作用。
+- ✅ CLI 失败与校验失败不再触碰正式目录；可恢复发布把代码、数据和清单的代际一致性从“成功路径约定”变成测试锁定的事务契约，同时避免未变化文件引发无谓重编译。
 - ⚠ `EnsureReady` 是一次有意的 Interface 源码扩展：继承 `MonoConfigUtilityBase<TTables>` 的项目 Adapter 自动获得实现；直接实现 `IConfigUtility<TTables>` 的自定义服务必须补齐同样的发布、根异常与取消语义。不能用默认 Interface 方法从 `Failed` 枚举凭空还原根因。
 - ⚠ 生成代码 namespace（topModule）**不得嵌进含 `System` 子命名空间的层级**（如 `Game.Framework.*`）：生成代码裸写 `System.Func` 会被就近解析劫持（CS0234）。demo 用顶层 `DemoCfg`。
-- ⚠ Luban 会清理生成代码目录里的陌生文件（表清单须在 CLI 之后补写——管线已按此顺序实现），该目录勿手放文件。
+- ⚠ 代码与数据输出目录都由 Luban 事务独占；正式发布会把本次暂存快照没有的陌生文件视为陈旧产物清理，勿手放文件。输出路径现存链上的 symlink / junction 会被拒绝，避免递归备份或回滚越过 `Assets` 物理边界。
+- ⚠ 回滚覆盖当前进程能捕获的文件系统异常；强杀 Editor、进程崩溃或断电期间的跨目录恢复仍需人工依据残留产物判断，不能把两棵目录树描述成文件系统级单次原子 rename。
+- ⚠ 2026-08-28 起 Luban Editor 类型从误导性的 `Game.Framework.Build` namespace 迁到与程序集 / ADR 一致的 `Game.Framework.Config.Editor`；脚本 GUID 与 asmdef 名不变，现有 Profile 资产无需重建，直接引用这些 Editor 类型的项目源码需更新 `using`。
 - ⚠ 配置只读、启动一次性加载：数据热更随资源包即可；表结构变化会改生成代码，需走代码热更/发版。
 - ⚠ **无单表级懒加载**：Luban 的 `Tables` 是同步、一次性构造全表（且跨表 `ResolveRef` 要全表在场），框架据此「按清单预载全部 → 同步构造」。需要「用到才加载」时按两个更合适的粒度组合现成原语——**包级下载**（`.bytes` 随资源包按需下载 / 热更）+ **配置集拆分**（DLC / 活动 / 巨表自成一套 `Tables` + 服务，让服务组件晚实例化才触发其 `Start` 自加载，每套内部 `ResolveRef` 完整）——不另设单表 lazy API（绕过 `Tables` 单独构造 `TbXxx` 会丢 ResolveRef，对小配置得不偿失）。
 

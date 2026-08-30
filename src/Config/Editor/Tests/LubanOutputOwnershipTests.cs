@@ -5,7 +5,7 @@ using UnityEditor;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
-namespace Game.Framework.Build.Tests
+namespace Game.Framework.Config.Editor.Tests
 {
     /// <summary>锁定 Luban 输出所有权与生成前置检查，确保批量预检发生在 CLI 写盘前。</summary>
     public sealed class LubanOutputOwnershipTests
@@ -143,8 +143,6 @@ namespace Game.Framework.Build.Tests
                 SetString(profile, "_lubanToolPath", string.Empty);
                 SetString(profile, "_confPath", string.Empty);
                 SetString(profile, "_target", string.Empty);
-                SetString(profile, "_codeTarget", string.Empty);
-                SetString(profile, "_dataTarget", string.Empty);
 
                 var report = LubanCodeGenerator.InspectGenerationPrerequisites(profile);
 
@@ -154,9 +152,7 @@ namespace Game.Framework.Build.Tests
                         .And.Contain("luban.conf 路径")
                         .And.Contain("代码输出目录")
                         .And.Contain("数据输出目录")
-                        .And.Contain("生成目标")
-                        .And.Contain("代码模板")
-                        .And.Contain("数据格式"));
+                        .And.Contain("生成目标"));
             }
             finally
             {

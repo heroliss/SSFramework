@@ -1,9 +1,10 @@
 using System.Collections.Generic;
 using System.Linq;
+using Game.Framework.Editor;
 using UnityEditor;
 using UnityEngine;
 
-namespace Game.Framework.Build
+namespace Game.Framework.Config.Editor
 {
     /// <summary>
     /// 配置表生成配置（编辑器资产）——<b>一套</b>配置表「Luban CLI 怎么调、产物落到哪」的单一真源。
@@ -13,7 +14,7 @@ namespace Game.Framework.Build
     ///
     /// 路径字段一律相对工程根目录，保证多人协作不受本机绝对路径影响；代码 / 数据输出还必须位于
     /// <c>Assets</c> 的非根子目录，生成入口会在创建目录或启动 CLI 前完成边界校验。
-    /// <b>工程可并存多套</b>（例如按数据域或构建目标拆分）：每项代码 / 数据输出必须独占一个与其它项不嵌套的目录；
+    /// <b>工程可并存多套</b>（例如按数据域或构建目标拆分）：每项代码 / 数据输出必须独占一个与其它生成器输出不重叠的目录；
     /// <see cref="ResolveAll"/> 返回全部。生成入口比较所有已经成立的安全输出声明后再按 Profile 就绪状态逐套生成；
     /// 空白新配置不声明所有权，也不会冻结其它可用配置。路径无法从框架推导，因此缺失时不自动制造配置。
     /// </summary>
@@ -32,25 +33,17 @@ namespace Game.Framework.Build
         [InspectorName("luban.conf 路径")]
         [SerializeField] private string _confPath = "";
 
-        [Header("生成目标")]
+        [Header("生成目标（格式固定为 cs-bin + bin）")]
         [Tooltip("luban.conf 里 targets 的 name（决定 topModule / 分组）。")]
         [InspectorName("目标名称（Target）")]
         [SerializeField] private string _target = "client";
 
-        [Tooltip("代码模板：cs-bin = C# 类 + 二进制反序列化（推荐，紧凑、解析快）。改用 json 数据时换 cs-simple-json。")]
-        [InspectorName("代码模板")]
-        [SerializeField] private string _codeTarget = "cs-bin";
-
-        [Tooltip("数据格式：bin = 二进制 .bytes（与 cs-bin 配对）。")]
-        [InspectorName("数据格式")]
-        [SerializeField] private string _dataTarget = "bin";
-
         [Header("产物输出")]
-        [Tooltip("生成 C# 代码的输出目录（必须是 Assets 的非根子目录，生成器会整理该目录，勿手放文件）。")]
+        [Tooltip("生成 C# 代码的输出目录（必须是 Assets 的非根子目录，由事务独占并差量整理，勿手放文件）。共享输出声明会拒绝与其它代码生成器重叠。")]
         [InspectorName("代码输出目录")]
         [SerializeField] private string _outputCodeDir = "";
 
-        [Tooltip("生成数据文件的输出目录（必须是 Assets 的非根子目录）。须在某个 YooAsset 收集器范围内（.bytes 按普通资源收集成 TextAsset 即可，按文件名寻址），数据才打得进资源包。")]
+        [Tooltip("生成数据文件的输出目录（必须是 Assets 的非根子目录，由事务独占，且不得与其它生成器输出重叠）。须在某个 YooAsset 收集器范围内（.bytes 按普通资源收集成 TextAsset 即可，按文件名寻址），数据才打得进资源包。")]
         [InspectorName("数据输出目录")]
         [SerializeField] private string _outputDataDir = "";
 
@@ -59,15 +52,17 @@ namespace Game.Framework.Build
         [InspectorName("表清单命名空间")]
         [SerializeField] private string _manifestNamespace = "";
 
-        [Tooltip("附加 CLI 参数（原样追加，如 -x l10n.provider=default）。一般留空。")]
+        [Tooltip("附加 CLI 参数（支持引号，如 -x l10n.provider=default；compact 短参数仅支持 -xkey=value）。一般留空；target / codeTarget / dataTarget / conf / validationFailAsError、outputCodeDir / outputDataDir 与 watchDir 由生成事务拥有或禁用，不能在此重复设置。")]
         [InspectorName("附加 CLI 参数")]
         [SerializeField] private string _extraArgs = "";
 
         public string LubanToolPath => _lubanToolPath?.Trim() ?? "";
         public string ConfPath => _confPath?.Trim() ?? "";
         public string Target => _target?.Trim() ?? "";
-        public string CodeTarget => _codeTarget?.Trim() ?? "";
-        public string DataTarget => _dataTarget?.Trim() ?? "";
+        [System.Obsolete("Luban 代码模板已固定为 cs-bin；请勿再把它当成 Profile 配置轴。")]
+        public string CodeTarget => LubanCodeGenerator.CodeTarget;
+        [System.Obsolete("Luban 数据格式已固定为 bin；请勿再把它当成 Profile 配置轴。")]
+        public string DataTarget => LubanCodeGenerator.DataTarget;
         public string OutputCodeDir => _outputCodeDir?.Trim().TrimEnd('/', '\\') ?? "";
         public string OutputDataDir => _outputDataDir?.Trim().TrimEnd('/', '\\') ?? "";
         public string ManifestNamespace => _manifestNamespace?.Trim() ?? "";
@@ -77,15 +72,8 @@ namespace Game.Framework.Build
         /// 返回工程内**所有** Luban profile（按资产路径排序，显示稳定）。生成入口会先验证每项输出目录独占，再逐套生成。
         /// 一套都没有时返回空列表；用 Assets/Create 或配置总览的“新建配置”显式创建。
         /// </summary>
-        public static IReadOnlyList<LubanConfigProfile> ResolveAll()
-        {
-            return AssetDatabase.FindAssets("t:" + nameof(LubanConfigProfile))
-                        .Select(AssetDatabase.GUIDToAssetPath)
-                        .OrderBy(path => path, System.StringComparer.Ordinal)
-                        .Select(AssetDatabase.LoadAssetAtPath<LubanConfigProfile>)
-                        .Where(p => p != null)
-                        .ToList();
-        }
+        public static IReadOnlyList<LubanConfigProfile> ResolveAll() =>
+            FrameworkEditorProfileCatalog.ResolveAll<LubanConfigProfile>();
 
         /// <summary>
         /// 第一套 profile（按路径序）——只需任意 / 主配置时的便利访问。工程没有配置时抛出清晰的

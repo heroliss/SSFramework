@@ -5,7 +5,7 @@ using System.Text;
 using Game.Framework.Editor;
 using UnityEditor;
 
-namespace Game.Framework.Build
+namespace Game.Framework.Config.Editor
 {
     /// <summary>
     /// 配置表工作台的生成动作层：逐套生成工程内 profile；定位、打开目录与按钮说明由
@@ -16,7 +16,7 @@ namespace Game.Framework.Build
     {
         /// <summary>
         /// 逐套生成给定 profile——工作台的「生成全部 / 生成这套」共用入口。
-        /// 先挡 Play 模式（生成改源码会触发重编译、打断运行 / 产生半新半旧状态），再逐套调
+        /// 先挡 Play 模式（即使差量事务保持产物一致，源码变化与刷新仍会重编译并破坏运行现场），再逐套调
         /// <see cref="LubanCodeGenerator.Generate"/>；CLI 全量输出合并进一条非阻塞 Console 结果。
         /// </summary>
         internal static void GenerateProfiles(IReadOnlyList<LubanConfigProfile> profiles)
