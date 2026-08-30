@@ -46,6 +46,8 @@ namespace Game.Framework.Editor
 
         /// <summary>MCP / CI 使用的稳定机器菜单根；它是“人工菜单只导航”规则的显式例外。</summary>
         public const string AutomationRoot = Root + "诊断/AI 自动化/";
+        /// <summary>解释下列机器 Interface 为何点击即执行；这是该子菜单唯一的人工导航入口。</summary>
+        public const string AutomationGuide = AutomationRoot + "使用说明（人工入口）";
         /// <summary>保存有路径的脏场景并拒绝未命名场景的外部自动化契约；不得随人工信息架构改名。</summary>
         public const string PlayModeTestPreflight = AutomationRoot + "PlayMode 测试预检（保存脏场景）";
         /// <summary>Core 隔离 Player Build 的外部自动化契约；不得随人工信息架构改名。</summary>

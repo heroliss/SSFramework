@@ -129,6 +129,10 @@ namespace Game.Framework.Editor
                 "真实构建体积", "用隔离 Player Build 验证模块组合的真实包体影响；结果写入 Library，不改主工程资产。",
                 FrameworkMenuPaths.BuildSizeProbe));
             FrameworkToolRegistry.Register(new FrameworkToolDescriptor(
+                "ai-automation-guide", FrameworkToolCategory.Diagnostics, 40,
+                "AI 自动化接口说明", "解释三个机器菜单为何点击即执行、各自影响与可验证完成判据；本入口只打开说明窗口。",
+                FrameworkMenuPaths.AutomationGuide));
+            FrameworkToolRegistry.Register(new FrameworkToolDescriptor(
                 "project-folders", FrameworkToolCategory.Development, 20,
                 "常用目录", "查看路径含义与当前解析结果，再按需在资源管理器中打开。",
                 FrameworkMenuPaths.ProjectFolders));

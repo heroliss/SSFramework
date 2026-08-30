@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using UnityEditor;
 using UnityEngine;
@@ -15,6 +16,12 @@ namespace Game.Framework.Editor
         public static void Open() => GetWindow<FrameworkToolsWindow>("SSFramework 工具中心").Show();
 
         private Vector2 _scroll;
+        private GUIStyle _heroTitleStyle;
+        private GUIStyle _heroSubtitleStyle;
+        private GUIStyle _categoryStyle;
+        private GUIStyle _cardTitleStyle;
+        private GUIStyle _cardSummaryStyle;
+        private bool _stylesForProSkin;
 
         private void OnEnable()
         {
@@ -26,56 +33,128 @@ namespace Game.Framework.Editor
 
         private void OnGUI()
         {
+            EnsureStyles();
             bool compact = position.width < 460f;
-            EditorGUILayout.Space(6);
-            EditorGUILayout.LabelField("SSFramework · 工具中心", EditorStyles.boldLabel);
-            EditorGUILayout.HelpBox(
-                "菜单只负责带你来到正确的工作台。会生成、构建、清理或修改设置的动作，都在窗口里先说明用途、前置条件与影响，再由你确认点击。",
-                MessageType.Info);
+            IReadOnlyList<FrameworkToolDescriptor> tools = FrameworkToolRegistry.Snapshot();
+            DrawHero();
 
-            using (new EditorGUILayout.HorizontalScope())
+            using (new EditorGUILayout.HorizontalScope(EditorStyles.toolbar))
             {
-                if (GUILayout.Button("配置中心", compact ? GUILayout.ExpandWidth(true) : GUILayout.Width(110)))
+                if (GUILayout.Button("打开配置中心", EditorStyles.toolbarButton,
+                        compact ? GUILayout.ExpandWidth(true) : GUILayout.Width(128)))
                     OpenMenu(FrameworkMenuPaths.Configuration);
-                if (GUILayout.Button(new GUIContent("刷新显示", "重新绘制当前已登记的 Module 卡片。"),
-                        compact ? GUILayout.ExpandWidth(true) : GUILayout.Width(110)))
-                    Repaint();
-                if (!compact) GUILayout.FlexibleSpace();
+                GUILayout.FlexibleSpace();
+                GUILayout.Label($"{tools.Count} 个工作台", EditorStyles.miniLabel);
             }
 
-            var tools = FrameworkToolRegistry.Snapshot();
             _scroll = EditorGUILayout.BeginScrollView(_scroll);
             foreach (FrameworkToolCategory category in Enum.GetValues(typeof(FrameworkToolCategory)))
             {
                 var section = tools.Where(tool => tool.Category == category).ToArray();
                 if (section.Length == 0) continue;
-                EditorGUILayout.Space(8);
-                EditorGUILayout.LabelField(CategoryLabel(category), EditorStyles.boldLabel);
+                DrawCategoryHeader(CategoryLabel(category), section.Length, CategoryColor(category));
                 foreach (var tool in section) DrawTool(tool, compact);
             }
             EditorGUILayout.EndScrollView();
         }
 
-        private static void DrawTool(FrameworkToolDescriptor tool, bool compact)
+        private void DrawHero()
+        {
+            const string subtitle =
+                "按意图找到所属工作台。生成、构建、清理和设置修改会先在窗口中说明影响；这里本身只负责导航。";
+            float contentWidth = Mathf.Max(120f, position.width - 28f);
+            float subtitleHeight = Mathf.Max(
+                30f,
+                _heroSubtitleStyle.CalcHeight(new GUIContent(subtitle), contentWidth));
+            float heroHeight = 47f + subtitleHeight;
+            Rect rect = GUILayoutUtility.GetRect(0f, heroHeight, GUILayout.ExpandWidth(true));
+            EditorGUI.DrawRect(rect, EditorGUIUtility.isProSkin
+                ? new Color(0.12f, 0.145f, 0.18f, 1f)
+                : new Color(0.91f, 0.94f, 0.98f, 1f));
+            EditorGUI.DrawRect(new Rect(rect.x, rect.y, 4f, rect.height),
+                FrameworkEditorVisuals.ActiveColor);
+
+            var titleRect = new Rect(rect.x + 14f, rect.y + 9f, rect.width - 26f, 26f);
+            GUI.Label(titleRect, "SSFramework · 工具中心", _heroTitleStyle);
+            var subtitleRect = new Rect(
+                rect.x + 14f, rect.y + 37f, rect.width - 26f, subtitleHeight);
+            GUI.Label(subtitleRect, subtitle, _heroSubtitleStyle);
+        }
+
+        private void DrawCategoryHeader(string title, int count, Color color)
+        {
+            EditorGUILayout.Space(9);
+            Rect rect = GUILayoutUtility.GetRect(0f, 24f, GUILayout.ExpandWidth(true));
+            EditorGUI.DrawRect(new Rect(rect.x + 2f, rect.y + 4f, 3f, rect.height - 8f), color);
+            GUI.Label(new Rect(rect.x + 11f, rect.y, rect.width - 70f, rect.height), title, _categoryStyle);
+            GUI.Label(new Rect(rect.xMax - 56f, rect.y, 52f, rect.height), count + " 项", EditorStyles.centeredGreyMiniLabel);
+        }
+
+        private void DrawTool(FrameworkToolDescriptor tool, bool compact)
         {
             using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
             {
-                EditorGUILayout.LabelField(tool.Title, EditorStyles.boldLabel);
-                GUILayout.Label(tool.Summary, EditorStyles.wordWrappedMiniLabel);
                 if (compact)
                 {
-                    if (GUILayout.Button("打开工作台")) OpenMenu(tool.MenuPath);
+                    EditorGUILayout.LabelField(tool.Title, _cardTitleStyle);
+                    GUILayout.Label(tool.Summary, _cardSummaryStyle);
+                    if (GUILayout.Button("打开工作台", GUILayout.MinHeight(25))) OpenMenu(tool.MenuPath);
                 }
                 else
                 {
                     using (new EditorGUILayout.HorizontalScope())
                     {
+                        EditorGUILayout.LabelField(tool.Title, _cardTitleStyle);
                         GUILayout.FlexibleSpace();
-                        if (GUILayout.Button("打开工作台", GUILayout.Width(110))) OpenMenu(tool.MenuPath);
+                        if (GUILayout.Button("打开", GUILayout.Width(82), GUILayout.MinHeight(23)))
+                            OpenMenu(tool.MenuPath);
                     }
+                    GUILayout.Label(tool.Summary, _cardSummaryStyle);
                 }
             }
         }
+
+        private void EnsureStyles()
+        {
+            bool proSkin = EditorGUIUtility.isProSkin;
+            if (_heroTitleStyle != null && _stylesForProSkin == proSkin) return;
+            _stylesForProSkin = proSkin;
+            _heroTitleStyle = new GUIStyle(EditorStyles.boldLabel)
+            {
+                fontSize = 20,
+                alignment = TextAnchor.MiddleLeft,
+            };
+            _heroSubtitleStyle = new GUIStyle(EditorStyles.wordWrappedLabel)
+            {
+                fontSize = 11,
+                normal = { textColor = FrameworkEditorVisuals.MutedTextColor },
+            };
+            _categoryStyle = new GUIStyle(EditorStyles.boldLabel)
+            {
+                fontSize = 14,
+                alignment = TextAnchor.MiddleLeft,
+            };
+            _cardTitleStyle = new GUIStyle(EditorStyles.boldLabel)
+            {
+                fontSize = 13,
+                alignment = TextAnchor.MiddleLeft,
+            };
+            _cardSummaryStyle = new GUIStyle(EditorStyles.wordWrappedLabel)
+            {
+                fontSize = 11,
+                normal = { textColor = FrameworkEditorVisuals.MutedTextColor },
+                margin = new RectOffset(2, 2, 2, 4),
+            };
+        }
+
+        private static Color CategoryColor(FrameworkToolCategory category) => category switch
+        {
+            FrameworkToolCategory.BuildAndRelease => FrameworkEditorVisuals.WarningColor,
+            FrameworkToolCategory.CodeGeneration => new Color(0.56f, 0.43f, 0.86f, 1f),
+            FrameworkToolCategory.Diagnostics => FrameworkEditorVisuals.ActiveColor,
+            FrameworkToolCategory.Development => FrameworkEditorVisuals.HealthyColor,
+            _ => FrameworkEditorVisuals.BorderColor,
+        };
 
         private static string CategoryLabel(FrameworkToolCategory category) => category switch
         {

@@ -74,12 +74,13 @@ namespace Game.Framework.Editor
         private static readonly Color ColRuntime = new(0.62f, 0.45f, 0.18f);  // 运行时注册
         private static readonly Color ColBuild = new(0.36f, 0.36f, 0.40f);    // 构建时绑定
         private static readonly Color ColFactory = new(0.48f, 0.35f, 0.62f);  // 工厂未解析
-        private static readonly Color ColAsync = new(0.25f, 0.45f, 0.65f);
-        private static readonly Color ColError = new(0.78f, 0.30f, 0.26f);
-        private static readonly Color ColOk = new(0.30f, 0.55f, 0.32f);
-        private static readonly Color ColWarnDur = new(0.82f, 0.60f, 0.18f);  // ≥ 1 帧（16.7ms）
-        private static readonly Color ColBadDur = new(0.85f, 0.33f, 0.28f);   // ≥ 100ms
-        private static readonly Color ColMuted = new(0.55f, 0.55f, 0.55f);
+        // 状态文字使用 skin-aware 语义色；Context 类型 badge 仍保留本窗口自己的领域色。
+        private static Color ColAsync => FrameworkEditorVisuals.ActiveTextColor;
+        private static Color ColError => FrameworkEditorVisuals.ErrorTextColor;
+        private static Color ColOk => FrameworkEditorVisuals.HealthyTextColor;
+        private static Color ColWarnDur => FrameworkEditorVisuals.WarningTextColor; // ≥ 1 帧（16.7ms）
+        private static Color ColBadDur => FrameworkEditorVisuals.ErrorTextColor;    // ≥ 100ms
+        private static Color ColMuted => FrameworkEditorVisuals.MutedTextColor;
 
         // ── UI 引用 ─────────────────────────────────────────────────────────
         private TreeView _tree;
