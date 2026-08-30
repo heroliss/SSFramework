@@ -436,6 +436,43 @@ namespace Game.Framework.Test
                 "UIUtility.Dispose 是纯物理 teardown；取消后的 Toast timer 不得迟到调用 OnClose");
         });
 
+        [Test]
+        public void ShowToast_TimerNonOwnerCancellation_IsLoggedAndClosesToast()
+        {
+            LogAssert.Expect(LogType.Error,
+                new Regex("Toast 自动关闭任务异常停止.*关闭当前 Toast"));
+            LogAssert.Expect(LogType.Exception, new Regex("OperationCanceledException"));
+            var ui = new UIUtility(_ctx, _backend, new UIBuiltinWindows
+            { Toast = typeof(ToastFake), Loading = typeof(LoadingFake) },
+                (_, _) => UniTask.FromException(
+                    new OperationCanceledException("toast clock canceled itself")));
+
+            ui.ShowToast("failure", 1f).GetAwaiter().GetResult();
+
+            Assert.IsFalse(ui.IsOpen<ToastFake>(),
+                "计时实现未收到 owner 取消却抛 OCE，必须按故障收口，不能让 Toast 永久残留");
+            Assert.That(_logSink.Entries.Any(entry =>
+                entry.Exception is OperationCanceledException &&
+                entry.Message.Contains("Toast 自动关闭任务异常停止")), Is.True,
+                "结构化日志 sink 应保留非 owner OCE，便于定位计时 Adapter 故障");
+            ui.Dispose();
+        }
+
+        [Test]
+        public void ShowToast_TimerOwnerCancellation_IsSilent()
+        {
+            var ui = new UIUtility(_ctx, _backend, new UIBuiltinWindows
+            { Toast = typeof(ToastFake), Loading = typeof(LoadingFake) }, WaitUntilCanceled);
+
+            ui.ShowToast("owner", 1f).GetAwaiter().GetResult();
+            ui.Close<ToastFake>();
+
+            Assert.IsFalse(ui.IsOpen<ToastFake>());
+            Assert.That(_logSink.Entries.Any(entry => entry.Exception is OperationCanceledException), Is.False,
+                "显式关闭取消自身 timer owner 是正常生命周期，不应污染错误日志");
+            ui.Dispose();
+        }
+
 #pragma warning disable CS0618 // 下列用例有意验证迁移期 ShowLoading/HideLoading 的兼容 Implementation。
         [Test]
         public void ShowLoading_ThenHide_OpensAndCloses()
@@ -700,6 +737,13 @@ namespace Game.Framework.Test
             Assert.That(obsolete.IsError, Is.False, "本阶段只发编译警告，仍须保持旧源码可重新编译。 ");
             Assert.That(obsolete.Message, Does.Contain(nameof(IUIUtility.AcquireLoading)),
                 "迁移提示必须给出所有权安全的替代入口。 ");
+        }
+
+        private static async UniTask WaitUntilCanceled(TimeSpan _, CancellationToken ct)
+        {
+            var completion = new UniTaskCompletionSource();
+            using (ct.Register(() => completion.TrySetCanceled(ct)))
+                await completion.Task;
         }
 
         private sealed class CapturingSink : ILogSink

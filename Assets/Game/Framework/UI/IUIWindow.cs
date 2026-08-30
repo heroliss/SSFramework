@@ -36,7 +36,8 @@ namespace Game.Framework.UI
         /// <summary>
         /// 入场过渡（ADR-0020）：<c>OnOpen</c> 之后由框架调用，返回未完成的 task 期间框架全屏挡输入。
         /// 返回已完成 task（基类默认）= 无过渡、零开销。<paramref name="ct"/> 随 Context 销毁取消——动画实现应响应它。
-        /// 过渡抛异常会被框架记日志并视为完成（不会挡死输入）。
+        /// 只有 <paramref name="ct"/> 已取消时的 <see cref="System.OperationCanceledException"/> 属于正常生命周期收口；
+        /// token 未取消时自行抛出的取消异常与其它异常一样会被框架记日志并视为完成（不会挡死输入）。
         /// </summary>
         UniTask OnOpenTransition(CancellationToken ct);
 
@@ -44,6 +45,8 @@ namespace Game.Framework.UI
         /// 出场过渡（ADR-0020）：<c>OnClose</c> 之前由框架调用（窗口此时仍可见，播出场动画），期间全屏挡输入。
         /// 注意逻辑关闭已先行生效：此刻 <c>IsOpen</c> 已为 false、同类型可被重新打开——动画只是表现层残影。
         /// <c>CloseAll</c> / Context 销毁走立即路径，不会调用本 hook。
+        /// 只有传入 token 已取消时的 <see cref="System.OperationCanceledException"/> 会静默收口；其它取消异常按 hook 故障记录，
+        /// 但仍会放开挡板并完成 <c>OnClose</c> 与物理回收。
         /// </summary>
         UniTask OnCloseTransition(CancellationToken ct);
     }

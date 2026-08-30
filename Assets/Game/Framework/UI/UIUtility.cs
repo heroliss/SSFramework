@@ -397,9 +397,12 @@ namespace Game.Framework.UI
 
             // 出场过渡：批量关闭不播（场景切换要的是立刻干净）。hook 同步抛异常 → 记日志按无过渡走。
             var transition = UniTask.CompletedTask;
+            CancellationToken ownerToken = default;
             if (!_batchClosing)
             {
-                try { transition = window.OnCloseTransition(_context.CancellationToken); }
+                ownerToken = _context.CancellationToken;
+                try { transition = window.OnCloseTransition(ownerToken); }
+                catch (OperationCanceledException) when (ownerToken.IsCancellationRequested) { }
                 catch (Exception e) { LogHookFailure(window, nameof(IUIWindow.OnCloseTransition), e); }
             }
 
@@ -408,7 +411,7 @@ namespace Game.Framework.UI
                 FinishClose(window, meta); // 无过渡：同步走完，行为与旧版逐帧一致
                 return;
             }
-            RunCloseTransition(window, meta, transition).Forget();
+            RunCloseTransition(window, meta, transition, ownerToken).Forget();
         }
 
         private bool TryGetLoadingType(out Type loadingType)
@@ -471,12 +474,18 @@ namespace Game.Framework.UI
             CancellationTokenSource owner)
         {
             bool shouldClose = false;
+            // CTS 可能被刷新 / Close / Dispose 取消并立即 Dispose；先捕获值类型 token，catch filter
+            // 不能在 owner 已释放后再访问 owner.Token。只有这份 owner token 真正取消的 OCE 才是正常收口。
+            CancellationToken ownerToken = owner.Token;
             try
             {
-                await _toastDelay(TimeSpan.FromSeconds(duration), owner.Token);
+                await _toastDelay(TimeSpan.FromSeconds(duration), ownerToken);
                 shouldClose = ReferenceEquals(_toastAutoClose, owner);
             }
-            catch (OperationCanceledException) { /* 刷新 / 显式关闭 / 清场 / Context Dispose：正常取消 */ }
+            catch (OperationCanceledException) when (ownerToken.IsCancellationRequested)
+            {
+                // 刷新 / 显式关闭 / 清场 / Context Dispose：框架 owner 发起的正常取消。
+            }
             catch (Exception e)
             {
                 if (ReferenceEquals(_toastAutoClose, owner))
@@ -533,11 +542,18 @@ namespace Game.Framework.UI
         }
 
         // 出场过渡期间挡输入；结束（含异常/取消）后走真正的关闭收尾。
-        private async UniTaskVoid RunCloseTransition(IUIWindow window, UIWindowMeta meta, UniTask transition)
+        private async UniTaskVoid RunCloseTransition(
+            IUIWindow window,
+            UIWindowMeta meta,
+            UniTask transition,
+            CancellationToken ownerToken)
         {
             BeginTransition();
             try { await transition; }
-            catch (OperationCanceledException) { } // Context 销毁级联取消：正常路径，无需日志
+            catch (OperationCanceledException) when (ownerToken.IsCancellationRequested)
+            {
+                // Context 销毁级联取消：正常路径，无需日志。
+            }
             catch (Exception e) { LogHookFailure(window, nameof(IUIWindow.OnCloseTransition), e); }
             finally
             {
@@ -570,18 +586,23 @@ namespace Game.Framework.UI
         // 入场过渡：不 await（Open 返回不等表现层）；进行中全屏挡输入。hook 同步抛异常 → 记日志视为无过渡。
         private void StartOpenTransition(IUIWindow window)
         {
+            CancellationToken ownerToken = _context.CancellationToken;
             UniTask transition;
-            try { transition = window.OnOpenTransition(_context.CancellationToken); }
+            try { transition = window.OnOpenTransition(ownerToken); }
+            catch (OperationCanceledException) when (ownerToken.IsCancellationRequested) { return; }
             catch (Exception e) { LogHookFailure(window, nameof(IUIWindow.OnOpenTransition), e); return; }
             if (transition.Status == UniTaskStatus.Succeeded) return; // 默认无过渡：零开销
-            RunOpenTransition(window, transition).Forget();
+            RunOpenTransition(window, transition, ownerToken).Forget();
         }
 
-        private async UniTaskVoid RunOpenTransition(IUIWindow window, UniTask transition)
+        private async UniTaskVoid RunOpenTransition(
+            IUIWindow window,
+            UniTask transition,
+            CancellationToken ownerToken)
         {
             BeginTransition();
             try { await transition; }
-            catch (OperationCanceledException) { }
+            catch (OperationCanceledException) when (ownerToken.IsCancellationRequested) { }
             catch (Exception e) { LogHookFailure(window, nameof(IUIWindow.OnOpenTransition), e); }
             finally { EndTransition(); }
         }

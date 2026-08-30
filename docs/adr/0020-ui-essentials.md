@@ -34,7 +34,7 @@ UniTask OnCloseTransition(CancellationToken ct);  // 出场动画：OnClose 之�
 - **逻辑关闭立即生效**：动画期间窗口已不在栈里——`Back()`/`CloseTop` 不会再次命中它，同类型可立即重新 `Open`（新实例）。「表现滞后于逻辑」比「动画期间世界卡住」简单且可预期。
 - **挡输入 = 全屏计数挡板**：backend 新增 `SetInputBlocked(bool)`（UGUI：canvas 顶层透明 raycast Image；Toolkit：root 顶层 `PickingMode.Position` 透明元素）。核心持计数器，任一过渡进行中即挡——防连点、防动画中操作，一处保障全局。
 - **默认零开销**：hook 默认返回已完成 task → 框架同步走完，行为与改动前逐帧一致（既有测试不动就得全绿）。
-- **异常/取消**：过渡抛异常 → `LogException` + 视为完成（一个窗口的动画 bug 不能挡死全屏输入）；ct 为 Context 令牌，Dispose 级联取消。
+- **异常/取消**：过渡抛异常 → 记录带 hook 身份的 Error + 视为完成（一个窗口的动画 bug 不能挡死全屏输入）；ct 为 Context 令牌，只有该 token 已取消时的 `OperationCanceledException` 才是可静默收口的 owner 取消。token 未取消时下游自行抛 OCE 仍是 hook 故障，不能伪装成正常生命周期结束；同步调用 hook 与异步等待采用同一判定。
 - **`CloseAll` / `Dispose` 不播过渡**：批量关闭多用于场景切换，要的是立刻干净，不是 N 个出场动画。
 - 缓存复用的重开**播**入场过渡（用户看到的是「打开」）；已打开置顶刷新**不播**（本就在屏上）。
 
@@ -65,7 +65,7 @@ UniTask OnCloseTransition(CancellationToken ct);  // 出场动画：OnClose 之�
 
 内置窗口本体（每 adapter 一对，纯代码搭建、`Cache` 复用、落 `UILayer.Top`）：
 
-- **Toast**（`UGuiToastWindow` / `ToolkitToastWindow`）：底部居中半透明文字条，整棵树不吃输入；连续 Toast 复用同一实例——刷新文本、重置计时，**不做队列**（no-over-engineering，要队列的项目自包一层）。自动关闭是公共 Interface 的行为，owner 统一放在渲染中立 `UIUtility`：计时令牌链接 Context，连续 Show 只允许最新 timer 关闭，Close / CloseAll / Dispose 会取消旧 timer 与创建请求；两个 adapter 只渲染文本和样式，不复制时序。首次异步创建期间的多个 Show 另用单调提交序号定胜负——`OpenCore` 可能同步唤醒后发等待者，旧创建者最后恢复也不能拿旧 duration 覆盖新 owner；后发请求若取消，则较早有效请求仍可提交。生产计时仍用不受 `timeScale` 影响的 PlayerLoop 实时延迟；仅 Implementation 的内部构造允许测试注入手动时钟，直接验证 owner identity，不把 Editor 后台帧调度误当成产品契约。
+- **Toast**（`UGuiToastWindow` / `ToolkitToastWindow`）：底部居中半透明文字条，整棵树不吃输入；连续 Toast 复用同一实例——刷新文本、重置计时，**不做队列**（no-over-engineering，要队列的项目自包一层）。自动关闭是公共 Interface 的行为，owner 统一放在渲染中立 `UIUtility`：计时令牌链接 Context，连续 Show 只允许最新 timer 关闭，Close / CloseAll / Dispose 会取消旧 timer 与创建请求；两个 adapter 只渲染文本和样式，不复制时序。首次异步创建期间的多个 Show 另用单调提交序号定胜负——`OpenCore` 可能同步唤醒后发等待者，旧创建者最后恢复也不能拿旧 duration 覆盖新 owner；后发请求若取消，则较早有效请求仍可提交。生产计时仍用不受 `timeScale` 影响的 PlayerLoop 实时延迟；仅 Implementation 的内部构造允许测试注入手动时钟，直接验证 owner identity，不把 Editor 后台帧调度误当成产品契约。计时 Seam 只有在自身 owner token 已取消时才可静默抛 OCE；否则按故障记录并关闭当前 Toast，避免提示永久残留。
 - **Loading**（`UGuiLoadingWindow` / `ToolkitLoadingWindow`）：`Modal = true` 遮罩挡输入 + `BackClosable = false` 拦返回键；中央文本 + 旋转指示块（无美术资源的默认表现，正式项目通常用带资产的自定义 Loading 替代）；重复占用复用同一窗口并刷新文本，窗口所有权由 ADR-0037 的 lease 管理。
 
 ## Consequences
