@@ -59,11 +59,24 @@ namespace Game.Framework
         private bool _disposedByDestroy;
 
         // 无默认包（DefaultPackageName 留空）时恒为 false——没有「默认包」可言。
-        public bool IsInitialized =>
-            !string.IsNullOrWhiteSpace(_defaultPackageName) &&
-            GetState(_defaultPackageName).State.Value == AssetInitState.Ready;
+        public bool IsInitialized
+        {
+            get
+            {
+                ThrowIfDisposed();
+                return !string.IsNullOrWhiteSpace(_defaultPackageName) &&
+                       GetState(_defaultPackageName).State.Value == AssetInitState.Ready;
+            }
+        }
         public AssetPlayMode CurrentPlayMode { get; private set; } = AssetPlayMode.EditorSimulate;
-        public ReadOnlyReactiveProperty<AssetInitState> InitState => GetState(_defaultPackageName).State;
+        public ReadOnlyReactiveProperty<AssetInitState> InitState
+        {
+            get
+            {
+                ThrowIfDisposed();
+                return GetState(_defaultPackageName).State;
+            }
+        }
 
         /// <summary>
         /// 当前组件的场景运行配置。业务只读；需要代码引导时请在 <c>Start</c> 前调用 <see cref="Configure"/>。
@@ -101,8 +114,20 @@ namespace Game.Framework
         [Tooltip("开启 = 远端请求走不可达地址，远端拉取失败。仅编辑器 / 仅远端模式有意义；进 Play 前开启才能让初始化失败，已 Ready 的包不受影响。")]
         private RP<bool> _simulateOffline = new(false);
 
-        ReadOnlyReactiveProperty<bool> IAssetUtility.SimulateOffline => _simulateOffline;
-        void IAssetUtility.SetSimulateOffline(bool on) => _simulateOffline.Value = on;
+        ReadOnlyReactiveProperty<bool> IAssetUtility.SimulateOffline
+        {
+            get
+            {
+                ThrowIfDisposed();
+                return _simulateOffline;
+            }
+        }
+
+        void IAssetUtility.SetSimulateOffline(bool on)
+        {
+            ThrowIfDisposed();
+            _simulateOffline.Value = on;
+        }
 #endif
 
         protected override void Awake()
@@ -143,22 +168,88 @@ namespace Game.Framework
         protected override void OnDestroy()
         {
             _disposedByDestroy = true;
-            CancelAndDispose(ref _startupCts, "自动初始化批次");
-            CancelAndDispose(ref _disposeCts, "资源 Utility 生命周期");
-            _provider?.Dispose();
-            _provider = null;
-
-            foreach (var state in _packages.Values)
+            try
             {
-                state.Attempt.Done.TrySetCanceled();
-                state.State.Dispose();
-            }
-            _packages.Clear();
+                CancelAndDispose(ref _startupCts, "自动初始化批次");
+                CancelAndDispose(ref _disposeCts, "资源 Utility 生命周期");
+                DisposeProviderSafely();
+                DisposePackageStatesSafely();
 
 #if UNITY_EDITOR
-            _simulateOffline?.Dispose();
+                DisposeStateSafely(_simulateOffline, "模拟断网状态流");
 #endif
-            base.OnDestroy();
+            }
+            finally
+            {
+                // Provider / 状态订阅属于可替换边界；任何一个坏 Dispose 都不能让 Mono 仍留在 Context 中。
+                base.OnDestroy();
+            }
+        }
+
+        private void DisposeProviderSafely()
+        {
+            IAssetProvider provider = _provider;
+            _provider = null;
+            if (provider == null) return;
+            try
+            {
+                provider.Dispose();
+            }
+            catch (Exception exception)
+            {
+                Log.Error(
+                    "资源 Provider 在释放期间抛出异常；状态流与 Context 清理仍会继续。",
+                    exception,
+                    nameof(AssetUtility),
+                    this);
+            }
+        }
+
+        private void DisposePackageStatesSafely()
+        {
+            try
+            {
+                foreach (PackageState state in _packages.Values)
+                {
+                    try
+                    {
+                        state.Attempt.Done.TrySetCanceled();
+                    }
+                    catch (Exception exception)
+                    {
+                        ReportCleanupFailure($"包“{state.Name}”的初始化等待者", exception);
+                    }
+
+                    DisposeStateSafely(state.State, $"包“{state.Name}”的初始化状态流");
+                }
+            }
+            finally
+            {
+                _packages.Clear();
+            }
+        }
+
+        private void DisposeStateSafely<T>(ReactiveProperty<T> state, string owner)
+        {
+            if (state == null) return;
+            try
+            {
+                // 锁定公开长期源的完结契约，不把 R3 无参 Dispose 的默认值变成隐藏知识。
+                state.Dispose(callOnCompleted: true);
+            }
+            catch (Exception exception)
+            {
+                ReportCleanupFailure(owner, exception);
+            }
+        }
+
+        private void ReportCleanupFailure(string owner, Exception exception)
+        {
+            Log.Error(
+                $"{owner}在释放期间抛出异常；其余资源清理仍会继续。",
+                exception,
+                nameof(AssetUtility),
+                this);
         }
 
         private void CancelAndDispose(ref CancellationTokenSource source, string owner)
@@ -460,7 +551,10 @@ namespace Game.Framework
         }
 
         public ReadOnlyReactiveProperty<AssetInitState> GetInitState(string packageName)
-            => GetState(NormalizePackageName(packageName)).State;
+        {
+            ThrowIfDisposed();
+            return GetState(NormalizePackageName(packageName)).State;
+        }
 
         public UniTask EnsureInitialized(CancellationToken ct = default)
             => EnsureInitialized(_defaultPackageName, ct);

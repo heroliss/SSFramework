@@ -1484,6 +1484,8 @@ switch (asset.GetLocationState("ui/logo"))
 
 `GetLocationState` 与三个 `Create*Downloader` 是同步缓存快照，不能在 Unity 主线程排队等待 Writer。若同包维护正在运行或已经排队，它们会立即抛出带操作名的 `InvalidOperationException`，提示维护完成后重试；这比越过 Writer 读一份中间态统计更安全。正常业务把“清缓存”和“重新统计/建下载器”放在同一个 await 流程里即可，不需要轮询。
 
+`AssetUtility` 销毁时会取消仍在运行的初始化 / 维护 owner，释放 Provider，并正常完结已经取得的 `InitState` / `GetInitState(package)` 状态流；Provider 自身的释放回调即使抛错也只记录，不会跳过其余状态流与 Context 清理。不要保留销毁后的 Utility 引用：重新查询状态会明确抛 `ObjectDisposedException`，不会生成一份已经没有 Context owner 的“幽灵状态流”。
+
 Host 模式默认允许 `Load` 对未缓存 bundle 当场按需下载。大型 DLC 若不想“误 Load 一个资源就自动下载”，在 `AssetUtility.Settings.Packages` 列表里取消该包的“启用按需下载”：之后本包未缓存资源的 `Load` 直接失败，业务必须先用下载器显式预下载并展示进度。
 
 > **包名别写裸字符串**：`SSFramework/构建与发布/资源构建` 工作台的“生成包名常量”从收集器包列表生成常量类；输出路径与命名空间必须在构建 profile 中指向实际业务程序集，框架不猜项目布局。`Initialize` / `Load` 等的 `packageName` 参数用生成的 `AssetPackages.Xxx`——收集器改名 / 删包后重新生成，引用处编译期报错，不用等运行时才发现。

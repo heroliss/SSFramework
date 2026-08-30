@@ -73,6 +73,10 @@ namespace Game.Framework.Test
             => Destroy_CancelsRunningMaintenanceAndSkipsQueuedOperationAsync().ToCoroutine();
 
         [UnityTest]
+        public IEnumerator Destroy_WhenProviderDisposeThrows_StillCompletesStateAndUnregisters()
+            => Destroy_WhenProviderDisposeThrows_StillCompletesStateAndUnregistersAsync().ToCoroutine();
+
+        [UnityTest]
         public IEnumerator LocationState_DistinguishesNotReadyInvalidLocalAndRemote_PerPackage()
             => LocationState_DistinguishesNotReadyInvalidLocalAndRemote_PerPackageAsync().ToCoroutine();
 
@@ -428,6 +432,30 @@ namespace Game.Framework.Test
             Assert.IsTrue(_provider.Disposed);
         }
 
+        private async UniTask Destroy_WhenProviderDisposeThrows_StillCompletesStateAndUnregistersAsync()
+        {
+            bool stateCompleted = false;
+            using var stateSubscription = _utility.GetInitState(Package).Subscribe(
+                _ => { },
+                _ => stateCompleted = true);
+            _provider.ThrowOnDispose = true;
+
+            LogAssert.Expect(LogType.Error,
+                new Regex(@"\[AssetUtility\].*资源 Provider 在释放期间抛出异常"));
+            LogAssert.Expect(LogType.Exception, new Regex("asset-provider-dispose-probe"));
+            UnityEngine.Object.Destroy(_utility.gameObject);
+            await UniTask.Yield(PlayerLoopTiming.Update);
+
+            Assert.IsTrue(_provider.Disposed, "即使 Provider 抛错也应只执行一次释放尝试");
+            Assert.IsTrue(stateCompleted, "Provider 释放异常不能截断已发布状态流的完结");
+            Assert.IsFalse(_context.RawContext.TryResolve(typeof(IAssetUtility), out _),
+                "Provider 释放异常不能跳过 MonoUtilityBase 的 Context 反注册");
+            Assert.Throws<ObjectDisposedException>(() => _utility.GetInitState(Package),
+                "销毁后的旧 Utility 引用不得重新创建脱离 Context 的状态流");
+            Assert.Throws<ObjectDisposedException>(() => _ = _utility.InitState);
+            Assert.Throws<ObjectDisposedException>(() => _ = _utility.IsInitialized);
+        }
+
         private async UniTask LocationState_DistinguishesNotReadyInvalidLocalAndRemote_PerPackageAsync()
         {
             const string otherPackage = "OtherPackage";
@@ -582,6 +610,7 @@ namespace Game.Framework.Test
             public IReadOnlyList<string> ReceivedTags { get; private set; }
             public IReadOnlyList<string> ReceivedLocations { get; private set; }
             public bool Disposed { get; private set; }
+            public bool ThrowOnDispose { get; set; }
             public bool LocationValid { get; set; }
             public bool NeedDownload { get; set; }
             public int CheckLocationCalls { get; private set; }
@@ -715,7 +744,12 @@ namespace Game.Framework.Test
             public IAssetDownloader CreateTagDownloader(string packageName, IReadOnlyList<string> tags, int maxConcurrent, int retries) => null;
             public IAssetDownloader CreateAllDownloader(string packageName, int maxConcurrent, int retries) => null;
             public IAssetDownloader CreateLocationDownloader(string packageName, IReadOnlyList<string> locations, int maxConcurrent, int retries) => null;
-            public void Dispose() => Disposed = true;
+            public void Dispose()
+            {
+                Disposed = true;
+                if (ThrowOnDispose)
+                    throw new InvalidOperationException("asset-provider-dispose-probe");
+            }
         }
     }
 }
