@@ -1,6 +1,6 @@
 {
-    "name": "Game.Framework.Test",
-    "rootNamespace": "Game.Framework",
+    "name": "Game.Framework.Tests",
+    "rootNamespace": "Game.Framework.Test",
     "references": [
         "UniTask",
         "Game.Framework",

@@ -16,7 +16,7 @@ namespace Game.Framework.Test
     /// 以及内核 <see cref="FileLogSink"/> 的落盘与滚动。
     /// </summary>
     /// <remarks>
-    /// 本程序集（<c>Game.Framework.Test</c>）与 <c>Game.Framework</c> 是**不同程序集**，且**没有**声明
+    /// 本程序集（<c>Game.Framework.Tests</c>）与 <c>Game.Framework</c> 是**不同程序集**，且**没有**声明
     /// 插值处理器所需的 polyfill attribute——因此这里的 <c>Log.Trace($"...")</c> 同时充当
     /// 「处理器能否跨程序集被调用方编译器识别」的验证（见 <see cref="Trace_Interpolation_IsLazy_WhenDisabled"/>）。
     /// </remarks>

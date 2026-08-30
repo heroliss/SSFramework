@@ -85,7 +85,7 @@ Editor 反向引用。Adapter 不得随 Framework 分发付费插件本体。详
 | `Game.Framework.Demo` | `Demo/` | 32 个可运行教学章节，是所有 Module 的消费方与集成样板；Catalog 集中拥有章节 Adapter、生命周期与 Host 教学语义校验。包含 Input System → `IUIUtility.Back()` 等项目 composition 样板，但这些不是 Framework Runtime API。 | 可整体删除；`UNITY_EDITOR` define 保证不进玩家包。 |
 | `Game.Framework.Demo.Tests` | `Demo/Tests/` | Demo 专属 EditMode 门禁：章节生命周期/回滚、教学形态与结构化降级契约、内嵌服务器、关键示例行为及全部 CodeRef 防腐。 | 随 Demo 一起删除；不让 Demo 专属依赖反向进入通用 Test Module。 |
 | `Game.Framework.Demo.PlayMode.Tests` | `Demo/Tests/PlayMode/` | 加载真实 DemoScene，穿过 Context、Catalog 与 Shell 逐章 Build 32 个 Adapter，并验证真实缺依赖降级页。 | 随 Demo 一起删除；不进入玩家构建，也不把场景集成依赖塞回纯 EditMode 门禁。 |
-| `Game.Framework.Test` | `Test/Scripts/` | Core 的 PlayMode/EditMode 契约及回归测试；可选 UI、Fonts、Proto、YooAsset Module 的独立契约和第三方引用均已迁回各自 owner。 | 产品运行不依赖；开发/CI 不应删除。 |
+| `Game.Framework.Tests` | `Core/Tests/` | Core 的 PlayMode/EditMode 契约及回归测试；可选 UI、Fonts、Proto、YooAsset Module 的独立契约和第三方引用均已迁回各自 owner。 | 随 Core 源码共同维护；产品运行不依赖，开发/CI 不应单独删除。 |
 
 ## 维护检查清单
 

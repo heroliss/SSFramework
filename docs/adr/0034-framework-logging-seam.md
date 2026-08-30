@@ -75,7 +75,7 @@ roadmap「Cysharp 生态候选」里 **ZLogger**（零分配结构化日志）�
 - **处理器把守卫下沉到编译期**：编译器把 `$"..."` 改写成一串 `Append` 调用，外裹 `if (shouldAppend)`（值来自处理器构造函数里的 `Log.IsEnabled`）。级别没开 → 整块跳过 → 表达式一次都不求值。
 - **代价（唯一的）**：求值语义变了——插值参数里的副作用（`i++`）在级别没开时不执行。但这与手写 `if (Verbose) Trace(...)` 是**完全相同**的语义，而「日志开不开会改变程序行为」本身就是 bug，故此语义是刻意接受的，并写进 AGENTS #34 与 XML doc。
 - 另叠 `[Conditional("UNITY_EDITOR"), Conditional("DEVELOPMENT_BUILD")]`：发布版整个调用连同实参从 IL 中删除，比「方法体空转」更彻底。
-- **依赖**：Unity BCL（netstandard2.1 档）没有 `InterpolatedStringHandlerAttribute`（实测确认），框架自带一份 `internal` polyfill——R3 / ObservableCollections / Roslyn 自己都是这么做的（实测均为 `internal`）。**跨程序集可用性已实测**：`Game.Framework.Test` / `Asset.Yoo` 都不声明 polyfill，仍能正确绑到处理器重载（`LoggingTests.Trace_Interpolation_IsLazy_WhenDisabled` 就是这条的回归测试）。
+- **依赖**：Unity BCL（netstandard2.1 档）没有 `InterpolatedStringHandlerAttribute`（实测确认），框架自带一份 `internal` polyfill——R3 / ObservableCollections / Roslyn 自己都是这么做的（实测均为 `internal`）。**跨程序集可用性已实测**：`Game.Framework.Tests` / `Asset.Yoo` 都不声明 polyfill，仍能正确绑到处理器重载（`LoggingTests.Trace_Interpolation_IsLazy_WhenDisabled` 就是这条的回归测试）。
 - **顺带**：ZLogger 的两大卖点之一「零分配」我们自己拿到了，进一步坐实了「客户端不引 ZLogger」的决定。
 
 **④ `[HideInCallstack]` 是前提、不是可选，且必须**全链**覆盖**：任何「包一层 `Debug.Log`」的门面，若不标它，Console 双击日志会跳进门面的转发方法而不是真正的调用点——这一条足以让所有人退回裸 `Debug.Log`，是此类封装最常见的死因。
