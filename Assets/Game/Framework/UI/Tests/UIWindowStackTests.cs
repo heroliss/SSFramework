@@ -436,6 +436,7 @@ namespace Game.Framework.Test
                 "UIUtility.Dispose 是纯物理 teardown；取消后的 Toast timer 不得迟到调用 OnClose");
         });
 
+#pragma warning disable CS0618 // 下列用例有意验证迁移期 ShowLoading/HideLoading 的兼容 Implementation。
         [Test]
         public void ShowLoading_ThenHide_OpensAndCloses()
         {
@@ -494,6 +495,16 @@ namespace Game.Framework.Test
             Assert.IsFalse(ui.IsOpen<LoadingFake>());
             ui.Dispose();
         }
+#pragma warning restore CS0618
+
+        [Test]
+        public void LegacyLoadingPair_IsNonBreakingObsoleteAndPointsToLeaseMigration()
+        {
+            AssertLegacyLoadingMember(typeof(IUIUtility), "ShowLoading");
+            AssertLegacyLoadingMember(typeof(IUIUtility), "HideLoading");
+            AssertLegacyLoadingMember(typeof(UIUtility), "ShowLoading");
+            AssertLegacyLoadingMember(typeof(UIUtility), "HideLoading");
+        }
 
         [Test]
         public void AcquireLoading_OverlappingHandles_CloseOnlyAfterLastOwner()
@@ -522,6 +533,7 @@ namespace Game.Framework.Test
             ui.Dispose();
         }
 
+#pragma warning disable CS0618 // 有意验证 legacy owner 与推荐 lease 混用时互不越权。
         [Test]
         public void LegacyLoadingOwner_AndHandles_DoNotCloseEachOther()
         {
@@ -543,6 +555,7 @@ namespace Game.Framework.Test
             Assert.IsFalse(ui.IsOpen<LoadingFake>());
             ui.Dispose();
         }
+#pragma warning restore CS0618
 
         [Test]
         public void AcquireLoading_StaleHandleAfterCloseAll_CannotCloseNewLoading()
@@ -636,6 +649,7 @@ namespace Game.Framework.Test
             ui.Dispose();
         }
 
+#pragma warning disable CS0618 // 有意验证迁移期旧入口在取消与不合作 Adapter 下仍不会留下幽灵窗口。
         [Test]
         public void ShowLoading_CancelledDuringCreation_DoesNotAppearLater()
         {
@@ -673,8 +687,20 @@ namespace Game.Framework.Test
                 "不遵守 token 的后端迟到返回时，核心仍必须物理销毁窗口。 ");
             ui.Dispose();
         }
+#pragma warning restore CS0618
 
         // ── fakes ────────────────────────────────────────────────────────────
+
+        private static void AssertLegacyLoadingMember(Type owner, string methodName)
+        {
+            var method = owner.GetMethod(methodName);
+            Assert.That(method, Is.Not.Null, $"{owner.Name}.{methodName} 的迁移期兼容成员不应意外消失。 ");
+            var obsolete = (ObsoleteAttribute)Attribute.GetCustomAttribute(method, typeof(ObsoleteAttribute));
+            Assert.That(obsolete, Is.Not.Null, $"{owner.Name}.{methodName} 必须向新调用方发出迁移提示。 ");
+            Assert.That(obsolete.IsError, Is.False, "本阶段只发编译警告，仍须保持旧源码可重新编译。 ");
+            Assert.That(obsolete.Message, Does.Contain(nameof(IUIUtility.AcquireLoading)),
+                "迁移提示必须给出所有权安全的替代入口。 ");
+        }
 
         private sealed class CapturingSink : ILogSink
         {

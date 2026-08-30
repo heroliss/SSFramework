@@ -2148,7 +2148,7 @@ await Connect(ct);                         // 成功、异常、取消离开作�
 
 Toast 的自动关闭 owner 在渲染中立 `UIUtility`，不在 UGUI / UI Toolkit 窗口里各写一份：连续 Show 会取消旧 timer、只让最新一次关闭；显式 Close、CloseAll 与 Dispose 同时使旧计时和创建请求失效。这样更换后端只换表现，计时竞态与“清场后迟到出现”由同一个核心契约兜住。
 
-旧的 `ShowLoading/HideLoading` 保留为单 owner 兼容入口；有 active handle 时 `HideLoading` 不会越权关窗。新代码不要用它表达并发任务，迁移与 `CloseAll` 的强制清场语义见 ADR-0037。
+旧的 `ShowLoading/HideLoading` 只保留为迁移期单 owner 兼容入口，现已标记 `[Obsolete]`；有 active handle 时 `HideLoading` 仍不会越权关窗。既有代码迁移时，把 Show/Hide 对改成 `using var loading = await ui.AcquireLoading(text, ct)`，并删除手写的 `finally` Hide；正常返回、异常和取消都会由 `using` 释放当前 owner。Framework 自身有源码门禁阻止新增旧调用，未来破坏性版本会删除兼容成员；混用与 `CloseAll` 的强制清场语义见 ADR-0037。
 
 内置件是无美术资源的默认表现（半透明条 / 旋转指示块）；要品牌化视觉时自写 Top 层窗口替代即可，`ShowToast` / `AcquireLoading` 只是「按注册类型开窗」的便捷入口。Toast 刻意不做队列——需要排队提示的项目自包一层。
 

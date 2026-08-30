@@ -74,7 +74,9 @@ namespace Game.Framework.UI.UGui
         public bool IsOpen<T>() where T : class, IUIWindow => Core.IsOpen<T>();
         public UniTask ShowToast(string text, float duration = 2f, CancellationToken ct = default) => Core.ShowToast(text, duration, ct);
         public UniTask<LoadingHandle> AcquireLoading(string text = null, CancellationToken ct = default) => Core.AcquireLoading(text, ct);
+        [Obsolete("ShowLoading/HideLoading 仅用于旧源码迁移；请改用 using var loading = await AcquireLoading(text, ct)，由句柄表达并发所有权。", false)]
         public UniTask ShowLoading(string text = null, CancellationToken ct = default) => Core.ShowLoading(text, ct);
+        [Obsolete("ShowLoading/HideLoading 仅用于旧源码迁移；请释放 AcquireLoading 返回的 LoadingHandle，通常使用 using var 自动释放。", false)]
         public void HideLoading() => Core.HideLoading();
 
         protected override void OnDestroy()

@@ -265,6 +265,7 @@
 ### P1 · UI 必需窗口与 Flow 错误边界
 
 - `Open<T>` 保留 Adapter 创建失败返回 null 的宽松 Interface；新增非破坏性的 `OpenRequired<T>` 扩展，把同一失败提升为带窗口类型与资源位置的异常，取消仍保持 OCE。可选提示窗继续判空降级，Flow 主页面与承诺出现可见结果的动作使用严格入口，不扩张自定义 Adapter 的实现面。
+- Loading Interface 进入非破坏性退役阶段：并发安全的 `AcquireLoading → LoadingHandle` 成为唯一推荐入口，`ShowLoading/HideLoading` 在 Interface、核心与两个 Adapter 上统一发出可重新编译的 `[Obsolete]` 警告；生产源码门禁禁止新调用，compatibility tests 继续锁定旧源码与 lease 混用、创建中取消和陈旧 owner，等待未来破坏性版本一次删除 legacy 状态与转发。
 - Outpost 标题/结算状态改用严格开窗，真实 `GameFlow` 测试锁定窗口创建失败后 `Current` 仍为 null；`FlowNav` Adapter 覆盖成功、顶替取消、faulted task 与同步误用异常，真实失败只保留原异常并记录一次中文日志。Outpost 玩家路径与 DemoScene 冒烟继续通过。
 - 扩展包命令式初始化改为 `Initialize → EnsureInitialized`，不再读状态后手造泛化异常；排行榜与扩展包的可恢复 Warning 也把原异常交给日志 Seam。Demo/guide/ADR 同步解释宽松/严格开窗及响应式状态与命令式资源门禁的选择。新增 10 项 PlayMode 契约后完整基线为 EditMode 364/364、PlayMode 545/545，共 909/909。
 

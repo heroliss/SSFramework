@@ -14,7 +14,7 @@ ADR-0020 把 Loading 做成 `ShowLoading → await 业务任务 → HideLoading`
 - 多个调用者共享一个视觉窗口，不能每个任务各建一个 Loading；
 - 成功、失败、取消和宿主销毁都应沿同一种释放路径；
 - `CloseAll` / Context 销毁仍有强制清场能力；
-- 旧源码的 `ShowLoading/HideLoading` 调用暂时保留。
+- 旧源码的 `ShowLoading/HideLoading` 调用需要一个可重新编译的迁移期，但不能继续扩散到新代码。
 
 ## Decision
 
@@ -39,13 +39,18 @@ await Connect(ct);
 
 ### 3. 兼容 Show/Hide 被建模成一个 legacy owner
 
-`ShowLoading/HideLoading` 暂不删除，重复 Show 仍是“刷新同一窗口”的单 owner 语义。核心把这对调用建模成一个布尔 owner，并用 generation 防止创建途中 Hide 后的迟到打开：
+`ShowLoading/HideLoading` 在迁移期不删除，重复 Show 仍是“刷新同一窗口”的单 owner 语义。核心把这对调用建模成一个布尔 owner，并用 generation 防止创建途中 Hide 后的迟到打开：
 
 - `HideLoading` 只释放 legacy owner；还有 active handle 时窗口保持；
 - handle 释放只释放自己的 lease；legacy owner 仍在时窗口保持；
 - 直接 `Close`、`CloseAll`、`Dispose` 是强制清场，二者全部失效。
 
-新代码必须优先 `AcquireLoading`。兼容入口只用于迁移旧的严格单 owner 流程，不应作为新并发流程的所有权模型。
+新代码必须使用 `AcquireLoading`。兼容入口只用于迁移旧的严格单 owner 流程，不应作为新并发流程的所有权模型。
+
+**2026-08-31 迁移阶段收紧：**`IUIUtility`、核心 `UIUtility` 与两个 Mono Adapter 上的旧成员统一标记为
+`[Obsolete(..., false)]`。这保持既有源码可重新编译，同时把 `AcquireLoading + LoadingHandle` 的替代写法直接放进编译警告；
+Framework 生产源码门禁只允许两个既有 Adapter 保留兼容转发，任何新业务、Demo 或 Module 调用都会使测试失败。兼容行为测试继续保留，
+直到未来破坏性版本同时删除 Interface、转发与核心 legacy owner 状态。
 
 ### 4. 视觉文本采用 last writer wins
 
@@ -53,7 +58,7 @@ await Connect(ct);
 
 ## Compatibility
 
-- 既有 `ShowLoading/HideLoading` 调用源码继续工作，且与新 handle 混用时不会互相误关。
+- 既有 `ShowLoading/HideLoading` 调用源码继续工作，且与新 handle 混用时不会互相误关；重新编译会收到指向 `AcquireLoading` 的非错误警告。
 - `IUIUtility` 新增成员会要求自定义实现补 `AcquireLoading`；仓库内只有核心、Toolkit、UGUI 三个实现，均在同批更新。
 - 同批还给 Toast / Loading 增加了可选 `CancellationToken` 参数：源码调用点兼容，但旧的预编译实现本就需要重新编译。选择在同一批完成 lease，避免公共 Interface 连续两次迁移。
 - 自定义实现可实现 `ILoadingHandleOwner` 并签发 `LoadingHandle`；必须保持陈旧 id 安全与“最后 owner 才关闭”的契约。

@@ -22,6 +22,10 @@ Demo 教学内容与自动化之间的运行时 Seam。`DemoModuleHost` 在真�
 
 `Game.Framework.UI.Toolkit` Adapter 中连接 `Button.clicked` 与 View 生命周期所有权的窄 Interface。`Bag.SubscribeClickAsync` 负责解绑、把取消 token 交给 handler，并把未处理异常送到 `Log` Seam；生命周期取消静默收口。它不决定按钮禁用、去抖、single-flight 或面向玩家的错误呈现。通常异步操作跟随 Bag 取消；若包下载等物理操作必须在 View 消失后走到终态，handler 可明确不透传 View token，但仍由绑定观察完成，且不得向旧 UI 发布。该能力保持在 Toolkit Module，以免 Core `DisposableBag` 获得渲染后端语义。
 
+## UI Loading Ownership
+
+`IUIUtility.AcquireLoading` 是业务占用全局 Loading 的唯一推荐 Interface；返回的 `LoadingHandle` 代表一个 owner，最后一个有效 handle 释放后才关闭共享窗口，`Close` / `CloseAll` / Context 销毁会让旧 handle 陈旧安全。`ShowLoading/HideLoading` 只保留旧源码迁移所需的单 owner Implementation，已标记为非破坏性 `Obsolete`，Framework 生产源码门禁禁止新增调用；未来破坏性版本删除它时，并发所有权复杂度仍完整留在 lease Module 内，不会重新散落到调用方。
+
 ## UI Back Input Wiring
 
 项目 composition layer 把物理返回输入（Input Action、Esc、Android Back 或平台事件）映射到 `IUIUtility.Back()` 的浅接线。UI Module 只拥有 Popup → Window → Page、`BackClosable` 与过渡中吞键等深导航语义，不依赖或探测任何输入 Package。Demo 的 `DemoInputSystemBackKeyDriver` 是可搬走的 Input System 样板，不是 Framework Runtime API；项目可按自己的输入路由替换它，而无需新增 UI Core Seam。

@@ -85,14 +85,18 @@ namespace Game.Framework.UI
 
         /// <summary>
         /// 以兼容的单 owner 语义显示全局 Loading。重复调用刷新文本；<paramref name="ct"/> 只管打开过程。
-        /// 新代码优先用 <see cref="AcquireLoading"/>，避免多个异步流程的 <see cref="HideLoading"/> 互相误关。
+        /// 仅供旧源码迁移；新代码使用 <see cref="AcquireLoading"/>，避免多个异步流程的
+        /// <see cref="HideLoading"/> 互相误关。该成员会在未来破坏性版本删除。
         /// </summary>
+        [Obsolete("ShowLoading/HideLoading 仅用于旧源码迁移；请改用 using var loading = await AcquireLoading(text, ct)，由句柄表达并发所有权。", false)]
         UniTask ShowLoading(string text = null, CancellationToken ct = default);
 
         /// <summary>
         /// 释放由 <see cref="ShowLoading"/> 建立的兼容单 owner；未显示则忽略。
-        /// 有效的 <see cref="AcquireLoading"/> 句柄仍存在时不会关闭窗口。
+        /// 有效的 <see cref="AcquireLoading"/> 句柄仍存在时不会关闭窗口。仅供旧源码迁移，
+        /// 该成员会在未来破坏性版本删除。
         /// </summary>
+        [Obsolete("ShowLoading/HideLoading 仅用于旧源码迁移；请释放 AcquireLoading 返回的 LoadingHandle，通常使用 using var 自动释放。", false)]
         void HideLoading();
     }
 }
