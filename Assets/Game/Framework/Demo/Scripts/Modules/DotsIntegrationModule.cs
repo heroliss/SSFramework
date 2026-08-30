@@ -5,7 +5,7 @@ namespace Game.Framework.Demo.Modules
     /// <summary>
     /// 进阶·DOTS/ECS 与框架融合：讲「想在框架里用 DOTS 该怎么接」——答案是<b>框架什么都不用为 DOTS 做</b>：
     /// 把 DOTS 藏在零依赖纯 C# 接缝后（ports &amp; adapters），System 层每帧 Tick 驱动、World 自建不进 player loop、
-    /// ECS 程序集永不进热更列表（AOT 边界）。这是「可替换后端」模式套在计算密集仿真上，和「资源加载」章把
+    /// ECS 程序集永不进热更列表（AOT 边界）。这是「可替换后端」模式套在计算密集仿真上，和资源能力章把
     /// YooAsset 藏在 <c>IAssetProvider</c> 后是同一招。
     /// </summary>
     /// <remarks>
@@ -44,7 +44,7 @@ namespace Game.Framework.Demo.Modules
             host.AddPositioning("框架不「集成」DOTS，而是不挡它的路");
             host.AddNote("框架内核没有 DOTS 模块、不引用 Entities、不引用 Burst——这是刻意的：DOTS 是可选的性能后端，" +
                          "不该让每个用框架的项目都背上 Entities 包。框架要做的只有一件事：给出一个够窄的接缝，让一个 DOTS 后端能" +
-                         "「整体塞进去、消费方零改动」。你已经在「资源加载」章见过这招——YooAsset 就藏在 `IAssetProvider` 后，" +
+                         "「整体塞进去、消费方零改动」。你已经在资源加载 / 分发章节见过这招——YooAsset 就藏在 `IAssetProvider` 后，" +
                          "换 Addressables/自研只改工厂一行。DOTS 是同一招，套在「计算密集的逐帧仿真」上。", SeamPrecedent);
             host.AddConcept("接缝(seam)",
                 "一个零依赖纯 C# 接口：规则演算在它后面，表现/数据/编排在它前面。接口只用 `System.Numerics` 这类中立类型、" +

@@ -22,7 +22,7 @@ using Object = UnityEngine.Object;
 namespace Game.Framework.Demo.PlayMode.Tests
 {
     /// <summary>
-    /// 穿过真实 DemoScene Composition Root 与 Shell 逐章构建，验证 33 个章节的运行时教学契约和缺依赖降级路径。
+    /// 穿过真实 DemoScene Composition Root 与 Shell 逐章构建，验证 35 个章节的运行时教学契约和缺依赖降级路径。
     /// </summary>
     public sealed class DemoSceneTeachingSmokeTests
     {
@@ -99,7 +99,7 @@ namespace Game.Framework.Demo.PlayMode.Tests
             {
                 var shell = FindDemoObject<DemoShellController>();
                 Assert.IsNotNull(shell);
-                Assert.AreEqual(33, shell.Modules.Count);
+                Assert.AreEqual(35, shell.Modules.Count);
 
                 // 这里不模拟鼠标，也不逐个派发 Button 点击事件。测试直接走 Shell 与导航按钮共用的语义入口，
                 // 让真实选中态、标题、内容和 Catalog 生命周期保持一份真源；每章让出一帧，用于暴露切章后的清理/挂载问题。
@@ -112,6 +112,28 @@ namespace Game.Framework.Demo.PlayMode.Tests
                     await UniTask.Yield(PlayerLoopTiming.Update);
                 }
             });
+        }
+
+        [Test]
+        public void AssetReferenceAdapter_BindsAfterAssetUtilityAndResolvesFromTheSameContext()
+        {
+            var refs = FindDemoObject<DemoAssetRefs>();
+            Assert.IsNotNull(refs);
+            Assert.IsTrue(refs.LogoRef.IsBound,
+                "DemoAssetRefs 必须晚于同 Context 的 AssetUtility Awake；引用绑定只尝试一次，不能依赖同 execution order 的偶然顺序。");
+            Assert.IsTrue(refs.LogoRef.HasGuid,
+                "基类从 Model 改为 Utility 不得丢失场景里原有的序列化 GUID。");
+            Assert.Greater(refs.LogoList.Count, 0, "真实场景需配置至少一项列表引用，绑定断言才有意义。");
+            foreach (var item in refs.LogoList)
+            {
+                Assert.IsTrue(item.IsBound, "引用列表的每一项都必须绑定到当前 Context 的资源入口。");
+                Assert.IsTrue(item.HasGuid, "基类变更不得把列表项的序列化 GUID 清空。");
+            }
+
+            var context = ((IHasGameContext)refs).Context;
+            Assert.IsNotNull(context);
+            Assert.AreSame(refs, context.GetUtility<DemoAssetRefs>(),
+                "章节应从自己的 Context 解析场景 Adapter，不能回退到全局对象扫描。");
         }
 
         [Test]
@@ -339,7 +361,7 @@ namespace Game.Framework.Demo.PlayMode.Tests
                 .FirstOrDefault(candidate => candidate != null && candidate is Component component &&
                                              component.gameObject.scene.path == DemoScenePath);
 
-        // 只在一个窄测试里驱动 UI Toolkit 自己的 Clickable；33 章广度验证继续直达语义入口。
+        // 只在一个窄测试里驱动 UI Toolkit 自己的 Clickable；35 章广度验证继续直达语义入口。
         // 这不移动系统鼠标、不依赖 Editor 焦点，也不会抢用户前台窗口。
         private static void SimulateClick(Button button)
         {

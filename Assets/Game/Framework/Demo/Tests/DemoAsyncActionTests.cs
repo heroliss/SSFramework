@@ -83,7 +83,7 @@ namespace Game.Framework.Demo.Tests
                     @"\b(?:AddAsyncActionRow|AddExperimentAsyncActionRow)\s*\(").Count;
             }
 
-            Assert.AreEqual(62, asyncActionRows,
+            Assert.AreEqual(61, asyncActionRows,
                 "异步按钮增删时同步审查：必须全部走普通或教学实验的异步入口，不能藏回同步 Action + Forget/void 包装。 ");
 
             AssertActionOverloadGuards(nameof(DemoModuleHost.AddActionRow));
@@ -102,8 +102,8 @@ namespace Game.Framework.Demo.Tests
         {
             // IDemoModule 实例会反复 Build/Teardown；Build 局部 gate 会在 UIDocument 重建时归零，
             // 但旧异步取消可能仍在收尾。共享子 Bag、缓存或白盒文件步骤的互斥必须跟模块实例走。
-            AssertInstanceGate(typeof(AssetLoadingModule), "_configOperationGate");
-            AssertInstanceGate(typeof(AssetLoadingModule), "_downloadOperationGate");
+            AssertInstanceGate(typeof(AssetReferenceModule), "_configOperationGate");
+            AssertInstanceGate(typeof(AssetDownloadCacheModule), "_downloadOperationGate");
             AssertInstanceGate(typeof(AssetOpsFlowModule), "_operationGate");
             AssertInstanceGate(typeof(PoolDemoModule), "_poolMaintenanceGate");
             AssertInstanceGate(typeof(StorageDemoModule), "_profileOperationGate");
