@@ -82,9 +82,9 @@ Editor 反向引用。Adapter 不得随 Framework 分发付费插件本体。详
 | `Game.Framework.Build.Editor.Tests` | `Build/Editor/Tests/` | 资源构建工具/配置/包名常量 claim 注册、可移植产物路径和“零热更工具链引用”的删除契约。 | 随资源构建 Module 删除；不进入玩家构建。 |
 | `Game.Framework.Build.HybridCLR.Editor` | `Build/HybridCLR/Editor/` | HybridCLR 热更 Profile、程序集图、Generate 新鲜度、目标 DLL 与 YooAsset RawFile CodePackage；单向复用资源构建侧的版本、部署、预检和路径安全。 | 删除后失去代码热更新构建与配置卡；普通资源构建不改源码，项目可连同 Boot、HybridCLR/dnlib 评估移除。 |
 | `Game.Framework.Build.HybridCLR.Editor.Tests` | `Build/HybridCLR/Editor/Tests/` | 热更新证据、元数据拓扑、代码包 Collector、目录注册与 Profile 程序集迁移兼容契约。 | 随热更新构建 Module 删除；资源构建测试不引用热更新工具链。 |
-| `Game.Framework.Demo` | `Demo/` | 33 个可运行教学章节，是所有 Module 的消费方与集成样板；Catalog 集中拥有章节 Adapter、生命周期与 Host 教学语义校验。包含 Input System → `IUIUtility.Back()` 等项目 composition 样板，但这些不是 Framework Runtime API。 | 可整体删除；`UNITY_EDITOR` define 保证不进玩家包。 |
+| `Game.Framework.Demo` | `Demo/` | 35 个可运行教学章节，是所有 Module 的消费方与集成样板；Catalog 集中拥有章节 Adapter、生命周期与 Host 教学语义校验。包含 Input System → `IUIUtility.Back()` 等项目 composition 样板，但这些不是 Framework Runtime API。 | 可整体删除；`UNITY_EDITOR` define 保证不进玩家包。 |
 | `Game.Framework.Demo.Tests` | `Demo/Tests/` | Demo 专属 EditMode 门禁：章节生命周期/回滚、教学形态与结构化降级契约、内嵌服务器、关键示例行为及全部 CodeRef 防腐。 | 随 Demo 一起删除；不让 Demo 专属依赖反向进入通用 Test Module。 |
-| `Game.Framework.Demo.PlayMode.Tests` | `Demo/Tests/PlayMode/` | 加载真实 DemoScene，穿过 Context、Catalog 与 Shell 逐章 Build 33 个 Adapter，并验证真实缺依赖降级页。 | 随 Demo 一起删除；不进入玩家构建，也不把场景集成依赖塞回纯 EditMode 门禁。 |
+| `Game.Framework.Demo.PlayMode.Tests` | `Demo/Tests/PlayMode/` | 加载真实 DemoScene，穿过 Context、Catalog 与 Shell 逐章 Build 35 个 Adapter，并验证真实缺依赖降级页。 | 随 Demo 一起删除；不进入玩家构建，也不把场景集成依赖塞回纯 EditMode 门禁。 |
 | `Game.Framework.Tests` | `Core/Tests/` | Core 的 PlayMode/EditMode 契约及回归测试；可选 UI、Fonts、Proto、YooAsset Module 的独立契约和第三方引用均已迁回各自 owner。 | 随 Core 源码共同维护；产品运行不依赖，开发/CI 不应单独删除。 |
 
 ## 维护检查清单

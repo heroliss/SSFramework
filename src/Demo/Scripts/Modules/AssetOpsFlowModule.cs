@@ -12,7 +12,7 @@ using UnityEngine.UIElements;
 namespace Game.Framework.Demo.Modules
 {
     /// <summary>
-    /// 进阶·资源运营流程：把「资源加载」章的原子 API 串成真实项目的启动器更新链路——
+    /// 进阶·资源运营流程：把「资源加载」与「资源分发」章的原子 API 串成真实项目的启动器更新链路——
     /// 运营侧发新版本（构建 + 部署 = 覆盖 CDN 上的 <c>.version</c>）→ 客户端启动时检查（Initialize 拉版本 / 清单）→
     /// 强更下载（全量下载器 + 进度 + 失败重建重试）→ 回收旧缓存（ClearCache Unused）→ 进游戏。
     /// 核心是 <see cref="RunUpdateFlow"/>：一段注释完整、可整段搬进真实项目启动器的活样板。
@@ -39,7 +39,7 @@ namespace Game.Framework.Demo.Modules
         public override void Build(DemoModuleHost host)
         {
             var asset = this.GetUtility<IAssetUtility>();
-            var assetUtility = UnityEngine.Object.FindFirstObjectByType<AssetUtility>();
+            var assetUtility = asset as AssetUtility;
             AssetRuntimeSettings settings = assetUtility?.Settings;
 #if UNITY_EDITOR
             // 模拟断网属于共享 AssetUtility 的进程级调试状态。本章只借用它做实验，离章必须归还进入前的值，
@@ -59,7 +59,7 @@ namespace Game.Framework.Demo.Modules
 
             // ── 定位 ──
             host.AddPositioning("把原子 API 串成「发版 → 启动更新」的完整运营链路");
-            host.AddNote("「资源加载」章给了原子 API（初始化 / 查询 / 下载器 / 清缓存），「YooAsset · 底层实现」章讲了构建与部署——本章把两侧串起来：**运营侧发一个新版本，客户端启动时检查并更到最新**。核心是一段可整段搬进真实项目的启动器流程方法（右侧跳源码），本页按钮就是在跑它。",
+            host.AddNote("「资源加载 · 就绪与生命周期」与「资源分发 · 下载与缓存」给了原子 API，「YooAsset · 底层实现」讲了构建与部署——本章把两侧串起来：**运营侧发一个新版本，客户端启动时检查并更到最新**。核心是一段可整段搬进真实项目启动器的方法（右侧跳源码），本页按钮就是在跑它。",
                 CodeRef.Here("private static async UniTask<bool> RunUpdateFlow", "启动器流程活样板"));
 
             // ── 心智模型：更新发生在启动时 ──
@@ -159,8 +159,8 @@ namespace Game.Framework.Demo.Modules
             host.AddStep("③", "订阅 `Progress` 驱动进度条，再执行 `Download`；整体失败时重建下载器重试，已完成分片会从缓存跳过。");
             host.AddStep("④", "确认包已是最新后尽力执行 `ClearCache(Unused)`：成功就回收旧 bundle，非取消失败只记 Warning 并继续进游戏。");
             host.AddSubNote("为什么非取消的清理失败不等于更新失败？此时新清单和新 bundle 已经可用，未删掉的只是不再引用的旧缓存，影响磁盘空间而非本次游戏内容。因此启动流程保留原始异常供排查，但不让可恢复的收尾清理挡住玩家；Context 销毁等生命周期取消仍保持取消异常（`OperationCanceledException`）。");
-            host.AddSubNote("这四步只是把「资源加载」章的原子接口编排成启动流程。真实项目通常在第 ② 步后弹出“发现更新 X MB”的流量确认框，检查或下载失败后提供“重试 / 退出”；用户拒绝下载或选择退出时，应明确结束启动流程。");
-            host.AddSubNote("真实项目按需筛选进启动流程的包：启动必需的包（默认包 / 首场景包）走本流程强更；DLC / 大副本这类「按需下载」的包**不进**启动流程——进入对应玩法时再 `Initialize` + tag 下载器拉取（配合包级「自动初始化 / 按需下载」开关，见「资源加载」章）。");
+            host.AddSubNote("这四步只是把两个能力章的原子接口编排成启动流程。真实项目通常在第 ② 步后弹出“发现更新 X MB”的流量确认框，检查或下载失败后提供“重试 / 退出”；用户拒绝下载或选择退出时，应明确结束启动流程。");
+            host.AddSubNote("真实项目按需筛选进启动流程的包：启动必需的包（默认包 / 首场景包）走本流程强更；DLC / 大副本这类按需内容**不进**启动流程——进入对应玩法时再 `Initialize` + tag 下载器拉取（包就绪见「资源加载」，范围与缓存见「资源分发」）。");
 
             // ── 修复客户端：清空缓存全量重下 ──
             host.AddSectionTitle("修复客户端：清空缓存 → 重跑流程（= 设置页「修复资源」按钮）");

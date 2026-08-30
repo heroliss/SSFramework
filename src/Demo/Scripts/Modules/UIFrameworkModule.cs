@@ -173,7 +173,7 @@ namespace Game.Framework.Demo.Modules
             host.AddNote("**预期**：屏幕**偏左下**再弹一张绿标 UGUI 计数卡片。这张不是代码搭建——控件在 **prefab 上摆好、脚本挂根上**，"
                 + "`ScoreText/AddButton/CloseButton` 三个字段由右键 prefab「生成 UI 绑定代码」产出的 `DemoUGuiPrefabCounterWindow.nodes.g.cs` 自动绑定（`transform.Find`），本窗口只在 `OnCreated` 写逻辑。");
             host.AddNote("**同一窗口、三种接法**：代码搭建（`UGuiCounterWindow`）／ 手工 `[SerializeField]` 拖引用（`UGuiDemoView`）／ prefab + 生成绑定（本窗口）——同一框架、同一份分数，只是节点引用怎么来不同。绑定代码全自动生成、改完 prefab 重新生成即可，省掉手接引用的重复劳动。");
-            host.AddSubNote("⚠ prefab 窗口经资源系统按 location 加载——若点了没出现，先去「资源加载」章点「初始化」让默认包就绪（代码搭建窗口不读资源、不受此影响）。");
+            host.AddSubNote("⚠ prefab 窗口经资源系统按 location 加载——若点了没出现，先去「资源加载 · 就绪与生命周期」点击初始化，让默认包 Ready（代码搭建窗口不读资源、不受此影响）。");
 
             host.AddAsyncActionRow("打开 UGUI 计数窗口（变体）", async ct => await ugui.OpenRequired<DemoUGuiPrefabCounterWindowVariant>(ct),
                 new CodeRef("Assets/Game/Framework/Demo/Scripts/Modules/PrefabBinding/DemoUGuiPrefabCounterWindowVariant.cs", "class DemoUGuiPrefabCounterWindowVariant", "DemoUGuiPrefabCounterWindowVariant"));

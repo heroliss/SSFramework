@@ -29,9 +29,9 @@ namespace Game.Framework.Demo.Tests
             var report = DemoCodeRefValidator.ValidateProject(projectRoot);
 
             Assert.IsEmpty(report.Problems, string.Join("\n", report.Problems));
-            Assert.AreEqual(317, report.Total,
+            Assert.AreEqual(315, report.Total,
                 "数量锁既防止已有链接静默退出门禁，也提醒新增构造语法必须同步扩展扫描器。当前基线不含注释/文案示例。 ");
-            Assert.AreEqual(317, report.Precise);
+            Assert.AreEqual(315, report.Precise);
             Assert.AreEqual(0, report.FileTop, "教程链接应尽量指向可解释的具体代码，而不是只打开文件头。 ");
         }
 
@@ -182,10 +182,17 @@ namespace Game.Framework.Demo.Tests
         public void ModuleCatalog_MetadataSatisfiesRuntimeContract()
         {
             using var catalog = DemoModuleCatalog.Discover();
-            Assert.AreEqual(33, catalog.Modules.Count, "章节增删时应同步检查学习路径、module map 与目录元数据。");
+            Assert.AreEqual(35, catalog.Modules.Count, "章节增删时应同步检查学习路径、module map 与目录元数据。");
             Assert.AreEqual(3, catalog.Modules.Count(module => module.TeachingKind == DemoTeachingKind.Concept));
             Assert.AreEqual(6, catalog.Modules.Count(module => module.TeachingKind == DemoTeachingKind.Workflow));
-            Assert.AreEqual(24, catalog.Modules.Count(module => module.TeachingKind == DemoTeachingKind.Capability));
+            Assert.AreEqual(26, catalog.Modules.Count(module => module.TeachingKind == DemoTeachingKind.Capability));
+            CollectionAssert.AreEqual(
+                new[] { "asset-loading", "asset-references", "asset-download-cache" },
+                catalog.Modules
+                    .Where(module => module.Category == "能力" && module.Order >= 20 && module.Order <= 22)
+                    .Select(module => module.Id)
+                    .ToArray(),
+                "资源基础能力应按“就绪与生命周期 → 引用所有权 → 下载与缓存”递进，避免再合回一个巨型章节。");
         }
 
         [Test]
