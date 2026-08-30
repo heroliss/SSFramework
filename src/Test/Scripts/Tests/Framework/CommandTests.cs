@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Threading;
 using Game.Framework.Context;
 using Game.Framework.Systems;
 using Game.Framework.Common;
@@ -16,6 +17,17 @@ namespace Game.Framework.Test
     /// </summary>
     public class CommandTests
     {
+        private sealed class CaptureCancellationCommand : IAsyncCommand
+        {
+            public CancellationToken ReceivedToken;
+
+            public UniTask ExecuteAsync(ICommandContext ctx, CancellationToken cancellationToken)
+            {
+                ReceivedToken = cancellationToken;
+                return UniTask.CompletedTask;
+            }
+        }
+
         private GameContext _gameContext;
         private TestModel _testModel;
         private TestSystem _testSystem;
@@ -191,6 +203,31 @@ namespace Game.Framework.Test
             _gameContext.Dispose();
             Assert.Throws<ObjectDisposedException>(() =>
                 _gameContext.ExecuteCommand(new TestCommand { Name = "after_dispose" }));
+        }
+
+        [Test]
+        public void ExecuteCommandAsync_WithoutExplicitToken_UsesContextLifetimeToken()
+        {
+            var command = new CaptureCancellationCommand();
+
+            _gameContext.ExecuteCommandAsync(command).GetAwaiter().GetResult();
+
+            Assert.AreEqual(_gameContext.CancellationToken, command.ReceivedToken);
+        }
+
+        [Test]
+        public void ExecuteCommandAsync_WithExplicitToken_ForwardsItWithoutImplicitContextLink()
+        {
+            using var caller = new CancellationTokenSource();
+            var command = new CaptureCancellationCommand();
+            var contextToken = _gameContext.CancellationToken;
+
+            _gameContext.ExecuteCommandAsync(command, caller.Token).GetAwaiter().GetResult();
+
+            Assert.AreEqual(caller.Token, command.ReceivedToken,
+                "IGameContext 显式 token 重载应原样转发，由调用方决定是否与 Context 生命周期链接");
+            Assert.AreNotEqual(contextToken, command.ReceivedToken,
+                "只有无 token 重载自动使用 Context token；View 扩展入口另有生命周期链接语义");
         }
     }
 }

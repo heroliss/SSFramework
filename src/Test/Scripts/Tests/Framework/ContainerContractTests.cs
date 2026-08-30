@@ -44,6 +44,24 @@ namespace Game.Framework.Test
         private interface ILayerUtility : IUtility { }
         private sealed class LayerUtility : ILayerUtility { }
 
+        private sealed class DynamicDisposableModel : IModel, IDisposable
+        {
+            public int DisposeCount;
+            public void Dispose() => DisposeCount++;
+        }
+
+        private sealed class DynamicDisposableSystem : ISystem, IDisposable
+        {
+            public int DisposeCount;
+            public void Dispose() => DisposeCount++;
+        }
+
+        private sealed class DynamicDisposableUtility : IUtility, IDisposable
+        {
+            public int DisposeCount;
+            public void Dispose() => DisposeCount++;
+        }
+
         private interface IOwnedLayerModel : IModel { }
         private sealed class OwnedLayerModel : IOwnedLayerModel, IDisposable
         {
@@ -218,6 +236,69 @@ namespace Game.Framework.Test
 
             Assert.AreSame(modelA2, ctx.GetModel<ModelA>(),
                 "Unregister 后再 Register 应成功，解析到新实例");
+        }
+
+        [Test]
+        public void RuntimeLayerRegistration_DoesNotTransferOwnershipToContext()
+        {
+            using var builder = new ContainerBuilder();
+            using var ctx = new GameContext(builder.Build(), inheritFromGlobal: false);
+            var model = new DynamicDisposableModel();
+            var system = new DynamicDisposableSystem();
+            var utility = new DynamicDisposableUtility();
+
+            ctx.RegisterModel(model);
+            ctx.RegisterSystem(system);
+            ctx.RegisterUtility(utility);
+            ctx.Dispose();
+
+            Assert.AreEqual(0, model.DisposeCount,
+                "RegisterModel 只登记外部实例，不应静默把所有权转给 Context");
+            Assert.AreEqual(0, system.DisposeCount,
+                "RegisterSystem 只登记外部实例，不应静默把所有权转给 Context");
+            Assert.AreEqual(0, utility.DisposeCount,
+                "RegisterUtility 只登记外部实例，不应静默把所有权转给 Context");
+
+            model.Dispose();
+            system.Dispose();
+            utility.Dispose();
+            Assert.AreEqual(1, model.DisposeCount);
+            Assert.AreEqual(1, system.DisposeCount);
+            Assert.AreEqual(1, utility.DisposeCount);
+        }
+
+        [Test]
+        public void RuntimeUnregister_RemovesBindingWithoutDisposingInstance()
+        {
+            using var builder = new ContainerBuilder();
+            using var ctx = new GameContext(builder.Build(), inheritFromGlobal: false);
+            var utility = new DynamicDisposableUtility();
+            ctx.RegisterUtility(utility);
+
+            ctx.UnregisterUtility(utility);
+
+            Assert.IsFalse(ctx.TryResolve(typeof(DynamicDisposableUtility), out _));
+            Assert.AreEqual(0, utility.DisposeCount,
+                "Unregister 只撤运行时覆盖；实例仍归原调用方，不应在反注册时 Dispose");
+
+            utility.Dispose();
+            Assert.AreEqual(1, utility.DisposeCount);
+        }
+
+        [Test]
+        public void InterfaceAttachTo_BindsUnderlyingGameContextWithoutRegisteringTarget()
+        {
+            using var builder = new ContainerBuilder();
+            using var ctx = new GameContext(builder.Build(), inheritFromGlobal: false);
+            IGameContext context = ctx;
+            var system = new SystemA();
+
+            context.AttachTo(system);
+
+            Assert.AreSame(ctx, ((IHasGameContext)system).Context,
+                "纯 C# 层通过 IGameContext 也应能绑定实际 GameContext，不必向下强转具体 Implementation");
+            Assert.IsFalse(context.TryResolve(typeof(SystemA), out _),
+                "AttachTo 只补扩展方法所需的 Context 引用，不应暗中注册目标");
         }
 
         // ── 跨层级：子级运行期注册覆盖父级 InstallBindings ────────────────

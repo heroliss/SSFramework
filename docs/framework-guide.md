@@ -1208,7 +1208,11 @@ ctx.RegisterModel(model);
 ctx.UnregisterModel(model);
 ```
 
-业务的合法注册通道只有 `RegisterModel/System/Utility` 这三对，以及构建期的 `InstallBindings(builder)`。
+业务的合法注册通道只有 `RegisterModel/System/Utility` 这三对，以及构建期的 `InstallBindings(builder)`。运行时这三对 API
+只操作当前 Context 的覆盖注册：**不会**自动 `[Inject]`、`AttachTo`，也**不会**把 `IDisposable` 实例的所有权转给 Context；
+`UnregisterXxx` 同样只撤登记、不负责 Dispose。需要依赖注入/扩展方法能力时按前文显式补 `ctx.Inject(instance)` +
+`ctx.AttachTo(instance)`，实例最终仍由创建它的调用方释放。希望 Context 接管生命周期时，应在构建期使用
+`RegisterOwnedModel/System/Utility` 或低层 `RegisterOwned`，不要把运行时 Register 当作 owned 注册。
 
 ### Container 不对外暴露
 

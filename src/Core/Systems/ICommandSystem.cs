@@ -31,13 +31,26 @@ namespace Game.Framework.Systems
     ///   <item>异步重载同上，将 <c>UniTask</c> 代替 <c>void</c>/<c>TResult</c>。</item>
     /// </list>
     ///
-    /// <b>异步取消语义：</b><c>cancellationToken</c> 已合并 Context 销毁与调用方传入的 token，命令实现只用这一个参数。
+    /// <b>异步取消语义：</b>dispatcher 不创建或合并 token，只把入口已经决定好的
+    /// <c>cancellationToken</c> 原样交给 Command：<c>IGameContext</c> 无 token 重载传 Context token，
+    /// 显式 token 重载传调用方 token；View 扩展入口才会链接 Context、View 销毁与调用方 token。
+    /// 自定义 Implementation 必须保留这一语义，并让取消与 Command 异常通过返回的 <c>UniTask</c> 原样传播。
     /// </remarks>
     public interface ICommandSystem
     {
+        /// <summary>同步执行无返回值 Command；dispatcher 不拥有 <paramref name="command"/>，异常原样传播。</summary>
         void ExecuteCommand<T>(T command, GameContext ctx) where T : ICommand;
+
+        /// <summary>同步执行接口形式的带返回值 Command；适合 class 或已有接口引用，异常原样传播。</summary>
         TResult ExecuteCommand<TResult>(ICommand<TResult> command, GameContext ctx);
+
+        /// <summary>
+        /// 异步执行无返回值 Command；<paramref name="cancellationToken"/> 由上层入口决定并原样转发，
+        /// dispatcher 不负责链接或释放 token source。
+        /// </summary>
         UniTask ExecuteCommandAsync<T>(T command, GameContext ctx, CancellationToken cancellationToken) where T : IAsyncCommand;
+
+        /// <summary>异步执行接口形式的带返回值 Command；token、取消与异常语义同无返回值重载。</summary>
         UniTask<TResult> ExecuteCommandAsync<TResult>(IAsyncCommand<TResult> command, GameContext ctx, CancellationToken cancellationToken);
 
         /// <summary>struct Command + 返回值：双泛型保持值类型语义，避免装箱。</summary>

@@ -307,6 +307,8 @@ namespace Game.Framework.Context
         }
 
         public void Inject(object obj) => RequireContext().Inject(obj);
+        /// <inheritdoc />
+        public void AttachTo(object target) => RequireContext().AttachTo(target);
         public bool TryResolve(Type type, out object instance) => RequireContext().TryResolve(type, out instance);
         public object Resolve(Type type) => RequireContext().Resolve(type);
 
