@@ -23,6 +23,7 @@ namespace Game.Framework.Test
         public void BuiltinCalls_ForwardCancellationAndLoadingHandleOwnership()
         {
             Assert.IsNotNull(CoreField);
+            AssertLegacyLoadingDeprecation(typeof(MonoToolkitUI));
             using var builder = new ContainerBuilder();
             using var context = new GameContext(builder.Build(), inheritFromGlobal: false);
             var core = new UIUtility(context, new FakeBackend(), new UIBuiltinWindows
@@ -42,8 +43,10 @@ namespace Game.Framework.Test
 
                 Assert.Throws<OperationCanceledException>(() =>
                     facade.ShowToast("取消", ct: canceled.Token).GetAwaiter().GetResult());
+#pragma warning disable CS0618 // 有意锁定迁移期旧入口仍透传取消；生产代码不得调用。
                 Assert.Throws<OperationCanceledException>(() =>
                     facade.ShowLoading("取消", canceled.Token).GetAwaiter().GetResult());
+#pragma warning restore CS0618
                 Assert.Throws<OperationCanceledException>(() =>
                     facade.AcquireLoading("取消", canceled.Token).GetAwaiter().GetResult());
 
@@ -53,6 +56,13 @@ namespace Game.Framework.Test
 
                 handle.Dispose();
                 Assert.IsFalse(core.IsOpen<LoadingWindow>());
+
+#pragma warning disable CS0618 // 有意锁定迁移期 Show/Hide 两个转发成员仍组成完整兼容对。
+                facade.ShowLoading("兼容 owner").GetAwaiter().GetResult();
+                Assert.IsTrue(core.IsOpen<LoadingWindow>());
+                facade.HideLoading();
+                Assert.IsFalse(core.IsOpen<LoadingWindow>());
+#pragma warning restore CS0618
             }
             finally
             {
@@ -97,5 +107,19 @@ namespace Game.Framework.Test
 
         [UIWindow(Layer = UILayer.Top, Cache = UICachePolicy.Cache, Modal = true)]
         private sealed class LoadingWindow : TestWindow { }
+
+        private static void AssertLegacyLoadingDeprecation(Type owner)
+        {
+            foreach (string methodName in new[] { "ShowLoading", "HideLoading" })
+            {
+                var method = owner.GetMethod(methodName);
+                var obsolete = method == null
+                    ? null
+                    : (ObsoleteAttribute)Attribute.GetCustomAttribute(method, typeof(ObsoleteAttribute));
+                Assert.That(obsolete, Is.Not.Null, $"{owner.Name}.{methodName} 必须保留非破坏性迁移提示。 ");
+                Assert.That(obsolete.IsError, Is.False);
+                Assert.That(obsolete.Message, Does.Contain(nameof(IUIUtility.AcquireLoading)));
+            }
+        }
     }
 }

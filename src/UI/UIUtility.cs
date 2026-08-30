@@ -312,6 +312,7 @@ namespace Game.Framework.UI
             }
         }
 
+        [Obsolete("ShowLoading/HideLoading 仅用于旧源码迁移；请改用 using var loading = await AcquireLoading(text, ct)，由句柄表达并发所有权。", false)]
         public async UniTask ShowLoading(string text = null, CancellationToken ct = default)
         {
             ThrowIfDisposed();
@@ -337,6 +338,7 @@ namespace Game.Framework.UI
             }
         }
 
+        [Obsolete("ShowLoading/HideLoading 仅用于旧源码迁移；请释放 AcquireLoading 返回的 LoadingHandle，通常使用 using var 自动释放。", false)]
         public void HideLoading()
         {
             ++_legacyLoadingGeneration;
