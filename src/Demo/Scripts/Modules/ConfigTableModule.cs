@@ -53,7 +53,10 @@ namespace Game.Framework.Demo.Modules
             host.AddNote("表由场景里的配置服务在进游戏时加载好（下一节讲它怎么搭）。各层（含 View）一行 " +
                          "`this.GetConfig<Tables>()` 拿到当前 Context 已就绪的表根，查询就是纯内存读、不需要查询 Command——" +
                          "下面按钮真实读 Play 中已加载的表。它不会偷偷使用全局配置；子 Context 仍会解析自己的配置服务。",
-                new CodeRef("Assets/Game/Framework/Config/ConfigAccessExtensions.cs", "public static TTables GetConfig", "Context 感知的短读取入口"));
+                new CodeRef(
+                    "Assets/Game/Framework/Config/ConfigAccessExtensions.cs",
+                    "public static TTables GetConfig<TTables>(this ICanGetUtility self)",
+                    "Context 感知的短读取入口"));
 
             // 配置是基础设施服务：各层（含本 demo 模块、真实 View）直接 GetUtility 取，无需查询 Command 绕行。
             var config = this.GetUtility<IConfigUtility<Tables>>();
