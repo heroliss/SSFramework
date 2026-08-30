@@ -13,24 +13,40 @@ namespace Game.Framework.Editor
     /// </summary>
     public sealed class FrameworkBuildSizeProbeWindow : EditorWindow
     {
-        private const float CompactWidth = 620f;
-
         private readonly Dictionary<string, Toggle> _profileToggles = new(StringComparer.Ordinal);
         private readonly List<VisualElement> _profileCards = new();
+        private readonly List<VisualElement> _metricRows = new();
         private VisualElement _actions;
         private VisualElement _profileGrid;
         private VisualElement _advancedProfileGrid;
+        private VisualElement _profileLoader;
         private VisualElement _results;
         private HelpBox _status;
+        private Button _loadProfilesButton;
         private Button _startButton;
         private Button _stopButton;
+        private bool _profilesLoaded;
+        private bool _profilesLoading;
+        private bool? _lastEditorReady;
+        private bool? _lastRunning;
 
         /// <summary>打开或聚焦真实构建体积证据窗口。</summary>
         [MenuItem(FrameworkMenuPaths.BuildSizeProbe, priority = 82)]
         public static void Open() => GetWindow<FrameworkBuildSizeProbeWindow>("真实构建体积证据").Show();
 
-        private void OnEnable() => FrameworkBuildSizeProbe.Changed += RefreshState;
-        private void OnDisable() => FrameworkBuildSizeProbe.Changed -= RefreshState;
+        private void OnEnable()
+        {
+            FrameworkBuildSizeProbe.Changed += RefreshState;
+            FrameworkModuleAuditCache.Invalidated += OnEvidenceInvalidated;
+        }
+
+        private void OnDisable()
+        {
+            FrameworkBuildSizeProbe.Changed -= RefreshState;
+            FrameworkModuleAuditCache.Invalidated -= OnEvidenceInvalidated;
+        }
+
+        private void OnInspectorUpdate() => RefreshActionAvailability(updateStatusOnChange: true);
 
         /// <summary>创建支持窄窗纵排的 UI Toolkit 构建控制台。</summary>
         public void CreateGUI()
@@ -38,11 +54,13 @@ namespace Game.Framework.Editor
             minSize = new Vector2(360f, 420f);
             _profileToggles.Clear();
             _profileCards.Clear();
+            _metricRows.Clear();
+            _profilesLoaded = false;
+            _profilesLoading = false;
 
             VisualElement root = rootVisualElement;
             root.Clear();
-            root.style.backgroundColor = WindowBackground;
-            root.style.flexDirection = FlexDirection.Column;
+            FrameworkEditorVisuals.ApplyWindowSurface(root);
 
             var scroll = new ScrollView(ScrollViewMode.Vertical)
             {
@@ -57,16 +75,11 @@ namespace Game.Framework.Editor
             scroll.contentContainer.style.paddingBottom = 12;
             root.Add(scroll);
 
-            var title = Wrap(new Label("真实构建体积证据"));
-            title.style.fontSize = 19;
-            title.style.unityFontStyleAndWeight = FontStyle.Bold;
-            scroll.Add(title);
-            var subtitle = Wrap(new Label(
-                "在 Library 下的隔离空工程里真正删除未选 Module，再用当前平台构建；主工程场景、Build Settings 与 HybridCLR 配置都不会改变。"));
-            subtitle.style.color = MutedTextColor;
-            subtitle.style.marginTop = 4;
-            subtitle.style.marginBottom = 8;
-            scroll.Add(subtitle);
+            scroll.Add(FrameworkEditorVisuals.CreateHero(
+                "build-size-probe-header",
+                "PLAYER BUILD · 隔离删除测试",
+                "真实构建体积证据",
+                "在 Library 下的隔离空工程里真正删除未选 Module，再用当前平台构建；打开窗口不会扫描工程或启动构建。"));
 
             scroll.Add(CreateEnvironmentCard());
             scroll.Add(CreateSectionTitle("选择组合"));
@@ -79,6 +92,19 @@ namespace Game.Framework.Editor
                     flexWrap = UnityEngine.UIElements.Wrap.Wrap,
                 },
             };
+
+            _profileLoader = FrameworkEditorVisuals.CreateCard(
+                "build-size-probe-profile-loader", FrameworkEditorVisuals.Tone.Active);
+            _profileLoader.Add(FrameworkEditorVisuals.CreateCardTitle("先读取可构建组合"));
+            _profileLoader.Add(FrameworkEditorVisuals.CreateMutedLabel(
+                "读取是显式的只读审计，可能短暂停顿；真正点击构建时会重新采集执行证据，" +
+                "并且只为所选档位计算源码与 Package 指纹。"));
+            _loadProfilesButton = FrameworkEditorVisuals.CreateActionButton(
+                "读取可构建组合", ScheduleLoadProfiles,
+                "读取当前 Module / Package 关系；不会启动 Player Build。",
+                "build-size-probe-load-profiles", primary: true);
+            _profileLoader.Add(_loadProfilesButton);
+            scroll.Add(_profileLoader);
             scroll.Add(_profileGrid);
 
             var advancedProfiles = new Foldout
@@ -102,17 +128,6 @@ namespace Game.Framework.Editor
             advancedProfiles.Add(_advancedProfileGrid);
             scroll.Add(advancedProfiles);
 
-            try
-            {
-                foreach (var plan in FrameworkBuildSizeProbe.CreatePlans())
-                    AddProfile(plan);
-            }
-            catch (Exception ex)
-            {
-                var failure = new HelpBox("无法读取模块组合：" + ex.Message, HelpBoxMessageType.Error);
-                _profileGrid.Add(failure);
-            }
-
             var scope = CreateCard("build-size-probe-scope");
             scope.Add(CreateCardTitle("如何理解数字"));
             scope.Add(CreateBullet("隔离工程只复制所选 Module，未选目录及其 link.xml 不会悄悄进入结果。"));
@@ -131,15 +146,19 @@ namespace Game.Framework.Editor
                     marginBottom = 4,
                 },
             };
-            _startButton = CreateActionButton("构建所选组合", StartSelected,
-                "顺序启动隔离 Unity 子进程；IL2CPP 首次构建可能需要较长时间。", "build-size-probe-start");
-            _stopButton = CreateActionButton("当前完成后停止", FrameworkBuildSizeProbe.RequestStopAfterCurrent,
+            _startButton = FrameworkEditorVisuals.CreateActionButton("构建所选组合", StartSelected,
+                "重新采集执行证据，只为所选组合冻结输入，再顺序启动隔离 Unity 子进程。",
+                "build-size-probe-start", primary: true);
+            _stopButton = FrameworkEditorVisuals.CreateActionButton(
+                "当前完成后停止", FrameworkBuildSizeProbe.RequestStopAfterCurrent,
                 "不强杀正在写产物的 Unity；当前组合结束后不再启动后续组合。", "build-size-probe-stop");
             _actions.Add(_startButton);
             _actions.Add(_stopButton);
-            _actions.Add(CreateActionButton("打开最近结果", FrameworkBuildSizeProbe.RevealLatestRun,
+            _actions.Add(FrameworkEditorVisuals.CreateActionButton(
+                "打开最近结果", FrameworkBuildSizeProbe.RevealLatestRun,
                 "打开 report.md、report.json、构建日志与玩家产物所在目录。", "build-size-probe-reveal"));
-            _actions.Add(CreateActionButton("返回模块审计", FrameworkModuleAuditWindow.Open,
+            _actions.Add(FrameworkEditorVisuals.CreateActionButton(
+                "返回模块审计", FrameworkModuleAuditWindow.Open,
                 "查看原始 DLL 闭包与删除测试。", "build-size-probe-audit"));
             scroll.Add(_actions);
 
@@ -178,9 +197,79 @@ namespace Game.Framework.Editor
             return card;
         }
 
-        private void AddProfile(FrameworkBuildSizeProbe.ProfilePlan plan)
+        private void ScheduleLoadProfiles()
         {
-            var card = CreateCard("build-size-probe-profile-" + plan.Key);
+            if (_profilesLoading) return;
+            _profilesLoading = true;
+            _loadProfilesButton?.SetEnabled(false);
+            _status.text = "正在读取当前 Module / Package 关系；这是显式的只读扫描，不会启动构建。";
+            _status.messageType = HelpBoxMessageType.Info;
+            rootVisualElement.schedule.Execute(LoadProfilesNow);
+        }
+
+        internal void LoadProfilesForTests() => LoadProfilesNow();
+
+        private void LoadProfilesNow()
+        {
+            try
+            {
+                FrameworkModuleAuditCache.Entry evidence = FrameworkModuleAuditCache.GetOrRefresh();
+                ClearProfiles();
+                foreach (FrameworkModuleAudit.AuditProfile profile in evidence.Result.CommonProfiles)
+                    AddProfile(profile, advanced: false);
+                AddProfile(evidence.Result.FullProfile, advanced: false);
+                foreach (FrameworkModuleAudit.AuditProfile profile in evidence.Result.ModuleProfiles)
+                    AddProfile(profile, advanced: true);
+                _profilesLoaded = true;
+                _loadProfilesButton.text = "刷新可构建组合";
+                _status.text = $"已读取 { _profileToggles.Count} 个组合（审计耗时 {evidence.DurationSeconds:F1}s）。" +
+                               "点击构建时会重新采集执行证据，并只冻结所选档位。";
+                _status.messageType = HelpBoxMessageType.Info;
+            }
+            catch (Exception ex)
+            {
+                ClearProfiles();
+                _profilesLoaded = false;
+                _status.text = "无法读取模块组合：" + ex.Message;
+                _status.messageType = HelpBoxMessageType.Error;
+            }
+            finally
+            {
+                _profilesLoading = false;
+                _loadProfilesButton?.SetEnabled(true);
+                RefreshActionAvailability(updateStatusOnChange: false);
+                ApplyResponsiveLayout(position.width);
+            }
+        }
+
+        private void ClearProfiles()
+        {
+            _profileToggles.Clear();
+            _profileCards.Clear();
+            _profileGrid?.Clear();
+            _advancedProfileGrid?.Clear();
+            _advancedProfileGrid?.Add(Wrap(new Label(
+                "每项以一个 Runtime Module 为入口并自动带上真实依赖闭包；适合验证 Config、Fonts、Proto、Bridge 等任意 Module，不是全局启用开关。")));
+        }
+
+        private void OnEvidenceInvalidated()
+        {
+            if (_profileGrid == null) return;
+            ClearProfiles();
+            _profilesLoaded = false;
+            if (_loadProfilesButton != null)
+            {
+                _loadProfilesButton.text = "重新读取可构建组合";
+            }
+            _status.text = "工程、Package、构建目标或编译图已经变化，组合预览已失效；最近构建结果仍可查看。";
+            _status.messageType = HelpBoxMessageType.Warning;
+            RefreshActionAvailability(updateStatusOnChange: false);
+        }
+
+        private void AddProfile(FrameworkModuleAudit.AuditProfile profile, bool advanced)
+        {
+            if (profile == null) return;
+            var card = CreateCard("build-size-probe-profile-" + profile.Key);
             card.style.flexBasis = 280;
             card.style.flexGrow = 1;
             card.style.minWidth = 0;
@@ -189,23 +278,24 @@ namespace Game.Framework.Editor
             card.style.marginTop = 3;
             card.style.marginBottom = 3;
 
-            var toggle = new Toggle(plan.Title)
+            var toggle = new Toggle(profile.Title)
             {
-                value = !plan.IsAdvanced && plan.Key != "full",
-                name = "build-size-probe-toggle-" + plan.Key,
-                tooltip = plan.Description,
+                value = !advanced && profile.Key != "full",
+                name = "build-size-probe-toggle-" + profile.Key,
+                tooltip = profile.Description,
             };
             toggle.style.unityFontStyleAndWeight = FontStyle.Bold;
             card.Add(toggle);
-            var description = Wrap(new Label(plan.Description));
+            var description = Wrap(new Label(profile.Description));
             description.style.color = MutedTextColor;
             description.style.marginTop = 3;
             card.Add(description);
-            card.Add(Wrap(new Label($"{plan.Assemblies.Length} 个框架模块（Framework Module）")));
+            card.Add(Wrap(new Label(
+                $"{profile.Footprint.FrameworkAssemblies.Count} 个框架模块（Framework Module）")));
 
-            _profileToggles.Add(plan.Key, toggle);
+            _profileToggles.Add(profile.Key, toggle);
             _profileCards.Add(card);
-            (plan.IsAdvanced ? _advancedProfileGrid : _profileGrid).Add(card);
+            (advanced ? _advancedProfileGrid : _profileGrid).Add(card);
         }
 
         private void StartSelected()
@@ -226,10 +316,11 @@ namespace Game.Framework.Editor
         private void RefreshState()
         {
             if (_status == null || _results == null) return;
+            RefreshActionAvailability(updateStatusOnChange: false);
             bool running = FrameworkBuildSizeProbe.IsRunning;
-            foreach (var toggle in _profileToggles.Values) toggle.SetEnabled(!running);
-            _startButton?.SetEnabled(!running && _profileToggles.Count > 0);
-            _stopButton?.SetEnabled(running && !FrameworkBuildSizeProbe.StopAfterCurrentRequested);
+            bool editorReady = FrameworkEditorOperationGate.CanStart(
+                requireEditMode: true,
+                out string blockedReason);
 
             FrameworkBuildSizeProbe.RunReport report =
                 FrameworkBuildSizeProbe.CurrentReport ?? FrameworkBuildSizeProbe.LoadLatestReport();
@@ -238,6 +329,18 @@ namespace Game.Framework.Editor
                 _status.text = FrameworkBuildSizeProbe.StopAfterCurrentRequested
                     ? "正在等待当前组合安全结束，之后停止。你可以继续使用主工程。"
                     : "隔离 Unity 子进程正在工作。切换主 Unity 到后台不会影响它；详情见各组合日志。";
+                _status.messageType = HelpBoxMessageType.Info;
+            }
+            else if (!editorReady)
+            {
+                _status.text = "当前不能启动构建探针：" + blockedReason + " 等待 Unity 空闲并保持 Edit Mode 后重试。";
+                _status.messageType = HelpBoxMessageType.Warning;
+            }
+            else if (!_profilesLoaded)
+            {
+                _status.text = report == null
+                    ? "窗口已就绪，尚未扫描工程。先读取可构建组合；此操作只读且不会启动 Player Build。"
+                    : "组合尚未读取；下面仍显示最近一轮结果。需要新建任务时，先显式读取当前组合。";
                 _status.messageType = HelpBoxMessageType.Info;
             }
             else if (report == null)
@@ -256,9 +359,48 @@ namespace Game.Framework.Editor
             BuildResults(report);
         }
 
+        private void RefreshActionAvailability(bool updateStatusOnChange)
+        {
+            if (_status == null) return;
+            bool running = FrameworkBuildSizeProbe.IsRunning;
+            bool editorReady = FrameworkEditorOperationGate.CanStart(
+                requireEditMode: true,
+                out string blockedReason);
+            foreach (Toggle toggle in _profileToggles.Values) toggle.SetEnabled(!running);
+            _loadProfilesButton?.SetEnabled(!_profilesLoading && !running);
+            _startButton?.SetEnabled(!running && editorReady && _profilesLoaded && _profileToggles.Count > 0);
+            _stopButton?.SetEnabled(running && !FrameworkBuildSizeProbe.StopAfterCurrentRequested);
+
+            bool stateChanged = _lastRunning != running || _lastEditorReady != editorReady;
+            _lastRunning = running;
+            _lastEditorReady = editorReady;
+            if (!updateStatusOnChange || !stateChanged) return;
+
+            if (running)
+            {
+                _status.text = FrameworkBuildSizeProbe.StopAfterCurrentRequested
+                    ? "正在等待当前组合安全结束，之后停止。你可以继续使用主工程。"
+                    : "隔离 Unity 子进程正在工作。切换主 Unity 到后台不会影响它。";
+                _status.messageType = HelpBoxMessageType.Info;
+            }
+            else if (!editorReady)
+            {
+                _status.text = "当前不能启动构建探针：" + blockedReason + " 等待 Unity 空闲并保持 Edit Mode 后重试。";
+                _status.messageType = HelpBoxMessageType.Warning;
+            }
+            else
+            {
+                _status.text = _profilesLoaded
+                    ? "Unity 已空闲；可以构建所选组合。启动时会重新采集执行证据。"
+                    : "Unity 已空闲；先读取当前可构建组合。";
+                _status.messageType = HelpBoxMessageType.Info;
+            }
+        }
+
         private void BuildResults(FrameworkBuildSizeProbe.RunReport report)
         {
             _results.Clear();
+            _metricRows.Clear();
             if (report?.Profiles == null || report.Profiles.Length == 0)
             {
                 var empty = Wrap(new Label("运行后会在这里显示状态、最终输出大小、相对 Core 差值和耗时。"));
@@ -271,6 +413,8 @@ namespace Game.Framework.Editor
             foreach (var record in report.Profiles)
             {
                 var card = CreateCard("build-size-probe-result-" + record.Key);
+                card.style.borderLeftWidth = 4;
+                card.style.borderLeftColor = StatusColor(record.Status);
                 var heading = new VisualElement { style = { flexDirection = FlexDirection.Row } };
                 var title = Wrap(new Label(record.Title));
                 title.style.flexGrow = 1;
@@ -285,13 +429,33 @@ namespace Game.Framework.Editor
                 if (record.Status == "成功")
                 {
                     long delta = core == null ? 0L : record.OutputBytes - core.OutputBytes;
-                    string deltaText = core == null
-                        ? "需要同时构建 Core 才能计算差值"
-                        : (delta > 0 ? "+" : string.Empty) + FrameworkBuildSizeProbe.FormatBytes(delta) + " 相对 Core";
-                    card.Add(Wrap(new Label(
-                        $"可发布输出 {FrameworkBuildSizeProbe.FormatBytes(record.OutputBytes)} · " +
-                        $"构建报告（BuildReport）总量 {FrameworkBuildSizeProbe.FormatBytes(record.BuildReportBytes)} · {deltaText} · " +
-                        $"{record.DurationSeconds:F1}s")));
+                    string deltaValue = core == null
+                        ? "—"
+                        : (delta > 0 ? "+" : string.Empty) + FrameworkBuildSizeProbe.FormatBytes(delta);
+                    var metrics = new VisualElement
+                    {
+                        name = "build-size-probe-result-metrics-" + record.Key,
+                        style =
+                        {
+                            flexDirection = FlexDirection.Row,
+                            flexWrap = UnityEngine.UIElements.Wrap.NoWrap,
+                            marginTop = 6,
+                        },
+                    };
+                    metrics.Add(FrameworkEditorVisuals.CreateMetric(
+                        "build-size-probe-output-" + record.Key,
+                        "可发布输出", FrameworkBuildSizeProbe.FormatBytes(record.OutputBytes), "默认比较口径"));
+                    metrics.Add(FrameworkEditorVisuals.CreateMetric(
+                        "build-size-probe-report-" + record.Key,
+                        "BuildReport 总量", FrameworkBuildSizeProbe.FormatBytes(record.BuildReportBytes), "含构建中间证据"));
+                    metrics.Add(FrameworkEditorVisuals.CreateMetric(
+                        "build-size-probe-delta-" + record.Key,
+                        "相对 Core", deltaValue, core == null ? "需同轮构建 Core" : "相同环境下的差值"));
+                    metrics.Add(FrameworkEditorVisuals.CreateMetric(
+                        "build-size-probe-duration-" + record.Key,
+                        "耗时", record.DurationSeconds.ToString("F1") + "s", "Unity 子进程"));
+                    _metricRows.Add(metrics);
+                    card.Add(metrics);
                 }
                 var message = Wrap(new Label(record.Message ?? string.Empty));
                 message.style.color = MutedTextColor;
@@ -306,15 +470,11 @@ namespace Game.Framework.Editor
 
         private void ApplyResponsiveLayout(float width)
         {
-            bool compact = width < CompactWidth;
+            bool compact = width < FrameworkEditorVisuals.CompactWidth;
             if (_actions != null)
             {
                 _actions.style.flexDirection = compact ? FlexDirection.Column : FlexDirection.Row;
-                foreach (var child in _actions.Children())
-                {
-                    child.style.flexBasis = compact ? StyleKeyword.Auto : 0;
-                    child.style.flexGrow = compact ? 0 : 1;
-                }
+                FrameworkEditorVisuals.ApplyResponsiveChildren(_actions, compact);
             }
             if (_profileGrid != null)
                 _profileGrid.style.flexDirection = compact ? FlexDirection.Column : FlexDirection.Row;
@@ -325,88 +485,34 @@ namespace Game.Framework.Editor
                 card.style.flexBasis = compact ? StyleKeyword.Auto : 280;
                 card.style.flexGrow = compact ? 0 : 1;
             }
-        }
-
-        private static Button CreateActionButton(string text, Action action, string tooltip, string name)
-        {
-            return new Button(action)
+            foreach (VisualElement row in _metricRows)
             {
-                text = text,
-                tooltip = tooltip,
-                name = name,
-                style =
+                row.style.flexDirection = FlexDirection.Row;
+                row.style.flexWrap = compact
+                    ? UnityEngine.UIElements.Wrap.Wrap
+                    : UnityEngine.UIElements.Wrap.NoWrap;
+                foreach (VisualElement metric in row.Children())
                 {
-                    flexBasis = 0,
-                    flexGrow = 1,
-                    minHeight = 28,
-                    marginLeft = 2,
-                    marginRight = 2,
-                    marginTop = 2,
-                    marginBottom = 2,
-                },
-            };
+                    metric.style.flexBasis = compact ? new Length(46, LengthUnit.Percent) : 0;
+                    metric.style.flexGrow = 1;
+                }
+            }
         }
 
         private static Label CreateSectionTitle(string text)
-        {
-            var label = Wrap(new Label(text));
-            label.style.fontSize = 14;
-            label.style.unityFontStyleAndWeight = FontStyle.Bold;
-            label.style.marginTop = 8;
-            label.style.marginBottom = 4;
-            return label;
-        }
+            => FrameworkEditorVisuals.CreateSectionTitle(text);
 
         private static Label CreateCardTitle(string text)
-        {
-            var label = Wrap(new Label(text));
-            label.style.unityFontStyleAndWeight = FontStyle.Bold;
-            label.style.marginBottom = 3;
-            return label;
-        }
+            => FrameworkEditorVisuals.CreateCardTitle(text);
 
         private static Label CreateBullet(string text)
-        {
-            var label = Wrap(new Label("• " + text));
-            label.style.marginTop = 2;
-            label.style.marginBottom = 2;
-            return label;
-        }
+            => FrameworkEditorVisuals.CreateBullet(text);
 
         private static VisualElement CreateCard(string name)
-        {
-            return new VisualElement
-            {
-                name = name,
-                style =
-                {
-                    paddingLeft = 10,
-                    paddingRight = 10,
-                    paddingTop = 8,
-                    paddingBottom = 8,
-                    backgroundColor = CardBackground,
-                    borderLeftWidth = 1,
-                    borderRightWidth = 1,
-                    borderTopWidth = 1,
-                    borderBottomWidth = 1,
-                    borderLeftColor = BorderColor,
-                    borderRightColor = BorderColor,
-                    borderTopColor = BorderColor,
-                    borderBottomColor = BorderColor,
-                    borderTopLeftRadius = 6,
-                    borderTopRightRadius = 6,
-                    borderBottomLeftRadius = 6,
-                    borderBottomRightRadius = 6,
-                },
-            };
-        }
+            => FrameworkEditorVisuals.CreateCard(name);
 
         private static Label Wrap(Label label)
-        {
-            label.style.whiteSpace = WhiteSpace.Normal;
-            label.style.flexShrink = 1;
-            return label;
-        }
+            => FrameworkEditorVisuals.Wrap(label);
 
         private static Color StatusColor(string status) => status switch
         {
@@ -416,32 +522,9 @@ namespace Game.Framework.Editor
             _ => MutedTextColor,
         };
 
-        private static Color WindowBackground => EditorGUIUtility.isProSkin
-            ? new Color(0.115f, 0.115f, 0.115f, 1f)
-            : new Color(0.82f, 0.82f, 0.82f, 1f);
-
-        private static Color CardBackground => EditorGUIUtility.isProSkin
-            ? new Color(0.16f, 0.16f, 0.16f, 1f)
-            : new Color(0.94f, 0.94f, 0.94f, 1f);
-
-        private static Color BorderColor => EditorGUIUtility.isProSkin
-            ? new Color(0.28f, 0.28f, 0.28f, 1f)
-            : new Color(0.68f, 0.68f, 0.68f, 1f);
-
-        private static Color MutedTextColor => EditorGUIUtility.isProSkin
-            ? new Color(0.68f, 0.68f, 0.68f, 1f)
-            : new Color(0.32f, 0.32f, 0.32f, 1f);
-
-        private static Color HealthyColor => EditorGUIUtility.isProSkin
-            ? new Color(0.42f, 0.88f, 0.58f, 1f)
-            : new Color(0.05f, 0.38f, 0.16f, 1f);
-
-        private static Color WarningColor => EditorGUIUtility.isProSkin
-            ? new Color(1f, 0.58f, 0.30f, 1f)
-            : new Color(0.66f, 0.20f, 0.05f, 1f);
-
-        private static Color ActiveColor => EditorGUIUtility.isProSkin
-            ? new Color(0.35f, 0.72f, 1f, 1f)
-            : new Color(0.05f, 0.36f, 0.70f, 1f);
+        private static Color MutedTextColor => FrameworkEditorVisuals.MutedTextColor;
+        private static Color HealthyColor => FrameworkEditorVisuals.HealthyTextColor;
+        private static Color WarningColor => FrameworkEditorVisuals.ErrorTextColor;
+        private static Color ActiveColor => FrameworkEditorVisuals.ActiveTextColor;
     }
 }

@@ -1121,6 +1121,7 @@ namespace Game.Framework.Editor.Tests
         [Test]
         public void Window_UsesProgressiveDisclosureAndResponsiveActions()
         {
+            FrameworkModuleAuditCache.Invalidate();
             var window = ScriptableObject.CreateInstance<FrameworkBuildSizeProbeWindow>();
             try
             {
@@ -1129,6 +1130,13 @@ namespace Game.Framework.Editor.Tests
 
                 var content = window.rootVisualElement.Q<ScrollView>("build-size-probe-content");
                 var actions = window.rootVisualElement.Q<VisualElement>("build-size-probe-actions");
+                var loader = window.rootVisualElement.Q<VisualElement>("build-size-probe-profile-loader");
+                Assert.That(loader, Is.Not.Null);
+                Assert.That(window.rootVisualElement.Q<Toggle>("build-size-probe-toggle-core"), Is.Null,
+                    "打开体积窗口不得隐式执行 Module Audit 与全目录指纹扫描。 ");
+
+                window.LoadProfilesForTests();
+
                 var core = window.rootVisualElement.Q<Toggle>("build-size-probe-toggle-core");
                 var full = window.rootVisualElement.Q<Toggle>("build-size-probe-toggle-full");
                 var advanced = window.rootVisualElement.Q<Foldout>("build-size-probe-advanced-profiles");
@@ -1157,6 +1165,7 @@ namespace Game.Framework.Editor.Tests
             finally
             {
                 UnityEngine.Object.DestroyImmediate(window);
+                FrameworkModuleAuditCache.Invalidate();
             }
         }
 

@@ -65,7 +65,9 @@ namespace Game.Framework.Editor.Tests
 
         [TestCase("ServiceInstallerOverviewWindow.cs")]
         [TestCase("ServiceInstallerMenu.cs")]
-        public void ServiceInstallerEditors_ConsumeSharedGateInsteadOfReimplementingUnityBusyChecks(
+        [TestCase("FrameworkBuildSizeProbeWindow.cs")]
+        [TestCase("FrameworkAutomationPreflight.cs")]
+        public void EditorEntryPoints_ConsumeSharedGateInsteadOfReimplementingUnityBusyChecks(
             string fileName)
         {
             FrameworkModuleSourceCatalog.SourceLocation sourceLocation =
@@ -74,6 +76,24 @@ namespace Game.Framework.Editor.Tests
             string source = File.ReadAllText(sourceLocation.PhysicalPath);
 
             AssertConsumesSharedGate(source, fileName);
+        }
+
+        [Test]
+        public void BuildSizeProbeStart_ConsumesSharedGateInsteadOfReimplementingUnityBusyChecks()
+        {
+            FrameworkModuleSourceCatalog.SourceLocation sourceLocation =
+                FrameworkModuleSourceCatalog.FindUniqueFileInAssemblySource(
+                    "FrameworkBuildSizeProbe.cs", "Game.Framework.Editor");
+            string source = File.ReadAllText(sourceLocation.PhysicalPath);
+            int start = source.IndexOf("internal static void Start(", System.StringComparison.Ordinal);
+            int end = source.IndexOf(
+                "internal static ProfilePlan[] SelectRequestedPlans(",
+                start,
+                System.StringComparison.Ordinal);
+
+            Assert.That(start, Is.GreaterThanOrEqualTo(0));
+            Assert.That(end, Is.GreaterThan(start));
+            AssertConsumesSharedGate(source.Substring(start, end - start), "FrameworkBuildSizeProbe.Start");
         }
 
         private static void AssertConsumesSharedGate(string source, string fileName)

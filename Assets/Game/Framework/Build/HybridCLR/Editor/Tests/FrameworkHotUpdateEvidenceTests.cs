@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using Game.Framework.Boot;
 using NUnit.Framework;
@@ -271,6 +273,105 @@ namespace Game.Framework.Build.Tests
             Assert.That(linkerRoots, Has.Length.EqualTo(64));
             Assert.That(coreAsHot, Is.Not.EqualTo(allAot),
                 "热更源码由目标平台 CompileDll 元数据负责；AOT 源输入必须排除它，不能读取 Editor outputPath。 ");
+        }
+
+        [Test]
+        public void GenerationFingerprintCapture_ReusesOnlyWithinOneStableCapture()
+        {
+            string directory = Path.Combine(Path.GetTempPath(),
+                "SSFramework-HotUpdateFingerprint-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            string path = Path.Combine(directory, "input.txt");
+            try
+            {
+                File.WriteAllText(path, "first");
+                var capture = new FrameworkHotUpdateBuilder.GenerationFingerprintCapture();
+
+                string first = capture.HashRequiredFile(path, "测试输入");
+                string repeated = capture.HashRequiredFile(path, "测试输入");
+
+                Assert.That(repeated, Is.EqualTo(first));
+                Assert.That(capture.UniqueFileReadCount, Is.EqualTo(1),
+                    "同一轮内共享的 rsp、Analyzer、预编译 DLL 与序列化根只能读取一次。 ");
+
+                File.AppendAllText(path, "-changed");
+                Assert.Throws<IOException>(() => capture.HashRequiredFile(path, "测试输入"),
+                    "单轮复用不能把采集期间发生的输入漂移隐藏起来。 ");
+
+                var nextCapture = new FrameworkHotUpdateBuilder.GenerationFingerprintCapture();
+                Assert.That(nextCapture.HashRequiredFile(path, "测试输入"), Is.Not.EqualTo(first),
+                    "缓存不得跨显式证据采集复用。 ");
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+            }
+        }
+
+        [Test]
+        public void EvidenceInspection_KeepsLegacyNameUnambiguousForReflectionCallers()
+        {
+            const BindingFlags flags = BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
+
+            MethodInfo legacy = null;
+            Assert.DoesNotThrow(() => legacy = typeof(FrameworkHotUpdateBuilder)
+                .GetMethod("InspectEvidence", flags),
+                "旧版 Module Audit 使用 name-only 反射，同名重载会导致 AmbiguousMatchException。 ");
+            Assert.That(legacy, Is.Not.Null);
+            Assert.That(legacy.GetParameters().Select(parameter => parameter.ParameterType),
+                Is.EqualTo(new[] { typeof(FrameworkHotUpdateProfile) }));
+
+            MethodInfo snapshot = typeof(FrameworkHotUpdateBuilder).GetMethod(
+                "InspectEvidenceFromSnapshot",
+                flags,
+                binder: null,
+                new[]
+                {
+                    typeof(FrameworkHotUpdateProfile),
+                    typeof(string[]),
+                    typeof(UnityEditor.Compilation.Assembly[]),
+                },
+                modifiers: null);
+            Assert.That(snapshot, Is.Not.Null,
+                "新审计应通过独立快照入口复用冻结输入，不破坏旧反射 Seam。 ");
+        }
+
+        [Test]
+        public void GenerationStampFormat_RejectsV4WithActionableMigrationMessage()
+        {
+            var (legacyOk, legacyMessage) =
+                FrameworkHotUpdateBuilder.ValidateGenerationStampFormatVersion(4);
+            var (currentOk, currentMessage) =
+                FrameworkHotUpdateBuilder.ValidateGenerationStampFormatVersion(5);
+
+            Assert.That(legacyOk, Is.False);
+            Assert.That(legacyMessage, Does.Contain("v4").And.Contain("v5"));
+            Assert.That(currentOk, Is.True);
+            Assert.That(currentMessage, Is.Empty);
+        }
+
+        [Test]
+        public void LinkerDependencyUnion_IsStableAndDoesNotRepeatSharedClosures()
+        {
+            string[] first = FrameworkHotUpdateBuilder.CanonicalizeLinkerDependencyUnion(
+                new[] { "Assets/Scenes/Main.unity", "Packages/com.example/Resources/Config.asset" },
+                new[]
+                {
+                    "Assets\\Shared\\Theme.asset",
+                    "Assets/Scenes/Main.unity",
+                    "Assets/Shared/Theme.asset",
+                });
+            string[] reordered = FrameworkHotUpdateBuilder.CanonicalizeLinkerDependencyUnion(
+                new[] { "Packages/com.example/Resources/Config.asset", "Assets/Scenes/Main.unity" },
+                new[] { "Assets/Shared/Theme.asset" });
+
+            Assert.That(first, Is.EqualTo(reordered));
+            Assert.That(first, Is.EqualTo(new[]
+            {
+                "Assets/Scenes/Main.unity",
+                "Assets/Shared/Theme.asset",
+                "Packages/com.example/Resources/Config.asset",
+            }));
         }
 
         [Test]

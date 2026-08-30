@@ -24,9 +24,13 @@ Odin 从 Framework Runtime 解耦后，源码和已编译 Player DLL 已经没�
 
 ### 2. generation stamp 分别证明热更目标 DLL 与 AOT 输入
 
-Unity 6000 的 `CompilationPipeline.GetAssemblies(AssembliesType.Player)` 会给出 Player defines / sourceFiles，但 `outputPath` 仍可能指向 `Library/ScriptAssemblies` 的 Editor DLL；即使 defines 中没有 `UNITY_EDITOR` 也不能把该文件当作目标 Player 证据。因此 stamp v4 分两侧处理：热更侧先由 HybridCLR `CompileDll(target, development)` 产出真实目标 DLL，再用其自带 dnlib 规范化 TypeDef / MethodDef、字段顺序与布局、签名与泛型约束、TypeSpec / MethodSpec、Attribute、P/Invoke / calli 和 IL 元数据操作数；AOT 侧哈希所有非热更 Player 源文件、asmdef、defines、编译器选项、response file、Roslyn Analyzer / Source Generator 输入与非 Unity 内置预编译 DLL，任何变化都保守要求 Generate。
+Unity 6000 的 `CompilationPipeline.GetAssemblies(AssembliesType.Player)` 会给出 Player defines / sourceFiles，但 `outputPath` 仍可能指向 `Library/ScriptAssemblies` 的 Editor DLL；即使 defines 中没有 `UNITY_EDITOR` 也不能把该文件当作目标 Player 证据。因此 stamp v4 先分两侧处理：热更侧由 HybridCLR `CompileDll(target, development)` 产出真实目标 DLL，再用其自带 dnlib 规范化 TypeDef / MethodDef、字段顺序与布局、签名与泛型约束、TypeSpec / MethodSpec、Attribute、P/Invoke / calli 和 IL 元数据操作数；AOT 侧哈希所有非热更 Player 源文件、asmdef、defines、编译器选项、response file、Roslyn Analyzer / Source Generator 输入与非 Unity 内置预编译 DLL，任何变化都保守要求 Generate。
 
 `StripAOTDllCommand` 的迷你 Player Build 还受 UnityLinker 根影响：source `link.xml`、启用的 Build Settings 场景、Resources / Preloaded 资产或序列化组件变化，都可能改变 stripped AOT DLL 和后续 MethodBridge，而程序集元数据本身不变。第三条指纹因此记录这些根及依赖图，并对 `.unity` / `.prefab` / `.asset` / `.uxml` / `.guiskin` 等可承载托管类型的序列化资产记录内容哈希；`Assets/HybridCLRGenerate/link.xml` 是派生产物，必须排除以免 stamp 自我引用。动态 `IUnityLinkerProcessor` 的类型与实现程序集也进入指纹；但 processor 可读取任意外部文件/环境，框架无法猜出这类隐式输入。自定义 processor 必须让其配置成为上述可见根，或在配置变化后主动重跑 Generate；stamp 不宣称覆盖任意构建期副作用。
+
+stamp v5 不改变上述输入范围，但把 linker 图规范化为“根集合 + 所有根可达依赖的并集”。UnityLinker 的结果只取决于最终可达集合，同一依赖由哪个 Resources 根到达不改变裁剪；因此 Implementation 使用一次批量递归查询，并让每个序列化依赖只哈希一次。AOT、linker 和工程配置共享一个仅本轮存活的内容指纹快照：相同物理文件只读一次，若采集中长度或最后写入时间漂移则 fail-fast，下一轮检查绝不复用旧 SHA。Module Audit 通过既有反射 Seam 传入自己已经冻结的 Asset 路径和 Player 编译图；删除 HybridCLR Module 后通用审计仍保持可编译。v4 stamp 会明确提示版本不兼容，升级后需执行一次 Generate/All 建立 v5 基线，不在只读审计中暗中改写生成记录。
+
+新鲜度校验按成本从低到高执行：版本、目标平台、Profile、包锁、设置与 PlayerSettings 已经证明过期时，不再扫描 DLL、源码或 linker 图；目标元数据或 AOT 输入已失效时也停止后续更昂贵阶段。代码包入口还会在 `CompileDll` 前只读预检 stamp 是否存在且为 v5，旧版本或缺失记录不会先支付一次必然无法修复它的目标平台编译。所有失效原因的恢复动作都是重新 Generate，因此只报告当前第一层已经成立的决定性原因，而不为罗列更多原因继续消耗主线程。
 
 规范化条目不去重，因为同签名 callback / MethodSpec 的数量也会改变生成结果；SHA-256 输入使用 UTF-8 长度前缀，避免程序集名、Attribute 字符串中的逗号或换行制造边界碰撞。AOT 源哈希比目标元数据更保守，但不会漏掉 `#if !UNITY_EDITOR` / 平台分支，也不会让日常热更算法修改被迫重跑 Generate。
 
@@ -51,7 +55,7 @@ Assembly attribute 只负责装配声明，并不天然构成 UnityLinker 根。
 ## 结果
 
 - Module Audit 的“显式外部依赖”现在对应 Unity 真正生效的声明，删除判断不再建立在 Auto Reference 假证据上。Unity 6000 的 CompilationPipeline `outputPath` 仍可能指向 Editor 变体，因此界面中的 DLL 闭包只称“当前已编译快照”；目标平台结论由 Auto Reference 门禁、HybridCLR 目标 DLL 与真实 Player Build 共同证明。
-- Odin 依赖从源码、Player DLL、HybridCLR AOT/link 生成物和 CodePackage 清单同时消失；以后相同拓扑变化会由 stamp v4 主动拦截。
+- Odin 依赖从源码、Player DLL、HybridCLR AOT/link 生成物和 CodePackage 清单同时消失；以后相同拓扑变化会由继承 v4 证据范围的 stamp v5 主动拦截。
 - Core 不再知道 Yoo 类型或程序集名。替换资源后端的删除测试成为“删除旧 Adapter + 安装一个新注册 Adapter”，而不是修改 Core 常量。
 - Embedded NuGet 目前仍是一个聚合 UPM 源包，隔离体积探针也会复制它的完整物理目录；这只能证明链接后的 Player 上界，不能证明最小安装闭包。按 Core / UI / Proto 拆发布依赖及许可证清单仍属于 ADR-0010 的 UPM 分发阶段，不在框架内复制第二套 Package Manager。
 

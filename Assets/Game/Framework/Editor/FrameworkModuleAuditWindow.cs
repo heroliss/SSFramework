@@ -13,17 +13,22 @@ namespace Game.Framework.Editor
     /// </summary>
     public sealed class FrameworkModuleAuditWindow : EditorWindow
     {
-        private const float CompactWidth = 620f;
-
         private VisualElement _actions;
         private ScrollView _content;
         private HelpBox _status;
+        private Button _refreshButton;
+        private Button _copyButton;
         private List<VisualElement> _responsiveRows;
         private string _rawReport = string.Empty;
+        private FrameworkModuleAuditCache.Entry _evidence;
+        private bool _refreshScheduled;
 
         /// <summary>打开或聚焦 Module 裁剪审计窗口。</summary>
         [MenuItem(FrameworkMenuPaths.ModuleAudit, priority = 81)]
         public static void Open() => GetWindow<FrameworkModuleAuditWindow>("模块裁剪审计").Show();
+
+        private void OnEnable() => FrameworkModuleAuditCache.Invalidated += OnEvidenceInvalidated;
+        private void OnDisable() => FrameworkModuleAuditCache.Invalidated -= OnEvidenceInvalidated;
 
         /// <summary>构建可响应窗口宽度的 UI Toolkit 诊断界面。</summary>
         public void CreateGUI()
@@ -33,10 +38,13 @@ namespace Game.Framework.Editor
 
             var root = rootVisualElement;
             root.Clear();
-            root.style.flexDirection = FlexDirection.Column;
-            root.style.backgroundColor = WindowBackground;
+            FrameworkEditorVisuals.ApplyWindowSurface(root);
 
-            root.Add(CreateHeader());
+            root.Add(FrameworkEditorVisuals.CreateHero(
+                "module-audit-header",
+                "DIAGNOSTICS · 只读证据",
+                "模块裁剪审计",
+                "把依赖声明、真实消费者、保留根与最终构建证据分开说明；只有明确点击采集时才扫描工程。"));
 
             _actions = new VisualElement
             {
@@ -51,15 +59,26 @@ namespace Game.Framework.Editor
                     paddingBottom = 4,
                 },
             };
-            _actions.Add(CreateActionButton("重新检测", Refresh, "重新读取当前 Player 编译图、asmdef 与当前 DLL 快照。"));
-            _actions.Add(CreateActionButton("复制完整报告", CopyReport, "复制可粘贴到问题单（issue）或评审中的纯文本报告。"));
-            _actions.Add(CreateActionButton("打开模块地图", () => OpenFile("docs/framework-module-map.md"),
-                "查看各程序集的职责、依赖方向与删除标准。"));
-            _actions.Add(CreateActionButton("真实构建对比", FrameworkBuildSizeProbeWindow.Open,
-                "在隔离空工程里真正删除未选 Module，并读取当前平台 Player BuildReport。"));
+            _refreshButton = FrameworkEditorVisuals.CreateActionButton(
+                "采集当前证据", ScheduleRefresh,
+                "显式读取当前 Player 编译图、asmdef、DLL、Package 与 linker 证据；大型工程可能短暂停顿。",
+                "module-audit-refresh", primary: true);
+            _copyButton = FrameworkEditorVisuals.CreateActionButton(
+                "复制完整报告", CopyReport,
+                "复制可粘贴到问题单（issue）或评审中的纯文本报告。",
+                "module-audit-copy");
+            _actions.Add(_refreshButton);
+            _actions.Add(_copyButton);
+            _actions.Add(FrameworkEditorVisuals.CreateActionButton(
+                "打开模块地图", () => OpenFile("docs/framework-module-map.md"),
+                "查看各程序集的职责、依赖方向与删除标准。", "module-audit-map"));
+            _actions.Add(FrameworkEditorVisuals.CreateActionButton(
+                "真实构建对比", FrameworkBuildSizeProbeWindow.Open,
+                "在隔离空工程里真正删除未选 Module，并读取当前平台 Player BuildReport。",
+                "module-audit-build-size"));
             root.Add(_actions);
 
-            _status = new HelpBox("正在读取当前目标平台的模块关系……", HelpBoxMessageType.Info)
+            _status = new HelpBox(string.Empty, HelpBoxMessageType.Info)
             {
                 name = "module-audit-status",
                 style =
@@ -88,81 +107,150 @@ namespace Game.Framework.Editor
 
             root.UnregisterCallback<GeometryChangedEvent>(OnRootGeometryChanged);
             root.RegisterCallback<GeometryChangedEvent>(OnRootGeometryChanged);
-            Refresh();
+            if (FrameworkModuleAuditCache.TryGet(out FrameworkModuleAuditCache.Entry cached))
+                ApplyEvidence(cached, showNotification: false);
+            else
+                ShowIdleState("尚未采集。本窗口已经打开完毕；开始扫描只会发生在你明确点击“采集当前证据”之后。",
+                    HelpBoxMessageType.Info);
+            ApplyResponsiveLayout(position.width);
         }
 
         internal void ApplyResponsiveLayoutForTests(float width) => ApplyResponsiveLayout(width);
 
-        private VisualElement CreateHeader()
-        {
-            var header = new VisualElement
-            {
-                name = "module-audit-header",
-                style =
-                {
-                    flexShrink = 0,
-                    paddingLeft = 12,
-                    paddingRight = 12,
-                    paddingTop = 10,
-                    paddingBottom = 6,
-                },
-            };
-            var title = Wrap(new Label("模块裁剪审计"));
-            title.style.fontSize = 19;
-            title.style.unityFontStyleAndWeight = FontStyle.Bold;
-            header.Add(title);
+        private static Button CreateActionButton(string text, Action action, string tooltip) =>
+            FrameworkEditorVisuals.CreateActionButton(text, action, tooltip);
 
-            var subtitle = Wrap(new Label("先回答“依赖声明是否一致、代码为何可能保留、移除前要做什么”；技术明细需要时再展开。"));
-            subtitle.style.marginTop = 3;
-            subtitle.style.color = MutedTextColor;
-            header.Add(subtitle);
-            return header;
+        private void ScheduleRefresh()
+        {
+            if (_refreshScheduled || _content == null) return;
+            _refreshScheduled = true;
+            _refreshButton?.SetEnabled(false);
+            ShowStatus(
+                "正在读取当前目标平台的编译图、DLL、Package 与 linker 证据；这是显式的只读重扫描。",
+                HelpBoxMessageType.Info);
+            rootVisualElement.schedule.Execute(RefreshNowWithProgress);
         }
 
-        private static Button CreateActionButton(string text, Action action, string tooltip)
-        {
-            return new Button(action)
-            {
-                text = text,
-                tooltip = tooltip,
-                style =
-                {
-                    flexGrow = 1,
-                    flexBasis = 0,
-                    minHeight = 26,
-                    marginLeft = 2,
-                    marginRight = 2,
-                    marginTop = 2,
-                    marginBottom = 2,
-                },
-            };
-        }
+        internal void RefreshForTests() => RefreshNow();
 
-        private void Refresh()
+        private void RefreshNowWithProgress() => RefreshNow(showProgress: true);
+
+        private void RefreshNow(bool showProgress = false)
         {
             if (_content == null) return;
+            int progressId = -1;
+            bool succeeded = false;
             try
             {
-                var result = FrameworkModuleAudit.Analyze(FrameworkModuleAudit.Capture());
-                _rawReport = FrameworkModuleAudit.CreateReport(result);
-                BuildResult(result);
-                _status.text = result.RequiresAttention
-                    ? "检测完成：依赖方向、第三方来源与最终保留原因已分开显示；请先看顶部结论和对应证据目录。"
-                    : "检测完成：当前依赖声明一致，且没有发现无条件 Module 保留规则。大小数字不代表最终包体。";
-                _status.messageType = result.RequiresAttention
-                    ? HelpBoxMessageType.Warning
-                    : HelpBoxMessageType.Info;
+                Action<string, float> onProgress = null;
+                if (showProgress)
+                {
+                    progressId = Progress.Start(
+                        "SSFramework 模块裁剪审计",
+                        "正在建立一致的只读证据快照");
+                    onProgress = (phase, value) =>
+                    {
+                        ShowStatus(phase + "…", HelpBoxMessageType.Info);
+                        Progress.Report(progressId, value, phase);
+                        Repaint();
+                    };
+                }
+                ApplyEvidence(FrameworkModuleAuditCache.Refresh(onProgress), showNotification: true);
+                succeeded = true;
             }
             catch (Exception ex)
             {
+                _evidence = null;
                 _rawReport = ex.ToString();
                 BuildFailure(ex);
-                _status.text = "检测失败：没有用空结果冒充通过。请展开异常信息定位编译图或 DLL 读取问题。";
-                _status.messageType = HelpBoxMessageType.Error;
+                _copyButton?.SetEnabled(true);
+                ShowStatus(
+                    "检测失败：没有用空结果冒充通过。请展开异常信息定位编译图或 DLL 读取问题。",
+                    HelpBoxMessageType.Error);
+            }
+            finally
+            {
+                if (progressId >= 0)
+                    Progress.Finish(progressId,
+                        succeeded ? Progress.Status.Succeeded : Progress.Status.Failed);
+                _refreshScheduled = false;
+                _refreshButton?.SetEnabled(true);
             }
 
             float width = rootVisualElement.resolvedStyle.width;
             ApplyResponsiveLayout(float.IsNaN(width) || width <= 0f ? position.width : width);
+        }
+
+        private void ApplyEvidence(FrameworkModuleAuditCache.Entry evidence, bool showNotification)
+        {
+            if (evidence?.Result == null) throw new ArgumentNullException(nameof(evidence));
+            _evidence = evidence;
+            _rawReport = evidence.Report;
+            BuildResult(evidence.Result);
+            _copyButton?.SetEnabled(true);
+            HideStatus();
+            if (showNotification)
+            {
+                string outcome = evidence.Result.Outcome switch
+                {
+                    FrameworkModuleAudit.AuditOutcome.Clear => "未发现结构冲突",
+                    FrameworkModuleAudit.AuditOutcome.Advisory =>
+                        $"结构通过 · {evidence.Result.UnconditionalModulePreservations.Length} 条保留说明",
+                    FrameworkModuleAudit.AuditOutcome.Warning => "存在待确认的证据缺口",
+                    _ => "存在需要处理的结构错误",
+                };
+                ShowNotification(new GUIContent(
+                    $"证据采集完成 · {evidence.DurationSeconds:F1}s · {outcome}"));
+            }
+        }
+
+        private void ShowIdleState(string message, HelpBoxMessageType messageType)
+        {
+            if (_content == null) return;
+            _evidence = null;
+            _rawReport = string.Empty;
+            _copyButton?.SetEnabled(false);
+            _content.Clear();
+            _responsiveRows?.Clear();
+
+            var flow = FrameworkEditorVisuals.CreateCard(
+                "module-audit-idle", FrameworkEditorVisuals.Tone.Active);
+            flow.Add(FrameworkEditorVisuals.CreateCardTitle("一次明确的证据采集，而不是打开窗口的隐藏副作用"));
+            flow.Add(FrameworkEditorVisuals.CreateMutedLabel(
+                "扫描会读取当前 Player / Editor 编译图、全部 asmdef、托管插件元数据、Package 来源和 link.xml。" +
+                "大型工程可能需要数秒，因此只在你点击主按钮时执行；结果在工程或编译图变化后自动失效。"));
+
+            var steps = CreateResponsiveRow("module-audit-idle-steps");
+            steps.Add(FrameworkEditorVisuals.CreateMetric(
+                "module-audit-idle-step-1", "第 1 步", "采集", "只读扫描当前证据"));
+            steps.Add(FrameworkEditorVisuals.CreateMetric(
+                "module-audit-idle-step-2", "第 2 步", "解释", "先看结论与关注项"));
+            steps.Add(FrameworkEditorVisuals.CreateMetric(
+                "module-audit-idle-step-3", "第 3 步", "验证", "按需进入真实构建"));
+            flow.Add(steps);
+            _content.Add(flow);
+            ShowStatus(message, messageType);
+        }
+
+        private void OnEvidenceInvalidated()
+        {
+            if (_content == null) return;
+            ShowIdleState(
+                "工程、Package、构建目标或编译图已经变化，上一份会话证据已失效。请在需要时重新采集。",
+                HelpBoxMessageType.Warning);
+        }
+
+        private void ShowStatus(string text, HelpBoxMessageType messageType)
+        {
+            if (_status == null) return;
+            _status.text = text;
+            _status.messageType = messageType;
+            _status.style.display = DisplayStyle.Flex;
+        }
+
+        private void HideStatus()
+        {
+            if (_status != null) _status.style.display = DisplayStyle.None;
         }
 
         private void BuildResult(FrameworkModuleAudit.AuditResult result)
@@ -172,7 +260,7 @@ namespace Game.Framework.Editor
 
             AddOverview(result);
             AddHotUpdateDeployment(result.HotUpdateDeployment);
-            AddSectionTitle("值得关注");
+            AddSectionTitle("建议与说明");
             var recommendations = CreateCard("module-audit-recommendations");
             foreach (string recommendation in result.Recommendations)
                 recommendations.Add(CreateBullet(recommendation));
@@ -275,31 +363,70 @@ namespace Game.Framework.Editor
             var card = CreateCard("module-audit-summary");
             card.style.borderLeftWidth = 4;
 
-            bool clear = !result.RequiresAttention;
-            card.style.borderLeftColor = clear ? HealthyColor : WarningColor;
-            string titleText = clear
-                ? "✓ 当前依赖声明一致，保留证据可解释"
-                : result.IsHealthy
-                    ? result.HasDependencyEvidenceGaps || result.HasUnknownExternalDependencySources
-                        ? "△ 依赖声明一致，但第三方依赖证据需关注"
-                        : "△ 依赖声明一致，但保留 / 派生证据需关注"
-                    : "⚠ 当前依赖或删除边界需要关注";
+            FrameworkEditorVisuals.Tone tone = result.Outcome switch
+            {
+                FrameworkModuleAudit.AuditOutcome.Clear => FrameworkEditorVisuals.Tone.Healthy,
+                FrameworkModuleAudit.AuditOutcome.Advisory => FrameworkEditorVisuals.Tone.Active,
+                FrameworkModuleAudit.AuditOutcome.Warning => FrameworkEditorVisuals.Tone.Warning,
+                _ => FrameworkEditorVisuals.Tone.Error,
+            };
+            card.style.borderLeftColor = FrameworkEditorVisuals.ToneColor(tone);
+            string titleText = result.Outcome switch
+            {
+                FrameworkModuleAudit.AuditOutcome.Clear => "✓ 当前依赖声明一致，证据完整",
+                FrameworkModuleAudit.AuditOutcome.Advisory =>
+                    $"ℹ 结构检查通过；{result.UnconditionalModulePreservations.Length} 条已知保留规则会限制裁剪",
+                FrameworkModuleAudit.AuditOutcome.Warning when
+                    result.HasDependencyEvidenceGaps || result.HasUnknownExternalDependencySources =>
+                    "△ 依赖声明一致，但第三方依赖证据不完整",
+                FrameworkModuleAudit.AuditOutcome.Warning =>
+                    "△ 依赖声明一致，但热更派生状态需要确认",
+                _ => "✗ 当前依赖或删除边界存在结构错误",
+            };
             var title = Wrap(new Label(titleText));
+            title.name = "module-audit-summary-title";
             title.style.fontSize = 17;
             title.style.unityFontStyleAndWeight = FontStyle.Bold;
-            title.style.color = clear ? HealthyTextColor : WarningTextColor;
+            title.style.color = FrameworkEditorVisuals.ToneTextColor(tone);
             card.Add(title);
 
-            var explanation = Wrap(new Label(clear
-                ? "Runtime Module 均关闭预定义程序集的隐式引用；Core / Boot 依赖方向、外部 DLL 声明与已知保留证据没有冲突。"
-                : result.IsHealthy
-                    ? result.HasDependencyEvidenceGaps || result.HasUnknownExternalDependencySources
-                        ? "asmdef 删除测试通过，但至少一条第三方来源或扫描输入不完整；修复前不会给出绿色移除结论。"
-                        : "asmdef 删除测试通过，但 link.xml 或热更派生状态仍可能让“Profile 已配置”不等于“当前产物已同步”。"
-                    : "至少有一项依赖可见性、程序集定位或删除检查未通过。下面会给出处理顺序。"));
+            var explanation = Wrap(new Label(result.Outcome switch
+            {
+                FrameworkModuleAudit.AuditOutcome.Clear =>
+                    "Runtime Module 均关闭预定义程序集的隐式引用；Core / Boot 依赖方向、外部 DLL 声明与派生证据没有冲突。",
+                FrameworkModuleAudit.AuditOutcome.Advisory =>
+                    "这些规则通常服务反射、序列化或热更，不代表依赖声明失败。保留对应 Module 时会固定更多代码；物理移除 Module 会同时移除其规则。",
+                FrameworkModuleAudit.AuditOutcome.Warning when
+                    result.HasDependencyEvidenceGaps || result.HasUnknownExternalDependencySources =>
+                    "asmdef 删除测试通过，但至少一条第三方来源或扫描输入不完整；补齐证据前不会给出绿色移除结论。",
+                FrameworkModuleAudit.AuditOutcome.Warning =>
+                    "asmdef 删除测试通过，但 Profile、Settings、Generate 或 DLL 中转至少有一层证据漂移。",
+                _ => "至少有一项依赖可见性、程序集定位或删除检查未通过。下面会给出处理顺序。",
+            }));
+            explanation.name = "module-audit-summary-explanation";
             explanation.style.marginTop = 3;
             explanation.style.color = MutedTextColor;
             card.Add(explanation);
+
+            if (_evidence != null)
+            {
+                var freshness = CreateInfoLabel(
+                    $"会话证据 · 本地 { _evidence.CapturedUtc.ToLocalTime():HH:mm:ss} 采集 · " +
+                    $"耗时 {_evidence.DurationSeconds:F1}s · 工程或编译图变化后自动失效");
+                freshness.name = "module-audit-evidence-freshness";
+                card.Add(freshness);
+                FrameworkModuleAudit.CaptureTimings timings = _evidence.CaptureTimings;
+                if (timings != null)
+                {
+                    var phaseTimings = CreateInfoLabel(
+                        $"阶段耗时 · 输入 {timings.InputSnapshotSeconds:F2}s · Player 图 {timings.PlayerGraphSeconds:F2}s · " +
+                        $"依赖证据 {timings.DependencyEvidenceSeconds:F2}s · 热更 {timings.HotUpdateEvidenceSeconds:F2}s · " +
+                        $"linker {timings.LinkerEvidenceSeconds:F2}s · 分析 {_evidence.AnalysisSeconds:F2}s · " +
+                        $"报告 {_evidence.ReportSeconds:F2}s");
+                    phaseTimings.name = "module-audit-phase-timings";
+                    card.Add(phaseTimings);
+                }
+            }
 
             var metrics = CreateResponsiveRow("module-audit-summary-metrics");
             int implicitCount = result.DependencyIssues.Sum(issue => issue.References.Length);
@@ -308,7 +435,7 @@ namespace Game.Framework.Editor
             metrics.Add(CreateMetric("隐式外部引用", implicitCount.ToString(), implicitCount == 0 ? "没有隐藏代价" : "需要补进 asmdef"));
             metrics.Add(CreateMetric("删除检查", $"{passedChecks}/{result.DeletionChecks.Length}", "Core、Boot 与两套 UI 后端"));
             metrics.Add(CreateMetric("无条件保留", result.UnconditionalModulePreservations.Length.ToString(),
-                result.HasRetentionWarnings ? "需要理解为何存在" : "未发现 Module 级根"));
+                result.HasRetentionAdvisories ? "已知裁剪成本，不是结构错误" : "未发现 Module 级根"));
             card.Add(metrics);
             _content.Add(card);
         }
@@ -775,12 +902,16 @@ namespace Game.Framework.Editor
                         issue.ModuleName + " → " + string.Join("、", issue.References)))));
             foreach (var check in result.DeletionChecks)
                 card.Add(CreateCheckRow(check.Passed, check.Name, check.Explanation));
-            card.Add(CreateCheckRow(!result.HasRetentionWarnings,
-                "可选 Module 没有无条件 link.xml 根",
-                result.HasRetentionWarnings
-                    ? string.Join("；", result.UnconditionalModulePreservations.Select(rule =>
-                        rule.OwnerModuleName + " → " + rule.AssemblyName + "（" + rule.Scope + "）"))
-                    : "没有发现会独立成为 UnityLinker 根的 Module 内保留规则。"));
+            if (result.HasRetentionAdvisories)
+                card.Add(CreateAdvisoryRow(
+                    "已知无条件 link.xml 保留（成本说明）",
+                    string.Join("；", result.UnconditionalModulePreservations.Select(rule =>
+                        rule.OwnerModuleName + " → " + rule.AssemblyName + "（" + rule.Scope + "）")) +
+                    "。这些规则会限制保留 Module 的裁剪，但不表示依赖或删除边界检查失败。"));
+            else
+                card.Add(CreateCheckRow(true,
+                    "可选 Module 没有无条件 link.xml 根",
+                    "没有发现会独立成为 UnityLinker 根的 Module 内保留规则。"));
             card.Add(CreateCheckRow(!result.HasHotUpdateViolations,
                 "热更 Profile 对引用关系闭合",
                 result.HasHotUpdateViolations
@@ -824,12 +955,7 @@ namespace Game.Framework.Editor
 
         private void AddSectionTitle(string text)
         {
-            var title = Wrap(new Label(text));
-            title.style.fontSize = 15;
-            title.style.unityFontStyleAndWeight = FontStyle.Bold;
-            title.style.marginTop = 11;
-            title.style.marginBottom = 4;
-            _content.Add(title);
+            _content.Add(FrameworkEditorVisuals.CreateSectionTitle(text));
         }
 
         private VisualElement CreateResponsiveRow(string name)
@@ -848,82 +974,32 @@ namespace Game.Framework.Editor
         }
 
         private static VisualElement CreateMetric(string caption, string value, string note)
-        {
-            var metric = new VisualElement
-            {
-                style =
-                {
-                    flexGrow = 1,
-                    flexBasis = 0,
-                    minWidth = 0,
-                    marginLeft = 2,
-                    marginRight = 2,
-                    marginTop = 2,
-                    marginBottom = 2,
-                    paddingLeft = 8,
-                    paddingRight = 8,
-                    paddingTop = 6,
-                    paddingBottom = 6,
-                    backgroundColor = DetailBackground,
-                    borderTopLeftRadius = 4,
-                    borderTopRightRadius = 4,
-                    borderBottomLeftRadius = 4,
-                    borderBottomRightRadius = 4,
-                },
-            };
-            var captionLabel = Wrap(new Label(caption));
-            captionLabel.style.fontSize = 11;
-            captionLabel.style.color = MutedTextColor;
-            metric.Add(captionLabel);
-
-            var valueLabel = Wrap(new Label(value));
-            valueLabel.style.fontSize = 15;
-            valueLabel.style.unityFontStyleAndWeight = FontStyle.Bold;
-            valueLabel.style.marginTop = 1;
-            metric.Add(valueLabel);
-
-            var noteLabel = Wrap(new Label(note));
-            noteLabel.style.fontSize = 10;
-            noteLabel.style.color = MutedTextColor;
-            metric.Add(noteLabel);
-            return metric;
-        }
+            => FrameworkEditorVisuals.CreateMetric(null, caption, value, note);
 
         private static VisualElement CreateCard(string name)
-        {
-            return new VisualElement
-            {
-                name = name,
-                style =
-                {
-                    flexShrink = 0,
-                    marginTop = 3,
-                    marginBottom = 5,
-                    paddingLeft = 10,
-                    paddingRight = 10,
-                    paddingTop = 9,
-                    paddingBottom = 9,
-                    backgroundColor = CardBackground,
-                    borderLeftWidth = 1,
-                    borderRightWidth = 1,
-                    borderTopWidth = 1,
-                    borderBottomWidth = 1,
-                    borderLeftColor = BorderColor,
-                    borderRightColor = BorderColor,
-                    borderTopColor = BorderColor,
-                    borderBottomColor = BorderColor,
-                    borderTopLeftRadius = 6,
-                    borderTopRightRadius = 6,
-                    borderBottomLeftRadius = 6,
-                    borderBottomRightRadius = 6,
-                },
-            };
-        }
+            => FrameworkEditorVisuals.CreateCard(name);
 
         private static VisualElement CreateCheckRow(bool passed, string title, string explanation)
+            => CreateStatusRow(
+                passed ? FrameworkEditorVisuals.Tone.Healthy : FrameworkEditorVisuals.Tone.Warning,
+                passed ? "✓" : "!",
+                title,
+                explanation);
+
+        private static VisualElement CreateAdvisoryRow(string title, string explanation)
+            => CreateStatusRow(FrameworkEditorVisuals.Tone.Active, "i", title, explanation,
+                "module-audit-retention-advisory");
+
+        private static VisualElement CreateStatusRow(
+            FrameworkEditorVisuals.Tone tone,
+            string iconText,
+            string title,
+            string explanation,
+            string name = null)
         {
             var row = new VisualElement
             {
+                name = name,
                 style =
                 {
                     flexDirection = FlexDirection.Row,
@@ -931,12 +1007,12 @@ namespace Game.Framework.Editor
                     marginBottom = 3,
                 },
             };
-            var icon = new Label(passed ? "✓" : "!");
+            var icon = new Label(iconText);
             icon.style.width = 22;
             icon.style.flexShrink = 0;
             icon.style.fontSize = 15;
             icon.style.unityFontStyleAndWeight = FontStyle.Bold;
-            icon.style.color = passed ? HealthyTextColor : WarningTextColor;
+            icon.style.color = FrameworkEditorVisuals.ToneTextColor(tone);
             row.Add(icon);
 
             var text = new VisualElement { style = { flexGrow = 1, minWidth = 0 } };
@@ -952,21 +1028,10 @@ namespace Game.Framework.Editor
         }
 
         private static Label CreateBullet(string text)
-        {
-            var label = Wrap(new Label("• " + text));
-            label.style.marginTop = 3;
-            label.style.marginBottom = 3;
-            return label;
-        }
+            => FrameworkEditorVisuals.CreateBullet(text);
 
         private static Label CreateInfoLabel(string text)
-        {
-            var label = Wrap(new Label(text));
-            label.style.color = MutedTextColor;
-            label.style.marginTop = 4;
-            label.style.marginBottom = 4;
-            return label;
-        }
+            => FrameworkEditorVisuals.CreateMutedLabel(text);
 
         private static Label CreateDetailHeading(string text)
         {
@@ -1015,20 +1080,14 @@ namespace Game.Framework.Editor
         }
 
         private static Label Wrap(Label label)
-        {
-            label.style.whiteSpace = WhiteSpace.Normal;
-            label.style.flexShrink = 1;
-            return label;
-        }
+            => FrameworkEditorVisuals.Wrap(label);
 
         private void CopyReport()
         {
             EditorGUIUtility.systemCopyBuffer = _rawReport;
-            if (_status != null)
-            {
-                _status.text = string.IsNullOrEmpty(_rawReport) ? "当前没有可复制的报告。" : "完整报告已复制。";
-                _status.messageType = HelpBoxMessageType.Info;
-            }
+            ShowStatus(
+                string.IsNullOrEmpty(_rawReport) ? "当前没有可复制的报告。" : "完整报告已复制。",
+                HelpBoxMessageType.Info);
         }
 
         private void CopyRemovalChecklist(FrameworkModuleAudit.ModuleStatus status)
@@ -1045,9 +1104,7 @@ namespace Game.Framework.Editor
                           "当前保留原因：\n- " + string.Join("\n- ", status.RetentionReasons) + "\n\n" +
                           "安全顺序：\n- " + string.Join("\n- ", status.RemovalSteps);
             EditorGUIUtility.systemCopyBuffer = text;
-            if (_status == null) return;
-            _status.text = status.Module.Name + " 的移除准备清单已复制。";
-            _status.messageType = HelpBoxMessageType.Info;
+            ShowStatus(status.Module.Name + " 的移除准备清单已复制。", HelpBoxMessageType.Info);
         }
 
         private void CopyHotUpdateEvidence(FrameworkModuleAudit.HotUpdateDeploymentEvidence evidence)
@@ -1060,9 +1117,7 @@ namespace Game.Framework.Editor
                           "边界：中转一致只证明清单结构与当前派生输入相符、所列文件存在；" +
                           "不证明 DLL 内容相对源码新鲜，也不代表 YooAsset bundle 或 CDN 已部署。";
             EditorGUIUtility.systemCopyBuffer = text;
-            if (_status == null) return;
-            _status.text = "热更派生证据已复制。";
-            _status.messageType = HelpBoxMessageType.Info;
+            ShowStatus("热更派生证据已复制。", HelpBoxMessageType.Info);
         }
 
         private static void OpenHotUpdateProfile()
@@ -1128,71 +1183,25 @@ namespace Game.Framework.Editor
 
         private void ApplyResponsiveLayout(float width)
         {
-            bool compact = width < CompactWidth;
+            bool compact = width < FrameworkEditorVisuals.CompactWidth;
             if (_actions != null)
             {
                 _actions.style.flexDirection = compact ? FlexDirection.Column : FlexDirection.Row;
-                ApplyChildSizing(_actions, compact);
+                FrameworkEditorVisuals.ApplyResponsiveChildren(_actions, compact);
             }
             if (_responsiveRows == null) return;
             foreach (var row in _responsiveRows)
             {
                 row.style.flexDirection = compact ? FlexDirection.Column : FlexDirection.Row;
-                ApplyChildSizing(row, compact);
+                FrameworkEditorVisuals.ApplyResponsiveChildren(row, compact);
             }
         }
 
-        private static void ApplyChildSizing(VisualElement parent, bool compact)
-        {
-            foreach (var child in parent.Children())
-            {
-                if (compact)
-                {
-                    child.style.flexBasis = StyleKeyword.Auto;
-                    child.style.flexGrow = 0;
-                }
-                else
-                {
-                    child.style.flexBasis = 0;
-                    child.style.flexGrow = 1;
-                }
-            }
-        }
-
-        private static Color WindowBackground => EditorGUIUtility.isProSkin
-            ? new Color(0.115f, 0.115f, 0.115f, 1f)
-            : new Color(0.82f, 0.82f, 0.82f, 1f);
-
-        private static Color CardBackground => EditorGUIUtility.isProSkin
-            ? new Color(0.16f, 0.16f, 0.16f, 1f)
-            : new Color(0.94f, 0.94f, 0.94f, 1f);
-
-        private static Color DetailBackground => EditorGUIUtility.isProSkin
-            ? new Color(0.115f, 0.115f, 0.115f, 1f)
-            : new Color(0.86f, 0.86f, 0.86f, 1f);
-
-        private static Color BorderColor => EditorGUIUtility.isProSkin
-            ? new Color(0.28f, 0.28f, 0.28f, 1f)
-            : new Color(0.68f, 0.68f, 0.68f, 1f);
-
-        private static Color MutedTextColor => EditorGUIUtility.isProSkin
-            ? new Color(0.68f, 0.68f, 0.68f, 1f)
-            : new Color(0.32f, 0.32f, 0.32f, 1f);
-
-        private static Color HealthyColor => EditorGUIUtility.isProSkin
-            ? new Color(0.18f, 0.56f, 0.32f, 1f)
-            : new Color(0.10f, 0.46f, 0.22f, 1f);
-
-        private static Color HealthyTextColor => EditorGUIUtility.isProSkin
-            ? new Color(0.42f, 0.88f, 0.58f, 1f)
-            : new Color(0.05f, 0.38f, 0.16f, 1f);
-
-        private static Color WarningColor => EditorGUIUtility.isProSkin
-            ? new Color(0.86f, 0.52f, 0.15f, 1f)
-            : new Color(0.72f, 0.36f, 0.04f, 1f);
-
-        private static Color WarningTextColor => EditorGUIUtility.isProSkin
-            ? new Color(1f, 0.68f, 0.28f, 1f)
-            : new Color(0.62f, 0.25f, 0.02f, 1f);
+        private static Color DetailBackground => FrameworkEditorVisuals.DetailBackground;
+        private static Color MutedTextColor => FrameworkEditorVisuals.MutedTextColor;
+        private static Color HealthyColor => FrameworkEditorVisuals.HealthyColor;
+        private static Color HealthyTextColor => FrameworkEditorVisuals.HealthyTextColor;
+        private static Color WarningColor => FrameworkEditorVisuals.WarningColor;
+        private static Color WarningTextColor => FrameworkEditorVisuals.WarningTextColor;
     }
 }
