@@ -29,6 +29,7 @@ namespace Game.Framework.Demo.PlayMode.Tests
 
         private bool _loadedDemoScene;
         private bool _previousRunInBackground;
+        private InputSettings.BackgroundBehavior _previousInputBackgroundBehavior;
 
         [UnitySetUp]
         public IEnumerator SetUp()
@@ -37,6 +38,10 @@ namespace Game.Framework.Demo.PlayMode.Tests
             {
                 _previousRunInBackground = Application.runInBackground;
                 Application.runInBackground = true;
+                // Input System 把“PlayerLoop 是否继续”和“失焦设备是否收事件”分成两项设置。
+                // MCP 可在后台跑测试；这里只让 fixture 的合成设备忽略焦点，TearDown 必须恢复产品设置。
+                _previousInputBackgroundBehavior = InputSystem.settings.backgroundBehavior;
+                InputSystem.settings.backgroundBehavior = InputSettings.BackgroundBehavior.IgnoreFocus;
 
                 Scene demoScene = SceneManager.GetSceneByPath(DemoScenePath);
                 if (!demoScene.IsValid() || !demoScene.isLoaded)
@@ -80,6 +85,7 @@ namespace Game.Framework.Demo.PlayMode.Tests
                 finally
                 {
                     _loadedDemoScene = false;
+                    InputSystem.settings.backgroundBehavior = _previousInputBackgroundBehavior;
                     Application.runInBackground = _previousRunInBackground;
                 }
             });
