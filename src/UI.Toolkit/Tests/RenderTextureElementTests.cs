@@ -1,4 +1,3 @@
-using Game.Framework.UI.Bridge;
 using Game.Framework.UI.Toolkit;
 using NUnit.Framework;
 using UnityEngine;
@@ -6,10 +5,11 @@ using UnityEngine;
 namespace Game.Framework
 {
     /// <summary>
-    /// UI 嵌入桥（ADR-0033）的纯函数回归：纹理尺寸换算（DPI 缩放 + 向上取整 + 等比降采样上限）与
-    /// 「同尺寸不重建」判定。只覆盖不触 GPU 的逻辑；渲染本身不单测（交 demo Play 抽查）。
+    /// UI Toolkit 渲染纹理元素（ADR-0033）的纯函数回归：纹理尺寸换算
+    /// （DPI 缩放 + 向上取整 + 等比降采样上限）与「同尺寸不重建」判定。
+    /// 只覆盖不触 GPU 的逻辑；渲染本身交 Demo Play 抽查。
     /// </summary>
-    public sealed class UIEmbedTests
+    public sealed class RenderTextureElementTests
     {
         [Test]
         public void ComputeTextureSize_ScalesPointsByDpi()
@@ -79,43 +79,6 @@ namespace Game.Framework
             // 宽或高为 0 / 负（元素折叠或未布局）时不重建，避免申请非法尺寸纹理。
             Assert.IsFalse(CameraTextureRenderer.ShouldRecreate(256, 256, 0, 256));
             Assert.IsFalse(CameraTextureRenderer.ShouldRecreate(0, 0, -1, -1));
-        }
-
-        // ── 输入穿透（v2）坐标换算与拖拽阈值 ──
-
-        [Test]
-        public void ComputeRtScreenPoint_CenterMapsToCenter()
-        {
-            // 元素中心 → RT 中心；y 轴翻转（Toolkit y 向下 → 屏幕 y 向上）中心仍是中心。
-            var p = UGuiEmbedInputForwarder.ComputeRtScreenPoint(new Vector2(50f, 25f), new Vector2(100f, 50f), new Vector2Int(200, 100));
-            Assert.AreEqual(new Vector2(100f, 50f), p);
-        }
-
-        [Test]
-        public void ComputeRtScreenPoint_FlipsYAxis()
-        {
-            // 元素左上角 (0,0) → 屏幕左上 = (0, rtH)；右下角 → (rtW, 0)。
-            var topLeft = UGuiEmbedInputForwarder.ComputeRtScreenPoint(Vector2.zero, new Vector2(100f, 50f), new Vector2Int(200, 100));
-            Assert.AreEqual(new Vector2(0f, 100f), topLeft);
-            var bottomRight = UGuiEmbedInputForwarder.ComputeRtScreenPoint(new Vector2(100f, 50f), new Vector2(100f, 50f), new Vector2Int(200, 100));
-            Assert.AreEqual(new Vector2(200f, 0f), bottomRight);
-        }
-
-        [Test]
-        public void ComputeRtScreenPoint_ZeroContentStaysAtOrigin()
-        {
-            // 未布局（内容框为 0）时不除零，退化到原点侧。
-            var p = UGuiEmbedInputForwarder.ComputeRtScreenPoint(new Vector2(10f, 10f), Vector2.zero, new Vector2Int(200, 100));
-            Assert.AreEqual(new Vector2(0f, 100f), p); // u=v=0 → (0, rtH)
-        }
-
-        [Test]
-        public void ExceedsDragThreshold_FalseBelowTrueAtOrAbove()
-        {
-            var press = Vector2.zero;
-            Assert.IsFalse(UGuiEmbedInputForwarder.ExceedsDragThreshold(press, new Vector2(5f, 0f), 10f));   // 5 < 10
-            Assert.IsTrue(UGuiEmbedInputForwarder.ExceedsDragThreshold(press, new Vector2(10f, 0f), 10f));   // 10 >= 10
-            Assert.IsTrue(UGuiEmbedInputForwarder.ExceedsDragThreshold(press, new Vector2(8f, 8f), 10f));    // |(8,8)|≈11.3 >= 10
         }
     }
 }

@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -7,19 +6,17 @@ using Game.Framework.Context;
 using Game.Framework.Internal;
 using Game.Framework.Logging;
 using Game.Framework.UI;
-using Game.Framework.UI.Toolkit;
 using Game.Framework.UI.UGui;
 using NUnit.Framework;
 using UnityEngine;
-using UnityEngine.UIElements;
 
 namespace Game.Framework.Test
 {
     /// <summary>
-    /// UI Runtime Module 的日志 Seam 契约：Adapter 配置错误必须在产生资源或可视树副作用前 fail-fast，
+    /// UGUI Adapter 的日志 Seam 契约：配置错误必须在产生资源或层级副作用前 fail-fast，
     /// 并把 category、消息与 Unity context 交给 <see cref="ILogSink"/>，而不只写入当前 Editor Console。
     /// </summary>
-    public sealed class UIRuntimeLoggingTests
+    public sealed class UGuiRuntimeLoggingTests
     {
         private ILogSink[] _previousSinks;
         private LogLevel _previousMinLevel;
@@ -74,27 +71,6 @@ namespace Game.Framework.Test
         }
 
         [Test]
-        public void ToolkitBackend_RejectsNonToolkitWindow_ThroughLoggingSeam()
-        {
-            var documentObject = new GameObject("toolkit-log-probe", typeof(UIDocument));
-            using var context = new GameContext(new ContainerBuilder().Build(), inheritFromGlobal: false);
-            try
-            {
-                var backend = new ToolkitBackend(documentObject.GetComponent<UIDocument>());
-                var result = backend.CreateWindow(
-                    UIWindowMeta.Of(typeof(PlainWindow)), context, CancellationToken.None)
-                    .GetAwaiter().GetResult();
-
-                Assert.IsNull(result);
-                AssertSingleError(nameof(ToolkitBackend), nameof(UIToolkitWindowBase));
-            }
-            finally
-            {
-                UnityEngine.Object.DestroyImmediate(documentObject);
-            }
-        }
-
-        [Test]
         public void UGuiBindingError_CarriesWindowAsUnityContext()
         {
             var windowObject = new GameObject("binding-log-probe");
@@ -116,28 +92,6 @@ namespace Game.Framework.Test
             finally
             {
                 UnityEngine.Object.DestroyImmediate(windowObject);
-            }
-        }
-
-        [Test]
-        public void ToolkitView_RejectsRepeatedContextBindingWithActionableChineseMessage()
-        {
-            using var first = new GameContext(new ContainerBuilder().Build(), inheritFromGlobal: false);
-            using var second = new GameContext(new ContainerBuilder().Build(), inheritFromGlobal: false);
-            var view = new BindingOnceToolkitView();
-            try
-            {
-                view.BindTo(first);
-
-                var error = Assert.Throws<InvalidOperationException>(() => view.BindTo(second));
-
-                StringAssert.Contains(nameof(BindingOnceToolkitView), error.Message);
-                StringAssert.Contains("不能重复绑定", error.Message);
-                StringAssert.Contains("只能绑定一次", error.Message);
-            }
-            finally
-            {
-                view.Dispose();
             }
         }
 
@@ -168,26 +122,9 @@ namespace Game.Framework.Test
             public UniTask OnCloseTransition(CancellationToken ct) => UniTask.CompletedTask;
         }
 
-        [UIWindow]
-        private sealed class PlainWindow : IUIWindow
-        {
-            public void OnCreate() { }
-            public void OnOpen(object args) { }
-            public void OnClose() { }
-            public void OnCover() { }
-            public void OnReveal() { }
-            public UniTask OnOpenTransition(CancellationToken ct) => UniTask.CompletedTask;
-            public UniTask OnCloseTransition(CancellationToken ct) => UniTask.CompletedTask;
-        }
-
         private sealed class BindingProbeWindow : UGuiWindowBase
         {
             public GameObject FindMissingNode() => BindGameObject("Missing/Node");
-        }
-
-        private sealed class BindingOnceToolkitView : UIToolkitViewBase
-        {
-            protected override void OnCreated() { }
         }
     }
 }

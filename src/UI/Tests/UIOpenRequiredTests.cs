@@ -114,7 +114,7 @@ namespace Game.Framework.Test
 
             public RequiredWindowState(IUIUtility ui) => _ui = ui;
 
-            protected internal override async UniTask OnEnter(CancellationToken ct)
+            protected override async UniTask OnEnter(CancellationToken ct)
                 => await _ui.OpenRequired<RequiredAssetWindow>(ct);
         }
 

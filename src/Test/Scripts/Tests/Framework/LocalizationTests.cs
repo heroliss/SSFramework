@@ -3,18 +3,16 @@ using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using Game.Framework.Context;
 using Game.Framework.Localization;
-using Game.Framework.UI.Toolkit;
 using NUnit.Framework;
 using R3;
 using UnityEngine;
 using UnityEngine.TestTools;
-using UnityEngine.UIElements;
 
 namespace Game.Framework.Test
 {
     /// <summary>
     /// 验证本地化服务（ADR-0024）：语言与文本修订分信号、延迟源失效重取、
-    /// 缺 key 回退链（fallbackLocale → 裸 key + 去重警告）、Toolkit 实际绑定、格式化宽容语义、
+    /// 缺 key 回退链（fallbackLocale → 裸 key + 去重警告）、格式化宽容语义、
     /// 字典源及随 Context 释放。纯 C#，全部用例无场景无帧推进。
     /// </summary>
     public class LocalizationTests
@@ -81,24 +79,6 @@ namespace Game.Framework.Test
             loc.Dispose();
             source.SetUnavailable();
             Assert.AreEqual(rendersBeforeDispose, rendered.Count, "Utility 释放后必须退订 Source 失效信号");
-        }
-
-        [Test]
-        public void BindLocalizedText_RefreshesActualToolkitLabelWhenSourceBecomesReady()
-        {
-            var source = new DelayedTextSource();
-            using var builder = new ContainerBuilder();
-            builder.RegisterOwned(new LocalizationUtility(source, "zh-CN"), typeof(ILocalizationUtility));
-            using var context = new GameContext(builder.Build(), inheritFromGlobal: false);
-            using var bag = new DisposableBag(context);
-            var label = new Label();
-
-            bag.BindLocalizedText(label, "demo/delayed");
-            Assert.AreEqual("demo/delayed", label.text);
-
-            source.SetReady("Toolkit 已自动刷新");
-            Assert.AreEqual("Toolkit 已自动刷新", label.text);
-            LogAssert.NoUnexpectedReceived();
         }
 
         // ── 缺 key 回退链 ────────────────────────────────────────────────────

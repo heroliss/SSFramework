@@ -64,11 +64,15 @@ Editor 反向引用。Adapter 不得随 Framework 分发付费插件本体。详
 | `Game.Framework.Network.Proto.Editor` | `Network.Proto/Editor/` | protoc Profile、代码生成与总览入口；复用通用 Editor 反馈。 | 可与 Proto Runtime 一起删除，Core 不改。 |
 | `Game.Framework.Network.Proto.Editor.Tests` | `Network.Proto/Editor/Tests/` | Protobuf 配置/claim 来源注册、递归后缀清理与跨生成器冲突拒绝契约。 | 随 Proto Editor Module 删除；不进入玩家构建。 |
 | `Game.Framework.UI` | `UI/` | 渲染中立窗口编排、层级/栈/模态/过渡及后端 Interface；当前也承载 ObservableCollections 增量列表引擎，因此该第三方依赖会随 UI Core 进入托管闭包。物理返回输入由项目 composition layer 接到 `IUIUtility.Back()`，本 Module 不依赖输入 Package。 | 删除后失去窗口框架与列表绑定引擎，但 Core MVCS 仍可用。 |
+| `Game.Framework.UI.Tests` | `UI/Tests/` | 渲染中立 UI 编排、窗口生命周期、过渡、Loading/Toast 所有权与增量列表引擎契约；只用 fake backend，不引用任何渲染 Adapter。 | 随 UI Core 删除；UGUI/Toolkit 任一 Adapter 删除时仍可独立编译和运行。 |
 | `Game.Framework.UI.UGui` | `UI.UGui/` | UGUI Window/View Adapter，含 `Transform → GameObject` 的 `Bag.BindList` Adapter。 | 删除后 Toolkit 后端与 UI Core 仍可编译。 |
+| `Game.Framework.UI.UGui.Tests` | `UI.UGui/Tests/` | UGUI 后端的真实层级、列表、日志与 Mono 外观转发契约。 | 随 UGUI Runtime Module 删除；通用 Test 与 UI Core Tests 不再引用 UGUI。 |
 | `Game.Framework.UI.UGui.Editor` | `UI.UGui/Editor/` | UGUI 节点绑定生成等 Editor 工具；复用通用 Editor 反馈。 | 可独立删除，不影响 UGUI Runtime 手写接线。 |
 | `Game.Framework.UI.UGui.Editor.Tests` | `UI.UGui/Editor/Tests/` | UGUI 绑定 Inspector、Popup、Overlay，以及逻辑/节点精确输出 claim 注册契约。 | 随 UGUI Editor Module 删除；不进入玩家构建。 |
 | `Game.Framework.UI.Toolkit` | `UI.Toolkit/` | UI Toolkit Window/View Adapter、`VisualElement` 的 `Bag.BindList` Adapter 与 RenderTexture 显示原语。 | 删除后 UGUI 后端与 UI Core 仍可编译。 |
+| `Game.Framework.UI.Toolkit.Tests` | `UI.Toolkit/Tests/` | Toolkit 控件绑定、异步点击、日志、本地化、RenderTexture 原语与 Mono 外观转发契约。 | 随 Toolkit Runtime Module 删除；通用 Test 与 UI Core Tests 不再引用 UI Toolkit。 |
 | `Game.Framework.UI.Bridge` | `UI.Bridge/` | UGUI/相机内容嵌入 Toolkit 的 RenderTexture Adapter。 | 删除后两套独立 UI 后端仍可用。 |
+| `Game.Framework.UI.Bridge.Tests` | `UI.Bridge/Tests/` | 嵌入输入桥的坐标换算与拖拽阈值契约，只访问 Bridge 自己的内部纯函数 Seam。 | 随 UI Bridge 删除；UGUI 与 Toolkit 的独立测试仍可运行。 |
 | `Game.Framework.Boot` | `Boot/` | HybridCLR/YooAsset 热更启动 AOT 薄壳。 | 可在无热更项目删除；不得反向依赖 Framework Runtime。 |
 | `Game.Framework.Editor` | `Editor/` | 稳定且零付费插件依赖的编辑器工具基座：Core 原生 Drawer/Inspector、跨模块非阻塞反馈、诊断窗口、菜单、项目路径，以及 Module-local 注册的工具/配置/生成输出 claim Catalog；Module Audit 与隔离 Player Build 体积探针共用结构化组合，Source Catalog 统一解析 Assets / Packages / PackageCache。 | 玩家构建不包含。若删除，需一并删除或改接直接依赖它的 Build / Config / Proto / UGUI Editor 工具；所有 Runtime API 与玩家构建仍不受影响。 |
 | `Game.Framework.Odin.Editor` | `Odin.Editor/` | 可选专业 Inspector Adapter：仅把原生 fallback 接管且 Odin 允许绘制的具体 Framework Mono 类型临时映射到组合诊断的 OdinEditor；不写 Odin 配置，不含或重分发 Odin。 | 移除 Odin 前先整体删除；Domain Reload 后原生 fallback 接管，Runtime 与资产布局不变。 |
@@ -80,7 +84,7 @@ Editor 反向引用。Adapter 不得随 Framework 分发付费插件本体。详
 | `Game.Framework.Demo` | `Demo/` | 32 个可运行教学章节，是所有 Module 的消费方与集成样板；Catalog 集中拥有章节 Adapter、生命周期与 Host 教学语义校验。包含 Input System → `IUIUtility.Back()` 等项目 composition 样板，但这些不是 Framework Runtime API。 | 可整体删除；`UNITY_EDITOR` define 保证不进玩家包。 |
 | `Game.Framework.Demo.Tests` | `Demo/Tests/` | Demo 专属 EditMode 门禁：章节生命周期/回滚、教学形态与结构化降级契约、内嵌服务器、关键示例行为及全部 CodeRef 防腐。 | 随 Demo 一起删除；不让 Demo 专属依赖反向进入通用 Test Module。 |
 | `Game.Framework.Demo.PlayMode.Tests` | `Demo/Tests/PlayMode/` | 加载真实 DemoScene，穿过 Context、Catalog 与 Shell 逐章 Build 32 个 Adapter，并验证真实缺依赖降级页。 | 随 Demo 一起删除；不进入玩家构建，也不把场景集成依赖塞回纯 EditMode 门禁。 |
-| `Game.Framework.Test` | `Test/Scripts/` | Core 与跨 UI Adapter 的 PlayMode/EditMode 契约及回归测试；`Test/Res/SuspendedSceneProbe` 是无业务 Awake 的 Yoo 场景激活门 fixture。可选 Module 的独立契约逐步迁回各自 owner。 | 产品运行不依赖；开发/CI 不应删除。 |
+| `Game.Framework.Test` | `Test/Scripts/` | Core 与尚待迁移的 YooAsset PlayMode 契约及回归测试；`Test/Res/SuspendedSceneProbe` 是无业务 Awake 的 Yoo 场景激活门 fixture。UI、Fonts 与 Proto 的独立契约已迁回各自 owner。 | 产品运行不依赖；开发/CI 不应删除。 |
 
 ## 维护检查清单
 

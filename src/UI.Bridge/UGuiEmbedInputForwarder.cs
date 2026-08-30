@@ -6,7 +6,7 @@ using UnityEngine.EventSystems;
 using UnityEngine.UI;
 using UnityEngine.UIElements;
 
-[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("Game.Framework.Test")]
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("Game.Framework.UI.Bridge.Tests")]
 
 namespace Game.Framework.UI.Bridge
 {

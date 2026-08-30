@@ -1,10 +1,11 @@
 {
-    "name": "Game.Framework.Test",
-    "rootNamespace": "Game.Framework",
+    "name": "Game.Framework.UI.Toolkit.Tests",
+    "rootNamespace": "Game.Framework.Test",
     "references": [
-        "YooAsset",
-        "UniTask",
         "Game.Framework",
+        "Game.Framework.UI",
+        "Game.Framework.UI.Toolkit",
+        "UniTask",
         "R3.Unity",
         "UnityEngine.TestRunner"
     ],
@@ -15,7 +16,7 @@
     "precompiledReferences": [
         "nunit.framework.dll",
         "R3.dll",
-        "Microsoft.Bcl.TimeProvider.dll"
+        "ObservableCollections.dll"
     ],
     "autoReferenced": false,
     "defineConstraints": [
