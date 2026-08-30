@@ -1,3 +1,3 @@
 using System.Runtime.CompilerServices;
 
-[assembly: InternalsVisibleTo("Game.Framework.Test")]
+[assembly: InternalsVisibleTo("Game.Framework.UI.Tests")]

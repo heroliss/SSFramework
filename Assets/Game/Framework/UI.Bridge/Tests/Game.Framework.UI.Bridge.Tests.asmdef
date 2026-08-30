@@ -1,11 +1,11 @@
 {
-    "name": "Game.Framework.Test",
-    "rootNamespace": "Game.Framework",
+    "name": "Game.Framework.UI.Bridge.Tests",
+    "rootNamespace": "Game.Framework.Test",
     "references": [
-        "YooAsset",
-        "UniTask",
         "Game.Framework",
-        "R3.Unity",
+        "Game.Framework.UI",
+        "Game.Framework.UI.Toolkit",
+        "Game.Framework.UI.Bridge",
         "UnityEngine.TestRunner"
     ],
     "includePlatforms": [],
@@ -13,9 +13,7 @@
     "allowUnsafeCode": false,
     "overrideReferences": true,
     "precompiledReferences": [
-        "nunit.framework.dll",
-        "R3.dll",
-        "Microsoft.Bcl.TimeProvider.dll"
+        "nunit.framework.dll"
     ],
     "autoReferenced": false,
     "defineConstraints": [

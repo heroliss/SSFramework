@@ -7,7 +7,8 @@ using UnityEngine.UIElements;
 namespace Game.Framework.Test
 {
     /// <summary>
-    /// UI Toolkit 列表 Adapter 的边界测试。共享 diff 与逐行生命周期由 <see cref="ReactiveListBindingTests"/> 覆盖；
+    /// UI Toolkit 列表 Adapter 的边界测试。共享 diff 与逐行生命周期由
+    /// <c>Game.Framework.UI.Tests/ReactiveListBindingTests</c> 覆盖；
     /// 此处只守最懂后端的前置条件，避免空集合让无效容器 / factory 延迟到未来 Add 才报错。
     /// </summary>
     public sealed class UIToolkitListBindingTests

@@ -2,15 +2,12 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using Game.Framework.Context;
 using Game.Framework.Internal;
 using Game.Framework.Logging;
 using Game.Framework.UI;
-using Game.Framework.UI.Toolkit;
-using Game.Framework.UI.UGui;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
@@ -675,65 +672,6 @@ namespace Game.Framework.Test
             Assert.AreEqual(1, backend.Count("destroy:LoadingFake"),
                 "不遵守 token 的后端迟到返回时，核心仍必须物理销毁窗口。 ");
             ui.Dispose();
-        }
-
-        [Test]
-        public void MonoAdapters_ForwardBuiltinCancellationTokensAndLoadingHandles()
-        {
-            var uguiCore = new UIUtility(_ctx, new FakeBackend(), new UIBuiltinWindows
-            { Toast = typeof(ToastFake), Loading = typeof(LoadingFake) });
-            var toolkitCore = new UIUtility(_ctx, new FakeBackend(), new UIBuiltinWindows
-            { Toast = typeof(ToastFake), Loading = typeof(LoadingFake) });
-            var uguiObject = new GameObject("UGui adapter cancellation test");
-            var toolkitObject = new GameObject("Toolkit adapter cancellation test");
-            uguiObject.SetActive(false);
-            toolkitObject.SetActive(false);
-            var ugui = uguiObject.AddComponent<MonoUGuiUI>();
-            var toolkit = toolkitObject.AddComponent<MonoToolkitUI>();
-            FieldInfo uguiCoreField = typeof(MonoUGuiUI).GetField("_core", BindingFlags.Instance | BindingFlags.NonPublic);
-            FieldInfo toolkitCoreField = typeof(MonoToolkitUI).GetField("_core", BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.IsNotNull(uguiCoreField);
-            Assert.IsNotNull(toolkitCoreField);
-            uguiCoreField.SetValue(ugui, uguiCore);
-            toolkitCoreField.SetValue(toolkit, toolkitCore);
-            using var cts = new CancellationTokenSource();
-            cts.Cancel();
-
-            try
-            {
-                Assert.Throws<OperationCanceledException>(() =>
-                    ugui.ShowToast("late", ct: cts.Token).GetAwaiter().GetResult());
-                Assert.Throws<OperationCanceledException>(() =>
-                    ugui.ShowLoading("late", cts.Token).GetAwaiter().GetResult());
-                Assert.Throws<OperationCanceledException>(() =>
-                    toolkit.ShowToast("late", ct: cts.Token).GetAwaiter().GetResult());
-                Assert.Throws<OperationCanceledException>(() =>
-                    toolkit.ShowLoading("late", cts.Token).GetAwaiter().GetResult());
-
-                Assert.Throws<OperationCanceledException>(() =>
-                    ugui.AcquireLoading("late", cts.Token).GetAwaiter().GetResult());
-                Assert.Throws<OperationCanceledException>(() =>
-                    toolkit.AcquireLoading("late", cts.Token).GetAwaiter().GetResult());
-
-                var uguiHandle = ugui.AcquireLoading("UGUI owner").GetAwaiter().GetResult();
-                var toolkitHandle = toolkit.AcquireLoading("Toolkit owner").GetAwaiter().GetResult();
-                Assert.IsTrue(uguiHandle.IsActive);
-                Assert.IsTrue(toolkitHandle.IsActive);
-                uguiHandle.Dispose();
-                toolkitHandle.Dispose();
-                Assert.IsFalse(uguiCore.IsOpen<LoadingFake>());
-                Assert.IsFalse(toolkitCore.IsOpen<LoadingFake>());
-            }
-            finally
-            {
-                // 先摘掉注入的测试核心，避免组件 OnDestroy 再 Dispose；核心与 GameObject 各自只释放一次。
-                uguiCoreField.SetValue(ugui, null);
-                toolkitCoreField.SetValue(toolkit, null);
-                uguiCore.Dispose();
-                toolkitCore.Dispose();
-                UnityEngine.Object.DestroyImmediate(uguiObject);
-                UnityEngine.Object.DestroyImmediate(toolkitObject);
-            }
         }
 
         // ── fakes ────────────────────────────────────────────────────────────

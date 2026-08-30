@@ -10,7 +10,7 @@ namespace Game.Framework.Test
 {
     /// <summary>
     /// UGUI 后端列表绑定（ADR-0027 <see cref="UGuiListBindingExtensions"/>）的真实 <see cref="Transform"/> 回归测试。
-    /// 引擎的增量逻辑在 <see cref="ReactiveListBindingTests"/> 已用假容器覆盖；这里专守 UGUI 后端<b>特有</b>的坑：
+    /// 引擎的增量逻辑在 <c>Game.Framework.UI.Tests/ReactiveListBindingTests</c> 已用假容器覆盖；这里专守 UGUI 后端<b>特有</b>的坑：
     /// <see cref="Object.Destroy(Object)"/> 延迟到帧末，若移除子物体后同帧还有插入 / 移动，将死子物体这一帧仍占
     /// sibling 索引会把兄弟位算错——detach 必须<b>同步</b>把子物体摘出容器。假容器无法复现帧末延迟销毁语义，故用真物体。
     /// </summary>
