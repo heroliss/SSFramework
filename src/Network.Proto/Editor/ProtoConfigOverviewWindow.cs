@@ -1,4 +1,5 @@
 using System.IO;
+using System.Collections.Generic;
 using System.Linq;
 using Game.Framework.Editor;
 using UnityEditor;
@@ -28,6 +29,10 @@ namespace Game.Framework.Network.Proto.Editor
                 "protobuf", 40, "网络协议（protoc 生成）", typeof(ProtoConfigProfile), singleton: false,
                 "可按协议域并存多套；每套显式指定 .proto 源目录与独占的 C# 输出目录。",
                 FrameworkMenuPaths.Protobuf));
+            FrameworkGeneratedOutputClaimCatalog.Register(new FrameworkGeneratedOutputClaimSource(
+                ProtoCodeGenerator.OutputClaimSourceId,
+                "网络协议（Protobuf）",
+                ProtoCodeGenerator.CollectRegisteredOutputClaims));
         }
 
         private Vector2 _scroll;
@@ -43,19 +48,24 @@ namespace Game.Framework.Network.Proto.Editor
             if (compact)
             {
                 EditorGUILayout.LabelField("Protobuf 生成 · 总览", EditorStyles.boldLabel);
-                if (GUILayout.Button("刷新")) Repaint();
+                if (GUILayout.Button(new GUIContent("重新扫描", "重新发现 Profile 并读取当前 .proto 目录")))
+                    RefreshInputPreview();
             }
             else
             {
                 using (new EditorGUILayout.HorizontalScope())
                 {
                     EditorGUILayout.LabelField("Protobuf 生成 · 总览", EditorStyles.boldLabel);
-                    if (GUILayout.Button("刷新", GUILayout.Width(60))) Repaint();
+                    if (GUILayout.Button(
+                            new GUIContent("重新扫描", "重新发现 Profile 并读取当前 .proto 目录"),
+                            GUILayout.Width(82)))
+                        RefreshInputPreview();
                 }
             }
             EditorGUILayout.HelpBox(
                 "每套 Protobuf 配置包含一个 .proto 源目录和一个独占的 C# 输出目录。输出必须位于 Assets 的独立子目录；" +
                 "生成器会递归清理其中本次未产出的 *.g.cs，因此不同配置不能共用或嵌套目录。\n" +
+                "卡片复用当前工程 revision 的输入快照；点“重新扫描”可立即核对磁盘，真正生成前仍会独立重验。\n" +
                 "生成消息类型经 GoogleProtobufNetworkSerializer（框架模块 Game.Framework.Network.Proto）接进网络接缝：" +
                 "构造处 RegisterFile(生成的 XxxReflection.Descriptor) 即整文件注册。",
                 MessageType.Info);
@@ -66,13 +76,23 @@ namespace Game.Framework.Network.Proto.Editor
             var (ownershipOk, ownershipMessage) = profiles.Count == 0
                 ? (false, string.Empty)
                 : ProtoCodeGenerator.ValidateOutputOwnership(profiles);
-            var prerequisites = profiles.ToDictionary(
-                profile => profile,
-                ProtoCodeGenerator.InspectGenerationPrerequisites);
+            var prerequisites = new Dictionary<ProtoConfigProfile, ProtoCodeGenerator.GenerationPrerequisiteReport>();
+            var previewAvailable = new Dictionary<ProtoConfigProfile, bool>();
+            foreach (ProtoConfigProfile profile in profiles)
+            {
+                bool available = ProtoCodeGenerator.TryGetGenerationPrerequisitePreview(
+                    profile, out ProtoCodeGenerator.GenerationPrerequisiteReport report);
+                previewAvailable.Add(profile, available);
+                prerequisites.Add(profile, available
+                    ? report
+                    : new ProtoCodeGenerator.GenerationPrerequisiteReport(
+                        false, "输入快照尚未采集或已失效；点击顶部“重新扫描”。"));
+            }
             var readyProfiles = profiles
-                .Where(profile => prerequisites[profile].CanGenerate)
+                .Where(profile => previewAvailable[profile] && prerequisites[profile].CanGenerate)
                 .ToArray();
             int readyCount = readyProfiles.Length;
+            int pendingPreviewCount = previewAvailable.Count(pair => !pair.Value);
             bool canGenerateAny = canWrite && ownershipOk && readyCount > 0;
 
             _scroll = EditorGUILayout.BeginScrollView(_scroll);
@@ -110,6 +130,10 @@ namespace Game.Framework.Network.Proto.Editor
                 EditorGUILayout.HelpBox("还没有 Protobuf 配置——点右上“新建 Protobuf 配置…”创建，然后在 Inspector 填写 .proto 源目录与输出目录。", MessageType.Warning);
             else if (!ownershipOk)
                 EditorGUILayout.HelpBox("输出目录预检未通过：\n" + ownershipMessage, MessageType.Error);
+            else if (pendingPreviewCount > 0)
+                EditorGUILayout.HelpBox(
+                    $"有 {pendingPreviewCount} 套输入快照尚未采集或已失效；点击顶部“重新扫描”后才会递归读取 .proto 目录。",
+                    MessageType.Info);
             else if (readyCount == 0)
                 EditorGUILayout.HelpBox(
                     "当前没有可生成的配置；请按卡片提示补齐 protoc、源文件与输出目录。",
@@ -120,6 +144,7 @@ namespace Game.Framework.Network.Proto.Editor
                 DrawCard(
                     profile,
                     prerequisites[profile],
+                    previewAvailable[profile],
                     canWrite && ownershipOk && prerequisites[profile].CanGenerate,
                     compact);
             EditorGUILayout.EndScrollView();
@@ -150,6 +175,7 @@ namespace Game.Framework.Network.Proto.Editor
         private static void DrawCard(
             ProtoConfigProfile profile,
             ProtoCodeGenerator.GenerationPrerequisiteReport prerequisites,
+            bool previewAvailable,
             bool canGenerate,
             bool compact)
         {
@@ -175,7 +201,9 @@ namespace Game.Framework.Network.Proto.Editor
                 if (!string.IsNullOrEmpty(profile.ExtraArgs))
                     DrawValue("附加参数", profile.ExtraArgs, compact);
 
-                if (!prerequisites.CanGenerate)
+                if (!previewAvailable)
+                    EditorGUILayout.HelpBox(prerequisites.Message, MessageType.Info);
+                else if (!prerequisites.CanGenerate)
                     EditorGUILayout.HelpBox(
                         "当前配置不能生成：\n" + prerequisites.Message,
                         MessageType.Warning);
@@ -230,6 +258,13 @@ namespace Game.Framework.Network.Proto.Editor
             AssetDatabase.SaveAssets();
             EditorGUIUtility.PingObject(profile);
             Selection.activeObject = profile;
+        }
+
+        private static void RefreshInputPreview()
+        {
+            FrameworkEditorProfileCatalog.Refresh(new[] { typeof(ProtoConfigProfile) });
+            FrameworkGeneratedOutputClaimCatalog.Invalidate();
+            ProtoCodeGenerator.RefreshGenerationPrerequisitePreviews(ProtoConfigProfile.ResolveAll());
         }
 
         // 工程相对路径 → 绝对路径后在资源管理器定位；尚未生成（目录不存在）时只提示、不报错。

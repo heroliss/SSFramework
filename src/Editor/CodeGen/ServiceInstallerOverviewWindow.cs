@@ -27,6 +27,10 @@ namespace Game.Framework.Editor
                 "service-installer", 10, "服务注册（安装器生成）", typeof(ServiceInstallerProfile), singleton: false,
                 "可按子项目、环境或功能域并存多份；无自动创建，由工作台或 Assets/Create 显式建立。",
                 FrameworkMenuPaths.ServiceInstaller));
+            FrameworkGeneratedOutputClaimCatalog.Register(new FrameworkGeneratedOutputClaimSource(
+                ServiceInstallerGenerator.OutputClaimSourceId,
+                "服务安装器",
+                ServiceInstallerGenerator.CollectRegisteredOutputClaims));
         }
 
         private Vector2 _scroll;

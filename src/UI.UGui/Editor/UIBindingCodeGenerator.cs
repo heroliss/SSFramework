@@ -19,6 +19,8 @@ namespace Game.Framework.UI.UGui.Editor
     /// </summary>
     public static class UIBindingCodeGenerator
     {
+        internal const string OutputClaimSourceId = "ui-binding";
+
         private static readonly UTF8Encoding Utf8NoBom = new(false);
 
         private readonly struct Field
@@ -79,6 +81,16 @@ namespace Game.Framework.UI.UGui.Editor
             generatedDir = normalizedGeneratedDir;
 
             string className = UIBindingUtil.ResolveClassName(prefabPath, data, profile); // 文件名模板 + 占位符 → 类名 / 文件名
+            if (!TryValidateOutputClaimsBeforeWrite(
+                    prefabPath,
+                    normalizedOutputDir,
+                    outDirAbs,
+                    normalizedGeneratedDir,
+                    genDirAbs,
+                    className,
+                    out string ownershipError))
+                return (false, ownershipError);
+
             string location = Path.GetFileNameWithoutExtension(prefabPath); // AddressByFileName：[UIWindow(Asset)] 恒 = prefab 文件名，与类名无关
             var root = data.transform;
 
@@ -317,6 +329,108 @@ namespace Game.Framework.UI.UGui.Editor
             {
                 PrefabUtility.UnloadPrefabContents(root);
             }
+        }
+
+        /// <summary>
+        /// 采集所有当前可生成的 UI Prefab 输出。候选路径来自会话级增量索引，只重新加载确实含
+        /// <see cref="UIBindingData"/> 的 Prefab；Prefab Stage 的未保存覆盖由
+        /// <see cref="Generate(string,UIBindingData,UICodeGenProfile)"/> 在写盘前替换同 id 声明。
+        /// </summary>
+        internal static IReadOnlyList<FrameworkGeneratedOutputClaim> CollectRegisteredOutputClaims()
+        {
+            if (!UICodeGenProfile.TryResolve(out UICodeGenProfile profile))
+                return Array.Empty<FrameworkGeneratedOutputClaim>();
+
+            var claims = new List<FrameworkGeneratedOutputClaim>();
+            foreach (string prefabPath in UIBindingPrefabCatalog.GetPaths())
+            {
+                GameObject root = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
+                UIBindingData data = root != null ? root.GetComponent<UIBindingData>() : null;
+                if (data == null || data.Entries == null || data.Entries.Count == 0) continue;
+                if (TryCreateOutputClaims(prefabPath, data, profile,
+                        out IReadOnlyList<FrameworkGeneratedOutputClaim> prefabClaims))
+                    claims.AddRange(prefabClaims);
+            }
+
+            return claims;
+        }
+
+        private static bool TryValidateOutputClaimsBeforeWrite(
+            string prefabPath,
+            string outputDir,
+            string outputDirAbsolute,
+            string generatedDir,
+            string generatedDirAbsolute,
+            string className,
+            out string error)
+        {
+            var claims = new List<FrameworkGeneratedOutputClaim>(CollectRegisteredOutputClaims());
+            string claimPrefix = prefabPath.Replace('\\', '/') + ":";
+            claims.RemoveAll(claim => claim.ClaimId.StartsWith(claimPrefix, StringComparison.Ordinal));
+            claims.AddRange(CreateOutputClaims(
+                prefabPath,
+                outputDir,
+                outputDirAbsolute,
+                generatedDir,
+                generatedDirAbsolute,
+                className));
+
+            return FrameworkGeneratedOutputClaimCatalog.TryValidateBeforeWrite(
+                OutputClaimSourceId, claims, out error);
+        }
+
+        private static bool TryCreateOutputClaims(
+            string prefabPath,
+            UIBindingData data,
+            UICodeGenProfile profile,
+            out IReadOnlyList<FrameworkGeneratedOutputClaim> claims)
+        {
+            claims = Array.Empty<FrameworkGeneratedOutputClaim>();
+            string outputDir = UIBindingUtil.ResolveOutputDir(prefabPath, data, profile);
+            string generatedDir = UIBindingUtil.ResolveGeneratedDir(prefabPath, data, profile);
+            if (string.IsNullOrWhiteSpace(outputDir) || string.IsNullOrWhiteSpace(generatedDir)) return false;
+            if (!FrameworkProjectPath.TryResolveAssetsDirectory(
+                    outputDir, out string normalizedOutputDir, out string outputDirAbsolute, out _))
+                return false;
+            if (!FrameworkProjectPath.TryResolveAssetsDirectory(
+                    generatedDir, out string normalizedGeneratedDir, out string generatedDirAbsolute, out _))
+                return false;
+
+            string className = UIBindingUtil.ResolveClassName(prefabPath, data, profile);
+            claims = CreateOutputClaims(
+                prefabPath,
+                normalizedOutputDir,
+                outputDirAbsolute,
+                normalizedGeneratedDir,
+                generatedDirAbsolute,
+                className);
+            return true;
+        }
+
+        private static IReadOnlyList<FrameworkGeneratedOutputClaim> CreateOutputClaims(
+            string prefabPath,
+            string outputDir,
+            string outputDirAbsolute,
+            string generatedDir,
+            string generatedDirAbsolute,
+            string className)
+        {
+            string normalizedPrefabPath = prefabPath.Replace('\\', '/');
+            string logicFileName = className + ".cs";
+            string nodesFileName = className + ".nodes.g.cs";
+            return new[]
+            {
+                FrameworkGeneratedOutputClaim.ExactFile(
+                    normalizedPrefabPath + ":logic",
+                    $"UI 绑定【{normalizedPrefabPath}】逻辑骨架",
+                    outputDir + "/" + logicFileName,
+                    Path.Combine(outputDirAbsolute, logicFileName)),
+                FrameworkGeneratedOutputClaim.ExactFile(
+                    normalizedPrefabPath + ":nodes",
+                    $"UI 绑定【{normalizedPrefabPath}】节点代码",
+                    generatedDir + "/" + nodesFileName,
+                    Path.Combine(generatedDirAbsolute, nodesFileName)),
+            };
         }
 
         /// <summary>生成并把结果打到 Console，返回 (ok, message)。供菜单 / 根行按钮 / 弹面板 / 自动生成共用。</summary>

@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
@@ -9,6 +10,12 @@ namespace Game.Framework.Editor.Tests
     /// <summary>锁定服务安装器的输出所有权、逐条失败隔离与人工按钮就绪契约。</summary>
     public sealed class ServiceInstallerOutputOwnershipTests
     {
+        [Test]
+        public void ServiceInstallerModule_RegistersOwnedOutputClaims() =>
+            Assert.That(
+                FrameworkGeneratedOutputClaimCatalog.SnapshotSources().Select(item => item.Id),
+                Does.Contain(ServiceInstallerGenerator.OutputClaimSourceId));
+
         [Test]
         public void GenerateEntry_NullEntryReturnsStructuredFailure()
         {

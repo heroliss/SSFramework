@@ -14,11 +14,22 @@ namespace Game.Framework.Network.Proto.Editor.Tests
             Assert.That(FrameworkConfigRegistry.Snapshot().Select(item => item.Id), Does.Contain("protobuf"));
 
         [Test]
+        public void ProtoModule_RegistersOwnedOutputClaims() =>
+            Assert.That(
+                FrameworkGeneratedOutputClaimCatalog.SnapshotSources().Select(item => item.Id),
+                Does.Contain(ProtoCodeGenerator.OutputClaimSourceId));
+
+        [Test]
         public void ProtoWorkbench_ConsumesSharedOperationGate()
         {
             string source = ReadScriptSource(nameof(ProtoConfigOverviewWindow));
 
             Assert.That(source, Does.Contain("FrameworkEditorOperationGate.CanStart"));
+            Assert.That(source, Does.Contain("TryGetGenerationPrerequisitePreview"));
+            Assert.That(source, Does.Contain("RefreshGenerationPrerequisitePreviews"));
+            Assert.That(source, Does.Not.Contain(
+                "ProtoCodeGenerator.InspectGenerationPrerequisites);"),
+                "IMGUI OnGUI 不得在 Layout / Repaint 里直接递归扫描 .proto 目录。 ");
             Assert.That(source, Does.Not.Contain("EditorApplication.isPlayingOrWillChangePlaymode"));
             Assert.That(source, Does.Not.Contain("EditorApplication.isCompiling"));
             Assert.That(source, Does.Not.Contain("EditorApplication.isUpdating"));

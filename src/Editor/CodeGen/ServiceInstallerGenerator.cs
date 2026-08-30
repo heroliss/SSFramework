@@ -30,6 +30,8 @@ namespace Game.Framework.Editor
     /// </summary>
     public static class ServiceInstallerGenerator
     {
+        internal const string OutputClaimSourceId = "service-installer";
+
         internal readonly struct GenerationPrerequisiteReport
         {
             internal bool CanGenerate { get; }
@@ -69,12 +71,13 @@ namespace Game.Framework.Editor
         {
             if (profile == null) return (false, "ServiceInstallerProfile 不能为空。");
             var ownershipProfiles = ServiceInstallerProfile.ResolveAll().Concat(new[] { profile }).Distinct().ToArray();
-            var (ownershipOk, ownershipMessage) = ValidateOutputOwnership(ownershipProfiles);
+            var (ownershipOk, ownershipMessage) = ValidateOutputOwnership(
+                ownershipProfiles, beforeWrite: true);
             if (!ownershipOk) return (false, ownershipMessage);
             GenerationPrerequisiteReport prerequisites = InspectGenerationPrerequisites(profile);
             if (!prerequisites.CanGenerate) return (false, prerequisites.Message);
 
-            return GenerateEntriesIndependently(profile.Installers, GenerateEntry);
+            return GenerateEntriesIndependently(profile.Installers, GenerateEntryCore);
         }
 
         /// <summary>
@@ -198,44 +201,112 @@ namespace Game.Framework.Editor
         }
 
         /// <summary>
-        /// 在批量写盘前验证所有安装器条目各自拥有唯一的规范化输出文件。两个配置即使通过 <c>..</c> 或不同分隔符
-        /// 指向同一文件也会失败；校验阶段不扫描服务、不创建目录或文件。
+        /// 在批量写盘前验证所有安装器条目各自拥有唯一的规范化输出文件，并与其它 Module 的目录、后缀清理和
+        /// 精确文件 claim 共同检查。两个配置即使通过 <c>..</c> 或不同分隔符指向同一文件也会失败；
+        /// 校验阶段不扫描服务、不创建目录或文件。
         /// </summary>
         public static (bool ok, string message) ValidateOutputOwnership(
-            IReadOnlyList<ServiceInstallerProfile> profiles)
+            IReadOnlyList<ServiceInstallerProfile> profiles) =>
+            ValidateOutputOwnership(profiles, beforeWrite: false);
+
+        private static (bool ok, string message) ValidateOutputOwnership(
+            IReadOnlyList<ServiceInstallerProfile> profiles,
+            bool beforeWrite)
         {
             if (profiles == null || profiles.Count == 0)
                 return (false, "没有可验证的 ServiceInstallerProfile。");
 
-            var claims = new List<(ServiceInstallerProfile profile, int entryIndex, string assetPath, string absolutePath)>();
-            foreach (ServiceInstallerProfile profile in profiles)
+            if (!TryCollectOutputClaims(
+                    profiles, strict: true, ignoredEntry: null,
+                    out List<FrameworkGeneratedOutputClaim> claims, out string collectError))
+                return (false, collectError);
+
+            string ownershipMessage;
+            bool ownershipOk = beforeWrite
+                ? FrameworkGeneratedOutputClaimCatalog.TryValidateBeforeWrite(
+                    OutputClaimSourceId, claims, out ownershipMessage)
+                : FrameworkGeneratedOutputClaimCatalog.TryValidateForPreview(
+                    OutputClaimSourceId, claims, out ownershipMessage);
+            if (!ownershipOk) return (false, ownershipMessage);
+
+            string previewEvidence = beforeWrite ? string.Empty : "\n" + ownershipMessage;
+            return (true, $"{claims.Count} 个安装器输出文件的当前声明有效。{previewEvidence}");
+        }
+
+        /// <summary>供共享 Catalog 读取所有已成立的精确文件声明；坏条目由 owner 工作台提示，不隐藏其它有效 claim。</summary>
+        internal static IReadOnlyList<FrameworkGeneratedOutputClaim> CollectRegisteredOutputClaims()
+        {
+            TryCollectOutputClaims(
+                ServiceInstallerProfile.ResolveAll(), strict: false, ignoredEntry: null,
+                out List<FrameworkGeneratedOutputClaim> claims, out _);
+            return claims;
+        }
+
+        private static bool TryCollectOutputClaims(
+            IReadOnlyList<ServiceInstallerProfile> profiles,
+            bool strict,
+            ServiceInstallerProfile.InstallerEntry ignoredEntry,
+            out List<FrameworkGeneratedOutputClaim> claims,
+            out string error)
+        {
+            claims = new List<FrameworkGeneratedOutputClaim>();
+            error = string.Empty;
+            foreach (ServiceInstallerProfile profile in profiles ?? Array.Empty<ServiceInstallerProfile>())
             {
-                if (profile == null) return (false, "配置列表含已删除或空的 ServiceInstallerProfile。");
+                if (profile == null)
+                {
+                    if (!strict) continue;
+                    error = "配置列表含已删除或空的 ServiceInstallerProfile。";
+                    return false;
+                }
                 if (profile.Installers == null) continue;
+                string profilePath = AssetDatabase.GetAssetPath(profile);
+                string profileId = string.IsNullOrEmpty(profilePath)
+                    ? $"transient:{profile.name}:{profile.GetInstanceID()}"
+                    : profilePath;
                 for (int i = 0; i < profile.Installers.Count; i++)
                 {
                     ServiceInstallerProfile.InstallerEntry entry = profile.Installers[i];
-                    if (entry == null) return (false, $"【{profile.name}】第 {i + 1} 条安装器配置为空。");
-                    if (!FrameworkProjectPath.TryResolveAssetsFile(
-                            entry.OutputPath, ".cs", out string assetPath, out string absolutePath, out string error))
-                        return (false, $"【{profile.name}】第 {i + 1} 条输出路径无效：{error}");
-                    claims.Add((profile, i, assetPath, absolutePath));
+                    if (ReferenceEquals(entry, ignoredEntry)) continue;
+                    if (entry == null)
+                    {
+                        if (!strict) continue;
+                        error = $"【{profile.name}】第 {i + 1} 条安装器配置为空。";
+                        return false;
+                    }
+                    if (!TryCreateOutputClaim(
+                            profileId + $":entry:{i}",
+                            $"服务安装器【{profile.name}】第 {i + 1} 条",
+                            entry,
+                            out FrameworkGeneratedOutputClaim claim,
+                            out string claimError))
+                    {
+                        if (!strict) continue;
+                        error = $"【{profile.name}】第 {i + 1} 条输出路径无效：{claimError}";
+                        return false;
+                    }
+                    claims.Add(claim);
                 }
             }
+            return true;
+        }
 
-            for (int i = 0; i < claims.Count; i++)
-            for (int j = i + 1; j < claims.Count; j++)
+        private static bool TryCreateOutputClaim(
+            string claimId,
+            string ownerLabel,
+            ServiceInstallerProfile.InstallerEntry entry,
+            out FrameworkGeneratedOutputClaim claim,
+            out string error)
+        {
+            if (!FrameworkProjectPath.TryResolveAssetsFile(
+                    entry.OutputPath, ".cs", out string assetPath, out string absolutePath, out error))
             {
-                var left = claims[i];
-                var right = claims[j];
-                if (!FrameworkProjectPath.PathsEqual(left.absolutePath, right.absolutePath)) continue;
-                return (false,
-                    $"安装器输出所有权冲突：【{left.profile.name}】第 {left.entryIndex + 1} 条与" +
-                    $"【{right.profile.name}】第 {right.entryIndex + 1} 条都指向 {left.assetPath}。\n" +
-                    "请为每个条目分配唯一 .g.cs 文件，避免后生成条目静默覆盖前一份。");
+                claim = null;
+                return false;
             }
-
-            return (true, $"{claims.Count} 个安装器条目各自拥有唯一输出文件。");
+            claim = FrameworkGeneratedOutputClaim.ExactFile(
+                claimId, ownerLabel, assetPath, absolutePath);
+            return true;
         }
 
         /// <summary>
@@ -243,6 +314,28 @@ namespace Game.Framework.Editor
         /// Profile 级 <see cref="Generate"/> 会逐条捕获并继续生成后续独立条目。
         /// </summary>
         public static (bool ok, string message) GenerateEntry(ServiceInstallerProfile.InstallerEntry entry)
+        {
+            if (entry == null) return (false, "安装器条目不能为空。");
+            if (!TryCreateOutputClaim(
+                    "direct:" + entry.OutputPath,
+                    "服务安装器直接生成",
+                    entry,
+                    out FrameworkGeneratedOutputClaim currentClaim,
+                    out string claimError))
+                return (false, "安装器输出路径无效：" + claimError);
+            TryCollectOutputClaims(
+                ServiceInstallerProfile.ResolveAll(), strict: false, ignoredEntry: entry,
+                out List<FrameworkGeneratedOutputClaim> savedClaims, out _);
+            savedClaims.Add(currentClaim);
+            if (!FrameworkGeneratedOutputClaimCatalog.TryValidateBeforeWrite(
+                    OutputClaimSourceId, savedClaims, out string ownershipMessage))
+                return (false, ownershipMessage);
+
+            return GenerateEntryCore(entry);
+        }
+
+        private static (bool ok, string message) GenerateEntryCore(
+            ServiceInstallerProfile.InstallerEntry entry)
         {
             if (entry == null) return (false, "安装器条目不能为空。");
             if (!FrameworkProjectPath.TryResolveAssetsFile(
