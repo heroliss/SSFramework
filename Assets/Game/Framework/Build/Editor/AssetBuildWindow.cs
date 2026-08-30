@@ -51,6 +51,10 @@ namespace Game.Framework.Build
                 "asset-build", 50, "资源构建", typeof(FrameworkAssetBuildProfile), singleton: true,
                 "全工程单例；只在工作台明确点击创建，按 YooAsset Collector 的包列表初始化。",
                 FrameworkMenuPaths.AssetBuild));
+            FrameworkGeneratedOutputClaimCatalog.Register(new FrameworkGeneratedOutputClaimSource(
+                AssetPackageConstantsGenerator.OutputClaimSourceId,
+                "资源包名常量",
+                AssetPackageConstantsGenerator.CollectRegisteredOutputClaims));
         }
 
         private Vector2 _scroll;

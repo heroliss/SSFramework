@@ -22,6 +22,8 @@ namespace Game.Framework.Network.Proto.Editor
     /// </summary>
     public static class ProtoCodeGenerator
     {
+        internal const string OutputClaimSourceId = "protobuf";
+
         internal readonly struct GenerationPrerequisiteReport
         {
             internal bool CanGenerate { get; }
@@ -53,6 +55,70 @@ namespace Game.Framework.Network.Proto.Editor
         }
 
         private const int TimeoutMs = 60_000;
+        private static readonly Dictionary<int, GenerationPrerequisitePreviewEntry>
+            GenerationPrerequisitePreviews = new();
+        private static int _previewProfileRevision = -1;
+
+        /// <summary>
+        /// IMGUI 同一帧可多次进入 Layout / Repaint；预览只需在 Profile 输入或工程 revision
+        /// 变化后重新递归扫描。写入路径不读这份缓存，仍直接调用
+        /// <see cref="InspectGenerationPrerequisites"/>验证当前磁盘。
+        /// </summary>
+        internal static bool TryGetGenerationPrerequisitePreview(
+            ProtoConfigProfile profile,
+            out GenerationPrerequisiteReport report)
+        {
+            report = default;
+            if (profile == null) return false;
+            EnsurePreviewRevision();
+
+            int key = profile.GetInstanceID();
+            if (GenerationPrerequisitePreviews.TryGetValue(
+                    key, out GenerationPrerequisitePreviewEntry cached) &&
+                cached.Matches(profile))
+            {
+                report = cached.Report;
+                return true;
+            }
+
+            GenerationPrerequisitePreviews.Remove(key);
+            return false;
+        }
+
+        /// <summary>
+        /// 显式重新扫描给定 Profile 的工具、路径与递归 .proto 输入；全部成功后才
+        /// 替换预览快照，避免窗口混用两次扫描结果。
+        /// </summary>
+        internal static void RefreshGenerationPrerequisitePreviews(
+            IEnumerable<ProtoConfigProfile> profiles)
+        {
+            if (profiles == null) throw new ArgumentNullException(nameof(profiles));
+            var refreshed = new Dictionary<int, GenerationPrerequisitePreviewEntry>();
+            foreach (ProtoConfigProfile profile in profiles.Where(profile => profile != null).Distinct())
+            {
+                GenerationPrerequisiteReport report = InspectGenerationPrerequisites(profile);
+                refreshed[profile.GetInstanceID()] = new GenerationPrerequisitePreviewEntry(profile, report);
+            }
+
+            GenerationPrerequisitePreviews.Clear();
+            foreach (var pair in refreshed) GenerationPrerequisitePreviews.Add(pair.Key, pair.Value);
+            _previewProfileRevision = FrameworkEditorProfileCatalog.Revision;
+        }
+
+        /// <summary>强制丢弃工作台输入预览；下一次绘制会重新读取当前目录。</summary>
+        internal static void InvalidateGenerationPrerequisitePreviews()
+        {
+            GenerationPrerequisitePreviews.Clear();
+            _previewProfileRevision = FrameworkEditorProfileCatalog.Revision;
+        }
+
+        private static void EnsurePreviewRevision()
+        {
+            int revision = FrameworkEditorProfileCatalog.Revision;
+            if (_previewProfileRevision == revision) return;
+            GenerationPrerequisitePreviews.Clear();
+            _previewProfileRevision = revision;
+        }
 
         /// <summary>
         /// 执行一次完整生成（.proto → *.g.cs + 差量同步），返回是否成功与人类可读摘要。
@@ -62,7 +128,8 @@ namespace Game.Framework.Network.Proto.Editor
         {
             if (profile == null) return (false, "ProtoConfigProfile 不能为空。");
             var ownershipProfiles = ProtoConfigProfile.ResolveAll().Concat(new[] { profile }).Distinct().ToArray();
-            var (ownershipOk, ownershipMessage) = ValidateOutputOwnership(ownershipProfiles);
+            var (ownershipOk, ownershipMessage) = ValidateOutputOwnership(
+                ownershipProfiles, beforeWrite: true);
             if (!ownershipOk) return (false, ownershipMessage);
             GenerationPrerequisiteReport prerequisites = InspectGenerationPrerequisites(profile);
             if (!prerequisites.CanGenerate) return (false, prerequisites.Message);
@@ -108,7 +175,16 @@ namespace Game.Framework.Network.Proto.Editor
             }
             finally
             {
-                try { Directory.Delete(tempDir, true); } catch { /* 临时目录清不掉不影响结果 */ }
+                try
+                {
+                    FrameworkProjectPath.DeleteDirectoryWithinBoundary(
+                        tempDir,
+                        Path.GetDirectoryName(tempDir) ?? Path.GetFullPath("Temp"));
+                }
+                catch
+                {
+                    /* 临时目录清不掉不影响结果；安全删除会拒绝跟随链接。 */
+                }
             }
         }
 
@@ -157,8 +233,9 @@ namespace Game.Framework.Network.Proto.Editor
             {
                 try
                 {
-                    protoFiles = Directory.GetFiles(
-                            protoDirectory, "*.proto", SearchOption.AllDirectories)
+                    protoFiles = FrameworkProjectPath
+                        .CapturePhysicalTree(protoDirectory, "*.proto")
+                        .Files
                         .Select(file => Path.GetRelativePath(protoDirectory, file).Replace('\\', '/'))
                         .OrderBy(file => file, StringComparer.Ordinal)
                         .ToArray();
@@ -208,45 +285,75 @@ namespace Game.Framework.Network.Proto.Editor
         /// <summary>
         /// 在批量生成写盘前比较所有已经成立的输出目录声明。缺失或无效路径不形成所有权声明，留给所属
         /// Profile 的就绪检查提示，因此新建中的空白配置不会冻结其它可用配置；已经声明有效输出的未就绪配置
-        /// 仍参与冲突比较。不同声明不得相同或互为父子，失败时不会创建、覆盖或清理任何产物。
+        /// 仍参与冲突比较。递归 <c>*.g.cs</c> 清理 claim 会与其它 Module 的独占目录、后缀范围和精确文件
+        /// 共同检查，失败时不会创建、覆盖或清理任何产物。
         /// </summary>
-        public static (bool ok, string message) ValidateOutputOwnership(IReadOnlyList<ProtoConfigProfile> profiles)
+        public static (bool ok, string message) ValidateOutputOwnership(
+            IReadOnlyList<ProtoConfigProfile> profiles) =>
+            ValidateOutputOwnership(profiles, beforeWrite: false);
+
+        private static (bool ok, string message) ValidateOutputOwnership(
+            IReadOnlyList<ProtoConfigProfile> profiles,
+            bool beforeWrite)
         {
             if (profiles == null || profiles.Count == 0)
                 return (false, "没有可验证的 ProtoConfigProfile。");
 
-            var outputs = new List<(ProtoConfigProfile profile, string assetPath, string absolutePath)>();
+            var claims = new List<FrameworkGeneratedOutputClaim>();
             int unresolvedCount = 0;
             foreach (ProtoConfigProfile profile in profiles)
             {
                 if (profile == null) return (false, "配置列表含已删除或空的 ProtoConfigProfile。");
-                if (!TryResolveOutputDirectory(profile, out string assetPath, out string absolutePath, out _))
-                {
-                    unresolvedCount++;
-                    continue;
-                }
-                outputs.Add((profile, assetPath, absolutePath));
+                unresolvedCount += AddOutputClaim(profile, claims);
             }
 
-            for (int i = 0; i < outputs.Count; i++)
-            for (int j = i + 1; j < outputs.Count; j++)
-            {
-                var left = outputs[i];
-                var right = outputs[j];
-                if (!FrameworkProjectPath.DirectoriesOverlap(left.absolutePath, right.absolutePath)) continue;
-                return (false,
-                    $"输出目录所有权冲突：【{left.profile.name}】{left.assetPath} 与" +
-                    $"【{right.profile.name}】{right.assetPath} 相同或互相嵌套。\n" +
-                    "每套配置会递归清理自己目录中本次未生成的 *.g.cs；请为它们分配互不嵌套的独立目录。");
-            }
+            string ownershipMessage;
+            bool ownershipOk = beforeWrite
+                ? FrameworkGeneratedOutputClaimCatalog.TryValidateBeforeWrite(
+                    OutputClaimSourceId, claims, out ownershipMessage)
+                : FrameworkGeneratedOutputClaimCatalog.TryValidateForPreview(
+                    OutputClaimSourceId, claims, out ownershipMessage);
+            if (!ownershipOk) return (false, ownershipMessage);
 
-            if (outputs.Count == 0)
-                return (true, "尚无有效输出目录声明；缺失或无效路径会在对应配置卡片中提示。");
+            string previewEvidence = beforeWrite ? string.Empty : "\n" + ownershipMessage;
+            if (claims.Count == 0)
+                return (true,
+                    "尚无有效输出目录声明；缺失或无效路径会在对应配置卡片中提示。" +
+                    previewEvidence);
 
             string unresolvedNote = unresolvedCount > 0
                 ? $"；另有 {unresolvedCount} 套尚未形成有效输出声明，由各自就绪检查提示"
                 : string.Empty;
-            return (true, $"{outputs.Count} 套配置各自拥有独立输出目录{unresolvedNote}。");
+            return (true, $"{claims.Count} 套配置的递归清理声明当前有效{unresolvedNote}。{previewEvidence}");
+        }
+
+        /// <summary>供共享 Catalog 按需读取当前 Module 已成立的递归清理声明。</summary>
+        internal static IReadOnlyList<FrameworkGeneratedOutputClaim> CollectRegisteredOutputClaims()
+        {
+            var claims = new List<FrameworkGeneratedOutputClaim>();
+            foreach (ProtoConfigProfile profile in ProtoConfigProfile.ResolveAll())
+                AddOutputClaim(profile, claims);
+            return claims;
+        }
+
+        private static int AddOutputClaim(
+            ProtoConfigProfile profile,
+            ICollection<FrameworkGeneratedOutputClaim> claims)
+        {
+            if (!TryResolveOutputDirectory(profile, out string assetPath, out string absolutePath, out _))
+                return 1;
+
+            string profilePath = AssetDatabase.GetAssetPath(profile);
+            string profileId = string.IsNullOrEmpty(profilePath)
+                ? $"transient:{profile.name}:{profile.GetInstanceID()}"
+                : profilePath;
+            claims.Add(FrameworkGeneratedOutputClaim.RecursiveFileSuffix(
+                profileId + ":generated-code",
+                $"Protobuf【{profile.name}】",
+                assetPath,
+                absolutePath,
+                ".g.cs"));
+            return 0;
         }
 
         private static bool TryResolveOutputDirectory(
@@ -296,7 +403,9 @@ namespace Game.Framework.Network.Proto.Editor
             var produced = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             int added = 0, updated = 0, unchanged = 0, removed = 0;
 
-            foreach (string src in Directory.GetFiles(tempDir, "*.g.cs", SearchOption.AllDirectories))
+            foreach (string src in FrameworkProjectPath
+                         .CapturePhysicalTree(tempDir, "*.g.cs")
+                         .Files)
             {
                 string rel = Path.GetRelativePath(tempDir, src);
                 string dst = Path.Combine(outDir, rel);
@@ -308,7 +417,9 @@ namespace Game.Framework.Network.Proto.Editor
                 else unchanged++;
             }
 
-            foreach (string existing in Directory.GetFiles(outDir, "*.g.cs", SearchOption.AllDirectories))
+            foreach (string existing in FrameworkProjectPath
+                         .CapturePhysicalTree(outDir, "*.g.cs")
+                         .Files)
             {
                 if (produced.Contains(Path.GetFullPath(existing))) continue;
                 File.Delete(existing);
@@ -325,6 +436,33 @@ namespace Game.Framework.Network.Proto.Editor
             var fb = new FileInfo(b);
             if (fa.Length != fb.Length) return false;
             return File.ReadAllBytes(a).AsSpan().SequenceEqual(File.ReadAllBytes(b));
+        }
+
+        private sealed class GenerationPrerequisitePreviewEntry
+        {
+            private readonly ProtoConfigProfile _profile;
+            private readonly string _protocDirectory;
+            private readonly string _protoDirectory;
+            private readonly string _outputDirectory;
+
+            internal GenerationPrerequisitePreviewEntry(
+                ProtoConfigProfile profile,
+                GenerationPrerequisiteReport report)
+            {
+                _profile = profile;
+                _protocDirectory = profile.ProtocDir;
+                _protoDirectory = profile.ProtoDir;
+                _outputDirectory = profile.OutputCodeDir;
+                Report = report;
+            }
+
+            internal GenerationPrerequisiteReport Report { get; }
+
+            internal bool Matches(ProtoConfigProfile profile) =>
+                ReferenceEquals(_profile, profile) &&
+                string.Equals(_protocDirectory, profile.ProtocDir, StringComparison.Ordinal) &&
+                string.Equals(_protoDirectory, profile.ProtoDir, StringComparison.Ordinal) &&
+                string.Equals(_outputDirectory, profile.OutputCodeDir, StringComparison.Ordinal);
         }
     }
 }

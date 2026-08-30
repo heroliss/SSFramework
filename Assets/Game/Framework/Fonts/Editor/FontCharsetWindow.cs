@@ -22,6 +22,10 @@ namespace Game.Framework.Fonts.Editor
                 "font-charset", 70, "字体（常用字集生成）", typeof(FontCharsetProfile), singleton: true,
                 "全工程单例；只在工作台明确点击创建；输出字符文件供 TMP Font Asset Creator 烘焙静态字体图集。",
                 FrameworkMenuPaths.FontCharset));
+            FrameworkGeneratedOutputClaimCatalog.Register(new FrameworkGeneratedOutputClaimSource(
+                FontCharsetGenerator.OutputClaimSourceId,
+                "字体字集",
+                FontCharsetGenerator.CollectRegisteredOutputClaims));
         }
 
         private Vector2 _scroll;

@@ -21,6 +21,8 @@ namespace Game.Framework.Build
     /// </summary>
     public static class AssetPackageConstantsGenerator
     {
+        internal const string OutputClaimSourceId = "asset-package-constants";
+
         private static readonly UTF8Encoding Utf8NoBom = new(false);
 
         /// <summary>
@@ -41,6 +43,10 @@ namespace Game.Framework.Build
                 return (false, "构建 profile 未配置「包名常量命名空间」。");
             if (!FrameworkCSharpSyntax.TryValidateNamespace(ns, out string namespaceError))
                 return (false, "包名常量命名空间无效：" + namespaceError);
+            FrameworkGeneratedOutputClaim outputClaim = CreateOutputClaim(profile, path, abs);
+            if (!FrameworkGeneratedOutputClaimCatalog.TryValidateBeforeWrite(
+                    OutputClaimSourceId, new[] { outputClaim }, out string ownershipMessage))
+                return (false, ownershipMessage);
 
             var packages = BundleCollectorSettingData.Setting.Packages
                 .Where(p => p != null && !string.IsNullOrWhiteSpace(p.PackageName))
@@ -102,6 +108,32 @@ namespace Game.Framework.Build
             if (skipped.Count > 0)
                 summary.Append($"\n⚠ 跳过 {skipped.Count} 个：{string.Join("；", skipped)}");
             return (true, summary.ToString());
+        }
+
+        /// <summary>供共享 Catalog 读取当前构建 Profile 已声明的包名常量文件。</summary>
+        internal static IReadOnlyList<FrameworkGeneratedOutputClaim> CollectRegisteredOutputClaims()
+        {
+            if (!FrameworkAssetBuildProfile.TryResolve(out FrameworkAssetBuildProfile profile) ||
+                !FrameworkProjectPath.TryResolveAssetsFile(
+                    profile.PackageConstantsPath, ".cs", out string assetPath, out string absolutePath, out _))
+                return Array.Empty<FrameworkGeneratedOutputClaim>();
+            return new[] { CreateOutputClaim(profile, assetPath, absolutePath) };
+        }
+
+        private static FrameworkGeneratedOutputClaim CreateOutputClaim(
+            FrameworkAssetBuildProfile profile,
+            string assetPath,
+            string absolutePath)
+        {
+            string profilePath = AssetDatabase.GetAssetPath(profile);
+            string claimId = string.IsNullOrEmpty(profilePath)
+                ? $"transient:{profile.name}:{profile.GetInstanceID()}:package-constants"
+                : profilePath + ":package-constants";
+            return FrameworkGeneratedOutputClaim.ExactFile(
+                claimId,
+                $"资源包名常量【{profile.name}】",
+                assetPath,
+                absolutePath);
         }
 
         // 类名 = 文件名去掉 .g.cs / .cs 后缀（与 UI 绑定生成「文件名即类名」口径一致）。

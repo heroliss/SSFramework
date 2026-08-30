@@ -24,6 +24,8 @@ namespace Game.Framework.Fonts.Editor
     /// </remarks>
     public static class FontCharsetGenerator
     {
+        internal const string OutputClaimSourceId = "font-charset";
+
         internal readonly struct GenerationPrerequisiteReport
         {
             internal bool CanGenerate { get; }
@@ -78,6 +80,11 @@ namespace Game.Framework.Fonts.Editor
         {
             GenerationPrerequisiteReport prerequisites = InspectGenerationPrerequisites(profile);
             if (!prerequisites.CanGenerate) return (false, prerequisites.Message, 0);
+            FrameworkGeneratedOutputClaim outputClaim = CreateOutputClaim(
+                profile, prerequisites.OutputAssetPath, prerequisites.OutputAbsolutePath);
+            if (!FrameworkGeneratedOutputClaimCatalog.TryValidateBeforeWrite(
+                    OutputClaimSourceId, new[] { outputClaim }, out string ownershipMessage))
+                return (false, ownershipMessage, 0);
 
             try
             {
@@ -106,6 +113,32 @@ namespace Game.Framework.Fonts.Editor
             {
                 return (false, $"读取文本源或写入字集失败：{exception.Message}", 0);
             }
+        }
+
+        /// <summary>供共享 Catalog 读取当前字体 Profile 已声明的精确字集文件。</summary>
+        internal static IReadOnlyList<FrameworkGeneratedOutputClaim> CollectRegisteredOutputClaims()
+        {
+            if (!FontCharsetProfile.TryResolve(out FontCharsetProfile profile) ||
+                !FrameworkProjectPath.TryResolveAssetsFile(
+                    profile.OutputPath, ".txt", out string assetPath, out string absolutePath, out _))
+                return System.Array.Empty<FrameworkGeneratedOutputClaim>();
+            return new[] { CreateOutputClaim(profile, assetPath, absolutePath) };
+        }
+
+        private static FrameworkGeneratedOutputClaim CreateOutputClaim(
+            FontCharsetProfile profile,
+            string assetPath,
+            string absolutePath)
+        {
+            string profilePath = AssetDatabase.GetAssetPath(profile);
+            string claimId = string.IsNullOrEmpty(profilePath)
+                ? $"transient:{profile.name}:{profile.GetInstanceID()}:charset"
+                : profilePath + ":charset";
+            return FrameworkGeneratedOutputClaim.ExactFile(
+                claimId,
+                $"字体字集【{profile.name}】",
+                assetPath,
+                absolutePath);
         }
 
         /// <summary>
@@ -213,7 +246,9 @@ namespace Game.Framework.Fonts.Editor
                 }
                 foreach (string pattern in filePatterns)
                 {
-                    foreach (var file in Directory.GetFiles(absolute, pattern, SearchOption.AllDirectories))
+                    foreach (string file in FrameworkProjectPath
+                                 .CapturePhysicalTree(absolute, pattern)
+                                 .Files)
                     {
                         // 默认输出位于默认扫描根 Assets 内；不排除自己会让已删除字符被旧产物永久带回，字集只能增不能减。
                         if (FrameworkProjectPath.PathsEqual(file, outputPath)) continue;
@@ -231,7 +266,7 @@ namespace Game.Framework.Fonts.Editor
             return codepoints.Count;
         }
 
-        // SearchOption.AllDirectories 已负责递归；searchPattern 只允许可移植的文件名模式，禁止借目录段逃逸扫描根。
+        // 共享物理目录树负责安全递归；searchPattern 只允许可移植的文件名模式，禁止借目录段逃逸扫描根。
         private static bool IsSafeFilePattern(string pattern, out string error)
         {
             if (Path.IsPathRooted(pattern) ||

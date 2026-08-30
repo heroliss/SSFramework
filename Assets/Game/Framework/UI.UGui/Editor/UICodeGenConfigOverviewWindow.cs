@@ -27,6 +27,10 @@ namespace Game.Framework.UI.UGui.Editor
                 "全工程 Profile 提供默认约定；业务命名空间与输出目录需显式填写，目录差异用就近配置逐项覆盖。",
                 FrameworkMenuPaths.UIBinding,
                 secondaryProfileType: typeof(UICodeGenDirConfig), secondaryLabel: "目录级覆盖"));
+            FrameworkGeneratedOutputClaimCatalog.Register(new FrameworkGeneratedOutputClaimSource(
+                UIBindingCodeGenerator.OutputClaimSourceId,
+                "UI 绑定代码生成",
+                UIBindingCodeGenerator.CollectRegisteredOutputClaims));
         }
 
         private Vector2 _scroll;

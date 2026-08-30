@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using Game.Framework.Editor;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
@@ -182,6 +183,65 @@ namespace Game.Framework.Network.Proto.Editor.Tests
             }
             finally
             {
+                Object.DestroyImmediate(profile);
+                DeleteDirectory(root);
+            }
+        }
+
+        [Test]
+        public void GenerationPrerequisitePreview_DoesNotRescanOnRepaintAndFreshInspectionBypassesIt()
+        {
+            string root = "Temp/SSFrameworkProtoPreview_" + Guid.NewGuid().ToString("N");
+            var profile = CreateConfiguredProfile(root);
+            try
+            {
+                string toolRoot = ProjectAbsolute(root + "/Protoc");
+                string protocPath = ProtoCodeGenerator.ResolveProtocPath(toolRoot, string.Empty);
+                Directory.CreateDirectory(Path.GetDirectoryName(protocPath)!);
+                File.WriteAllText(protocPath, string.Empty);
+
+                string sourceRoot = ProjectAbsolute(root + "/Proto~");
+                Directory.CreateDirectory(sourceRoot);
+                File.WriteAllText(Path.Combine(sourceRoot, "a.proto"), "syntax = \"proto3\";");
+
+                ProtoCodeGenerator.RefreshGenerationPrerequisitePreviews(new[] { profile });
+                Assert.That(ProtoCodeGenerator.TryGetGenerationPrerequisitePreview(
+                    profile, out var first), Is.True);
+                Assert.That(first.ProtoFiles, Is.EqualTo(new[] { "a.proto" }));
+
+                File.WriteAllText(Path.Combine(sourceRoot, "b.proto"), "syntax = \"proto3\";");
+
+                Assert.That(ProtoCodeGenerator.TryGetGenerationPrerequisitePreview(
+                    profile, out var repeated), Is.True);
+                Assert.That(repeated.ProtoFiles, Is.SameAs(first.ProtoFiles),
+                    "Layout / Repaint 必须复用同一输入快照，不能再次递归遍历磁盘。 ");
+                Assert.That(repeated.ProtoFiles, Is.EqualTo(new[] { "a.proto" }));
+
+                var freshForExecution = ProtoCodeGenerator.InspectGenerationPrerequisites(profile);
+                Assert.That(freshForExecution.ProtoFiles, Is.EqualTo(new[] { "a.proto", "b.proto" }),
+                    "生成动作的直接检查不得消费工作台旧快照。 ");
+
+                FrameworkEditorProfileCatalog.Invalidate();
+                Assert.That(ProtoCodeGenerator.TryGetGenerationPrerequisitePreview(
+                    profile, out _), Is.False,
+                    "projectChanged 使 Profile Catalog revision 前进后，预览只标记失效，不应在重绘中自动重扫。 ");
+
+                ProtoCodeGenerator.RefreshGenerationPrerequisitePreviews(new[] { profile });
+                Assert.That(ProtoCodeGenerator.TryGetGenerationPrerequisitePreview(
+                    profile, out var refreshed), Is.True);
+                Assert.That(refreshed.ProtoFiles, Is.EqualTo(new[] { "a.proto", "b.proto" }));
+
+                string changedSourceRoot = ProjectAbsolute(root + "/ChangedProto~");
+                Directory.CreateDirectory(changedSourceRoot);
+                File.WriteAllText(Path.Combine(changedSourceRoot, "changed.proto"), "syntax = \"proto3\";");
+                SetString(profile, "_protoDir", root + "/ChangedProto~");
+                Assert.That(ProtoCodeGenerator.TryGetGenerationPrerequisitePreview(
+                    profile, out _), Is.False,
+                    "Profile 路径改变必须廉价失效旧快照，不能继续展示旧目录。 ");
+            }
+            finally
+            {
+                ProtoCodeGenerator.InvalidateGenerationPrerequisitePreviews();
                 Object.DestroyImmediate(profile);
                 DeleteDirectory(root);
             }
