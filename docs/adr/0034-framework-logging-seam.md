@@ -21,7 +21,7 @@ roadmap「Cysharp 生态候选」里 **ZLogger**（零分配结构化日志）�
 日志必须在**任何地方**可用——包括没有 `Context`、身处 DI 之下的内核基础设施（`Container` / `InjectionPlan` / 构造期）。它们不能反向依赖 DI 去 `GetUtility` 取 logger（循环依赖 + 时序倒置）。`FrameworkLog` 现在正因此是静态。所以接缝**保持静态门面**，不做 `ILogUtility` 那种 DI 服务。
 
 - `FrameworkLog` 升级为门面：`Trace / Info / Warning / Error(+ exception)`，每条带 `category`（默认取调用方类型名 / caller）与可选结构化字段。保留旧 `Verbose` / `LogVerbose` 语义（`Verbose=true` = 放行 `Trace` 级到 Console），既有调用点零改动。
-- `ILogSink`：`void Log(in LogEntry entry)`。可注册**多个** sink 广播；每个 sink 自带 `MinLevel` 过滤。门面提供 `AddSink / RemoveSink / ClearSinks`，并把外部 sink 的 `MinLevel` getter 与 `Log` 投递纳入同一个异常隔离范围：坏去向只降级告警，不能阻断后续 sink 或覆盖业务根异常。
+- `ILogSink`：`void Log(in LogEntry entry)`。可注册**多个** sink 广播；每个 sink 自带 `MinLevel` 过滤。门面提供 `AddSink / RemoveSink / ClearSinks`，并把外部 sink 的 `MinLevel` getter 与 `Log` 投递纳入同一个异常隔离范围：坏去向只降级告警，不能阻断后续 sink 或覆盖业务根异常。sink 路由以 copy-on-write 世代快照发布；`Log.Sinks` 返回同一代的稳定只读视图，不泄漏可强转篡改的内部数组。
 - `LogEntry`：`readonly struct`，携 `LogLevel` + `category` + `message` + 可选结构化字段 + `exception` + `timestamp` + caller。以 `in` 传递；热路径只在**有 sink 会消费该级别**时才构造 message（`Verbose` 关时 `Trace` 直接短路，同现状零成本）。
 
 ### 2. 内核默认两个**零依赖** sink（覆盖最常用 ①②）
@@ -87,7 +87,7 @@ roadmap「Cysharp 生态候选」里 **ZLogger**（零分配结构化日志）�
 **⑤ 接管 Unity 日志流 `Log.CaptureUnityLogs()`（补上最大的缺口）**：订阅 `Application.logMessageReceivedThreaded`，把**引擎报错、第三方包日志（YooAsset / UniTask / R3）、业务裸 `Debug.Log`、未捕获异常**全部灌进 sink。
 - **动机**：阶段 A 的 `FileLogSink` 只收显式调用门面的日志——玩家崩在 `NullReferenceException` 上时，那条崩溃**根本不在日志文件里**，而它恰恰最该捞到。
 - 它也**大幅降低了「迁移调用点」的紧迫性**：裸 `Debug.Log` 照样进文件/遥测，迁移只为拿更好的 API（category / context / 结构化 / Trace 门控），可以慢慢来。
-- **防回声**：`UnityDebugLogSink` 转发的 `Debug.Log` 会触发桥接回调 → 不拦就重复落盘 + 坏 sink 的告警无限递归。用 `[ThreadStatic]` 标记「本线程正在由框架往 Console 写」让回调忽略；桥接条目标 `LogEntry.FromUnity`，`UnityDebugLogSink` 跳过（Console 里已有）。用 ThreadStatic 而非普通静态：`logMessageReceivedThreaded` 在**产生日志的那个线程**上同步回调，而框架日志可能来自任意线程。
+- **防回声**：`UnityDebugLogSink` 转发的 `Debug.Log` 会触发桥接回调 → 不拦就重复落盘 + 坏 sink 的告警无限递归。用 `[ThreadStatic]` **嵌套深度**标记「本线程正在由框架往 Console 写」让回调忽略；桥接条目标 `LogEntry.FromUnity`，`UnityDebugLogSink` 跳过（Console 里已有）。不用 bool，因为外部 Unity 日志订阅者可能在外层 Error 输出中同步重入门面；内层退出不得提前释放外层 guard。用 ThreadStatic 而非普通静态：`logMessageReceivedThreaded` 在**产生日志的那个线程**上同步回调，而框架日志可能来自任意线程。
 
 **⑥ 补齐两处实用信息**：`LogEntry.Context`（`UnityEngine.Object`——点 Console 高亮定位场景物体，Unity 独有的实用能力）；`LogEntry.StackTrace`（`Error` 且无异常时自动补抓——落盘的 error 若既无异常又无栈，事后只剩一句话、无从定位）。`FileLogSink` 每次开档写**会话头**（设备 / 系统 / 版本 / 时间）：日志追加叠加，没有分隔就分不清哪段是哪次运行、玩家用的什么机器。
 

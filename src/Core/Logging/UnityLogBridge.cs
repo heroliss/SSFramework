@@ -12,20 +12,26 @@ namespace Game.Framework.Logging
     /// <c>NullReferenceException</c> 上时那条崩溃**不在日志文件里**，而它恰恰最该捞到。接管后一行调用点都不用改。<br/>
     /// <b>防回声（本类存在的关键）</b>：<see cref="UnityDebugLogSink"/> 会把门面日志转发成 <c>Debug.Log</c>，
     /// 而那次 <c>Debug.Log</c> 又会触发本回调 → 若不拦，同一条日志会被重复落盘，且坏 sink 的告警会无限递归。
-    /// 故用 <b>线程私有</b>的 <see cref="Emitting"/> 标记「本线程此刻正在由框架往 Console 写」，回调见到就忽略。
+    /// 故用 <b>线程私有</b>的嵌套深度标记「本线程此刻正在由框架往 Console 写」，回调见到就忽略。
+    /// 不能只用 bool：Unity 日志订阅者可能在外层 Error 的 LogError / LogException 之间再写一条框架日志，
+    /// 内层退出若直接清掉 bool，外层剩余输出就会被误当成 Unity 原生日志回灌。<br/>
     /// 用 <c>[ThreadStatic]</c> 而非普通静态：<c>logMessageReceivedThreaded</c> 会在**产生日志的那个线程**上同步回调，
     /// 而框架日志可能来自任意线程（网络接收循环等），普通静态标记会被并发线程互相踩。
     /// </remarks>
     internal static class UnityLogBridge
     {
         // 「本线程正在由框架往 Unity Console 写」——回调据此忽略自己的回声。
-        [System.ThreadStatic] private static bool _emitting;
+        [System.ThreadStatic] private static int _emitDepth;
 
-        internal static bool Emitting => _emitting;
+        internal static bool Emitting => _emitDepth > 0;
 
-        internal static void BeginEmit() => _emitting = true;
+        internal static void BeginEmit() => _emitDepth++;
 
-        internal static void EndEmit() => _emitting = false;
+        internal static void EndEmit()
+        {
+            // 内部所有调用都在 finally 成对收口；仍保持非负，避免日志降级通道自己因防御检查抛错。
+            if (_emitDepth > 0) _emitDepth--;
+        }
 
         private static bool _enabled;
 
@@ -45,7 +51,7 @@ namespace Game.Framework.Logging
         {
             // 这条是框架自己刚写进 Console 的回声（UnityDebugLogSink 转发）——Console 里已经有了，
             // 且原始条目早已广播给各 sink，再走一遍就是重复落盘 + 潜在无限递归。
-            if (_emitting) return;
+            if (Emitting) return;
 
             Log.DispatchFromUnity(ToLevel(type), condition, stackTrace);
         }
