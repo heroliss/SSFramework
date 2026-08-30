@@ -3,6 +3,39 @@ using System.Collections.Generic;
 
 namespace Game.Framework.Internal
 {
+#if UNITY_EDITOR
+    /// <summary>一次成功解析离开请求 Container 的实际路径。只用于 Editor 诊断，不进入玩家程序集。</summary>
+    internal enum ContainerFallbackKind
+    {
+        ParentChain,
+        Main,
+    }
+
+    /// <summary>
+    /// 某个契约自 Context 创建以来实际发生过的回退证据。按“契约 + 来源 Container + 路径”聚合，
+    /// 只记录成功解析；检查绑定或失败探测不会制造证据。
+    /// </summary>
+    internal readonly struct ContainerFallbackResolutionDetail
+    {
+        internal Type Contract { get; }
+        internal Container Source { get; }
+        internal ContainerFallbackKind Kind { get; }
+        internal int Count { get; }
+
+        internal ContainerFallbackResolutionDetail(
+            Type contract,
+            Container source,
+            ContainerFallbackKind kind,
+            int count)
+        {
+            Contract = contract;
+            Source = source;
+            Kind = kind;
+            Count = count;
+        }
+    }
+#endif
+
     /// <summary>
     /// 精简 DI 容器。支持值注册、工厂注册、类型解析、父级回退，以及运行时动态注册覆盖。
     /// 解析顺序：运行时覆盖层 → 构建时绑定 → 父级递归。
@@ -32,6 +65,29 @@ namespace Game.Framework.Internal
         // 之后不再使用；工厂产物不在其中。
         private readonly IReadOnlyList<object> _boundValues;
         private bool _disposed;
+
+#if UNITY_EDITOR
+        /// <summary>一条回退聚合。来源使用弱引用，避免证据延长已替换 Main 的生命周期。</summary>
+        private sealed class FallbackResolutionCounter
+        {
+            internal Type Contract { get; }
+            internal WeakReference<Container> Source { get; }
+            internal ContainerFallbackKind Kind { get; }
+            internal int Count { get; set; }
+
+            internal FallbackResolutionCounter(Type contract, Container source, ContainerFallbackKind kind)
+            {
+                Contract = contract;
+                Source = new WeakReference<Container>(source);
+                Kind = kind;
+                Count = 1;
+            }
+        }
+
+        // 惰性分配：只有实际发生父链 / Main 回退的 Context 才承担列表成本。
+        // 回退路径通常极少，线性合并换来不强引用旧 Main，且无需为弱引用另造不可靠的哈希键。
+        private List<FallbackResolutionCounter> _fallbackResolutionCounters;
+#endif
 
         internal Container(
             Dictionary<Type, ContainerBinding> bindings,
@@ -80,21 +136,118 @@ namespace Game.Framework.Internal
         {
             ThrowIfDisposed();
             if (type == null) throw new ArgumentNullException(nameof(type));
-            if (_overrides.TryGetValue(type, out instance)) return true;
-            if (_bindings.TryGetValue(type, out var stored))
+#if UNITY_EDITOR
+            return TryResolveWithSourceValidated(type, out instance, out _);
+#else
+            return TryResolveCore(type, out instance);
+#endif
+        }
+
+#if UNITY_EDITOR
+        /// <summary>
+        /// 与 <see cref="TryResolve(Type,out object)"/> 相同，但同时返回最终命中的 Container。
+        /// GameContext 用它区分本地 / 父链 / Main；成功的父链命中在请求 Container 上记录一次 Editor 证据。
+        /// </summary>
+        internal bool TryResolveWithSource(Type type, out object instance, out Container source)
+        {
+            ThrowIfDisposed();
+            if (type == null) throw new ArgumentNullException(nameof(type));
+            return TryResolveWithSourceValidated(type, out instance, out source);
+        }
+
+        private bool TryResolveWithSourceValidated(Type type, out object instance, out Container source)
+        {
+            bool resolved = TryResolveCore(type, out instance, out source);
+            if (resolved && !ReferenceEquals(source, this))
+                RecordFallback(type, source, ContainerFallbackKind.ParentChain);
+            return resolved;
+        }
+
+        private bool TryResolveCore(Type type, out object instance, out Container source)
+        {
+            if (TryResolveLocal(type, out instance))
             {
-                if (stored.IsFactory)
-                    MainThreadGuard.AssertMainThread(nameof(Container));
-                instance = stored.Resolve(this);
-                if (!type.IsInstanceOfType(instance))
-                    throw new InvalidOperationException(
-                        $"[Container] 契约 '{type.Name}' 的绑定返回了不兼容实例 '{instance.GetType().Name}'。");
+                source = this;
                 return true;
             }
-            if (_parent != null) return _parent.TryResolve(type, out instance);
+            if (_parent != null)
+            {
+                _parent.ThrowIfDisposed();
+                return _parent.TryResolveCore(type, out instance, out source);
+            }
+            instance = null;
+            source = null;
+            return false;
+        }
+#else
+        private bool TryResolveCore(Type type, out object instance)
+        {
+            if (TryResolveLocal(type, out instance)) return true;
+            if (_parent != null)
+            {
+                _parent.ThrowIfDisposed();
+                return _parent.TryResolveCore(type, out instance);
+            }
             instance = null;
             return false;
         }
+#endif
+
+        /// <summary>只查当前 Container；返回 false 时由调用方决定是否继续父链。</summary>
+        private bool TryResolveLocal(Type type, out object instance)
+        {
+            if (_overrides.TryGetValue(type, out instance)) return true;
+            if (!_bindings.TryGetValue(type, out var stored))
+            {
+                instance = null;
+                return false;
+            }
+
+            if (stored.IsFactory)
+                MainThreadGuard.AssertMainThread(nameof(Container));
+            instance = stored.Resolve(this);
+            if (!type.IsInstanceOfType(instance))
+                throw new InvalidOperationException(
+                    $"[Container] 契约 '{type.Name}' 的绑定返回了不兼容实例 '{instance.GetType().Name}'。");
+            return true;
+        }
+
+#if UNITY_EDITOR
+        /// <summary>本 Container 发起的成功父链 / Main 回退聚合；诊断读取不会触发解析。</summary>
+        internal IEnumerable<ContainerFallbackResolutionDetail> FallbackResolutionDetails
+        {
+            get
+            {
+                if (_fallbackResolutionCounters == null) yield break;
+                foreach (var counter in _fallbackResolutionCounters)
+                {
+                    counter.Source.TryGetTarget(out var source);
+                    yield return new ContainerFallbackResolutionDetail(
+                        counter.Contract,
+                        source,
+                        counter.Kind,
+                        counter.Count);
+                }
+            }
+        }
+
+        /// <summary>记录一次成功的外部解析。Main 回退由 GameContext 在跨树解析成功后调用。</summary>
+        internal void RecordFallback(Type contract, Container source, ContainerFallbackKind kind)
+        {
+            if (contract == null || source == null || ReferenceEquals(source, this)) return;
+            var counters = _fallbackResolutionCounters ??= new List<FallbackResolutionCounter>();
+            foreach (var counter in counters)
+            {
+                if (counter.Contract != contract || counter.Kind != kind ||
+                    !counter.Source.TryGetTarget(out var existing) || !ReferenceEquals(existing, source))
+                    continue;
+
+                if (counter.Count < int.MaxValue) counter.Count++;
+                return;
+            }
+            counters.Add(new FallbackResolutionCounter(contract, source, kind));
+        }
+#endif
 
         /// <summary>仅查本地覆盖层（不查 _bindings、不查父级）。供 host 做"运行时覆盖父级"检测使用。</summary>
         internal bool TryGetOverride(Type type, out object instance)
@@ -174,6 +327,9 @@ namespace Game.Framework.Internal
         {
             if (_disposed) return;
             _disposed = true;
+#if UNITY_EDITOR
+            _fallbackResolutionCounters?.Clear();
+#endif
             _owned.Dispose("Container");
         }
 

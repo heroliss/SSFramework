@@ -2652,16 +2652,25 @@ CJK 全量字库体积大（单字体 15~30MB），全量随包不现实；砍�
 |---|---|---|
 | **顶栏计数条** | 存活 Context 数、DisposableBag 存活 / 累计创建、命令累计——前两项带 **趋势 sparkline**（约 30 秒窗口） | Bag / Context 折线只升不降 = 有宿主没释放 |
 | **Mono 初始化问题**（左上，按需出现） | 把父级失败引发的多层 Context 失败聚合为“根因组”，显示最先失败对象、受影响链和当前 / 历史证据 | 先修哪一个异常；看到“影响 3 个”时不会误判成 3 个独立 bug |
-| **Context 作用域树**（左） | 所有存活 `GameContext` 按父子成树（含纯 C# Context——GameFlow 状态子 Context 首次可见）；节点带徽标（`Main` / `Mono`·`C#` / `→Main` 回退）与「注册 N · 订阅 M · 存活时长」摘要 | 切走的阶段 / 关卡 Context 还在树上 = 忘了 Dispose |
-| **Context 明细**（右） | 选中节点的本地注册表（契约 → 实例，标注运行时 / 构建时 / 工厂——**不触发工厂**，观察不改变系统；Unity 对象带「定位」按钮）、本地 `IGameFlow` 的 Current / 退出中 / 进入中 / 待处理、事件订阅计数、池借出 / 空闲 | 「这个 Context 里到底注册了什么」「流程卡在哪个事务阶段」「哪个事件订阅数在涨」不再逐个点场景节点 |
+| **Context 作用域树**（左） | 所有存活 `GameContext` 按父子成树（含纯 C# Context——GameFlow 状态子 Context 首次可见）；节点带徽标（`Main` / `Mono`·`C#` / `可→Main` 策略 / `→Main ×N` 实际解析）与「注册 N · 订阅 M · 存活时长」摘要 | 切走的阶段 / 关卡 Context 还在树上 = 忘了 Dispose；本应隔离的节点出现实际 Main 回退 = 接线嫌疑 |
+| **Context 明细**（右） | 选中节点的本地注册表（契约 → 实例，标注运行时 / 构建时 / 工厂——**不触发工厂**，观察不改变系统；Unity 对象带「定位」按钮）、实际解析回退（契约 → 来源 / 次数）、本地 `IGameFlow` 的 Current / 退出中 / 进入中 / 待处理、事件订阅计数、池借出 / 空闲 | 「这个 Context 里到底注册了什么」「哪些服务确实越过了本地边界」「流程卡在哪个事务阶段」「哪个事件订阅数在涨」不再逐个点场景节点 |
 | **Command 流水表格**（下） | `LoggingCommandSystem` 最近记录：时间 / 帧 / 同步异步 / 命令 / Context / 耗时 / 状态，新的在上；**耗时着色**（≥1 帧黄、≥100ms 红）、错误行红字，选中行底部展开完整信息 | 用户操作到底触发了哪些命令、谁在偷偷发命令、哪个命令异常 / 超慢 |
 
-**交互**：工具栏搜索过滤 Context 树（匹配名称 / 注册契约 / 事件类型，保留祖先链）；**双击树节点定位场景对象**（Mono Context）；命令表格独立搜索 + 「仅错误」开关 + **「复制」导出 TSV**（可直接粘进表格软件）+ 清空；「自动刷新」可关（冻结快照细看），展开 / 折叠一键全树。
+**交互**：工具栏搜索过滤 Context 树（匹配名称 / 注册契约 / 回退契约与来源 / 事件类型，保留祖先链）；**双击树节点定位场景对象**（Mono Context）；命令表格独立搜索 + 「仅错误」开关 + **「复制」导出 TSV**（可直接粘进表格软件）+ 清空；「自动刷新」可关（冻结快照细看），展开 / 折叠一键全树。
 
 流程观察不需要 `MonoGameFlow`：选中注册 `IGameFlow` 的宿主 Context，右侧“游戏流程（Flow）”显示同一
 Implementation 的事务快照；当前状态对应的 `Flow:状态类型名` 子 Context 位于左侧树，继续选中它即可检查阶段私有注册和订阅。
 自定义 `IGameFlow` Adapter 至少显示公共 `Current / IsTransitioning`；只有默认 `GameFlow` 展示内部进入 / 退出 / 排队细节，
 这些细节保持 Editor-only，不扩张业务 Interface。
+
+### 解析回退怎么读：能力不等于事实
+
+- `可→Main`：这个 Context 的构造策略允许本地与整条父链未命中后再查询 `GameContext.Main`；它**尚不表示发生过回退**。
+- `→Main ×N`：已经实际从 Main 路径成功解析 N 次。右侧“解析回退”会列出具体契约和最终来源；如果该 Context 本应隔离，优先检查本地注册、显式父级与 Hierarchy。实际 Main 回退也可能是有意共享全局 Utility，不能只凭徽标定罪。
+- `父链`：实际命中父级或更高祖先，通常是 Context 组合的正常语义。三层树由孙级直接命中根绑定，只记在孙级一次，中间 Context 不会冒充请求者。
+- 这里的次数是 **Resolve 次数**，不是业务“使用次数”，更不是静态依赖图。比如 `ICommandSystem` 首次解析后会在 Context 内缓存，后续发很多条命令也不会继续增加该契约的解析次数。
+
+诊断枚举、`HasBinding` 与失败的 `TryResolve` 都不会制造证据，也不会为显示明细而触发 Lazy Factory。
 
 ### Mono 初始化问题怎么读
 
@@ -2702,6 +2711,7 @@ var ctx = new GameContext(builder.Build()) { DebugName = "MiniGame" };
 
 - **采集仅在 Editor**：存活登记表 / 订阅计数 / Bag 计数在玩家包（含 Development Build）里编译消除，零成本；真机诊断走 `FrameworkSelfCheck` 冒烟 + `Log` 日志（配 `CaptureUnityLogs()` + `FileLogSink` 可把引擎报错 / 崩溃一并落盘，见 §28）。
 - **登记表持强引用**：没 Dispose 的 Context 会一直挂在树上——这不是面板的 bug，这就是它要暴露的泄漏。
+- **回退来源只持弱引用**：实际回退历史不会为了显示来源而延长已替换 Main 的生命周期；来源已经释放时，明细保留次数并显示“已释放的 Context”。
 - 池概要的「借出」计数：GameObject 池实例被外部 Destroy 时计数停在借出侧（该实例再也不会归还了，本身就是线索）；C# 池在 Release 下无归属校验，误用会漂移（Editor / Dev 精确）。
 
 > **要点回顾**
@@ -2709,6 +2719,7 @@ var ctx = new GameContext(builder.Build()) { DebugName = "MiniGame" };
 > - 菜单 `SSFramework/诊断与分析/运行时诊断`，进 Play 打开：左树 · 右明细 · 下命令流水，自动刷新
 > - 泄漏三板斧：Bag / Context sparkline 趋势、事件订阅计数趋势、切走的 Context 是否还在树上
 > - Mono 初始化先看根因数：一个父级失败可影响多层；区分当前 Play 与历史证据，定位“最先失败”
+> - `可→Main` 是策略，`→Main ×N` 才是实际成功证据；次数指 Resolve，不指业务使用
 > - Command 流水 = 根 Context 换注册 `LoggingCommandSystem`（opt-in、零语义变化）；表格可过滤 / 仅错误 / 复制 TSV
 > - 双击树节点定位场景对象；搜索框按名称 / 契约 / 事件类型过滤全树
 > - 纯 C# Context 记得 `DebugName`；采集 Editor 专用、玩家包零成本

@@ -34,6 +34,10 @@ Demo 教学内容与自动化之间的运行时 Seam。`DemoModuleHost` 在真�
 
 `IGameFlow` 是 System 层的宏观业务阶段 Interface；`GameFlow` Implementation 把 `FlowState` 当前状态、最新意图排队、协作取消和每状态子 Context 的所有权保持在同一个深 Module 内。它用 `RegisterOwnedSystem(new GameFlow())` 进入宿主 Context：层感知注册自动登记具体类型与 Interface，宿主拥有 flow，flow 再拥有当前状态子 Context；全局性来自注册在持久根 Context，不来自另造 Mono 状态机。View 在 Command Seam 表达流转意图，持续展示时由查询 Command 返回只读投影；System 与 FlowState 内部可直接解析该 System。项目侧 `FlowNav` 是只观察 fire-and-forget 终态的 Adapter：正常顶替/销毁取消静默，真实进入失败进入 Log Seam，它不拥有转换规则。`Current` 不单拆 Model，因为它只是转换不变量的一部分；保留在同一 Implementation 能提高 Locality，避免增加一条只做镜像同步的浅 Interface。Editor 诊断直接读取同一 Implementation 的 Current / 进入中 / 退出中 / 待处理快照，并用 Context 树展示状态子 Context，不制造第二份状态真源。
 
+## Context Resolution Evidence
+
+`Container` 在 Editor 内为每个请求 Context 惰性聚合的实际成功解析回退：区分正常父链与 `GameContext.Main` 兜底，并记录契约、最终来源和解析次数。“可→Main”只是构造策略；只有本地与父链未命中、且 Main 真正返回实例后才成为“→Main ×N”运行证据。`HasBinding`、失败的 `TryResolve` 与诊断读取都不制造证据；工厂内部跨父级解析会记在真正发起请求的 Context，中间 Container 不重复记账。次数表示 Resolve 次数，不是业务使用次数或静态依赖图。来源采用弱引用，避免旧 Main 因诊断被延寿；整个采集与字段在玩家程序集编译消除。
+
 ## Luban Generation Transaction
 
 `Game.Framework.Config.Editor` 内一套 Luban Profile 的可恢复发布 owner。CLI 只写工程临时区；Implementation 先验证 `cs-bin` 代码、根目录 `*.bytes` 数据与由其生成的 manifest，再为正式代码 / 数据两棵独占目录计算同一份差量提交。未变化文件不写并保留 `.meta`，陈旧文件连配对 `.meta` 清理；首次修改前备份两棵树，当前进程内任一步失败就同时恢复，回滚失败则保留 recovery 目录。正式写盘前会重新核对 Generated Output Claim Catalog，并拒绝输出路径现存链上的 symlink / junction；强杀 Editor 或断电不在跨目录原子保证内。这个深 Module 保持在 Config Editor，本身不是 Protobuf 单目录后缀同步的通用 Interface。

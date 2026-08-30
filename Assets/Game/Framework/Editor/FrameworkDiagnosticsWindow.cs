@@ -6,6 +6,7 @@ using System.Text;
 using Game.Framework.Context;
 using Game.Framework.Diagnostics;
 using Game.Framework.Flow;
+using Game.Framework.Internal;
 using Game.Framework.Logging;
 using Game.Framework.Pool;
 using Game.Framework.Systems;
@@ -69,7 +70,7 @@ namespace Game.Framework.Editor
 
         // ── 主题色（深浅 skin 通用的中饱和度底 + 白字）────────────────────────
         private static readonly Color ColMain = new(0.23f, 0.51f, 0.29f);     // [Main]
-        private static readonly Color ColFallback = new(0.35f, 0.42f, 0.55f); // →Main 回退
+        private static readonly Color ColFallback = new(0.35f, 0.42f, 0.55f); // 允许回退 / 正常父链
         private static readonly Color ColMono = new(0.28f, 0.45f, 0.60f);     // 场景 Mono Context
         private static readonly Color ColPure = new(0.45f, 0.38f, 0.58f);     // 纯 C# Context
         private static readonly Color ColRuntime = new(0.62f, 0.45f, 0.18f);  // 运行时注册
@@ -130,7 +131,7 @@ namespace Game.Framework.Editor
         private readonly List<LoggingCommandSystem.Entry> _cmdRows = new(); // 过滤后（新 → 旧），表格数据源
         private long _lastTotalRecorded = -1;
         private bool _cmdFilterDirty = true;
-        private bool _secRegOpen, _secFlowOpen = true, _secEvtOpen = true, _secPoolOpen = true;
+        private bool _secRegOpen, _secFallbackOpen = true, _secFlowOpen = true, _secEvtOpen = true, _secPoolOpen = true;
         private LayoutMode? _layoutMode;
 
         /// <summary>树节点数据：TreeView item 里只挂 Context 引用，其余现算（每次重绑都拿最新值）。</summary>
@@ -599,8 +600,7 @@ namespace Game.Framework.Editor
             badges.Add(_monoByCtx.ContainsKey(ctx)
                 ? Badge("Mono", ColMono, "场景 MonoGameContextBase 的内部 Context（双击定位场景对象）")
                 : Badge("C#", ColPure, "纯 C# GameContext（GameFlow 状态 / 手工 new）"));
-            if (ctx.InheritsFromGlobal && !ReferenceEquals(ctx, GameContext.Main))
-                badges.Add(Badge("→Main", ColFallback, "本地与父链未命中时回退 GameContext.Main"));
+            AddGlobalFallbackBadge(badges, ctx);
 
             int regs = ctx.Container.LocalRegistrationDetails.Count();
             int subs = ctx.EventSubscriptionCounts?.Sum(kv => kv.Value) ?? 0;
@@ -661,7 +661,7 @@ namespace Game.Framework.Editor
             if (ReferenceEquals(ctx, GameContext.Main)) header.Add(Badge("Main", ColMain, null));
             bool isMono = _monoByCtx.TryGetValue(ctx, out var mono) && mono != null;
             header.Add(isMono ? Badge("Mono", ColMono, null) : Badge("C#", ColPure, null));
-            if (ctx.InheritsFromGlobal && !ReferenceEquals(ctx, GameContext.Main)) header.Add(Badge("→Main", ColFallback, null));
+            AddGlobalFallbackBadge(header, ctx);
             _detail.Add(header);
 
             var subHeader = new VisualElement
@@ -723,6 +723,61 @@ namespace Game.Framework.Editor
                 regFold.Add(line);
             }
             _detail.Add(regFold);
+
+            // 解析回退：只展示真实成功过的父链 / Main 命中。HasBinding、失败 TryResolve 和“允许 Main”策略
+            // 都不会生成条目，避免把可能性冒充运行证据。
+            var fallbacks = ctx.Container.FallbackResolutionDetails
+                .OrderByDescending(item => item.Kind == ContainerFallbackKind.Main)
+                .ThenBy(item => item.Contract.Name, StringComparer.Ordinal)
+                .ThenBy(item => FallbackSourceName(item.Source), StringComparer.Ordinal)
+                .ToList();
+            if (fallbacks.Count > 0)
+            {
+                long fallbackCalls = fallbacks.Sum(item => (long)item.Count);
+                long mainCalls = fallbacks.Where(item => item.Kind == ContainerFallbackKind.Main)
+                    .Sum(item => (long)item.Count);
+                var fallbackFold = Section(
+                    $"解析回退（{fallbacks.Count} 条契约路径 · {fallbackCalls} 次）",
+                    _secFallbackOpen,
+                    value => _secFallbackOpen = value);
+
+                if (mainCalls > 0)
+                    fallbackFold.Add(new HelpBox(
+                        $"已实际通过 GameContext.Main 成功解析 {mainCalls} 次。若此 Context 本应隔离，" +
+                        "请检查本地注册、显式父级与 Hierarchy；Main 兜底可能正在掩盖接线错误。",
+                        HelpBoxMessageType.Warning));
+                else
+                    fallbackFold.Add(MutedLabel(
+                        "父链回退是 Context 组合的正常语义；这里记录的是实际成功命中，不是静态依赖图。"));
+
+                foreach (var item in fallbacks)
+                {
+                    var line = new VisualElement
+                    {
+                        style =
+                        {
+                            flexDirection = FlexDirection.Row,
+                            alignItems = Align.Center,
+                            flexWrap = Wrap.Wrap,
+                        },
+                    };
+                    line.Add(new Label($"{item.Contract.Name} → {FallbackSourceName(item.Source)}  ×{item.Count}")
+                    {
+                        style =
+                        {
+                            fontSize = 11,
+                            flexShrink = 1,
+                            overflow = Overflow.Hidden,
+                            textOverflow = TextOverflow.Ellipsis,
+                        },
+                    });
+                    line.Add(item.Kind == ContainerFallbackKind.Main
+                        ? Badge("Main 实际回退", ColWarnDur, "本地与整条父链未命中后，实际从 GameContext.Main 解析成功。")
+                        : Badge("父链", ColFallback, "实际从父级或更高祖先 Context 解析成功。"));
+                    fallbackFold.Add(line);
+                }
+                _detail.Add(fallbackFold);
+            }
 
             // 游戏流程：只读取本 Context 已经实例化的本地 IGameFlow，不经 Resolve、不触发工厂。
             // 默认 GameFlow 还能通过 Editor-only 内部快照展示进入中 / 退出中 / 排队；自定义 Adapter
@@ -819,6 +874,10 @@ namespace Game.Framework.Editor
             foreach (var d in ctx.Container.LocalRegistrationDetails)
                 sb.Append(d.Contract.Name).Append(d.IsPendingFactory ? 'F' : d.IsOverride ? 'O' : 'B')
                   .Append(d.Instance?.GetType().Name).Append(';');
+            foreach (var item in ctx.Container.FallbackResolutionDetails)
+                sb.Append("fallback:").Append(item.Contract.Name).Append('|')
+                  .Append(item.Kind).Append('|').Append(item.Source?.GetHashCode() ?? 0).Append('|')
+                  .Append(item.Count).Append(';');
             var counts = ctx.EventSubscriptionCounts;
             if (counts != null)
                 foreach (var kv in counts)
@@ -1508,6 +1567,10 @@ namespace Game.Framework.Editor
             foreach (var d in ctx.Container.LocalRegistrationDetails)
                 if (d.Contract.Name.IndexOf(_treeFilter, StringComparison.OrdinalIgnoreCase) >= 0)
                     return true;
+            foreach (var item in ctx.Container.FallbackResolutionDetails)
+                if (item.Contract.Name.IndexOf(_treeFilter, StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    FallbackSourceName(item.Source).IndexOf(_treeFilter, StringComparison.OrdinalIgnoreCase) >= 0)
+                    return true;
             var counts = ctx.EventSubscriptionCounts;
             if (counts != null)
                 foreach (var kv in counts)
@@ -1569,6 +1632,46 @@ namespace Game.Framework.Editor
 
         private static string DisplayName(GameContext ctx)
             => string.IsNullOrEmpty(ctx.DebugName) ? $"GameContext#{ctx.GetHashCode():X}" : ctx.DebugName;
+
+        private static void AddGlobalFallbackBadge(VisualElement target, GameContext ctx)
+        {
+            if (ReferenceEquals(ctx, GameContext.Main)) return;
+
+            int contractPaths = 0;
+            long successfulResolutions = 0;
+            foreach (var item in ctx.Container.FallbackResolutionDetails)
+            {
+                if (item.Kind != ContainerFallbackKind.Main) continue;
+                contractPaths++;
+                successfulResolutions += item.Count;
+            }
+
+            if (contractPaths > 0)
+            {
+                target.Add(Badge(
+                    $"→Main ×{successfulResolutions}",
+                    ColWarnDur,
+                    $"实际 Main 回退：{contractPaths} 条契约路径、{successfulResolutions} 次成功解析。"));
+            }
+            else if (ctx.InheritsFromGlobal)
+            {
+                target.Add(Badge(
+                    "可→Main",
+                    ColFallback,
+                    "允许在本地与父链未命中时查询 GameContext.Main；本次尚无成功回退证据。"));
+            }
+        }
+
+        private static string FallbackSourceName(Container source)
+        {
+            if (source == null) return "已释放的 Context";
+            foreach (var context in FrameworkDiagnostics.LiveContexts)
+                if (ReferenceEquals(context.Container, source))
+                    return ReferenceEquals(context, GameContext.Main)
+                        ? $"{DisplayName(context)}（Main）"
+                        : DisplayName(context);
+            return "未知或已释放的 Context";
+        }
 
         private static string FormatDuration(double seconds)
             => seconds < 60 ? $"{seconds:F0}s" : $"{(int)(seconds / 60)}m{(int)(seconds % 60)}s";
