@@ -121,6 +121,8 @@ namespace Game.Framework.Context
         ///   <item>Eager 工厂抛出时 → 异常透出到 <see cref="Build"/>，容器构建失败，启动期暴露问题。</item>
         ///   <item>多契约共享场景下工厂抛出时，shared 仍为 null，下次任意契约 Resolve 会重新调用工厂；
         ///         若工厂有副作用需自身保证幂等。</item>
+        ///   <item>Factory 回调期间若宿主 Context / Container 被同步释放，回调返回值不会缓存或发布，
+        ///         本次 Resolve 抛 <see cref="ObjectDisposedException"/>。</item>
         /// </list>
         /// </remarks>
         public ContainerBuilder RegisterFactory(
@@ -139,6 +141,8 @@ namespace Game.Framework.Context
         /// 工厂一旦成功返回 <see cref="IDisposable"/>，该对象在契约校验与所有权登记完成前属于“待提交产物”；
         /// 若返回类型不符合 contract 等后续步骤失败，容器会立即回滚释放它，同时保留最初的契约异常。
         /// 工厂在返回前自行创建但未交出的资源仍由工厂负责清理；已经被同一 Container 接管的共享实例也不会因别名注册失败而提前释放。
+        /// 若 Factory 回调期间 Context 结束，返回的待提交产物同样立即回滚；已经在该 Context 的释放事务中处理过的 alias
+        /// 由弱所有权历史识别，不会重复 Dispose。
         /// </remarks>
         public ContainerBuilder RegisterOwnedFactory(
             Func<Container, object> factory,
@@ -192,7 +196,8 @@ namespace Game.Framework.Context
             var copy = new Dictionary<Type, ContainerBinding>(_bindings);
 
             // 收集构建完成时仍生效的值绑定实例（同一实例多契约只收一次）：GameContext 构造时对它们统一
-            // Inject + AttachTo，使纯 C# 路径与 Mono 路径「注册即注入」语义对称（ADR-0019）。
+            // GameContext 会先对整批 Inject、全部成功后再 AttachTo，使纯 C# 路径与 Mono 路径
+            // 「注册即注入」语义对称（ADR-0019）。
             // 在 Eager 工厂解析前收集——工厂产物（含 Eager）刻意不进此列表，工厂经 Func<Container, object> 显式接线。
             // 被后续注册覆盖掉的值实例不在 copy.Values 里，自然不会被注入。
             var boundValues = new List<object>();
@@ -265,15 +270,11 @@ namespace Game.Framework.Context
             if (value == null) throw new ArgumentNullException(nameof(value));
 
             Type concreteType = value.GetType();
-            int layerCount = 0;
-            if (typeof(IModel).IsAssignableFrom(concreteType)) layerCount++;
-            if (typeof(ISystem).IsAssignableFrom(concreteType)) layerCount++;
-            if (typeof(IUtility).IsAssignableFrom(concreteType)) layerCount++;
-            if (layerCount != 1)
-                throw new ArgumentException(
-                    $"[ContainerBuilder] 层感知注册要求类型恰好实现一个层标记；" +
-                    $"'{concreteType.Name}' 当前实现了 {layerCount} 个。请修正分层，或用低层 RegisterValue/RegisterOwned 显式接线。",
-                    nameof(value));
+            LayerInterfacesCache.ValidateSingleLayer(
+                concreteType,
+                expectedLayer,
+                nameof(ContainerBuilder),
+                nameof(value));
 
             Type[] interfaces = LayerInterfacesCache.GetLayerInterfaces(concreteType, expectedLayer);
             var contracts = new Type[interfaces.Length + 1];

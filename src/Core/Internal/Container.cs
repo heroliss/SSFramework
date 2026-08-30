@@ -206,6 +206,11 @@ namespace Game.Framework.Internal
             if (stored.IsFactory)
                 MainThreadGuard.AssertMainThread(nameof(Container));
             instance = stored.Resolve(this);
+
+            // Factory 是用户回调，期间可能重入当前 Context 并为同一契约写入 runtime override。
+            // 解析返回前重新遵守“override 优先”规则，避免本次拿到 Factory 产物、下一次却立刻切到 override。
+            if (_overrides.TryGetValue(type, out var latestOverride))
+                instance = latestOverride;
             if (!type.IsInstanceOfType(instance))
                 throw new InvalidOperationException(
                     $"[Container] 契约 '{type.Name}' 的绑定返回了不兼容实例 '{instance.GetType().Name}'。");
@@ -286,11 +291,11 @@ namespace Game.Framework.Internal
         /// 判断实例是否已由当前 Container 的 ownership registry 持有。供 OwnedFactory 失败回滚区分
         /// “本次尚未提交的产物”与“其它有效绑定已经拥有的共享实例”，避免错误提前释放后者。
         /// </summary>
-        internal bool Owns(IDisposable instance)
+        internal bool HasEverOwned(IDisposable instance)
         {
-            // 失败回滚可能发生在工厂重入导致 Container 已进入释放之后；这里只读 registry，不再用生命周期
-            // 异常覆盖最初的工厂错误。已释放 registry 已清空，返回 false 后对产物做幂等兜底 Dispose。
-            return _owned.Contains(instance);
+            // 失败回滚可能发生在 Factory 重入导致 Container 已释放之后。registry 会以弱引用保留“曾经拥有”
+            // 证据：已尝试释放的 alias 不能再 Dispose 第二次，同时又不让已关闭 Context 强持有服务实例。
+            return _owned.ContainsCurrentOrReleased(instance);
         }
 
         /// <summary>
@@ -344,7 +349,11 @@ namespace Game.Framework.Internal
             _owned.Dispose("Container");
         }
 
-        private void ThrowIfDisposed()
+        /// <summary>
+        /// Factory 等内部提交事务在用户回调返回后复检生命周期。必须是 internal，避免只在 Resolve 入口
+        /// 检查一次后，回调重入 Dispose 仍能把迟到实例发布进已关闭 Container。
+        /// </summary>
+        internal void ThrowIfDisposed()
         {
             if (_disposed)
                 throw new ObjectDisposedException(nameof(Container),

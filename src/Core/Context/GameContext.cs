@@ -95,17 +95,20 @@ namespace Game.Framework.Context
         /// 创建 GameContext。inheritFromGlobal 控制本容器未命中时是否回退到 GameContext.Main。
         /// </summary>
         /// <remarks>
-        /// 构造时先验证容器里全部<b>构建期值绑定</b>（RegisterValue / RegisterOwned）的 Context 归属，再统一
-        /// <see cref="Inject"/> + <see cref="AttachTo"/>，与 Mono 路径「注册即注入」语义对称（ADR-0019）。
-        /// 整批预检确保跨 Context 复用在任何字段注入前失败；纯 C# 服务在 InstallBindings 注册后不再需要手动补注入。
+        /// 构造时先验证容器里全部<b>构建期值绑定</b>（RegisterValue / RegisterOwned）的 Context 归属，再整批
+        /// <see cref="Inject"/>，全部成功后才整批 <see cref="AttachTo"/>，与 Mono 路径「注册即注入」语义对称（ADR-0019）。
+        /// 整批预检确保跨 Context 复用在任何字段注入前失败；延迟 Attach 则避免后续值注入失败时，前面的非 owned
+        /// 实例永久指向一个构造失败的 Context。纯 C# 服务在 InstallBindings 注册后不再需要手动补注入。
         /// 此刻全部绑定已入容器、父链可解析；<c>[Inject]</c> 解析失败 / 越权在启动期即以 LogWarning / LogError
         /// 暴露（与 Mono 路径同一套 InjectionPlan 语义）。
-        /// 工厂产物不自动注入——工厂经 <c>Func&lt;Container, object&gt;</c> 显式接线。
+        /// 工厂产物不自动注入——工厂经 <c>Func&lt;Container, object&gt;</c> 显式接线。任意 <c>[Inject]</c> 方法或
+        /// 属性 setter 的外部副作用属于用户代码，框架无法通用回滚；构造失败只保证撤销框架控制的 Context 附着并释放 owned 资源。
         /// </remarks>
         public GameContext(Container container, bool inheritFromGlobal = true)
         {
             _container = container ?? throw new ArgumentNullException(nameof(container));
             _inheritFromGlobal = inheritFromGlobal;
+            List<object> newlyAttached = null;
 
             try
             {
@@ -117,10 +120,16 @@ namespace Game.Framework.Context
                     for (int i = 0; i < boundValues.Count; i++)
                         ValidateContextAffinity(boundValues[i]);
 
+                    // 注入与 Context 发布分成两个阶段：任一后续值的 [Inject] 失败时，前面的值也不能已经
+                    // 对外宣称属于这个未构造成功的 Context。用户注入方法的外部副作用无法通用回滚，
+                    // 但框架控制的 Context affinity 至少保持“整批成功后才可见”。
+                    for (int i = 0; i < boundValues.Count; i++)
+                        Inject(boundValues[i]);
+
                     for (int i = 0; i < boundValues.Count; i++)
                     {
-                        Inject(boundValues[i]);
-                        AttachTo(boundValues[i]);
+                        if (!AttachToCore(boundValues[i])) continue;
+                        (newlyAttached ??= new List<object>(boundValues.Count)).Add(boundValues[i]);
                     }
                 }
 
@@ -133,6 +142,7 @@ namespace Game.Framework.Context
             {
                 // 构造函数没有成功返回，调用方拿不到 GameContext 来 Dispose；从接收 Container 起这里就是
                 // 所有权事务的最后一道边界，注入 / Attach / 诊断初始化失败都必须主动回滚。
+                RollbackContextAttachments(newlyAttached);
                 _disposed = true;
                 _container.Dispose();
                 throw;
@@ -416,8 +426,13 @@ namespace Game.Framework.Context
         {
             ThrowIfDisposed();
             if (target == null) throw new ArgumentNullException(nameof(target));
-            if (ValidateContextAffinity(target))
-                SetContextField(target);
+            AttachToCore(target);
+        }
+
+        /// <summary>返回 true 表示本次确实写入了 GameContext 字段，供构造事务精确回滚。</summary>
+        private bool AttachToCore(object target)
+        {
+            return ValidateContextAffinity(target) && SetContextField(target);
         }
 
         /// <summary>
@@ -524,7 +539,7 @@ namespace Game.Framework.Context
         private static void ClearContextFieldCacheOnDomainReload() => _contextFieldCache.Clear();
 #endif
 
-        private void SetContextField(object target)
+        private bool SetContextField(object target)
         {
             var type = target.GetType();
             if (!_contextFieldCache.TryGetValue(type, out var field))
@@ -542,7 +557,37 @@ namespace Game.Framework.Context
                 }
 #endif
             }
-            field?.SetValue(target, this);
+            if (field == null) return false;
+            field.SetValue(target, this);
+            return true;
+        }
+
+        /// <summary>
+        /// 构造事务失败时只撤销本次由框架写入、且仍指向当前 Context 的字段。逆序 best-effort，
+        /// 清理异常只进入日志接缝，不能覆盖最初的注入 / Attach / 诊断异常。
+        /// </summary>
+        private void RollbackContextAttachments(List<object> targets)
+        {
+            if (targets == null) return;
+            for (int i = targets.Count - 1; i >= 0; i--)
+            {
+                var target = targets[i];
+                try
+                {
+                    if (!_contextFieldCache.TryGetValue(target.GetType(), out var field) || field == null)
+                        continue;
+                    if (ReferenceEquals(field.GetValue(target), this))
+                        field.SetValue(target, null);
+                }
+                catch (Exception cleanupException)
+                {
+                    Log.Error(
+                        $"GameContext 构造失败后无法撤销 '{target.GetType().Name}' 的 Context 附着；仍保留最初的构造错误。",
+                        cleanupException,
+                        nameof(GameContext),
+                        target as UnityEngine.Object);
+                }
+            }
         }
 
         private static FieldInfo FindContextField(Type type)

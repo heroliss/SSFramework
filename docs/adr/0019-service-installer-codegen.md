@@ -71,13 +71,15 @@ protected override void InstallBindings(ContainerBuilder builder)
 
 ### 6. 内核对称性补齐：构建期值绑定实例在 GameContext 构造时自动 `Inject + AttachTo`
 
-`ContainerBuilder.Build()` 收集**值绑定的去重实例列表**（`RegisterValue` / `RegisterOwned` 传入、且构建完成时仍生效的实例），`GameContext` 构造函数逐个 `Inject`（解析 `[Inject]` 字段）+ `AttachTo`（回写 `GameContext` 字段）。这不是生成器的私有便利，而是**修一个既有的不对称**：Mono 路径「注册即注入」，纯 C# 路径此前「注册后裸奔」。补齐后：
+`ContainerBuilder.Build()` 收集**值绑定的去重实例列表**（`RegisterValue` / `RegisterOwned` 传入、且构建完成时仍生效的实例），`GameContext` 构造函数按“整批 Context affinity 预检 → 整批 `Inject` → 整批 `AttachTo`（回写 `GameContext` 字段）”装配。Attach 只在所有注入完成后发布，避免后续值注入失败时，前面的非 owned 实例永久指向构造失败的 Context。这不是生成器的私有便利，而是**修一个既有的不对称**：Mono 路径「注册即注入」，纯 C# 路径此前「注册后裸奔」。补齐后：
 
 - 生成的安装器对带 `[Inject]` / `IHasGameContext` 的服务**开箱可用**，无需生成器发明第二阶段注入协议；
 - 手写 `InstallBindings` 同等受益，guide 里「注册后手动 Inject/AttachTo」的样板只剩**运行时动态注册**（`ctx.RegisterXxx`）一处还需要；
 - **工厂产物刻意不自动注入**：`RegisterFactory` / `RegisterOwnedFactory` 的签名 `Func<Container, object>` 本就是显式接线位（`c.Resolve` 拿依赖），且懒构造时机不可预期，自动注入反而把时序弄模糊。值绑定=自动，工厂=自管；是否 owned 是另一条正交轴（ADR-0035）。
 
 注入时机在 Context 构造点：全部绑定已入容器，父链已可解析（`MonoGameContextBase.Initialize` 先递归初始化父级）；同容器互相 `[Inject]` 的两个值实例互见（实例先于注入全部存在，无环序问题）。
+
+这里的事务只覆盖框架能控制的 Context 字段、Container ownership 与发布时机；`[Inject]` 方法和属性 setter 是任意用户代码，它们已经发出的事件、文件写入等外部副作用无法通用撤销，必须由实现自身保持幂等或改放显式 Factory / 初始化 owner。
 
 ## Consequences
 

@@ -45,7 +45,7 @@ namespace Game.Framework.Pool
 
         protected override void Awake()
         {
-            base.Awake(); // 注册为 IPoolUtility / IUtility + 注入 [Inject] + 绑 Bag
+            base.Awake(); // 注入 [Inject] + 绑 Bag 成功后注册为 IPoolUtility / IUtility
             ApplyInspectorConfig(this.GetCancellationTokenOnDestroy());
         }
 

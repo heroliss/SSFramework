@@ -89,6 +89,10 @@ namespace Game.Framework.Test
         }
 
         private sealed class InvalidMultiLayer : IModel, ISystem { }
+        private interface IInvalidModel : IModel { }
+        private interface IInvalidSystem : ISystem { }
+        private interface IInvalidUtility : IUtility { }
+        private sealed class InvalidAllLayers : IInvalidModel, IInvalidSystem, IInvalidUtility { }
 
         [Test]
         public void Builder_LayerAwareRegistration_RegistersConcreteAndLayerInterfaces()
@@ -138,6 +142,32 @@ namespace Game.Framework.Test
 
             StringAssert.Contains("恰好实现一个层标记", error.Message);
             StringAssert.Contains(nameof(InvalidMultiLayer), error.Message);
+        }
+
+        [TestCase("Model")]
+        [TestCase("System")]
+        [TestCase("Utility")]
+        public void RuntimeLayerRegistration_MultipleLayerMarkers_FailsBeforeAnyContractIsCommitted(string layer)
+        {
+            using var builder = new ContainerBuilder();
+            using var context = new GameContext(builder.Build(), inheritFromGlobal: false);
+            var invalid = new InvalidAllLayers();
+
+            TestDelegate register = layer switch
+            {
+                "Model" => () => context.RegisterModel(invalid),
+                "System" => () => context.RegisterSystem(invalid),
+                _ => () => context.RegisterUtility(invalid),
+            };
+
+            var error = Assert.Throws<ArgumentException>(register);
+
+            StringAssert.Contains("恰好实现一个层标记", error.Message);
+            StringAssert.Contains(nameof(InvalidAllLayers), error.Message);
+            Assert.IsFalse(context.TryResolve(typeof(InvalidAllLayers), out _));
+            Assert.IsFalse(context.TryResolve(typeof(IInvalidModel), out _));
+            Assert.IsFalse(context.TryResolve(typeof(IInvalidSystem), out _));
+            Assert.IsFalse(context.TryResolve(typeof(IInvalidUtility), out _));
         }
 
         // ── 构建期：同 contract 重复注册 → 后注册胜出（不抛） ──────────────
@@ -588,6 +618,99 @@ namespace Game.Framework.Test
             StringAssert.Contains("不能赋给契约", error.Message);
             StringAssert.Contains(nameof(ModelA), error.Message);
             StringAssert.Contains(nameof(SystemA), error.Message);
+        }
+
+        [Test]
+        public void RegisterFactory_WhenFactoryDisposesContext_ResultIsRejectedAndRemainsExternallyOwned()
+        {
+            var produced = new TrackedDisposable();
+            GameContext context = null;
+            using var builder = new ContainerBuilder();
+            builder.RegisterFactory(_ =>
+                {
+                    context.Dispose();
+                    return produced;
+                },
+                typeof(TrackedDisposable));
+            context = new GameContext(builder.Build(), inheritFromGlobal: false);
+            var container = ContextInternals.GetContainer(context);
+
+            var error = Assert.Throws<ObjectDisposedException>(
+                () => context.Resolve(typeof(TrackedDisposable)));
+
+            StringAssert.Contains("已释放", error.Message);
+            Assert.AreEqual(0, produced.DisposeCount,
+                "普通 Factory 从未转移结果所有权；提交失败也不能擅自 Dispose 外部对象。");
+            Assert.IsTrue(container.LocalRegistrationDetails.Single().IsPendingFactory,
+                "Context 在 Factory 回调中结束后，迟到结果不得写入 Singleton 缓存。");
+
+            produced.Dispose();
+            Assert.AreEqual(1, produced.DisposeCount);
+        }
+
+        [Test]
+        public void RegisterOwnedFactory_WhenFactoryDisposesContext_ResultIsRolledBackExactlyOnce()
+        {
+            var produced = new TrackedDisposable();
+            GameContext context = null;
+            using var builder = new ContainerBuilder();
+            builder.RegisterOwnedFactory(_ =>
+                {
+                    context.Dispose();
+                    return produced;
+                },
+                typeof(TrackedDisposable));
+            context = new GameContext(builder.Build(), inheritFromGlobal: false);
+            var container = ContextInternals.GetContainer(context);
+
+            Assert.Throws<ObjectDisposedException>(
+                () => context.Resolve(typeof(TrackedDisposable)));
+
+            Assert.AreEqual(1, produced.DisposeCount,
+                "OwnedFactory 正常返回的待提交产物，在生命周期复检失败时必须立即回滚且只释放一次。");
+            Assert.IsTrue(container.LocalRegistrationDetails.Single().IsPendingFactory);
+        }
+
+        [Test]
+        public void RegisterOwnedFactory_WhenContextDisposeAlreadyReleasedReturnedAlias_DoesNotDisposeTwice()
+        {
+            var produced = new MultiContractDisposable();
+            GameContext context = null;
+            using var builder = new ContainerBuilder();
+            builder.RegisterOwned(produced, typeof(MultiContractDisposable));
+            builder.RegisterOwnedFactory(_ =>
+                {
+                    context.Dispose();
+                    return produced;
+                },
+                typeof(ITrackedDisposable));
+            context = new GameContext(builder.Build(), inheritFromGlobal: false);
+
+            Assert.Throws<ObjectDisposedException>(
+                () => context.Resolve(typeof(ITrackedDisposable)));
+
+            Assert.AreEqual(1, produced.DisposeCount,
+                "Context 重入释放已处理过的 owned alias；Factory 回滚必须识别弱历史证据，不能再次 Dispose。");
+        }
+
+        [Test]
+        public void RegisterFactory_WhenCallbackAddsOverride_CurrentResolveHonorsFinalPrecedence()
+        {
+            var factoryResult = new ModelA { Tag = "factory" };
+            var runtimeOverride = new ModelA { Tag = "override" };
+            GameContext context = null;
+            using var builder = new ContainerBuilder();
+            builder.RegisterFactory(_ =>
+                {
+                    context.RegisterModel(runtimeOverride);
+                    return factoryResult;
+                },
+                typeof(ModelA));
+            context = new GameContext(builder.Build(), inheritFromGlobal: false);
+
+            Assert.AreSame(runtimeOverride, context.Resolve(typeof(ModelA)),
+                "Factory 回调内新增 override 后，本次 Resolve 也必须遵守 override → binding 的最终优先级。");
+            Assert.AreSame(runtimeOverride, context.Resolve(typeof(ModelA)));
         }
 
         [Test]

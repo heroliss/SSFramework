@@ -1,17 +1,19 @@
+using System;
 using Cysharp.Threading.Tasks;
 using Game.Framework.Context;
 using Game.Framework.Internal;
+using Game.Framework.Logging;
 using UnityEngine;
 
 namespace Game.Framework.View
 {
     /// <summary>
-    /// View 的 Mono 实现基类。挂在 Canvas / 场景节点上，Awake 时自动注入 <c>[Inject]</c> 字段，
+    /// View 的 Mono 实现基类。挂在 Canvas / 场景节点上，Awake 时自动注入 <c>[Inject]</c> 并绑定资源，
     /// OnDestroy 时自动释放 <see cref="Bag"/>（含所有订阅、资源句柄、AssetReference）。
     /// </summary>
     /// <remarks>
     /// <b>谁该用：</b>所有 UI 控件、HUD、特效触发器等"用户可见可交互"的 MonoBehaviour。
-    /// 不需要注册到容器（View 不被其他层依赖），Awake 只做注入。<br/>
+    /// 不需要注册到容器（View 不被其他层依赖），Awake 只做自身接线；失败会回滚 Bag 与临时 Context。<br/>
     /// <b>执行顺序：</b><c>DefaultExecutionOrder(-100)</c>，最晚执行。此时 Model / System / Utility 都已就绪，
     /// 在 Awake 内可以直接 <c>this.ExecuteCommand(new GetXxxStateCommand())</c> 拿订阅源。<br/>
     /// <b>边界（与 IView 权限对齐）：</b>
@@ -36,6 +38,7 @@ namespace Game.Framework.View
 
         private IGameContext _contextProvider;
         private DisposableBag _bag;
+        private bool _tearingDown;
 
         // 显式接口实现：业务子类无法通过 this.Context 访问完整 IGameContext，
         // 只能用扩展方法（this.GetUtility<T>() / this.RegisterEvent<T>() 等），
@@ -59,9 +62,14 @@ namespace Game.Framework.View
 
         protected virtual void Awake()
         {
-            _contextProvider = this.AttachView(_targetContext);
-            if (_contextProvider != null)
+            var contextProvider = this.ResolveViewContext(_targetContext);
+            if (contextProvider == null) return;
+
+            _contextProvider = contextProvider;
+            try
             {
+                contextProvider.Inject(this);
+
                 // AssetReference 字段自动绑定加载器并加入 Bag,由 Bag.Dispose 统一释放。
                 // Bag / utility 延迟解析：没有 AssetReference 字段的 view 不会触发 Bag 创建或 utility 解析。
                 AssetReferenceBinder.BindAll(
@@ -69,13 +77,42 @@ namespace Game.Framework.View
                     () => _contextProvider.TryResolve(typeof(IAssetUtility), out var utility) ? (IAssetUtility)utility : null,
                     this.GetCancellationTokenOnDestroy(),
                     () => Bag);
+
+                if (this == null || _contextProvider == null)
+                    throw new MissingReferenceException(
+                        "[View] Mono View 在初始化完成前已被销毁，不能保留半绑定状态。");
+                if (contextProvider.IsDisposed)
+                    throw new ObjectDisposedException(
+                        nameof(IGameContext),
+                        "[View] 目标 Context 在 Mono View 初始化期间已释放，不能提交绑定。");
+            }
+            catch
+            {
+                TearDownView();
+                throw;
             }
         }
 
         protected virtual void OnDestroy()
         {
-            _bag?.Dispose();
+            TearDownView();
+        }
+
+        private void TearDownView()
+        {
+            if (_tearingDown) return;
+            _tearingDown = true;
+            try
+            {
+                _bag?.Dispose();
+            }
+            catch (Exception e)
+            {
+                Log.Error("Mono View Bag 清理失败；仍会结束本地绑定。", e, nameof(MonoViewBase), this);
+            }
             _bag = null;
+            _contextProvider = null;
+            _tearingDown = false;
         }
     }
 }
