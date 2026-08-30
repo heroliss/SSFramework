@@ -50,7 +50,7 @@ namespace Game.Framework.Demo.Modules
                 var n = this.ExecuteCommand(new InjectServiceCommand());
                 injectLabel.text = $"[Inject] 注入的服务：已构造 {n} 次（与「使用服务」是同一个单例）";
             }, CodeRef.Here("class InjectServiceCommand", "InjectServiceCommand"));
-            host.AddNote("class Command 把依赖声明成 `[Inject]` 字段，`CommandSystem` 在 Execute 前自动注入；上面「使用服务」是 struct Command，不能 `[Inject]`（反射只写到装箱副本），改用 `ctx.GetUtility` 实时解析——两者拿到同一个单例。");
+            host.AddNote("class Command 把依赖声明成 `[Inject]` 字段，默认命令分发器 `CommandSystem` 在 Execute 前自动注入；上面「使用服务」是 struct Command，不能 `[Inject]`（反射只写到装箱副本），改用 `ctx.GetUtility` 实时解析——两者拿到同一个单例。");
             host.AddConcept("[Inject] 字段", "class Command 与三层（Model / System / Utility）可用：Mono 在 `Awake`、纯 C# 在绑定时注入一次、快照到字段。struct Command 不能用。");
             host.AddConcept("this.GetXxx / ctx.GetXxx", "层里也能 `this.GetModel/System/Utility<T>()` 实时解析；struct Command 只能 `ctx.GetXxx`。View 没有 GetModel/GetSystem 权限，只能经 Command 间接拿。");
             host.AddSubNote("权限对 `[Inject]` 一视同仁：注入目标按宿主层的权限闸门校验（与 `this.GetXxx` 同源）——View 注 Model/System、Model 注 System 等越权在注入期 `LogError` 拦下，不是绕权限的后门。Command 例外（经 `ctx` 有完整层访问权）；`GameContext`/`IGameContext` 始终禁注（万能门会绕过权限接口）。");
@@ -95,7 +95,7 @@ namespace Game.Framework.Demo.Modules
         public int Execute(ICommandContext ctx) => ctx.GetUtility<ILazyService>().ConstructCount;
     }
 
-    /// <summary>使用服务（class Command）：依赖声明成 [Inject] 字段，CommandSystem 在 Execute 前自动注入；struct 不能这样。</summary>
+    /// <summary>使用服务（class Command）：依赖声明成 [Inject] 字段，命令分发器在 Execute 前自动注入；struct 不能这样。</summary>
     public sealed class InjectServiceCommand : ICommand<int>
     {
         [Inject] private ILazyService _service;   // class Command 专属：执行前由框架按字段类型从容器注入

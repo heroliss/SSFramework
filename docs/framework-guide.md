@@ -998,7 +998,7 @@ public readonly struct CheckoutCommand : IAsyncCommand
 }
 ```
 
-> 子命令仍只能经 `ctx` 访问层。相比直接调 System 方法，走子命令的价值在于「能被可插拔 CommandSystem 装饰器统一拦截」（日志 / 回放 / 事务，见下）；不需要拦截时直接调 System 方法更直接。
+> 子命令仍只能经 `ctx` 访问层。相比直接调 System 方法，走子命令的价值在于「能被可插拔命令分发器装饰器统一拦截」（日志 / 回放 / 事务，见下）；不需要拦截时直接调 System 方法更直接。
 
 ### 选型建议
 
@@ -1010,9 +1010,9 @@ public readonly struct CheckoutCommand : IAsyncCommand
 | 带返回值 + 热路径要零装箱 | `readonly struct ICommand<T>` + 显式双泛型 `ExecuteCommand<TCmd, TResult>(new Cmd())`——绕开会装箱的可推断重载（`TResult` 只在约束里、无法被推断，所以必须显式写两个实参） |
 | 异步操作 | `readonly struct` + `IAsyncCommand`（同步异步同款；要 `[Inject]` 才用 `class`） |
 
-### 可插拔 CommandSystem：日志、回放、撤销、自动化测试
+### 可插拔命令分发器（ICommandSystem）：日志、回放、撤销、自动化测试
 
-`ICommandSystem` 是一个普通接口注册，默认实现就是无状态的 `CommandSystem`。需要插入横切逻辑时，写一个装饰器实现替换默认注册即可——**所有命令一处统一拦截，业务代码零修改**。
+`ICommandSystem` 是一个普通基础设施接口注册，默认实现是无状态的 `CommandSystem`。这里的 `System` 是兼容保留的历史类型名，**不是五层业务 `ISystem`**：不要用 `RegisterSystem`，而要按精确契约 `RegisterValue(..., typeof(ICommandSystem))`。需要插入横切逻辑时，写一个装饰器实现替换默认注册即可——**所有命令一处统一拦截，业务代码零修改**。
 
 框架自带一个现成的装饰器：`LoggingCommandSystem`（命令流水记录，供诊断面板展示，见 §23）。它就是这个模式的活样板——包住内层 dispatcher、六个重载泛型直转发（struct 路径保持零装箱）：
 
@@ -1022,6 +1022,8 @@ builder.RegisterValue(new LoggingCommandSystem(), typeof(ICommandSystem));
 ```
 
 自定义装饰器（回放 / 撤销 / 拦截）照 `LoggingCommandSystem` 的源码写：构造收 `ICommandSystem inner = null`（默认 `new CommandSystem()`，装饰器可继续嵌套），横切逻辑包在转发前后。
+
+> **为什么不再加一个 `ICommandDispatcher` 别名？** 容器按精确类型键解析，双 Interface 不是透明别名：两份 key 可能被注册成不同实例，反而让命令到底走谁变得含糊。当前保留兼容类型名、统一职责术语；若未来做破坏性版本，再一次性迁移 Interface、默认实现、装饰器与 DI key。
 
 这个拦截点能承载很多典型需求：
 

@@ -51,6 +51,15 @@ namespace Game.Framework.Test
         }
 
         [Test]
+        public void CommandDispatcher_IsInfrastructureRatherThanFiveLayerSystem()
+        {
+            Assert.That(typeof(ISystem).IsAssignableFrom(typeof(ICommandSystem)), Is.False,
+                "ICommandSystem 是命令分发 Seam，不应获得五层 System 的访问能力");
+            Assert.That(typeof(ISystem).IsAssignableFrom(typeof(CommandSystem)), Is.False,
+                "默认 CommandSystem 的历史类型名不应改变其基础设施定位");
+        }
+
+        [Test]
         public void GetModel_ShouldReturnRegisteredModel()
         {
             var model = _gameContext.GetModel<TestModel>();

@@ -36,7 +36,7 @@ namespace Game.Framework.Context
         private readonly Container _container;
         private readonly bool _inheritFromGlobal;
         private readonly Dictionary<Type, object> _typedEvents = new();
-        private ICommandSystem _commandSystem;
+        private ICommandSystem _commandDispatcher;
         private bool _disposed;
         private CancellationTokenSource _cts;
 
@@ -252,55 +252,55 @@ namespace Game.Framework.Context
         public void ExecuteCommand<T>(T command) where T : ICommand
         {
             ThrowIfDisposed();
-            ResolveCommandSystem().ExecuteCommand(command, this);
+            ResolveCommandDispatcher().ExecuteCommand(command, this);
         }
 
         public TResult ExecuteCommand<TResult>(ICommand<TResult> command)
         {
             ThrowIfDisposed();
-            return ResolveCommandSystem().ExecuteCommand(command, this);
+            return ResolveCommandDispatcher().ExecuteCommand(command, this);
         }
 
         public TResult ExecuteCommand<T, TResult>(T command) where T : ICommand<TResult>
         {
             ThrowIfDisposed();
-            return ResolveCommandSystem().ExecuteCommand<T, TResult>(command, this);
+            return ResolveCommandDispatcher().ExecuteCommand<T, TResult>(command, this);
         }
 
         public UniTask ExecuteCommandAsync<T>(T command) where T : IAsyncCommand
         {
             ThrowIfDisposed();
-            return ResolveCommandSystem().ExecuteCommandAsync(command, this, CancellationToken);
+            return ResolveCommandDispatcher().ExecuteCommandAsync(command, this, CancellationToken);
         }
 
         public UniTask ExecuteCommandAsync<T>(T command, CancellationToken cancellationToken) where T : IAsyncCommand
         {
             ThrowIfDisposed();
-            return ResolveCommandSystem().ExecuteCommandAsync(command, this, cancellationToken);
+            return ResolveCommandDispatcher().ExecuteCommandAsync(command, this, cancellationToken);
         }
 
         public UniTask<TResult> ExecuteCommandAsync<TResult>(IAsyncCommand<TResult> command)
         {
             ThrowIfDisposed();
-            return ResolveCommandSystem().ExecuteCommandAsync(command, this, CancellationToken);
+            return ResolveCommandDispatcher().ExecuteCommandAsync(command, this, CancellationToken);
         }
 
         public UniTask<TResult> ExecuteCommandAsync<TResult>(IAsyncCommand<TResult> command, CancellationToken cancellationToken)
         {
             ThrowIfDisposed();
-            return ResolveCommandSystem().ExecuteCommandAsync(command, this, cancellationToken);
+            return ResolveCommandDispatcher().ExecuteCommandAsync(command, this, cancellationToken);
         }
 
         public UniTask<TResult> ExecuteCommandAsync<T, TResult>(T command) where T : IAsyncCommand<TResult>
         {
             ThrowIfDisposed();
-            return ResolveCommandSystem().ExecuteCommandAsync<T, TResult>(command, this, CancellationToken);
+            return ResolveCommandDispatcher().ExecuteCommandAsync<T, TResult>(command, this, CancellationToken);
         }
 
         public UniTask<TResult> ExecuteCommandAsync<T, TResult>(T command, CancellationToken cancellationToken) where T : IAsyncCommand<TResult>
         {
             ThrowIfDisposed();
-            return ResolveCommandSystem().ExecuteCommandAsync<T, TResult>(command, this, cancellationToken);
+            return ResolveCommandDispatcher().ExecuteCommandAsync<T, TResult>(command, this, cancellationToken);
         }
 
         // ---- 事件（按类型独立 Subject，无广播过滤） ----
@@ -401,7 +401,7 @@ namespace Game.Framework.Context
                     cts.Dispose();
                 }
             }
-            _commandSystem = null;
+            _commandDispatcher = null;
             foreach (var subject in _typedEvents.Values)
                 ((IDisposable)subject).Dispose();
             _typedEvents.Clear();
@@ -438,11 +438,11 @@ namespace Game.Framework.Context
             return s;
         }
 
-        private ICommandSystem ResolveCommandSystem()
+        private ICommandSystem ResolveCommandDispatcher()
         {
-            if (_commandSystem != null) return _commandSystem;
-            _commandSystem = (ICommandSystem)Resolve(typeof(ICommandSystem));
-            return _commandSystem;
+            if (_commandDispatcher != null) return _commandDispatcher;
+            _commandDispatcher = (ICommandSystem)Resolve(typeof(ICommandSystem));
+            return _commandDispatcher;
         }
 
         // ---- AttachTo 反射字段缓存 ----

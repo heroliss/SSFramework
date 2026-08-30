@@ -32,7 +32,7 @@ namespace Game.Framework.Demo.Modules
 
             // ── 三步 ──
             host.AddSectionTitle("三步搭起骨架");
-            host.AddStep("①", "**全局根**：主场景根建一个节点（如 `MainContext`），挂你的 `MonoGlobalContext` 子类。它 Awake 自动做三件事：设 `GameContext.Main`、`DontDestroyOnLoad` 跨场景保留、检测重复实例。覆写 `InstallBindings` 注册跨场景的纯 C# 服务（CommandSystem / 音频 / 存储…）。",
+            host.AddStep("①", "**全局根**：主场景根建一个节点（如 `MainContext`），挂你的 `MonoGlobalContext` 子类。它 Awake 自动做三件事：设 `GameContext.Main`、`DontDestroyOnLoad` 跨场景保留、检测重复实例。覆写 `InstallBindings` 注册跨场景的纯 C# 服务（命令分发器 / 音频 / 存储…）。",
                 new CodeRef("Assets/Game/Framework/Core/Context/MonoGlobalContext.cs", "class MonoGlobalContext", "MonoGlobalContext · 业务继承点"));
             host.AddStep("②", "**功能层**：两条路进容器——Mono 路径把 `MonoModelBase` / `MonoSystemBase` / `MonoUtilityBase` 子类挂在 Context 子树下（Awake 自动注册 + Inspector 可视）；纯 C# 路径在 `InstallBindings` 里注册（可热更、可单测）。两条路怎么选见「Model · 状态与 Inspector」章。");
             host.AddStep("③", "**View**：`MonoViewBase` 子类挂进（或运行时 Instantiate 进）Context 子树，`Awake` 里订阅查询 Command 刷 UI、按钮点击发 Command——写法就是「最小闭环」那一圈，界面复杂后再引入「UI 框架」章的窗口调度。");

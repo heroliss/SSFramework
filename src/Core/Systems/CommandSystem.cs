@@ -6,7 +6,8 @@ using Game.Framework.Context;
 namespace Game.Framework.Systems
 {
     /// <summary>
-    /// 默认命令处理系统。无状态 —— 不持有 GameContext 引用，
+    /// 默认命令分发器。类型名为兼容既有公共 API 保留；它不是五层业务 ISystem。
+    /// 无状态 —— 不持有 GameContext 引用，
     /// 每次调用都使用入参 ctx，跨级共享/继承都安全。
     ///
     /// 执行流程：

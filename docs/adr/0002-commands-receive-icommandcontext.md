@@ -19,4 +19,6 @@ struct Command 又不能用 `this.GetXxx<T>()` 扩展方法（值类型接口调
 - ✅ Command 内拿不到 Container/Register*/Main，越权即编译不出。
 - ✅ struct/class Command 统一通过 `ctx` 参数访问层，零装箱零分配（struct 必须如此）。
 - ⚠️ 文档/示例必须写 `ICommandContext ctx`——曾出现文档写成 `GameContext ctx` 的漂移（会让人/AI 写出无法实现接口的代码）。已统一修正，并以 Demo 为准绳。
-- `ICommandSystem.ExecuteCommand(command, GameContext ctx)` 仍收 `GameContext`（它是框架内部派发器，需要完整上下文），不要与 Command 的 `Execute` 混淆。
+- `ICommandSystem.ExecuteCommand(command, GameContext ctx)` 仍收 `GameContext`（它是框架内部命令分发器，需要完整上下文），不要与 Command 的 `Execute` 混淆。
+
+**2026-08-30 命名澄清：**`ICommandSystem` / `CommandSystem` 的 `System` 是早期公共类型名，不表示五层业务 `ISystem`。命令分发器是 Context 基础设施 Seam：使用 `RegisterValue(..., typeof(ICommandSystem))` 精确注册，不使用 `RegisterSystem`。`LoggingCommandSystem` 已证明该 Interface 的替换价值，因此不删除 Seam；同时不引入 `ICommandDispatcher` 双契约别名——精确类型 DI 下两种 key 可能指向不同实例。若未来破坏性版本改名，应一次性迁移 Interface、Implementation、装饰器与注册 key。
