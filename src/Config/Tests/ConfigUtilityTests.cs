@@ -62,6 +62,24 @@ namespace Game.Framework.Config.Tests
         }
 
         [UnityTest]
+        public IEnumerator EnsureReady_DisabledWhileIdle_FailsFastWithoutPoisoningLaterStart()
+        {
+            yield return EnsureReady_DisabledWhileIdle_FailsFastWithoutPoisoningLaterStartAsync().ToCoroutine();
+        }
+
+        [UnityTest]
+        public IEnumerator EnsureReady_InactiveWhileIdle_FailsFastWithoutPoisoningLaterStart()
+        {
+            yield return EnsureReady_InactiveWhileIdle_FailsFastWithoutPoisoningLaterStartAsync().ToCoroutine();
+        }
+
+        [UnityTest]
+        public IEnumerator EnsureReady_ProviderCancelsWithoutOwnerIntent_PublishesWrappedFailure()
+        {
+            yield return EnsureReady_ProviderCancelsWithoutOwnerIntent_PublishesWrappedFailureAsync().ToCoroutine();
+        }
+
+        [UnityTest]
         public IEnumerator Destroy_CancelsSharedLoadAndWaiter()
         {
             yield return Destroy_CancelsSharedLoadAndWaiterAsync().ToCoroutine();
@@ -189,6 +207,81 @@ namespace Game.Framework.Config.Tests
             var tables = await shared;
             Assert.AreEqual(ConfigInitState.Ready, config.State.CurrentValue);
             CollectionAssert.AreEqual(new byte[] { 7, 8, 9 }, tables.Bytes);
+        }
+
+        private async UniTask EnsureReady_DisabledWhileIdle_FailsFastWithoutPoisoningLaterStartAsync()
+        {
+            byte[] expectedBytes = { 3, 1, 4 };
+            _provider.SetBytes("alpha", expectedBytes);
+            var config = CreateConfig(new[] { "alpha" });
+            config.enabled = false;
+
+            var failure = await CaptureFailure(config.EnsureReady());
+
+            Assert.IsInstanceOf<InvalidOperationException>(failure);
+            StringAssert.Contains("TestConfigUtility", failure.Message);
+            StringAssert.Contains("disabled", failure.Message);
+            StringAssert.Contains("启用组件", failure.Message);
+            Assert.AreEqual(ConfigInitState.Idle, config.State.CurrentValue,
+                "对尚未启动的 disabled 服务做无效等待，不应把一次可修复的场景配置问题发布成终态失败");
+            Assert.AreEqual(0, _provider.LoadBytesCalls);
+
+            config.enabled = true;
+            var tables = await config.EnsureReady();
+
+            Assert.AreEqual(ConfigInitState.Ready, config.State.CurrentValue);
+            Assert.AreSame(expectedBytes, tables.Bytes);
+            Assert.AreEqual(1, _provider.LoadBytesCalls,
+                "重新启用后 Unity Start 应正常拥有第一次加载，先前的 fail-fast 不能毒化 completion");
+        }
+
+        private async UniTask EnsureReady_InactiveWhileIdle_FailsFastWithoutPoisoningLaterStartAsync()
+        {
+            byte[] expectedBytes = { 1, 6, 1, 8 };
+            _provider.SetBytes("alpha", expectedBytes);
+            var config = CreateConfig(new[] { "alpha" });
+            config.gameObject.SetActive(false);
+
+            var failure = await CaptureFailure(config.EnsureReady());
+
+            Assert.IsInstanceOf<InvalidOperationException>(failure);
+            StringAssert.Contains("TestConfigUtility", failure.Message);
+            StringAssert.Contains("inactive", failure.Message);
+            StringAssert.Contains("激活 GameObject", failure.Message);
+            Assert.AreEqual(ConfigInitState.Idle, config.State.CurrentValue);
+            Assert.AreEqual(0, _provider.LoadBytesCalls);
+
+            config.gameObject.SetActive(true);
+            var tables = await config.EnsureReady();
+
+            Assert.AreEqual(ConfigInitState.Ready, config.State.CurrentValue);
+            Assert.AreSame(expectedBytes, tables.Bytes);
+            Assert.AreEqual(1, _provider.LoadBytesCalls,
+                "重新激活后 Unity Start 应正常拥有第一次加载，先前的 fail-fast 不能毒化 completion");
+        }
+
+        private async UniTask EnsureReady_ProviderCancelsWithoutOwnerIntent_PublishesWrappedFailureAsync()
+        {
+            var providerCancellation = new OperationCanceledException("provider-canceled-without-owner-intent");
+            _provider.FailNextLoad(providerCancellation);
+            var config = CreateConfig(new[] { "alpha" });
+
+            LogAssert.Expect(LogType.Error,
+                new Regex(@"\[ConfigUtility\] 配置服务.TestConfigUtility.加载表根失败"));
+            // UniTask.WhenAll 会把下游 OCE 归一化为取消终态；日志仍应保留异常类型与调用栈，
+            // 但不把 Provider 自定义 message / 对象 identity 当成公共契约。
+            LogAssert.Expect(LogType.Exception, new Regex("OperationCanceledException"));
+            var failure = await CaptureFailure(config.EnsureReady());
+
+            Assert.IsInstanceOf<InvalidOperationException>(failure,
+                "owner 未请求取消时，Provider 自发 OCE 是适配器失败，不能伪装成生命周期控制流");
+            Assert.IsInstanceOf<OperationCanceledException>(failure.InnerException);
+            StringAssert.Contains("owner token 未请求取消", failure.Message);
+            Assert.AreEqual(ConfigInitState.Failed, config.State.CurrentValue);
+            Assert.IsFalse(_root.transform.GetChild(0).GetComponent<MonoGameContextBase>()
+                .CancellationToken.IsCancellationRequested);
+            Assert.AreSame(failure, await CaptureFailure(config.EnsureReady()),
+                "稍后加入的 waiter 应收到同一个已包装根因，而不是错误的取消终态");
         }
 
         private async UniTask Destroy_CancelsSharedLoadAndWaiterAsync()
@@ -381,6 +474,7 @@ namespace Game.Framework.Config.Tests
             private readonly Dictionary<string, byte[]> _bytes = new(StringComparer.Ordinal);
             private readonly Queue<LoadGate> _plannedLoads = new();
             private readonly HashSet<string> _readyPackages = new(StringComparer.Ordinal);
+            private Exception _nextLoadFailure;
 
             public int LoadBytesCalls { get; private set; }
 
@@ -406,9 +500,19 @@ namespace Game.Framework.Config.Tests
                 return gate;
             }
 
+            public void FailNextLoad(Exception failure) =>
+                _nextLoadFailure = failure ?? throw new ArgumentNullException(nameof(failure));
+
             public async UniTask<byte[]> LoadBytesAsync(string packageName, string location, CancellationToken ct)
             {
                 LoadBytesCalls++;
+                if (_nextLoadFailure != null)
+                {
+                    var failure = _nextLoadFailure;
+                    _nextLoadFailure = null;
+                    throw failure;
+                }
+
                 if (_plannedLoads.Count > 0)
                 {
                     var gate = _plannedLoads.Dequeue();

@@ -30,7 +30,8 @@ namespace Game.Framework
     ///
     /// <para><b>生命周期：</b>Context 取消会终止共享加载及未完成的 <see cref="EnsureReady"/> 等待；
     /// 配置组件销毁还会 Dispose <see cref="State"/> 使订阅正常完结。取消回调即使抛异常也不会截断状态流、
-    /// Bag 与 Context 反注册的后续清理。</para>
+    /// Bag 与 Context 反注册的后续清理。Idle 时禁用组件或 GameObject 会让 <see cref="EnsureReady"/> 立即给出可操作错误，
+    /// 而不是等待一个 Unity 不会调用的 <c>Start</c>；owner token 未取消时下游自发抛出的取消异常属于失败。</para>
     /// </summary>
     /// <typeparam name="TTables">配置表根类型。</typeparam>
     [DefaultExecutionOrder(-400)]
@@ -58,8 +59,22 @@ namespace Game.Framework
         /// <inheritdoc />
         public async UniTask<TTables> EnsureReady(CancellationToken cancellationToken = default)
         {
-            if (_state.CurrentValue == ConfigInitState.Ready) return _tables;
-            if (_state.CurrentValue == ConfigInitState.Failed) return RethrowFailure();
+            var state = _state.CurrentValue;
+            if (state == ConfigInitState.Ready) return _tables;
+            if (state == ConfigInitState.Failed) return RethrowFailure();
+
+            // Start 尚未获得执行机会但组件有效时，等待同一共享 completion 是合法的启动门禁；
+            // disabled / inactive 的 MonoBehaviour 则根本不会收到 Start，继续等待只会制造无终态挂起。
+            // 这里只报告可修复的场景接线问题，不写 Failed / completion，重新启用后仍能由 Start 发起首次加载。
+            if (state == ConfigInitState.Idle && !isActiveAndEnabled)
+            {
+                string reason = !gameObject.activeInHierarchy
+                    ? "所在 GameObject 处于未激活（inactive）状态"
+                    : "组件处于禁用（disabled）状态";
+                throw new InvalidOperationException(
+                    $"配置服务“{GetType().Name}”仍为 Idle，且{reason}；Unity 不会调用它的 Start，" +
+                    "EnsureReady 无法等到加载开始。请先激活 GameObject 并启用组件，再调用 EnsureReady / EnsureConfig。");
+            }
 
             // 调用者只挂到共享完成信号上；AttachExternalCancellation 不会把短命 token 传给真正的资源加载。
             // 因而界面切走等局部取消只让该 waiter 离开，组件 / Context 仍拥有同一次物理加载。
@@ -197,10 +212,19 @@ namespace Game.Framework
                 _state.Value = ConfigInitState.Ready;
                 _completion.TrySetResult();
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
                 // 宿主或 Context 销毁导致的取消是正常退出路径，不算失败。
                 _completion.TrySetCanceled(token);
+            }
+            catch (OperationCanceledException e)
+            {
+                // OCE 只有在 owner token 确实取消时才是生命周期控制流。否则通常是 Provider / Adapter
+                // 错误地自发取消；若也发布成 canceled，调用方会误以为 Context 已销毁，State 还会永久停在 Loading。
+                PublishFailure(new InvalidOperationException(
+                    "[ConfigUtility] 配置加载下游在 owner token 未请求取消时抛出 OperationCanceledException。" +
+                    "这属于 Provider / Adapter 失败；请检查其取消来源与 token 透传。",
+                    e));
             }
             catch (Exception e) when (token.IsCancellationRequested)
             {
@@ -215,15 +239,20 @@ namespace Game.Framework
             }
             catch (Exception e)
             {
-                _failure = ExceptionDispatchInfo.Capture(e);
-                _state.Value = ConfigInitState.Failed;
-                Log.Error(
-                    $"配置服务“{GetType().Name}”加载表根失败。",
-                    e,
-                    "ConfigUtility",
-                    this);
-                _completion.TrySetResult();
+                PublishFailure(e);
             }
+        }
+
+        private void PublishFailure(Exception failure)
+        {
+            _failure = ExceptionDispatchInfo.Capture(failure);
+            _state.Value = ConfigInitState.Failed;
+            Log.Error(
+                $"配置服务“{GetType().Name}”加载表根失败。",
+                failure,
+                "ConfigUtility",
+                this);
+            _completion.TrySetResult();
         }
 
         private IReadOnlyList<string> SnapshotAndValidateTableFiles()
