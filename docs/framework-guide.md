@@ -1310,6 +1310,10 @@ public class MiniGameController : MonoBehaviour
 
 `MonoViewBase/MonoModelBase/MonoSystemBase/MonoUtilityBase` 内置 protected `Bag`——动态加载通过 `Bag.Load<T>(location)` / `Bag.LoadScene(...)`，handle 自动登记到 Bag，`OnDestroy` 时统一释放；`Bag.LoadText` / `Bag.LoadBytes` 是内容直读（拷出即释放句柄、不进 Bag），按包构建类型自动路由（普通 AB 包按 TextAsset 取内容，RawFile 包走原生通道）。`AssetReference<T>` 字段则自己持有 handle，并由宿主 `OnDestroy` 自动 `Dispose`。真实引用计数由具体资源 provider 维护，框架只管理“谁负责释放哪一类 handle”。
 
+`AssetReference` 的包名留空表示“加载时使用当前绑定 `IAssetUtility` 的默认包”，不是在序列化时记住某个场景全局值。各宿主独立持有的引用实例可以属于不同局部 Context，因此 Inspector 会诚实显示“运行时默认包”；只有打开包名下拉时，才把当前已加载配置中的包名列为录入候选。这些候选不代表作用域验证，最终默认包始终由实际绑定的 Utility 决定。
+
+这里的“晚绑定”不等于实例可跨 Context 共享：一个 `AssetReference` 实例只有一份 `BoundUtility`、宿主 token 和 handle，同一 ScriptableObject 实例不能同时登记进多个宿主 Bag。共享配置应由一个足够长生命周期的 owner 持有；若多个 Context 各自需要加载与释放，就为每个 owner 创建独立配置实例或副本。显式 packageName 只固定包选择，不会把同一个引用变成多 owner 安全。
+
 `ScriptableObject` 或纯 C# 配置没有 Mono `Awake/OnDestroy`，应由实际持有者显式建立所有权：加载配置的 `Bag` 调用 `Bag.BindAssetReferences(config)`，把配置的直接 `AssetReference` 字段绑定到同一个资源入口、宿主取消信号和释放作用域。框架刻意不递归接管嵌套/共享 SO，避免某个短命 View 把共享配置的引用提前释放。旧代码若完全没绑定，仍可从 `GameContext.Main` 取得加载器以兼容迁移，但会输出 Warning；这个回退**只补加载来源，不把 handle 登记进任何 Bag**，引用仍必须手动 `Dispose`。新代码不要把回退当正常路径。
 
 ```csharp

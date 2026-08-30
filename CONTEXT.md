@@ -38,6 +38,10 @@ Demo 教学内容与自动化之间的运行时 Seam。`DemoModuleHost` 在真�
 
 场景中资源基础设施的唯一正式 Mono 入口：`AssetUtility` 内嵌 `AssetRuntimeSettings`，拥有 provider、包状态机、自动初始化批次与加载/维护能力；配置不是业务 Model，启动薄编排也不是业务 System。场景路径在 Awake 应用设置、Start 自动初始化；代码引导在 Start 前 `Configure` 即接管启动，随后显式 `Initialize`。业务只依赖 `IAssetUtility`，Editor/Demo 才从具体 Utility 读取只读 Settings。`AssetSystemConfigModel` / `AssetInitSystem` 仅是可迁移兼容层，不得用于新场景。
 
+## Asset Reference Package Resolution
+
+`AssetReference.PackageName` 为空不是“编辑时绑定到场景里第一个默认包”，而是加载时由该引用已经绑定的 `IAssetUtility` 解析默认包；各宿主独立持有的引用实例因此可以随所属 Context 使用不同配置。Inspector 只把已加载配置中的包名作为点击下拉后的录入候选，不在每次重绘时扫描并猜测全局唯一默认值，也不把候选冒充运行时作用域验证。单个引用实例仍只有一份 `BoundUtility`、`HostToken` 与 handle 所有权，不能同时登记进多个 Context/Bag；共享配置需由单一 owner 持有，或为各 owner 创建独立实例/副本。
+
 ## Config Readiness
 
 `IConfigUtility<TTables>` 对一次自加载尝试的稳定就绪契约。响应式消费者订阅 `State`；命令式流程通常经 Context 感知的 `await EnsureConfig<TTables>(token)` 得到同一份 `Tables` 或原始失败；已证明 Ready 的同步路径用 `GetConfig<TTables>()`，高频调用再缓存返回值。两个短入口都解析当前精确 Context，不引入全局静态表。调用方取消只脱离自己的 waiter，组件与 Context 共同拥有物理加载并在销毁时取消；失败后不隐式重试。该 Interface 把终态编排、根异常保存和共享所有权藏在 Config Module 内，业务不再复制 `WaitUntil(Ready or Failed)`。

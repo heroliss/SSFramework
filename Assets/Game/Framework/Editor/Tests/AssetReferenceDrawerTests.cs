@@ -3,9 +3,27 @@ using UnityEngine;
 
 namespace Game.Framework.Editor.Tests
 {
-    /// <summary>锁定 AssetReference 在极窄 Inspector 下的降级模式与非负宽度约束。</summary>
+    /// <summary>锁定 AssetReference 的包作用域提示，以及极窄 Inspector 下的布局边界。</summary>
     public sealed class AssetReferenceDrawerTests
     {
+        [TestCase(null, "运行时默认包")]
+        [TestCase("", "运行时默认包")]
+        [TestCase("HotUpdate", "HotUpdate")]
+        public void PackageDisplay_DoesNotGuessOneGlobalDefault(string packageName, string expected)
+        {
+            Assert.That(AssetReferenceDrawer.GetPackageDisplayText(packageName), Is.EqualTo(expected));
+            string tooltip = AssetReferenceDrawer.GetPackageTooltip(packageName);
+            if (string.IsNullOrEmpty(packageName))
+            {
+                Assert.That(tooltip, Does.Contain(nameof(IAssetUtility)));
+                Assert.That(tooltip, Does.Contain("Context"));
+            }
+            else
+            {
+                Assert.That(tooltip, Does.Contain(packageName));
+            }
+        }
+
         [Test]
         public void ResolveLayoutMode_PreservesReadableControlsAtEveryBoundary()
         {

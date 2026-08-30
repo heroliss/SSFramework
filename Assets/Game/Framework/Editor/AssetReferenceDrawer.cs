@@ -23,6 +23,10 @@ namespace Game.Framework.Editor
         private const float InlinePackageMinWidth = 72f;
         private const float PackageMaxWidth = 120f;
         private const float PackageGap = 4f;
+        private const string RuntimeDefaultPackageLabel = "运行时默认包";
+        private const string RuntimeDefaultPackageTooltip =
+            "留空 = 加载时使用该引用绑定的 IAssetUtility 默认包。" +
+            "Inspector 不会从所有已打开 Context 中猜测某个全局默认值。";
 
         internal enum LayoutMode
         {
@@ -174,27 +178,29 @@ namespace Game.Framework.Editor
         {
             if (packageProp == null)
             {
-                EditorGUI.LabelField(rect, "（默认资源包）", EditorStyles.popup);
+                EditorGUI.LabelField(
+                    rect,
+                    new GUIContent(RuntimeDefaultPackageLabel, RuntimeDefaultPackageTooltip),
+                    EditorStyles.popup);
                 return;
             }
 
-            var current = packageProp.stringValue;
-            var defaultPkg = ResolveDefaultPackageName();
-            bool noDefault = string.IsNullOrEmpty(defaultPkg);
-            // 留空 = 用默认包。没配默认包时，留空的引用 Get() 会报错——把标签/提示改成警告态，引导显式指定包。
-            var defaultLabel = noDefault ? "(无默认包!)" : $"默认: {defaultPkg}";
-            var text = string.IsNullOrEmpty(current) ? defaultLabel : current;
-            var tooltip = string.IsNullOrEmpty(current)
-                ? (noDefault
-                    ? "⚠ 未配置默认包：留空的引用 Get() 会报错。请在此显式指定包，或给 AssetUtility 的资源运行配置设置“默认资源包”。"
-                    : $"留空 = 用默认包（当前默认包：{defaultPkg}）")
-                : $"显式指定包：{current}";
+            string current = packageProp.stringValue;
+            string text = GetPackageDisplayText(current);
+            string tooltip = GetPackageTooltip(current);
             if (!GUI.Button(rect, new GUIContent(text, tooltip), EditorStyles.popup)) return;
 
             var menu = new GenericMenu();
-            menu.AddItem(new GUIContent(defaultLabel), string.IsNullOrEmpty(current), () => SetPackageName(packageProp, ""));
+            menu.AddItem(
+                new GUIContent($"（{RuntimeDefaultPackageLabel}）", RuntimeDefaultPackageTooltip),
+                string.IsNullOrEmpty(current),
+                () => SetPackageName(packageProp, ""));
             var knownPackages = EnumerateKnownPackages();
-            if (knownPackages.Count > 0) menu.AddSeparator("");
+            if (knownPackages.Count > 0)
+            {
+                menu.AddSeparator("");
+                menu.AddDisabledItem(new GUIContent("已加载配置中的候选（仅用于录入）"));
+            }
             foreach (var packageName in knownPackages)
             {
                 var captured = packageName;
@@ -205,6 +211,14 @@ namespace Game.Framework.Editor
             menu.AddItem(new GUIContent("自定义..."), false, () => PackageNamePopup.Open(packageProp, popupAnchor));
             menu.DropDown(rect);
         }
+
+        internal static string GetPackageDisplayText(string packageName)
+            => string.IsNullOrEmpty(packageName) ? RuntimeDefaultPackageLabel : packageName;
+
+        internal static string GetPackageTooltip(string packageName)
+            => string.IsNullOrEmpty(packageName)
+                ? RuntimeDefaultPackageTooltip
+                : $"显式指定包：{packageName}";
 
         internal static Rect CalculateUtilityPopupRect(Vector2 anchor, Rect desktop, Vector2 size)
         {
@@ -224,20 +238,7 @@ namespace Game.Framework.Editor
             return new Rect(x, y, size.x, size.y);
         }
 
-        // 解析当前场景里 AssetUtility 配的默认包名，用于把「留空」显示成「默认: 具体包名」。
-        private static string ResolveDefaultPackageName()
-        {
-            foreach (AssetUtility utility in Resources.FindObjectsOfTypeAll<AssetUtility>())
-                if (utility != null && !string.IsNullOrWhiteSpace(utility.Settings.DefaultPackageName))
-                    return utility.Settings.DefaultPackageName;
-#pragma warning disable CS0618 // 未迁移的外部场景仍需正确绘制 AssetReference。
-            foreach (AssetSystemConfigModel legacy in Resources.FindObjectsOfTypeAll<AssetSystemConfigModel>())
-                if (legacy != null && !string.IsNullOrWhiteSpace(legacy.DefaultPackageName))
-                    return legacy.DefaultPackageName;
-#pragma warning restore CS0618
-            return "";
-        }
-
+        // 仅在用户打开下拉菜单时采集录入候选；它们不是当前引用的运行时作用域判断。
         private static List<string> EnumerateKnownPackages()
         {
             var result = new List<string>();
