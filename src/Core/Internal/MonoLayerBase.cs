@@ -54,6 +54,18 @@ namespace Game.Framework.Internal
         /// </summary>
         protected DisposableBag Bag => _bag ??= new DisposableBag(_contextProvider);
 
+#if UNITY_EDITOR
+        /// <summary>
+        /// Editor 工具只读解析本组件明确或按 Transform 父链归属的 Context 宿主。
+        /// 不回退 <see cref="GameContext.Main"/>：Edit Mode 无法可靠推断未来运行时的全局主 Context，
+        /// 迁移器遇到这种无宿主接线时只能按同 GameObject 的最窄范围处理。
+        /// </summary>
+        internal MonoGameContextBase ResolveContextHostForEditor() =>
+            _targetContext != null
+                ? _targetContext
+                : GetComponentInParent<MonoGameContextBase>(includeInactive: true);
+#endif
+
         protected virtual void Awake()
         {
             _contextProvider = this.AttachLayer<TLayer>(_targetContext);

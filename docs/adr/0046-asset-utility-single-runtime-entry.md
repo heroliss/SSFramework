@@ -21,7 +21,7 @@
 3. 场景路径在 `AssetUtility.Awake` 应用配置并建立状态，在 `Start` 执行自动初始化。这样 `AddComponent<AssetUtility>()` 后立即调用 `Configure` 的代码引导拥有一个确定窗口；显式 `Configure` 会接管启动并抑制 Inspector 自动初始化。
 4. 标记为自动初始化的包在 Awake 后即被 Utility 识别。若其它组件在 `AssetUtility.Start` 前调用 `EnsureInitialized`，首次调用可直接启动同一个包 owner；后续 Start 幂等加入，避免依赖兄弟 Start 顺序。
 5. 保留 `AssetSystemConfigModel` 与 `AssetInitSystem` 作为 `[Obsolete]`、隐藏 Add Component 的旧场景兼容层：前者维持旧字段名并能深拷贝成新设置，后者只把旧设置交给 Utility 的同一批量初始化实现。兼容层不再是新设计扩展点。
-6. 提供基于真实 GameObject 选择的 Editor 迁移操作：深拷贝配置到同节点 `AssetUtility`，再经 Undo 删除两个旧组件并标记场景为脏；缺少同节点 Utility 时 fail-fast，不跨 Context 猜目标。
+6. 提供基于真实 GameObject 选择的 Editor 迁移操作：深拷贝配置到同节点 `AssetUtility`，再经 Undo 删除旧组件并标记场景为脏；缺少同节点 Utility 时 fail-fast，不跨 Context 猜 Utility。迁移器按显式 `_targetContext` 或最近父 Context 解析旧接线，先验证 Config 与 Utility 同作用域，且该作用域恰好各有一份 Config 和 Utility，再一次删除同一 Scene/Context 的全部 `AssetInitSystem`（包括兄弟节点）。跨 Scene、跨 Context 与无法判断 `GameContext.Main` 回退归属的无宿主接线等已识别风险均在任何写入前失败。Project 中的持久化 Prefab 不直接修改，必须进入 Prefab Mode；全局歧义扫描按 Main Stage / 当前 Prefab Stage 隔离，其它预览 Scene 不会误拦当前作用域的迁移。
 7. 仓库内 DemoScene 与 OutpostGame 通过 Unity Editor 迁移为单组件入口。Demo、主指南、资源流程与加密文档统一使用 `AssetUtility.Settings` 术语。
 8. 单入口也是唯一销毁事务 owner：宿主销毁先取消初始化 / 维护任务，再释放 Provider 并完结所有已发布状态流，最后从 Context 反注册。可替换 Provider 的 `Dispose` 异常只记录，不得截断后续阶段；销毁后的旧 Utility 引用查询状态必须 fail-fast，不能重新创建一份脱离 Context 的状态。
 
@@ -44,7 +44,7 @@
 ## 验证
 
 - 架构测试锁定 `AssetRuntimeSettings` 不属于 Model/System，`AssetUtility` 仍属于 Utility。
-- Editor 迁移测试覆盖全部字段深拷贝、CDN 规范化、包级策略、旧组件删除，以及缺少同节点 Utility 时不破坏源数据。
+- Editor 迁移测试覆盖全部字段深拷贝（含两端运行模式、包元素与 CDN 集合不共享引用）、CDN 规范化、包级策略、同一 Scene/Context 的兄弟 Init 删除，以及多 Config / 多 Utility / 跨 Context / 无宿主歧义 / 缺少同节点 Utility / 持久化 Prefab 时零副作用失败。
 - 资源协调测试证明 `Configure` 在 Start 前抑制 Inspector 自动启动；YooAsset 加载测试只搭建 Context + AssetUtility 并走真实单入口自动初始化。
 - 两个仓库场景迁移前后逐字段 diff 相同，且场景中不再存在旧配置/初始化组件。
 - Unity 编译、相关 EditMode / PlayMode 与完整回归通过。
