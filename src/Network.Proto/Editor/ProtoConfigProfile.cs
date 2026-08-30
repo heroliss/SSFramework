@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using Game.Framework.Editor;
 using UnityEditor;
 using UnityEngine;
 
@@ -12,7 +13,7 @@ namespace Game.Framework.Network.Proto.Editor
     ///
     /// 路径字段一律相对工程根目录，保证多人协作不受本机绝对路径影响。
     /// <b>工程可并存多套</b>（正式协议一套 + 框架测试一套等）：每套必须独占一个位于 <c>Assets</c> 内、
-    /// 且与其它配置不嵌套的输出目录；<see cref="ResolveAll"/> 返回全部。生成入口会先比较所有已经成立的安全输出声明，
+    /// 且不让递归 <c>*.g.cs</c> 清理覆盖其它生成器产物的输出目录；<see cref="ResolveAll"/> 返回全部。生成入口会先比较所有已经成立的安全输出声明，
     /// 再按 Profile 就绪状态逐套生成；空白新配置不声明所有权，也不会冻结其它可用配置。
     /// 无自动创建（默认路径无从捏造）：经 <c>Assets/Create/SSFramework/Protobuf 生成配置</c> 或「配置总览」窗口新建。
     /// </summary>
@@ -32,7 +33,7 @@ namespace Game.Framework.Network.Proto.Editor
         [SerializeField] private string _protoDir = "";
 
         [Header("产物输出")]
-        [Tooltip("生成 C#（*.g.cs）的输出目录。必须是 Assets 下由本 Profile 独占的子目录，不能与其它 Profile 相同或嵌套。\n" +
+        [Tooltip("生成 C#（*.g.cs）的输出目录。必须是 Assets 下的非根子目录；共享输出声明目录会拒绝本清理范围覆盖其它生成器的同后缀文件。\n" +
                  "目录里的 *.g.cs 由生成器接管：.proto 改名 / 删除后遗留的陈旧 *.g.cs 会被自动清理，勿手放同后缀文件。")]
         [InspectorName("代码输出目录")]
         [SerializeField] private string _outputCodeDir = "";
@@ -51,10 +52,6 @@ namespace Game.Framework.Network.Proto.Editor
         /// 生成入口先验证各套输出目录互不相同或嵌套，再逐套生成。一套都没有时返回空表（由工作台引导创建）。
         /// </summary>
         public static IReadOnlyList<ProtoConfigProfile> ResolveAll() =>
-            AssetDatabase.FindAssets("t:" + nameof(ProtoConfigProfile))
-                .Select(g => AssetDatabase.LoadAssetAtPath<ProtoConfigProfile>(AssetDatabase.GUIDToAssetPath(g)))
-                .Where(p => p != null)
-                .OrderBy(AssetDatabase.GetAssetPath, System.StringComparer.Ordinal)
-                .ToList();
+            FrameworkEditorProfileCatalog.ResolveAll<ProtoConfigProfile>();
     }
 }

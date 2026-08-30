@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Game.Framework.Editor;
 using UnityEditor;
 using UnityEngine;
 
@@ -13,7 +14,6 @@ namespace Game.Framework.UI.UGui.Editor
     /// 每字段「空 = 继承上层」；约定类设置（组件优先级 / 别名 / 字段名模板 / 自动挂脚本）不在此、恒由全工程 <see cref="UICodeGenProfile"/> 提供。
     /// 一个目录放多个本配置时仅第一个生效（会警告）。
     /// </remarks>
-    [InitializeOnLoad]
     [CreateAssetMenu(fileName = "UICodeGenDirConfig", menuName = "SSFramework/UI 绑定目录配置 (UI CodeGen Dir Config)")]
     public sealed class UICodeGenDirConfig : ScriptableObject
     {
@@ -55,15 +55,10 @@ namespace Game.Framework.UI.UGui.Editor
         }
 
         // ───────────── 目录 → 配置映射（按 prefab 目录向上解析用） ─────────────
-        // 缓存全工程的「目录 → 配置」映射：覆盖链解析会在生成面板每帧调用，逐次 FindAssets 是工程级扫描、拖慢面板。
-        // 资产增删改经 projectChanged 置脏、下次访问重建；配置引用由 Unity fake-null 失效保护，不会指向已删资产。
+        // 缓存全工程的「目录 → 配置」映射：Profile Catalog 统一拥有 FindAssets 与工程 revision；
+        // 覆盖链解析只在 revision 改变后重建映射，避免每个生成面板各维护一套扫描失效逻辑。
         private static Dictionary<string, UICodeGenDirConfig> _byFolder;
-        private static bool _dirty = true;
-
-        static UICodeGenDirConfig()
-        {
-            EditorApplication.projectChanged += () => _dirty = true;
-        }
+        private static int _profileCatalogRevision = -1;
 
         /// <summary>
         /// 按 <paramref name="prefabPath"/> 所在目录向上返回**最近优先**的目录配置链（含该目录自身的配置）。
@@ -85,13 +80,13 @@ namespace Game.Framework.UI.UGui.Editor
 
         private static void EnsureMap()
         {
-            if (!_dirty && _byFolder != null) return;
+            int revision = FrameworkEditorProfileCatalog.Revision;
+            if (_byFolder != null && _profileCatalogRevision == revision) return;
 
             _byFolder = new Dictionary<string, UICodeGenDirConfig>();
             var byFolderPaths = new Dictionary<string, List<string>>();
-            foreach (var guid in AssetDatabase.FindAssets("t:" + nameof(UICodeGenDirConfig)))
+            foreach (string p in FrameworkEditorProfileCatalog.GetPaths(typeof(UICodeGenDirConfig)))
             {
-                string p = AssetDatabase.GUIDToAssetPath(guid);
                 string folder = ParentFolder(p);
                 if (!byFolderPaths.TryGetValue(folder, out var list)) byFolderPaths[folder] = list = new List<string>();
                 list.Add(p);
@@ -104,7 +99,7 @@ namespace Game.Framework.UI.UGui.Editor
                                      string.Join("\n  ", kv.Value));
                 _byFolder[kv.Key] = AssetDatabase.LoadAssetAtPath<UICodeGenDirConfig>(kv.Value[0]);
             }
-            _dirty = false;
+            _profileCatalogRevision = FrameworkEditorProfileCatalog.Revision;
         }
 
         // 取工程相对路径的父目录（去掉最后一段）；已到 "Assets" 之上返回空串，作为 walk-up 终止条件。

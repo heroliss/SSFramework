@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using Game.Framework.Editor;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.Serialization;
@@ -25,17 +26,7 @@ namespace Game.Framework.Build
     public sealed class FrameworkAssetBuildProfile : ScriptableObject
     {
         private const string DefaultVersionFormat = "yyyyMMddHHmmss";
-        private static FrameworkAssetBuildProfile _cached;
-        private static bool _cacheInitialized;
-
-        static FrameworkAssetBuildProfile()
-        {
-            EditorApplication.projectChanged += () =>
-            {
-                _cached = null;
-                _cacheInitialized = false;
-            };
-        }
+        private static int _duplicateWarningRevision = -1;
 
         [Tooltip("逐包构建配置。包名需与 YooAsset 收集器（Bundle Collector）里的包一致。")]
         [InspectorName("资源包列表（Packages）")]
@@ -69,7 +60,7 @@ namespace Game.Framework.Build
         [Min(0)] [SerializeField] private ulong _fileOffset = 0;
 
         [Header("代码生成")]
-        [Tooltip("「生成包名常量代码」的输出文件路径（必须位于 Assets 子目录，且以 .cs 结尾）。类名 = 文件名去掉 .g.cs。\n" +
+        [Tooltip("「生成包名常量代码」的输出文件路径（必须位于 Assets 子目录，且以 .cs 结尾）。共享输出声明目录会拒绝与其它生成器冲突；类名 = 文件名去掉 .g.cs。\n" +
                  "生成的 const string 常量供业务代码替代裸包名字符串——收集器改名/删包后重新生成，引用处编译期报错。\n" +
                  "留空 = 不使用此功能。")]
         [InspectorName("包名常量输出路径")]
@@ -213,30 +204,18 @@ namespace Game.Framework.Build
         /// <summary>无副作用查找全工程唯一的构建 profile；不存在时返回 <c>false</c>。</summary>
         public static bool TryResolve(out FrameworkAssetBuildProfile profile)
         {
-            if (_cacheInitialized)
+            if (!FrameworkEditorProfileCatalog.TryResolveFirst(out profile, out IReadOnlyList<string> paths))
             {
-                profile = _cached;
-                return profile != null;
-            }
-
-            var paths = AssetDatabase.FindAssets("t:" + nameof(FrameworkAssetBuildProfile))
-                .Select(AssetDatabase.GUIDToAssetPath)
-                .OrderBy(path => path, StringComparer.Ordinal)
-                .ToArray();
-            if (paths.Length == 0)
-            {
-                _cacheInitialized = true;
-                _cached = null;
-                profile = null;
                 return false;
             }
-            if (paths.Length > 1)
+            int revision = FrameworkEditorProfileCatalog.Revision;
+            if (paths.Count > 1 && _duplicateWarningRevision != revision)
+            {
+                _duplicateWarningRevision = revision;
                 Debug.LogWarning("[AssetBuilder] 找到多个构建 profile，仅第一个生效，请删到只剩一个：\n  " +
                                  string.Join("\n  ", paths));
-            _cached = AssetDatabase.LoadAssetAtPath<FrameworkAssetBuildProfile>(paths[0]);
-            _cacheInitialized = true;
-            profile = _cached;
-            return profile != null;
+            }
+            return true;
         }
 
         /// <summary>
@@ -248,6 +227,14 @@ namespace Game.Framework.Build
         {
             if (TryResolve(out FrameworkAssetBuildProfile existing)) return existing;
 
+            FrameworkEditorProfileCatalog.Refresh(typeof(FrameworkAssetBuildProfile));
+            if (TryResolve(out existing)) return existing;
+            string dir = FrameworkProjectSettingsLocation.EnsureDirectory();
+            string path = dir + "/FrameworkAssetBuildProfile.asset";
+            existing = FrameworkProjectSettingsLocation
+                .GetExistingProfileOrThrow<FrameworkAssetBuildProfile>(path);
+            if (existing != null) return existing;
+
             var profile = CreateInstance<FrameworkAssetBuildProfile>();
             foreach (var pkg in BundleCollectorSettingData.Setting.Packages)
             {
@@ -255,14 +242,14 @@ namespace Game.Framework.Build
                 profile._packages.Add(new PackageBuildEntry(pkg.PackageName.Trim()));
             }
 
-            string dir = Game.Framework.Editor.FrameworkProjectSettingsLocation.EnsureDirectory();
-            string path = dir + "/FrameworkAssetBuildProfile.asset";
             AssetDatabase.CreateAsset(profile, path);
             AssetDatabase.SaveAssets();
-            _cached = profile;
-            _cacheInitialized = true;
+            FrameworkEditorProfileCatalog.Refresh(typeof(FrameworkAssetBuildProfile));
+            if (!TryResolve(out FrameworkAssetBuildProfile effective) || effective != profile)
+                throw new InvalidOperationException(
+                    $"构建 profile 已写入但未成为稳定排序后的生效项：{path}。请检查重复配置后重试。");
             Debug.Log($"[AssetBuilder] 已按用户请求创建构建 profile，并按收集器包列表初始化：{path}");
-            return profile;
+            return effective;
         }
     }
 

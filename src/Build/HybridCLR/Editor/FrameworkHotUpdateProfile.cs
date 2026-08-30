@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using Game.Framework.Editor;
 using HybridCLR.Editor.Settings;
 using UnityEditor;
 using UnityEditorInternal;
@@ -30,17 +31,7 @@ namespace Game.Framework.Build
     [CreateAssetMenu(fileName = "FrameworkHotUpdateProfile", menuName = "SSFramework/热更构建配置 (HotUpdate Profile)")]
     public sealed class FrameworkHotUpdateProfile : ScriptableObject
     {
-        private static FrameworkHotUpdateProfile _cached;
-        private static bool _cacheInitialized;
-
-        static FrameworkHotUpdateProfile()
-        {
-            EditorApplication.projectChanged += () =>
-            {
-                _cached = null;
-                _cacheInitialized = false;
-            };
-        }
+        private static int _duplicateWarningRevision = -1;
 
         [Tooltip("热更程序集（asmdef 引用）。在列表 = 热更（运行时从代码包加载），不在 = AOT（随安装包固化）。\n" +
                  "铁律：谁被热更，引用它的程序集必须也在列表里（AOT 不能引用热更）——同步/构建时自动校验拦截。\n" +
@@ -120,30 +111,18 @@ namespace Game.Framework.Build
         /// <summary>无副作用查找全工程唯一的热更 profile；不存在时返回 <c>false</c>。</summary>
         public static bool TryResolve(out FrameworkHotUpdateProfile profile)
         {
-            if (_cacheInitialized)
+            if (!FrameworkEditorProfileCatalog.TryResolveFirst(out profile, out IReadOnlyList<string> paths))
             {
-                profile = _cached;
-                return profile != null;
-            }
-
-            var paths = AssetDatabase.FindAssets("t:" + nameof(FrameworkHotUpdateProfile))
-                .Select(AssetDatabase.GUIDToAssetPath)
-                .OrderBy(path => path, StringComparer.Ordinal)
-                .ToArray();
-            if (paths.Length == 0)
-            {
-                _cacheInitialized = true;
-                _cached = null;
-                profile = null;
                 return false;
             }
-            if (paths.Length > 1)
+            int revision = FrameworkEditorProfileCatalog.Revision;
+            if (paths.Count > 1 && _duplicateWarningRevision != revision)
+            {
+                _duplicateWarningRevision = revision;
                 Debug.LogWarning("[热更构建] 找到多个热更 profile，仅第一个生效，请删到只剩一个：\n  " +
                                  string.Join("\n  ", paths));
-            _cached = AssetDatabase.LoadAssetAtPath<FrameworkHotUpdateProfile>(paths[0]);
-            _cacheInitialized = true;
-            profile = _cached;
-            return profile != null;
+            }
+            return true;
         }
 
         /// <summary>
@@ -154,19 +133,27 @@ namespace Game.Framework.Build
         {
             if (TryResolve(out FrameworkHotUpdateProfile existing)) return existing;
 
+            FrameworkEditorProfileCatalog.Refresh(typeof(FrameworkHotUpdateProfile));
+            if (TryResolve(out existing)) return existing;
+            string dir = FrameworkProjectSettingsLocation.EnsureDirectory();
+            string path = dir + "/FrameworkHotUpdateProfile.asset";
+            existing = FrameworkProjectSettingsLocation
+                .GetExistingProfileOrThrow<FrameworkHotUpdateProfile>(path);
+            if (existing != null) return existing;
+
             var profile = CreateInstance<FrameworkHotUpdateProfile>();
             // 默认档位（ADR-0008 §2）：内核 + YooAsset 适配模块热更；业务程序集出现后由项目自行加进列表。
             TryAddDefault(profile, "Game.Framework");
             TryAddDefault(profile, "Game.Framework.Asset.Yoo");
 
-            string dir = Game.Framework.Editor.FrameworkProjectSettingsLocation.EnsureDirectory();
-            string path = dir + "/FrameworkHotUpdateProfile.asset";
             AssetDatabase.CreateAsset(profile, path);
             AssetDatabase.SaveAssets();
-            _cached = profile;
-            _cacheInitialized = true;
+            FrameworkEditorProfileCatalog.Refresh(typeof(FrameworkHotUpdateProfile));
+            if (!TryResolve(out FrameworkHotUpdateProfile effective) || effective != profile)
+                throw new InvalidOperationException(
+                    $"热更 profile 已写入但未成为稳定排序后的生效项：{path}。请检查重复配置后重试。");
             Debug.Log($"[热更构建] 已按用户请求创建默认热更 profile（内核 + Asset.Yoo 候选）：{path}");
-            return profile;
+            return effective;
         }
 
         private static void TryAddDefault(FrameworkHotUpdateProfile profile, string assemblyName)

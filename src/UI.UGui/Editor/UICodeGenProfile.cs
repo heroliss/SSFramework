@@ -1,5 +1,5 @@
 using System.Collections.Generic;
-using System.Linq;
+using Game.Framework.Editor;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.Serialization;
@@ -11,7 +11,6 @@ namespace Game.Framework.UI.UGui.Editor
     /// <see cref="UIBindingCodeGenerator"/> 只读本资产；换项目 / 换目录改 Inspector 即可，不动代码。
     /// </summary>
     /// <remarks>业务程序集与目录无法由框架推导，新配置的三个根目标留空；现有项目配置按类型发现，不会被覆盖。</remarks>
-    [InitializeOnLoad]
     [CreateAssetMenu(fileName = "UICodeGenProfile", menuName = "SSFramework/UI 绑定生成配置 (UI CodeGen Profile)")]
     public sealed class UICodeGenProfile : ScriptableObject
     {
@@ -21,16 +20,17 @@ namespace Game.Framework.UI.UGui.Editor
 
         private static readonly IReadOnlyList<string> DefaultBuiltinComponentPriority = CreateDefaultBuiltinComponentPriority();
         private static readonly IReadOnlyList<ComponentAlias> DefaultComponentAliases = CreateDefaultComponentAliases();
+        private static int _duplicateWarningRevision = -1;
 
         [Tooltip("生成代码的命名空间。支持 {PrefabName} / {DirectoryName} / {ParentDirectoryName}；占位符值会被清洗成合法标识符段。")]
         [InspectorName("生成代码命名空间")]
         [SerializeField] private string _namespaceRoot = "";
 
-        [Tooltip("手写窗口逻辑 <Name>.cs 的输出目录（工程相对 Assets 路径，须在目标业务程序集范围内）。仅在文件不存在时创建一次。")]
+        [Tooltip("手写窗口逻辑 <Name>.cs 的输出目录（工程相对 Assets 路径，须在目标业务程序集范围内）。仅在文件不存在时创建一次；共享输出声明目录会拒绝与其它生成器冲突。")]
         [InspectorName("手写逻辑输出目录")]
         [SerializeField] private string _outputCodeDir = "";
 
-        [Tooltip("生成的节点绑定 <Name>.nodes.g.cs 的输出目录（每次覆盖）。须与逻辑代码在同一业务程序集内（partial 才链得上）。")]
+        [Tooltip("生成的节点绑定 <Name>.nodes.g.cs 的输出目录（每次覆盖）。须与逻辑代码在同一业务程序集内（partial 才链得上），且不能落入其它生成器的独占或递归清理范围。")]
         [InspectorName("节点绑定输出目录")]
         [SerializeField] private string _generatedCodeDir = "";
 
@@ -80,46 +80,21 @@ namespace Game.Framework.UI.UGui.Editor
         public IReadOnlyList<ComponentAlias> ComponentAliases => _componentAliases ?? DefaultComponentAliases;
         public bool AutoAssignWindowScript => _autoAssignWindowScript;
 
-        // 解析结果缓存：TryResolve 被 GUI（弹窗生成面板）每帧调用，FindAssets 是工程级扫描，逐帧跑会拖慢（拖拽时尤其卡）。
-        // 缓存资产引用即可——持的是 ScriptableObject 引用，字段编辑实时反映；资产增删改（新建第二个 Profile / 移动 / 删除）
-        // 经 projectChanged 清缓存、下次重解析（与 UICodeGenDirConfig 的失效口径一致，避免「换了 Profile 资产但缓存仍指旧的」）。
-        private static UICodeGenProfile _cached;
-        private static bool _cacheInitialized;
-
-        static UICodeGenProfile()
-        {
-            EditorApplication.projectChanged += () =>
-            {
-                _cached = null;
-                _cacheInitialized = false;
-            };
-        }
-
         /// <summary>无副作用查找全工程唯一 Profile；用于 Inspector 预览等只读入口。</summary>
         internal static bool TryResolve(out UICodeGenProfile profile)
         {
-            if (_cacheInitialized)
+            if (FrameworkEditorProfileCatalog.TryResolveFirst(out profile, out IReadOnlyList<string> paths))
             {
-                profile = _cached;
-                return profile != null;
-            }
-
-            var paths = AssetDatabase.FindAssets("t:" + nameof(UICodeGenProfile))
-                .Select(AssetDatabase.GUIDToAssetPath)
-                .OrderBy(path => path, System.StringComparer.Ordinal)
-                .ToArray();
-            if (paths.Length > 0)
-            {
-                if (paths.Length > 1)
+                if (paths.Count > 1 && _duplicateWarningRevision != FrameworkEditorProfileCatalog.Revision)
                 {
+                    _duplicateWarningRevision = FrameworkEditorProfileCatalog.Revision;
                     Debug.LogWarning("[UI 绑定] 找到多个 UICodeGenProfile，仅第一个生效，请删到只剩一个：\n  " +
                                      string.Join("\n  ", paths));
                 }
-                _cached = AssetDatabase.LoadAssetAtPath<UICodeGenProfile>(paths[0]);
+                return true;
             }
-            _cacheInitialized = true;
-            profile = _cached;
-            return profile != null;
+
+            return false;
         }
 
         /// <summary>
@@ -130,18 +105,25 @@ namespace Game.Framework.UI.UGui.Editor
         {
             if (TryResolve(out UICodeGenProfile existing)) return existing;
 
-            var profile = CreateInstance<UICodeGenProfile>();
             // 落在项目配置位（与构建 profile / 收集器设置同住），不在 Framework/ 内——这是项目配置实例，
             // 不该随框架进 UPM 包（ADR-0010/0011）；Resolve 按类型扫描定位，不认路径。
+            FrameworkEditorProfileCatalog.Refresh(typeof(UICodeGenProfile));
+            if (TryResolve(out existing)) return existing;
             string path = Game.Framework.Editor.FrameworkProjectSettingsLocation.EnsureDirectory() +
                           "/UICodeGenProfile.asset";
+            existing = FrameworkProjectSettingsLocation.GetExistingProfileOrThrow<UICodeGenProfile>(path);
+            if (existing != null) return existing;
+
+            var profile = CreateInstance<UICodeGenProfile>();
             AssetDatabase.CreateAsset(profile, path);
             AssetDatabase.SaveAssets();
+            FrameworkEditorProfileCatalog.Refresh(typeof(UICodeGenProfile));
+            if (!TryResolve(out UICodeGenProfile effective) || effective != profile)
+                throw new System.InvalidOperationException(
+                    $"UI 绑定 Profile 已写入但未成为稳定排序后的生效项：{path}。请检查重复配置后重试。");
             Debug.Log($"[UI 绑定] 未找到 UICodeGenProfile，已创建空配置：{path}。" +
                       "请先填写目标业务程序集的命名空间、逻辑目录与生成目录。");
-            _cached = profile;
-            _cacheInitialized = true;
-            return profile;
+            return effective;
         }
 
         internal static IReadOnlyList<string> BuiltinComponentPriorityOrDefault(UICodeGenProfile profile)
