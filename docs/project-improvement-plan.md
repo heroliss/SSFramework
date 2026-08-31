@@ -419,7 +419,7 @@
 - **需要重复生产证据**：Asset 维护 session 等第三个生产调用方、UI window lease 的并发 owner、第二个 Asset Provider、字体输入/扫描优化与大文件拆分；触发前不为概念完整预建抽象。
 - **持续健康工作**：中文、注释和 Editor 体验在发现具体误导或摩擦时随任务修正，不再作为阻止阶段结束的无限审计清单。
 
-下一阶段从 `Assets/Game/<GameName>/` 的独立 asmdef 开始，以目标玩家、核心幻想、可证伪原型问题和一个可从头玩到尾的垂直切片为验收；缺口按“游戏专属 / Framework 通用 / Skill-Harness 流程 / 人工审美与玩家反馈”分流，并回写 `ai-game-development-capability-map.md`。
+下一阶段先按[首款商业 3D 游戏策略](commercial-3d-game-strategy.md)完成 Concept Card、共享灰盒和目标玩家验证，再从 `Assets/Game/<GameName>/` 的独立 asmdef 进入正式切片；当前建议是 Steam / Windows 首发的风格化俯视角紧凑沙盒，但在 Gate 通过前不把《游牧工坊》假设写成已定结论。验收仍以一个可从头玩到尾的垂直切片为中心；缺口按“游戏专属 / Framework 通用 / Skill-Harness 流程 / 人工审美与玩家反馈”分流，并回写 `ai-game-development-capability-map.md`。
 
 ## 保留候选（仅在触发条件成立时）
 

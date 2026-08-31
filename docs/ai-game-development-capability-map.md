@@ -74,7 +74,7 @@ Skill 只写会改变执行质量的非显然知识。已经由代码或测试�
 
 | ID | 能力 | 当前 → 目标 | 已有证据 | 主要缺口 / 下一实验 |
 |---|---|---:|---|---|
-| P1 | 受众、幻想、差异化、产品支柱 | M1 → M2 | Outpost 垂直切片与 ADR | 补真实目标玩家画像、竞品假设和可证伪原型问题 |
+| P1 | 受众、幻想、差异化、产品支柱 | M2 → M3 | [商业 3D 游戏策略](commercial-3d-game-strategy.md)的目标玩家、概念矩阵、范围盒与证据 Gate | 用 Concept Card、共享灰盒和 5 名目标玩家验证《游牧工坊》与备选方向，不把推荐误写成结论 |
 | G1 | 核心循环与 Game Feel | M3 → M4 | 可运行 Outpost 流程、玩家路径 smoke | 增加真实 Input 路径、时序视觉证据和人工手感 rubric |
 | G2 | 系统、AI、成长、经济与平衡 | M4 → M4 | 固定 seed、双后端对拍、黄金轨迹和长跑 guard | 自动结果仍需真实玩家难度与节奏校准 |
 | C1 | 关卡、遭遇、节奏与叙事内容 | M1 → M3 | 当前垂直切片内容 | 先用真实关卡任务形成可重复评审，再决定是否建 Skill |
@@ -88,8 +88,8 @@ Skill 只写会改变执行质量的非显然知识。已经由代码或测试�
 | Q1 | 编译、EditMode / PlayMode 与验证编排 | M4 → M5 | 1396 项基线、预检、后台自动化 | 用 `unity-validation-harness` 统一最小充分证据和交付摘要 |
 | Q2 | 视觉回归、性能与内存预算 | M2 → M4 | 截图、Profiler / Frame Debugger 能力 | 固定场景、设备、采样窗口、批准基线和预算阈值 |
 | Q3 | Agent Playtest 与真实玩家测试 | M2 → M4 | 业务 Command 玩家路径 smoke | 加极薄 Input Driver；另建真实玩家观察和访谈循环 |
-| R1 | 构建、发布、平台和商店 | M3 → M4 | Unity CLI Adapter、隔离 Player Build | 选择首个目标平台，建立可安装包与设备 smoke |
-| R2 | 市场、分析、社区、运营、隐私与授权 | M0–M1 → M2 | 尚无统一真值 | 产品方向稳定后补最小指标、素材授权台账和发布 checklist |
+| R1 | 构建、发布、平台和商店 | M3 → M4 | Unity CLI Adapter、隔离 Player Build、Steam / Windows 首发建议与移动 Gate | 概念通过后建立 Windows 可分发 Player 包、Steamworks 准备与目标设备 smoke |
+| R2 | 市场、分析、社区、运营、隐私与授权 | M1 → M2 | 平台官方约束、概念商业 Gate 与生成资产台账字段已进入商业游戏策略 | 用真实竞品集、试玩指标和第一批资产授权记录证明流程，再形成发布 checklist |
 
 ## 6. Harness 分层
 
@@ -197,7 +197,7 @@ Unity Test Framework + BattleSim / PlayerPath Harness
 - 维护本能力图谱，并把新缺口绑定到真实任务证据。
 - 使用 `unity-validation-harness` 收口每次非琐碎变更的验证。
 - 在真实架构任务中使用 `improve-ssframework-architecture`，按证据继续收窄或补充，而不直接复制通用 Skill。
-- 以一款新的小型游戏作为 Framework Baseline 的真实消费者，先确定目标玩家、核心幻想和最小可证伪原型问题，再跑通实现、编译、Play、观察、验收和恢复。
+- 按[商业 3D 游戏策略](commercial-3d-game-strategy.md)先对《游牧工坊》与备选方向做 Concept Card、共享灰盒和目标玩家验证，再确认正式产品方向并跑通实现、编译、Play、观察、验收和恢复。
 - 游戏业务先留在独立目录/asmdef；只有跨游戏通用或阻断公共用法的证据才回流 Framework。
 
 ### Next
