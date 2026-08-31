@@ -14,7 +14,8 @@ namespace Game.Framework.Network
     /// 实现契约：
     /// <list type="bullet">
     ///   <item>HTTP 交换完成（<b>任何</b>状态码，含 4xx/5xx）→ 返回 <see cref="HttpResponse"/> 不抛——
-    ///         状态码语义归上层，传输层不做判断。</item>
+    ///         状态码语义归上层，传输层不做判断。返回对象、<see cref="HttpResponse.Body"/> 与
+    ///         <see cref="HttpResponse.Headers"/> 均不得为 null；空体 / 无响应头分别返回空数组 / 空字典。</item>
     ///   <item>传输失败（DNS / 拒连 / 网络断）→ 抛 <see cref="NetworkException"/>（ConnectionError）。</item>
     ///   <item>ct 取消 → 中止在途请求并抛 <see cref="OperationCanceledException"/>。
     ///         超时不归 provider——utility 的 request owner 会取消该 token；实现不得在取消回调中抛异常。
