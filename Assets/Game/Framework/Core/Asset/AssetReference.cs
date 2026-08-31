@@ -54,6 +54,7 @@ namespace Game.Framework
         /// </summary>
         public void Bind(IAssetUtility utility, CancellationToken hostToken)
         {
+            MainThreadGuard.AssertMainThread(nameof(AssetReferenceBase));
             BoundUtility = utility;
             HostToken = hostToken;
         }
@@ -95,6 +96,8 @@ namespace Game.Framework
     /// 泛型资源引用。
     /// 提供 Inspector 拖拽体验，并自行持有 <see cref="IAssetHandle{T}"/>；Dispose 时释放底层 handle。
     /// 同一 ref 多次并发 Get 共享同一加载任务（避免一帧内重复创建 handle）。
+    /// 引用状态由 Unity 主线程独占；即使自定义 <see cref="IAssetUtility"/> 或调用方取消信号在 worker 完成，
+    /// Get 的成功、异常、取消以及 handle / owner 槽提交也会先回主线程。
     /// </summary>
     [Serializable]
     public class AssetReference<T> : AssetReferenceBase where T : UnityEngine.Object
@@ -132,6 +135,7 @@ namespace Game.Framework
         /// </summary>
         public async UniTask<T> Get(CancellationToken ct)
         {
+            MainThreadGuard.AssertMainThread(nameof(AssetReference<T>));
             if (IsLoaded) return Asset;
 
             if (!HasGuid)
@@ -158,7 +162,8 @@ namespace Game.Framework
                 tcs = _loadTcs;
             }
 
-            var handle = await tcs.Task.AttachExternalCancellation(ct);
+            var handle = await MainThreadGuard.AwaitOnMainThread(
+                tcs.Task.AttachExternalCancellation(ct));
             return handle != null && handle.IsValid ? handle.Asset : null;
         }
 
@@ -168,6 +173,7 @@ namespace Game.Framework
         /// </summary>
         public void Unload()
         {
+            MainThreadGuard.AssertMainThread(nameof(AssetReference<T>));
             if (IsLoading)
                 _releaseWhenLoaded = true;
 
@@ -180,30 +186,63 @@ namespace Game.Framework
 
         private async UniTask RunLoad(IAssetUtility utility, UniTaskCompletionSource<IAssetHandle<T>> tcs)
         {
+            IAssetHandle<T> handle = null;
+            Exception error = null;
             try
             {
                 // HostToken 决定这个引用级 owner 何时停止等待并拒绝结果；provider 的物理 owner 若已启动仍会安全收尾。
                 // 外部 await 用各自的 ct 影响单个等待者，不中断同一 AssetReference 的共享加载。
-                var handle = await utility.LoadByGuid<T>(PackageName, AssetGUID, HostToken);
+                handle = await MainThreadGuard.AwaitOnMainThread(
+                    utility.LoadByGuid<T>(PackageName, AssetGUID, HostToken));
+                if (HostToken.IsCancellationRequested)
+                {
+                    DisposeLateHandle(handle, "宿主生命周期已经结束");
+                    handle = null;
+                    throw new OperationCanceledException(HostToken);
+                }
+
                 if (_releaseWhenLoaded)
                 {
                     // Unload 可能发生在加载完成前；完成后立刻释放，避免缓存一个宿主已经不要的 handle。
-                    handle?.Dispose();
+                    DisposeLateHandle(handle, "加载期间已经请求释放");
                     handle = null;
                     _releaseWhenLoaded = false;
                 }
 
                 _handle = handle;
-                tcs.TrySetResult(handle);
             }
             catch (Exception ex)
             {
-                tcs.TrySetException(ex);
+                error = ex;
             }
-            finally
+
+            // UniTaskCompletionSource 同步交付 continuation。必须先撤掉本 attempt 的 owner 槽，再发布 task 终态；
+            // 否则失败/null 的 awaiter 在 continuation 内立即重试时会误加入已经完成的旧 TCS，且旧 finally
+            // 还会把新 attempt 的槽清掉。这里不使用无条件 finally，避免擦除重入创建的新 owner。
+            if (ReferenceEquals(_loadTcs, tcs))
             {
                 IsLoading = false;
                 _loadTcs = null;
+            }
+
+            if (error == null) tcs.TrySetResult(handle);
+            else tcs.TrySetException(error);
+        }
+
+        private static void DisposeLateHandle(IAssetHandle<T> handle, string reason)
+        {
+            if (handle == null) return;
+            try
+            {
+                handle.Dispose();
+            }
+            catch (Exception exception)
+            {
+                // owner 已经终止时，释放异常必须留下证据，但不能把原本的取消 / 释放语义替换成另一个异常。
+                Log.Error(
+                    $"资源引用因“{reason}”拒绝迟到 handle，但回收 handle 时失败。",
+                    exception,
+                    "AssetReference");
             }
         }
     }

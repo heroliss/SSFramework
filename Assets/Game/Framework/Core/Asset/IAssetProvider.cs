@@ -31,6 +31,9 @@ namespace Game.Framework
     /// （如 <c>Game.Framework.Asset.Yoo</c>，内核按纪律不引用模块），第三方后端也按此接口自写模块。
     /// 业务<b>消费</b>资源一律走 <see cref="IAssetUtility"/> / Bag，不要直接实现或持有 provider。
     /// </para>
+    /// <para><b>线程边界：</b>异步 Provider 方法允许在任意线程物理完成；不得假设调用方 continuation 所在线程。
+    /// <see cref="AssetUtility"/> 会在修改包状态、推进维护队列、处理 Unity handle 或完成自身公共 task 前恢复 Unity 主线程。
+    /// 同步查询、下载器进度与返回 handle 的同步操作仍按各成员文档的主线程契约实现。</para>
     /// </summary>
     public interface IAssetProvider : IDisposable
     {

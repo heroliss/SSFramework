@@ -1,6 +1,6 @@
 # ADR-0013：YooAsset 原生 3.0 重写 —— 去兼容层
 
-**Status:** Accepted（`YooAssetProvider` 已重写为原生 3.0 API，`YOOASSET_LEGACY_API` define 已移除，编译 0 错 0 警告，PlayMode 141/141 全绿）
+**Status:** Accepted（`YooAssetProvider` 已重写为原生 3.0 API，`YOOASSET_LEGACY_API` define 已移除，编译 0 错 0 警告，PlayMode 141/141 全绿；**2026-08-31 修订**：Provider 物理完成线程与 Core 公共终态解耦，并补齐迟到 handle / 重入 owner 边界）
 
 ## Context
 
@@ -89,3 +89,17 @@ YooAsset 3.0 的 `AsyncOperationBase` 没有通用外部取消；框架的 `Wait
 - 不重新包装 YooAsset 自己产生的内部日志；需要全量落盘时由 `Log.CaptureUnityLogs()` 接管 Unity 日志流，避免 Adapter 重复输出同一第三方错误。
 
 这次没有扩张 `IAssetProvider` / `IAssetUtility` Interface。日志是横切 Seam，资源 Core 与 Yoo Implementation 只依赖内核 `Game.Framework.Logging`；测试分别锁定 Core fail-fast、Adapter category，以及初始化异常/context 的透传。
+
+## 2026-08-31 修订（Provider 完成线程与 Core 提交线程）
+
+`IAssetProvider` 是可替换 Adapter 接缝，不能把 YooAsset 当前通常经 PlayerLoop 完成的行为误当成所有后端的线程保证。文件、网络或项目自定义 Provider 可以在 worker 物理完成；若 Core 直接在该 continuation 中更新 `AssetInitState`、推进维护 lane、写 `AssetReference` owner 或完成公共 task，就会把原本主线程独占的 Context / Bag / Unity API 暴露给偶发线程竞态。
+
+因此线程契约分成两层：
+
+- Provider 的异步物理操作允许在任意线程结束；它不能假设调用方 continuation 的线程。
+- `IAssetUtility` 的所有入口仍从 Unity 主线程调用；初始化、就绪等待、资源 / 场景 / 文本 / 字节加载以及维护 operation 的成功、异常与取消，都先恢复主线程，再提交状态和公共 task 终态。调用方 token 即使从 worker 取消也遵守同一边界。
+- 返回的 downloader / scene handle 是独立对象，不由这一条 Utility task 契约替它们暗中扩张语义；各自继续按 Interface 与 Adapter 实现使用。
+
+取消与迟到结果也在 Core 兜底：若 Provider 忽略 token 并在调用者离开后返回 Asset / Scene handle，Utility 先安全回收 handle，再保留原 `OperationCanceledException`；回收自身失败只记录日志，不把取消替换成第二个异常。`AssetReference` 在发布本次共享 TCS 终态前先撤掉旧 owner 槽，否则同步恢复的失败 continuation 立即重试会误加入已经完成的旧 task，并可能被旧 finally 擦掉新 owner。这个顺序现在由确定性重入测试锁定，而不是依赖“continuation 大概下一帧才跑”。
+
+无默认包也是 Core 的配置前置条件：默认包状态与下载器便捷入口统一经 `RequirePackage` 给出可行动的 `InvalidOperationException`，不再把空键泄漏为实现层 `ArgumentNullException`。只用具名包的项目应始终传 `packageName`。

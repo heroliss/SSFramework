@@ -74,6 +74,9 @@ namespace Game.Framework
     /// - 全部异步公共方法返回 <c>UniTask</c>，按“无同步对应版本”约定统一省略 <c>Async</c> 后缀（加载 / 清缓存 / 卸载 / 初始化等）。
     /// </summary>
     /// <remarks>
+    /// <b>线程：</b>本 Utility 与返回的状态流由 Unity 主线程独占，所有入口从主线程调用。Provider 可在任意线程
+    /// 物理完成；Initialize / EnsureInitialized / Load / LoadScene / LoadText / LoadBytes / 缓存维护的成功、异常或取消
+    /// 都会回到 Unity 主线程再交付，因此调用方 await 后可安全继续操作 Context、Bag、Model 与 Unity 对象。<br/>
     /// <b>Utility 生命周期：</b>宿主组件销毁会取消仍在运行的初始化 / 维护 owner，并正常完结已经取得的
     /// <see cref="InitState"/> / <see cref="GetInitState(string)"/> 状态流；之后通过旧 Utility 引用重新查询状态会抛
     /// <see cref="ObjectDisposedException"/>，不会悄悄创建一个脱离 Context 的新状态流。Provider 释放异常会进入日志，

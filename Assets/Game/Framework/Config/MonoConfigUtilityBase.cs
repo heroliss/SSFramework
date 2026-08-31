@@ -59,6 +59,7 @@ namespace Game.Framework
         /// <inheritdoc />
         public async UniTask<TTables> EnsureReady(CancellationToken cancellationToken = default)
         {
+            MainThreadGuard.AssertMainThread(nameof(MonoConfigUtilityBase<TTables>));
             var state = _state.CurrentValue;
             if (state == ConfigInitState.Ready) return _tables;
             if (state == ConfigInitState.Failed) return RethrowFailure();
@@ -79,9 +80,10 @@ namespace Game.Framework
             // 调用者只挂到共享完成信号上；AttachExternalCancellation 不会把短命 token 传给真正的资源加载。
             // 因而界面切走等局部取消只让该 waiter 离开，组件 / Context 仍拥有同一次物理加载。
             if (cancellationToken.CanBeCanceled)
-                await _completion.Task.AttachExternalCancellation(cancellationToken);
+                await AwaitOnMainThread(
+                    _completion.Task.AttachExternalCancellation(cancellationToken));
             else
-                await _completion.Task;
+                await AwaitOnMainThread(_completion.Task);
 
             if (_state.CurrentValue == ConfigInitState.Ready) return _tables;
             if (_state.CurrentValue == ConfigInitState.Failed) return RethrowFailure();
@@ -289,6 +291,20 @@ namespace Game.Framework
             if (_failure != null) _failure.Throw();
             throw new InvalidOperationException(
                 "配置状态为 Failed，但没有捕获到原始失败异常。");
+        }
+
+        // Config 是可删除的独立 Module，不能依赖 Core 的内部调度 helper；在本边界保留同一条最小语义：
+        // 调用方 token 可从 worker 取消，但公开 EnsureReady 的成功、异常、取消必须回主线程再触碰状态/交还业务。
+        private static async UniTask AwaitOnMainThread(UniTask task)
+        {
+            try
+            {
+                await task;
+            }
+            finally
+            {
+                await UniTask.SwitchToMainThread();
+            }
         }
     }
 }

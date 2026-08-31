@@ -62,6 +62,12 @@ namespace Game.Framework.Config.Tests
         }
 
         [UnityTest]
+        public IEnumerator EnsureReady_AssetWorkerCompletion_PublishesAndReturnsOnMainThread()
+        {
+            yield return EnsureReady_AssetWorkerCompletion_PublishesAndReturnsOnMainThreadAsync().ToCoroutine();
+        }
+
+        [UnityTest]
         public IEnumerator EnsureReady_DisabledWhileIdle_FailsFastWithoutPoisoningLaterStart()
         {
             yield return EnsureReady_DisabledWhileIdle_FailsFastWithoutPoisoningLaterStartAsync().ToCoroutine();
@@ -190,6 +196,8 @@ namespace Game.Framework.Config.Tests
 
         private async UniTask EnsureReady_CallerCancellationOnlyDetachesWaiterAsync()
         {
+            int mainThread = Thread.CurrentThread.ManagedThreadId;
+            int cancellationThread = -1;
             var gate = _provider.PlanLoad(new byte[] { 7, 8, 9 });
             var config = CreateConfig(new[] { "alpha" });
             var shared = config.EnsureReady();
@@ -197,8 +205,12 @@ namespace Game.Framework.Config.Tests
 
             using var caller = new CancellationTokenSource();
             var detached = config.EnsureReady(caller.Token);
-            caller.Cancel();
+            CancelOnThreadPool(caller, thread => cancellationThread = thread).Forget();
             Assert.IsTrue(await IsCanceled(detached));
+            Assert.AreNotEqual(mainThread, cancellationThread,
+                "测试 token 必须真实从 worker 发出取消");
+            Assert.AreEqual(mainThread, Thread.CurrentThread.ManagedThreadId,
+                "EnsureReady 的调用方取消必须回主线程交付");
             Assert.AreEqual(ConfigInitState.Loading, config.State.CurrentValue);
             Assert.IsFalse(gate.OwnerToken.IsCancellationRequested,
                 "短命调用者的 token 不得传给配置共享加载 owner");
@@ -207,6 +219,32 @@ namespace Game.Framework.Config.Tests
             var tables = await shared;
             Assert.AreEqual(ConfigInitState.Ready, config.State.CurrentValue);
             CollectionAssert.AreEqual(new byte[] { 7, 8, 9 }, tables.Bytes);
+        }
+
+        private async UniTask EnsureReady_AssetWorkerCompletion_PublishesAndReturnsOnMainThreadAsync()
+        {
+            int mainThread = Thread.CurrentThread.ManagedThreadId;
+            int readyThread = -1;
+            _provider.CompleteLoadsOnThreadPool = true;
+            _provider.SetBytes("alpha", new byte[] { 2, 7, 1, 8 });
+            var config = CreateConfig(new[] { "alpha" });
+            using var subscription = config.State.Subscribe(state =>
+            {
+                if (state == ConfigInitState.Ready)
+                    readyThread = Thread.CurrentThread.ManagedThreadId;
+            });
+
+            TestTables tables = await config.EnsureReady();
+
+            Assert.AreNotEqual(mainThread, _provider.LastLoadCompletionThread,
+                "测试 Asset Provider 必须真实在 worker 物理完成");
+            Assert.AreEqual(mainThread, config.CreateTablesThread,
+                "表根构造触碰业务生成对象前必须恢复主线程");
+            Assert.AreEqual(mainThread, readyThread,
+                "ConfigInitState.Ready 不得从 worker 发布");
+            Assert.AreEqual(mainThread, Thread.CurrentThread.ManagedThreadId,
+                "EnsureReady 的成功终态必须从主线程交付");
+            CollectionAssert.AreEqual(new byte[] { 2, 7, 1, 8 }, tables.Bytes);
         }
 
         private async UniTask EnsureReady_DisabledWhileIdle_FailsFastWithoutPoisoningLaterStartAsync()
@@ -426,6 +464,15 @@ namespace Game.Framework.Config.Tests
             }
         }
 
+        private static async UniTask CancelOnThreadPool(
+            CancellationTokenSource source,
+            Action<int> recordThread)
+        {
+            await UniTask.SwitchToThreadPool();
+            recordThread(Thread.CurrentThread.ManagedThreadId);
+            source.Cancel();
+        }
+
         private sealed class CapturingSink : ILogSink
         {
             public LogLevel MinLevel => LogLevel.Trace;
@@ -443,6 +490,7 @@ namespace Game.Framework.Config.Tests
         {
             private IReadOnlyList<string> _files;
             private Exception _createFailure;
+            public int CreateTablesThread { get; private set; } = -1;
 
             protected override IReadOnlyList<string> TableFiles => _files;
 
@@ -454,6 +502,7 @@ namespace Game.Framework.Config.Tests
 
             protected override TestTables CreateTables(Func<string, byte[]> getBytes)
             {
+                CreateTablesThread = Thread.CurrentThread.ManagedThreadId;
                 if (_createFailure != null) throw _createFailure;
                 return new TestTables(getBytes(_files[0]));
             }
@@ -477,6 +526,8 @@ namespace Game.Framework.Config.Tests
             private Exception _nextLoadFailure;
 
             public int LoadBytesCalls { get; private set; }
+            public bool CompleteLoadsOnThreadPool { get; set; }
+            public int LastLoadCompletionThread { get; private set; } = -1;
 
 #if UNITY_EDITOR
             public Func<bool> SimulateOffline { get; set; }
@@ -510,19 +561,33 @@ namespace Game.Framework.Config.Tests
                 {
                     var failure = _nextLoadFailure;
                     _nextLoadFailure = null;
+                    await SwitchCompletionThreadIfRequested();
                     throw failure;
                 }
 
+                byte[] result;
                 if (_plannedLoads.Count > 0)
                 {
                     var gate = _plannedLoads.Dequeue();
                     gate.OwnerToken = ct;
                     gate.Started.TrySetResult();
                     await gate.Release.Task.AttachExternalCancellation(ct);
-                    return gate.Bytes;
+                    result = gate.Bytes;
+                }
+                else
+                {
+                    result = _bytes.TryGetValue(location, out var bytes) ? bytes : null;
                 }
 
-                return _bytes.TryGetValue(location, out var bytes) ? bytes : null;
+                await SwitchCompletionThreadIfRequested();
+                return result;
+            }
+
+            private async UniTask SwitchCompletionThreadIfRequested()
+            {
+                if (CompleteLoadsOnThreadPool)
+                    await UniTask.SwitchToThreadPool();
+                LastLoadCompletionThread = Thread.CurrentThread.ManagedThreadId;
             }
 
             public UniTask<IAssetHandle<UnityEngine.Object>> LoadAssetAsync(

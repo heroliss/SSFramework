@@ -16,6 +16,8 @@ namespace Game.Framework
     /// <para>后端无关——框架只约定「表根 + 就绪契约」，表如何生成 / 何种格式反序列化由项目侧子类决定。</para>
     /// <para>通常继承 <see cref="MonoConfigUtilityBase{TTables}"/> 获得完整实现；直接实现本 Interface 的自定义服务必须同时保持
     /// <see cref="State"/>、<see cref="Tables"/> 与 <see cref="EnsureReady"/> 的发布顺序、失败和取消语义。</para>
+    /// <para><b>线程：</b>本服务由 Unity 主线程独占；<see cref="EnsureReady"/> 从主线程调用，并保证调用方 token 即使
+    /// 在 worker 取消，成功、异常或取消也回到 Unity 主线程交付。自定义实现必须保持同一契约。</para>
     /// </summary>
     /// <typeparam name="TTables">配置表根类型：加载完成后一次性构造的只读数据入口。</typeparam>
     public interface IConfigUtility<TTables> : IUtility where TTables : class

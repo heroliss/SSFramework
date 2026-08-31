@@ -96,6 +96,46 @@ namespace Game.Framework.Test
         public IEnumerator Configure_FreezesCallerConfigAndIsolatesProviderSnapshot()
             => Configure_FreezesCallerConfigAndIsolatesProviderSnapshotAsync().ToCoroutine();
 
+        [UnityTest]
+        public IEnumerator Initialize_ProviderWorkerCompletion_PublishesStateAndReturnsOnMainThread()
+            => Initialize_ProviderWorkerCompletion_PublishesStateAndReturnsOnMainThreadAsync().ToCoroutine();
+
+        [UnityTest]
+        public IEnumerator Initialize_WorkerCallerCancellation_ReturnsMainThreadWithoutCancelingOwner()
+            => Initialize_WorkerCallerCancellation_ReturnsMainThreadWithoutCancelingOwnerAsync().ToCoroutine();
+
+        [UnityTest]
+        public IEnumerator LoadVariants_ProviderWorkerSuccessAndFailure_ReturnOnMainThread()
+            => LoadVariants_ProviderWorkerSuccessAndFailure_ReturnOnMainThreadAsync().ToCoroutine();
+
+        [UnityTest]
+        public IEnumerator Load_ProviderIgnoresCancellation_LateHandleIsDisposedAndOceReturnsMainThread()
+            => Load_ProviderIgnoresCancellation_LateHandleIsDisposedAndOceReturnsMainThreadAsync().ToCoroutine();
+
+        [UnityTest]
+        public IEnumerator AssetReference_FailedAttemptReentrantRetry_StartsNewPhysicalLoad()
+            => AssetReference_FailedAttemptReentrantRetry_StartsNewPhysicalLoadAsync().ToCoroutine();
+
+        [UnityTest]
+        public IEnumerator AssetReference_WorkerCallerCancellation_ReturnsMainThreadAndSharedLoadContinues()
+            => AssetReference_WorkerCallerCancellation_ReturnsMainThreadAndSharedLoadContinuesAsync().ToCoroutine();
+
+        [Test]
+        public void DefaultPackageConvenienceMembers_NoDefault_FailWithActionableError()
+        {
+            _utility.Configure(string.Empty, new AssetProviderConfig(), AssetPlayMode.EditorSimulate);
+
+            var initStateError = Assert.Throws<InvalidOperationException>(() => _ = _utility.InitState);
+            var namedStateError = Assert.Throws<InvalidOperationException>(() => _utility.GetInitState(null));
+            var downloaderError = Assert.Throws<InvalidOperationException>(() => _utility.CreateAllDownloader());
+
+            foreach (var error in new[] { initStateError, namedStateError, downloaderError })
+            {
+                StringAssert.Contains("没有默认资源包", error.Message);
+                StringAssert.Contains("packageName", error.Message);
+            }
+        }
+
         [Test]
         public void ConfigureBeforeStart_SuppressesInspectorAutoInitialization()
         {
@@ -325,6 +365,237 @@ namespace Game.Framework.Test
             public T Asset { get; }
             public bool IsValid => _valid;
             public void Dispose() => _valid = false;
+        }
+
+        private sealed class TestSceneHandle : ISceneHandle
+        {
+            public Scene Scene => default;
+            public bool IsValid { get; private set; } = true;
+            public bool Activate() => IsValid;
+            public bool UnSuspend() => IsValid;
+            public UniTask Unload()
+            {
+                IsValid = false;
+                return UniTask.CompletedTask;
+            }
+            public void Dispose() => IsValid = false;
+        }
+
+        private async UniTask Initialize_ProviderWorkerCompletion_PublishesStateAndReturnsOnMainThreadAsync()
+        {
+            int mainThread = Thread.CurrentThread.ManagedThreadId;
+            int readyThread = -1;
+            var gate = _provider.PlanInitialization();
+            using var subscription = _utility.GetInitState(Package).Subscribe(state =>
+            {
+                if (state == AssetInitState.Ready)
+                    readyThread = Thread.CurrentThread.ManagedThreadId;
+            });
+
+            UniTask initializing = _utility.Initialize(Package);
+            await gate.Started.Task;
+            CompleteOnThreadPool(gate.Release).Forget();
+            await initializing;
+
+            Assert.AreNotEqual(mainThread, gate.CompletionThread,
+                "测试 Provider 必须真实在 worker 物理完成，才能证明 Core 边界有效");
+            Assert.AreEqual(mainThread, readyThread,
+                "AssetInitState 不得从 Provider worker 发布");
+            Assert.AreEqual(mainThread, Thread.CurrentThread.ManagedThreadId,
+                "Initialize 的成功终态必须回到 Unity 主线程");
+        }
+
+        private async UniTask Initialize_WorkerCallerCancellation_ReturnsMainThreadWithoutCancelingOwnerAsync()
+        {
+            int mainThread = Thread.CurrentThread.ManagedThreadId;
+            var gate = _provider.PlanInitialization();
+            using var caller = new CancellationTokenSource();
+            UniTask waiting = _utility.Initialize(Package, caller.Token);
+            await gate.Started.Task;
+
+            CancelOnThreadPool(caller).Forget();
+            try
+            {
+                await waiting;
+                Assert.Fail("worker 发出的调用方取消应结束当前等待。");
+            }
+            catch (OperationCanceledException)
+            {
+                Assert.AreEqual(mainThread, Thread.CurrentThread.ManagedThreadId,
+                    "调用方 token 在 worker 取消也必须从主线程交付 OCE");
+            }
+
+            Assert.IsFalse(gate.OwnerToken.IsCancellationRequested,
+                "短命 waiter 取消不能传染物理初始化 owner");
+            gate.Release.TrySetResult();
+            await _utility.EnsureInitialized(Package);
+        }
+
+        private async UniTask LoadVariants_ProviderWorkerSuccessAndFailure_ReturnOnMainThreadAsync()
+        {
+            await MakeReady();
+            int mainThread = Thread.CurrentThread.ManagedThreadId;
+            var asset = new GameObject("WorkerLoadedAsset");
+            asset.transform.SetParent(_root.transform);
+            var sceneHandle = new TestSceneHandle();
+            _provider.AssetResult = new TestAssetHandle<GameObject>(asset);
+            _provider.SceneResult = sceneHandle;
+            _provider.TextResult = "worker-text";
+            _provider.BytesResult = new byte[] { 4, 2 };
+            _provider.CompleteLoadsOnThreadPool = true;
+
+            var assetHandle = await _utility.Load<GameObject>(Package, "worker-asset");
+            Assert.AreEqual(mainThread, Thread.CurrentThread.ManagedThreadId);
+            Assert.AreSame(asset, assetHandle.Asset);
+
+            var loadedScene = await _utility.LoadScene(Package, "worker-scene", LoadSceneMode.Additive);
+            Assert.AreEqual(mainThread, Thread.CurrentThread.ManagedThreadId);
+            Assert.AreSame(sceneHandle, loadedScene);
+
+            Assert.AreEqual("worker-text", await _utility.LoadText(Package, "worker-text"));
+            Assert.AreEqual(mainThread, Thread.CurrentThread.ManagedThreadId);
+            CollectionAssert.AreEqual(new byte[] { 4, 2 }, await _utility.LoadBytes(Package, "worker-bytes"));
+            Assert.AreEqual(mainThread, Thread.CurrentThread.ManagedThreadId);
+            Assert.That(_provider.LoadCompletionThreads, Has.All.Not.EqualTo(mainThread),
+                "测试 Provider 的四种加载必须都真实结束在 worker");
+
+            var expected = new InvalidOperationException("worker-load-failed");
+            _provider.NextAssetLoadFailure = expected;
+            try
+            {
+                await _utility.Load<GameObject>(Package, "worker-failure");
+                Assert.Fail("Provider 失败应原样传播。");
+            }
+            catch (InvalidOperationException actual)
+            {
+                Assert.AreSame(expected, actual);
+                Assert.AreEqual(mainThread, Thread.CurrentThread.ManagedThreadId,
+                    "Provider worker failure 也必须从主线程交付");
+            }
+
+            assetHandle.Dispose();
+            loadedScene.Dispose();
+        }
+
+        private async UniTask Load_ProviderIgnoresCancellation_LateHandleIsDisposedAndOceReturnsMainThreadAsync()
+        {
+            await MakeReady();
+            int mainThread = Thread.CurrentThread.ManagedThreadId;
+            var asset = new GameObject("LateCanceledAsset");
+            asset.transform.SetParent(_root.transform);
+            var lateHandle = new TestAssetHandle<GameObject>(asset);
+            var gate = _provider.PlanAssetLoad(lateHandle, ignoreCancellation: true);
+            using var caller = new CancellationTokenSource();
+
+            UniTask<IAssetHandle<GameObject>> waiting =
+                _utility.Load<GameObject>(Package, "late-canceled-asset", caller.Token);
+            await gate.Started.Task;
+            CancelOnThreadPool(caller).Forget();
+            await UniTask.WaitUntil(() => caller.IsCancellationRequested);
+            Assert.IsFalse(waiting.GetAwaiter().IsCompleted,
+                "Provider 忽略 token 时，Core 仍需等物理结果到达后才能回收句柄并交付取消");
+
+            gate.Release.TrySetResult();
+            try
+            {
+                await waiting;
+                Assert.Fail("迟到的成功结果不能覆盖已经发生的调用方取消。对外应保留 OCE。");
+            }
+            catch (OperationCanceledException)
+            {
+                Assert.AreEqual(mainThread, Thread.CurrentThread.ManagedThreadId,
+                    "迟到结果的取消终态也必须从 Unity 主线程交付");
+            }
+
+            Assert.IsFalse(lateHandle.IsValid,
+                "已经失去调用方 owner 的迟到 handle 必须由 Core 回收，不能泄漏");
+        }
+
+        private async UniTask AssetReference_FailedAttemptReentrantRetry_StartsNewPhysicalLoadAsync()
+        {
+            await MakeReady();
+            var asset = new GameObject("AssetReferenceRetryResult");
+            asset.transform.SetParent(_root.transform);
+            var expected = new InvalidOperationException("asset-reference-first-failure");
+            var firstGate = _provider.PlanAssetLoad(failure: expected);
+            var retryGate = _provider.PlanAssetLoad(new TestAssetHandle<GameObject>(asset));
+            var reference = new AssetReference<GameObject>();
+            SetPrivateField((AssetReferenceBase)reference, "_assetGUID", "retry-guid");
+            reference.Bind(_utility, default);
+
+            UniTask<GameObject> retry = default;
+            async UniTask ObserveFailureAndRetry()
+            {
+                try
+                {
+                    await reference.Get();
+                    Assert.Fail("第一次资源加载应失败。");
+                }
+                catch (InvalidOperationException actual)
+                {
+                    Assert.AreSame(expected, actual);
+                    // UniTaskCompletionSource 同步恢复本 continuation；这里就是旧 owner 发布终态时的重入窗口。
+                    retry = reference.Get();
+                }
+            }
+
+            UniTask observer = ObserveFailureAndRetry();
+            await firstGate.Started.Task;
+            firstGate.Release.TrySetResult();
+            await observer;
+
+            Assert.AreEqual(2, _provider.AssetLoadCalls,
+                "失败 task 的 continuation 内立即重试必须建立新 owner，不能加入已完成的旧 TCS");
+            Assert.IsFalse(retry.GetAwaiter().IsCompleted);
+            retryGate.Release.TrySetResult();
+            Assert.AreSame(asset, await retry);
+            reference.Dispose();
+        }
+
+        private async UniTask AssetReference_WorkerCallerCancellation_ReturnsMainThreadAndSharedLoadContinuesAsync()
+        {
+            await MakeReady();
+            int mainThread = Thread.CurrentThread.ManagedThreadId;
+            var asset = new GameObject("AssetReferenceSharedResult");
+            asset.transform.SetParent(_root.transform);
+            var gate = _provider.PlanAssetLoad(new TestAssetHandle<GameObject>(asset));
+            var reference = new AssetReference<GameObject>();
+            SetPrivateField((AssetReferenceBase)reference, "_assetGUID", "shared-guid");
+            reference.Bind(_utility, default);
+            using var caller = new CancellationTokenSource();
+
+            UniTask<GameObject> waiting = reference.Get(caller.Token);
+            await gate.Started.Task;
+            CancelOnThreadPool(caller).Forget();
+            try
+            {
+                await waiting;
+                Assert.Fail("调用方等待应取消。");
+            }
+            catch (OperationCanceledException)
+            {
+                Assert.AreEqual(mainThread, Thread.CurrentThread.ManagedThreadId,
+                    "AssetReference 的局部 waiter 取消也必须回主线程");
+            }
+
+            Assert.AreEqual(1, _provider.AssetLoadCalls,
+                "局部 waiter 取消不能重启或中断引用级共享加载");
+            gate.Release.TrySetResult();
+            await UniTask.WaitUntil(() => reference.IsLoaded);
+            Assert.AreSame(asset, reference.Asset);
+            reference.Dispose();
+        }
+
+        private static async UniTask CompleteOnThreadPool(UniTaskCompletionSource completion)
+        {
+            await UniTask.SwitchToThreadPool();
+            completion.TrySetResult();
+        }
+
+        private static async UniTask CancelOnThreadPool(CancellationTokenSource source)
+        {
+            await UniTask.SwitchToThreadPool();
+            source.Cancel();
         }
 
         private async UniTask Configure_FreezesCallerConfigAndIsolatesProviderSnapshotAsync()
@@ -757,8 +1028,29 @@ namespace Game.Framework.Test
                 public readonly Exception Failure;
                 public readonly UniTaskCompletionSource Started = new();
                 public readonly UniTaskCompletionSource Release = new();
+                public CancellationToken OwnerToken;
+                public int CompletionThread = -1;
 
                 public InitializationGate(Exception failure) => Failure = failure;
+            }
+
+            internal sealed class AssetLoadGate
+            {
+                public readonly IAssetHandle<UnityEngine.Object> Result;
+                public readonly Exception Failure;
+                public readonly bool IgnoreCancellation;
+                public readonly UniTaskCompletionSource Started = new();
+                public readonly UniTaskCompletionSource Release = new();
+
+                public AssetLoadGate(
+                    IAssetHandle<UnityEngine.Object> result,
+                    Exception failure,
+                    bool ignoreCancellation)
+                {
+                    Result = result;
+                    Failure = failure;
+                    IgnoreCancellation = ignoreCancellation;
+                }
             }
 
             internal sealed class MaintenanceGate
@@ -778,6 +1070,7 @@ namespace Game.Framework.Test
             private readonly HashSet<string> _readyPackages = new();
             private readonly Queue<InitializationGate> _initializations = new();
             private readonly Queue<MaintenanceGate> _maintenance = new();
+            private readonly Queue<AssetLoadGate> _assetLoads = new();
             private int _activeMaintenance;
 
             public readonly List<string> StartedMaintenanceKinds = new();
@@ -796,6 +1089,14 @@ namespace Game.Framework.Test
             public AssetProviderConfig ReceivedInitializationConfig { get; private set; }
             public int LastDownloaderMaxConcurrent { get; private set; }
             public int LastDownloaderRetries { get; private set; }
+            public int AssetLoadCalls { get; private set; }
+            public IAssetHandle<UnityEngine.Object> AssetResult { get; set; }
+            public ISceneHandle SceneResult { get; set; }
+            public string TextResult { get; set; }
+            public byte[] BytesResult { get; set; }
+            public Exception NextAssetLoadFailure { get; set; }
+            public bool CompleteLoadsOnThreadPool { get; set; }
+            public List<int> LoadCompletionThreads { get; } = new();
 
 #if UNITY_EDITOR
             public Func<bool> SimulateOffline { get; set; }
@@ -813,9 +1114,11 @@ namespace Game.Framework.Test
                 var gate = _initializations.Dequeue();
                 InitializeCalls++;
                 InitializeOwnerToken = ct;
+                gate.OwnerToken = ct;
                 ReceivedInitializationConfig = config;
                 gate.Started.TrySetResult();
                 await gate.Release.Task.AttachExternalCancellation(ct);
+                gate.CompletionThread = Thread.CurrentThread.ManagedThreadId;
                 if (gate.Failure != null) throw gate.Failure;
                 _readyPackages.Add(packageName);
             }
@@ -833,6 +1136,16 @@ namespace Game.Framework.Test
             {
                 var gate = new MaintenanceGate(kind, failure);
                 _maintenance.Enqueue(gate);
+                return gate;
+            }
+
+            public AssetLoadGate PlanAssetLoad(
+                IAssetHandle<UnityEngine.Object> result = null,
+                Exception failure = null,
+                bool ignoreCancellation = false)
+            {
+                var gate = new AssetLoadGate(result, failure, ignoreCancellation);
+                _assetLoads.Enqueue(gate);
                 return gate;
             }
 
@@ -894,19 +1207,57 @@ namespace Game.Framework.Test
                 return result;
             }
 
-            public UniTask<IAssetHandle<UnityEngine.Object>> LoadAssetAsync(
+            public async UniTask<IAssetHandle<UnityEngine.Object>> LoadAssetAsync(
                 string packageName, string locationOrGuid, bool byGuid, Type type, CancellationToken ct)
-                => UniTask.FromResult<IAssetHandle<UnityEngine.Object>>(null);
+            {
+                AssetLoadCalls++;
+                if (_assetLoads.Count > 0)
+                {
+                    var gate = _assetLoads.Dequeue();
+                    gate.Started.TrySetResult();
+                    if (gate.IgnoreCancellation)
+                        await gate.Release.Task;
+                    else
+                        await gate.Release.Task.AttachExternalCancellation(ct);
+                    if (gate.Failure != null) throw gate.Failure;
+                    return gate.Result;
+                }
 
-            public UniTask<ISceneHandle> LoadSceneAsync(
+                await SwitchLoadCompletionThreadIfRequested();
+                if (NextAssetLoadFailure != null)
+                {
+                    var failure = NextAssetLoadFailure;
+                    NextAssetLoadFailure = null;
+                    throw failure;
+                }
+                return AssetResult;
+            }
+
+            public async UniTask<ISceneHandle> LoadSceneAsync(
                 string packageName, string location, LoadSceneMode mode, bool suspendLoad, CancellationToken ct)
-                => UniTask.FromResult<ISceneHandle>(null);
+            {
+                await SwitchLoadCompletionThreadIfRequested();
+                return SceneResult;
+            }
 
-            public UniTask<string> LoadTextAsync(string packageName, string location, CancellationToken ct)
-                => UniTask.FromResult<string>(null);
+            public async UniTask<string> LoadTextAsync(string packageName, string location, CancellationToken ct)
+            {
+                await SwitchLoadCompletionThreadIfRequested();
+                return TextResult;
+            }
 
-            public UniTask<byte[]> LoadBytesAsync(string packageName, string location, CancellationToken ct)
-                => UniTask.FromResult<byte[]>(null);
+            public async UniTask<byte[]> LoadBytesAsync(string packageName, string location, CancellationToken ct)
+            {
+                await SwitchLoadCompletionThreadIfRequested();
+                return BytesResult;
+            }
+
+            private async UniTask SwitchLoadCompletionThreadIfRequested()
+            {
+                if (CompleteLoadsOnThreadPool)
+                    await UniTask.SwitchToThreadPool();
+                LoadCompletionThreads.Add(Thread.CurrentThread.ManagedThreadId);
+            }
 
             public bool CheckLocationValid(string packageName, string location)
             {

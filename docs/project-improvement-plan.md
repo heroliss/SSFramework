@@ -338,6 +338,12 @@
 - UI owner teardown 继续跳过业务 hook；额外封住“Context 已 disposed 后取消在途关闭过渡”的缝隙：此时只物理回收，不再调用可能访问已释放 Context 的 `OnClose`。同步与异步 owner 取消路径均有测试，普通关闭与非 owner 故障仍完成 hook。
 - `propose-rule-evolution` 归类结果为“代码/测试是权威门禁，最窄 AGENTS 只留常驻决策，教程进入 guide/ADR”；最深规则链实测 29.49 KiB。最终完整 EditMode 614/614、PlayMode 726/726，Unity 编译 0 错误。
 
+### P1 · Asset / Config Provider 线程与重入提交边界
+
+- `IAssetProvider` 明确允许异步物理操作从任意线程完成，`IAssetUtility` 则维持主线程独占入口：初始化、就绪等待、四类加载与维护 operation 的成功、异常、取消都先恢复主线程，再修改状态、推进队列或交付公共 task。worker 发出的调用方取消也不会把后续 Context / Bag / Unity 代码拖到线程池。
+- Provider 忽略取消并迟到返回 Asset / Scene handle 时，Core 会先安全回收结果再保留 OCE；资源引用的共享 attempt 在发布同步 continuation 前先撤掉旧 owner 槽，修复“失败 continuation 内立即重试仍加入旧 task”的确定性重入漏洞。无默认包的状态 / 下载器便捷入口也统一给出可行动的配置异常。
+- `MonoConfigUtilityBase` 在可删除 Config Module 自己的边界恢复主线程，确保表根构造、状态发布和 `EnsureReady` 终态不依赖 Adapter 的实际完成线程；公开 XML doc、guide 与 ADR-0009/0013 同步这一契约。Asset + Config 专项 36/36，最终完整 EditMode 616/616、PlayMode 734/734，Unity 编译 0 错误。
+
 ## 下一批候选（按杠杆排序）
 
 | 优先级 | 候选 | 证据 / 完成标准 |
