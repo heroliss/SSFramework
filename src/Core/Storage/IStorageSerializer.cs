@@ -11,18 +11,24 @@ namespace Game.Framework.Storage
     /// <remarks>
     /// 实现契约：
     /// <list type="bullet">
-    ///   <item><see cref="Serialize{T}"/> 失败（类型不支持等）直接抛异常——写路径的失败必须让调用方知道。</item>
+    ///   <item><see cref="Serialize{T}"/> 失败（类型不支持等）直接抛异常——写路径的失败必须让调用方知道；成功不得返回 null。</item>
     ///   <item><see cref="Deserialize{T}"/> 对损坏 / 不兼容字节<b>抛异常</b>（由 <see cref="StorageUtility"/> 捕获并回退备份），
-    ///         不要吞掉返回残缺对象。</item>
+    ///         成功不得返回 null 或残缺根对象。</item>
     ///   <item>两个方法都在<b>主线程</b>被调用（见 ADR-0021 §6），实现无需考虑线程安全。</item>
     /// </list>
     /// </remarks>
     public interface IStorageSerializer
     {
-        /// <summary>把数据对象序列化为字节。失败抛异常。</summary>
+        /// <summary>
+        /// 把非 null 数据对象序列化为字节。成功必须返回非 null 数组（无内容用空数组），失败直接抛异常；
+        /// 返回值由调用方接管，序列化器不得在返回后继续修改。
+        /// </summary>
         byte[] Serialize<T>(T data) where T : class;
 
-        /// <summary>从字节还原数据对象。字节损坏 / 格式不兼容时抛异常；调用方保证 bytes 非 null。</summary>
+        /// <summary>
+        /// 从非 null 字节快照还原非 null 数据对象。字节损坏、格式不兼容或无法构造根对象时直接抛异常；
+        /// 输入只在本次调用期间借用，序列化器不得缓存或修改。
+        /// </summary>
         T Deserialize<T>(byte[] bytes) where T : class;
     }
 }

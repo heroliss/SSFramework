@@ -2374,6 +2374,7 @@ var loaded = await storage.Load<PlayerSaveData>("save/slot1");  // null = 无可
 ### 扩展点与刻意不做
 
 - **换介质 = `IStorageProvider`**（字节 ↔ 介质，写必须防损坏）：SQLite / 云存档 / PlayerPrefs 桥；**换格式 = `IStorageSerializer`**（对象 ↔ 字节）：MemoryPack（重度存档提速）/ Newtonsoft（要 Dictionary / 多态）/ 加密包装。都经 `StorageUtility` 构造注入，业务零改动。
+- 自定义 Serializer 成功编码必须返回非 null 字节（无内容用 `Array.Empty<byte>()`），非 null 存储字节也必须还原为非 null 根对象。框架会在写入 Provider 前拒绝 null 编码；读取出 null 根则明确记录为反序列化失败并尝试备份，不会静默冒充“新玩家没有存档”。
 - 默认 `JsonUtilityStorageSerializer` 只认 `[Serializable]` 类的**字段**（不含属性），不支持 `Dictionary` / 多态——存档类型用 List + 平铺字段建模；忘标 `[Serializable]` 会静默序列化出空对象，Editor / Dev 下有 LogError 守卫。
 - **刻意不做**：加密防篡改（单机本地防不住，联网真源在服务器；serializer 已是加密接入位）、SQLite（等真实查询需求，届时顺带验证 provider 抽象）、云同步 / 自动定时保存（业务与平台 SDK 领域）。
 
