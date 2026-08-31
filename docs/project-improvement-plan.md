@@ -22,7 +22,7 @@
 | Demo | 35 个自动发现章节；Catalog 集中拥有 Adapter 生命周期，并按 Capability / Concept / Workflow 校验真实 Build 教学语义 |
 | 教程 | `framework-guide.md` 28 章 |
 | ADR | 0001–0046；0040 为 UPM-aware 源码目录，0041/0042 补齐依赖证据，0043 收口 Editor 菜单与工作台，0044 固化 Unity CLI 工程外 Adapter 边界，0045 拆分资源与 HybridCLR 构建依赖，0046 收敛资源运行时入口 |
-| 测试 | PlayMode 763 + EditMode 616，共 1379 项全绿；交互式 MCP 后台运行且 PlayMode 先预检，命令行入口默认 EditMode + PlayMode |
+| 测试 | PlayMode 763 + EditMode 619，共 1382 项全绿；交互式 MCP 后台运行且 PlayMode 先预检，命令行入口默认 EditMode + PlayMode |
 | Demo CodeRef | 316 处可打开源码跳转；完整门禁通过后以精准命中为基线，注释、文案与外部文档路径不计入源码构造点 |
 | AI 常驻规则预算 | 最深 AGENTS 链 29.49 KiB，低于 Codex 默认 32 KiB 项目指令上限；本轮只为 View token 的反直觉覆盖语义保留一条就近规则，完整解释与门禁仍外移到 XML/ADR/测试 |
 
@@ -383,6 +383,13 @@
 - 排行榜刷新与扩展包下载原本各自维护 `_closed`，只能覆盖正常 Close；UI owner / Context teardown 按窗口契约跳过 `OnClose` 时，异步 continuation 仍可能改写已经摘除的 VisualElement。`UIToolkitWindowBase` 现在集中拥有逻辑打开状态，并以 `CanUpdateVisuals = 逻辑打开 && !IsDisposed` 作为派生窗口的唯一门禁。
 - 默认跟随 `Bag.DisposeToken` 的异步动作无需增加样板；只有刻意忽略 View token、必须在关窗后完成的物理操作才在 await 后检查。门禁同时覆盖正常关闭、Cache 隐藏 / 重开和纯物理 teardown，且保留在 Toolkit Adapter，不把 `VisualElement` 语义推进渲染中立 `IUIWindow`。
 - 排行榜与设置窗口删除不完整的局部状态，XML doc、guide、ADR 与 Demo 教学同步；Toolkit 生命周期专项 8/8、Demo CodeRef / 目录契约 20/20，最终完整 EditMode 616/616、PlayMode 763/763，Unity 编译 0 错误 / 0 警告。
+
+### P1 · 资源构建批次发布证据
+
+- `BuildAll` 不再在构建结束后把原始请求包交给“查磁盘 latest”的人工部署路径；构建 Module 以内部批次结果集中持有规范化版本、请求包、真实成功包与空包，CI 只发布这份本轮证据。
+- 本轮空包会删除输出根中的同名旧部署目录，未参与本轮请求的包保持不动；任一真实构建失败时拒绝批次部署。人工工作台继续保留“重做最近一次构建部署”的独立语义，不因 CI 完整性要求失去本地便利。
+- 部署源在任何目标删除前固定到本轮精确版本并完成物理目录树安全采集；行为测试覆盖“历史版本时间更新也不误选”、空包旧目录清理、失败批次不改旧输出，以及人工 latest 无产物时保持旧目标。
+- 批次部署专项 3/3、资源构建 owner Module 36/36；最终完整 EditMode 619/619、PlayMode 763/763，Unity 6000.3.22f1 编译 0 错误 / 0 警告。
 
 ## 下一批候选（按杠杆排序）
 

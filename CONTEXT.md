@@ -92,7 +92,7 @@ Demo 教学内容与自动化之间的运行时 Seam。`DemoModuleHost` 在真�
 
 ## Framework Build Module Split
 
-Editor 构建能力按真实第三方变化源分成单向两层：`Game.Framework.Build.Editor` 拥有 YooAsset 普通 AssetBundle 的 Profile、构建、部署、本地服务、安全产物路径，以及“包名 + 普通 AssetBundle 引导偏移”的业务代码生成物；构建前以同一渲染函数校验生成物，避免首场景使用陈旧偏移。它不引用 Boot、HybridCLR 或 dnlib。`Game.Framework.Build.HybridCLR.Editor` 作为可删除的下游 Module，拥有热更 Profile、Generate 新鲜度、目标 DLL 编译与 YooAsset RawFile 代码包配方，并复用资源构建侧的版本、部署、预检与路径安全 Implementation。资源 Module 不读取热更 Profile；RawFile 包若误在资源 Profile 启用，会在写产物前明确失败并指向专属构建 Module，也不会继承普通 AssetBundle 的偏移。删除热更新 Module 后资源构建继续成立；保留热更新则必须保留它实际依赖的资源构建、Boot 与 HybridCLR 工具链。
+Editor 构建能力按真实第三方变化源分成单向两层：`Game.Framework.Build.Editor` 拥有 YooAsset 普通 AssetBundle 的 Profile、构建、部署、本地服务、安全产物路径，以及“包名 + 普通 AssetBundle 引导偏移”的业务代码生成物；构建前以同一渲染函数校验生成物，避免首场景使用陈旧偏移。CI 构建后部署只消费本轮批次实际成功的精确版本，并清除本轮空包的同名旧输出；人工独立部署才按磁盘最新版本重做，因此“本轮发布证据”不会被历史目录替换。它不引用 Boot、HybridCLR 或 dnlib。`Game.Framework.Build.HybridCLR.Editor` 作为可删除的下游 Module，拥有热更 Profile、Generate 新鲜度、目标 DLL 编译与 YooAsset RawFile 代码包配方，并复用资源构建侧的版本、部署、预检与路径安全 Implementation。资源 Module 不读取热更 Profile；RawFile 包若误在资源 Profile 启用，会在写产物前明确失败并指向专属构建 Module，也不会继承普通 AssetBundle 的偏移。删除热更新 Module 后资源构建继续成立；保留热更新则必须保留它实际依赖的资源构建、Boot 与 HybridCLR 工具链。
 
 ## External Dependency Evidence
 

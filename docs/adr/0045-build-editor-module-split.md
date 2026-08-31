@@ -20,6 +20,7 @@
 5. 当前项目的 CodePackage 条目继续显式设为“不参与资源构建”。热更新 Module 仍复用资源 Profile 的版本格式、`FrameworkAssetBuilder.Deploy`、构建预检与 `FrameworkBuildArtifactPath`，不复制第二份路径和部署逻辑。
 6. 通用 Module Audit 继续用反射查找 `FrameworkHotUpdateProfile` / `FrameworkHotUpdateBuilder`，但证据字段和文案明确称为“HybridCLR 热更新构建 Module”；资源构建是否安装与热更派生证据正交。
 7. 保留移动脚本的 `.meta` GUID，既有 ScriptableObject Profile 通过 MonoScript GUID 继续加载；契约测试扫描并加载当前工程内已有 Profile，防止程序集迁移造成静默丢失。
+8. 部署保留两种明确语义：人工工作台可把某包磁盘上的最近一次构建重新平铺；`BuildAll` 的 CI 构建后部署则只消费本轮批次实际成功的包和精确版本。本轮请求但因空包跳过的包会移除输出根中的同名旧目录，未参与本轮请求的包不动；任一真实构建失败时不进入批次部署。历史目录不能冒充本轮发布证据。
 
 ### 迁移说明
 
@@ -32,6 +33,7 @@
 - 只需要 YooAsset 普通资源构建的项目可以删除 `Build/HybridCLR`、Boot 与 HybridCLR/dnlib 依赖，不修改资源构建源码。
 - 第三方变化集中在实际拥有它的 Module，资源构建 Interface 更小，删除测试和依赖审计更可信。
 - 热更新仍复用成熟的版本、部署和路径安全 Implementation，保持杠杆（Leverage）与局部性（Locality），没有复制浅工具层。
+- CI 的构建与部署共享同一份批次结果；空包、历史版本和本轮产物不再由部署阶段重新猜测，发布证据更可信。
 - 工具中心与配置中心的卡片继续由各 Module 自注册；删除热更新 Module 后相关入口会随域重载自然消失。
 
 ### 代价与边界
@@ -40,6 +42,7 @@
 - 用户必须在资源 Profile 显式关闭由其它配方拥有的 RawFile 包。相比按名称静默跳过，这多一项配置，但误配会 fail-fast，不会产出残缺代码包。
 - 未来若业务 RawFile 视频等出现真实消费者，应按 ADR-0017 为资源构建新增通用 RawFile 配方；代码包的 CompileDll/manifest/AOT 步骤仍由热更新 Module 独占。
 - 这次只建立 asmdef 级物理删除边界；正式 UPM 安装、添加/移除 Package 和干净消费工程仍由后续发布矩阵证明。
+- 批次部署仍是逐包“删除旧目标 → 平铺新文件”，不是跨包文件系统事务；IO 中断可能留下部分输出，修复后需重新构建部署，不能把它描述成原子 CDN 发布。
 
 ## 验证
 
@@ -47,4 +50,5 @@
 - 热更新构建程序集必须显式引用资源构建、Boot、HybridCLR.Editor 与 dnlib。
 - 两个可选 Editor Module 均保持 `autoReferenced:false` 与 `overrideReferences:true`，测试 Module 跟随各自 owner 删除。
 - 已有 `FrameworkHotUpdateProfile` 资产能在拆分和域重载后加载；Demo CodeRef 指向迁移后的真实源码。
+- 批次部署测试证明固定使用本轮版本、清理本轮空包旧目录、真实失败不改部署结果；人工 latest 部署在无源产物时仍保持兼容的跳过语义。
 - Unity 编译、相关 EditMode、完整 EditMode / PlayMode 与 Module Audit 契约通过。

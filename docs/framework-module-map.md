@@ -78,8 +78,8 @@ Editor 反向引用。Adapter 不得随 Framework 分发付费插件本体。详
 | `Game.Framework.Editor` | `Editor/` | 稳定且零付费插件依赖的编辑器工具基座：Core 原生 Drawer/Inspector、跨模块非阻塞反馈、诊断窗口、菜单、项目路径，以及 Module-local 注册的工具/配置/生成输出 claim Catalog；Module Audit 与隔离 Player Build 体积探针共用结构化组合，Source Catalog 统一解析 Assets / Packages / PackageCache。 | 玩家构建不包含。若删除，需一并删除或改接直接依赖它的 Build / Config / Proto / UGUI Editor 工具；所有 Runtime API 与玩家构建仍不受影响。 |
 | `Game.Framework.Odin.Editor` | `Odin.Editor/` | 可选专业 Inspector Adapter：仅把原生 fallback 接管且 Odin 允许绘制的具体 Framework Mono 类型临时映射到组合诊断的 OdinEditor；不写 Odin 配置，不含或重分发 Odin。 | 移除 Odin 前先整体删除；Domain Reload 后原生 fallback 接管，Runtime 与资产布局不变。 |
 | `Game.Framework.Editor.Tests` | `Editor/Tests/` | 通用 Editor 工具的 EditMode 契约；覆盖生成 claim 冲突矩阵、写盘前刷新，以及 AI PlayMode 预检的无弹窗保存与未命名场景拒绝。 | 随 Editor Module 删除；不进入玩家构建。 |
-| `Game.Framework.Build.Editor` | `Build/Editor/` | YooAsset 普通 AssetBundle 的 Profile、SBP 构建、部署、本地 CDN、加密接入与产物路径安全；保留既有程序集名以兼容 Profile 与 CI，但不引用 Boot、HybridCLR 或 dnlib。 | 无资源构建需求时可删；删除下游热更新构建后仍能独立编译与使用。 |
-| `Game.Framework.Build.Editor.Tests` | `Build/Editor/Tests/` | 资源构建工具/配置/包名常量 claim 注册、可移植产物路径和“零热更工具链引用”的删除契约。 | 随资源构建 Module 删除；不进入玩家构建。 |
+| `Game.Framework.Build.Editor` | `Build/Editor/` | YooAsset 普通 AssetBundle 的 Profile、SBP 构建、人工 latest 部署、CI 精确批次部署、本地 CDN、加密接入与产物路径安全；保留既有程序集名以兼容 Profile 与 CI，但不引用 Boot、HybridCLR 或 dnlib。 | 无资源构建需求时可删；删除下游热更新构建后仍能独立编译与使用。 |
+| `Game.Framework.Build.Editor.Tests` | `Build/Editor/Tests/` | 资源构建工具/配置、批次发布证据、包名常量 claim、可移植产物路径和“零热更工具链引用”的删除契约。 | 随资源构建 Module 删除；不进入玩家构建。 |
 | `Game.Framework.Build.HybridCLR.Editor` | `Build/HybridCLR/Editor/` | HybridCLR 热更 Profile、程序集图、Generate 新鲜度、目标 DLL 与 YooAsset RawFile CodePackage；单向复用资源构建侧的版本、部署、预检和路径安全。 | 删除后失去代码热更新构建与配置卡；普通资源构建不改源码，项目可连同 Boot、HybridCLR/dnlib 评估移除。 |
 | `Game.Framework.Build.HybridCLR.Editor.Tests` | `Build/HybridCLR/Editor/Tests/` | 热更新证据、元数据拓扑、代码包 Collector、目录注册与 Profile 程序集迁移兼容契约。 | 随热更新构建 Module 删除；资源构建测试不引用热更新工具链。 |
 | `Game.Framework.Demo` | `Demo/` | 35 个可运行教学章节，是所有 Module 的消费方与集成样板；Catalog 集中拥有章节 Adapter、生命周期与 Host 教学语义校验。包含 Input System → `IUIUtility.Back()` 等项目 composition 样板，但这些不是 Framework Runtime API。 | 可整体删除；`UNITY_EDITOR` define 保证不进玩家包。 |
