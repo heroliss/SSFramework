@@ -29,8 +29,11 @@ namespace Game.Framework.Editor
 
             if (p.propertyType == SerializedPropertyType.Quaternion)
             {
-                label.text += "(EulerAngles)";
-                EditorGUI.PropertyField(position, p, label, true);
+                var quaternionLabel = new GUIContent(label)
+                {
+                    text = label.text + "（欧拉角 Euler Angles）",
+                };
+                EditorGUI.PropertyField(position, p, quaternionLabel, true);
             }
             else
             {
@@ -91,16 +94,19 @@ namespace Game.Framework.Editor
                         ? GetValueRecursive(arrayValue, ++index, paths)
                         : arrayValue;
                 }
-                catch
+                catch (Exception exception)
                 {
-                    Debug.Log("RPDrawer Exception, objType:" + obj.GetType().Name +
-                              " path:" + string.Join(", ", paths));
-                    throw;
+                    throw new InvalidOperationException(
+                        $"RPDrawer 无法解析 {obj.GetType().Name} 的数组属性路径：{string.Join(", ", paths)}。" +
+                        "请检查字段是否仍与 R3 SerializableReactiveProperty 的序列化结构一致。",
+                        exception);
                 }
             }
 
             if (fldInfo == null)
-                throw new Exception("Can't decode path:" + string.Join(", ", paths));
+                throw new InvalidOperationException(
+                    $"RPDrawer 无法解析属性路径：{string.Join(", ", paths)}。" +
+                    "请检查字段是否已重命名，或 R3 SerializableReactiveProperty 的序列化结构是否发生变化。");
 
             var v = fldInfo.GetValue(obj);
             return index < paths.Length - 1 ? GetValueRecursive(v, ++index, paths) : v;

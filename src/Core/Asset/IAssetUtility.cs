@@ -329,7 +329,7 @@ namespace Game.Framework
     public static class AssetUtilityCompatibilityExtensions
     {
         /// <summary>兼容旧调用：仅本地可用或需要下载时返回 true；包未就绪与地址无效均返回 false。</summary>
-        [Obsolete("Use GetLocationState(location) so PackageNotReady is not confused with Invalid.")]
+        [Obsolete("请改用 GetLocationState(location)，避免把包未就绪（PackageNotReady）误判为地址无效（Invalid）。")]
         public static bool CheckLocationValid(this IAssetUtility utility, string location)
         {
             var state = utility.GetLocationState(location);
@@ -337,7 +337,7 @@ namespace Game.Framework
         }
 
         /// <summary>兼容旧调用：仅本地可用或需要下载时返回 true；包未就绪与地址无效均返回 false。</summary>
-        [Obsolete("Use GetLocationState(packageName, location) so PackageNotReady is not confused with Invalid.")]
+        [Obsolete("请改用 GetLocationState(packageName, location)，避免把包未就绪（PackageNotReady）误判为地址无效（Invalid）。")]
         public static bool CheckLocationValid(this IAssetUtility utility, string packageName, string location)
         {
             var state = utility.GetLocationState(packageName, location);
@@ -345,12 +345,12 @@ namespace Game.Framework
         }
 
         /// <summary>兼容旧调用：仅 <see cref="AssetLocationState.RequiresDownload"/> 返回 true。</summary>
-        [Obsolete("Use GetLocationState(location) so PackageNotReady is not confused with AvailableLocally.")]
+        [Obsolete("请改用 GetLocationState(location)，避免把包未就绪（PackageNotReady）误判为已在本地（AvailableLocally）。")]
         public static bool IsNeedDownload(this IAssetUtility utility, string location)
             => utility.GetLocationState(location) == AssetLocationState.RequiresDownload;
 
         /// <summary>兼容旧调用：仅 <see cref="AssetLocationState.RequiresDownload"/> 返回 true。</summary>
-        [Obsolete("Use GetLocationState(packageName, location) so PackageNotReady is not confused with AvailableLocally.")]
+        [Obsolete("请改用 GetLocationState(packageName, location)，避免把包未就绪（PackageNotReady）误判为已在本地（AvailableLocally）。")]
         public static bool IsNeedDownload(this IAssetUtility utility, string packageName, string location)
             => utility.GetLocationState(packageName, location) == AssetLocationState.RequiresDownload;
     }
