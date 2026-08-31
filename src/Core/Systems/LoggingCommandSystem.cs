@@ -20,10 +20,11 @@ namespace Game.Framework.Systems
     /// 多个 Context 各自注册也共写同一条时间线（缓冲是静态的），可观察全局命令顺序。<br/>
     /// <b>装饰语义</b>：六个重载全部泛型直转发内层 dispatcher（默认 <see cref="CommandSystem"/>），
     /// struct Command 路径保持零装箱；只记 <c>typeof(T).Name</c>，<b>不</b>对命令调 <c>ToString()</c>（struct 会装箱）。
-    /// 异常照原样冒出（记录后 rethrow），不改变任何执行语义。<br/>
+    /// 异常照原样冒出（记录后 rethrow），并遵守 <see cref="ICommandSystem"/> 的主线程完成契约。<br/>
     /// <b>落账时机</b>：完成时——同步命令执行返回即记；异步命令 await 完成（含异常 / 取消）后记，耗时才有意义；
     /// 在途异步不出现在流水里。<br/>
-    /// <b>线程契约</b>：主线程独占（命令分发本就在主线程，异步续体经 UniTask 回主线程），缓冲不加锁。
+    /// <b>线程契约</b>：主线程独占，缓冲不加锁。即使自定义内层 dispatcher 在工作线程完成，
+    /// 装饰器也会先切回 Unity 主线程，再落账并交付成功 / 异常 / 取消终态。
     /// </remarks>
     public sealed class LoggingCommandSystem : ICommandSystem
     {
@@ -171,18 +172,26 @@ namespace Game.Framework.Systems
 
         private async UniTask Await(string commandType, GameContext ctx, Pending p, UniTask task)
         {
+            Exception error = null;
             try { await task; }
-            catch (Exception e) { Record(commandType, ctx, p, e, isAsync: true); throw; }
-            Record(commandType, ctx, p, null, isAsync: true);
+            catch (Exception e) { error = e; throw; }
+            finally
+            {
+                await UniTask.SwitchToMainThread();
+                Record(commandType, ctx, p, error, isAsync: true);
+            }
         }
 
         private async UniTask<TResult> Await<TResult>(string commandType, GameContext ctx, Pending p, UniTask<TResult> task)
         {
-            TResult result;
-            try { result = await task; }
-            catch (Exception e) { Record(commandType, ctx, p, e, isAsync: true); throw; }
-            Record(commandType, ctx, p, null, isAsync: true);
-            return result;
+            Exception error = null;
+            try { return await task; }
+            catch (Exception e) { error = e; throw; }
+            finally
+            {
+                await UniTask.SwitchToMainThread();
+                Record(commandType, ctx, p, error, isAsync: true);
+            }
         }
 
         // ── 落账 ────────────────────────────────────────────────────────────

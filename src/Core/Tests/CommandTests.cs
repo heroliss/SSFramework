@@ -28,6 +28,30 @@ namespace Game.Framework.Test
             }
         }
 
+        private sealed class WorkerCommand : IAsyncCommand
+        {
+            public int CompletionThread = -1;
+
+            public async UniTask ExecuteAsync(ICommandContext ctx, CancellationToken cancellationToken)
+            {
+                await UniTask.SwitchToThreadPool();
+                CompletionThread = Thread.CurrentThread.ManagedThreadId;
+            }
+        }
+
+        private sealed class WorkerFailingResultCommand : IAsyncCommand<int>
+        {
+            public readonly InvalidOperationException Failure = new("worker-command-boom");
+            public int CompletionThread = -1;
+
+            public async UniTask<int> ExecuteAsync(ICommandContext ctx, CancellationToken cancellationToken)
+            {
+                await UniTask.SwitchToThreadPool();
+                CompletionThread = Thread.CurrentThread.ManagedThreadId;
+                throw Failure;
+            }
+        }
+
         private GameContext _gameContext;
         private TestModel _testModel;
         private TestSystem _testSystem;
@@ -113,6 +137,36 @@ namespace Game.Framework.Test
 
             Assert.AreEqual("Hello AsyncWorld, model value: cmd_test", result);
         }
+
+        [UnityTest]
+        public IEnumerator AsyncCommand_WorkerCompletionAndFailureReturnToMainThread()
+            => UniTask.ToCoroutine(async () =>
+            {
+                int mainThread = Thread.CurrentThread.ManagedThreadId;
+                var completed = new WorkerCommand();
+
+                await _gameContext.ExecuteCommandAsync(completed);
+
+                Assert.AreNotEqual(mainThread, completed.CompletionThread,
+                    "用例必须真实经过工作线程，才能证明 dispatcher 的完成边界。");
+                Assert.AreEqual(mainThread, Thread.CurrentThread.ManagedThreadId,
+                    "异步 Command 成功后，调用方续体应回到 Unity 主线程。");
+
+                var failed = new WorkerFailingResultCommand();
+                try
+                {
+                    await _gameContext.ExecuteCommandAsync(failed);
+                    Assert.Fail("工作线程异常必须原样传播。");
+                }
+                catch (InvalidOperationException error)
+                {
+                    Assert.AreSame(failed.Failure, error,
+                        "主线程切换不能包装或替换原始 Command 异常。");
+                    Assert.AreNotEqual(mainThread, failed.CompletionThread);
+                    Assert.AreEqual(mainThread, Thread.CurrentThread.ManagedThreadId,
+                        "异步 Command 失败也必须在主线程交付。");
+                }
+            });
 
         [Test]
         public void Command_CanAccessSystem_ThroughContextParameter()

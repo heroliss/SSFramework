@@ -1043,7 +1043,7 @@ public readonly struct CheckoutCommand : IAsyncCommand
 builder.RegisterValue(new LoggingCommandSystem(), typeof(ICommandSystem));
 ```
 
-自定义装饰器（回放 / 撤销 / 拦截）照 `LoggingCommandSystem` 的源码写：构造收 `ICommandSystem inner = null`（默认 `new CommandSystem()`，装饰器可继续嵌套），横切逻辑包在转发前后。
+自定义装饰器（回放 / 撤销 / 拦截）照 `LoggingCommandSystem` 的源码写：构造收 `ICommandSystem inner = null`（默认 `new CommandSystem()`，装饰器可继续嵌套），横切逻辑包在转发前后。异步 Command 可以在内部切到 worker 做纯计算，但 dispatcher 返回的 UniTask 必须在 Unity 主线程交付成功、异常或取消；默认实现和日志装饰器都会兜住这条边界。自定义实现若 await 项目/第三方任务，也要在公共完成前 `SwitchToMainThread`，让调用方可以安全继续使用 Context / Event / Model。
 
 > **为什么不再加一个 `ICommandDispatcher` 别名？** 容器按精确类型键解析，双 Interface 不是透明别名：两份 key 可能被注册成不同实例，反而让命令到底走谁变得含糊。当前保留兼容类型名、统一职责术语；若未来做破坏性版本，再一次性迁移 Interface、默认实现、装饰器与 DI key。
 
@@ -2530,6 +2530,8 @@ Container 所有权，也不会阻止显式 `GameContext.Dispose()`。反过来�
 | `OnExit` 抛异常 | 统一日志记录 Error 后继续转换（含宿主释放后的迟到异常），旧子 Context 照撤 |
 | 宿主 Context Dispose | flow 连同当前 / 进入中 / 退出中状态子 Context 立即撤，已接受的 GoTo 以取消终止，`IsTransitioning = false`；此后 GoTo 抛 `ObjectDisposedException` |
 | 同类状态再进入 | 正常退旧进新（重开一局是刻意行为）；复用**同一实例**抛参数异常（一次性守卫） |
+| hook 在 worker 完成 | `OnEnter/OnExit` 的物理任务可在任意线程结束；撤 scope、更新 `Current`、发 Event 与完成 GoTo task 前统一回 Unity 主线程 |
+| 安装 / Event / task continuation 重入 | 新意图先获得 owner，旧 task 后结束；每个用户回调后重验存活与最新请求，发布终态前摘掉内部 owner，不覆盖重入请求、不继续进入陈旧状态 |
 
 转换成功后在宿主 Context 上发 `FlowChangedEvent(From, To)`——loading 界面 / 埋点订阅这一个事件即可，不侵入每个状态。事件只串起**完整进入成功**的状态：`A →（B 进入中被顶替或失败）→ C` 只发布 `A → C`；B 从未成为 `Current`，不应伪装成历史节点，A 也不会因为已先退出而丢成 `null`。只有某次失败已结束、流程稳定处于无状态，后来另起的转换才从 `null` 开始。
 
@@ -2766,7 +2768,7 @@ protected override void InstallBindings(ContainerBuilder builder)
 }
 ```
 
-- 不改变任何执行语义：六个重载泛型直转发，struct Command 路径保持零装箱，异常照原样冒出。
+- 保持命令结果语义：六个重载泛型直转发，struct Command 路径保持零装箱，异常照原样冒出；异步公共终态按 `ICommandSystem` 契约在主线程交付。
 - **完成时落账**：异步命令 await 完成（含取消 / 异常）后才出现在流水里，耗时才有意义；在途异步不显示。
 - `new LoggingCommandSystem(echoToConsole: true)` 可同时逐条打 Console（Development Build 真机排查用——面板本身是 Editor 专用）。
 - demo 的 `MonoDemoContext` 已这样注册：打开 demo 场景点任意按钮，流水实时可见。

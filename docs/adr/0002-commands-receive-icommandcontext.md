@@ -22,3 +22,5 @@ struct Command 又不能用 `this.GetXxx<T>()` 扩展方法（值类型接口调
 - `ICommandSystem.ExecuteCommand(command, GameContext ctx)` 仍收 `GameContext`（它是框架内部命令分发器，需要完整上下文），不要与 Command 的 `Execute` 混淆。
 
 **2026-08-30 命名澄清：**`ICommandSystem` / `CommandSystem` 的 `System` 是早期公共类型名，不表示五层业务 `ISystem`。命令分发器是 Context 基础设施 Seam：使用 `RegisterValue(..., typeof(ICommandSystem))` 精确注册，不使用 `RegisterSystem`。`LoggingCommandSystem` 已证明该 Interface 的替换价值，因此不删除 Seam；同时不引入 `ICommandDispatcher` 双契约别名——精确类型 DI 下两种 key 可能指向不同实例。若未来破坏性版本改名，应一次性迁移 Interface、Implementation、装饰器与注册 key。
+
+**2026-08-31 异步完成边界：**Command 的异步实现允许临时切到 worker 处理纯数据，但 `ICommandSystem` 返回的 UniTask 必须在 Unity 主线程交付成功、异常或取消。默认 `CommandSystem` 以 `finally` 切回主线程，既覆盖全部终态，又保留原始异常对象与堆栈；`LoggingCommandSystem` 在落无锁环形缓冲前再次兜底，因为可替换的 inner 可能来自项目代码。这个保证让调用方 await 后可直接继续访问主线程独占的 Context / Event / Model，不把线程恢复责任扩散到每个业务 Command。

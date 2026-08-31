@@ -415,6 +415,37 @@ namespace Game.Framework.Test
             finally { ctx.Dispose(); }
         });
 
+        [UnityTest]
+        public IEnumerator LoggingCommandSystem_WorkerFailureRecordsAndRethrowsOnMainThread()
+            => UniTask.ToCoroutine(async () =>
+            {
+                int mainThread = Thread.CurrentThread.ManagedThreadId;
+                LoggingCommandSystem.ClearLog();
+                var ctx = CreateContext(new LoggingCommandSystem());
+                var command = new WorkerFailingDiagnosticCommand();
+                try
+                {
+                    try
+                    {
+                        await ctx.ExecuteCommandAsync(command);
+                        Assert.Fail("工作线程异常必须原样传播。");
+                    }
+                    catch (InvalidOperationException error)
+                    {
+                        Assert.AreSame(command.Failure, error);
+                        Assert.AreNotEqual(mainThread, command.CompletionThread);
+                        Assert.AreEqual(mainThread, Thread.CurrentThread.ManagedThreadId,
+                            "日志装饰器必须在主线程落账并交付异常。");
+                    }
+
+                    var entries = new List<LoggingCommandSystem.Entry>();
+                    LoggingCommandSystem.CopyRecent(entries);
+                    Assert.AreEqual(1, entries.Count);
+                    StringAssert.Contains("worker-diagnostic-boom", entries[0].Error);
+                }
+                finally { ctx.Dispose(); }
+            });
+
         [Test]
         public void LoggingCommandSystem_RingBuffer_KeepsOnlyRecent()
         {
@@ -466,6 +497,19 @@ namespace Game.Framework.Test
         private sealed class ThrowingCommand : ICommand
         {
             public void Execute(ICommandContext ctx) => throw new InvalidOperationException("boom");
+        }
+
+        private sealed class WorkerFailingDiagnosticCommand : IAsyncCommand
+        {
+            public readonly InvalidOperationException Failure = new("worker-diagnostic-boom");
+            public int CompletionThread = -1;
+
+            public async UniTask ExecuteAsync(ICommandContext ctx, CancellationToken cancellationToken)
+            {
+                await UniTask.SwitchToThreadPool();
+                CompletionThread = Thread.CurrentThread.ManagedThreadId;
+                throw Failure;
+            }
         }
 
         private sealed class CapturingSink : ILogSink

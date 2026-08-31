@@ -34,7 +34,11 @@ namespace Game.Framework.Systems
     /// <b>异步取消语义：</b>dispatcher 不创建或合并 token，只把入口已经决定好的
     /// <c>cancellationToken</c> 原样交给 Command：<c>IGameContext</c> 无 token 重载传 Context token，
     /// 显式 token 重载传调用方 token；View 扩展入口才会链接 Context、View 销毁与调用方 token。
-    /// 自定义 Implementation 必须保留这一语义，并让取消与 Command 异常通过返回的 <c>UniTask</c> 原样传播。
+    /// 自定义 Implementation 必须保留这一语义，并让取消与 Command 异常通过返回的 <c>UniTask</c> 原样传播。<br/>
+    ///
+    /// <b>异步线程语义：</b>Command 可在内部下工作线程处理纯数据，但 dispatcher 返回的 <c>UniTask</c>
+    /// 必须在 Unity 主线程交付成功、失败或取消；调用方 await 后才能直接继续使用 Context / Event / Model。
+    /// 默认 <see cref="CommandSystem"/> 与 <see cref="LoggingCommandSystem"/> 都会封闭这条边界；自定义实现也必须保持。
     /// </remarks>
     public interface ICommandSystem
     {

@@ -65,6 +65,8 @@ public abstract class FlowState
 - **同类状态 GoTo**：正常退旧进新（重开一局是刻意行为，不做幂等——与 PlayMusic 的同 clip no-op 语义相反，各自合理）。
 - 转换完成后向宿主 Context `SendEvent(new FlowChangedEvent(from, to))`——loading 界面/埋点订阅这一个事件即可，不用侵入每个状态。事件链只记录**完整进入成功**的状态：连续转换 `A →（B 被顶替/失败）→ C` 只发布 `A → C`，不会把从未成为 `Current` 的 B 写进历史，也不会因 A 已先退出而误报 `null → C`。若一次失败结束后流程已稳定处于无状态，之后另起的转换才从 `null` 开始。
 - **宿主在 `OnExit` 期间释放**：当前 GoTo 与正在退出的状态不是异步循环里的临时局部量，而是 flow 显式持有的 active transition。Dispose 立即让 GoTo 以取消终止并撤掉退出状态的子 Context；`IsTransitioning` 对外立即为 false，也不会进入下一状态或发布迟到事件。`OnExit` 刻意没有 token，框架不能强杀已经开始的业务任务，因此内部物理 owner 继续观察它到终态；迟到异常仍进入 `Log` Seam，但不再触碰 flow 状态。
+- **所有用户边界都允许同步重入**：结束旧排队 task、`InstallBindings`、Context 注入/附着、`FlowChangedEvent` 与 `GoTo` await continuation 都可能在当前调用栈里再次 `GoTo` 或释放宿主。默认实现先发布新 pending owner、再结束被顶替 task；构建 scope 后重新确认宿主仍存活且请求仍是最新；发布事件或 task 终态前先摘掉 entering / active owner。这样重入的新意图不会被外层旧调用覆盖，陈旧 scope 不会继续 `OnEnter`，下一轮 runner 也不会被上一轮 finally 错误停掉。
+- **公共提交只在 Unity 主线程**：`OnEnter` / `OnExit` 允许业务 await 后在 worker 物理完成，但默认实现先捕获结果并切回主线程，再分类取消/异常、撤 scope、更新 `Current`、发送 `FlowChangedEvent` 与完成 `GoTo` task。状态 hook 可以离开主线程做纯计算；触碰 Context / Bag / Unity 对象前仍须自行回主线程，迟到的 `OnExit` 同样不得使用已撤 scope。
 
 ### 5. 失败语义：Enter 失败 = 明确的"无状态"，不静默
 
