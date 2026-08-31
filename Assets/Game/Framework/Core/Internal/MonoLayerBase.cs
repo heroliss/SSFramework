@@ -70,6 +70,9 @@ namespace Game.Framework.Internal
                 : GetComponentInParent<MonoGameContextBase>(includeInactive: true);
 #endif
 
+        /// <summary>
+        /// 完成 Context 解析、注入、资源引用绑定并把本层事务式注册到 Container；派生类覆写时必须调用基类实现。
+        /// </summary>
         protected virtual void Awake()
         {
             var contextProvider = this.ResolveLayerContext<TLayer>(_targetContext);
@@ -104,6 +107,7 @@ namespace Game.Framework.Internal
             }
         }
 
+        /// <summary>幂等释放本层资源并撤销 Container 注册；派生类覆写时必须调用基类实现。</summary>
         protected virtual void OnDestroy()
         {
             TearDownLayer();

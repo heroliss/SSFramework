@@ -95,8 +95,14 @@ namespace Game.Framework.Network
         private readonly int _end;
         private int _pos;
 
+        /// <summary>读取完整的 Protobuf 字节数组。</summary>
+        /// <param name="buffer">消息字节；调用方在读取期间不得修改。</param>
         public ProtoReader(byte[] buffer) : this(buffer, 0, buffer.Length) { }
 
+        /// <summary>读取字节数组中的指定消息片段。</summary>
+        /// <param name="buffer">消息字节；调用方在读取期间不得修改。</param>
+        /// <param name="offset">片段起始偏移。</param>
+        /// <param name="length">片段长度。</param>
         public ProtoReader(byte[] buffer, int offset, int length)
         {
             _buf = buffer;

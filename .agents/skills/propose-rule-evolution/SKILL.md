@@ -31,7 +31,7 @@ description: 为重复协作问题选择 AGENTS.md、Skill、Hook、测试或个
 | 只属于某位开发者的偏好/机器状态 | 用户级配置或 memory | 不提交为项目架构规则 |
 | 重复的隔离型只读/评审角色 | Subagent 定义 | 角色边界稳定才落配置 |
 
-当前项目以 Codex 入口为真值：Skill 放 `.agents/skills`，Codex 项目配置放 `.codex/*`。遗留 `.claude/*` 只在用户明确重新启用 Claude 后按届时官方格式适配；不要让停用工具扩大本次维护和验证范围。详细说明见 `docs/ai-collaboration-guide.md`。
+当前项目以 Codex 为主路径：跨工具规则放分层 `AGENTS.md`，Project Skill 权威正文放开放 Agent Skills 目录 `.agents/skills`。只有真实采用新的 Agent 时，才按 `docs/ai-agent-onboarding.md` 和届时官方能力增加最薄接入层；不为格式对称预配置产品目录、复制正文或强制多端验证。详细原则见 `docs/ai-collaboration-guide.md`。
 
 ## 规则强度
 
@@ -55,7 +55,7 @@ description: 为重复协作问题选择 AGENTS.md、Skill、Hook、测试或个
 ## 落地检查
 
 - `AGENTS.md`：测量根→最深目录的 UTF-8 合计；不要逼近 Codex 默认 32 KiB。
-- Skill：name/description 触发边界清楚；长条件资料放 references；分别验证各工具发现入口。
+- Skill：name/description 触发边界清楚；长条件资料放 references；验证权威入口，只对当前任务实际使用的客户端验证自动发现。
 - Hook：脚本独立可运行、幂等、超时/失败可诊断；项目 Hook 遵循 trust/权限流程。
 - 测试：断言行为，不用正则锁死文案/章节标题等实现细节。
 - 配置：仓库级 AI 行为变更同步协作指南，并在提交正文记录原因、影响与验证；用户级配置不冒充项目真值。
@@ -67,5 +67,5 @@ description: 为重复协作问题选择 AGENTS.md、Skill、Hook、测试或个
 - 把请求触发型长流程塞进根 `AGENTS.md`；
 - 用 Hook 强制主观偏好；
 - 把项目编码契约放进某个用户的 memory；
-- 为未启用的工具复制一份长正文或要求双端验证；
+- 为未启用的工具复制长正文、伪造运行兼容或要求所有客户端重复验证；
 - 只增加规则，不删除已经过期或被机器约束取代的规则。

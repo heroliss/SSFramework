@@ -13,18 +13,19 @@
 5. **Demo + guide + AI 规则同步**：教学和协作约束不能继续推荐旧路径；
 6. **全量验证**：编译、EditMode、PlayMode、Demo 防腐检查与文档一致性。
 
-## 已验证基线（2026-08-31）
+## 已验证基线（2026-09-01）
 
 | 维度 | 当前事实 |
 |---|---|
 | Unity | 6000.3.22f1 |
-| Framework Module | 31 个 asmdef Module（含测试与可选 Odin / HybridCLR Editor Adapter）；依赖与删除测试见 `framework-module-map.md` |
+| Framework Assembly | 38 个一方 asmdef：19 个生产程序集（Runtime / Editor）+ 19 个测试程序集；程序集是物理边界，不机械等同产品 Module，依赖与删除测试见 `framework-module-map.md` |
 | Demo | 35 个自动发现章节；Catalog 集中拥有 Adapter 生命周期，并按 Capability / Concept / Workflow 校验真实 Build 教学语义 |
 | 教程 | `framework-guide.md` 28 章 |
 | ADR | 0001–0046；0040 为 UPM-aware 源码目录，0041/0042 补齐依赖证据，0043 收口 Editor 菜单与工作台，0044 固化 Unity CLI 工程外 Adapter 边界，0045 拆分资源与 HybridCLR 构建依赖，0046 收敛资源运行时入口 |
-| 测试 | PlayMode 764 + EditMode 622，共 1386 项全绿；交互式 MCP 后台运行且 PlayMode 先预检，命令行入口默认 EditMode + PlayMode |
+| 测试 | PlayMode 774 + EditMode 622，共 1396 项全绿；交互式 MCP 后台运行且 PlayMode 先预检，命令行入口默认 EditMode + PlayMode |
 | Demo CodeRef | 316 处可打开源码跳转；完整门禁通过后以精准命中为基线，注释、文案与外部文档路径不计入源码构造点 |
-| AI 常驻规则预算 | 最深 AGENTS 链 29.49 KiB，低于 Codex 默认 32 KiB 项目指令上限；本轮只为 View token 的反直觉覆盖语义保留一条就近规则，完整解释与门禁仍外移到 XML/ADR/测试 |
+| AI 常驻规则预算 | 最深 AGENTS 链 31,008 字节（30.28 KiB），低于 Codex 默认 32 KiB 上限并剩 1,760 字节；规则明确区分硬边界与可被证据推翻的默认值，完整归类继续下沉到 guide / Skill / 测试 |
+| 默认入口视觉冒烟 | DemoScene 在当前 Game View 中实际检查：35 章导航、搜索、正文层级与滚动区域正常可见；单帧只证明默认入口所见布局，不冒充完整体验验收 |
 
 ## 已完成的高优先级闭环
 
@@ -48,7 +49,7 @@
 ### P1 · 教学与 AI 可维护性
 
 - 三层 AGENTS 常驻规则压缩并重新路由；最深链从约 60 KiB 降到约 23 KiB。
-- repo skills 以 `.agents/skills` 为跨工具正文，`.claude/skills` 只做路由；当前 3 个 Skill / 6 个发现入口均通过 validator。
+- repo skills 以 `.agents/skills` 为唯一权威正文；当前 5 个 Project Skill 通过 validator，未实际采用的 Agent 不维护 Skill 副本。
 - Demo 目录校验 Id / Title / Category / Order / Summary；CodeRef 防腐校验已实跑。
 - 新增跨工具 AI 协作指南与 Framework Module 地图。
 - 新增跨工具 PlayMode 自动化预检：显式保存有路径脏场景、未命名场景 fail-fast，不用全局 Hook 劫持人工 Play；Editor 契约测试锁定“整批先验证再写入”，并以每用例唯一且显式持有的临时目录防止误删用户资产。
@@ -398,20 +399,41 @@
 - 各章节打开 Framework Editor 工具统一经 `DemoEditorNav.OpenMenu`，菜单改名、可选 Module 缺失或当前不可用时给出同一条可恢复反馈；字体章不再静默忽略失败，5 份私有包装被删除。
 - 导航契约 3/3、Demo EditMode 61/61、Demo PlayMode 12/12；完整 EditMode 622/622、PlayMode 764/764，Unity 编译 0 错误 / 0 警告，并在 1100×720 Game View 实际检查默认布局。
 
-## 下一批候选（按杠杆排序）
+## 2026-09-01 框架阶段收口
 
-| 优先级 | 候选 | 证据 / 完成标准 |
+本节点把当前工程定义为 **Framework Baseline**，不是“功能永远完成”或 SemVer 发布版。架构审查没有发现需要在真实游戏开始前强行推进的大型重构：Core 依赖方向、19 个生产程序集的可删除边界、生命周期所有权、Demo 教学、Editor 工具和完整回归已经形成相互印证的证据链。
+
+本轮关闭了会误导下一阶段的具体遗留：
+
+- Project Skill 以 `.agents/skills` 为唯一权威，删除重复 Claude Skill 与仓库级产品连接配置；其他 Agent 通过公共规则、Onboarding 和 Handoff 最薄接入。
+- 新增 SSFramework 架构审查与 Unity 验证 Harness；通用 `improve-codebase-architecture` 仍可跨项目使用，但本项目优先加载包含 Context、ADR、asmdef、Unity 生命周期与 Adapter 语言的专用版。
+- README 补齐 Unity 版本、Demo、工具中心、测试入口、完整工程与 UPM 包的区别，以及第三方授权边界；路线图切到“新游戏实战验证”。
+- 高价值 XML 文档补到公开构造入口、契约字段和可覆写生命周期基类；规则不再要求纯实现成员重复说明，不以注释覆盖率制造形式主义工作。
+- 资源构建 workflow 如实停在 Artifact 归档；在 CDN 厂商、凭据、发布与回滚策略未确定前，不保留会假装“已发布”的空步骤。
+- First-party `TODO / FIXME / HACK` 扫描无待办标记；Unity 6000.3.22f1 编译 0 错误，定向 UGUI CodeGen 8/8、EditMode 622/622、PlayMode 774/774，全量 1396/1396。
+
+以下事项不是细枝末节遗忘，而是有明确触发条件的延后边界：
+
+- **需要外部选择或权限**：真实 CI Runner、Unity 授权、目标平台 Module、CDN 厂商/凭据、商店与设备；选择确定后再建立对应 artifact、发布和回滚基线。
+- **需要第二消费方**：UPM 拓扑、版本/升级/删除矩阵与第三方依赖来源；新游戏先作为同仓独立业务程序集验证公共 API。
+- **需要重复生产证据**：Asset 维护 session 等第三个生产调用方、UI window lease 的并发 owner、第二个 Asset Provider、字体输入/扫描优化与大文件拆分；触发前不为概念完整预建抽象。
+- **持续健康工作**：中文、注释和 Editor 体验在发现具体误导或摩擦时随任务修正，不再作为阻止阶段结束的无限审计清单。
+
+下一阶段从 `Assets/Game/<GameName>/` 的独立 asmdef 开始，以目标玩家、核心幻想、可证伪原型问题和一个可从头玩到尾的垂直切片为验收；缺口按“游戏专属 / Framework 通用 / Skill-Harness 流程 / 人工审美与玩家反馈”分流，并回写 `ai-game-development-capability-map.md`。
+
+## 保留候选（仅在触发条件成立时）
+
+| 触发条件 | 候选 | 证据 / 完成标准 |
 |---|---|---|
-| P1 | 公共 API 注释审计 | 优先生命周期、取消、异常、所有权与 Adapter 接缝；删除复述代码或记录历史的注释。以“调用者能否仅靠悬浮提示正确释放/取消”为完成标准。 |
-| P1 | CI Runner 与发布真正接线 | 资源构建 workflow 已复用 ProjectVersion + Unity CLI / Direct Adapter；下一步是在真实自建 Runner 验证授权、Android/iOS/WebGL Module、缓存与 CDN 上传凭据，并把一次成功 artifact 固化为基线。 |
-| P1 | 中文友好性继续收口 | 高频 Inspector、诊断状态、资源/配置/YooAsset、Context/DI/Pool/Bag，以及 Flow / Audio / UI Toolkit 的已发现低频反馈已完成；下一步继续审查 Lifecycle、Profile 与其他边缘路径。始终保留类型、参数和第三方原始错误供检索，不引入过度的运行时多语言系统。 |
-| P2 | 大文件按职责复查 | `DiagnosticsWindow`、`YooAssetProvider`、`AssetUtility` 等只在发现两个独立变化轴或测试 Seam 时拆；单纯行数不是理由。 |
-| P2 | WebGL / 小游戏固定 Runner 基线 | 隔离探针已能在当前目标平台生成真实 Player BuildReport 上界；下一步等确定发布平台与 CI Runner 后保存同环境 artifact / 阈值，避免把本机 Windows 数字当 WebGL 基线。 |
-| P1 | UPM 分发依赖标准化与干净消费矩阵 | 当前体积探针把源码复制到临时工程的 `Assets`，尚未证明真实 UPM 安装/移除。下一步先确定 Core / Yoo / UI 等发布 Package 拓扑和 Git、embedded NuGet 依赖来源，再以工程外临时 Unity 项目验证 core → add Yoo → remove Yoo（保留 Library）的编译与 Player Build，不在框架内复制第二套 Package Manager。 |
-| P2 | 物理路径跨平台门禁矩阵 | `FrameworkProjectPath.TryResolve` 已让所有生成器在写盘前拒绝现存路径链上的 symlink / junction / reparse point，递归树操作还会验证全部后代；Windows junction 集成门禁已有覆盖。下一步只补 macOS/Linux 目录与文件 symlink 的 CI 矩阵，验证同一 `FileAttributes` 契约在各平台成立；发现平台差异再改共享 Module，不重复实现各生成器局部门禁。 |
-| P2 | 字体输入语义与扫描成本量化 | 重叠目录/模式可能重复读取同一文件，JSON/C# 中的 `\uXXXX` 也不等同于已提取真实字形。先用真实本地化数据统计缺字与扫描成本，再决定是否引入文件去重、格式解码 Adapter 或明确维持“源码字面字符”语义。 |
-| P2 | Asset 维护 operation / 更新 session | Demo 已有两处为区分 caller waiter 与物理维护 owner 而手拼 gate、`CancellationToken.None` 和章节 token；Demo 与 Outpost 也出现 Initialize → Ready → 快照下载轮廓。启动流程已直接锁定「waiter 在物理清理终态前仍为 Pending」、「页面取消不发迟到 UI，但物理失败仍保留原异常」及「非取消的旧缓存回收失败只降级为 Warning」；出现第三个生产调用方后再决定是否形成有状态 session，避免把业务重试/确认策略塞回 Core。 |
-| P2 | UI 窗口 lease 语义 | `Open → Bag.Add(Close<T>)` 已在多个 Flow 状态重复，但当前同类型全局单实例，简单 `OpenOwned` 会让多个 owner 互相误关。先定义独占或引用计数所有权并证明并发需求，再决定是否形成窗口 lease Module。 |
+| 选定真实 Runner、平台与发布服务 | CI Runner 与发布真正接线 | 资源构建 workflow 已复用 ProjectVersion + Unity CLI / Direct Adapter；在真实自建 Runner 验证授权、目标平台 Module、缓存、CDN 凭据、artifact 与回滚。 |
+| 发现两个独立变化轴或测试 Seam | 大文件按职责复查 | `DiagnosticsWindow`、`YooAssetProvider`、`AssetUtility` 等按职责拆；单纯行数不是理由。 |
+| 选定 WebGL / 小游戏为首发平台 | WebGL / 小游戏固定 Runner 基线 | 隔离探针已能在当前目标平台生成真实 Player BuildReport 上界；保存同 Runner、同环境 artifact / 阈值，不把本机 Windows 数字当 WebGL 基线。 |
+| 第二个独立 Framework 消费方 | UPM 分发依赖标准化与干净消费矩阵 | 确定 Core / Yoo / UI 等 Package 拓扑和依赖来源；以工程外临时 Unity 项目验证 core → add Yoo → remove Yoo（保留 Library）的编译与 Player Build。 |
+| macOS / Linux Runner 进入支持矩阵 | 物理路径跨平台门禁矩阵 | 补目录与文件 symlink 集成矩阵，验证 `FileAttributes` 契约；发现平台差异再改共享 Module。 |
+| 新游戏出现真实缺字或扫描成本 | 字体输入语义与扫描成本量化 | 用本地化数据统计缺字与扫描成本，再决定文件去重、格式解码 Adapter 或维持源码字面字符语义。 |
+| 出现第三个生产维护调用方 | Asset 维护 operation / 更新 session | 先证明重复的 owner/waiter/失败语义，再决定是否形成有状态 session；业务重试与确认策略不塞回 Core。 |
+| 同类型窗口出现并发 owner | UI 窗口 lease 语义 | 先定义独占或引用计数所有权并用真实并发需求验证，避免简单 `OpenOwned` 让多个 owner 互相误关。 |
+| 确定采用第二资源后端 | 第二个 `IAssetProvider` | 用真实 Adapter 和删除测试检验抽象边界；不为了证明抽象而维护无人使用的实现。 |
 
 ## 每批完成门禁
 

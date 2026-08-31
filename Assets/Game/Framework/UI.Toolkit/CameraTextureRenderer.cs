@@ -20,6 +20,9 @@ namespace Game.Framework.UI.Toolkit
         /// <summary>当前 RenderTexture（尚未 <see cref="Resize"/> 出有效尺寸时为 <c>null</c>）。</summary>
         public RenderTexture Texture => _texture;
 
+        /// <summary>创建一个借用指定相机、并负责其目标纹理生命周期的渲染器。</summary>
+        /// <param name="camera">要接入 RenderTexture 的相机；本类不销毁相机。</param>
+        /// <exception cref="ArgumentNullException"><paramref name="camera"/> 为 <c>null</c>。</exception>
         public CameraTextureRenderer(Camera camera)
         {
             if (camera == null) throw new ArgumentNullException(nameof(camera));

@@ -37,6 +37,9 @@ namespace Game.Framework.UI.UGui
             public GameObject Mask;
         }
 
+        /// <summary>创建借用指定根 <see cref="Canvas"/> 的 UGUI 后端。</summary>
+        /// <param name="canvas">承载全部层根的 Canvas；其生命周期由外部宿主管理。</param>
+        /// <exception cref="ArgumentNullException"><paramref name="canvas"/> 为 <c>null</c>。</exception>
         public UGuiBackend(Canvas canvas) => _canvas = canvas != null
             ? canvas
             : throw new ArgumentNullException(nameof(canvas));

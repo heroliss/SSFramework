@@ -165,12 +165,19 @@ namespace Game.Framework.UI.UGui.Editor
     {
         [Tooltip("组件简单名(如 Button)或全名(如 UnityEngine.UI.Button)。")]
         [InspectorName("组件类型")]
+        /// <summary>组件简单名或全名。</summary>
         public string Component;
         [Tooltip("生成字段名里 {alias} 用的简写(如 btn)。")]
         [InspectorName("简写别名")]
+        /// <summary>字段名模板中 <c>{alias}</c> 使用的简写。</summary>
         public string Alias;
 
+        /// <summary>供 Unity 序列化创建空映射。</summary>
         public ComponentAlias() { }
+
+        /// <summary>创建组件类型到字段别名的映射。</summary>
+        /// <param name="component">组件简单名或全名。</param>
+        /// <param name="alias">字段名简写。</param>
         public ComponentAlias(string component, string alias) { Component = component; Alias = alias; }
     }
 }

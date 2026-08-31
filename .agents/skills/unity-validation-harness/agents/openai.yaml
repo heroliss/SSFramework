@@ -1,0 +1,4 @@
+interface:
+  display_name: "Unity 验证闭环"
+  short_description: "为 SSFramework 选择、执行并汇总与风险相称的 Unity 验证证据"
+  default_prompt: "Use $unity-validation-harness to select and run proportionate validation for this Unity change."

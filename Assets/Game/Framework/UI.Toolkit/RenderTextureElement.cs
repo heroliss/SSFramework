@@ -48,6 +48,7 @@ namespace Game.Framework.UI.Toolkit
             }
         }
 
+        /// <summary>创建一个不拦截输入、会随布局上报所需纹理尺寸的显示元素。</summary>
         public RenderTextureElement()
         {
             pickingMode = PickingMode.Ignore; // 只读显示，不吃事件（输入穿透留 v2，见 ADR-0033）

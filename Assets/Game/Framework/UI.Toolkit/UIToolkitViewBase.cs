@@ -123,7 +123,7 @@ namespace Game.Framework.UI.Toolkit
             context.Inject(this); // [Inject] 受层权限校验：View 注 Model/System 会被拦，注普通服务可以。
         }
 
-        // 供子类（如窗口基类）在框架生命周期 hook 里触发一次性建 UI/接线。
+        /// <summary>供框架窗口基类在统一生命周期中触发一次性建 UI 与接线。</summary>
         private protected void InvokeCreated() => OnCreated();
 
         /// <summary>

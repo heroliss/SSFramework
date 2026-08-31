@@ -1,6 +1,6 @@
 ---
 name: unity-background-automation
-description: 在不抢用户焦点的前提下运行或监控 Unity MCP 测试、PlayMode 与编辑器自动化，并诊断 editor_unfocused、后台停顿或必须前台交互的例外。用于用户希望 Unity 后台工作、测试 job 看似卡住，或需要判断是否应升级到 Windows UI 控制时。
+description: 在不抢用户焦点的前提下运行或监控 Unity MCP 测试、PlayMode 与编辑器自动化，并诊断 editor_unfocused、后台停顿或必须前台交互的例外。用于测试 job 看似卡住或需要判断是否升级到 Windows UI 控制时；验证范围选择与最终证据汇总交给 unity-validation-harness。
 ---
 
 # Unity 后台自动化
@@ -12,7 +12,7 @@ description: 在不抢用户焦点的前提下运行或监控 Unity MCP 测试�
 1. 确认 Editor 不在 Play / 编译中；PlayMode 测试先执行菜单
    `SSFramework/诊断/AI 自动化/PlayMode 测试预检（保存脏场景）`。
 2. 定向测试先用 `unity_testing_list_tests` 按**相同 mode**配合 `nameFilter` 确认测试实际归属，再传
-   `groupNames`（fixture）或 `testNames`（完整用例名）。本项目 `Game.Framework.Test` 属于 PlayMode；当前安装的
+   `groupNames`（fixture）或 `testNames`（完整用例名）。本项目 `Game.Framework.Tests` 属于 PlayMode；当前安装的
    Unity 端只解析 `testNames/categories/assemblies/groupNames`，不会消费 MCP schema 中的 `filter` 别名，因此不要依赖
    `filter`。终态若显示 `succeeded` 但 `total=0`，视为 mode/筛选错误，不算验证通过。
 3. 创建一次测试 job，保存 job id；用 30–60 秒服务端等待轮询同一个 job。不要因为**启动阶段**

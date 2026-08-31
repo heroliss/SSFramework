@@ -21,7 +21,11 @@ namespace R3
     [Serializable]
     public class RP<T> : SerializableReactiveProperty<T>
     {
+        /// <summary>创建使用 <typeparamref name="T"/> 默认值的响应式属性。</summary>
         public RP() { }
+
+        /// <summary>创建指定初始值的响应式属性。</summary>
+        /// <param name="value">初始值。</param>
         public RP(T value) : base(value) { }
     }
 }

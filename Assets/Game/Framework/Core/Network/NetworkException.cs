@@ -31,6 +31,7 @@ namespace Game.Framework.Network
     /// </summary>
     public sealed class NetworkException : Exception
     {
+        /// <summary>框架归一化后的失败类别。</summary>
         public NetworkErrorKind Kind { get; }
 
         /// <summary>HTTP 状态码。仅 <see cref="NetworkErrorKind.HttpError"/> 有意义，其余 Kind 为 0。</summary>
@@ -39,6 +40,12 @@ namespace Game.Framework.Network
         /// <summary>服务器错误响应体（UTF-8 解码、截断至 4KB），排查用；无响应体时为 null。</summary>
         public string ResponseBody { get; }
 
+        /// <summary>创建一条保留网络失败分类与可选 HTTP 上下文的异常。</summary>
+        /// <param name="kind">归一化失败类别。</param>
+        /// <param name="message">可读错误消息。</param>
+        /// <param name="statusCode">HTTP 状态码；非 HTTP 失败传 0。</param>
+        /// <param name="responseBody">可选且已截断的响应体。</param>
+        /// <param name="inner">底层异常。</param>
         public NetworkException(NetworkErrorKind kind, string message,
             int statusCode = 0, string responseBody = null, Exception inner = null)
             : base(message, inner)

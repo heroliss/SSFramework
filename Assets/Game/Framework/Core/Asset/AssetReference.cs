@@ -89,6 +89,7 @@ namespace Game.Framework
             return null;
         }
 
+        /// <summary>释放当前引用持有的加载句柄；实现必须幂等。</summary>
         public abstract void Dispose();
     }
 

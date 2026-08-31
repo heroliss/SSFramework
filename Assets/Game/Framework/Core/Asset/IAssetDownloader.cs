@@ -53,12 +53,23 @@ namespace Game.Framework
     /// </summary>
     public readonly struct DownloadProgressReport
     {
+        /// <summary>归一化下载进度，范围为 0 到 1。</summary>
         public readonly float Progress;
+        /// <summary>待下载文件总数。</summary>
         public readonly int TotalCount;
+        /// <summary>已完成文件数。</summary>
         public readonly int CurrentCount;
+        /// <summary>待下载总字节数。</summary>
         public readonly long TotalBytes;
+        /// <summary>已下载字节数。</summary>
         public readonly long CurrentBytes;
 
+        /// <summary>创建不可变的下载进度快照。</summary>
+        /// <param name="progress">归一化进度，范围为 0 到 1。</param>
+        /// <param name="totalCount">待下载文件总数。</param>
+        /// <param name="currentCount">已完成文件数。</param>
+        /// <param name="totalBytes">待下载总字节数。</param>
+        /// <param name="currentBytes">已下载字节数。</param>
         public DownloadProgressReport(
             float progress,
             int totalCount,

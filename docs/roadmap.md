@@ -6,7 +6,7 @@
 
 - **结构优秀** —— 清晰的分层（MVCS：View / Command / System / Model+Event / Utility）、编译期权限约束、单向数据流，规模增长不腐化。
 - **人类可读** —— 命名、注释、文档解释"为什么这样设计、用错会怎样、框架替你兜住了什么"，而非逐行翻译代码。
-- **AI 友好** —— 规则与约束沉淀在就近自动加载的 `AGENTS.md`、决策沉淀在 `docs/adr/`、踩坑沉淀在 `docs/unity-mcp-tips.md` 与 memory；文档与代码保持一致，让 AI 不被过时信息误导。
+- **AI 友好** —— 跨工具真值沉淀在就近 `AGENTS.md`、`.agents/skills/`、文档、测试与项目工具中；具体产品只做最薄接入。文档与代码保持一致，让新 Agent 能用证据承接，而不是依赖某个客户端的隐式记忆。
 - **面向未来技术栈** —— 第一阶段兼容 UGUI 等传统栈，逐步接入 UI Toolkit、DOTS 等先进栈，且核心层对 UI/范式保持中立。
 
 ## 核心理念（详见 [framework-guide.md](framework-guide.md) §1）
@@ -31,7 +31,7 @@ UGUI、UI Toolkit 或付费 Inspector 插件。Core Module 同时提供两类入
 
 ## 阶段路线图
 
-### Phase 1 —— UGUI + 核心架构（当前）
+### Phase 1 —— UGUI + 核心架构 ✅ 已完成
 
 - ✅ MVCS 五层 + 自研精简 DI 容器（主线程独占、父级回退、运行时覆盖）
 - ✅ R3 响应式（`RP<T>` / `ReadOnlyReactiveProperty<T>`）+ UniTask 异步 + YooAsset 资源
@@ -52,6 +52,19 @@ DOTS 是数据/Job/Burst 范式，与引用式 OOP 不同。框架的定位是**
 - Model 中的大规模实体数据交给 ECS，框架负责"用户意图 → ECS 调度"的接缝。
 - ✅ **已由切片 M6 验证**（ADR-0030）：`EcsBattleSim`（Entities chunk + Burst job，自建 World 藏在纯 C# 接缝后）整体置换 OOP 后端，Command/Model/View/事件翻译层零改动；对拍证明行为等价（关 Burst 逐位全等）；4.2 万实体 3.5~4.9× 提速。**框架侧零改动、暂不需要 DOTS 专用模块**——既有原语接得住；可复用样板成形（World 生命周期助手、ECS↔R3 桥）再按五件套立项。
 
+### Phase 4 —— 新游戏实战验证（下一阶段）
+
+下一阶段不再以“给框架增加多少能力”为成功标准，而以一款**可从头玩到尾、体验成立、可构建交付的小型游戏**为真实消费者。建议先留在同一仓库的 `Assets/Game/<GameName>/`，使用独立业务 asmdef，只经 Framework 公共 API 接入；这样可以最快暴露接线、生命周期、工作流和产品体验问题，又不会提前承担 UPM 发布与多仓同步成本。
+
+实战发现按证据分流：
+
+- 只服务这款游戏的玩法、内容、表现与运营策略留在游戏目录；不为“看起来通用”提前上提。
+- 第二次出现、跨游戏成立，或确实阻断公共用法的缺口，才回流 Framework，并按风险补 Interface、测试、Demo、guide 或 ADR。
+- 重复的 AI 操作流程优先沉淀为 Project Skill / Harness；确定性不变量优先进入测试、构建脚本或 Editor 门禁。
+- 美术、音频、关卡、叙事、游戏设计和发布能力按 [AI 游戏开发能力地图](ai-game-development-capability-map.md)逐步补齐；地图允许留空，不为覆盖率安装表面化 Skill。
+
+首个新游戏证明“同仓业务接入”后，再以第二个独立消费方验证真实 UPM 安装、升级、删除和依赖声明。此前保持 UPM-aware 源码与工具接缝即可，不复制第二套 Package Manager。
+
 ## 正交能力（不分阶段，按需推进）
 
 | 能力 | 状态 | 说明 |
@@ -69,7 +82,7 @@ DOTS 是数据/Job/Burst 范式，与引用式 OOP 不同。框架的定位是**
 | 网络（HTTP / WebSocket） | ✅ 已落地 | 消息建模双轨：请求-响应 = `IHttpUtility` UniTask 返回值（REST 动词 + `Send` 逃生舱，非 2xx 抛 `NetworkException` 分级）；服务器推送 = `IWebSocketUtility` 经 envelope 映射为框架 Event（`RegisterPush`）。传输（UnityWebRequest / ClientWebSocket）× 序列化（默认 JSON）双接缝可插拔，零第三方依赖留内核。HTTP Request Owner 隔离 caller/lifetime/deadline；每次成功 WS 连接由独立 Connection Session 持有收发/FIFO/终态，旧 continuation 与排队帧不能穿代。刻意不做自动重试 / 重连 / WebGL 的 WS（给样板 + 留接缝）。ADR-0028 |
 | 字体（多语言字体链） | ✅ 已落地 | `MonoLocaleFonts` / `LocaleFontChain`：三层字体策略（①精简常用字集随包 + ②per-locale 补充字体 + ③OS 字体运行时兜底）写进主字体 fallback 表，订阅 `Locale` 自动切换、业务零调用；未配置 locale 降级不炸、销毁还原原始表。Editor 字体字集工作台产 charset 喂 TMP Font Asset Creator。刻意不做全字库随包 / atlas 调优 / 远程字体协议。ADR-0025 |
 | 日志（分级 + 可插拔 sink） | ✅ 已落地 | `Log` 门面（框架与业务共用，分级 Trace/Info/Warning/Error + category + Unity `context`）+ `ILogSink` 多播（每 sink 独立 MinLevel）+ 内核默认 `UnityDebugLogSink`（转 Debug.Log，`[HideInCallstack]` 保住双击定位）/ `FileLogSink`（零依赖、会话头、Error 带栈、按大小滚动）。`Trace` 走 C#10 插值处理器——**关掉时连字符串都不拼**（自带 polyfill，跨程序集实测可用）；`CaptureUnityLogs()` 接管 `Application.logMessageReceivedThreaded`，**引擎报错 / 第三方 / 裸 Debug.Log / 未捕获异常全量进 sink**（防回声用 ThreadStatic guard）。ZLogger 实测依赖过重（System.Text.Json 全家桶 ≈1.4MB）**客户端放弃**、服务端直接用；「零分配」已由插值处理器自给。刻意不做消息模板。ADR-0034 |
-| UPM 抽包 | 🔮 规划 | 框架稳定后从 `Assets/Game/Framework` 抽成内嵌/独立 UPM 包。ADR-0010 |
+| UPM 抽包 | ⏸ 实战后评估 | 当前已具备 UPM-aware 源码与审计接缝；等第二个真实消费方证明安装、升级、删除和依赖边界后再抽包。ADR-0010 |
 
 ## 规划中的模块（待选型研究）
 
@@ -89,13 +102,13 @@ DOTS 是数据/Job/Burst 范式，与引用式 OOP 不同。框架的定位是**
 - **ZString** —— 零分配字符串构造，UI/日志高频拼接场景。
 - 选型原则：先确认"框架真的需要"，再评估与既有栈（UniTask/R3/YooAsset）的契合度与 AOT/热更兼容性，最后藏在框架接口后引入；Odin 属于项目级可选 Editor 增强，不再进入 Core 依赖栈。
 
-## 建议推进节奏（2026-07 全面审查后）
+## 建议推进节奏（2026-09 基线冻结后）
 
-### 每个功能的固定节奏（完成定义）
+### Framework 变更的证据链
 
-一个功能算"做完"= 五件套齐：**① ADR 定决策 → ② 接口在内核、实现在模块（ports & adapters）→ ③ 测试 → ④ demo 章节 → ⑤ guide 章节（+ 必要的 AGENTS 规则）**。这是现有模块（资源 / 热更 / 配置 / UI）已经验证过的节奏，新模块照走。
+对公共架构或可复用 Module，通常检查五类证据：**① 必要时用 ADR 定决策 → ② Interface / Implementation 边界 → ③ 与风险相称的测试 → ④ 需要教学时补 Demo → ⑤ 受影响的 guide / AGENTS**。这不是要求每个局部修复机械凑齐五件套；是否需要某一项，由变更是否改变公共契约、是否存在反直觉边界以及调用者能否自行验证决定。
 
-### 近期：打磨已有（优先于加新模块）
+### 已完成：已有能力与工具链打磨
 
 1. **UI 框架补常见刚需**（ADR-0020）：
    - 异步过渡 hook ✅ 已落地：`OnOpenTransition/OnCloseTransition` + 框架全屏挡输入（计数挡板）；逻辑关闭先于表现；CloseAll/销毁直通。
@@ -109,7 +122,7 @@ DOTS 是数据/Job/Burst 范式，与引用式 OOP 不同。框架的定位是**
 4. **CI 护栏** ✅ 已落地：`Tools/run-tests.ps1` 命令行 batchmode 默认顺序跑 EditMode + PlayMode、分别保留 NUnit XML/Editor 日志并汇总退出码（需先关闭编辑器；也可用 `-TestPlatform` 定向单跑）。后续可选：接 git pre-push hook / 云端 CI。
 5. **交互式 Editor 的 AI 测试预检** ✅ 已落地（ADR-0036）：MCP 跑 PlayMode 前显式保存已有路径脏场景，未命名场景按整批先验证再写入的顺序 fail-fast，避免原生保存弹窗锁死 Unity 主线程队列；不注册全局自动保存，不改变人工 Play 语义。Outpost 真实玩家路径冒烟同步落地，以原子目录重命名保护真实存档，并修出 Context 隔离、收尾状态与 Test Framework 协程续跑等组合缺陷；2026-08-26 基线 PlayMode 448/448 + EditMode 244/244。
 
-### 中期：新功能模块（按"所有游戏都要"排序）
+### 已完成：通用功能模块
 
 1. **本地存储 / 存档** ✅ 已落地（ADR-0021）：`IStorageUtility` 类型化整存整取 + 原子写/备份回退防损坏 + `IStorageProvider`/`IStorageSerializer` 双扩展点（默认文件 + JsonUtility 零依赖）；迁移姿势 = Version 字段 + 链式 switch（刻意不做迁移管线）。五件套齐：ADR / 内核实现（`Core/Storage/`）/ 测试 / demo「本地存储 · 存档」章 / guide §18 + AGENTS #26。
 2. **音频服务** ✅ 已落地（ADR-0022）：`IAudioUtility` 音乐单通道（切换自动交叉淡变、同 clip 幂等）+ 池化音效（`ObjectPool` 原语复用、一次性自动回收、循环音效 handle 进 Bag 随宿主自动停）+ 分组音量（主 × 组 × 单次，即时生效；持久化归业务）；刻意不上 AudioMixer / 不做 provider 层（接口即接缝）。五件套齐：ADR / 内核实现（`Core/Audio/`）/ 测试 / demo「音频 · 背景音乐（BGM）与音效」章 / guide §19 + AGENTS #27。
@@ -135,15 +148,17 @@ M0 骨架 → M1 战斗核心 → M2 升级 → M3 存档/音频/本地化 → M
 
 **框架 UI 侧 · UI 嵌入桥 ✅**（2026-07-13，ADR-0033）：把 UGUI/相机内容以 RenderTexture **真嵌入** UI Toolkit 内容流（纹理是 Toolkit 真内容，能被 ScrollView 裁剪/滚动、被遮挡），区别于既有「浮层对齐」伪嵌入（浮在最上层、会被 NaN 坑、不能被裁剪）。调研确认无现成成熟第三方包、事件不穿透 RT 是公认硬骨头。分层：后端无关 `RenderTextureElement` + `CameraTextureRenderer`（`UI.Toolkit`，也能拍 3D 预览/小地图）+ 一键 `MonoUGuiEmbed`（可整块删 Module `Game.Framework.UI.Bridge`，显式引用 Core / UI / Toolkit，使用项目已安装的 UGUI）。v1 只读显示。五件套齐：ADR-0033 / 接缝 + Module / `UIEmbedTests`（尺寸换算/重建判定纯函数）+ Play headless 验证渲染管线 / Demo「UI 融合 · UGUI 嵌进 Toolkit」章 / guide §27 + AGENTS #33。**v2（2026-07-14）加输入穿透 + 内容泛化**：`Interactive` 开关 + `UGuiEmbedInputForwarder`（禁用注册的 GraphicRaycaster 手动 Raycast + ExecuteEvents，全指针：点击/悬停/拖拽/滚轮；文本输入/IME、多点触控不做）；`EnsureContentRoot()` 支持 code-built/动态内容（不止 prefab）。Demo：UI 融合章加可交互嵌入（按钮/Slider 穿透 RT）、字体章 TMP 浮层 retrofit 为内联嵌入（对象池 overlay-align 保留 + 指路）。headless 实测点击计数 0→1、Slider 拖 0→1、code-built 内容渲进 RT；`UIEmbedTests` 13 绿。
 
-### 长期（已有 ADR / 规划，时机到再动）
+### 条件成熟后再动
 
-- UPM 抽包（ADR-0010，**前置验收已由切片 M0-M6 全程完成**）；Odin 解耦已完成原生基线、删除门禁与可整体删除的 Editor Adapter（ADR-0015），后续 Validator/迁移器仍需真实需求再立项。DOTS 接缝已验证（Phase 3 / ADR-0030），框架侧可选模块待真实需求再立项。
+- UPM 抽包（ADR-0010）：Outpost 已证明框架能承载复杂切片，但仍是同一工作区内的消费者；等新游戏与第二个独立消费方证明真实安装/删除边界后再立项。Odin 解耦已完成原生基线、删除门禁与可整体删除的 Editor Adapter（ADR-0015），后续 Validator/迁移器仍需真实需求再立项。DOTS 接缝已验证（Phase 3 / ADR-0030），框架侧可选模块待真实需求再立项。
 - **第二个 `IAssetProvider` 实现**（如 Addressables）——目的不是替换 YooAsset，而是用第二实现**验证抽象边界**：只有一个实现的接口不算真抽象。
 
 ## 文档地图
 
 - [framework-guide.md](framework-guide.md) —— 完整用户手册（理念 + 各层用法 + 数据流）
 - [ai-collaboration-guide.md](ai-collaboration-guide.md) —— AI 协作方案设计原理
+- [ai-agent-onboarding.md](ai-agent-onboarding.md) —— 其他 Agent 的最薄接入与 Handoff
+- [ai-game-development-capability-map.md](ai-game-development-capability-map.md) —— 真实游戏开发的全景能力地图与补全策略
 - `Assets/Game/AGENTS.md` —— 框架 **API 使用规则**（写业务代码时就近加载）
 - `Assets/Game/Framework/AGENTS.md` —— 框架 **内部编码规则**（改框架源码时就近加载）
 - [adr/](adr/) —— 架构决策记录（为什么这样设计）

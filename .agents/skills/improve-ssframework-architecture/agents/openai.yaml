@@ -1,0 +1,4 @@
+interface:
+  display_name: "深化 SSFramework 架构"
+  short_description: "以项目证据审查 Module 深度、所有权、依赖方向与可删除边界"
+  default_prompt: "Use $improve-ssframework-architecture to review this SSFramework architecture concern and rank evidence-backed improvements."
