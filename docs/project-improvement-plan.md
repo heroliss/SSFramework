@@ -354,6 +354,12 @@
 - `AssetUtility` 不再把 Provider 创建的 downloader / scene handle 原样泄漏给业务：轻量代理保持同步成员主线程独占，并把 `Download` / `Unload` 的成功、异常、取消统一恢复到 Unity 主线程；进度流仍直接透传，由 Provider 在主线程发布，避免制造额外订阅所有权。
 - `DownloadProgressReport.IsDone` 区分“刚创建的空快照（0 / 0, 0%）”和“已确认无需下载（0 / 0, 100%）”，消除进度快照与 downloader 完成状态相互矛盾。契约测试覆盖 worker success / failure / cancellation、场景 worker unload 与非空计数真源；资源线程专项 27/27、YooAsset 集成 15/15、Demo CodeRef / 目录契约 20/20，最终完整 EditMode 616/616、PlayMode 739/739，Unity 编译 0 错误。
 
+### P1 · Mono 组合外壳终态契约
+
+- UI、Storage、Audio 三类“Mono 外壳 + 纯 C# 内核”不再在 `OnDestroy` 后用 null 抹掉真正终态：Storage 旧引用继续稳定抛 `ObjectDisposedException`，Audio 旧引用继续执行“状态修改记录开发期错误后 no-op、查询最终快照”的宽容契约；UGUI / Toolkit 即使从未惰性建过核心，也会明确拒绝旧接口调用而不补建 Canvas / UIDocument。
+- `UIUtility` 的全部公共意图在 Dispose 后统一 fail-fast，不再出现 Open/Back/Acquire 抛异常、Close/Get/IsOpen 却静默返回的分裂语义；此前已交付的 `LoadingHandle` 仍是可幂等释放的清理句柄。音量组同时拒绝纯空白名称，避免创建不可辨识的字符串契约。
+- `propose-rule-evolution` 归类为“真实行为测试作权威门禁 + Framework AGENTS 一条窄规则 + guide/ADR/Demo 承载原理”：新增纯核心与真实 Mono 销毁五项契约，生命周期教学解释“借用能力、终态风险分级、保留内核不等于复活”。Demo CodeRef / 目录契约 20/20，最终完整 EditMode 616/616、PlayMode 744/744，Unity 编译 0 错误。
+
 ## 下一批候选（按杠杆排序）
 
 | 优先级 | 候选 | 证据 / 完成标准 |

@@ -181,16 +181,24 @@ namespace Game.Framework.UI
             }
         }
 
-        public void Close<T>() where T : class, IUIWindow => CloseType(typeof(T));
+        public void Close<T>() where T : class, IUIWindow
+        {
+            MainThreadGuard.AssertMainThread(nameof(UIUtility));
+            ThrowIfDisposed();
+            CloseType(typeof(T));
+        }
 
         public void Close(IUIWindow window)
         {
+            MainThreadGuard.AssertMainThread(nameof(UIUtility));
+            ThrowIfDisposed();
             if (window != null) CloseType(window.GetType());
         }
 
         public void CloseTop(UILayer layer)
         {
             MainThreadGuard.AssertMainThread(nameof(UIUtility));
+            ThrowIfDisposed();
             var list = GetLayerList(layer);
             if (list.Count > 0) Close(list[list.Count - 1]);
         }
@@ -220,6 +228,7 @@ namespace Game.Framework.UI
         public void CloseAll(UILayer layer)
         {
             MainThreadGuard.AssertMainThread(nameof(UIUtility));
+            ThrowIfDisposed();
             // Toast 可能仍在异步创建、尚未入栈；先使创建请求与旧计时器失效，避免清场后幽灵重现。
             if (IsToastLayer(layer)) InvalidateToastOwners();
             // Loading 可能尚在异步创建、还没进入层栈。先使其 owner/句柄失效，创建续体回来后会发现陈旧并立即关掉。
@@ -241,18 +250,22 @@ namespace Game.Framework.UI
 
         public void CloseAll()
         {
+            MainThreadGuard.AssertMainThread(nameof(UIUtility));
+            ThrowIfDisposed();
             foreach (UILayer layer in Enum.GetValues(typeof(UILayer))) CloseAll(layer);
         }
 
         public T Get<T>() where T : class, IUIWindow
         {
             MainThreadGuard.AssertMainThread(nameof(UIUtility));
+            ThrowIfDisposed();
             return _open.TryGetValue(typeof(T), out var w) ? (T)w : null;
         }
 
         public bool IsOpen<T>() where T : class, IUIWindow
         {
             MainThreadGuard.AssertMainThread(nameof(UIUtility));
+            ThrowIfDisposed();
             return _open.ContainsKey(typeof(T));
         }
 
@@ -261,6 +274,7 @@ namespace Game.Framework.UI
         public async UniTask ShowToast(string text, float duration = 2f, CancellationToken ct = default)
         {
             MainThreadGuard.AssertMainThread(nameof(UIUtility));
+            ThrowIfDisposed();
             if (_builtins?.Toast == null)
             {
                 Log.Error("未注册 Toast 内置窗口类型（UIBuiltinWindows.Toast）——本后端入口未提供内置件。",
@@ -357,6 +371,7 @@ namespace Game.Framework.UI
         public void HideLoading()
         {
             MainThreadGuard.AssertMainThread(nameof(UIUtility));
+            ThrowIfDisposed();
             ++_legacyLoadingGeneration;
             _legacyLoadingHeld = false;
             ReconcileLoadingVisibility();

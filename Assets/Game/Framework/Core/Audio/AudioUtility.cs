@@ -21,8 +21,9 @@ namespace Game.Framework.Audio
     /// 首次播放时惰性创建一个 DontDestroyOnLoad 的 <c>[Game.Framework Audio]</c> 根节点，池化 AudioSource 全挂它下面
     /// （保持激活——要出声，与对象池的「停用停放」相反；空闲 voice 单独停用自己的子节点）。
     /// 根节点或 voice 节点被外部销毁时自愈：死 voice 被丢弃、下次租借重建，不会散落或复活已 Dispose 的根。<br/>
-    /// <b>Dispose 后宽容 no-op</b>（Editor/Dev <see cref="Log.Error"/> 帮抓过期引用）：销毁根节点即全部停声，
-    /// 之后的播放调用返回失效 handle——丢一声音效不致命，不学存储的 fail-fast（ADR-0022 §6）。<br/>
+    /// <b>Dispose 后宽容收口</b>：销毁根节点即全部停声；之后的播放、停止与音量修改在 Editor/Dev
+    /// <see cref="Log.Error"/> 后安全 no-op，查询则返回释放时的最终快照——丢一声音效不致命，不学存储的 fail-fast
+    /// （ADR-0022 §6）。<br/>
     /// <b>淡变用 unscaled 时间</b>：游戏暂停（timeScale = 0）时音乐切换照常淡入淡出。
     /// </remarks>
     public sealed class AudioUtility : IAudioUtility, IAudioHandleOwner, IDisposable
@@ -158,6 +159,7 @@ namespace Game.Framework.Audio
             get => _masterVolume;
             set
             {
+                if (WarnIfDisposed(nameof(MasterVolume))) return;
                 _masterVolume = Mathf.Clamp01(value);
                 ApplyAllVolumes();
             }
@@ -172,13 +174,14 @@ namespace Game.Framework.Audio
         public void SetGroupVolume(string group, float volume)
         {
             ValidateGroup(group);
+            if (WarnIfDisposed(nameof(SetGroupVolume))) return;
             _groupVolumes[group] = Mathf.Clamp01(volume);
             ApplyAllVolumes();
         }
 
         private static void ValidateGroup(string group)
         {
-            if (string.IsNullOrEmpty(group))
+            if (string.IsNullOrWhiteSpace(group))
                 throw new ArgumentException("音量组名不能为空。", nameof(group));
         }
 
@@ -225,7 +228,8 @@ namespace Game.Framework.Audio
 
         /// <summary>
         /// 释放音频服务：取消驱动与所有淡变、销毁根节点（连带全部 AudioSource，声音即刻全停）、清空池。
-        /// 之后的调用是安全 no-op（Editor/Dev <see cref="Log.Error"/> 帮抓过期引用）。幂等。
+        /// 之后的播放、停止与音量修改是安全 no-op（Editor/Dev <see cref="Log.Error"/> 帮抓过期引用）；
+        /// 查询返回释放时的最终快照。幂等。
         /// </summary>
         /// <remarks>
         /// 由 <c>ContainerBuilder.RegisterOwnedUtility</c> + <c>GameContext.Dispose</c>（纯 C# 路径），

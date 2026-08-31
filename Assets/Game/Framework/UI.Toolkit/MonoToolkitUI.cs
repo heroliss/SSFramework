@@ -17,7 +17,8 @@ namespace Game.Framework.UI.Toolkit
     /// <remarks>
     /// <b>同一 Context 只能挂一个 UI 入口</b>（UGui 或 Toolkit 二选一）——两个都挂会因重复注册 <see cref="IUIUtility"/> 报错。<br/>
     /// 需要一个 <see cref="UIDocument"/> 承载窗口可视树：层容器会加到它的 <c>rootVisualElement</c> 上（建议用专门的
-    /// 高 <c>sortingOrder</c> UIDocument，盖在业务主界面之上）。核心懒建，首次开窗时经 <c>((IHasGameContext)this).Context</c> 取自身 Context。
+    /// 高 <c>sortingOrder</c> UIDocument，盖在业务主界面之上）。核心懒建，首次开窗时经 <c>((IHasGameContext)this).Context</c> 取自身 Context。<br/>
+    /// 宿主销毁后保留已释放内核并显式拒绝旧引用调用，不会重建 UIDocument / 核心，也不会退化为空引用异常。
     /// </remarks>
     public sealed class MonoToolkitUI : MonoUtilityBase, IUIUtility
     {
@@ -26,12 +27,16 @@ namespace Game.Framework.UI.Toolkit
         private UIDocument _document;
 
         private UIUtility _core;
+        private bool _destroyed;
 
         private UIUtility Core
         {
             get
             {
                 MainThreadGuard.AssertMainThread(nameof(MonoToolkitUI));
+                if (_destroyed)
+                    throw new ObjectDisposedException(nameof(MonoToolkitUI),
+                        "UI Toolkit 入口宿主已销毁——请检查是否持有了过期的 IUIUtility 引用。");
                 if (_core == null)
                 {
                     var ctx = ((IHasGameContext)this).Context
@@ -74,9 +79,9 @@ namespace Game.Framework.UI.Toolkit
 
         protected override void OnDestroy()
         {
-            _core?.Dispose();
-            _core = null;
-            base.OnDestroy();
+            _destroyed = true;
+            try { _core?.Dispose(); } // 拆掉所有窗口 + 层根；保留已释放实例作为终态守卫
+            finally { base.OnDestroy(); }
         }
     }
 }

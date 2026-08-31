@@ -17,7 +17,8 @@ namespace Game.Framework.UI.UGui
     /// <b>同一 Context 只能挂一个 UI 入口</b>（UGui 或 Toolkit 二选一）——两个都挂会因重复注册 <see cref="IUIUtility"/> 报错。<br/>
     /// 核心<b>懒建</b>（首次开窗时）：此时 Awake 早已跑完、Context 就绪（遵循 <c>Assets/Game/AGENTS.md</c>
     /// 「Mono 生命周期与 Context」中不在同帧 Awake 假设父 Context 已就绪的约束）。
-    /// 作为框架适配层，经 <c>((IHasGameContext)this).Context</c> 合法取自身 Context（用于资源加载 + 注入窗口）。
+    /// 作为框架适配层，经 <c>((IHasGameContext)this).Context</c> 合法取自身 Context（用于资源加载 + 注入窗口）。<br/>
+    /// 宿主销毁后保留已释放内核并显式拒绝旧引用调用，不会重建 Canvas / 核心，也不会退化为空引用异常。
     /// </remarks>
     public sealed class MonoUGuiUI : MonoUtilityBase, IUIUtility
     {
@@ -27,6 +28,7 @@ namespace Game.Framework.UI.UGui
         private Canvas _canvas;
 
         private UIUtility _core;
+        private bool _destroyed;
 
         // 懒建核心 + backend。首次 IUIUtility 调用时触发，此刻 Context 已就绪。
         private UIUtility Core
@@ -34,6 +36,9 @@ namespace Game.Framework.UI.UGui
             get
             {
                 MainThreadGuard.AssertMainThread(nameof(MonoUGuiUI));
+                if (_destroyed)
+                    throw new ObjectDisposedException(nameof(MonoUGuiUI),
+                        "UGUI 入口宿主已销毁——请检查是否持有了过期的 IUIUtility 引用。");
                 if (_core == null)
                 {
                     var ctx = ((IHasGameContext)this).Context
@@ -82,9 +87,9 @@ namespace Game.Framework.UI.UGui
 
         protected override void OnDestroy()
         {
-            _core?.Dispose(); // 拆掉所有窗口 + 层根
-            _core = null;
-            base.OnDestroy();
+            _destroyed = true;
+            try { _core?.Dispose(); } // 拆掉所有窗口 + 层根；保留已释放实例作为终态守卫
+            finally { base.OnDestroy(); }
         }
     }
 }

@@ -2106,6 +2106,8 @@ var opened = ui.Get<ShopWindow>();                               // 取已打开
 Adapter 的 `CreateWindow` 以“完整绑定并进入物理映射”作为提交点；调用方取消保持 `OperationCanceledException`，加载或绑定异常
 原样传播，但返回前会回滚已经创建的部分层级、View 和资源子 Bag，不把半窗口留到整个 UI 销毁时才兜底。
 
+`IUIUtility` 同样是跟随 Context / Mono 入口的**借用能力**，不要把它缓存到 owner 之外。UI owner 释放后，`Open / Close / Back / Get / ShowToast / AcquireLoading` 等全部公共入口统一抛 `ObjectDisposedException`；两个 Mono 入口会停在明确终态，不会因核心字段被清空而报 `NullReferenceException`，也不会在已销毁宿主上重新创建 Canvas / UIDocument。已经交付的 `LoadingHandle` 是清理句柄，销毁后仍允许幂等查询和 `Dispose`，只会得到 inactive / no-op。
+
 UI 是 **Unity 主线程独占** 的：`Open / Close / Back / Get / LoadingHandle.Dispose` 等入口都从主线程调用，窗口栈与 owner 集合不加锁。
 自定义 Adapter、过渡动画或计时 task 可以在 worker 物理完成；默认核心会在更新窗口状态、调用 hook/backend、以及把成功、异常或取消
 交给调用方前统一恢复主线程。Adapter 自己若在 `CreateWindow` 内 await 资源，await 后的 Instantiate、VisualElement 操作与失败回滚也必须先回主线程；
@@ -2348,6 +2350,8 @@ var loaded = await storage.Load<PlayerSaveData>("save/slot1");  // null = 无可
 
 **预期内缺失给 null、系统级失败抛异常**：`Load` 不存在 → null（新玩家常态）；主文件损坏、备份可用 → 自动回退 + warning；主备全坏 → null + error（业务当新档，游戏能继续）。`Save` 磁盘满 / 权限 → **抛**（数据没落盘必须让业务知道）；key 非法 / data 为 null / Dispose 后调用 → 抛参数 / `ObjectDisposedException`。
 
+`IStorageUtility` 是随 Context / Mono 入口借用的能力，不能跨越 owner 生命周期长期缓存。`MonoStorageUtility` 销毁时会保留已经 Dispose 的纯 C# 内核作为终态守卫，所以销毁前拿到的旧接口仍得到同一个 `ObjectDisposedException`，而不是偶发的空引用异常；这只是让错误可解释，不代表旧服务还能继续读写。
+
 ### 防损坏（框架兜住的核心价值）
 
 写路径固定走「临时文件 → 原子替换 → 旧版自动变 `.bak`」——任何时刻磁盘上都有一份完整可读的数据，**写一半崩溃 / 断电不丢档**；读路径主文件损坏自动回退备份。每个 key 至多三个文件：`<key>.sav`（主）/ `.sav.bak`（上一版）/ `.sav.tmp`（写入途中）。默认序列化是带缩进的明文 JSON，`.sav` 可直接用文本编辑器打开调试。
@@ -2424,7 +2428,7 @@ clip 经资源系统 `Bag.Load<AudioClip>(location)` 取到再传入——加载
 - AudioSource 挂在 DontDestroyOnLoad 的 `[Game.Framework Audio]` 节点下复用（`ObjectPool<T>` 原语），高频音效不产生 Instantiate/Destroy 抖动；一次性音效播完由中央驱动自动回收（全局暂停 `AudioListener.pause` 期间不误回收）。
 - BGM 默认循环；片头 / 结算曲等一次性音乐传 `loop: false`，自然结束后 `CurrentMusic` 变为 null，voice 与 clip 引用自动释放，不需要按时长手动 Stop。
 - 淡入淡出走 **unscaled 时间**：游戏暂停（timeScale = 0）时切 BGM 照常过渡；`fadeSeconds = 0` = 立即切。
-- 失败语义采用**音频自己的宽容契约**：clip 为 null 抛参数异常；Dispose 后调用 = Editor/Dev LogError + 安全 no-op（丢一声音效不致命）；同时发声数不设上限（Unity 自带 voice 虚拟化）。对象池已改为关闭后拒绝新 lease，不能再把音频的 no-op 理解成照搬池策略。
+- 失败语义采用**音频自己的宽容契约**：clip 为 null、组名为空白时抛参数异常；Dispose 后的播放、停止和音量修改 = Editor/Dev LogError + 安全 no-op（丢一声音效不致命），`CurrentMusic` / 音量查询返回释放时最终快照。`MonoAudioUtility` 保留已释放内核，让销毁前借出的旧接口继续遵守这套语义而不是 NRE；这不表示服务会复活。同时发声数不设上限（Unity 自带 voice 虚拟化）。对象池已改为关闭后拒绝新 lease，不能再把音频的 no-op 理解成照搬池策略。
 
 ### 刻意不做
 

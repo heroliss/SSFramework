@@ -1,6 +1,6 @@
 # ADR-0022：音频服务 —— IAudioUtility：音乐单通道 + 池化音效 + 分组音量
 
-**Status:** Accepted（2026-07-04）
+**Status:** Accepted（2026-07-04；2026-08-31 补强 Dispose 后修改与 Mono 外观终态）
 
 ## Context
 
@@ -75,8 +75,9 @@ public interface IAudioUtility : IUtility
 
 | 情形 | 行为 |
 |---|---|
-| clip 为 null | 抛 `ArgumentNullException`（代码写错了） |
-| Dispose 后调用 | Editor/Dev `Log.Error` + 安全 no-op（返回失效 handle）——丢一声音效不致命，不值得炸游戏 |
+| clip 为 null / 组名为空白 | 抛参数异常（代码写错了） |
+| Dispose 后播放、停止或修改音量 | Editor/Dev `Log.Error` + 安全 no-op（播放返回失效 handle）——丢一声音效不致命，不值得炸游戏 |
+| Dispose 后查询当前音乐或音量 | 返回释放时最终快照，不记录误用日志；诊断和清理代码可安全观察终态 |
 | 停一个已结束/已停的 handle | 安全 no-op（陈旧 handle 是常态，不是错误） |
 | 场景无 AudioListener / batchmode 无音频设备 | 不出声但 API 全部可用（Unity 自身行为，框架不加判定） |
 
@@ -121,3 +122,8 @@ public interface IAudioUtility : IUtility
 
 - 生产淡变仍逐帧读取 `Time.unscaledDeltaTime`；`AudioUtility` 仅向测试程序集开放内部帧增量 Seam，用固定增量直接验证淡变 owner，不把 Editor 是否聚焦、某个短墙钟窗口内是否调度到帧当成产品契约。
 - 一次性音效和非循环音乐的终态测试显式停止其池化 `AudioSource`，再观察中央驱动回收；循环测试直接验证 `AudioSource.loop` 与显式 handle / 音乐 owner。整组测试不再依赖真实声卡，也无需在 batchmode Ignore。
+
+## 2026-08-31 修订（状态修改与 Mono 外观终态）
+
+- 宽容 no-op 现在覆盖完整的状态修改面：`MasterVolume` setter 与 `SetGroupVolume` 在 Dispose 后和播放 / 停止一样记录开发期错误且不改变最终快照；只读查询保持安全。组名统一把纯空白视为参数错误，避免创建肉眼不可辨识的音量组。
+- `MonoAudioUtility` 销毁后保留 disposed 内核，不把旧 `IAudioUtility` 引用变成 NRE。保留只用于交付音频既定的“修改 no-op、查询最终快照”终态，不会重建 AudioSource 根或恢复播放。真实 Mono 销毁测试锁定该边界。

@@ -64,8 +64,13 @@ namespace Game.Framework.Demo.Modules
             host.AddSectionTitle("作用域怎么分");
             host.AddConcept("基类 Bag", "`MonoView/Model/System/Utility` 内置，跟宿主 `OnDestroy` 一起释放——最常用的一档。");
             host.AddConcept("CreateChild", "需要比宿主更短的作用域时开：`OnDisable` / 一个回合 / “清理一次”按钮。子 `Bag` 单独 `Dispose` 不碰父级，父级释放自动级联子级（`Dispose` 幂等）。");
+
+            host.AddSectionTitle("容易混淆：自动清理不等于旧引用还能继续用");
+            host.AddConcept("Utility 是借用能力", "`GetUtility<T>()` 取得的服务归 Context 或 Mono 宿主所有；可以在当前作用域复用，但不要缓存到 owner 之外。宿主结束后应从新的 Context 重新解析，而不是继续调用旧引用。");
+            host.AddConcept("终态按风险不同", "UI / 存储在释放后继续操作会抛 `ObjectDisposedException`，因为幽灵开窗或丢存档必须 fail-fast；音频播放与音量修改则记录开发期错误后安全 no-op，因为漏一声不该炸掉游戏，只读查询仍可看到最终快照。");
+            host.AddConcept("保留内核 ≠ 复活服务", "Mono 外壳销毁时保留 disposed 内核或显式终态守卫，只是为了让旧借用引用得到清晰、一致的生命周期错误；不会重建 Canvas、UIDocument、存储 Provider 或 AudioSource 根。把字段清成 null 反而会丢失真正原因，只剩 NRE。");
             host.AddTip("命名约定：按“何时清理”给子 Bag 起名 _enableBag / _roundBag / _loadedBag，在对应回调里 Dispose 后再 CreateChild 重建。"
-                + "统一进 Bag 的意义在于——只要东西进了 Bag 就不会忘记释放，宿主一销毁全部连根带走。核心主线最后一章会打开诊断面板，把 Context 树、Container 注册和 Bag 存活趋势放在一起观察。");
+                + "统一进 Bag 的意义在于——只要东西进了 Bag 就不会忘记释放，宿主一销毁全部连根带走；但从 Context 解析出的借用服务仍不能越过 Context 寿命。核心主线最后一章会打开诊断面板，把 Context 树、Container 注册和 Bag 存活趋势放在一起观察。");
         }
     }
 }

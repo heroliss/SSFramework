@@ -16,7 +16,8 @@ namespace Game.Framework.Storage
     /// <b>何时用：</b>想在 Inspector 看到 / 配置存储目录、或希望存储随某个 Context 节点生命周期释放时用本类；
     /// 全局共享、纯代码配置用 <c>builder.RegisterOwnedUtility(new StorageUtility())</c>（纯 C# 路径）。<br/>
     /// <b>生命周期：</b>继承 <see cref="MonoUtilityBase"/>——Awake 注册为 <see cref="IStorageUtility"/>（+ <c>IUtility</c>），
-    /// OnDestroy 反注册并 Dispose 底层实现。<br/>
+    /// OnDestroy 反注册并 Dispose 底层实现；已释放内核会被保留为终态守卫，使销毁前借出的
+    /// <see cref="IStorageUtility"/> 旧引用仍抛 <see cref="ObjectDisposedException"/>，而不是退化成空引用异常。<br/>
     /// <b>实现：</b>组合而非继承底层（同 <c>MonoPoolUtility</c> 模式），全部成员转发给内部 <see cref="StorageUtility"/>。
     /// </remarks>
     public sealed class MonoStorageUtility : MonoUtilityBase, IStorageUtility
@@ -67,7 +68,8 @@ namespace Game.Framework.Storage
         {
             base.OnDestroy(); // 释放 Bag + 从容器反注册
             _impl?.Dispose();
-            _impl = null;
+            // 不置 null：销毁前借出的 IStorageUtility 引用仍可能短暂存活，必须由已 Dispose 的
+            // 内核保留 fail-fast 终态，不能把明确的 ObjectDisposedException 降级成 NRE。
         }
 
         // ── IStorageUtility 转发到底层 StorageUtility ──────────────────────────
