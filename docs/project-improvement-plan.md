@@ -89,7 +89,7 @@
 ### P1 · Outpost 真实玩家路径冒烟
 
 - 新建独立 `Game.Outpost.Smoke.Test` Module，用真实场景、Composition Root、Command、Flow、资源/UI Adapter 跑“标题 → 战斗就绪 → 撤离 → 结算 → 回标题”，不依赖 UI 坐标或私有反射。
-- `BattleReadModel.IsReady` 把“状态已进入”和“异步配置/音频/模拟已可交互”分开，撤离与托管按钮在初始化前及结算收束期统一禁用；自然战败也立即关闭对外交互。
+- `BattleReadModel.IsReady` 是场景内的统一交互门禁：初始化期与结算收束期会禁用撤离、托管等操作，自然战败也立即关闭对外交互；后续启动事务收口后，`BattleState` 会等待它首次成立才提交 `Current`，因此“状态已进入”本身也具有可玩不变量。
 - 冒烟测试实测发现并修复组合缺陷：隔离当前场景时误删 Test Runner 自身根节点；撤离为关闭交互清掉导演 `_ready`，导致结算倒计时永远不再推进；UniTask 自定义 Enumerator 不兼容 Test Framework 的反射续跑器。
 - 测试用同一父目录内原子重命名隔离并恢复 Outpost 存档，失败时保留完整备份；退出后断言战斗场景、Context、导演与 `Time.timeScale` 无残留，可在 Unity 失焦时运行。
 
@@ -314,6 +314,13 @@
 - `InstallBindings`、Context 构造/注入/附着与 `FlowChangedEvent` 都作为可重入用户边界处理：scope 建成后重验宿主与最新意图，陈旧 scope 事务回滚且不进入；成功 `OnEnter` 的 token owner 在事件与 task 发布前撤掉，后续正常切换不会回头取消已经提交的状态。
 - `OnEnter/OnExit` 可在 worker 物理结束，但异常分类、scope Dispose、`Current`、Event 和 `GoTo` 终态只在 Unity 主线程提交。相同边界扩展到 `ICommandSystem`：默认 dispatcher 的成功/失败/取消均回主线程，`LoggingCommandSystem` 对自定义 inner 再兜底后落无锁流水；原始异常对象与堆栈保持不变。
 - 新增 pending 取消 continuation 重入、安装期 GoTo/Dispose、事件回调重入、worker 成功/失败/回滚，以及默认/日志命令分发线程边界契约。Flow 专项 27/27、Command + Diagnostics 专项 36/36；最终完整 EditMode 614/614、PlayMode 709/709，Unity 编译 0 错误。
+
+### P1 · Outpost 战斗启动事务与失败恢复
+
+- `BattleState.OnEnter` 现在拥有“有效场景句柄 → 本次 Scene 内恰好一个启用的 `BattleDirectorSystem` → Ready/Failed”完整事务；空句柄、无效场景、导演缺失/禁用/重复与初始化失败都会使状态回滚，场景资源随 Bag 释放，不再提交一个没有战斗内容的软锁状态。
+- 导演用共享完成源发布唯一启动终态：Scene 生命周期拥有物理初始化，状态取消只让当前等待者脱离；成功先写 Model 再唤醒等待者，销毁发布取消，真实故障保留根因。
+- `StartBattleCommand` 的 View token 只在意图提交前门控，提交后等待 Flow 的真实结果；启动失败且导航仍稳定为空时恢复标题，但不会覆盖玩家已发出的更新导航，并重新抛出原始异常。`FlowNav` 的日志标签也不会再执行状态对象的 `ToString()`。
+- FlowNav/命令与真实玩家路径专项测试 13/13；最终完整 EditMode 614/614、PlayMode 714/714，Unity 编译 0 错误。
 
 ## 下一批候选（按杠杆排序）
 
