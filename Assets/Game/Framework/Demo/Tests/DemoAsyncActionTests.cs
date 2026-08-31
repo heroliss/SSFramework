@@ -53,6 +53,7 @@ namespace Game.Framework.Demo.Tests
                 "Game/Framework/Demo/Scripts/Modules");
             var forbidden = new Regex(@"\basync\s*\(\s*\)\s*=>", RegexOptions.Compiled);
             var forbiddenAsyncVoid = new Regex(@"\basync\s+void\b", RegexOptions.Compiled);
+            var forbiddenDetachedAsync = new Regex(@"\.Forget\s*\(|\bUniTaskVoid\b", RegexOptions.Compiled);
             int asyncActionRows = 0;
 
             foreach (string path in Directory.GetFiles(modulesDirectory, "*Module.cs", SearchOption.TopDirectoryOnly))
@@ -65,6 +66,9 @@ namespace Game.Framework.Demo.Tests
                 Assert.IsFalse(
                     forbiddenAsyncVoid.IsMatch(codeOnly),
                     $"{Path.GetFileName(path)} 含 async void；Demo 异步入口必须返回 UniTask 并交给 Host 观察。");
+                Assert.IsFalse(
+                    forbiddenDetachedAsync.IsMatch(codeOnly),
+                    $"{Path.GetFileName(path)} 含脱离 owner 的异步任务；按钮交给 Add*AsyncActionRow，响应式异步链交给可登记的 SubscribeAwait/SelectAwait。");
 
                 foreach (Match match in Regex.Matches(codeOnly, @"\b(?:AddActionRow|AddExperimentActionRow)\s*\("))
                 {

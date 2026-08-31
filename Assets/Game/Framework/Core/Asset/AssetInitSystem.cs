@@ -30,7 +30,9 @@ namespace Game.Framework
             _cts = CancellationTokenSource.CreateLinkedTokenSource(
                 this.GetCancellationTokenOnDestroy(),
                 ((IHasGameContext)this).Context.CancellationToken);
-            InitializeCompatibilityPathAsync(_cts.Token).Forget();
+            CancellationToken token = _cts.Token;
+            InitializeCompatibilityPathAsync(token).Forget(exception =>
+                ObserveCompatibilityFailure(exception, token));
         }
 
         protected override void OnDestroy()
@@ -41,7 +43,7 @@ namespace Game.Framework
             base.OnDestroy();
         }
 
-        private async UniTaskVoid InitializeCompatibilityPathAsync(CancellationToken token)
+        private async UniTask InitializeCompatibilityPathAsync(CancellationToken token)
         {
             if (_utility == null || _settings == null)
             {
@@ -58,6 +60,34 @@ namespace Game.Framework
             }
 
             await _utility.ConfigureAndAutoInitialize(_settings.ToRuntimeSettings(), token);
+        }
+
+        private void ObserveCompatibilityFailure(Exception exception, CancellationToken token)
+        {
+            // Context / 组件销毁是这个兼容 owner 的正常终态；Adapter 即使用别的异常形态退场，也以 owner 意图为准。
+            if (token.IsCancellationRequested) return;
+
+            Log.Error(
+                "旧版资源系统兼容初始化异常停止。",
+                exception,
+                nameof(AssetInitSystem),
+                this);
+            try
+            {
+                _utility?.FailDefaultInitialization(exception);
+            }
+            catch (Exception) when (token.IsCancellationRequested)
+            {
+                // 记录异常与发布状态之间宿主开始拆除：无需再向已释放的 Utility 写终态。
+            }
+            catch (Exception stateException)
+            {
+                Log.Error(
+                    "旧版资源初始化失败后无法发布默认包终态。",
+                    stateException,
+                    nameof(AssetInitSystem),
+                    this);
+            }
         }
     }
 }
