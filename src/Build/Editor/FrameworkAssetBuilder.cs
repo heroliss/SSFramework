@@ -51,6 +51,33 @@ namespace Game.Framework.Build
         // 对应 YooAssetSettings.OutputFolderName（internal，不能直接引用，故内联此常量）。
         private const string OutputCacheFolderName = "OutputCache";
 
+        /// <summary>
+        /// 一轮资源构建已经提交的事实快照。人工“部署”可以选择历史最新版本；CI 的构建后部署只能消费这份快照，
+        /// 不能重新扫描磁盘猜测本轮产物，否则空包会把旧版本重新发布。
+        /// </summary>
+        internal sealed class BuildBatchResult
+        {
+            public bool Ok { get; }
+            public string Message { get; }
+            public string Version { get; }
+            public IReadOnlyList<string> RequestedPackages { get; }
+            public IReadOnlyList<string> BuiltPackages { get; }
+
+            internal BuildBatchResult(
+                bool ok,
+                string message,
+                string version,
+                IEnumerable<string> requestedPackages,
+                IEnumerable<string> builtPackages)
+            {
+                Ok = ok;
+                Message = message ?? string.Empty;
+                Version = version ?? string.Empty;
+                RequestedPackages = (requestedPackages ?? Array.Empty<string>()).ToArray();
+                BuiltPackages = (builtPackages ?? Array.Empty<string>()).ToArray();
+            }
+        }
+
         // ── CI 入口（-executeMethod 调用）──
         public static void BuildAll()
         {
@@ -79,14 +106,18 @@ namespace Game.Framework.Build
             bool clearBuildCache = HasFlag("-clearBuildCache");
             bool useAssetDependencyDB = HasFlag("-useAssetDependencyDB");
 
-            var (ok, message) = Build(profile, packages, version, clearBuildCache, useAssetDependencyDB);
+            BuildBatchResult batch = BuildBatch(
+                profile, packages, version, clearBuildCache, useAssetDependencyDB);
+            bool ok = batch.Ok;
+            string message = batch.Message;
 
-            // 构建无真失败后整理成待上传结构（CI 把该目录整目录同步上 CDN）。-output 缺省到统一 Deploy 目录。
+            // CI 只部署本轮真实构建成功的精确版本；空包同时清掉输出目录里的同名旧发布，不能回捞历史 latest。
+            // 人工工作台的“部署”仍使用 Deploy 的 latest 语义，方便只重做部署而不重跑 SBP。
             if (ok)
             {
                 string cdnOutput = GetArg("-output");
                 if (string.IsNullOrEmpty(cdnOutput)) cdnOutput = AssetBuildLayout.DeployRoot;
-                var (deployOk, deployMsg) = Deploy(packages, cdnOutput);
+                var (deployOk, deployMsg) = DeployBatch(batch, cdnOutput);
                 ok &= deployOk;
                 message += "\n" + deployMsg;
             }
@@ -127,15 +158,24 @@ namespace Game.Framework.Build
             FrameworkAssetBuildProfile profile, IReadOnlyList<string> packages, string version,
             bool clearBuildCache = false, bool useAssetDependencyDB = false)
         {
+            BuildBatchResult result = BuildBatch(
+                profile, packages, version, clearBuildCache, useAssetDependencyDB);
+            return (result.Ok, result.Message);
+        }
+
+        private static BuildBatchResult BuildBatch(
+            FrameworkAssetBuildProfile profile, IReadOnlyList<string> packages, string version,
+            bool clearBuildCache, bool useAssetDependencyDB)
+        {
             try
             {
                 if (packages == null || packages.Count == 0)
-                    return (false, "没有可构建的包：profile 未启用任何包，或传入列表为空。");
+                    return FailedBatch("没有可构建的包：profile 未启用任何包，或传入列表为空。");
                 if (!TryNormalizePackageNames(packages, out var normalizedPackages, out string packageError))
-                    return (false, "构建包名预检失败：" + packageError);
+                    return FailedBatch("构建包名预检失败：" + packageError);
                 if (!FrameworkBuildArtifactPath.TryNormalizeSegment(
                         version, "资源版本号", out string normalizedVersion, out string versionError))
-                    return (false, "构建版本预检失败：" + versionError);
+                    return FailedBatch("构建版本预检失败：" + versionError, normalizedPackages);
                 packages = normalizedPackages;
                 version = normalizedVersion;
 
@@ -150,7 +190,7 @@ namespace Game.Framework.Build
                 {
                     string offsetError = ValidateBuiltInFileOffset(
                         profile, GameAssetEncryption.CustomBundleEncryptor != null);
-                    if (offsetError != null) return (false, offsetError);
+                    if (offsetError != null) return FailedBatch(offsetError, packages, version);
                 }
 
                 // 生成物同时冻结包名与普通 AssetBundle 的引导期 FileOffset。只要本次包含普通 AB，构建前必须验证它；
@@ -160,7 +200,7 @@ namespace Game.Framework.Build
                 {
                     var freshness = AssetPackageConstantsGenerator.ValidateFreshness(profile);
                     if (!freshness.ok)
-                        return (false, "资源构建常量预检失败：" + freshness.message);
+                        return FailedBatch("资源构建常量预检失败：" + freshness.message, packages, version);
                 }
 
                 var built = new List<string>();    // 正常构建
@@ -228,13 +268,29 @@ namespace Game.Framework.Build
                 if (built.Count == 0 && failed.Count == 0)
                     sb.AppendLine("（没有实际产出：启用的包全是空包）");
 
-                return (failed.Count == 0, sb.ToString().TrimEnd());
+                return new BuildBatchResult(
+                    failed.Count == 0,
+                    sb.ToString().TrimEnd(),
+                    version,
+                    packages,
+                    built);
             }
             catch (Exception e)
             {
-                return (false, "资源包构建过程抛出未处理异常；本次操作未完整成功。\n" + e);
+                return FailedBatch("资源包构建过程抛出未处理异常；本次操作未完整成功。\n" + e);
             }
         }
+
+        private static BuildBatchResult FailedBatch(
+            string message,
+            IEnumerable<string> requestedPackages = null,
+            string version = null)
+            => new(
+                false,
+                message,
+                version,
+                requestedPackages,
+                Array.Empty<string>());
 
         /// <summary>
         /// 把每个包**最近一次构建**的产物平铺到「<paramref name="cdnRoot"/>/包名」子目录
@@ -279,6 +335,102 @@ namespace Game.Framework.Build
             catch (Exception e)
             {
                 return (false, "部署过程抛出未处理异常；目标目录可能只有部分文件，请修复后重新部署。\n" + e);
+            }
+        }
+
+        /// <summary>
+        /// 把一轮成功构建的精确版本发布到 CI 输出目录。只部署 <see cref="BuildBatchResult.BuiltPackages"/>；
+        /// 本轮请求但未产出的空包会删除同名旧部署目录。其它未参与本轮请求的包保持不动。
+        /// </summary>
+        internal static (bool ok, string message) DeployBatch(BuildBatchResult batch, string cdnRoot)
+        {
+            try
+            {
+                if (batch == null) return (false, "缺少资源构建批次结果。");
+                if (!batch.Ok) return (false, "资源构建批次存在失败，已拒绝部署；原部署目录保持不变。");
+                if (!TryNormalizePackageNames(
+                        batch.RequestedPackages, out var requestedPackages, out string requestedError) ||
+                    requestedPackages.Count == 0)
+                    return (false, "批次部署请求包预检失败：" +
+                                   (requestedPackages.Count == 0 ? "包列表不能为空。" : requestedError));
+                if (!TryNormalizePackageNames(
+                        batch.BuiltPackages, out var builtPackages, out string builtError))
+                    return (false, "批次部署已构建包预检失败：" + builtError);
+                if (!FrameworkBuildArtifactPath.TryNormalizeSegment(
+                        batch.Version, "资源版本号", out string version, out string versionError))
+                    return (false, "批次部署版本预检失败：" + versionError);
+                if (string.IsNullOrWhiteSpace(cdnRoot)) return (false, "部署根目录不能为空。");
+
+                var requestedSet = new HashSet<string>(requestedPackages, StringComparer.OrdinalIgnoreCase);
+                foreach (string packageName in builtPackages)
+                    if (!requestedSet.Contains(packageName))
+                        return (false, $"批次部署结果无效：已构建包 '{packageName}' 不在本轮请求中。");
+
+                string outputRoot = Path.GetFullPath(cdnRoot);
+                var targetDirectories = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                foreach (string packageName in requestedPackages)
+                {
+                    if (!FrameworkBuildArtifactPath.TryResolveChildDirectory(
+                            outputRoot, packageName, "资源包名", out string targetDirectory, out string targetError))
+                        return (false, "批次部署目录预检失败：" + targetError);
+                    targetDirectories.Add(packageName, targetDirectory);
+                }
+
+                var sourceTrees = new Dictionary<string, FrameworkProjectPath.PhysicalTreeSnapshot>(
+                    StringComparer.OrdinalIgnoreCase);
+                string bundlesRoot = Path.GetFullPath(AssetBuildLayout.BundlesRoot);
+                foreach (string packageName in builtPackages)
+                {
+                    if (!TryResolvePackageVersionDirectory(
+                            packageName, version, out string versionDirectory, out string sourceError))
+                        return (false, $"批次部署源预检失败（{packageName}）：{sourceError}");
+                    if (!Directory.Exists(versionDirectory))
+                        return (false, $"批次部署源不存在（{packageName}）：{versionDirectory}");
+                    if (!FrameworkProjectPath.TryValidatePhysicalPath(
+                            bundlesRoot, Path.GetFullPath(versionDirectory), out string physicalSourceError))
+                        return (false, $"批次部署源不安全（{packageName}）：{physicalSourceError}");
+                    sourceTrees.Add(
+                        packageName,
+                        FrameworkProjectPath.CapturePhysicalTree(Path.GetFullPath(versionDirectory)));
+                }
+
+                Directory.CreateDirectory(outputRoot);
+                if (!FrameworkProjectPath.TryValidatePhysicalPath(outputRoot, outputRoot, out string outputError))
+                    return (false, "批次部署根目录不安全：" + outputError);
+
+                var builtSet = new HashSet<string>(builtPackages, StringComparer.OrdinalIgnoreCase);
+                var summary = new StringBuilder();
+                int deployed = 0;
+                int cleared = 0;
+                foreach (string packageName in requestedPackages)
+                {
+                    string targetDirectory = targetDirectories[packageName];
+                    if (builtSet.Contains(packageName))
+                    {
+                        FrameworkProjectPath.PhysicalTreeSnapshot sourceTree = sourceTrees[packageName];
+                        int copied = FlattenToCdnDir(sourceTree, outputRoot, packageName);
+                        summary.AppendLine(
+                            $"✓ {packageName} → {targetDirectory}（{copied} 个文件，本轮版本 {version}）");
+                        deployed++;
+                        continue;
+                    }
+
+                    bool hadOldDeployment = Directory.Exists(targetDirectory);
+                    FrameworkProjectPath.DeleteDirectoryWithinBoundary(targetDirectory, outputRoot);
+                    summary.AppendLine(hadOldDeployment
+                        ? $"⊘ {packageName}：本轮为空包，已移除同名旧部署目录。"
+                        : $"⊘ {packageName}：本轮为空包，没有生成部署目录。");
+                    if (hadOldDeployment) cleared++;
+                }
+
+                if (deployed == 0)
+                    summary.AppendLine("（本轮没有实际产出；没有从历史构建目录回捞旧版本。）");
+                summary.Append($"批次部署完成：发布 {deployed} 个，清理陈旧空包目录 {cleared} 个。");
+                return (true, summary.ToString());
+            }
+            catch (Exception e)
+            {
+                return (false, "批次部署过程抛出未处理异常；目标目录可能只有部分文件，请修复后重新构建并部署。\n" + e);
             }
         }
 
@@ -444,8 +596,8 @@ namespace Game.Framework.Build
             if (copyOption == EBundledCopyOption.None)
                 return (true, null);
 
-            if (!FrameworkBuildArtifactPath.TryResolveChildDirectory(
-                    PackageOutputRoot(packageName), version, "资源版本号", out string outputDir, out string versionError))
+            if (!TryResolvePackageVersionDirectory(
+                    packageName, version, out string outputDir, out string versionError))
                 return (false, versionError);
             if (!FrameworkBuildArtifactPath.TryResolveChildDirectory(
                     BundleBuilderHelper.GetStreamingAssetsRoot(), packageName, "资源包名", out string bundledDir, out string packageError))
@@ -558,6 +710,18 @@ namespace Game.Framework.Build
             return outputRoot;
         }
 
+        private static bool TryResolvePackageVersionDirectory(
+            string packageName,
+            string version,
+            out string versionDirectory,
+            out string error)
+            => FrameworkBuildArtifactPath.TryResolveChildDirectory(
+                PackageOutputRoot(packageName),
+                version,
+                "资源版本号",
+                out versionDirectory,
+                out error);
+
         // 找某包最近一次构建的版本目录（按修改时间），跳过 YooAsset 的 OutputCache 临时目录。
         private static string FindLatestVersionDir(string packageName)
         {
@@ -571,15 +735,28 @@ namespace Game.Framework.Build
 
         // 把一个版本目录平铺到「cdnRoot/包名」子目录。只重建本包子目录，不动其它包；CI 把整个 cdnRoot 同步上 CDN 即可。
         private static int FlattenToCdnDir(string versionDir, string cdnRoot, string packageName)
+            => FlattenToCdnDir(
+                FrameworkProjectPath.CapturePhysicalTree(Path.GetFullPath(versionDir)),
+                cdnRoot,
+                packageName);
+
+        private static int FlattenToCdnDir(
+            FrameworkProjectPath.PhysicalTreeSnapshot sourceTree,
+            string cdnRoot,
+            string packageName)
         {
+            cdnRoot = Path.GetFullPath(cdnRoot);
+            Directory.CreateDirectory(cdnRoot);
+            if (!FrameworkProjectPath.TryValidatePhysicalPath(cdnRoot, cdnRoot, out string rootError))
+                throw new InvalidOperationException(rootError);
             if (!FrameworkBuildArtifactPath.TryResolveChildDirectory(
                     cdnRoot, packageName, "资源包名", out string pkgDir, out string error))
                 throw new InvalidOperationException(error);
-            if (Directory.Exists(pkgDir)) Directory.Delete(pkgDir, true);
+            FrameworkProjectPath.DeleteDirectoryWithinBoundary(pkgDir, cdnRoot);
             Directory.CreateDirectory(pkgDir);
 
             int count = 0;
-            foreach (var file in Directory.GetFiles(versionDir, "*", SearchOption.AllDirectories))
+            foreach (string file in sourceTree.Files)
             {
                 File.Copy(file, Path.Combine(pkgDir, Path.GetFileName(file)), true);
                 count++;
