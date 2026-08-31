@@ -6,6 +6,7 @@ using Game.Framework.Systems;
 using Game.Framework.Common;
 using Game.Framework.Internal;
 using Game.Framework.Command;
+using Game.Framework.View;
 using NUnit.Framework;
 using UnityEngine.TestTools;
 using Cysharp.Threading.Tasks;
@@ -26,6 +27,13 @@ namespace Game.Framework.Test
                 ReceivedToken = cancellationToken;
                 return UniTask.CompletedTask;
             }
+        }
+
+        private sealed class PureView : IView, IHasGameContext
+        {
+            // GameContext.AttachTo 通过框架约定注入这个字段；业务侧只能经显式 Interface 暴露受限能力。
+            private GameContext _context;
+            IGameContext IHasGameContext.Context => _context;
         }
 
         private sealed class WorkerCommand : IAsyncCommand
@@ -282,6 +290,19 @@ namespace Game.Framework.Test
                 "IGameContext 显式 token 重载应原样转发，由调用方决定是否与 Context 生命周期链接");
             Assert.AreNotEqual(contextToken, command.ReceivedToken,
                 "只有无 token 重载自动使用 Context token；View 扩展入口另有生命周期链接语义");
+        }
+
+        [Test]
+        public void ViewExecuteCommandAsync_PureViewWithoutTokenUsesContextLifetimeToken()
+        {
+            var view = new PureView();
+            _gameContext.AttachTo(view);
+            var command = new CaptureCancellationCommand();
+
+            view.ExecuteCommandAsync(command).GetAwaiter().GetResult();
+
+            Assert.AreEqual(_gameContext.CancellationToken, command.ReceivedToken,
+                "纯 C# View 没有 Mono 销毁令牌；无参入口应走零额外 CTS 的 Context fast path。");
         }
     }
 }

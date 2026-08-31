@@ -49,6 +49,7 @@ Demo 教学的内容组织规则放在最窄的 `Assets/Game/Framework/Demo/Scri
 - PlayMode 测试前的脏场景处理由 `SSFramework/诊断/AI 自动化/PlayMode 测试预检（保存脏场景）` 承担；
 - Editor 副作用动作由 `FrameworkEditorOperationGate` 在 UI 与 Implementation 两层校验；
 - Module 依赖、菜单契约、Demo CodeRef 与真实构建体积都有项目内验证入口；Demo 教学内容还由 `DemoTeachingContract` 区分 Tip / Caution / Experiment 等实际 Build 语义；
+- View 显式取消令牌“覆盖 Mono destroy 默认值、但保留 Context”的反直觉语义由分支测试与 API XML 锁定；`Assets/Game/AGENTS.md` 只留调用时必须知道的一句，不复制完整教程；
 - 工程外 Unity 发现与 headless 自动化经 `Tools/UnityAutomation.psm1` 统一，避免每个 Agent 重写机器路径。
 
 这些 Seam 比某个客户端 Hook 更靠近事件源，也能被人工、MCP 与 CI 共同复用。具体流程见 `docs/unity-mcp-tips.md`、`docs/unity-cli-automation.md` 和相关 ADR。

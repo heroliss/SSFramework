@@ -160,5 +160,67 @@ namespace Game.Framework.Test
             Assert.IsTrue(cmd.Cancelled);
         });
 
+        // ── 用例 4：显式 lifetime 覆盖 Mono 销毁默认值 ───────────────
+
+        [UnityTest]
+        public IEnumerator ExecuteCommandAsync_WithExplicitLifetime_ViewDestroyDoesNotCancelUntilExternalCancels()
+            => UniTask.ToCoroutine(async () =>
+            {
+                var ctx = CreateCommandReadyContext();
+                await UniTask.Yield();
+
+                var viewGo = new GameObject("View");
+                viewGo.transform.SetParent(ctx.transform);
+                var view = viewGo.AddComponent<TestView>();
+
+                using var lifetime = new CancellationTokenSource();
+                var cmd = new LongRunningCommand();
+                var task = view.ExecuteCommandAsync(cmd, lifetime.Token).SuppressCancellationThrow();
+                await UniTask.WaitUntil(() => cmd.Started);
+
+                UnityEngine.Object.Destroy(viewGo);
+                await UniTask.Yield();
+                await UniTask.Yield();
+
+                Assert.IsFalse(cmd.Cancelled,
+                    "可取消的显式 token 是 View 侧 lifetime override，不能又隐式链接 Mono 销毁令牌。");
+                Assert.AreEqual(UniTaskStatus.Pending, task.Status,
+                    "View 销毁后任务应继续由显式 lifetime 持有，直到它或 Context 取消。");
+
+                lifetime.Cancel();
+                Assert.IsTrue(await task);
+                Assert.IsTrue(cmd.Cancelled);
+            });
+
+        // ── 用例 5：显式 lifetime 不能覆盖 Context owner ─────────────
+
+        [UnityTest]
+        public IEnumerator ExecuteCommandAsync_WithExplicitLifetime_ContextDisposeStillCancels()
+            => UniTask.ToCoroutine(async () =>
+            {
+                var ctx = CreateCommandReadyContext();
+                await UniTask.Yield();
+
+                var viewGo = new GameObject("View");
+                viewGo.transform.SetParent(ctx.transform);
+                var view = viewGo.AddComponent<TestView>();
+
+                using var lifetime = new CancellationTokenSource();
+                var cmd = new LongRunningCommand();
+                var task = view.ExecuteCommandAsync(cmd, lifetime.Token).SuppressCancellationThrow();
+                await UniTask.WaitUntil(() => cmd.Started);
+
+                // 只销毁 Context，保留 View 本体，证明取消来自不可覆盖的 Context owner。
+                viewGo.transform.SetParent(_root.transform);
+                UnityEngine.Object.Destroy(ctx.gameObject);
+                await UniTask.Yield();
+                await UniTask.Yield();
+
+                Assert.IsTrue(await task, "显式 View lifetime 不能让命令逃离所属 Context。");
+                Assert.IsTrue(cmd.Cancelled);
+                Assert.IsFalse(lifetime.IsCancellationRequested,
+                    "本次取消应来自 Context，而不是测试的显式 lifetime。");
+            });
+
     }
 }

@@ -22,9 +22,9 @@
 | Demo | 35 个自动发现章节；Catalog 集中拥有 Adapter 生命周期，并按 Capability / Concept / Workflow 校验真实 Build 教学语义 |
 | 教程 | `framework-guide.md` 28 章 |
 | ADR | 0001–0046；0040 为 UPM-aware 源码目录，0041/0042 补齐依赖证据，0043 收口 Editor 菜单与工作台，0044 固化 Unity CLI 工程外 Adapter 边界，0045 拆分资源与 HybridCLR 构建依赖，0046 收敛资源运行时入口 |
-| 测试 | PlayMode 599 + EditMode 593，共 1192 项全绿；交互式 MCP 后台运行且 PlayMode 先预检，命令行入口默认 EditMode + PlayMode |
+| 测试 | PlayMode 726 + EditMode 614，共 1340 项全绿；交互式 MCP 后台运行且 PlayMode 先预检，命令行入口默认 EditMode + PlayMode |
 | Demo CodeRef | 315 处可打开源码跳转；完整门禁通过后以精准命中为基线，注释、文案与外部文档路径不计入源码构造点 |
-| AI 常驻规则预算 | 最深 AGENTS 链 30.48 KiB，低于 Codex 默认 32 KiB 项目指令上限；本轮已压缩 Demo 教程式规则，新增常驻规则前仍须优先外移可测试/可按需加载内容 |
+| AI 常驻规则预算 | 最深 AGENTS 链 29.49 KiB，低于 Codex 默认 32 KiB 项目指令上限；本轮只为 View token 的反直觉覆盖语义保留一条就近规则，完整解释与门禁仍外移到 XML/ADR/测试 |
 
 ## 已完成的高优先级闭环
 
@@ -328,6 +328,14 @@
 - `CreateWindow`、并发 Open 等待者、窗口入/出场过渡与 Toast 时钟可在 worker 物理结束，但窗口字典、owner、hook/backend 和公共成功/失败/取消终态都先回 Unity 主线程；`try/finally` 切换不包装根异常。
 - 两个内置 Adapter 在资源 await 后也先恢复主线程，再 Instantiate、提交可视树或执行失败回滚，避免只在整个 backend 返回后切线程而遗漏内部 Unity API。
 - 新增 backend worker 成功/失败、worker 取消等待者、worker 入/出场过渡与 worker Toast 时钟五项契约；UI 相关专项 70/70，最终完整 EditMode 614/614、PlayMode 719/719，Unity 编译 0 错误。
+
+### P1 · 公开异步与销毁契约校准
+
+- `ViewExtensions` 明确三分支：Context owner 永远保留；Mono View 无参 / `None` 使用 destroy 默认值；显式可取消 token 是 View 侧 lifetime override，而非无条件追加第三个取消源。纯 C# Toolkit / Demo View 用 Bag 或 host token 表达自己的交互生命周期，IntelliSense、README、Demo、guide、ADR 与就近 AGENTS 已同步。
+- 行为测试锁定“显式 lifetime 不随 Mono 销毁、仍随 Context 销毁、纯 C# View 无参走 Context fast path”；仓内不存在 Mono View + 显式 token 的误用，修正的是未来调用者最容易误读的契约，而不是改掉有价值的长寿命提交能力。
+- 校准 `GameContext(Container)` 的所有权转移、`AssetReferenceList.GetAll` 的资源级 null / 系统级异常边界，以及 `MonoConfigUtilityBase.Start` 恰好一次的继承规则；GetAll 新增局部缺失、根异常身份与整批取消契约。
+- UI owner teardown 继续跳过业务 hook；额外封住“Context 已 disposed 后取消在途关闭过渡”的缝隙：此时只物理回收，不再调用可能访问已释放 Context 的 `OnClose`。同步与异步 owner 取消路径均有测试，普通关闭与非 owner 故障仍完成 hook。
+- `propose-rule-evolution` 归类结果为“代码/测试是权威门禁，最窄 AGENTS 只留常驻决策，教程进入 guide/ADR”；最深规则链实测 29.49 KiB。最终完整 EditMode 614/614、PlayMode 726/726，Unity 编译 0 错误。
 
 ## 下一批候选（按杠杆排序）
 

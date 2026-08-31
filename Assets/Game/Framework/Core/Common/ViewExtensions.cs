@@ -13,9 +13,10 @@ namespace Game.Framework.Common
     /// 上下文通过 <see cref="GameContext.ResolveFrom"/> 解析。
     /// </summary>
     /// <remarks>
-    /// 异步重载会自动合并多重生命周期为单一 <see cref="CancellationToken"/>，命令实现
-    /// 内部只需关心传入的 <c>cancellationToken</c>，不必再访问 <c>ctx.CancellationToken</c>。
-    /// 合并规则见 <see cref="LinkExecutionToken"/>。
+    /// 异步入口始终包含 Context 生命周期。无参或显式传 <see cref="CancellationToken.None"/> 时，
+    /// <see cref="MonoBehaviour"/> View 还会自动包含销毁令牌，纯 C# View 则只包含 Context；
+    /// 显式传入可取消 token 时，它作为 View 侧的<b>生命周期覆盖</b>替代 Mono 销毁令牌，但不会替代 Context。
+    /// 命令实现只需关心收到的单一 <c>cancellationToken</c>，不必再访问 <c>ctx.CancellationToken</c>。
     /// </remarks>
     public static class ViewExtensions
     {
@@ -34,6 +35,10 @@ namespace Game.Framework.Common
             return GameContext.ResolveFrom(self).ExecuteCommand<T, TResult>(command);
         }
 
+        /// <summary>
+        /// 异步执行 Command。总是跟随 Context；若 <paramref name="self"/> 是 <see cref="MonoBehaviour"/>，
+        /// 还会自动跟随其销毁生命周期。纯 C# View 如需更短生命周期，应使用显式 token 重载。
+        /// </summary>
         public static async UniTask ExecuteCommandAsync<T>(this ICanSendCommand self, T command) where T : IAsyncCommand
         {
             var ctx = GameContext.ResolveFrom(self);
@@ -42,8 +47,9 @@ namespace Game.Framework.Common
         }
 
         /// <summary>
-        /// 带调用方取消令牌的异步 Command 执行。<paramref name="cancellationToken"/> 与 Context 生命周期令牌
-        /// 链接为单一 token，任意一方取消即中止命令。典型用法见 <see cref="LinkExecutionToken"/>。
+        /// 带调用方生命周期覆盖的异步 Command 执行。Context 生命周期始终保留；当
+        /// <paramref name="cancellationToken"/> 可取消时，它替代 Mono View 的自动销毁令牌，而不是再追加第三个令牌。
+        /// 传 <see cref="CancellationToken.None"/> / <c>default</c> 等同无参重载，仍采用 Mono 销毁默认值。
         /// </summary>
         public static async UniTask ExecuteCommandAsync<T>(this ICanSendCommand self, T command, CancellationToken cancellationToken) where T : IAsyncCommand
         {
@@ -52,6 +58,9 @@ namespace Game.Framework.Common
             await ctx.ExecuteCommandAsync(command, link.Token);
         }
 
+        /// <summary>
+        /// 异步执行接口形式的带返回值 Command。总是跟随 Context；Mono View 无参时还自动跟随销毁生命周期。
+        /// </summary>
         public static async UniTask<TResult> ExecuteCommandAsync<TResult>(this ICanSendCommand self, IAsyncCommand<TResult> command)
         {
             var ctx = GameContext.ResolveFrom(self);
@@ -59,6 +68,10 @@ namespace Game.Framework.Common
             return await ctx.ExecuteCommandAsync(command, link.Token);
         }
 
+        /// <summary>
+        /// 带调用方生命周期覆盖的接口形式带返回值 Command。可取消的显式 token 替代 Mono 销毁令牌，
+        /// Context 生命周期始终保留；<see cref="CancellationToken.None"/> / <c>default</c> 仍走 Mono 销毁默认值。
+        /// </summary>
         public static async UniTask<TResult> ExecuteCommandAsync<TResult>(this ICanSendCommand self, IAsyncCommand<TResult> command, CancellationToken cancellationToken)
         {
             var ctx = GameContext.ResolveFrom(self);
@@ -66,6 +79,9 @@ namespace Game.Framework.Common
             return await ctx.ExecuteCommandAsync(command, link.Token);
         }
 
+        /// <summary>
+        /// 异步执行双泛型带返回值 Command。总是跟随 Context；Mono View 无参时还自动跟随销毁生命周期。
+        /// </summary>
         public static async UniTask<TResult> ExecuteCommandAsync<T, TResult>(this ICanSendCommand self, T command) where T : IAsyncCommand<TResult>
         {
             var ctx = GameContext.ResolveFrom(self);
@@ -73,6 +89,10 @@ namespace Game.Framework.Common
             return await ctx.ExecuteCommandAsync<T, TResult>(command, link.Token);
         }
 
+        /// <summary>
+        /// 带调用方生命周期覆盖的双泛型带返回值 Command。可取消的显式 token 替代 Mono 销毁令牌，
+        /// Context 生命周期始终保留；<see cref="CancellationToken.None"/> / <c>default</c> 仍走 Mono 销毁默认值。
+        /// </summary>
         public static async UniTask<TResult> ExecuteCommandAsync<T, TResult>(this ICanSendCommand self, T command, CancellationToken cancellationToken) where T : IAsyncCommand<TResult>
         {
             var ctx = GameContext.ResolveFrom(self);
@@ -85,7 +105,8 @@ namespace Game.Framework.Common
         /// 用 <c>using</c> 释放底层 <see cref="CancellationTokenSource"/>：
         /// <list type="bullet">
         ///   <item>总是包含 <c>ctx.CancellationToken</c>（Context 生命周期）。</item>
-        ///   <item>若 <paramref name="external"/> 可被取消，包含 <paramref name="external"/>，此时不再附加 View 销毁令牌。</item>
+        ///   <item>若 <paramref name="external"/> 可被取消，它就是调用方选择的 View 侧生命周期覆盖；包含它且不再附加 View 销毁令牌。</item>
+        ///   <item><see cref="CancellationToken.None"/> / <c>default</c> 不构成覆盖，仍按无参规则选择 Mono 销毁令牌。</item>
         ///   <item>若 <paramref name="external"/> 不可取消且 <paramref name="self"/> 是 <see cref="MonoBehaviour"/>，附加 <c>GetCancellationTokenOnDestroy()</c>。</item>
         ///   <item>若合并后只剩 <c>ctx.CancellationToken</c>，直接返回该 token，不分配 CTS。</item>
         /// </list>

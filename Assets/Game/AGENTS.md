@@ -16,7 +16,7 @@
 - 可变单值状态用 R3 命名空间下的 `RP<T>`；对外统一暴露 `ReadOnlyReactiveProperty<T>`，不新增 `ROP` 等别名。
 - 可增删重排的集合用 `ObservableList<T>`，只读暴露 `IReadOnlyObservableList<T>`；不要用 `RP<IReadOnlyList<T>>` 迫使 UI 整表重建。UI 增量绑定用 `Bag.BindList`，factory 只处理当前行（构造、配置并把行内订阅/资源登记进子 Bag）；factory、挂/摘/移回调及子 Bag 的 Dispose 回调都不得同步修改正在绑定的同一集合。初始化失败会回滚，运行期回调失败会终止该绑定，修复后重新绑定；超大虚拟化列表直接用 Toolkit `ListView`。
 - Command 默认 `readonly struct`。只有需要 `[Inject]` 字段时才用 class；struct 只能经 `Execute(ICommandContext ctx)` 访问层，避免 `this.GetXxx` 的接口装箱。返回值 struct Command 在极热路径可显式写双泛型重载避免一次装箱。
-- 异步 Command 固定接收 `CancellationToken cancellationToken`，内部只使用这个已合并生命周期的参数；组合子命令经 `ctx` 并透传 token。View 无参调用自动链接 View 销毁与 Context token。
+- 异步 Command 固定接收 `CancellationToken cancellationToken`，内部只使用这个已合并生命周期的参数；组合子命令经 `ctx` 并透传 token。Mono View 无参调用自动链接 View 销毁与 Context；显式可取消 token 是 View 侧生命周期覆盖（替代 Mono 销毁令牌），Context 始终保留。纯 C# View 要跟随窗口/交互生命周期时显式传其 Bag/host token。
 - 异步异常必须被 `await` 或显式观察；需要兜底时用 `Log.Error(..., ex)`，不要用无人观察的 `.Forget()` 吞掉失败。
 - 泛型实参能推断就不写；不可变值类型声明 `readonly struct` + `readonly` 字段。
 

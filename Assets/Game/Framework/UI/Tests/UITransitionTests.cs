@@ -201,6 +201,21 @@ namespace Game.Framework.Test
         }
 
         [Test]
+        public void CloseTransition_SynchronousOwnerCancellation_PhysicallyTearsDownWithoutCloseHook()
+        {
+            var window = Open<SynchronousOwnerCanceledCloseTransitionWindow>();
+            _ctx.Dispose();
+
+            _ui.Close<SynchronousOwnerCanceledCloseTransitionWindow>();
+
+            Assert.IsFalse(window.Calls.Contains("close"),
+                "同步观察到 Context terminal 也必须跳过业务 OnClose。");
+            Assert.AreEqual(1, _backend.Count("destroy:SynchronousOwnerCanceledCloseTransitionWindow"));
+            Assert.IsEmpty(_backend.BlockLog,
+                "同步取消没有在途动画，不应短暂启用输入挡板。");
+        }
+
+        [Test]
         public void OpenTransition_AsynchronousOwnerCancellation_IsSilentAndUnblocksInput()
         {
             var window = Open<OwnerCanceledOpenTransitionWindow>();
@@ -215,7 +230,7 @@ namespace Game.Framework.Test
         }
 
         [Test]
-        public void CloseTransition_AsynchronousOwnerCancellation_IsSilentAndStillFinishes()
+        public void CloseTransition_AsynchronousOwnerCancellation_PhysicallyTearsDownWithoutCloseHook()
         {
             var window = Open<OwnerCanceledCloseTransitionWindow>();
             _ui.Close<OwnerCanceledCloseTransitionWindow>();
@@ -224,7 +239,8 @@ namespace Game.Framework.Test
             _ctx.Dispose();
 
             Assert.IsFalse(_ui.IsOpen<OwnerCanceledCloseTransitionWindow>());
-            Assert.IsTrue(window.Calls.Contains("close"));
+            Assert.IsFalse(window.Calls.Contains("close"),
+                "Context 已先进入 disposed；销毁级取消只能物理回收，不能再让业务 OnClose 访问 Context。");
             Assert.AreEqual(1, _backend.Count("destroy:OwnerCanceledCloseTransitionWindow"));
             CollectionAssert.AreEqual(new[] { "block:True", "block:False" }, _backend.BlockLog);
         }
@@ -351,6 +367,16 @@ namespace Game.Framework.Test
         private class SynchronousOwnerCanceledOpenTransitionWindow : RecordingWindow
         {
             public override UniTask OnOpenTransition(CancellationToken ct)
+            {
+                ct.ThrowIfCancellationRequested();
+                return UniTask.CompletedTask;
+            }
+        }
+
+        [UIWindow(Layer = UILayer.Window)]
+        private class SynchronousOwnerCanceledCloseTransitionWindow : RecordingWindow
+        {
+            public override UniTask OnCloseTransition(CancellationToken ct)
             {
                 ct.ThrowIfCancellationRequested();
                 return UniTask.CompletedTask;

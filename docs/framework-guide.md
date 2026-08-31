@@ -990,17 +990,24 @@ public readonly struct SaveProgressCommand : IAsyncCommand
 }
 ```
 
-View 调用无参版本时，框架自动检测 `MonoBehaviour`，把 View 销毁令牌（`GetCancellationTokenOnDestroy`）与 Context 生命周期令牌链接，任一方取消即中止命令：
+View 入口始终保留 Context 生命周期，但“界面侧生命周期”按 View 形态与调用方式选择：
+
+- `MonoViewBase` 无参调用（或显式传 `CancellationToken.None/default`）自动链接 GameObject 销毁令牌；
+- `UIToolkitViewBase`、Demo 模块等纯 C# View 没有 GameObject，若要随窗口、章节或一次交互结束，应显式传 `Bag.DisposeToken` / host token；
+- 显式传入**可取消** token 时，它是 View 侧的生命周期覆盖，会替代 Mono 销毁默认值，但不会替代 Context。这样已经交给更长寿命 owner 的提交工作可以在原 View 销毁后继续；若工作仍属于该 View，就传它的 Bag / destroy token。
 
 ```csharp
-// 从 View 调用：自动绑定 View 销毁 + Context 销毁双重生命周期
+// Mono View 无参调用：自动绑定 GameObject 销毁 + Context 销毁
 await this.ExecuteCommandAsync(new SaveProgressCommand());
 
-// 需要自定义取消源时显式传入
+// 显式选择一次交互作为 View 侧 owner；仍会自动保留 Context
 await this.ExecuteCommandAsync(new SaveProgressCommand(), customToken);
+
+// 纯 C# Toolkit View：工作属于窗口时显式传窗口 Bag 生命周期
+await this.ExecuteCommandAsync(new RefreshPanelCommand(), Bag.DisposeToken);
 ```
 
-非 View 路径（如 System / 纯 C# 持有者）调用无参版本时，只会绑定 Context 生命周期。
+纯 C# View 无参调用只绑定 Context。System 并不持有 `ICanSendCommand` 权限；它通常由 Command 调用，或者由 composition root 直接使用 `IGameContext` 的命令入口。
 
 ### 命令内组合子命令
 
@@ -1436,7 +1443,7 @@ var avatars = await _avatarSet.GetAll(this.GetCancellationTokenOnDestroy());  //
 _avatarSet.UnloadAll();                                                       // 一并释放
 ```
 
-`GetAll` 并行触发底层加载（遵守资源 provider 配置的并发上限）；单项失败时对应位置为 null，不影响其他项。
+`GetAll` 并行触发底层加载（遵守资源 provider 配置的并发上限）。包已经 Ready 时，空 GUID、地址无效、类型不符或 provider 返回空 handle 等**资源级问题**只让对应位置为 null；包未初始化/初始化失败、配置错误、Adapter 异常等**系统级问题**以及调用方取消会让整个 `GetAll` 失败，不会伪装成某一项缺失。若业务要展示“部分成功”，捕获整批系统故障后决定重试或降级，不要让基础 API 静默吞掉根因。
 
 ### 下载进度
 
@@ -1967,6 +1974,8 @@ var commandItem = ctx.GetConfig<Tables>().TbItem[id];
 
 活跃且启用的配置组件可以在 Unity 调用 `Start` 前先被 `EnsureReady` / `EnsureConfig` 等待；这是正常的启动门禁。若组件仍为 Idle 却处于 disabled，或所在 GameObject inactive，Unity 根本不会调用 `Start`，框架会立即提示先启用 / 激活，而不是让 await 永久挂起。这个提示不会把服务写成 Failed；修正场景状态后，第一次自加载仍会正常发生。
 
+项目子类通常不要覆写 `MonoConfigUtilityBase.Start`。如果确实要在加载前同步补配置，必须在准备完成后恰好调用一次 `base.Start()`：漏调会让共享加载永远不启动，重复调用会创建竞争的 owner。基类把它声明为 `protected virtual`，正是为了让同名 Unity 消息成为显式 override，而不是静默遮蔽。
+
 不要把它缩成静态 `TbItem.Get(...)` 或 ambient `Tables.Current`。那会把“当前配置属于哪个 Context、是否是子 Context 覆盖、使用的是哪套配置”变成隐藏状态，并破坏并行测试隔离。`GetConfig<Tables>()` 保留了这一跳有意义的作用域信息；如果项目只有一套配置且仍嫌泛型名长，可以在**项目侧、生成目录外**补一个具名转发（如 `GameTables()`），但不要把它变成框架全局单例。
 
 也不按 View / System 为每张表建立权限矩阵：客户端内的只读表访问不是安全边界，逐表 Interface 只会镜像生成 schema。真正不应进入客户端的数据，用 Luban target / group、独立配置集或服务端归属排除；需要隐藏业务规则时，建立有领域语义的查询 Module / Adapter，而不是给 `TbXxx` 套访问名单。
@@ -2139,7 +2148,9 @@ public sealed class ConfirmDialog : UGuiWindowBase { … }
 
 ### 窗口生命周期 hook（由框架调，非 Unity 生命周期）
 
-`OnCreate`（建后一次，接线）→ `OnOpen(object args)`（每次打开，收参数）→ `OnOpenTransition`（入场过渡）→ 期间可能 `OnCover` / `OnReveal`（被同层窗口盖住 / 重新露出，**按层内计算**）→ `OnCloseTransition`（出场过渡）→ `OnClose`（每次关闭）。`OnCover` / `OnReveal` 是做「被盖暂停、露出恢复」的关键。
+`OnCreate`（建后一次，接线）→ `OnOpen(object args)`（每次打开，收参数）→ `OnOpenTransition`（入场过渡）→ 期间可能 `OnCover` / `OnReveal`（被同层窗口盖住 / 重新露出，**按层内计算**）→ `OnCloseTransition`（出场过渡）→ `OnClose`（每次正常逻辑关闭）。`OnCover` / `OnReveal` 是做「被盖暂停、露出恢复」的关键。
+
+这里的 hook 属于逻辑窗口协议，不是对象析构通知：正常 `Close` / `CloseAll` 会调用 `OnClose`；UI owner 或 Context teardown 时，框架会跳过全部 hook，直接由 backend 拆除窗口与 Bag，避免销毁期业务代码访问已经释放的 Context。设置持久化、交易提交等关键动作不能只押在 `OnClose` 上，应在状态变更时或由更长寿命 owner 负责落盘。
 
 ### 过渡动画：重写两个 hook，框架管挡输入（ADR-0020）
 
