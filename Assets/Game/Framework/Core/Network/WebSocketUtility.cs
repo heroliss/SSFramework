@@ -193,6 +193,9 @@ namespace Game.Framework.Network
                     try
                     {
                         evt = _serializer.Deserialize<TEvent>(payloadBytes);
+                        if (evt == null)
+                            throw SerializerContractViolation(
+                                $"Deserialize<{typeof(TEvent).Name}> 对非空推送载荷返回了 null");
                     }
                     catch (Exception e)
                     {
@@ -423,7 +426,11 @@ namespace Game.Framework.Network
         {
             ConnectionSession session = EnsureConnected();
             if (payload == null) throw new ArgumentNullException(nameof(payload), "无载荷消息用 Send(type) 重载。");
-            return SendEnvelope(type, _serializer.Serialize(payload), session, ct);
+            byte[] payloadBytes = _serializer.Serialize(payload);
+            if (payloadBytes == null)
+                throw SerializerContractViolation(
+                    $"Serialize<{typeof(T).Name}> 返回了 null；无内容也必须返回 Array.Empty<byte>()");
+            return SendEnvelope(type, payloadBytes, session, ct);
         }
 
         /// <inheritdoc />
@@ -474,8 +481,16 @@ namespace Game.Framework.Network
                     type = type,
                     payload = payloadBytes.Length == 0 ? string.Empty : Encoding.UTF8.GetString(payloadBytes),
                 });
+            if (frame == null)
+                throw SerializerContractViolation(_envelopeSerializer != null
+                    ? $"EncodeEnvelope('{type}', ...) 返回了 null；无内容也必须返回 Array.Empty<byte>()"
+                    : $"Serialize<Envelope> 为消息 '{type}' 返回了 null；无内容也必须返回 Array.Empty<byte>()");
             return EnqueueSend(frame, session, ct);
         }
+
+        private InvalidOperationException SerializerContractViolation(string detail) =>
+            new InvalidOperationException(
+                $"网络序列化器 {_serializer.GetType().FullName} 违反 INetworkSerializer 契约：{detail}。");
 
         // FIFO 队尾属于连接 session 而非整个 utility：新连接不等待旧代队列，排队旧帧也绝不会写进新 socket。
         private async UniTask EnqueueSend(byte[] frame, ConnectionSession session, CancellationToken ct)

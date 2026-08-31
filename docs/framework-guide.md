@@ -3001,7 +3001,9 @@ await ws.Send("say", new SayReq { Text = "hi" });               // 客户端 →
 | `Disconnect` 已开始后 ct 取消 | session 仍清理并发 ByUser=true，随后调用方收到 OCE（取消的是优雅握手等待，不是回滚断开意图） |
 | WS caller / Context 已取消，Adapter 却抛 ODE / socket error | 仍按 owner 意图返回 OCE；Adapter 原异常保留为 inner |
 | 非 2xx（动词门面） | `NetworkException(HttpError)`，带 `StatusCode` + `ResponseBody` |
-| 响应体 / 推送载荷反序列化失败 | `NetworkException(DeserializeError)` |
+| HTTP 响应体反序列化失败，或非空体被还原为 null | `NetworkException(DeserializeError)` |
+| WS 推送载荷反序列化失败，或非空载荷被还原为 null | warning + 丢弃当条，接收循环继续 |
+| 自定义 Serializer 返回 null 编码 / envelope，或有请求体时 ContentType 非法 | Provider 前抛 `InvalidOperationException`，指出 Adapter 契约错误 |
 | 自定义 HTTP Provider 返回 null response / Body / Headers | `NetworkException(ConnectionError)`，消息指出 Adapter 违反的响应契约 |
 
 `HttpUtility` 会在网络 I/O 前验证协议输入：非 null `baseUrl` 在构造时就必须是带 host、无 userinfo / query / fragment 的绝对 `http(s)` 地址；请求 method / header name 必须是 ASCII token，URL 中的动态空白先用 `Uri.EscapeDataString` 转义，header value 不能包含 CR/LF。环境配置因此在组合根暴露，而不是拖到玩家第一次请求时才由不同 Provider 给出不一致错误。
@@ -3070,6 +3072,11 @@ Bag.Subscribe<WebSocketClosedEvent>(e =>
 ### 换序列化器：内置 Protobuf 实现 / 接入真库
 
 默认 JSON 零依赖起步。换格式 = 实现 `INetworkSerializer`（对象 ↔ 字节 + `ContentType`）经构造注入，业务调用代码零改动。**内核自带轻量 `ProtobufNetworkSerializer`**：真 protobuf wire 格式（varint + length-delimited，与标准 protobuf 字节互通），无 protoc 代码生成、无反射——每个消息类型用 `ProtoWriter` / `ProtoReader` 手写几行编解码注册：
+
+自定义实现的成功输出必须是确定值：`Serialize<T>` / `EncodeEnvelope` 无内容也返回 `Array.Empty<byte>()`，不能返回 null；
+非空输入的 `Deserialize<T>` 不能返回 null；有 HTTP 请求体时 `ContentType` 必须非空且不含 CR/LF。框架会在
+Provider / Event 接缝前验证这些条件，所以错误会指向 Serializer 本身，不会迟到成 Provider 的空引用、空帧或业务收到的
+null 事件。HTTP 的 2xx **空字节体**仍是唯一合法的 null 响应语义。
 
 ```csharp
 var proto = new ProtobufNetworkSerializer()

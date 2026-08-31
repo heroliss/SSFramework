@@ -186,7 +186,7 @@ namespace Game.Framework.Network
                 ValidateHeaderValue(request.ContentType, nameof(request));
             }
 
-            string contentType = request.ContentType ?? (request.Body != null ? _serializer.ContentType : null);
+            string contentType = request.ContentType ?? (request.Body != null ? RequireSerializerContentType() : null);
             return await SendCore(request.Method, request.Path, request.Body, contentType,
                 request.Headers, request.TimeoutSeconds, ct);
         }
@@ -213,7 +213,7 @@ namespace Game.Framework.Network
         private async UniTask<HttpResponse> SendChecked(string method, string path, byte[] body, CancellationToken ct)
         {
             ThrowIfDisposed();
-            string contentType = body != null ? _serializer.ContentType : null;
+            string contentType = body != null ? RequireSerializerContentType() : null;
             var resp = await SendCore(method, path, body, contentType, extraHeaders: null, timeoutOverride: null, ct);
             if (!resp.IsSuccess)
                 throw new NetworkException(NetworkErrorKind.HttpError,
@@ -438,7 +438,11 @@ namespace Game.Framework.Network
         {
             ThrowIfDisposed();
             if (body == null) throw new ArgumentNullException(nameof(body), $"Post('{path}') 的 body 不能为 null——无体请求走 Send 逃生舱。");
-            return _serializer.Serialize(body); // 序列化失败在发送前就抛给调用方（参数问题，不折叠）
+            byte[] bytes = _serializer.Serialize(body); // 序列化失败在发送前就抛给调用方（参数问题，不折叠）
+            if (bytes == null)
+                throw SerializerContractViolation(
+                    $"Serialize<{typeof(TReq).Name}> 返回了 null；无内容也必须返回 Array.Empty<byte>()");
+            return bytes;
         }
 
         private TResp DeserializeBody<TResp>(HttpResponse resp, string method, string path) where TResp : class
@@ -446,7 +450,11 @@ namespace Game.Framework.Network
             if (resp.Body.Length == 0) return null; // 2xx 空体：唯一的 null 语义
             try
             {
-                return _serializer.Deserialize<TResp>(resp.Body);
+                TResp value = _serializer.Deserialize<TResp>(resp.Body);
+                if (value == null)
+                    throw SerializerContractViolation(
+                        $"Deserialize<{typeof(TResp).Name}> 对非空响应体返回了 null；只有 HTTP 空响应体才表示无结果");
+                return value;
             }
             catch (Exception e)
             {
@@ -458,6 +466,20 @@ namespace Game.Framework.Network
 
         private static string Truncate(string s) =>
             string.IsNullOrEmpty(s) ? null : (s.Length <= ErrorBodyMaxChars ? s : s.Substring(0, ErrorBodyMaxChars));
+
+        private string RequireSerializerContentType()
+        {
+            string contentType = _serializer.ContentType;
+            if (string.IsNullOrWhiteSpace(contentType))
+                throw SerializerContractViolation("ContentType 为空；有请求体时必须声明非空 HTTP media type");
+            if (contentType.IndexOf('\r') >= 0 || contentType.IndexOf('\n') >= 0)
+                throw SerializerContractViolation("ContentType 含 CR/LF 换行，不能作为 HTTP header value");
+            return contentType;
+        }
+
+        private InvalidOperationException SerializerContractViolation(string detail) =>
+            new InvalidOperationException(
+                $"网络序列化器 {_serializer.GetType().FullName} 违反 INetworkSerializer 契约：{detail}。");
 
         private static string NormalizeBaseUrl(string baseUrl)
         {

@@ -8,9 +8,10 @@ namespace Game.Framework.Network
     /// <remarks>
     /// 实现契约：
     /// <list type="bullet">
-    ///   <item><see cref="Serialize{T}"/> 失败直接抛（参数/类型问题，代码写错了）。</item>
-    ///   <item><see cref="Deserialize{T}"/> 对损坏/契约不符的字节抛——由 utility 捕获折叠为
-    ///         <see cref="NetworkException"/>（DeserializeError），实现不吞。</item>
+    ///   <item><see cref="Serialize{T}"/> 失败直接抛（参数/类型问题，代码写错了），成功不得返回 null。</item>
+    ///   <item><see cref="Deserialize{T}"/> 对损坏/契约不符的字节抛，非空输入成功时不得返回 null——HTTP utility
+    ///         折叠为 <see cref="NetworkException"/>（DeserializeError）；WebSocket 推送记录 warning 并丢弃当条。</item>
+    ///   <item>有 HTTP 请求体时 <see cref="ContentType"/> 必须是非空、无 CR/LF 的 header value。</item>
     ///   <item>两方法均在主线程被调（框架统一契约，对齐 ADR-0021 §6 先例）。</item>
     /// </list>
     /// 与 <c>IStorageSerializer</c> 的两点差异是刻意的：<b>无 class 约束</b>（WebSocket 推送事件是
