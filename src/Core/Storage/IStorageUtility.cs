@@ -33,6 +33,7 @@ namespace Game.Framework.Storage
     ///   <item>key 非法 / data 为 null → 抛参数异常；Dispose 后调用 → 抛 <see cref="ObjectDisposedException"/>。</item>
     /// </list>
     /// <b>线程与并发</b>：公共 API 主线程调用（框架统一契约）；内部全局 FIFO 串行（同 key 竞态、读写交错天然消失），
+    /// Provider 可在任意线程物理完成，但 Utility 会在序列化、队列推进以及成功、异常、取消的公共终态前恢复 Unity 主线程。
     /// 文件 IO 切线程池不卡帧。存储操作低频，串行无感知；<b>别 fire-and-forget Save</b>——await 它，
     /// 否则紧随其后的 <see cref="Exists"/>（同步快照，不排队）可能看不到这次写入。
     /// <para><b>扩展点</b>：换介质（SQLite / 云存档）实现 <see cref="IStorageProvider"/>；换格式 / 加密（MemoryPack、包一层加解密）

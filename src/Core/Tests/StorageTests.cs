@@ -128,6 +128,119 @@ namespace Game.Framework.Test
             }
         }
 
+        private sealed class ThreadRecordingStorageSerializer : IStorageSerializer
+        {
+            private readonly JsonUtilityStorageSerializer _inner = new();
+
+            public readonly List<int> SerializeThreads = new();
+            public readonly List<int> DeserializeThreads = new();
+
+            public byte[] Serialize<T>(T data) where T : class
+            {
+                SerializeThreads.Add(Thread.CurrentThread.ManagedThreadId);
+                return _inner.Serialize(data);
+            }
+
+            public T Deserialize<T>(byte[] bytes) where T : class
+            {
+                DeserializeThreads.Add(Thread.CurrentThread.ManagedThreadId);
+                return _inner.Deserialize<T>(bytes);
+            }
+        }
+
+        /// <summary>
+        /// 模拟云存档 / SQLite Adapter：入口从主线程串行调用，但物理 I/O 的成功、失败与取消都可停在 worker。
+        /// Utility 必须在 serializer、FIFO gate 与公共 task 前自行恢复主线程，不能要求每个 Adapter 重复调度。
+        /// </summary>
+        private sealed class WorkerCompletionStorageProvider : IStorageProvider
+        {
+            private readonly UniTaskCompletionSource _neverRelease = new();
+            private byte[] _bytes;
+
+            public readonly List<int> WriteStartThreads = new();
+            public readonly List<int> WriteCompletionThreads = new();
+            public readonly UniTaskCompletionSource CancellationWriteStarted = new();
+            public int ReadStartThread = -1;
+            public int ReadCompletionThread = -1;
+            public int ListStartThread = -1;
+            public int ListCompletionThread = -1;
+            public int DeleteStartThread = -1;
+            public int DeleteCompletionThread = -1;
+            public int CancellationCompletionThread = -1;
+            public int DisposeThread = -1;
+            public Exception NextWriteFailure;
+            public bool BlockNextWriteUntilCanceled;
+
+            public async UniTask WriteAsync(string key, byte[] bytes, CancellationToken ct)
+            {
+                WriteStartThreads.Add(Thread.CurrentThread.ManagedThreadId);
+                if (BlockNextWriteUntilCanceled)
+                {
+                    BlockNextWriteUntilCanceled = false;
+                    CancellationWriteStarted.TrySetResult();
+                    try
+                    {
+                        await _neverRelease.Task.AttachExternalCancellation(ct);
+                    }
+                    finally
+                    {
+                        CancellationCompletionThread = Thread.CurrentThread.ManagedThreadId;
+                    }
+                    return;
+                }
+
+                await UniTask.SwitchToThreadPool();
+                WriteCompletionThreads.Add(Thread.CurrentThread.ManagedThreadId);
+                ct.ThrowIfCancellationRequested();
+                if (NextWriteFailure != null)
+                {
+                    var failure = NextWriteFailure;
+                    NextWriteFailure = null;
+                    throw failure;
+                }
+
+                _bytes = bytes;
+            }
+
+            public async UniTask<byte[]> ReadAsync(string key, CancellationToken ct)
+            {
+                ReadStartThread = Thread.CurrentThread.ManagedThreadId;
+                await UniTask.SwitchToThreadPool();
+                ReadCompletionThread = Thread.CurrentThread.ManagedThreadId;
+                ct.ThrowIfCancellationRequested();
+                return _bytes;
+            }
+
+            public async UniTask<byte[]> ReadBackupAsync(string key, CancellationToken ct)
+            {
+                await UniTask.SwitchToThreadPool();
+                ct.ThrowIfCancellationRequested();
+                return null;
+            }
+
+            public bool Exists(string key) => _bytes != null;
+
+            public async UniTask DeleteAsync(string key, CancellationToken ct)
+            {
+                DeleteStartThread = Thread.CurrentThread.ManagedThreadId;
+                await UniTask.SwitchToThreadPool();
+                DeleteCompletionThread = Thread.CurrentThread.ManagedThreadId;
+                ct.ThrowIfCancellationRequested();
+                _bytes = null;
+            }
+
+            public async UniTask<IReadOnlyList<string>> ListKeysAsync(string prefix, CancellationToken ct)
+            {
+                ListStartThread = Thread.CurrentThread.ManagedThreadId;
+                await UniTask.SwitchToThreadPool();
+                ListCompletionThread = Thread.CurrentThread.ManagedThreadId;
+                ct.ThrowIfCancellationRequested();
+                return new[] { "worker/slot" };
+            }
+
+            public void Dispose() => DisposeThread = Thread.CurrentThread.ManagedThreadId;
+        }
+
         private string _root;
         private StorageUtility _storage;
 
@@ -401,6 +514,107 @@ namespace Game.Framework.Test
             Assert.AreEqual(3, loaded.Level);
         });
 
+        [UnityTest]
+        public IEnumerator CustomProvider_WorkerSuccess_KeepsSerializerFifoAndPublicTerminalOnMainThread()
+            => UniTask.ToCoroutine(async () =>
+            {
+                int mainThread = Thread.CurrentThread.ManagedThreadId;
+                var provider = new WorkerCompletionStorageProvider();
+                var serializer = new ThreadRecordingStorageSerializer();
+                var storage = new StorageUtility(provider, serializer);
+
+                var first = storage.Save("worker/slot", new SaveData { Level = 1 });
+                var second = storage.Save("worker/slot", new SaveData { Level = 2 });
+                await UniTask.WhenAll(first, second);
+
+                Assert.AreEqual(mainThread, Thread.CurrentThread.ManagedThreadId,
+                    "Save 的成功终态必须回到 Unity 主线程");
+                Assert.That(serializer.SerializeThreads, Has.All.EqualTo(mainThread),
+                    "同步 serializer 必须始终在主线程调用");
+                Assert.That(provider.WriteStartThreads, Has.All.EqualTo(mainThread),
+                    "worker 完成的前驱也必须从主线程放行下一项 FIFO");
+                Assert.That(provider.WriteCompletionThreads, Has.All.Not.EqualTo(mainThread),
+                    "测试 Provider 必须真实在 worker 物理完成");
+
+                var loaded = await storage.Load<SaveData>("worker/slot");
+                Assert.AreEqual(2, loaded.Level);
+                Assert.AreEqual(mainThread, provider.ReadStartThread);
+                Assert.AreNotEqual(mainThread, provider.ReadCompletionThread);
+                Assert.That(serializer.DeserializeThreads, Has.All.EqualTo(mainThread),
+                    "Provider worker 返回字节后，反序列化前必须恢复主线程");
+                Assert.AreEqual(mainThread, Thread.CurrentThread.ManagedThreadId,
+                    "Load 的成功终态必须回到 Unity 主线程");
+
+                var keys = await storage.ListKeys("worker/");
+                CollectionAssert.AreEqual(new[] { "worker/slot" }, keys);
+                Assert.AreEqual(mainThread, provider.ListStartThread);
+                Assert.AreNotEqual(mainThread, provider.ListCompletionThread);
+                Assert.AreEqual(mainThread, Thread.CurrentThread.ManagedThreadId);
+
+                await storage.Delete("worker/slot");
+                Assert.AreEqual(mainThread, provider.DeleteStartThread);
+                Assert.AreNotEqual(mainThread, provider.DeleteCompletionThread);
+                Assert.AreEqual(mainThread, Thread.CurrentThread.ManagedThreadId);
+
+                storage.Dispose();
+                Assert.AreEqual(mainThread, provider.DisposeThread,
+                    "FIFO terminal 的 Provider.Dispose 也必须由主线程提交");
+            });
+
+        [UnityTest]
+        public IEnumerator CustomProvider_WorkerFailureAndCancellation_ReturnMainAndDoNotPoisonFifo()
+            => UniTask.ToCoroutine(async () =>
+            {
+                int mainThread = Thread.CurrentThread.ManagedThreadId;
+                var provider = new WorkerCompletionStorageProvider();
+                var storage = new StorageUtility(provider);
+                var expected = new InvalidOperationException("worker-storage-failure");
+                provider.NextWriteFailure = expected;
+
+                UniTask failed = storage.Save("worker/failure", new SaveData());
+                UniTask afterFailure = storage.Save("worker/after-failure", new SaveData());
+                try
+                {
+                    await failed;
+                    Assert.Fail("Provider worker failure 应原样交付。");
+                }
+                catch (InvalidOperationException actual)
+                {
+                    Assert.AreSame(expected, actual);
+                    Assert.AreEqual(mainThread, Thread.CurrentThread.ManagedThreadId,
+                        "失败终态必须回到 Unity 主线程");
+                }
+                await afterFailure;
+                Assert.AreEqual(mainThread, Thread.CurrentThread.ManagedThreadId,
+                    "前驱失败不能毒化后继 FIFO");
+
+                using var cancellation = new CancellationTokenSource();
+                provider.BlockNextWriteUntilCanceled = true;
+                UniTask canceled = storage.Save("worker/canceled", new SaveData(), cancellation.Token);
+                await provider.CancellationWriteStarted.Task;
+                UniTask afterCancellation = storage.Save("worker/after-cancel", new SaveData());
+                CancelOnThreadPool(cancellation).Forget();
+                try
+                {
+                    await canceled;
+                    Assert.Fail("worker 触发的 caller token 应保留 OCE。");
+                }
+                catch (OperationCanceledException)
+                {
+                    Assert.AreNotEqual(mainThread, provider.CancellationCompletionThread,
+                        "测试 Provider 的取消终态必须真实发生在 worker");
+                    Assert.AreEqual(mainThread, Thread.CurrentThread.ManagedThreadId,
+                        "取消终态必须回到 Unity 主线程");
+                }
+
+                await afterCancellation;
+                Assert.AreEqual(mainThread, Thread.CurrentThread.ManagedThreadId,
+                    "前驱取消不能毒化后继 FIFO");
+                Assert.That(provider.WriteStartThreads, Has.All.EqualTo(mainThread),
+                    "失败和取消后的后继 Provider 调用仍应从主线程开始");
+                storage.Dispose();
+            });
+
         [Test]
         public void Dispose_ThenUse_ThrowsObjectDisposed()
         {
@@ -558,5 +772,11 @@ namespace Game.Framework.Test
             LogAssert.Expect(LogType.Error, new Regex(@"\[Serializable\]"));
             await _storage.Save("bad", new NotSerializableData { X = 1 });
         });
+
+        private static async UniTask CancelOnThreadPool(CancellationTokenSource source)
+        {
+            await UniTask.SwitchToThreadPool();
+            source.Cancel();
+        }
     }
 }

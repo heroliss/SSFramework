@@ -1,6 +1,6 @@
 # ADR-0021：本地存储（存档）—— IStorageUtility + 原子写文件 provider + 可插拔序列化
 
-**Status:** Accepted（2026-07-03）
+**Status:** Accepted（2026-07-03；**2026-08-31 修订 §6**：Provider 物理完成线程与 Utility 的 serializer / FIFO / 公共提交线程解耦）
 
 ## Context
 
@@ -81,7 +81,8 @@ IStorageUtility（业务入口，GetUtility 解析）
   它不会为了等待未完成的队列而同步阻塞，也不会让 SQLite / 云存储等有连接的 provider 与在途操作并发释放；但队列已空时同步
   `provider.Dispose` 可以内联执行，因此 Adapter 的释放实现仍应短小。物理释放失败只能记 Error，
   因为延后发生的异常无法再可靠地同步交还 `Dispose` 调用方；重复 `Dispose` 仍只安排一次 terminal。
-- **序列化在主线程**（`JsonUtility` 最稳妥；典型存档体积的序列化耗时可忽略），**文件 IO 切线程池**（大存档写盘不卡帧），完成后回主线程返回。
+- **序列化在主线程**（`JsonUtility` 最稳妥；典型存档体积的序列化耗时可忽略），**文件 IO 切线程池**（大存档写盘不卡帧）。`IStorageProvider` 的异步物理终态允许停在任意线程；`StorageUtility` 在反序列化、推进 FIFO gate、释放 provider 和交付 Save / Load / Delete / ListKeys 的成功、异常或取消前统一恢复 Unity 主线程。调用方 token 即使从 worker 取消也不改变这条提交边界。
+- 默认 `FileStorageProvider` 明确让 `RunOnThreadPool(..., configureAwait: false)` 保持在线程池终结，避免 Adapter 先排一次 PlayerLoop、Utility 再重复兜底；线程切换的所有权只在 Utility 一处。自定义 SQLite / 云存档 Adapter 无需复制主线程调度，但同步 `Exists` 与 `Dispose` 仍会由 Utility 从主线程串行调用。
 - `Exists` 是同步快照（不排队）：`await` 完 `Save` 再查询是一致的；对 fire-and-forget 的写它可能暂时返回 false——文档明示「别 fire-and-forget Save」。
 
 ### 7. 存储位置与注册

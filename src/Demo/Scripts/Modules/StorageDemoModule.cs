@@ -175,6 +175,7 @@ namespace Game.Framework.Demo.Modules
             }), CodeRef.Here("storage.Delete(ProfileKey, ct)", "删除"));
             host.AddNote("失败语义与资源系统同一套：**预期内缺失给 null**（没存过 / 主备全坏——后者已打 error，业务当新档），**系统级失败抛异常**（Save 磁盘满 / key 非法 / Dispose 后调用）。全部操作内部走全局 FIFO 串行——同 key 竞态、读写交错天然消失；**别 fire-and-forget Save**（await 它，`Exists` 是不排队的同步快照）。");
             host.AddSubNote("FIFO 只覆盖经 `IStorageUtility` 进入的操作；本章“故意写坏文件”是教学白盒、刻意绕过接口，所以另用模块级闸门与 profile 的 Save / Load / Delete 互斥。真实业务不要直碰 `.sav`，自然无需这层补丁。");
+            host.AddSubNote("自定义 SQLite / 云存档 Provider 可以在 worker 完成物理 I/O；`StorageUtility` 会在反序列化、推进 FIFO 和交付 Save / Load 终态前回到 Unity 主线程。Adapter 因而只管介质，业务 await 后可直接继续更新 Model / UI；但公共入口本身仍只从主线程调用。");
 
             // ── 槽位 ──
             host.AddSectionTitle("多槽位：key 分段 + ListKeys 前缀列举");
