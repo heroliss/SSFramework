@@ -6,6 +6,10 @@ namespace Game.Framework.Command
     /// </summary>
     public interface ICommand<TResult> : ICommandBase
     {
+        /// <summary>
+        /// 在当前 Context 的受限视图中同步执行并返回结果。<paramref name="ctx"/> 只借用，不能缓存到命令之外；
+        /// 未处理异常会原样传播给分发入口。
+        /// </summary>
         TResult Execute(ICommandContext ctx);
     }
 }

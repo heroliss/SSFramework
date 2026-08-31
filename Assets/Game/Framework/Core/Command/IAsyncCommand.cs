@@ -10,6 +10,11 @@ namespace Game.Framework.Command
     /// </summary>
     public interface IAsyncCommand : ICommandBase
     {
+        /// <summary>
+        /// 异步执行命令。应把 <paramref name="cancellationToken"/> 作为本次执行的有效令牌并继续向下游透传，
+        /// 而不是改用 <paramref name="ctx"/> 的 Context 生命周期令牌；Context 与解析结果均只借用。
+        /// 命令可在工作线程处理纯数据，分发器会在 Unity 主线程交付成功、失败或取消终态。
+        /// </summary>
         UniTask ExecuteAsync(ICommandContext ctx, CancellationToken cancellationToken);
     }
 }
