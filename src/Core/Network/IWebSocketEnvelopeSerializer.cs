@@ -25,7 +25,10 @@ namespace Game.Framework.Network
         /// <summary>发送帧类型：true = 二进制帧（0x2），false = 文本帧（0x1，内容必须是合法 UTF-8）。</summary>
         bool UseBinaryFrames { get; }
 
-        /// <summary>把一条消息（type + 已序列化的 payload 字节）编码为一帧的完整字节。</summary>
+        /// <summary>
+        /// 把一条消息（type + 已序列化的 payload 字节）编码为一帧的完整字节；
+        /// 成功必须返回非 null 数组（无内容用空数组），失败直接抛异常。
+        /// </summary>
         byte[] EncodeEnvelope(string type, byte[] payload);
 
         /// <summary>从一帧完整字节解出 type 与 payload 字节。解析失败抛（utility 兜住丢弃当条）。</summary>

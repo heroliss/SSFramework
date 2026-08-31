@@ -22,8 +22,16 @@ namespace Game.Framework.Network
         /// Protobuf 实现给 <c>"application/x-protobuf"</c>）。有请求体时自动作为请求头发送。</summary>
         string ContentType { get; }
 
+        /// <summary>
+        /// 把一份非 null 载荷编码为字节。成功必须返回非 null 数组（无内容用空数组），失败直接抛异常；
+        /// 返回值由调用方接管，序列化器不得在返回后继续修改。
+        /// </summary>
         byte[] Serialize<T>(T data);
 
+        /// <summary>
+        /// 把非 null 字节快照还原为目标值。非空输入成功时不得返回 null；损坏数据、契约不匹配或无法构造根对象时直接抛异常。
+        /// 输入只在本次调用期间借用，序列化器不得缓存或修改。
+        /// </summary>
         T Deserialize<T>(byte[] bytes);
     }
 }

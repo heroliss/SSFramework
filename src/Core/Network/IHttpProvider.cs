@@ -27,6 +27,11 @@ namespace Game.Framework.Network
     /// </remarks>
     public interface IHttpProvider : IDisposable
     {
+        /// <summary>
+        /// 发送一份已完成 URL 解析、请求头合并与内容编码的请求快照。
+        /// 输入集合和字节数组在返回任务到达终态前只借给 Provider，Provider 不得在终态后继续持有或修改；
+        /// HTTP 状态码均通过非 null <see cref="HttpResponse"/> 返回，只有传输失败与取消通过异常表达。
+        /// </summary>
         UniTask<HttpResponse> SendAsync(string url, string method, byte[] body, string contentType,
             IReadOnlyList<KeyValuePair<string, string>> headers, CancellationToken ct);
     }

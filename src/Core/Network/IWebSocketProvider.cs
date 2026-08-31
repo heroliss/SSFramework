@@ -36,8 +36,16 @@ namespace Game.Framework.Network
     /// </remarks>
     public interface IWebSocketProvider : IDisposable
     {
+        /// <summary>
+        /// 建立并提交一条全新的物理连接；成功返回即表示连接可供后续收发使用。
+        /// 连接失败或取消通过异常表达，Provider 必须自行回收尚未提交的物理资源。
+        /// </summary>
         UniTask ConnectAsync(Uri uri, CancellationToken ct);
 
+        /// <summary>
+        /// 发送一帧非 null 的完整消息。<paramref name="payload"/> 在返回任务到达终态前只借给 Provider，
+        /// Provider 不得修改它或在终态后继续持有；取消与传输失败通过异常表达。
+        /// </summary>
         UniTask SendAsync(byte[] payload, bool binary, CancellationToken ct);
 
         /// <summary>收一条完整消息。对端正常关闭 → null；异常断开 → 抛。</summary>
