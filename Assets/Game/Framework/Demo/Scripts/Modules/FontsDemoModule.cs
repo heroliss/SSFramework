@@ -139,7 +139,7 @@ namespace Game.Framework.Demo.Modules
                 "常用字随包秒显，生僻字交给 ②③。demo 图省事直接用 Latin 字体当①，正好让缺字效果可见。");
 #if UNITY_EDITOR
             host.AddActionRow("打开常用字集配置（FontCharsetProfile）", () =>
-                UnityEditor.EditorApplication.ExecuteMenuItem("SSFramework/代码生成/字体字集"));
+                DemoEditorNav.OpenMenu("SSFramework/代码生成/字体字集"));
 #endif
 
             // ── 刻意不做 ──

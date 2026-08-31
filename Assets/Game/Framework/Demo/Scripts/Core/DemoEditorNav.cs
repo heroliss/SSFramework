@@ -43,6 +43,28 @@ namespace Game.Framework.Demo.Core
             if (obj != null) { Selection.activeObject = obj; EditorGUIUtility.PingObject(obj); }
             else Debug.LogWarning("[Demo] 没找到资产：" + assetPath);
         }
+
+        /// <summary>
+        /// 打开一个由 Framework Editor Module 注册的菜单入口。章节只声明目的地，失败反馈集中在这里，
+        /// 避免菜单改名或可选 Module 被移除后，按钮静默无反应或各章给出互相矛盾的提示。
+        /// </summary>
+        /// <returns>菜单存在且已被 Unity 接受执行时返回 <c>true</c>。</returns>
+        public static bool OpenMenu(string menuPath)
+        {
+            if (string.IsNullOrWhiteSpace(menuPath))
+            {
+                Debug.LogWarning("[Demo] 无法打开 Editor 工具：菜单路径为空。");
+                return false;
+            }
+
+            if (EditorApplication.ExecuteMenuItem(menuPath)) return true;
+
+            Debug.LogWarning(
+                $"[Demo] 无法打开 Editor 工具：菜单不存在或当前不可用。\n" +
+                $"路径：{menuPath}\n" +
+                "请确认对应 Framework Editor Module 已安装，或从 SSFramework/工具中心查找新的入口。");
+            return false;
+        }
     }
 }
 #endif

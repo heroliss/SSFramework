@@ -22,7 +22,7 @@
 | Demo | 35 个自动发现章节；Catalog 集中拥有 Adapter 生命周期，并按 Capability / Concept / Workflow 校验真实 Build 教学语义 |
 | 教程 | `framework-guide.md` 28 章 |
 | ADR | 0001–0046；0040 为 UPM-aware 源码目录，0041/0042 补齐依赖证据，0043 收口 Editor 菜单与工作台，0044 固化 Unity CLI 工程外 Adapter 边界，0045 拆分资源与 HybridCLR 构建依赖，0046 收敛资源运行时入口 |
-| 测试 | PlayMode 763 + EditMode 619，共 1382 项全绿；交互式 MCP 后台运行且 PlayMode 先预检，命令行入口默认 EditMode + PlayMode |
+| 测试 | PlayMode 764 + EditMode 622，共 1386 项全绿；交互式 MCP 后台运行且 PlayMode 先预检，命令行入口默认 EditMode + PlayMode |
 | Demo CodeRef | 316 处可打开源码跳转；完整门禁通过后以精准命中为基线，注释、文案与外部文档路径不计入源码构造点 |
 | AI 常驻规则预算 | 最深 AGENTS 链 29.49 KiB，低于 Codex 默认 32 KiB 项目指令上限；本轮只为 View token 的反直觉覆盖语义保留一条就近规则，完整解释与门禁仍外移到 XML/ADR/测试 |
 
@@ -390,6 +390,13 @@
 - 本轮空包会删除输出根中的同名旧部署目录，未参与本轮请求的包保持不动；任一真实构建失败时拒绝批次部署。人工工作台继续保留“重做最近一次构建部署”的独立语义，不因 CI 完整性要求失去本地便利。
 - 部署源在任何目标删除前固定到本轮精确版本并完成物理目录树安全采集；行为测试覆盖“历史版本时间更新也不误选”、空包旧目录清理、失败批次不改旧输出，以及人工 latest 无产物时保持旧目标。
 - 批次部署专项 3/3、资源构建 owner Module 36/36；最终完整 EditMode 619/619、PlayMode 763/763，Unity 6000.3.22f1 编译 0 错误 / 0 警告。
+
+### P1 · Demo 章节导航可发现性
+
+- 35 章左侧目录新增本地查找：标题、分类、简介与稳定 Id 都可命中，空格分隔关键词采用 AND 语义；结果计数、清除动作和零结果恢复提示直接可见。
+- 查找只改变目录，不隐式切章或取消当前章节；当前正文未命中时会明确提示“保持不变”。延迟滚动执行前重新确认按钮仍属于当前 ScrollView，封闭“刚切章就筛选 / UIDocument 重建”移除旧按钮后的跨帧异常。
+- 各章节打开 Framework Editor 工具统一经 `DemoEditorNav.OpenMenu`，菜单改名、可选 Module 缺失或当前不可用时给出同一条可恢复反馈；字体章不再静默忽略失败，5 份私有包装被删除。
+- 导航契约 3/3、Demo EditMode 61/61、Demo PlayMode 12/12；完整 EditMode 622/622、PlayMode 764/764，Unity 编译 0 错误 / 0 警告，并在 1100×720 Game View 实际检查默认布局。
 
 ## 下一批候选（按杠杆排序）
 

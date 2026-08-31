@@ -1,5 +1,4 @@
 using Game.Framework.Demo.Core;
-using UnityEngine;
 
 namespace Game.Framework.Demo.Modules
 {
@@ -30,7 +29,7 @@ namespace Game.Framework.Demo.Modules
 
             // ── 动手试 ──
             host.AddSectionTitle("动手试：打开面板，边玩 demo 边看");
-            host.AddActionRow("打开框架诊断面板", () => RunMenu(PanelMenu),
+            host.AddActionRow("打开框架诊断面板", () => DemoEditorNav.OpenMenu(PanelMenu),
                 new CodeRef("Assets/Game/Framework/Editor/FrameworkDiagnosticsWindow.cs", "class FrameworkDiagnosticsWindow", "面板实现（EditorWindow）"));
             host.AddNote("打开后回 demo 随便点几个按钮再看面板——三块区域都能和前面的章节对上号：");
             host.AddStep("①", "**Context 树（左）**：能找到 demo 根 Context 和「多上下文（Context）」章的 SubContext——作用域树在这里成像，双击 Mono 节点直接定位场景对象。`可→Main` 只表示允许兜底；真正命中过 Main 后才变成警示色 `→Main ×N`。去「游戏流程」章 `GoTo` 几个阶段，还能看到状态子 Context 随进入出现、随切走消失——「整棵撤」的直观证据。");
@@ -65,10 +64,5 @@ namespace Game.Framework.Demo.Modules
             host.AddTip("速记：进 Play → 菜单 SSFramework/诊断与分析/运行时诊断；`可→Main` 是策略、`→Main ×N` 才是实际解析；Mono 问题先看“根因”而非“影响数”，再分当前 / 历史；Command 流水 = 根 Context 注册 LoggingCommandSystem（demo 已接）；泄漏看趋势线 + 订阅计数 + 树上残影。深度见 framework-guide §23 / ADR-0026。");
         }
 
-        private static void RunMenu(string path)
-        {
-            if (!UnityEditor.EditorApplication.ExecuteMenuItem(path))
-                Debug.LogWarning($"[DiagnosticsPanelModule] 菜单执行失败：{path}（菜单路径变更？）");
-        }
     }
 }
