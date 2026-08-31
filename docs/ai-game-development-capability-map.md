@@ -81,7 +81,7 @@ Skill 只写会改变执行质量的非显然知识。已经由代码或测试�
 | V1 | Art Direction、2D / 3D 资产 | M1 → M3 | `imagegen` 可做概念与 2D 原型 | 缺 art bible、资产 brief、来源记录、导入和场景验收闭环 |
 | V2 | Shader、VFX、材质、灯光、镜头与动画 | M1 → M3 | Unity 6 + URP 17.3 基础 | 在首个代表性效果上建立 RenderGraph、性能和视觉证据 |
 | U1 | UI / UX、输入、教程、无障碍、本地化 | M3 → M4 | UGUI / UI Toolkit / Bridge、Localization、相关测试 | 缺游戏级视觉语言、真实输入 E2E、无障碍与多分辨率矩阵 |
-| A1 | 音效、音乐、配音和动态混音 | M2 → M3 | Framework Audio 契约与测试 | 缺生产素材流程、响度基线、生成服务授权和目标设备验收 |
+| A1 | 音效、音乐、配音和动态混音 | M2 → M3 | Framework Audio 契约与测试；[AI 音频生产候选](ai-audio-production-research.md)已整理少量平台、授权边界与共用 Spike | 尚无生成结果真实进入 Unity；需验证同族一致性、DAW 后期、响度与目标设备表现 |
 | E1 | Framework 架构与 AI 可导航性 | M4 → M4 | `CONTEXT.md`、ADR、分层 AGENTS、模块测试、`improve-ssframework-architecture` | 在不同架构任务中验证 Skill 能减少误抽象和跨 Module 泄漏 |
 | E2 | 资源、配置、热更与构建管线 | M4 → M4 | YooAsset / Luban / HybridCLR、隔离构建探针 | 补正式游戏发布组合、目标平台和失败恢复演练 |
 | E3 | AI 执行可承接性 | M2 → M3 | `AGENTS.md`、开放 `.agents/skills`、`ai-agent-onboarding.md` 与共享 Harness | Codex 已闭环；其他 Agent 不预配置，真实采用时完成规则、工具与代表性任务 smoke |
@@ -174,8 +174,9 @@ Unity Test Framework + BattleSim / PlayerPath Harness
 | 3D 制作自动化 | Blender + [Blender MCP](https://github.com/ahujasid/blender-mcp) | Blender 成为正式 DCC，且任意脚本执行边界可接受 | 候选 |
 | AI 3D 原型 | [Meshy](https://github.com/meshy-dev/meshy-3d-agent) | API、成本、拓扑 / UV 质量和商业授权验证通过 | 候选 |
 | UI 设计真值 | [Figma MCP](https://developers.figma.com/docs/figma-mcp-server/) | Figma 真正成为设计源，而不是只为接插件 | 候选 |
-| 游戏音效生成 | [ElevenLabs Sound Effects](https://github.com/elevenlabs/skills/blob/main/sound-effects/SKILL.md) | API、成本、商业授权、响度和批量命名流程验证通过 | 候选 |
-| 音乐生成 | 暂不绑定平台 | 游戏发行和再分发权利明确，能保存 prompt / seed / license 证据 | 有意留空 |
+| 游戏音效生成 | [AI 音频生产候选](ai-audio-production-research.md)：Stable Audio 3 Small SFX + ElevenLabs；Adobe Firefly 为人工备选 | 同一 Brief 的质量、循环、同族一致性、API / 本地成本和商业授权验证通过 | 探索 |
+| 音乐生成 | [AI 音频生产候选](ai-audio-production-research.md)：Stable Audio 3 + AIVA；Eleven Music / SOUNDRAW 为在线基准，Suno 仅优先做概念 | 游戏发行和多平台权利明确，能保存 Prompt / Seed / 原始输出 / License，并通过主题一致性和可编辑性测试 | 探索 |
+| 音频后期与动态编排 | REAPER / Audacity；运行时先用 Framework Audio + Unity AudioMixer | 真实资产需要批量后期时选择 DAW；只有交互音乐或内容生产瓶颈成立才评估 FMOD / Wwise | 候选 |
 | 市场图片 / 视频 | Canva / Runway 等 | 进入商店素材与预告片生产阶段 | Later |
 
 ### 从探索到正式指南的门槛
@@ -203,6 +204,7 @@ Unity Test Framework + BattleSim / PlayerPath Harness
 ### Next
 
 - 从真实美术任务建立 art brief、资产 manifest、来源和 Unity 导入验收。
+- 按 [AI 音频生产候选](ai-audio-production-research.md)完成一轮小规模 Audio Spike，再决定主线平台、DAW 和是否形成项目 Skill。
 - 选择性适配游戏 UI / UX、Game Feel、关卡设计和 test-gap-analysis Skill。
 - 建立 3–5 个性能场景；选择少量 UI / Shader 试点视觉回归。
 - 增加一条真实 Input Action 玩家路径，不直接修改 Transform 或私有状态伪造成功。
@@ -216,7 +218,7 @@ Unity Test Framework + BattleSim / PlayerPath Harness
 
 ### Intentionally Blank
 
-在产品方向明确前不建设：多人网络、LiveOps、UGC、XR、主机认证、大规模 ML-Agents、运行时 LLM NPC、完整音乐生成平台。空白是明确取舍，不是遗漏。
+在产品方向明确前不建设：多人网络、LiveOps、UGC、XR、主机认证、大规模 ML-Agents、运行时 LLM NPC、运行时或全自动音乐生成平台。空白是明确取舍，不是遗漏。
 
 ## 10. 用真实开发更新图谱
 
