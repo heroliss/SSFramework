@@ -58,6 +58,9 @@ namespace Game.Framework.Storage
             byte[] bytes = _serializer.Serialize(data); // 主线程序列化（ADR-0021 §6），失败在入队前就抛给调用方
             // serializer 是可替换的同步扩展点；若其回调重入 Context.Dispose，不能在 terminal 之后再把 Write 塞进队列。
             ThrowIfDisposed();
+            if (bytes == null)
+                throw SerializerContractViolation(
+                    $"Serialize<{typeof(T).Name}> 返回了 null；无内容也必须返回 Array.Empty<byte>()");
             await Enqueue(() => _provider.WriteAsync(key, bytes, ct));
         }
 
@@ -178,14 +181,18 @@ namespace Game.Framework.Storage
             });
         }
 
-        // 反序列化一份字节：bytes 为 null（不存在 / 读失败）或解析失败 / 解析出 null 都返回 null。
-        // 解析失败打 warning 留痕（损坏细节），最终语义（回退 / 报错）由 Load 决定。
+        // 反序列化一份字节：bytes 为 null（不存在 / 读失败）直接返回 null；解析失败或 Serializer 违规返回 null 根时
+        // 打 warning 并按不可用处理，最终语义（回退 / 报错）由 Load 决定。
         private T TryDeserialize<T>(byte[] bytes, string key, string label) where T : class
         {
             if (bytes == null) return null;
             try
             {
-                return _serializer.Deserialize<T>(bytes);
+                T value = _serializer.Deserialize<T>(bytes);
+                if (value == null)
+                    throw SerializerContractViolation(
+                        $"Deserialize<{typeof(T).Name}> 对已提交的存储字节返回了 null");
+                return value;
             }
             catch (Exception e)
             {
@@ -197,5 +204,9 @@ namespace Game.Framework.Storage
                 return null;
             }
         }
+
+        private InvalidOperationException SerializerContractViolation(string detail) =>
+            new InvalidOperationException(
+                $"存储序列化器 {_serializer.GetType().FullName} 违反 IStorageSerializer 契约：{detail}。");
     }
 }

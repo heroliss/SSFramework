@@ -55,6 +55,20 @@ namespace Game.Framework.Test
             public T Deserialize<T>(byte[] bytes) where T : class => null;
         }
 
+        private sealed class ContractBreakingStorageSerializer : IStorageSerializer
+        {
+            private readonly JsonUtilityStorageSerializer _inner = new();
+
+            public bool ReturnNullFromSerialize { get; set; }
+            public bool ReturnNullFromDeserialize { get; set; }
+
+            public byte[] Serialize<T>(T data) where T : class =>
+                ReturnNullFromSerialize ? null : _inner.Serialize(data);
+
+            public T Deserialize<T>(byte[] bytes) where T : class =>
+                ReturnNullFromDeserialize ? null : _inner.Deserialize<T>(bytes);
+        }
+
         /// <summary>
         /// 把首个写操作停在半途，用于验证 StorageUtility 的 FIFO 终端释放。
         /// 默认文件 provider 的 Dispose 是 no-op，无法暴露“排队操作访问已释放连接”这一类真实 Adapter 故障。
@@ -498,6 +512,62 @@ namespace Game.Framework.Test
                 Assert.Fail("Save(null) 应抛 ArgumentNullException");
             }
             catch (ArgumentNullException) { /* 预期 */ }
+        });
+
+        [UnityTest]
+        public IEnumerator Serializer_NullEncodedBytes_FailsBeforeProvider() => UniTask.ToCoroutine(async () =>
+        {
+            var provider = new WorkerCompletionStorageProvider();
+            var serializer = new ContractBreakingStorageSerializer { ReturnNullFromSerialize = true };
+            var storage = new StorageUtility(provider, serializer);
+            try
+            {
+                try
+                {
+                    await storage.Save("player", new SaveData { Level = 1 });
+                    Assert.Fail("Serializer 的 null 编码结果不能进入 Storage Provider。");
+                }
+                catch (InvalidOperationException e)
+                {
+                    StringAssert.Contains("Serialize<SaveData>", e.Message);
+                    StringAssert.Contains("返回了 null", e.Message);
+                }
+
+                Assert.AreEqual(0, provider.WriteStartThreads.Count,
+                    "Serializer 契约错误必须在任何物理写入前 fail-fast。");
+            }
+            finally { storage.Dispose(); }
+        });
+
+        [UnityTest]
+        public IEnumerator Serializer_NullRoot_IsLoggedAsCorruptAndUsesExistingFallbackSemantics()
+            => UniTask.ToCoroutine(async () =>
+        {
+            var provider = new WorkerCompletionStorageProvider();
+            var serializer = new ContractBreakingStorageSerializer();
+            var storage = new StorageUtility(provider, serializer);
+            var sink = new CapturingLogSink();
+            Log.AddSink(sink);
+            try
+            {
+                await storage.Save("player", new SaveData { Level = 1 });
+                serializer.ReturnNullFromDeserialize = true;
+                LogAssert.Expect(LogType.Warning, new Regex("主文件反序列化失败"));
+                LogAssert.Expect(LogType.Error, new Regex("主文件与备份均无法反序列化"));
+
+                SaveData loaded = await storage.Load<SaveData>("player");
+
+                Assert.IsNull(loaded, "主备均不可用时仍遵守既有的可恢复新档语义。");
+                LogEntry warning = sink.Entries.Find(entry =>
+                    entry.Category == nameof(StorageUtility) && entry.Message.Contains("主文件反序列化失败"));
+                Assert.IsNotNull(warning.Exception);
+                StringAssert.Contains("违反 IStorageSerializer 契约", warning.Exception.Message);
+            }
+            finally
+            {
+                Log.RemoveSink(sink);
+                storage.Dispose();
+            }
         });
 
         [UnityTest]

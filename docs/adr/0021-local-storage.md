@@ -41,6 +41,8 @@ public interface IStorageUtility : IUtility
 | `Load` 主文件损坏、备份可用 | 回退备份返回 + `LogWarning`（自动兜住） |
 | `Load` 主备都损坏 | 返回 null + `LogError`（业务当新档处理，游戏能继续） |
 | `Save` 磁盘满 / 权限 / IO 失败 | **抛异常**（数据没落盘必须让业务知道） |
+| Serializer 写出 null 字节 | Provider 前抛 `InvalidOperationException`（Adapter 契约错误） |
+| Serializer 从已提交字节还原出 null 根 | 按反序列化失败记录并继续回退备份；主备均失败仍返回 null + `LogError` |
 | key 非法 / data 为 null | 抛 `ArgumentException` / `ArgumentNullException` |
 | Dispose 后调用 | 抛 `ObjectDisposedException`（写丢失必须 fail-fast，不学池的宽容警告） |
 
@@ -72,6 +74,9 @@ IStorageUtility（业务入口，GetUtility 解析）
 - 默认实现全部住内核 `Core/Storage/`：纯 BCL（`System.IO`）+ `JsonUtility`，零第三方依赖——同 `PoolUtility` 先例；将来出现重依赖后端（SQLite）才开独立模块 asmdef（同 `Asset.Yoo` 先例）。
 - provider 接口保留 `Async` 后缀（适配层惯例，同 `IAssetProvider`）；`IStorageUtility` 公共 API 无后缀（无同步版本）。
 - 默认 `JsonUtilityStorageSerializer` 的已知限制随文档声明：仅序列化 `[Serializable]` 类型的**字段**（不含属性），不支持 `Dictionary` / 多态 / 可空值类型。存档类型照此设计（List + 平铺字段）；确需更强格式，换 serializer 是一行构造参数。
+- 自定义 Serializer 的成功输出必须确定：编码无内容也返回空数组，不能返回 null；非 null 存储字节必须还原为非 null 根对象，
+  否则直接抛。Utility 在 Provider 前拒绝 null 编码，并把 null 根纳入原有“记录 → 回退备份 → 主备均坏时新档”路径，
+  不让 Adapter 违约静默冒充存档缺失。
 
 ### 6. 并发与线程：全局 FIFO 串行 + IO 下线程池
 
