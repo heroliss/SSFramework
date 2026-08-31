@@ -410,6 +410,11 @@ namespace Game.Framework
 
         // ── 释放 ────────────────────────────────────────────────────────────
 
+        /// <summary>
+        /// 幂等结束本作用域：先取消 <see cref="DisposeToken"/>，再释放订阅、资源句柄、子 Bag 与池租借。
+        /// 每个登记项独立隔离释放异常，一个坏的取消回调或 <see cref="IDisposable.Dispose"/> 不会截断其余清理；
+        /// 释放完成后迟到登记会被立即释放，新增需要活跃作用域的操作会抛 <see cref="ObjectDisposedException"/>。
+        /// </summary>
         public void Dispose()
         {
             if (_disposed) return;

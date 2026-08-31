@@ -59,6 +59,7 @@ namespace Game.Framework
         private bool _disposedByDestroy;
 
         // 无默认包（DefaultPackageName 留空）时恒为 false——没有「默认包」可言。
+        /// <inheritdoc />
         public bool IsInitialized
         {
             get
@@ -68,7 +69,10 @@ namespace Game.Framework
                        GetState(_defaultPackageName).State.Value == AssetInitState.Ready;
             }
         }
+        /// <inheritdoc />
         public AssetPlayMode CurrentPlayMode { get; private set; } = AssetPlayMode.EditorSimulate;
+
+        /// <inheritdoc />
         public ReadOnlyReactiveProperty<AssetInitState> InitState
         {
             get
@@ -554,15 +558,18 @@ namespace Game.Framework
             }
         }
 
+        /// <inheritdoc />
         public ReadOnlyReactiveProperty<AssetInitState> GetInitState(string packageName)
         {
             ThrowIfDisposed();
             return GetState(RequirePackage(packageName)).State;
         }
 
+        /// <inheritdoc />
         public UniTask EnsureInitialized(CancellationToken ct = default)
             => EnsureInitialized(_defaultPackageName, ct);
 
+        /// <inheritdoc />
         public async UniTask EnsureInitialized(string packageName, CancellationToken ct = default)
         {
             ThrowIfDisposed();
@@ -616,6 +623,7 @@ namespace Game.Framework
                 throw attempt.Error;
         }
 
+        /// <inheritdoc />
         public async UniTask Initialize(string packageName = null, CancellationToken ct = default)
         {
             ThrowIfDisposed();
@@ -625,10 +633,12 @@ namespace Game.Framework
             await InitializePackageAsync(name, CurrentPlayMode, ct);
         }
 
+        /// <inheritdoc />
         public UniTask<IAssetHandle<T>> Load<T>(string location, CancellationToken ct = default)
             where T : UnityEngine.Object
             => Load<T>(_defaultPackageName, location, ct);
 
+        /// <inheritdoc />
         public async UniTask<IAssetHandle<T>> Load<T>(string packageName, string location, CancellationToken ct = default)
             where T : UnityEngine.Object
         {
@@ -643,10 +653,12 @@ namespace Game.Framework
             return CastHandle<T>(handle, location);
         }
 
+        /// <inheritdoc />
         public UniTask<IAssetHandle<T>> LoadByGuid<T>(string guid, CancellationToken ct = default)
             where T : UnityEngine.Object
             => LoadByGuid<T>(_defaultPackageName, guid, ct);
 
+        /// <inheritdoc />
         public async UniTask<IAssetHandle<T>> LoadByGuid<T>(string packageName, string guid, CancellationToken ct = default)
             where T : UnityEngine.Object
         {
@@ -661,6 +673,7 @@ namespace Game.Framework
             return CastHandle<T>(handle, guid);
         }
 
+        /// <inheritdoc />
         public UniTask<ISceneHandle> LoadScene(
             string location,
             LoadSceneMode mode = LoadSceneMode.Single,
@@ -668,6 +681,7 @@ namespace Game.Framework
             CancellationToken ct = default)
             => LoadScene(_defaultPackageName, location, mode, suspendLoad, ct);
 
+        /// <inheritdoc />
         public async UniTask<ISceneHandle> LoadScene(
             string packageName,
             string location,
@@ -694,9 +708,11 @@ namespace Game.Framework
             return null; // ThrowIfCancellationRequested 必然抛；保留返回只满足编译器控制流。
         }
 
+        /// <inheritdoc />
         public UniTask<string> LoadText(string location, CancellationToken ct = default)
             => LoadText(_defaultPackageName, location, ct);
 
+        /// <inheritdoc />
         public async UniTask<string> LoadText(string packageName, string location, CancellationToken ct = default)
         {
             ThrowIfDisposed();
@@ -715,9 +731,11 @@ namespace Game.Framework
             return text;
         }
 
+        /// <inheritdoc />
         public UniTask<byte[]> LoadBytes(string location, CancellationToken ct = default)
             => LoadBytes(_defaultPackageName, location, ct);
 
+        /// <inheritdoc />
         public async UniTask<byte[]> LoadBytes(string packageName, string location, CancellationToken ct = default)
         {
             ThrowIfDisposed();
@@ -736,9 +754,11 @@ namespace Game.Framework
             return bytes;
         }
 
+        /// <inheritdoc />
         public AssetLocationState GetLocationState(string location)
             => GetLocationState(_defaultPackageName, location);
 
+        /// <inheritdoc />
         public AssetLocationState GetLocationState(string packageName, string location)
         {
             ThrowIfDisposed();
@@ -762,6 +782,7 @@ namespace Game.Framework
                 : AssetLocationState.AvailableLocally;
         }
 
+        /// <inheritdoc />
         public string GetPackageVersion(string packageName = null)
         {
             ThrowIfDisposed();
@@ -770,6 +791,7 @@ namespace Game.Framework
             return _provider.GetPackageVersion(packageName);
         }
 
+        /// <inheritdoc />
         public IAssetDownloader CreateTagDownloader(params string[] tags)
         {
             ThrowIfDisposed();
@@ -778,6 +800,7 @@ namespace Game.Framework
             return CreateTagDownloaderInternal(_defaultPackageName, tags);
         }
 
+        /// <inheritdoc />
         public IAssetDownloader CreateTagDownloader(string packageName, IReadOnlyList<string> tags)
         {
             ThrowIfDisposed();
@@ -786,9 +809,11 @@ namespace Game.Framework
             return CreateTagDownloaderInternal(packageName, tags);
         }
 
+        /// <inheritdoc />
         public IAssetDownloader CreateAllDownloader()
             => CreateAllDownloader(_defaultPackageName);
 
+        /// <inheritdoc />
         public IAssetDownloader CreateAllDownloader(string packageName)
         {
             ThrowIfDisposed();
@@ -798,6 +823,7 @@ namespace Game.Framework
                 _provider.CreateAllDownloader(packageName, _config.DownloadingMaxNumber, _config.FailedTryAgain));
         }
 
+        /// <inheritdoc />
         public IAssetDownloader CreateLocationDownloader(params string[] locations)
         {
             ThrowIfDisposed();
@@ -806,6 +832,7 @@ namespace Game.Framework
             return CreateLocationDownloaderInternal(_defaultPackageName, locations);
         }
 
+        /// <inheritdoc />
         public IAssetDownloader CreateLocationDownloader(string packageName, IReadOnlyList<string> locations)
         {
             ThrowIfDisposed();
@@ -814,9 +841,11 @@ namespace Game.Framework
             return CreateLocationDownloaderInternal(packageName, locations);
         }
 
+        /// <inheritdoc />
         public UniTask ClearCache(AssetCacheClearMode mode = AssetCacheClearMode.Unused, CancellationToken ct = default)
             => ClearCache(_defaultPackageName, mode, ct);
 
+        /// <inheritdoc />
         public async UniTask ClearCache(string packageName, AssetCacheClearMode mode = AssetCacheClearMode.Unused, CancellationToken ct = default)
         {
             ThrowIfDisposed();
@@ -833,9 +862,11 @@ namespace Game.Framework
                 lct);
         }
 
+        /// <inheritdoc />
         public UniTask ClearCacheByTags(IReadOnlyList<string> tags, CancellationToken ct = default)
             => ClearCacheByTags(_defaultPackageName, tags, ct);
 
+        /// <inheritdoc />
         public async UniTask ClearCacheByTags(string packageName, IReadOnlyList<string> tags, CancellationToken ct = default)
         {
             ThrowIfDisposed();
@@ -855,9 +886,11 @@ namespace Game.Framework
                 lct);
         }
 
+        /// <inheritdoc />
         public UniTask ClearCacheByLocations(IReadOnlyList<string> locations, CancellationToken ct = default)
             => ClearCacheByLocations(_defaultPackageName, locations, ct);
 
+        /// <inheritdoc />
         public async UniTask ClearCacheByLocations(string packageName, IReadOnlyList<string> locations, CancellationToken ct = default)
         {
             ThrowIfDisposed();
@@ -876,9 +909,11 @@ namespace Game.Framework
                 lct);
         }
 
+        /// <inheritdoc />
         public UniTask UnloadUnusedAssets(CancellationToken ct = default)
             => UnloadUnusedAssets(_defaultPackageName, ct);
 
+        /// <inheritdoc />
         public async UniTask UnloadUnusedAssets(string packageName, CancellationToken ct = default)
         {
             ThrowIfDisposed();

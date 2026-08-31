@@ -118,8 +118,13 @@ namespace Game.Framework.Network
             }
         }
 
+        /// <inheritdoc />
         public string BaseUrl { get; }
 
+        /// <summary>
+        /// 创建 HTTP 编排实例。provider 在构造成功后由本实例接管并在 <see cref="Dispose"/> 时取消在途请求；
+        /// serializer 只借用。地址与超时配置会在任何网络副作用前同步校验。
+        /// </summary>
         /// <param name="baseUrl">
         /// 基地址（尾部 / 自动去除）；null = 所有 path 必须是绝对 URL。非 null 时必须是带 host、无
         /// userinfo / query / fragment 的绝对 http(s) 地址；配置错误在构造期抛参数异常。
@@ -137,6 +142,7 @@ namespace Game.Framework.Network
             _defaultTimeoutSeconds = defaultTimeoutSeconds;
         }
 
+        /// <inheritdoc />
         public void SetHeader(string name, string value)
         {
             ThrowIfDisposed();
@@ -146,12 +152,14 @@ namespace Game.Framework.Network
             else _defaultHeaders[name] = value;
         }
 
+        /// <inheritdoc />
         public async UniTask<TResp> Get<TResp>(string path, CancellationToken ct = default) where TResp : class
         {
             var resp = await SendChecked("GET", path, body: null, ct);
             return DeserializeBody<TResp>(resp, "GET", path);
         }
 
+        /// <inheritdoc />
         public async UniTask<TResp> Post<TReq, TResp>(string path, TReq body, CancellationToken ct = default)
             where TReq : class where TResp : class
         {
@@ -159,11 +167,13 @@ namespace Game.Framework.Network
             return DeserializeBody<TResp>(resp, "POST", path);
         }
 
+        /// <inheritdoc />
         public async UniTask Post<TReq>(string path, TReq body, CancellationToken ct = default) where TReq : class
         {
             await SendChecked("POST", path, SerializeBody(path, body), ct);
         }
 
+        /// <inheritdoc />
         public async UniTask<HttpResponse> Send(HttpRequest request, CancellationToken ct = default)
         {
             ThrowIfDisposed();

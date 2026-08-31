@@ -149,6 +149,10 @@ namespace Game.Framework.Network
         private readonly HashSet<string> _warnedUnknownTypes = new();
 #endif
 
+        /// <summary>
+        /// 创建 WebSocket 编排实例。provider 在构造成功后由本实例接管；serializer 只借用。
+        /// 实例还必须经层感知注册附着到宿主 Context，才能发布推送事件并获得 owner 取消。
+        /// </summary>
         /// <param name="provider">WS 传输；null = 默认 <see cref="ClientWebSocketProvider"/>。</param>
         /// <param name="serializer">序列化格式；null = 默认 <see cref="JsonUtilityNetworkSerializer"/>。</param>
         public WebSocketUtility(IWebSocketProvider provider = null, INetworkSerializer serializer = null)
@@ -160,6 +164,7 @@ namespace Game.Framework.Network
 
         IGameContext IHasGameContext.Context => _context;
 
+        /// <inheritdoc />
         public ReadOnlyReactiveProperty<NetworkConnectionState> State
         {
             get
@@ -169,6 +174,7 @@ namespace Game.Framework.Network
             }
         }
 
+        /// <inheritdoc />
         public void RegisterPush<TEvent>(string type) where TEvent : IEvent
         {
             ThrowIfDisposed();
@@ -207,6 +213,7 @@ namespace Game.Framework.Network
             };
         }
 
+        /// <inheritdoc />
         public async UniTask Connect(string url, CancellationToken ct = default)
         {
             ThrowIfDisposed();
@@ -304,6 +311,7 @@ namespace Game.Framework.Network
             }
         }
 
+        /// <inheritdoc />
         public async UniTask Disconnect(CancellationToken ct = default)
         {
             if (_disposed || _state.Value == NetworkConnectionState.Disconnected) return; // 未连接 / 已在关闭 = no-op
@@ -410,6 +418,7 @@ namespace Game.Framework.Network
             }
         }
 
+        /// <inheritdoc />
         public UniTask Send<T>(string type, T payload, CancellationToken ct = default) where T : class
         {
             ConnectionSession session = EnsureConnected();
@@ -417,12 +426,18 @@ namespace Game.Framework.Network
             return SendEnvelope(type, _serializer.Serialize(payload), session, ct);
         }
 
+        /// <inheritdoc />
         public UniTask Send(string type, CancellationToken ct = default)
         {
             ConnectionSession session = EnsureConnected();
             return SendEnvelope(type, Array.Empty<byte>(), session, ct);
         }
 
+        /// <summary>
+        /// 幂等结束长连接工具：先发布终态并取消连接、接收与发送 owner，再释放传输 Provider，最后完结状态流。
+        /// Context 级拆除不会发布 <see cref="WebSocketClosedEvent"/>；旧 <see cref="State"/> 订阅会正常完成，
+        /// 之后重新读取状态、注册、连接或发送均 fail-fast，只有 <see cref="Disconnect"/> 保持清理型 no-op。
+        /// </summary>
         public void Dispose()
         {
             if (_disposed) return;

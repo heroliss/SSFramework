@@ -256,12 +256,18 @@ namespace Game.Framework.Context
 
         // ---- 层访问 ----
 
+        /// <inheritdoc />
         public T GetModel<T>() where T : class, IModel => (T)Resolve(typeof(T));
+
+        /// <inheritdoc />
         public T GetSystem<T>() where T : class, ISystem => (T)Resolve(typeof(T));
+
+        /// <inheritdoc />
         public T GetUtility<T>() where T : class, IUtility => (T)Resolve(typeof(T));
 
         // ---- 动态注册（公开 API） ----
 
+        /// <inheritdoc />
         public void RegisterModel<T>(T instance) where T : class, IModel
         {
             ThrowIfDisposed();
@@ -270,6 +276,7 @@ namespace Game.Framework.Context
             _container.RegisterFor<IModel>(instance, $"dynamic:{instance.GetType().Name}");
         }
 
+        /// <inheritdoc />
         public void RegisterSystem<T>(T instance) where T : class, ISystem
         {
             ThrowIfDisposed();
@@ -278,6 +285,7 @@ namespace Game.Framework.Context
             _container.RegisterFor<ISystem>(instance, $"dynamic:{instance.GetType().Name}");
         }
 
+        /// <inheritdoc />
         public void RegisterUtility<T>(T instance) where T : class, IUtility
         {
             ThrowIfDisposed();
@@ -286,6 +294,7 @@ namespace Game.Framework.Context
             _container.RegisterFor<IUtility>(instance, $"dynamic:{instance.GetType().Name}");
         }
 
+        /// <inheritdoc />
         public void UnregisterModel<T>(T instance) where T : class, IModel
         {
             ThrowIfDisposed();
@@ -293,6 +302,7 @@ namespace Game.Framework.Context
             _container.UnregisterFor<IModel>(instance);
         }
 
+        /// <inheritdoc />
         public void UnregisterSystem<T>(T instance) where T : class, ISystem
         {
             ThrowIfDisposed();
@@ -300,6 +310,7 @@ namespace Game.Framework.Context
             _container.UnregisterFor<ISystem>(instance);
         }
 
+        /// <inheritdoc />
         public void UnregisterUtility<T>(T instance) where T : class, IUtility
         {
             ThrowIfDisposed();
@@ -309,54 +320,63 @@ namespace Game.Framework.Context
 
         // ---- Command 执行 ----
 
+        /// <inheritdoc />
         public void ExecuteCommand<T>(T command) where T : ICommand
         {
             ThrowIfDisposed();
             ResolveCommandDispatcher().ExecuteCommand(command, this);
         }
 
+        /// <inheritdoc />
         public TResult ExecuteCommand<TResult>(ICommand<TResult> command)
         {
             ThrowIfDisposed();
             return ResolveCommandDispatcher().ExecuteCommand(command, this);
         }
 
+        /// <inheritdoc />
         public TResult ExecuteCommand<T, TResult>(T command) where T : ICommand<TResult>
         {
             ThrowIfDisposed();
             return ResolveCommandDispatcher().ExecuteCommand<T, TResult>(command, this);
         }
 
+        /// <inheritdoc />
         public UniTask ExecuteCommandAsync<T>(T command) where T : IAsyncCommand
         {
             ThrowIfDisposed();
             return ResolveCommandDispatcher().ExecuteCommandAsync(command, this, CancellationToken);
         }
 
+        /// <inheritdoc />
         public UniTask ExecuteCommandAsync<T>(T command, CancellationToken cancellationToken) where T : IAsyncCommand
         {
             ThrowIfDisposed();
             return ResolveCommandDispatcher().ExecuteCommandAsync(command, this, cancellationToken);
         }
 
+        /// <inheritdoc />
         public UniTask<TResult> ExecuteCommandAsync<TResult>(IAsyncCommand<TResult> command)
         {
             ThrowIfDisposed();
             return ResolveCommandDispatcher().ExecuteCommandAsync(command, this, CancellationToken);
         }
 
+        /// <inheritdoc />
         public UniTask<TResult> ExecuteCommandAsync<TResult>(IAsyncCommand<TResult> command, CancellationToken cancellationToken)
         {
             ThrowIfDisposed();
             return ResolveCommandDispatcher().ExecuteCommandAsync(command, this, cancellationToken);
         }
 
+        /// <inheritdoc />
         public UniTask<TResult> ExecuteCommandAsync<T, TResult>(T command) where T : IAsyncCommand<TResult>
         {
             ThrowIfDisposed();
             return ResolveCommandDispatcher().ExecuteCommandAsync<T, TResult>(command, this, CancellationToken);
         }
 
+        /// <inheritdoc />
         public UniTask<TResult> ExecuteCommandAsync<T, TResult>(T command, CancellationToken cancellationToken) where T : IAsyncCommand<TResult>
         {
             ThrowIfDisposed();
@@ -365,6 +385,7 @@ namespace Game.Framework.Context
 
         // ---- 事件（按类型独立 Subject，无广播过滤） ----
 
+        /// <inheritdoc />
         public void SendEvent<T>(T evt = default) where T : IEvent
         {
             if (_disposed)
@@ -378,6 +399,7 @@ namespace Game.Framework.Context
                 ((Subject<T>)subject).OnNext(evt);
         }
 
+        /// <inheritdoc />
         public IDisposable RegisterEvent<T>(Action<T> handler) where T : IEvent
         {
             ThrowIfDisposed();
@@ -461,6 +483,10 @@ namespace Game.Framework.Context
 
         // ---- IDisposable ----
 
+        /// <summary>
+        /// 幂等结束 Context：先发布释放终态并取消 <see cref="CancellationToken"/>，再完结事件流，最后释放容器接管的服务。
+        /// 单个取消回调失败只记录日志，不会截断其余所有权清理；释放后解析、注册与命令调用均 fail-fast。
+        /// </summary>
         public void Dispose()
         {
             if (_disposed) return;
