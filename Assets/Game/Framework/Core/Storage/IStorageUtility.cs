@@ -63,7 +63,7 @@ namespace Game.Framework.Storage
 
         /// <summary>
         /// 列出全部已存在的 key，可按前缀过滤（如 <c>"save/"</c> 列全部槽位；null = 全部）。
-        /// 返回的 key 与 <see cref="Save{T}"/> 时传入的一致（<c>/</c> 分段、无扩展名）。
+        /// 返回值始终非 null；无匹配项时为空列表。key 与 <see cref="Save{T}"/> 时传入的一致（<c>/</c> 分段、无扩展名）。
         /// </summary>
         UniTask<IReadOnlyList<string>> ListKeys(string prefix = null, CancellationToken ct = default);
     }

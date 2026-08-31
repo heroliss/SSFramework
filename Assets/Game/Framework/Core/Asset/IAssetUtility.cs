@@ -237,6 +237,7 @@ namespace Game.Framework
         /// <summary>
         /// 创建默认包的按 tag 统计和下载资源任务。下载器是创建时缓存状态的同步快照；底层包正在或已经排队维护时，
         /// 创建会 fail-fast，维护完成后重试创建，不会阻塞 Unity 主线程或从变化中的缓存记录生成中间态快照。
+        /// 无待下载内容仍返回 <c>TotalCount == 0</c> 的有效下载器，不返回 null。
         /// </summary>
         IAssetDownloader CreateTagDownloader(params string[] tags);
 
@@ -246,6 +247,7 @@ namespace Game.Framework
         /// <summary>
         /// 创建默认包的「全量下载器」：下载该包当前清单下全部尚未缓存的 bundle（无 tag 过滤）。
         /// 适合「把整个包 / 整个 DLC 全量预下」。要求包已就绪；并发与快照语义同 tag 下载器。
+        /// 无待下载内容仍返回 <c>TotalCount == 0</c> 的有效下载器，不返回 null。
         /// </summary>
         IAssetDownloader CreateAllDownloader();
 
@@ -255,6 +257,7 @@ namespace Game.Framework
         /// <summary>
         /// 创建默认包的「按 location 下载器」：下载这些资源所需 bundle（含依赖），适合进某功能前点名预下少数已知资源。
         /// manifest 里解析不到的 location 跳过并打 <c>warning</c>。要求包已就绪；并发与快照语义同 tag 下载器。
+        /// 即使全部 location 均被跳过，也返回 <c>TotalCount == 0</c> 的有效下载器，不返回 null。
         /// </summary>
         IAssetDownloader CreateLocationDownloader(params string[] locations);
 

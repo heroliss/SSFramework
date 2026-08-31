@@ -185,6 +185,7 @@ namespace Game.Framework.Test
             public int DisposeThread = -1;
             public Exception NextWriteFailure;
             public bool BlockNextWriteUntilCanceled;
+            public bool ReturnNullFromListKeys;
 
             public async UniTask WriteAsync(string key, byte[] bytes, CancellationToken ct)
             {
@@ -250,7 +251,7 @@ namespace Game.Framework.Test
                 await UniTask.SwitchToThreadPool();
                 ListCompletionThread = Thread.CurrentThread.ManagedThreadId;
                 ct.ThrowIfCancellationRequested();
-                return new[] { "worker/slot" };
+                return ReturnNullFromListKeys ? null : new[] { "worker/slot" };
             }
 
             public void Dispose() => DisposeThread = Thread.CurrentThread.ManagedThreadId;
@@ -630,6 +631,32 @@ namespace Game.Framework.Test
                 storage.Dispose();
                 Assert.AreEqual(mainThread, provider.DisposeThread,
                     "FIFO terminal 的 Provider.Dispose 也必须由主线程提交");
+            });
+
+        [UnityTest]
+        public IEnumerator CustomProvider_NullKeyList_FailsAtAdapterBoundary()
+            => UniTask.ToCoroutine(async () =>
+            {
+                var provider = new WorkerCompletionStorageProvider { ReturnNullFromListKeys = true };
+                var storage = new StorageUtility(provider);
+                try
+                {
+                    try
+                    {
+                        await storage.ListKeys();
+                        Assert.Fail("Provider 的 null 键列表不得泄漏给业务层。");
+                    }
+                    catch (InvalidOperationException error)
+                    {
+                        StringAssert.Contains(nameof(WorkerCompletionStorageProvider), error.Message);
+                        StringAssert.Contains(nameof(IStorageProvider.ListKeysAsync), error.Message);
+                        StringAssert.Contains("空列表", error.Message);
+                    }
+                }
+                finally
+                {
+                    storage.Dispose();
+                }
             });
 
         [UnityTest]

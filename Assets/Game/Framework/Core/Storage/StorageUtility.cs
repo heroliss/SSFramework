@@ -113,7 +113,12 @@ namespace Game.Framework.Storage
         {
             ThrowIfDisposed();
             // prefix 只是过滤条件、不是持久契约，不做 key 校验（非法字符只会匹配不到任何 key）。
-            return await Enqueue(() => _provider.ListKeysAsync(prefix, ct));
+            IReadOnlyList<string> keys = await Enqueue(() => _provider.ListKeysAsync(prefix, ct));
+            if (keys == null)
+                throw new InvalidOperationException(
+                    $"存储 Provider {_provider.GetType().FullName} 违反 IStorageProvider 契约：" +
+                    $"{nameof(IStorageProvider.ListKeysAsync)} 返回了 null；无内容也必须返回空列表。");
+            return keys;
         }
 
         /// <summary>

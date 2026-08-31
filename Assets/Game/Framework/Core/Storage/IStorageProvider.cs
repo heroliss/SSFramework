@@ -44,7 +44,7 @@ namespace Game.Framework.Storage
 
         /// <summary>
         /// 列出全部持有已提交数据的 key（主数据或备份任一存在即包含；仅有未提交临时数据不包含），
-        /// 按 <paramref name="prefix"/> 前缀过滤，null = 不过滤。结果去重、顺序稳定，无内容返回空列表。
+        /// 按 <paramref name="prefix"/> 前缀过滤，null = 不过滤。结果必须非 null、去重且顺序稳定；无内容返回空列表。
         /// </summary>
         UniTask<IReadOnlyList<string>> ListKeysAsync(string prefix, CancellationToken ct);
     }
