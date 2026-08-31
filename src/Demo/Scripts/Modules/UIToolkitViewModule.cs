@@ -69,7 +69,7 @@ namespace Game.Framework.Demo.Modules
             host.AddConcept("关闭所有权", "本例是独立 View，关闭就是自行 `Dispose()`：取消自己的 `Bag` 并摘除 `Root`；正式 `UIToolkitWindowBase` 由 UI 框架拥有，必须请求 `IUIUtility.Close(this)`，让窗口栈、模态、缓存与过渡一并更新，不能直接 Dispose。");
             host.AddConcept("接入相同", "Context 绑定完成后，两种载体的自动注入、`Bag` 生命周期、`ExecuteCommand` / `RegisterEvent` / `GetUtility` 完全一致。");
             host.AddConcept("绑定相同", "都用 R3 订阅：UGUI `Bag.Subscribe(rop, …)`，UIToolkit `Bag.BindText(label, rop)`——一套心智，没有第二套数据绑定。");
-            host.AddConcept("异步所有权", "`SubscribeClickAsync` 把 View 生命周期 token 交给 handler，并统一观察漏出的异常；它不自动禁按钮、去抖或单飞，因为是否允许并发点击属于具体交互策略。");
+            host.AddConcept("异步所有权", "`SubscribeClickAsync` 把 View 生命周期 token 交给 handler，并统一观察漏出的异常；它不自动禁按钮、去抖或单飞，因为是否允许并发点击属于具体交互策略。少数必须越过关窗完成的物理任务可忽略 token，但 `UIToolkitWindowBase` 的 continuation 要先检查 `CanUpdateVisuals`，同时覆盖正常 Close 与 Context teardown。");
             host.AddCodeLink(CodeRef.Here("Bag.SubscribeClickAsync(delayedBtn", "异步点击 · 生命周期与异常所有权"));
 
             host.AddSectionTitle("核心层对 UI 技术无感");
