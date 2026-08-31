@@ -2123,21 +2123,38 @@ namespace Game.Framework.Editor
             if (!File.Exists(fullPath))
                 throw new FileNotFoundException("无法读取程序集元数据：文件不存在。", fullPath);
 
-            var file = new FileInfo(fullPath);
+            string contentSha256;
+            try
+            {
+                contentSha256 = ComputeFileSha256(fullPath);
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException($"无法读取程序集元数据：{fullPath}", ex);
+            }
             lock (AssemblyReferenceCacheLock)
             {
                 if (AssemblyReferenceCache.TryGetValue(fullPath, out var cached) &&
-                    cached.Length == file.Length &&
-                    cached.LastWriteUtc == file.LastWriteTimeUtc)
+                    string.Equals(cached.ContentSha256, contentSha256, StringComparison.Ordinal))
                     return cached.References;
             }
 
             try
             {
+                byte[] assemblyBytes = File.ReadAllBytes(fullPath);
+                using (SHA256 sha256 = SHA256.Create())
+                    contentSha256 = Convert.ToBase64String(sha256.ComputeHash(assemblyBytes));
+                lock (AssemblyReferenceCacheLock)
+                {
+                    // 流式 hash 与读取字节之间文件可能完成了一次原地替换；按真正要解析的字节再命中。
+                    if (AssemblyReferenceCache.TryGetValue(fullPath, out var cached) &&
+                        string.Equals(cached.ContentSha256, contentSha256, StringComparison.Ordinal))
+                        return cached.References;
+                }
 #pragma warning disable 618
                 // ReflectionOnlyLoadFrom 会一直锁住 Library/ScriptAssemblies 下的 DLL/PDB，下一轮 Unity 编译
                 // 就会在 Windows 报“用户映射区域”而失败。读入字节再加载，保留元数据能力但不占用源文件。
-                var assembly = System.Reflection.Assembly.ReflectionOnlyLoad(File.ReadAllBytes(fullPath));
+                var assembly = System.Reflection.Assembly.ReflectionOnlyLoad(assemblyBytes);
 #pragma warning restore 618
                 string[] references = assembly.GetReferencedAssemblies()
                     .Select(reference => reference.Name)
@@ -2146,11 +2163,11 @@ namespace Game.Framework.Editor
                     .OrderBy(name => name, StringComparer.Ordinal)
                     .ToArray();
 
-                // 反射只读程序集会留在当前 AppDomain 到下次域重载；一次报告包含多个组合，
-                // 缓存引用表可避免重复刷新时不断为同一份 DLL 增加只读 Assembly 实例。
+                // 反射只读程序集会留在当前 AppDomain 到下次域重载；内容 SHA 让相同 DLL 跨刷新复用，
+                // 又能识别长度、mtime 都被保留的原地替换，避免旧 AssemblyRef 证据与无限重复加载二选一。
                 lock (AssemblyReferenceCacheLock)
                     AssemblyReferenceCache[fullPath] = new AssemblyReferenceCacheEntry(
-                        file.Length, file.LastWriteTimeUtc, references);
+                        contentSha256, references);
                 return references;
             }
             catch (Exception ex)
@@ -3243,14 +3260,12 @@ namespace Game.Framework.Editor
 
         private sealed class AssemblyReferenceCacheEntry
         {
-            internal readonly long Length;
-            internal readonly DateTime LastWriteUtc;
+            internal readonly string ContentSha256;
             internal readonly string[] References;
 
-            internal AssemblyReferenceCacheEntry(long length, DateTime lastWriteUtc, string[] references)
+            internal AssemblyReferenceCacheEntry(string contentSha256, string[] references)
             {
-                Length = length;
-                LastWriteUtc = lastWriteUtc;
+                ContentSha256 = contentSha256;
                 References = references;
             }
         }

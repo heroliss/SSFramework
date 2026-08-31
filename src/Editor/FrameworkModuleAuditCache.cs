@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using UnityEditor;
+using UnityEditor.Build;
 using UnityEditor.Compilation;
 
 namespace Game.Framework.Editor
@@ -48,12 +49,12 @@ namespace Game.Framework.Editor
         private static Entry _current;
 
         internal static event Action Invalidated;
+        internal static event Action<Entry> Refreshed;
 
         static FrameworkModuleAuditCache()
         {
             EditorApplication.projectChanged += Invalidate;
             CompilationPipeline.compilationStarted += _ => Invalidate();
-            EditorUserBuildSettings.activeBuildTargetChanged += Invalidate;
             EditorBuildSettings.sceneListChanged += Invalidate;
             UnityEditor.PackageManager.Events.registeredPackages += _ => Invalidate();
         }
@@ -68,6 +69,10 @@ namespace Game.Framework.Editor
 
         internal static Entry Refresh(Action<string, float> progress = null)
         {
+            // 显式刷新失败后不能继续把旧证据当作当前结果。调用方仍可持有此前 Entry 供只读展示，
+            // 但缓存入口必须回到未采集状态，让下一次请求真正重试。
+            _current = null;
+            NotifyInvalidated();
             var stopwatch = Stopwatch.StartNew();
             FrameworkModuleAudit.Snapshot snapshot = FrameworkModuleAudit.Capture(
                 out FrameworkModuleAudit.CaptureTimings captureTimings,
@@ -84,7 +89,7 @@ namespace Game.Framework.Editor
             reportStopwatch.Stop();
             stopwatch.Stop();
             progress?.Invoke("审计完成", 1f);
-            _current = new Entry(
+            var refreshed = new Entry(
                 snapshot,
                 result,
                 report,
@@ -93,13 +98,60 @@ namespace Game.Framework.Editor
                 captureTimings,
                 analysisStopwatch.Elapsed.TotalSeconds,
                 reportStopwatch.Elapsed.TotalSeconds);
-            return _current;
+            _current = refreshed;
+            NotifyRefreshed(refreshed);
+            return refreshed;
         }
 
         internal static void Invalidate()
         {
             _current = null;
-            Invalidated?.Invoke();
+            NotifyInvalidated();
         }
+
+        private static void NotifyInvalidated()
+        {
+            Delegate[] handlers = Invalidated?.GetInvocationList();
+            if (handlers == null) return;
+            foreach (Action handler in handlers)
+            {
+                try
+                {
+                    handler();
+                }
+                catch (Exception exception)
+                {
+                    UnityEngine.Debug.LogError(
+                        $"[FrameworkModuleAuditCache] 证据失效观察者异常：{exception}");
+                }
+            }
+        }
+
+        private static void NotifyRefreshed(Entry entry)
+        {
+            Delegate[] handlers = Refreshed?.GetInvocationList();
+            if (handlers == null) return;
+            foreach (Action<Entry> handler in handlers)
+            {
+                try
+                {
+                    handler(entry);
+                }
+                catch (Exception exception)
+                {
+                    UnityEngine.Debug.LogError(
+                        $"[FrameworkModuleAuditCache] 证据刷新观察者异常：{exception}");
+                }
+            }
+        }
+    }
+
+    /// <summary>使用 Unity 6 当前回调接收构建目标切换，避免依赖已废弃的静态事件。</summary>
+    internal sealed class FrameworkModuleAuditBuildTargetWatcher : IActiveBuildTargetChanged
+    {
+        public int callbackOrder => 0;
+
+        public void OnActiveBuildTargetChanged(BuildTarget previousTarget, BuildTarget newTarget) =>
+            FrameworkModuleAuditCache.Invalidate();
     }
 }

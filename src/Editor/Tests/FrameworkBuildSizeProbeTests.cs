@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.TestTools;
 using UnityEngine.UIElements;
 
 namespace Game.Framework.Editor.Tests
@@ -315,6 +316,11 @@ namespace Game.Framework.Editor.Tests
             Assert.That(source, Does.Contain("拒绝把未实际编译 Framework IL 的空壳 Player 记为成功"));
             Assert.That(source, Does.Contain(".Where(assembly => !compiled.ContainsKey(assembly))"));
             Assert.That(source, Does.Contain("sourceFiles.Length == 0"));
+            Assert.That(source, Does.Contain(".ssframework-write-"));
+            Assert.That(source, Does.Contain("File.Replace(temporary, destination, null)"));
+            Assert.That(source, Does.Not.Contain(
+                "File.WriteAllText(path, JsonUtility.ToJson(record, true)"),
+                "child 结果也是恢复证据，不能直接覆盖并留下半截 JSON。 ");
             Assert.That(source.IndexOf("ValidateExpectedAssemblies(expectedAssemblies);", StringComparison.Ordinal),
                 Is.LessThan(source.IndexOf("BuildPipeline.BuildPlayer", StringComparison.Ordinal)),
                 "期望程序集门禁必须发生在 Player Build 之前。 ");
@@ -774,8 +780,9 @@ namespace Game.Framework.Editor.Tests
                 new Dictionary<string, FrameworkBuildSizeProbe.ProfilePlan>(StringComparer.Ordinal));
 
             Assert.That(drift,
-                Does.Contain("早于 v8").And.Contain("冻结输入前后复核")
-                    .And.Contain("证据实现快照").And.Contain("Player 编译图证据契约"));
+                Does.Contain("早于 v" + FrameworkBuildSizeProbe.CurrentReportFormatVersion)
+                    .And.Contain("冻结输入前后复核")
+                    .And.Contain("子进程身份").And.Contain("Player 编译图证据契约"));
         }
 
         [Test]
@@ -829,6 +836,181 @@ namespace Game.Framework.Editor.Tests
                     .And.Contain("完成已启动档位后停止")
                     .And.Contain("拒绝让子进程失去 owner")
                     .And.Contain("package manifest is being rewritten"));
+        }
+
+        [Test]
+        public void Recovery_RebuildsOnlyProfilesRecordedByCurrentRun()
+        {
+            var report = new FrameworkBuildSizeProbe.RunReport
+            {
+                Profiles = new[]
+                {
+                    new FrameworkBuildSizeProbe.ProfileRecord { Key = "core" },
+                    new FrameworkBuildSizeProbe.ProfileRecord { Key = "ugui" },
+                    new FrameworkBuildSizeProbe.ProfileRecord { Key = "core" },
+                    null,
+                    new FrameworkBuildSizeProbe.ProfileRecord { Key = " " },
+                },
+            };
+
+            Assert.That(FrameworkBuildSizeProbe.GetRecoveryProfileKeys(report),
+                Is.EqualTo(new[] { "core", "ugui" }));
+        }
+
+        [Test]
+        public void Recovery_UnknownChildOwnerStopsBeforeStartingNextProfile()
+        {
+            string missing = Path.Combine(
+                Path.GetTempPath(), "SSFrameworkMissingChild-" + Guid.NewGuid().ToString("N") + ".json");
+            var building = new FrameworkBuildSizeProbe.ProfileRecord
+            {
+                Status = "构建中",
+                ChildProcessId = 0,
+                ResultPath = missing,
+            };
+
+            Assert.That(FrameworkBuildSizeProbe.MustStopRecoveryForUnknownChild(building), Is.True,
+                "PID 写入失败后的 Domain Reload 不能把未知 child 当成已结束并启动下一档。 ");
+
+            building.ChildProcessId = 12345;
+            Assert.That(FrameworkBuildSizeProbe.MustStopRecoveryForUnknownChild(building), Is.True,
+                "只有 PID 而没有启动时间仍无法排除 PID 复用。 ");
+
+            building.ChildProcessStartUtcTicks = 67890;
+            Assert.That(FrameworkBuildSizeProbe.MustStopRecoveryForUnknownChild(building), Is.False,
+                "PID 与启动时间都已提交时才进入正常附着/进程终态判断。 ");
+        }
+
+        [Test]
+        public void Recovery_UnknownOwnerWithFinishedResultKeepsResultAndExplainsSkippedProfiles()
+        {
+            string reason = FrameworkBuildSizeProbe.CreateUnknownChildOwnerStopReason(hasResultFile: true);
+            var completed = new FrameworkBuildSizeProbe.ProfileRecord
+            {
+                Key = "core",
+                Status = "成功",
+                Message = "冻结输入构建完成。",
+            };
+            var waiting = new FrameworkBuildSizeProbe.ProfileRecord
+            {
+                Key = "ugui",
+                Status = "等待",
+            };
+            var report = new FrameworkBuildSizeProbe.RunReport
+            {
+                StopAfterCurrentReason = reason,
+                Profiles = new[] { completed, waiting },
+            };
+
+            FrameworkBuildSizeProbe.CompleteWaitingProfiles(report, reason);
+
+            Assert.That(completed.Status, Is.EqualTo("成功"));
+            Assert.That(completed.Message, Is.EqualTo("冻结输入构建完成。"),
+                "当前档位的真实 child 结果不能被 owner 警告覆盖。 ");
+            Assert.That(waiting.Status, Is.EqualTo("跳过"));
+            Assert.That(waiting.Message, Is.EqualTo(reason));
+            Assert.That(reason, Does.Contain("已接收原子结果").And.Contain("停止后续组合"),
+                "后续档位必须记录真正的 fail-closed 原因，不能误写成当前档构建成功。 ");
+        }
+
+        [Test]
+        public void Recovery_ProcessIdentityRejectsPidReuseAndOwnerSelfAttachment()
+        {
+            const int childPid = 123;
+            const long childStart = 456789;
+
+            Assert.That(FrameworkBuildSizeProbe.MatchesChildProcessIdentity(
+                childPid, childStart, childPid, childStart, "Unity", ownerProcessId: 999), Is.True);
+            Assert.That(FrameworkBuildSizeProbe.MatchesChildProcessIdentity(
+                childPid, childStart, childPid, childStart + 1, "Unity", ownerProcessId: 999), Is.False,
+                "相同 PID 的新进程不能冒充原 child。 ");
+            Assert.That(FrameworkBuildSizeProbe.MatchesChildProcessIdentity(
+                childPid, childStart, childPid, childStart, "Unity", ownerProcessId: childPid), Is.False,
+                "恢复逻辑绝不能把当前主 Editor 附着成自己的 child。 ");
+            Assert.That(FrameworkBuildSizeProbe.MatchesChildProcessIdentity(
+                childPid, childStart, childPid, childStart, "unrelated-tool", ownerProcessId: 999), Is.False);
+        }
+
+        [Test]
+        public void Recovery_ProcessInspectionFailureRemainsUnknownAndFailsClosed()
+        {
+            Process ignored;
+            FrameworkBuildSizeProbe.ChildProcessAttachResult inaccessible =
+                FrameworkBuildSizeProbe.TryAttachUnityProcess(
+                    123,
+                    456789,
+                    _ => throw new System.ComponentModel.Win32Exception("access denied"),
+                    ownerProcessId: 999,
+                    out ignored);
+            FrameworkBuildSizeProbe.ChildProcessAttachResult exited =
+                FrameworkBuildSizeProbe.TryAttachUnityProcess(
+                    123,
+                    456789,
+                    _ => throw new ArgumentException("process no longer exists"),
+                    ownerProcessId: 999,
+                    out ignored);
+
+            Assert.That(inaccessible,
+                Is.EqualTo(FrameworkBuildSizeProbe.ChildProcessAttachResult.UnknownInspectionFailure),
+                "权限或平台检查失败不等于进程已终止，恢复逻辑必须停止后续 child。 ");
+            Assert.That(exited,
+                Is.EqualTo(FrameworkBuildSizeProbe.ChildProcessAttachResult.ConfirmedNotOwned),
+                "GetProcessById 的不存在语义可以确认旧 child 已终止。 ");
+        }
+
+        [Test]
+        public void AtomicReportWrite_FailureKeepsPreviousGenerationAndCleansTemporaryFile()
+        {
+            string root = Path.Combine(
+                Path.GetTempPath(), "SSFrameworkAtomicReport-" + Guid.NewGuid().ToString("N"));
+            string destination = Path.Combine(root, "report.json");
+            Directory.CreateDirectory(root);
+            File.WriteAllText(destination, "stable-generation");
+            try
+            {
+                Assert.That(() => FrameworkBuildSizeProbe.WriteTextAtomically(
+                        destination,
+                        "new-generation",
+                        (temporary, _) =>
+                        {
+                            File.WriteAllText(temporary, "truncated");
+                            throw new IOException("simulated disk failure");
+                        }),
+                    Throws.TypeOf<IOException>().With.Message.Contains("simulated disk failure"));
+
+                Assert.That(File.ReadAllText(destination), Is.EqualTo("stable-generation"));
+                Assert.That(Directory.GetFiles(root, "*.ssframework-write-*"), Is.Empty);
+
+                FrameworkBuildSizeProbe.WriteTextAtomically(destination, "new-generation");
+                Assert.That(File.ReadAllText(destination), Is.EqualTo("new-generation"));
+            }
+            finally
+            {
+                if (Directory.Exists(root)) Directory.Delete(root, true);
+            }
+        }
+
+        [Test]
+        public void ChangedObserverFailure_DoesNotBlockLaterObservers()
+        {
+            int healthyCalls = 0;
+            Action failing = () => throw new InvalidOperationException("broken probe window");
+            Action healthy = () => healthyCalls++;
+            FrameworkBuildSizeProbe.Changed += failing;
+            FrameworkBuildSizeProbe.Changed += healthy;
+            try
+            {
+                LogAssert.Expect(LogType.Error, new System.Text.RegularExpressions.Regex(
+                    "状态观察者刷新失败.*broken probe window"));
+
+                Assert.That(() => FrameworkBuildSizeProbe.NotifyChanged(), Throws.Nothing);
+                Assert.That(healthyCalls, Is.EqualTo(1));
+            }
+            finally
+            {
+                FrameworkBuildSizeProbe.Changed -= failing;
+                FrameworkBuildSizeProbe.Changed -= healthy;
+            }
         }
 
         [Test]
@@ -1044,6 +1226,26 @@ namespace Game.Framework.Editor.Tests
         }
 
         [Test]
+        public void FailedChildLog_UsesBoundedTailWhenNoDiagnosticSignalExists()
+        {
+            string path = Path.Combine(Path.GetTempPath(), "SSFrameworkProbeTail-" + Guid.NewGuid() + ".log");
+            try
+            {
+                File.WriteAllLines(path, Enumerable.Range(0, 2000).Select(index => "noise-" + index));
+
+                string excerpt = FrameworkBuildSizeProbe.ReadDiagnosticLogExcerpt(path, 3);
+
+                Assert.That(excerpt.Split('\n'),
+                    Is.EqualTo(new[] { "noise-1997", "noise-1998", "noise-1999" }));
+                Assert.That(FrameworkBuildSizeProbe.ReadDiagnosticLogExcerpt(path, 0), Is.Empty);
+            }
+            finally
+            {
+                if (File.Exists(path)) File.Delete(path);
+            }
+        }
+
+        [Test]
         public void MarkdownReport_ComputesDeltaAgainstSuccessfulCore()
         {
             var report = new FrameworkBuildSizeProbe.RunReport
@@ -1125,8 +1327,11 @@ namespace Game.Framework.Editor.Tests
             var window = ScriptableObject.CreateInstance<FrameworkBuildSizeProbeWindow>();
             try
             {
-                window.position = new Rect(0f, 0f, 360f, 520f);
+                window.Show(false);
+                window.position = new Rect(-10000f, -10000f, 360f, 520f);
                 window.CreateGUI();
+                Assert.That(window.rootVisualElement.panel, Is.Not.Null,
+                    "键盘渐进披露必须在真实 UI Toolkit Panel 上验证。 ");
 
                 var content = window.rootVisualElement.Q<ScrollView>("build-size-probe-content");
                 var actions = window.rootVisualElement.Q<VisualElement>("build-size-probe-actions");
@@ -1136,6 +1341,8 @@ namespace Game.Framework.Editor.Tests
                     "打开体积窗口不得隐式执行 Module Audit 与全目录指纹扫描。 ");
 
                 window.LoadProfilesForTests();
+                Assert.That(FrameworkModuleAuditCache.TryGet(out FrameworkModuleAuditCache.Entry evidence),
+                    Is.True);
 
                 var core = window.rootVisualElement.Q<Toggle>("build-size-probe-toggle-core");
                 var full = window.rootVisualElement.Q<Toggle>("build-size-probe-toggle-full");
@@ -1150,8 +1357,50 @@ namespace Game.Framework.Editor.Tests
                 Assert.That(full?.value, Is.False);
                 Assert.That(advanced, Is.Not.Null);
                 Assert.That(advanced.value, Is.False);
+                Assert.That(bridge, Is.Null,
+                    "进阶区折叠时不应急切创建全部 Module 卡片。 ");
+                int expectedProfiles = evidence.Result.CommonProfiles.Length + 1 +
+                                       evidence.Result.ModuleProfiles.Length;
+                Assert.That(window.rootVisualElement.Q<HelpBox>("build-size-probe-status").text,
+                    Does.Contain($"已读取 {expectedProfiles} 个组合"),
+                    "组合计数应描述完整可选集合，而不是只统计已经创建的折叠卡片。 ");
+
+                Toggle advancedTitle = advanced.Q<Toggle>();
+                Assert.That(advancedTitle, Is.Not.Null);
+                using (NavigationMoveEvent evt = NavigationMoveEvent.GetPooled(
+                           NavigationMoveEvent.Direction.Right, EventModifiers.None))
+                {
+                    evt.target = advancedTitle;
+                    advancedTitle.SendEvent(evt);
+                }
+                Assert.That(advanced.value, Is.True,
+                    "右方向键应通过 Foldout 的生产导航路径展开进阶组合。 ");
+                bridge = window.rootVisualElement.Q<Toggle>(
+                    "build-size-probe-toggle-module-game-framework-ui-bridge");
                 Assert.That(bridge, Is.Not.Null);
                 Assert.That(bridge.value, Is.False, "任意 Module 慢构建必须由用户按需选择，不能默认全跑。 ");
+                bridge.value = true;
+                advanced.value = false;
+                window.LoadProfilesForTests();
+                Assert.That(window.rootVisualElement.Q<Toggle>(
+                    "build-size-probe-toggle-module-game-framework-ui-bridge"), Is.Null,
+                    "刷新后折叠的进阶区仍应保持惰性，不能为了保存选择重建全部卡片。 ");
+                advancedTitle = advanced.Q<Toggle>();
+                using (NavigationMoveEvent evt = NavigationMoveEvent.GetPooled(
+                           NavigationMoveEvent.Direction.Right, EventModifiers.None))
+                {
+                    evt.target = advancedTitle;
+                    advancedTitle.SendEvent(evt);
+                }
+                bridge = window.rootVisualElement.Q<Toggle>(
+                    "build-size-probe-toggle-module-game-framework-ui-bridge");
+                Assert.That(bridge?.value, Is.True,
+                    "执行证据刷新与折叠只更新视图，不能把用户已经选择的构建意图重置成默认值。 ");
+                const string advancedHint =
+                    "每项以一个 Runtime Module 为入口并自动带上真实依赖闭包；适合验证 Config、Fonts、Proto、Bridge 等任意 Module，不是全局启用开关。";
+                Assert.That(window.rootVisualElement.Query<Label>().ToList()
+                        .Count(label => string.Equals(label.text, advancedHint, StringComparison.Ordinal)),
+                    Is.EqualTo(1), "刷新和展开不能重复添加同一段进阶说明。 ");
                 Assert.That(window.rootVisualElement.Q<TextField>(), Is.Null);
 
                 window.ApplyResponsiveLayoutForTests(360f);
@@ -1164,7 +1413,7 @@ namespace Game.Framework.Editor.Tests
             }
             finally
             {
-                UnityEngine.Object.DestroyImmediate(window);
+                window.Close();
                 FrameworkModuleAuditCache.Invalidate();
             }
         }

@@ -305,6 +305,8 @@ namespace Game.Framework.Test
             Assert.AreEqual(1, sourcePool.CountInactive, "重复归还不得再次触达来源池");
             Assert.AreSame(derived, sourcePool.Rent(),
                 "Return<T> 应按实例引用的来源路由，而不是调用点静态类型 T 猜池");
+            Assert.AreEqual(1, util.DiagnosticPoolCount,
+                "折叠诊断只应读取 O(1) 池数量，不需要格式化全部池行");
             Assert.AreEqual(1, util.GetPoolDiagnostics().Count,
                 "上转型归还不应顺带创建 BaseWidget 池");
 

@@ -22,13 +22,23 @@ namespace Game.Framework.Editor
         private string _rawReport = string.Empty;
         private FrameworkModuleAuditCache.Entry _evidence;
         private bool _refreshScheduled;
+        private bool _refreshInProgress;
 
         /// <summary>打开或聚焦 Module 裁剪审计窗口。</summary>
         [MenuItem(FrameworkMenuPaths.ModuleAudit, priority = 81)]
         public static void Open() => GetWindow<FrameworkModuleAuditWindow>("模块裁剪审计").Show();
 
-        private void OnEnable() => FrameworkModuleAuditCache.Invalidated += OnEvidenceInvalidated;
-        private void OnDisable() => FrameworkModuleAuditCache.Invalidated -= OnEvidenceInvalidated;
+        private void OnEnable()
+        {
+            FrameworkModuleAuditCache.Invalidated += OnEvidenceInvalidated;
+            FrameworkModuleAuditCache.Refreshed += OnEvidenceRefreshed;
+        }
+
+        private void OnDisable()
+        {
+            FrameworkModuleAuditCache.Invalidated -= OnEvidenceInvalidated;
+            FrameworkModuleAuditCache.Refreshed -= OnEvidenceRefreshed;
+        }
 
         /// <summary>构建可响应窗口宽度的 UI Toolkit 诊断界面。</summary>
         public void CreateGUI()
@@ -139,6 +149,7 @@ namespace Game.Framework.Editor
             if (_content == null) return;
             int progressId = -1;
             bool succeeded = false;
+            _refreshInProgress = true;
             try
             {
                 Action<string, float> onProgress = null;
@@ -173,6 +184,7 @@ namespace Game.Framework.Editor
                     Progress.Finish(progressId,
                         succeeded ? Progress.Status.Succeeded : Progress.Status.Failed);
                 _refreshScheduled = false;
+                _refreshInProgress = false;
                 _refreshButton?.SetEnabled(true);
             }
 
@@ -232,10 +244,17 @@ namespace Game.Framework.Editor
 
         private void OnEvidenceInvalidated()
         {
-            if (_content == null) return;
+            if (_content == null || _refreshInProgress) return;
             ShowIdleState(
                 "工程、Package、构建目标或编译图已经变化，上一份会话证据已失效。请在需要时重新采集。",
                 HelpBoxMessageType.Warning);
+        }
+
+        private void OnEvidenceRefreshed(FrameworkModuleAuditCache.Entry evidence)
+        {
+            if (_content == null || _refreshInProgress || ReferenceEquals(_evidence, evidence)) return;
+            ApplyEvidence(evidence, showNotification: false);
+            ApplyResponsiveLayoutForCurrentWidth();
         }
 
         private void ShowStatus(string text, HelpBoxMessageType messageType)

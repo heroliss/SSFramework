@@ -5,6 +5,7 @@ using System.Linq;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.TestTools;
 using UnityEngine.UIElements;
 
 namespace Game.Framework.Editor.Tests
@@ -1639,6 +1640,92 @@ namespace Game.Framework.Editor.Tests
                 if (File.Exists(renamed)) File.Delete(renamed);
                 if (Directory.Exists(directory) && !Directory.EnumerateFileSystemEntries(directory).Any())
                     Directory.Delete(directory);
+            }
+        }
+
+        [Test]
+        public void AssemblyReferenceCache_DetectsSameLengthSameTimestampContentReplacement()
+        {
+            string firstSource = typeof(FrameworkModuleAuditTests).Assembly.Location;
+            string secondSource = typeof(GameObject).Assembly.Location;
+            byte[] first = File.ReadAllBytes(firstSource);
+            byte[] second = File.ReadAllBytes(secondSource);
+            int sharedLength = Math.Max(first.Length, second.Length);
+            Array.Resize(ref first, sharedLength);
+            Array.Resize(ref second, sharedLength);
+
+            string directory = Path.Combine(
+                Path.GetTempPath(), "SSFrameworkDllCache-" + Guid.NewGuid().ToString("N"));
+            string path = Path.Combine(directory, "same.dll");
+            DateTime fixedTime = new(2025, 1, 2, 3, 4, 6, DateTimeKind.Utc);
+            Directory.CreateDirectory(directory);
+            try
+            {
+                File.WriteAllBytes(path, first);
+                File.SetLastWriteTimeUtc(path, fixedTime);
+                string[] firstReferences = FrameworkModuleAudit.ReadAssemblyReferences(path);
+
+                File.WriteAllBytes(path, second);
+                File.SetLastWriteTimeUtc(path, fixedTime);
+                string[] secondReferences = FrameworkModuleAudit.ReadAssemblyReferences(path);
+
+                Assert.That(new FileInfo(path).Length, Is.EqualTo(sharedLength));
+                Assert.That(File.GetLastWriteTimeUtc(path), Is.EqualTo(fixedTime));
+                Assert.That(secondReferences, Is.Not.EqualTo(firstReferences),
+                    "缓存命中必须由内容 SHA 决定，不能把同长度、同 mtime 的替换 DLL 当作旧证据。 ");
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [Test]
+        public void SharedCache_RefreshAndInvalidationKeepOpenWindowsConsistent()
+        {
+            FrameworkModuleAuditCache.Invalidate();
+            var first = ScriptableObject.CreateInstance<FrameworkModuleAuditWindow>();
+            var second = ScriptableObject.CreateInstance<FrameworkModuleAuditWindow>();
+            int healthyObserverCalls = 0;
+            Action<FrameworkModuleAuditCache.Entry> failingObserver = _ =>
+                throw new InvalidOperationException("observer-boom");
+            Action<FrameworkModuleAuditCache.Entry> healthyObserver = _ => healthyObserverCalls++;
+            try
+            {
+                first.Show(false);
+                first.position = new Rect(-10000f, -10000f, 360f, 520f);
+                first.CreateGUI();
+                second.Show(false);
+                second.position = new Rect(-10400f, -10000f, 360f, 520f);
+                second.CreateGUI();
+
+                FrameworkModuleAuditCache.Refreshed += failingObserver;
+                FrameworkModuleAuditCache.Refreshed += healthyObserver;
+                LogAssert.Expect(LogType.Error,
+                    new System.Text.RegularExpressions.Regex(
+                        "^\\[FrameworkModuleAuditCache\\] 证据刷新观察者异常："));
+
+                first.RefreshForTests();
+
+                Assert.That(healthyObserverCalls, Is.EqualTo(1),
+                    "一个窗口观察者失败不能阻止缓存提交和后续观察者。 ");
+                Assert.That(first.rootVisualElement.Q<VisualElement>("module-audit-summary"), Is.Not.Null);
+                Assert.That(second.rootVisualElement.Q<VisualElement>("module-audit-summary"), Is.Not.Null,
+                    "一个窗口显式刷新后，其他已打开窗口必须切到同一份新证据。 ");
+
+                FrameworkModuleAuditCache.Invalidate();
+                Assert.That(first.rootVisualElement.Q<VisualElement>("module-audit-summary"), Is.Null);
+                Assert.That(second.rootVisualElement.Q<VisualElement>("module-audit-summary"), Is.Null);
+                Assert.That(second.rootVisualElement.Q<VisualElement>("module-audit-idle"), Is.Not.Null,
+                    "共享证据失效后，其他窗口不能继续把旧结果显示为当前真相。 ");
+            }
+            finally
+            {
+                FrameworkModuleAuditCache.Refreshed -= failingObserver;
+                FrameworkModuleAuditCache.Refreshed -= healthyObserver;
+                first.Close();
+                second.Close();
+                FrameworkModuleAuditCache.Invalidate();
             }
         }
 

@@ -131,7 +131,7 @@ namespace Game.Framework.Editor
         private readonly List<LoggingCommandSystem.Entry> _cmdRows = new(); // 过滤后（新 → 旧），表格数据源
         private long _lastTotalRecorded = -1;
         private bool _cmdFilterDirty = true;
-        private bool _secRegOpen, _secFallbackOpen = true, _secFlowOpen = true, _secEvtOpen = true, _secPoolOpen = true;
+        private bool _secRegOpen, _secFallbackOpen = true, _secFlowOpen = true, _secEvtOpen = true, _secPoolOpen;
         private LayoutMode? _layoutMode;
 
         /// <summary>树节点数据：TreeView item 里只挂 Context 引用，其余现算（每次重绑都拿最新值）。</summary>
@@ -235,7 +235,11 @@ namespace Game.Framework.Editor
                 else _ticker.Pause();
             });
             _toolbarActions.Add(auto);
-            _toolbarActions.Add(new ToolbarButton(Tick) { text = "刷新", tooltip = "手动刷新一次（自动刷新关闭时用）。" });
+            _toolbarActions.Add(new ToolbarButton(ForceRefresh)
+            {
+                text = "刷新",
+                tooltip = "丢弃可视快照并重新读取一次；自动刷新关闭时也可用。",
+            });
 
             _treeSearchField = new ToolbarSearchField
             {
@@ -256,6 +260,19 @@ namespace Game.Framework.Editor
             wrapper.Add(_toolbarActions);
             wrapper.Add(_toolbarSearchRow);
             return wrapper;
+        }
+
+        private void ForceRefresh()
+        {
+            // 增量签名刻意偏轻，同类型实例替换未必改变字符串。人工刷新表达的是“不要复用”，
+            // 因而必须同时作废所有结构视图，而不只是再调用一次普通 Tick。
+            _sinkSignature = null;
+            _treeSignature = string.Empty;
+            _monoIssueSignature = string.Empty;
+            _detailSignature = null;
+            _lastTotalRecorded = -1;
+            _cmdFilterDirty = true;
+            Tick();
         }
 
         private VisualElement BuildCountersStrip()
@@ -635,7 +652,12 @@ namespace Game.Framework.Editor
                 return;
             }
 
-            string sig = ComputeDetailSignature(ctx);
+            PoolUtility pool = ResolveLocalPool(ctx);
+            int poolCount = pool?.DiagnosticPoolCount ?? 0;
+            IReadOnlyList<string> poolDiagnostics = pool != null && _secPoolOpen
+                ? pool.GetPoolDiagnostics()
+                : Array.Empty<string>();
+            string sig = ComputeDetailSignature(ctx, poolCount, poolDiagnostics, _secPoolOpen);
             if (sig == _detailSignature)
             {
                 // 结构没变只更新存活时长，不整体重建（保滚动位置 / 折叠状态）。
@@ -854,20 +876,28 @@ namespace Game.Framework.Editor
             _detail.Add(evtFold);
 
             // 池借出 / 空闲（只看本地注册的池；父级的池在父节点看，避免整棵树重复）。
-            var poolImpl = ResolveLocalPool(ctx);
-            if (poolImpl != null)
+            if (pool != null)
             {
-                var pools = poolImpl.GetPoolDiagnostics();
-                var poolFold = Section($"对象池（{pools.Count}）", _secPoolOpen, v => _secPoolOpen = v);
-                if (pools.Count == 0) poolFold.Add(MutedLabel("（无池）"));
-                else
-                    foreach (string lineText in pools)
+                var poolFold = Section($"对象池（{poolCount}）", _secPoolOpen, value =>
+                {
+                    _secPoolOpen = value;
+                    _detailSignature = string.Empty;
+                    rootVisualElement.schedule.Execute(RefreshDetail);
+                });
+                if (_secPoolOpen && poolDiagnostics.Count == 0)
+                    poolFold.Add(MutedLabel("（无池）"));
+                else if (_secPoolOpen)
+                    foreach (string lineText in poolDiagnostics)
                         poolFold.Add(new Label(lineText) { style = { fontSize = 11 } });
                 _detail.Add(poolFold);
             }
         }
 
-        private static string ComputeDetailSignature(GameContext ctx)
+        private static string ComputeDetailSignature(
+            GameContext ctx,
+            int poolCount,
+            IReadOnlyList<string> poolDiagnostics,
+            bool includePoolDetails)
         {
             var sb = new StringBuilder(256);
             sb.Append(ctx.GetHashCode()).Append('|').Append(ctx.DebugName);
@@ -882,9 +912,9 @@ namespace Game.Framework.Editor
             if (counts != null)
                 foreach (var kv in counts)
                     sb.Append(kv.Key.Name).Append(':').Append(kv.Value).Append(';');
-            var pool = ResolveLocalPool(ctx);
-            if (pool != null)
-                foreach (string s in pool.GetPoolDiagnostics())
+            sb.Append("pools:").Append(poolCount).Append('|').Append(includePoolDetails).Append(';');
+            if (includePoolDetails && poolDiagnostics != null)
+                foreach (string s in poolDiagnostics)
                     sb.Append(s).Append(';');
             var flow = ResolveLocalGameFlow(ctx);
             if (flow is GameFlow gameFlow)
@@ -1685,13 +1715,29 @@ namespace Game.Framework.Editor
         private static Label MutedLabel(string text) => new(text) { style = { color = ColMuted, fontSize = 11 } };
 
         // 明细里的折叠节：标题带计数、折叠状态回写窗口字段（重建明细后不丢用户的开合选择）。
-        private static Foldout Section(string title, bool open, Action<bool> setOpen)
+        internal static Foldout Section(string title, bool open, Action<bool> setOpen)
         {
             var fold = new Foldout { text = title, value = open, style = { marginBottom = 4 } };
+            bool current = open;
+
+            void SyncOpenState()
+            {
+                if (current == fold.value) return;
+                current = fold.value;
+                setOpen(current);
+            }
+
             fold.RegisterValueChangedCallback(e =>
             {
-                if (e.target == fold) setOpen(e.newValue);
+                if (!ReferenceEquals(e.target, fold) || current == e.newValue) return;
+                current = e.newValue;
+                setOpen(current);
             });
+            Toggle ownToggle = fold.Q<Toggle>();
+            if (ownToggle == null)
+                throw new InvalidOperationException($"诊断 Foldout '{title}' 缺少标题 Toggle。");
+            ownToggle.RegisterCallback<NavigationMoveEvent>(_ => SyncOpenState());
+            ownToggle.RegisterCallback<KeyDownEvent>(_ => SyncOpenState());
             return fold;
         }
 

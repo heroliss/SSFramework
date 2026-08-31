@@ -139,6 +139,39 @@ namespace Game.Framework.Editor.Tests
         }
 
         [Test]
+        public void DetailSection_RightArrowSynchronizesCollapsedDiagnosticState()
+        {
+            var window = ScriptableObject.CreateInstance<FrameworkDiagnosticsWindow>();
+            bool open = false;
+            try
+            {
+                window.Show(false);
+                window.position = new Rect(-10000f, -10000f, 360f, 240f);
+                var section = FrameworkDiagnosticsWindow.Section("对象池（1）", open, value => open = value);
+                window.rootVisualElement.Clear();
+                window.rootVisualElement.Add(section);
+                Toggle title = section.Q<Toggle>();
+                Assert.That(title, Is.Not.Null);
+
+                using (NavigationMoveEvent evt = NavigationMoveEvent.GetPooled(
+                           NavigationMoveEvent.Direction.Right, EventModifiers.None))
+                {
+                    evt.target = title;
+                    title.SendEvent(evt);
+                }
+
+                Assert.That(section.value, Is.True,
+                    "右方向键应通过 Unity Foldout 的标题 Toggle 展开当前节。 ");
+                Assert.That(open, Is.True,
+                    "SetValueWithoutNotify 的键盘路径仍必须同步诊断窗口状态，才能触发对象池懒加载。 ");
+            }
+            finally
+            {
+                window.Close();
+            }
+        }
+
+        [Test]
         public void CompactCommandHint_PreservesNextStepWithoutRenderingLongCodeBlock()
         {
             string compact = FrameworkDiagnosticsWindow.ResolveCommandHint(
