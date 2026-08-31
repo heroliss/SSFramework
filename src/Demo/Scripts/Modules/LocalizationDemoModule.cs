@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using DemoCfg;
@@ -6,6 +7,7 @@ using Game.Framework.Common;
 using Game.Framework.Context;
 using Game.Framework.Demo.Core;
 using Game.Framework.Localization;
+using Game.Framework.Logging;
 using Game.Framework.UI.Toolkit;
 using R3;
 using UnityEngine;
@@ -197,16 +199,25 @@ namespace Game.Framework.Demo.Modules
             banner.style.marginBottom = 4;
             host.Content.Add(banner);
 
-            var bannerBag = Bag.CreateChild();
-            Bag.Subscribe(loc.Locale, l =>
-            {
-                // 换语言换图 = 释放旧句柄 + 按新 locale 重载（子 Bag 重建见用户手册「AssetReference」章）。
-                bannerBag.Dispose();
-                bannerBag = Bag.CreateChild();
-                LoadBanner(bannerBag, banner, l).Forget();
-            });
-            host.AddNote("图按 **location 后缀约定**命名：`l10n-banner_zh-CN` / `l10n-banner_en`（YooAsset 按文件名寻址，放收集目录即可）；换语言 = `Bag.Subscribe(loc.Locale, ...)` 里 Dispose 旧子 Bag → 按新 locale `Load<Sprite>`。**框架刻意零专门 API**——这就是资源系统 + 响应式的一行组合；大体量项目按 locale 分包（YooAsset 多 package）同理，只是多一层「locale → 包名」映射。",
-                CodeRef.Here("LoadBanner(bannerBag, banner, l)", "换语言重载图"));
+            DisposableBag bannerBag = null;
+            Bag.Add(loc.Locale.SubscribeAwait(
+                async (l, ct) =>
+                {
+                    // Switch 先取消上一轮等待；子 Bag 再释放旧句柄，异步控制流与资源所有权各管一层。
+                    bannerBag?.Dispose();
+                    DisposableBag activeBag = bannerBag = Bag.CreateChild();
+                    var sprite = await activeBag.Load<Sprite>($"l10n-banner_{l}", ct);
+                    if (sprite != null && !activeBag.IsDisposed && !ct.IsCancellationRequested)
+                        banner.sprite = sprite;
+                },
+                onCompleted: result =>
+                {
+                    if (result.IsFailure && result.Exception is not OperationCanceledException)
+                        Log.Error("本地化图片响应式加载异常停止。", result.Exception, nameof(LocalizationDemoModule));
+                },
+                awaitOperation: AwaitOperation.Switch));
+            host.AddNote("图按 **location 后缀约定**命名：`l10n-banner_zh-CN` / `l10n-banner_en`；`SubscribeAwait(AwaitOperation.Switch)` 让新语言取消旧等待，重建子 Bag 则释放旧句柄。**框架刻意零专门 API**——这是资源系统 + 响应式的直接组合；大体量项目按 locale 分包同理，只多一层「locale → 包名」映射。",
+                CodeRef.Here("loc.Locale.SubscribeAwait(", "切语言取消旧加载并释放旧句柄"));
 
             // ── 音频多语言 ──
             host.AddSectionTitle("音频多语言：同一后缀约定，播放时按当前语言取");
@@ -225,13 +236,6 @@ namespace Game.Framework.Demo.Modules
             host.AddConcept("字体切换", "不在本接口——由「字体 · 多语言字体链」章的 `MonoLocaleFonts` 承接（订阅 `Locale` 自动切换 fallback 链，ADR-0025），本模块只出信号。");
 
             host.AddTip("速记：Source 用 Lookup 区分 Unavailable / Missing 并在答案变化时发 Invalidated；文本 UI 订 TextRevision，字体/图片/音频订 Locale；设置页仍是 SetLocale + 存档回灌。深度见 framework-guide 本地化章 / ADR-0024 / ADR-0035。");
-        }
-
-        private static async UniTaskVoid LoadBanner(DisposableBag bag, Image banner, string locale)
-        {
-            var sprite = await bag.Load<Sprite>($"l10n-banner_{locale}");
-            if (sprite != null && !bag.IsDisposed) // 加载途中又切了语言：本次结果作废（句柄已随子 Bag 释放）
-                banner.sprite = sprite;
         }
 
         private async UniTask PlayVoice(ILocalizationUtility loc, CancellationToken ct)
