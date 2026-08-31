@@ -2264,7 +2264,7 @@ Bag.SubscribeClickAsync(button, async ct =>   // 异步点击：随 Bag 取消�
 
 `SubscribeClickAsync` 的职责边界很窄：把 View/订阅生命周期 token 交给 handler，并把未处理异常送进 `Log`（category=`UIBinding`）。生命周期取消不记错误；能预期且需要界面呈现的失败应在 handler 就近捕获。它**不会**自动禁用按钮、去抖或单飞——是否允许并发点击是业务交互策略，调用方需要时自己禁用按钮或加 gate。
 
-默认把 token 继续传给 `Open`、命令、网络或延迟操作。若点击启动的是包下载等物理操作，且窗口关闭后也必须完成，可以明确忽略 View token；绑定仍会观察任务直到终态，但 handler 在窗口关闭后不得再写旧 UI。这个方法留在 `Game.Framework.UI.Toolkit` Adapter，而不是塞进 Core `DisposableBag`：当前重复问题来自 Toolkit 的 `Button.clicked`；UGUI 的 `Button.onClick` 仍用通用 `Bag.Subscribe(UnityEvent, ...)`，只有出现真实、重复的异步所有权需求时才在 UGUI Adapter 增加对称能力。
+默认把 token 继续传给 `Open`、命令、网络或延迟操作。若点击启动的是包下载等物理操作，且窗口关闭后也必须完成，可以明确忽略 View token；绑定仍会观察任务直到终态，但 handler 在窗口关闭后不得再写旧 UI。`UIToolkitWindowBase` 为这种少数路径提供受保护的 `CanUpdateVisuals`：它同时检查逻辑仍打开与 View 尚未 Dispose，因此每个 await 后判断一次即可覆盖正常 Close、Cache 隐藏、Context / UI owner teardown 和缓存重开；不要在各窗口复制只会由 `OnClose` 置位的 `_closed`。这个方法留在 `Game.Framework.UI.Toolkit` Adapter，而不是塞进 Core `DisposableBag`：当前重复问题来自 Toolkit 的 `Button.clicked`；UGUI 的 `Button.onClick` 仍用通用 `Bag.Subscribe(UnityEvent, ...)`，只有出现真实、重复的异步所有权需求时才在 UGUI Adapter 增加对称能力。
 
 **刻意不引入** UI Toolkit 原生 DataBinding——保持一套订阅模型对人和 AI 都更省心。复杂绑定先用 R3 操作符组合再 `Bag.Bind(observable, apply)`。
 

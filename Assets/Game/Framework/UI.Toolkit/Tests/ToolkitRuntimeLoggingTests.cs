@@ -218,6 +218,30 @@ namespace Game.Framework.Test
             Assert.DoesNotThrow(() => view.Dispose(), "重复释放保持幂等，不能再次执行失败 hook");
         }
 
+        [Test]
+        public void ToolkitWindow_VisualUpdateGuardTracksCloseReopenAndPhysicalDisposal()
+        {
+            var window = new VisualUpdateGuardWindow();
+            var lifecycle = (IUIWindow)window;
+
+            Assert.IsFalse(window.MayUpdateVisuals, "只创建、尚未打开的窗口不能冒充可见实例");
+            lifecycle.OnOpen(null);
+            Assert.IsTrue(window.OpenHookObservedGuard,
+                "OnOpen hook 运行时应已经允许初始化本次打开的可视状态");
+            Assert.IsTrue(window.MayUpdateVisuals);
+
+            lifecycle.OnClose();
+            Assert.IsFalse(window.CloseHookObservedGuard,
+                "OnClose hook 运行前必须先关闭门禁，避免同步回调重入时继续写逻辑已关闭的窗口");
+            Assert.IsFalse(window.MayUpdateVisuals);
+
+            lifecycle.OnOpen(null);
+            Assert.IsTrue(window.MayUpdateVisuals, "Cache 窗口重开后应恢复可视更新资格");
+            window.Dispose();
+            Assert.IsFalse(window.MayUpdateVisuals,
+                "Context / UI owner teardown 跳过 OnClose 时，物理 Dispose 仍必须关闭可视更新门禁");
+        }
+
         private sealed class CapturingSink : ILogSink
         {
             public LogLevel MinLevel => LogLevel.Trace;
@@ -244,6 +268,16 @@ namespace Game.Framework.Test
 
         [UIWindow]
         private sealed class CancelProbeToolkitWindow : UIToolkitWindowBase { }
+
+        private sealed class VisualUpdateGuardWindow : UIToolkitWindowBase
+        {
+            internal bool MayUpdateVisuals => CanUpdateVisuals;
+            internal bool OpenHookObservedGuard { get; private set; }
+            internal bool CloseHookObservedGuard { get; private set; }
+
+            protected override void OnOpen(object args) => OpenHookObservedGuard = CanUpdateVisuals;
+            protected override void OnClose() => CloseHookObservedGuard = CanUpdateVisuals;
+        }
 
         private sealed class FailingDisposeToolkitView : UIToolkitViewBase
         {
