@@ -1341,6 +1341,8 @@ public class MiniGameController : MonoBehaviour
 
 框架通过 `IAssetUtility` 与 `AssetReference<T>` 提供统一资源入口。业务动态加载用 location；Inspector 拖拽引用用 `AssetReference<T>`。GUID 只保存在引用内部，不作为业务 API 暴露。资源在工程里按类型 / 模块怎么摆（及 YooAsset 寻址 / 打包约定）见 §26「推荐项目结构」。
 
+资源服务与 `AssetReference` 的可变状态由 **Unity 主线程独占**，入口也必须从主线程调用；这不是一个可从 worker 并发访问的容器。自定义 Provider 可以在任意线程物理完成 I/O，但 `IAssetUtility` 自身的初始化、等待、加载和维护 task 会把成功、异常、取消都恢复到 Unity 主线程后再交付，状态流、维护队列和 handle owner 也只在主线程提交。因此业务在 `await` 后可以直接继续操作 Context、Bag、Model 与 Unity 对象，不需要猜第三方 task 最后停在哪条线程。这里保证的是 Utility 公共 task 的终态；从它创建出的 downloader、scene handle 等独立对象仍按各自 Interface / Adapter 契约使用。
+
 `MonoViewBase/MonoModelBase/MonoSystemBase/MonoUtilityBase` 内置 protected `Bag`——动态加载通过 `Bag.Load<T>(location)` / `Bag.LoadScene(...)`，handle 自动登记到 Bag，`OnDestroy` 时统一释放；`Bag.LoadText` / `Bag.LoadBytes` 是内容直读（拷出即释放句柄、不进 Bag），按包构建类型自动路由（普通 AB 包按 TextAsset 取内容，RawFile 包走原生通道）。`AssetReference<T>` 字段则自己持有 handle，并由宿主 `OnDestroy` 自动 `Dispose`。真实引用计数由具体资源 provider 维护，框架只管理“谁负责释放哪一类 handle”。
 
 `AssetReference` 的包名留空表示“加载时使用当前绑定 `IAssetUtility` 的默认包”，不是在序列化时记住某个场景全局值。各宿主独立持有的引用实例可以属于不同局部 Context，因此 Inspector 会诚实显示“运行时默认包”；只有打开包名下拉时，才把当前已加载配置中的包名列为录入候选。这些候选不代表作用域验证，最终默认包始终由实际绑定的 Utility 决定。
@@ -1466,6 +1468,8 @@ await downloader.Download(this.GetCancellationTokenOnDestroy());
 await this.GetUtility<IAssetUtility>().Initialize();          // 默认包
 await this.GetUtility<IAssetUtility>().Initialize("DlcPack"); // 指定包
 ```
+
+使用默认包重载的前提是 Settings 或代码 `Configure` 确实配置了默认包。若项目刻意只使用具名包，`InitState`、`GetInitState(null)`、`CreateAllDownloader()` 等默认包便捷入口会直接抛出包含修复提示的 `InvalidOperationException`；它们不会把“缺默认包”泄漏成字典或参数层面的 `ArgumentNullException`。此时统一传明确的 `packageName`。
 
 `Initialize` 的普通网络 / 清单失败不直接抛，仍由该包 `InitState` 落到 `Failed`；但调用者 token 取消会保留 `OperationCanceledException`。这里的取消只表示“当前页面不再等”：物理初始化已经启动后仍由 `AssetUtility` 生命周期持有，包继续保持 `Initializing`，最终落到 `Ready` / `Failed`。新的同包调用只加入这份 owner，不会在 YooAsset operation 尚未结束时重入初始化。
 
@@ -1971,6 +1975,8 @@ var commandItem = ctx.GetConfig<Tables>().TbItem[id];
 | 持续显示 Loading / Ready / Failed，随状态刷新 UI | 获取 `IConfigUtility<Tables>` 后订阅 `State` | 状态只表达可观察阶段；收到 Ready 时 `Tables` 已发布 |
 
 `EnsureConfig` 只是 Context 解析的短入口，取消与失败语义仍由 `IConfigUtility.EnsureReady` 唯一拥有：调用方 token **只取消这个等待者**，不传给共享的物理加载。一个窗口关闭不能把别的 System 也在等待的配置加载截断；真正的 owner 是配置组件 + Context，Context 取消或组件销毁才会终止共享加载及全部未完成等待，而组件销毁还会完结 `State` 流以释放订阅。正常的 Context 宿主销毁会随层级继续销毁其配置组件；若代码只手动 Dispose 纯 C# Context，则不要把它误当作 Unity 组件已经销毁。即使 Provider 的取消回调抛异常，也不会截断 Bag 释放和 Context 反注册。反过来，owner token 没取消时 Provider / Adapter 自发抛出的 `OperationCanceledException` 不是生命周期控制流：服务会把它包装为保留 inner 的 `InvalidOperationException` 并发布 Failed，避免状态永远停在 Loading。服务失败后不会偷偷重试：重试应重建所属 Context / 组件，避免旧表与新表在同一作用域并存。
+
+配置服务同样由 Unity 主线程独占。资源 Adapter 即使在 worker 返回字节，表根构造、`State` 发布和 `EnsureReady` 的成功 / 异常 / 取消也会先恢复到主线程；调用方 token 从 worker 触发取消也不例外。自定义 `IConfigUtility<TTables>` 实现必须保持这条终态契约，避免 await 后的 View / Flow 代码偶发越线程触碰 Unity 对象。
 
 活跃且启用的配置组件可以在 Unity 调用 `Start` 前先被 `EnsureReady` / `EnsureConfig` 等待；这是正常的启动门禁。若组件仍为 Idle 却处于 disabled，或所在 GameObject inactive，Unity 根本不会调用 `Start`，框架会立即提示先启用 / 激活，而不是让 await 永久挂起。这个提示不会把服务写成 Failed；修正场景状态后，第一次自加载仍会正常发生。
 

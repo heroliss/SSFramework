@@ -73,7 +73,9 @@ namespace Game.Framework
 
                     try
                     {
-                        await entry.Operation(entry.OwnerToken);
+                        // Provider / 第三方 Adapter 可以在 worker 结束。队列、Entry 与 TCS 都是主线程独占状态，
+                        // 所以成功、失败、取消三种物理终态都先回主线程再提交并推进下一项。
+                        await MainThreadGuard.AwaitOnMainThread(entry.Operation(entry.OwnerToken));
                         entry.Complete();
                     }
                     catch (Exception ex)
@@ -91,6 +93,7 @@ namespace Game.Framework
         private sealed class Entry
         {
             private readonly UniTaskCompletionSource _done = new();
+            private readonly CancellationTokenRegistration _waiterCancellation;
             private ExceptionDispatchInfo _error;
             private int _waiterDetached;
 
@@ -109,25 +112,30 @@ namespace Game.Framework
                 Operation = operation;
                 OwnerToken = ownerToken;
                 WaiterToken = waiterToken;
+                // token 可能从 worker 取消。先在取消线程只做一次原子标记，再由 Wait 负责切回主线程传播 OCE；
+                // 这样物理 operation 若紧接着失败，Complete 仍知道已无人接收并会记录根异常。
+                if (waiterToken.CanBeCanceled)
+                    _waiterCancellation = waiterToken.Register(
+                        () => Interlocked.Exchange(ref _waiterDetached, 1));
             }
 
             public async UniTask Wait()
             {
                 try
                 {
-                    await _done.Task.AttachExternalCancellation(WaiterToken);
+                    await MainThreadGuard.AwaitOnMainThread(
+                        _done.Task.AttachExternalCancellation(WaiterToken));
+                    _error?.Throw();
                 }
-                catch (OperationCanceledException) when (WaiterToken.IsCancellationRequested)
+                finally
                 {
-                    Interlocked.Exchange(ref _waiterDetached, 1);
-                    throw;
+                    _waiterCancellation.Dispose();
                 }
-
-                _error?.Throw();
             }
 
             public void Complete(Exception error = null)
             {
+                MainThreadGuard.AssertMainThread(nameof(AssetPackageOperationLane));
                 if (error != null)
                     _error = ExceptionDispatchInfo.Capture(error);
 

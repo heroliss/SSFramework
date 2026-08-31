@@ -1,6 +1,6 @@
 # ADR-0009：Luban 配置表集成 —— 构建期生成 + 运行期经资源系统加载
 
-**Status:** Accepted（2026-06-12 落地：框架模块 + 生成管线 + Demo 章节；本文件由 Proposed 设计稿更新而来。**2026-06-18 修订 §3**：配置从「Model + InitSystem 两件套」改为**单个自加载的配置 Utility 服务**；**2026-08-26 修订 §3.1**：把命令式就绪、根异常与调用方取消收进 Interface，避免业务重复轮询终态；**2026-08-28 修订 §1**：生成改为暂存校验后的双目录可恢复事务；**2026-08-30 修订 §3.1**：配置 owner 销毁时完结 `State` 并隔离取消回调异常；**2026-08-30 修订 §3.2**：增加保留 Context 的短读取 / 门禁入口，并明确拒绝全局静态表与默认逐表权限矩阵；**2026-08-31 修订 §3.1**：Idle 不可启动时 fail-fast，并区分 owner 取消与下游自发 OCE）
+**Status:** Accepted（2026-06-12 落地：框架模块 + 生成管线 + Demo 章节；本文件由 Proposed 设计稿更新而来。**2026-06-18 修订 §3**：配置从「Model + InitSystem 两件套」改为**单个自加载的配置 Utility 服务**；**2026-08-26 修订 §3.1**：把命令式就绪、根异常与调用方取消收进 Interface，避免业务重复轮询终态；**2026-08-28 修订 §1**：生成改为暂存校验后的双目录可恢复事务；**2026-08-30 修订 §3.1**：配置 owner 销毁时完结 `State` 并隔离取消回调异常；**2026-08-30 修订 §3.2**：增加保留 Context 的短读取 / 门禁入口，并明确拒绝全局静态表与默认逐表权限矩阵；**2026-08-31 修订 §3.1**：Idle 不可启动时 fail-fast，并区分 owner 取消与下游自发 OCE；**2026-08-31 再修订 §3.1**：配置发布与公开终态统一回 Unity 主线程）
 
 ## Context
 
@@ -48,6 +48,8 @@ cs-bin 生成的 `Tables` 构造函数是**同步** `Func<string, ByteBuf>`，�
 **为什么不让业务继续 `WaitUntil(State is Ready or Failed)`**：这种写法在每个调用方重复终态编排，而且 `Failed` 只是枚举，原始的缺资源、清单不一致或反序列化异常已经丢失。`EnsureReady` 把“等一次共享尝试 → 返回表根 / 抛根因”藏进 Interface，调用方不需要知道 Implementation 用 RP、completion source 还是别的同步原语。
 
 **取消所有权**：传给 `EnsureReady` 的 token 只让该 waiter 离开，不传给物理加载；一个界面切走不能截断其他 System 共享的配置加载。组件与 Context 的 owner token 才会取消物理加载及剩余等待。只有 owner token 确实取消时，下游 `OperationCanceledException` 才发布为生命周期取消；Provider / Adapter 在 owner 仍存活时自发抛 OCE 属失败，会包装成带原异常的 `InvalidOperationException`、记录并发布 Failed，避免 `State` 永久卡在 Loading。加载仍是一锤子自加载，失败后不隐式重试；需要重试就重建所属 Context / 组件，保持同一作用域内表根身份稳定。
+
+**线程所有权**：配置服务、表根发布与状态流由 Unity 主线程独占，`EnsureReady` 也只从主线程进入。底层 `IAssetUtility` / Provider 可以在 worker 物理完成字节读取，调用方 token 也可能从 worker 取消；Implementation 必须先恢复主线程，再构造表根、发布 Ready / Failed 并交付 `EnsureReady` 的成功、异常或取消。这样业务 await 后可以直接继续访问 View、Context 与 Unity 对象，而不需要知道 Adapter 的物理完成线程。Config 是可删除 Module，不反向依赖 Core 的内部 helper；它在自己的公开边界维持同一最小契约。
 
 **启动前等待边界**：活跃且启用的组件可以在 Unity 调用 `Start` 前收到 `EnsureReady`，waiter 会挂到随后同一次自加载；若服务仍为 Idle 且组件 disabled 或 GameObject inactive，Unity 不会调用 `Start`，因此该调用立即给出包含启用 / 激活建议的 `InvalidOperationException`，而不是永久等待。这个诊断不写 Failed 也不完成共享 completion；修正场景状态后，`Start` 仍能正常拥有第一次加载。
 

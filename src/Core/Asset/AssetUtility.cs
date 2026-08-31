@@ -74,7 +74,7 @@ namespace Game.Framework
             get
             {
                 ThrowIfDisposed();
-                return GetState(_defaultPackageName).State;
+                return GetState(RequirePackage(_defaultPackageName)).State;
             }
         }
 
@@ -399,7 +399,8 @@ namespace Game.Framework
 
             // 每个调用者只等待共享结果。取消这个 await 不触碰 owner、不改变 InitState；owner 最终仍会落到 Ready / Failed。
             using var linked = LinkDispose(token, out var waitToken);
-            await waitingAttempt.Done.Task.AttachExternalCancellation(waitToken);
+            await MainThreadGuard.AwaitOnMainThread(
+                waitingAttempt.Done.Task.AttachExternalCancellation(waitToken));
         }
 
         private async UniTask RunInitializationOwner(
@@ -414,7 +415,8 @@ namespace Game.Framework
             try
             {
                 // 这里刻意不用任一调用者 token。provider 的物理操作归 utility 生命周期所有；只有 OnDestroy 才取消 owner。
-                await provider.InitializeAsync(packageName, mode, config.Snapshot(), ownerToken);
+                await MainThreadGuard.AwaitOnMainThread(
+                    provider.InitializeAsync(packageName, mode, config.Snapshot(), ownerToken));
                 if (_disposedByDestroy) return;
                 state.State.Value = AssetInitState.Ready;
                 attempt.Done.TrySetResult();
@@ -555,7 +557,7 @@ namespace Game.Framework
         public ReadOnlyReactiveProperty<AssetInitState> GetInitState(string packageName)
         {
             ThrowIfDisposed();
-            return GetState(NormalizePackageName(packageName)).State;
+            return GetState(RequirePackage(packageName)).State;
         }
 
         public UniTask EnsureInitialized(CancellationToken ct = default)
@@ -600,12 +602,14 @@ namespace Game.Framework
             // （不挂异常，见 InitializePackageAsync），所以醒来后读取该 attempt 捕获的 Error；同步重试不会串台。
             if (!ct.CanBeCanceled)
             {
-                await attempt.Done.Task.AttachExternalCancellation(_disposeCts.Token);
+                await MainThreadGuard.AwaitOnMainThread(
+                    attempt.Done.Task.AttachExternalCancellation(_disposeCts.Token));
             }
             else
             {
                 using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _disposeCts.Token);
-                await attempt.Done.Task.AttachExternalCancellation(linked.Token);
+                await MainThreadGuard.AwaitOnMainThread(
+                    attempt.Done.Task.AttachExternalCancellation(linked.Token));
             }
 
             if (attempt.Error != null)
@@ -628,6 +632,7 @@ namespace Game.Framework
         public async UniTask<IAssetHandle<T>> Load<T>(string packageName, string location, CancellationToken ct = default)
             where T : UnityEngine.Object
         {
+            ThrowIfDisposed();
             if (string.IsNullOrEmpty(location))
             {
                 Log.Warning("资源地址（location）为空。", nameof(AssetUtility), this);
@@ -645,6 +650,7 @@ namespace Game.Framework
         public async UniTask<IAssetHandle<T>> LoadByGuid<T>(string packageName, string guid, CancellationToken ct = default)
             where T : UnityEngine.Object
         {
+            ThrowIfDisposed();
             if (string.IsNullOrEmpty(guid))
             {
                 Log.Warning("GUID 为空。", nameof(AssetUtility), this);
@@ -669,6 +675,7 @@ namespace Game.Framework
             bool suspendLoad = false,
             CancellationToken ct = default)
         {
+            ThrowIfDisposed();
             if (string.IsNullOrEmpty(location))
             {
                 Log.Warning("场景地址（location）为空。", nameof(AssetUtility), this);
@@ -678,7 +685,13 @@ namespace Game.Framework
             packageName = NormalizePackageName(packageName);
             await EnsureInitialized(packageName, ct);
             using var link = LinkDispose(ct, out var lct);
-            return await _provider.LoadSceneAsync(packageName, location, mode, suspendLoad, lct);
+            var handle = await MainThreadGuard.AwaitOnMainThread(
+                _provider.LoadSceneAsync(packageName, location, mode, suspendLoad, lct));
+            if (!lct.IsCancellationRequested) return handle;
+
+            DisposeLateSceneHandle(handle, location);
+            lct.ThrowIfCancellationRequested();
+            return null; // ThrowIfCancellationRequested 必然抛；保留返回只满足编译器控制流。
         }
 
         public UniTask<string> LoadText(string location, CancellationToken ct = default)
@@ -686,6 +699,7 @@ namespace Game.Framework
 
         public async UniTask<string> LoadText(string packageName, string location, CancellationToken ct = default)
         {
+            ThrowIfDisposed();
             if (string.IsNullOrEmpty(location))
             {
                 Log.Warning("文本资源地址（location）为空。", nameof(AssetUtility), this);
@@ -695,7 +709,10 @@ namespace Game.Framework
             packageName = NormalizePackageName(packageName);
             await EnsureInitialized(packageName, ct);
             using var link = LinkDispose(ct, out var lct);
-            return await _provider.LoadTextAsync(packageName, location, lct);
+            string text = await MainThreadGuard.AwaitOnMainThread(
+                _provider.LoadTextAsync(packageName, location, lct));
+            lct.ThrowIfCancellationRequested();
+            return text;
         }
 
         public UniTask<byte[]> LoadBytes(string location, CancellationToken ct = default)
@@ -703,6 +720,7 @@ namespace Game.Framework
 
         public async UniTask<byte[]> LoadBytes(string packageName, string location, CancellationToken ct = default)
         {
+            ThrowIfDisposed();
             if (string.IsNullOrEmpty(location))
             {
                 Log.Warning("字节资源地址（location）为空。", nameof(AssetUtility), this);
@@ -712,7 +730,10 @@ namespace Game.Framework
             packageName = NormalizePackageName(packageName);
             await EnsureInitialized(packageName, ct);
             using var link = LinkDispose(ct, out var lct);
-            return await _provider.LoadBytesAsync(packageName, location, lct);
+            byte[] bytes = await MainThreadGuard.AwaitOnMainThread(
+                _provider.LoadBytesAsync(packageName, location, lct));
+            lct.ThrowIfCancellationRequested();
+            return bytes;
         }
 
         public AssetLocationState GetLocationState(string location)
@@ -743,6 +764,7 @@ namespace Game.Framework
 
         public string GetPackageVersion(string packageName = null)
         {
+            ThrowIfDisposed();
             packageName = NormalizePackageName(packageName);
             if (_provider == null || string.IsNullOrWhiteSpace(packageName)) return null;
             return _provider.GetPackageVersion(packageName);
@@ -907,7 +929,13 @@ namespace Game.Framework
             packageName = NormalizePackageName(packageName);
             await EnsureInitialized(packageName, ct);
             using var link = LinkDispose(ct, out var lct);
-            return await _provider.LoadAssetAsync(packageName, key, byGuid, type, lct);
+            var handle = await MainThreadGuard.AwaitOnMainThread(
+                _provider.LoadAssetAsync(packageName, key, byGuid, type, lct));
+            if (!lct.IsCancellationRequested) return handle;
+
+            DisposeLateAssetHandle(handle, key);
+            lct.ThrowIfCancellationRequested();
+            return null; // ThrowIfCancellationRequested 必然抛；保留返回只满足编译器控制流。
         }
 
         private static IAssetHandle<T> CastHandle<T>(IAssetHandle<UnityEngine.Object> handle, string key)
@@ -926,14 +954,14 @@ namespace Game.Framework
 
         private PackageState GetState(string packageName)
         {
-            packageName = NormalizePackageName(packageName);
+            packageName = RequirePackage(packageName);
             if (_packages.TryGetValue(packageName, out var state)) return state;
             state = new PackageState(packageName);
             _packages.Add(packageName, state);
             return state;
         }
 
-        // 把空 packageName 解析成默认包（默认包也可能为空）。被动用：仅查询 / 取状态，空结果让下游自然得到 not-ready，不抛。
+        // 把空 packageName 解析成默认包（默认包也可能为空）。只负责规范化；需要真实包的入口再走 RequirePackage。
         private string NormalizePackageName(string packageName)
             => string.IsNullOrWhiteSpace(packageName) ? _defaultPackageName : packageName;
 
@@ -964,8 +992,43 @@ namespace Game.Framework
 
         private void ThrowIfDisposed()
         {
+            MainThreadGuard.AssertMainThread(nameof(AssetUtility));
             if (_disposedByDestroy)
                 throw new ObjectDisposedException(nameof(AssetUtility));
+        }
+
+        private void DisposeLateAssetHandle(IAssetHandle<UnityEngine.Object> handle, string key)
+        {
+            if (handle == null) return;
+            try
+            {
+                handle.Dispose();
+            }
+            catch (Exception exception)
+            {
+                Log.Error(
+                    $"资源“{key}”在调用已取消后迟到返回，回收 handle 时失败。",
+                    exception,
+                    nameof(AssetUtility),
+                    this);
+            }
+        }
+
+        private void DisposeLateSceneHandle(ISceneHandle handle, string location)
+        {
+            if (handle == null) return;
+            try
+            {
+                handle.Dispose();
+            }
+            catch (Exception exception)
+            {
+                Log.Error(
+                    $"场景“{location}”在调用已取消后迟到返回，发起卸载时失败。",
+                    exception,
+                    nameof(AssetUtility),
+                    this);
+            }
         }
 
         private sealed class TypedAssetHandle<T> : IAssetHandle<T> where T : UnityEngine.Object

@@ -26,5 +26,34 @@ namespace Game.Framework.Internal
                     "请先 await UniTask.SwitchToMainThread()。",
                     category: who);
         }
+
+        /// <summary>
+        /// 等待一个可在任意线程结束的内部 task，并保证成功、异常或取消都从 Unity 主线程继续传播。
+        /// <c>finally</c> 中切线程不会包装原始异常，调用方可在 await 后安全提交无锁框架状态。
+        /// </summary>
+        internal static async UniTask AwaitOnMainThread(UniTask task)
+        {
+            try
+            {
+                await task;
+            }
+            finally
+            {
+                await UniTask.SwitchToMainThread();
+            }
+        }
+
+        /// <summary><see cref="AwaitOnMainThread(UniTask)"/> 的有结果版本。</summary>
+        internal static async UniTask<T> AwaitOnMainThread<T>(UniTask<T> task)
+        {
+            try
+            {
+                return await task;
+            }
+            finally
+            {
+                await UniTask.SwitchToMainThread();
+            }
+        }
     }
 }
