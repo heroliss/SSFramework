@@ -819,6 +819,7 @@ namespace Game.Framework.Test
 
             gate.Release.TrySetResult();
             await initializing;
+            _provider.DownloaderResult = new TestAssetDownloader();
             _utility.CreateAllDownloader(Package);
 
             Assert.That(_provider.LastDownloaderMaxConcurrent, Is.EqualTo(4),
