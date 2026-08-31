@@ -308,6 +308,13 @@
 - Module DLL 引用缓存改以流式内容 SHA-256 命中：相同字节避免反复装入反射只读程序集，同长度、同 mtime 的原地替换仍会刷新引用。显式刷新失败会清空当前证据，成功/失效状态同步到所有已打开窗口且逐观察者隔离；体积窗口第二次点击“刷新”会真正重采，进阶 Module 卡片首次展开才创建，折叠或重采不会丢失选择意图。
 - 框架诊断的对象池区默认折叠，折叠时只读 O(1) 数量，展开后同一轮只格式化一次详情；鼠标和键盘开合使用同一状态路径。人工“刷新”会作废树、明细、Mono、日志和命令签名，不再因同类型实例替换而复用旧定位对象。专项 EditMode 132/132、Pool PlayMode 63/63；最终完整 EditMode 614/614、PlayMode 700/700，Unity 编译 0 错误/0 警告。
 
+### P1 · Flow 最新意图与异步主线程提交
+
+- `GameFlow.GoTo` 改为先发布新 pending owner、再取消旧排队 task，避免同步 UniTask continuation 重入的新请求被外层调用覆盖并永久 Pending；每个 task 终态先摘 active owner，没有后续请求时先释放 runner，旧循环的 finally 不会再停掉重入启动的新循环。
+- `InstallBindings`、Context 构造/注入/附着与 `FlowChangedEvent` 都作为可重入用户边界处理：scope 建成后重验宿主与最新意图，陈旧 scope 事务回滚且不进入；成功 `OnEnter` 的 token owner 在事件与 task 发布前撤掉，后续正常切换不会回头取消已经提交的状态。
+- `OnEnter/OnExit` 可在 worker 物理结束，但异常分类、scope Dispose、`Current`、Event 和 `GoTo` 终态只在 Unity 主线程提交。相同边界扩展到 `ICommandSystem`：默认 dispatcher 的成功/失败/取消均回主线程，`LoggingCommandSystem` 对自定义 inner 再兜底后落无锁流水；原始异常对象与堆栈保持不变。
+- 新增 pending 取消 continuation 重入、安装期 GoTo/Dispose、事件回调重入、worker 成功/失败/回滚，以及默认/日志命令分发线程边界契约。Flow 专项 27/27、Command + Diagnostics 专项 36/36；最终完整 EditMode 614/614、PlayMode 709/709，Unity 编译 0 错误。
+
 ## 下一批候选（按杠杆排序）
 
 | 优先级 | 候选 | 证据 / 完成标准 |

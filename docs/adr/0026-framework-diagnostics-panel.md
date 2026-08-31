@@ -41,6 +41,7 @@ roadmap 中期第六项：把散在各组件 Inspector「运行时诊断」折�
 
 - **静态环形缓冲**（默认 256 条）记录命令流水：开始时刻/帧号、命令类型名、同步/异步、耗时、异常、Context 名。多实例共写同一条时间线（多 Context 各自注册也能看到全局顺序）。
 - **完成时落账**：同步命令执行完立即记录；异步命令经 wrapper `await` 完成（含异常/取消）后记录，耗时才有意义。在途异步不显示——诊断面板不是 profiler。
+- **主线程提交**：自定义 inner dispatcher 即使在 worker 完成，wrapper 也先切回 Unity 主线程再落无锁缓冲并交付终态；异常对象与取消语义原样传播。默认 `CommandSystem` 也遵守同一 Interface 契约，这里重复兜底是为了装饰器可安全包住项目实现。
 - **零装箱红线**：只记 `typeof(T).Name`（缓存串），不对 struct 命令调 `ToString()`；六个重载全部泛型直转发 `_inner`，struct 路径保持零装箱。
 - 记录本身不条件编译（类是 opt-in 的，挂了就要工作——Development Build 真机也能用它排查）；可选 `echoToConsole` 逐条打日志，默认关。
 

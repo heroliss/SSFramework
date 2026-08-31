@@ -52,11 +52,11 @@ Demo 教学内容与自动化之间的运行时 Seam。`DemoModuleHost` 在真�
 
 ## Game Flow
 
-`IGameFlow` 是 System 层的宏观业务阶段 Interface；`GameFlow` Implementation 把 `FlowState` 当前状态、最新意图排队、协作取消和每状态子 Context 的所有权保持在同一个深 Module 内。它用 `RegisterOwnedSystem(new GameFlow())` 进入宿主 Context：层感知注册自动登记具体类型与 Interface，宿主拥有 flow，flow 再拥有当前状态子 Context；全局性来自注册在持久根 Context，不来自另造 Mono 状态机。View 在 Command Seam 表达流转意图，持续展示时由查询 Command 返回只读投影；System 与 FlowState 内部可直接解析该 System。项目侧 `FlowNav` 是只观察 fire-and-forget 终态的 Adapter：正常顶替/销毁取消静默，真实进入失败进入 Log Seam，它不拥有转换规则。`Current` 不单拆 Model，因为它只是转换不变量的一部分；保留在同一 Implementation 能提高 Locality，避免增加一条只做镜像同步的浅 Interface。Editor 诊断直接读取同一 Implementation 的 Current / 进入中 / 退出中 / 待处理快照，并用 Context 树展示状态子 Context，不制造第二份状态真源。
+`IGameFlow` 是 System 层的宏观业务阶段 Interface；`GameFlow` Implementation 把 `FlowState` 当前状态、最新意图排队、协作取消和每状态子 Context 的所有权保持在同一个深 Module 内。它用 `RegisterOwnedSystem(new GameFlow())` 进入宿主 Context：层感知注册自动登记具体类型与 Interface，宿主拥有 flow，flow 再拥有当前状态子 Context；全局性来自注册在持久根 Context，不来自另造 Mono 状态机。View 在 Command Seam 表达流转意图，持续展示时由查询 Command 返回只读投影；System 与 FlowState 内部可直接解析该 System。最新意图采用“先发布新 owner、再结束旧 task”，并在任何 task / Event 终态交付前清理内部 owner；因此同步 UniTask continuation、`InstallBindings`、注入或事件回调重入 `GoTo/Dispose` 时，最终意图不会被外层旧调用覆盖，已提交状态也不会被回头取消。`OnEnter/OnExit` 可在 worker 结束，但 scope 撤销、`Current`、Event 与 `GoTo` 公共终态只在 Unity 主线程提交。项目侧 `FlowNav` 是只观察 fire-and-forget 终态的 Adapter：正常顶替/销毁取消静默，真实进入失败进入 Log Seam，它不拥有转换规则。`Current` 不单拆 Model，因为它只是转换不变量的一部分；保留在同一 Implementation 能提高 Locality，避免增加一条只做镜像同步的浅 Interface。Editor 诊断直接读取同一 Implementation 的 Current / 进入中 / 退出中 / 待处理快照，并用 Context 树展示状态子 Context，不制造第二份状态真源。
 
 ## Command Dispatcher Seam
 
-`ICommandSystem` 是 Context 内统一执行 Command 的可替换命令分发器 Interface；`CommandSystem` 是默认 Implementation，`LoggingCommandSystem` 是已被真实使用的装饰器 Adapter。类型名中的 `System` 是兼容保留的早期公共命名，不代表五层业务 `ISystem`：它不获得 System 层能力，也必须用精确契约 `RegisterValue(..., typeof(ICommandSystem))` 注册，而不是 `RegisterSystem`。这个 Interface 通过日志、回放、撤销和测试拦截保持有价值的 Seam；当前不新增 `ICommandDispatcher` 别名，因为容器按精确类型键解析，双 Interface 会制造两份可分叉注册。若未来破坏性版本改名，应一次性迁移 Interface、默认 Implementation、装饰器与 DI key。
+`ICommandSystem` 是 Context 内统一执行 Command 的可替换命令分发器 Interface；`CommandSystem` 是默认 Implementation，`LoggingCommandSystem` 是已被真实使用的装饰器 Adapter。类型名中的 `System` 是兼容保留的早期公共命名，不代表五层业务 `ISystem`：它不获得 System 层能力，也必须用精确契约 `RegisterValue(..., typeof(ICommandSystem))` 注册，而不是 `RegisterSystem`。异步 Command 可以下 worker 做纯计算，但 dispatcher 的成功、失败与取消公共终态必须回 Unity 主线程后交付；默认实现封闭这条边界，日志装饰器也独立兜底自定义 inner，避免无锁流水和调用方续体落到 worker。这个 Interface 通过日志、回放、撤销和测试拦截保持有价值的 Seam；当前不新增 `ICommandDispatcher` 别名，因为容器按精确类型键解析，双 Interface 会制造两份可分叉注册。若未来破坏性版本改名，应一次性迁移 Interface、默认 Implementation、装饰器与 DI key。
 
 ## Layer-Aware Composition Registration
 

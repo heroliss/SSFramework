@@ -108,11 +108,18 @@ namespace Game.Framework.Flow
 
             next.Consumed = true;
 
-            // 最新意图胜：顶替旧排队（其 GoTo task 以取消结束），排队槽只有一格。
-            _pendingTcs?.TrySetCanceled();
+            // 先提交新意图、再取消旧排队：取消会同步运行旧 task 的 continuation；若 continuation
+            // 重入 GoTo，它必须能看见并正常顶替本次请求，不能随后被外层调用覆盖成 orphan。
+            UniTaskCompletionSource supersededTcs = _pendingTcs;
             var tcs = new UniTaskCompletionSource();
             _pendingState = next;
             _pendingTcs = tcs;
+            supersededTcs?.TrySetCanceled();
+
+            // 旧 task 的同步 continuation 不仅可以顶替本请求，还可能放行当前 hook，让 runner 当场
+            // 消费更新请求并换出新的 _enterCts。只有本请求此刻仍占 pending 槽，外层调用栈才有权
+            // 取消在途进入或启动 runner；否则会误杀已经取代自己的新 owner。
+            if (!ReferenceEquals(_pendingTcs, tcs)) return tcs.Task;
 
             if (_running)
                 CancelEnterSafely(); // 在途 OnEnter 协作取消让路；未在 Enter 阶段（如 OnExit 中）则由循环的排队检查接手
@@ -129,6 +136,23 @@ namespace Game.Framework.Flow
         private async UniTaskVoid RunTransitions()
         {
             _running = true;
+            bool runnerReleased = false;
+
+            // UniTaskCompletionSource 会同步交付 continuation。任何 task 终态都必须先摘掉 active owner；
+            // 没有后续请求时还要先释放 runner，使 await GoTo 的 continuation 观察到稳定状态，并允许它
+            // 立即启动下一轮而不被本轮 finally 把 _running 再写回 false。
+            bool PrepareCompletion(UniTaskCompletionSource owner)
+            {
+                if (ReferenceEquals(_activeTcs, owner)) _activeTcs = null;
+                bool continueRunning = !_disposed && _pendingState != null;
+                if (!continueRunning)
+                {
+                    _running = false;
+                    runnerReleased = true;
+                }
+                return continueRunning;
+            }
+
             // 一轮连续转换可能跨过多个从未完整进入的候选状态。事件的 From 要保留最后一个已发布状态，
             // 直到某个 To 真正进入成功；否则 A → (B 被顶替) → C 会被误报成 null → C。
             FlowState transitionFrom = null;
@@ -149,6 +173,7 @@ namespace Game.Framework.Flow
                     {
                         transitionFrom ??= old;
                         _exiting = old;
+                        bool exitCanceledByDispose = false;
                         try
                         {
                             // OnExit 没有 token（它是尽力而为的优雅告别），不能强迫业务物理停止；但宿主释放时
@@ -160,21 +185,27 @@ namespace Game.Framework.Flow
                         }
                         catch (OperationCanceledException) when (_disposed)
                         {
-                            tcs.TrySetCanceled();
-                            return;
+                            exitCanceledByDispose = true;
                         }
                         finally
                         {
                             old.DisposeScope();
                             if (ReferenceEquals(_exiting, old)) _exiting = null;
                         }
-                        if (_disposed) { tcs.TrySetCanceled(); return; }
+                        if (exitCanceledByDispose || _disposed)
+                        {
+                            PrepareCompletion(tcs);
+                            tcs.TrySetCanceled();
+                            return;
+                        }
                     }
 
                     // OnExit await 期间来了更新的 GoTo：本次进入被顶替（next 从未获得子 Context，无需清理）。
                     if (_pendingState != null)
                     {
+                        bool continueRunning = PrepareCompletion(tcs);
                         tcs.TrySetCanceled();
+                        if (!continueRunning) return;
                         continue;
                     }
 
@@ -197,58 +228,117 @@ namespace Game.Framework.Flow
                         // Install / Build / Context 构造都是进入事务的一部分。失败状态从未成为 Current，
                         // Builder 或 Context 负责回滚 owned 资源，本次 GoTo 以原异常完成而不是永久 Pending。
                         scope?.Dispose();
+                        if (_disposed)
+                        {
+                            PrepareCompletion(tcs);
+                            tcs.TrySetCanceled();
+                            return;
+                        }
+                        bool continueRunning = PrepareCompletion(tcs);
                         tcs.TrySetException(e);
+                        if (!continueRunning) return;
+                        continue;
+                    }
+
+                    // InstallBindings、构造期 Inject/Attach 都是可重入的用户边界。只有整个 scope 建成后
+                    // 仍是最新意图且宿主存活，才允许调用 OnEnter；否则撤掉未发布 scope。
+                    if (_disposed || _pendingState != null)
+                    {
+                        next.DisposeScope();
+                        bool continueRunning = PrepareCompletion(tcs);
+                        tcs.TrySetCanceled();
+                        if (!continueRunning) return;
                         continue;
                     }
 
                     // 3) 进入。取消（被顶替 / 宿主释放）或失败 = 半进入：整棵撤、不调 OnExit（清理靠 Bag）。
                     _entering = next;
-                    _enterCts = new CancellationTokenSource();
-                    try
-                    {
-                        await next.OnEnter(_enterCts.Token);
-                        if (_disposed)
-                        {
-                            next.DisposeScope();
-                            tcs.TrySetCanceled();
-                            return;
-                        }
-                        _current = next;
-                        _context.SendEvent(new FlowChangedEvent(transitionFrom, next));
-                        transitionFrom = null;
-                        tcs.TrySetResult();
-                    }
-                    catch (OperationCanceledException) when (_enterCts.IsCancellationRequested)
+                    var enterCts = new CancellationTokenSource();
+                    _enterCts = enterCts;
+                    Exception enterError = await ObserveEnterToTerminal(next, enterCts.Token);
+                    bool flowRequestedCancellation = enterCts.IsCancellationRequested;
+                    if (ReferenceEquals(_entering, next)) _entering = null;
+                    if (ReferenceEquals(_enterCts, enterCts)) _enterCts = null;
+                    enterCts.Dispose();
+
+                    // 清理进入 owner 后才发布 scope/task 终态：FlowChanged handler 或 GoTo awaiter 可同步重入，
+                    // 但此时已经成功的 token 不会再被下一次 GoTo 当成“半进入”取消。
+                    if (_disposed)
                     {
                         next.DisposeScope();
+                        PrepareCompletion(tcs);
                         tcs.TrySetCanceled();
+                        return;
                     }
-                    catch (OperationCanceledException e)
+
+                    if (enterError is OperationCanceledException && flowRequestedCancellation)
                     {
                         next.DisposeScope();
+                        bool continueRunning = PrepareCompletion(tcs);
+                        tcs.TrySetCanceled();
+                        if (!continueRunning) return;
+                        continue;
+                    }
+
+                    if (enterError is OperationCanceledException unexpectedCancellation)
+                    {
+                        next.DisposeScope();
+                        bool continueRunning = PrepareCompletion(tcs);
                         tcs.TrySetException(new InvalidOperationException(
                             $"FlowState '{next.GetType().Name}' 的 OnEnter 在 GameFlow 未请求取消时抛出了 OperationCanceledException。" +
                             "这通常表示下游操作自行取消；请在状态内决定重试、降级或改抛能说明原因的异常。",
-                            e));
+                            unexpectedCancellation));
+                        if (!continueRunning) return;
+                        continue;
                     }
-                    catch (Exception e)
+
+                    if (enterError != null)
                     {
                         next.DisposeScope();
-                        tcs.TrySetException(e);
+                        bool continueRunning = PrepareCompletion(tcs);
+                        tcs.TrySetException(enterError);
+                        if (!continueRunning) return;
+                        continue;
                     }
-                    finally
+
+                    _current = next;
+                    _context.SendEvent(new FlowChangedEvent(transitionFrom, next));
+                    transitionFrom = null;
+                    if (_disposed)
                     {
-                        _entering = null;
-                        _enterCts.Dispose();
-                        _enterCts = null;
+                        PrepareCompletion(tcs);
+                        tcs.TrySetCanceled();
+                        return;
                     }
+
+                    bool hasNext = PrepareCompletion(tcs);
+                    tcs.TrySetResult();
+                    if (!hasNext) return;
                 }
             }
             finally
             {
-                _activeTcs = null;
-                _running = false;
+                if (!runnerReleased)
+                {
+                    _activeTcs = null;
+                    _running = false;
+                }
             }
+        }
+
+        /// <summary>
+        /// 用户 OnEnter 可以在任意 await 后结束到 worker；只在这里捕获物理终态，切回 Unity 主线程后
+        /// 才允许状态机分类异常、撤 scope 或发布 Current/Event/task。
+        /// </summary>
+        private static async UniTask<Exception> ObserveEnterToTerminal(
+            FlowState state,
+            CancellationToken cancellationToken)
+        {
+            Exception error = null;
+            try { await state.OnEnter(cancellationToken); }
+            catch (Exception e) { error = e; }
+            await UniTask.SwitchToMainThread();
+            return error;
         }
 
         /// <summary>
@@ -257,12 +347,15 @@ namespace Game.Framework.Flow
         /// </summary>
         private static async UniTask ObserveExitToTerminal(FlowState state)
         {
+            Exception error = null;
             try { await state.OnExit(); }
-            catch (Exception e)
+            catch (Exception e) { error = e; }
+            await UniTask.SwitchToMainThread();
+            if (error != null)
             {
                 Log.Error(
                     $"FlowState '{state.GetType().Name}' 的 OnExit 执行失败；流程清理将继续，并仍会释放该状态作用域。",
-                    e,
+                    error,
                     "GameFlow");
             }
         }

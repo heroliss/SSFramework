@@ -50,7 +50,15 @@ namespace Game.Framework.Test
         private sealed class Probe : IDisposable
         {
             public bool Disposed;
-            public void Dispose() => Disposed = true;
+            public int DisposeCount;
+            public int DisposeThread;
+
+            public void Dispose()
+            {
+                Disposed = true;
+                DisposeCount++;
+                DisposeThread = Thread.CurrentThread.ManagedThreadId;
+            }
         }
 
         /// <summary>可脚本化的流程状态：Install / Enter / Exit 行为由用例注入，进出写入共享日志。</summary>
@@ -246,6 +254,37 @@ namespace Game.Framework.Test
             Assert.AreSame(c, events[1].To);
         }
 
+        [Test]
+        public void SuccessfulEnter_CleansTokenBeforeEventHandlerReentersGoTo()
+        {
+            int cancellationCallbacks = 0;
+            UniTask nextTask = default;
+            bool reentered = false;
+            TestState a = null;
+            var b2 = State("B");
+            a = State("A", enter: ct =>
+            {
+                ct.Register(() => cancellationCallbacks++);
+                return UniTask.CompletedTask;
+            });
+            using var subscription = _host.RegisterEvent<FlowChangedEvent>(evt =>
+            {
+                if (!ReferenceEquals(evt.To, a)) return;
+                reentered = true;
+                nextTask = _flow.GoTo(b2);
+            });
+
+            UniTask firstTask = _flow.GoTo(a);
+
+            Assert.IsTrue(reentered);
+            Assert.AreEqual(UniTaskStatus.Succeeded, firstTask.Status);
+            Assert.AreEqual(UniTaskStatus.Succeeded, nextTask.Status);
+            Assert.Zero(cancellationCallbacks,
+                "完整进入的 token 必须先摘除再发事件；正常切到 B 不能回头取消已提交的 A。");
+            Assert.AreSame(b2, _flow.Current);
+            CollectionAssert.AreEqual(new[] { "enter:A", "exit:A", "enter:B" }, _log);
+        }
+
         [UnityTest]
         public IEnumerator GoToDuringExit_FinalEventKeepsDepartedStateAsFrom() => UniTask.ToCoroutine(async () =>
         {
@@ -327,6 +366,234 @@ namespace Game.Framework.Test
             Assert.AreSame(c, _flow.Current);
             CollectionAssert.AreEqual(new[] { "enter:A", "exit:A", "enter:C" }, _log);
         });
+
+        [UnityTest]
+        public IEnumerator PendingCancellationContinuation_ReentrantGoToRemainsLatest()
+            => UniTask.ToCoroutine(async () =>
+            {
+                var exitGate = new UniTaskCompletionSource();
+                var a = State("A", exit: () => exitGate.Task);
+                var b2 = State("B");
+                var c = State("C");
+                var displaced = State("Displaced");
+                var latest = State("LatestFromCancellation");
+                UniTask latestTask = default;
+                bool reentered = false;
+
+                async UniTask ReenterAfterCancellation(UniTask superseded)
+                {
+                    try
+                    {
+                        await superseded;
+                        Assert.Fail("排队中的 C 应被后续意图顶替。");
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        reentered = true;
+                        latestTask = _flow.GoTo(latest);
+                    }
+                }
+
+                await _flow.GoTo(a);
+                UniTask active = _flow.GoTo(b2);          // 卡在 A.OnExit
+                UniTask superseded = _flow.GoTo(c);       // 单格 pending
+                UniTask observer = ReenterAfterCancellation(superseded);
+                UniTask displacedTask = _flow.GoTo(displaced); // 取消 C；其 continuation 重入 Latest
+
+                Assert.IsTrue(reentered, "UniTaskCompletionSource 的取消 continuation 应同步交付。");
+                Assert.AreEqual(UniTaskStatus.Canceled, superseded.Status);
+                Assert.AreEqual(UniTaskStatus.Canceled, displacedTask.Status,
+                    "取消 continuation 中的请求才是最终意图，外层请求必须被正常顶替。");
+
+                exitGate.TrySetResult();
+                await observer;
+                await UniTask.Yield();
+
+                Assert.AreEqual(UniTaskStatus.Canceled, active.Status);
+                Assert.AreEqual(UniTaskStatus.Succeeded, latestTask.Status,
+                    "重入产生的最新请求不能被外层 GoTo 覆盖后永久 Pending。");
+                Assert.AreSame(latest, _flow.Current);
+            });
+
+        [UnityTest]
+        public IEnumerator PendingCancellationContinuation_AdvancingEnterCannotCancelNewOwner()
+            => UniTask.ToCoroutine(async () =>
+            {
+                var firstEnterGate = new UniTaskCompletionSource();
+                var latestEnterGate = new UniTaskCompletionSource();
+                CancellationToken latestToken = default;
+                var first = State("First", enter: _ => firstEnterGate.Task);
+                var queued = State("Queued");
+                var displaced = State("Displaced");
+                var latest = State("Latest", enter: ct =>
+                {
+                    latestToken = ct;
+                    return latestEnterGate.Task;
+                });
+                UniTask latestTask = default;
+
+                async UniTask ReenterAndAdvance(UniTask superseded)
+                {
+                    try
+                    {
+                        await superseded;
+                        Assert.Fail("排队请求应被外层请求顶替。");
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        latestTask = _flow.GoTo(latest);
+                        firstEnterGate.TrySetResult();
+                    }
+                }
+
+                UniTask firstTask = _flow.GoTo(first);       // OnEnter 忽略 token，等待 gate
+                UniTask queuedTask = _flow.GoTo(queued);     // pending
+                UniTask observer = ReenterAndAdvance(queuedTask);
+                UniTask displacedTask = _flow.GoTo(displaced); // 取消 queued，continuation 内发布并推进 latest
+
+                await observer;
+                Assert.AreEqual(UniTaskStatus.Canceled, displacedTask.Status,
+                    "continuation 中发布的 latest 应正常顶替外层 displaced。");
+                Assert.AreEqual(UniTaskStatus.Pending, latestTask.Status,
+                    "外层旧 GoTo 返回后不能取消已被 runner 消费的新 owner。");
+                Assert.IsTrue(latestToken.CanBeCanceled);
+                Assert.IsFalse(latestToken.IsCancellationRequested);
+
+                latestEnterGate.TrySetResult();
+                await latestTask;
+
+                Assert.AreEqual(UniTaskStatus.Succeeded, firstTask.Status,
+                    "忽略取消的 First 按既有契约完整进入后再退出。");
+                Assert.AreSame(latest, _flow.Current);
+            });
+
+        [Test]
+        public void InstallBindings_ReentrantGoToSkipsStaleEnterAndDisposesBuiltScope()
+        {
+            var probe = new Probe();
+            int staleEnterCalls = 0;
+            UniTask latestTask = default;
+            var latest = State("Latest");
+            var stale = State("Stale",
+                install: builder =>
+                {
+                    builder.RegisterOwned(probe, typeof(Probe));
+                    latestTask = _flow.GoTo(latest);
+                },
+                enter: _ =>
+                {
+                    staleEnterCalls++;
+                    return UniTask.CompletedTask;
+                });
+
+            UniTask staleTask = _flow.GoTo(stale);
+
+            Assert.AreEqual(UniTaskStatus.Canceled, staleTask.Status);
+            Assert.AreEqual(UniTaskStatus.Succeeded, latestTask.Status);
+            Assert.Zero(staleEnterCalls,
+                "InstallBindings 期间出现更新意图后，旧 scope 只能回滚，不能继续调用 OnEnter。");
+            Assert.AreEqual(1, probe.DisposeCount);
+            Assert.AreSame(latest, _flow.Current);
+        }
+
+        [Test]
+        public void InstallBindings_ReentrantHostDisposeSkipsEnterAndReleasesOwnedOnce()
+        {
+            var probe = new Probe();
+            int enterCalls = 0;
+            var state = State("DisposedDuringInstall",
+                install: builder =>
+                {
+                    builder.RegisterOwned(probe, typeof(Probe));
+                    _host.Dispose();
+                },
+                enter: _ =>
+                {
+                    enterCalls++;
+                    return UniTask.CompletedTask;
+                });
+
+            UniTask task = _flow.GoTo(state);
+
+            Assert.AreEqual(UniTaskStatus.Canceled, task.Status);
+            Assert.Zero(enterCalls);
+            Assert.AreEqual(1, probe.DisposeCount,
+                "宿主在构建回调中释放时，Builder 或临时 scope 只能有一个 owner 完成回滚。");
+            Assert.IsFalse(_flow.IsTransitioning);
+        }
+
+        [UnityTest]
+        public IEnumerator WorkerCompletedHooks_PublishAndDisposeOnMainThread()
+            => UniTask.ToCoroutine(async () =>
+            {
+                int mainThread = Thread.CurrentThread.ManagedThreadId;
+                int enterWorker = -1;
+                int exitWorker = -1;
+                var eventThreads = new List<int>();
+                var probe = new Probe();
+                using var subscription = _host.RegisterEvent<FlowChangedEvent>(_ =>
+                    eventThreads.Add(Thread.CurrentThread.ManagedThreadId));
+                var a = State("A",
+                    install: builder => builder.RegisterOwned(probe, typeof(Probe)),
+                    enter: async _ =>
+                    {
+                        await UniTask.SwitchToThreadPool();
+                        enterWorker = Thread.CurrentThread.ManagedThreadId;
+                    },
+                    exit: async () =>
+                    {
+                        await UniTask.SwitchToThreadPool();
+                        exitWorker = Thread.CurrentThread.ManagedThreadId;
+                    });
+
+                await _flow.GoTo(a);
+                Assert.AreNotEqual(mainThread, enterWorker);
+                Assert.AreEqual(mainThread, Thread.CurrentThread.ManagedThreadId,
+                    "OnEnter 在 worker 完成后，GoTo awaiter 必须恢复 Unity 主线程。");
+                Assert.AreEqual(mainThread, eventThreads[0]);
+
+                await _flow.GoTo(State("B"));
+                Assert.AreNotEqual(mainThread, exitWorker);
+                Assert.AreEqual(mainThread, Thread.CurrentThread.ManagedThreadId,
+                    "OnExit 在 worker 完成后，后续状态提交与 GoTo awaiter 必须回主线程。");
+                Assert.AreEqual(mainThread, probe.DisposeThread,
+                    "状态 Context / owned 资源只能在主线程撤除。");
+                Assert.That(eventThreads, Has.All.EqualTo(mainThread));
+            });
+
+        [UnityTest]
+        public IEnumerator WorkerEnterFailure_FaultAndRollbackReturnToMainThread()
+            => UniTask.ToCoroutine(async () =>
+            {
+                int mainThread = Thread.CurrentThread.ManagedThreadId;
+                int failureThread = -1;
+                var probe = new Probe();
+                var failure = new InvalidOperationException("worker-enter-boom");
+                var broken = State("Broken",
+                    install: builder => builder.RegisterOwned(probe, typeof(Probe)),
+                    enter: async _ =>
+                    {
+                        await UniTask.SwitchToThreadPool();
+                        failureThread = Thread.CurrentThread.ManagedThreadId;
+                        throw failure;
+                    });
+
+                try
+                {
+                    await _flow.GoTo(broken);
+                    Assert.Fail("worker OnEnter 失败必须传播。");
+                }
+                catch (InvalidOperationException error)
+                {
+                    Assert.AreSame(failure, error);
+                    Assert.AreNotEqual(mainThread, failureThread);
+                    Assert.AreEqual(mainThread, Thread.CurrentThread.ManagedThreadId);
+                }
+
+                Assert.AreEqual(mainThread, probe.DisposeThread);
+                Assert.IsNull(_flow.Current);
+                Assert.IsFalse(_flow.IsTransitioning);
+            });
 
         // ── 失败语义 ─────────────────────────────────────────────────────────
 
