@@ -322,6 +322,13 @@
 - `StartBattleCommand` 的 View token 只在意图提交前门控，提交后等待 Flow 的真实结果；启动失败且导航仍稳定为空时恢复标题，但不会覆盖玩家已发出的更新导航，并重新抛出原始异常。`FlowNav` 的日志标签也不会再执行状态对象的 `ToString()`。
 - FlowNav/命令与真实玩家路径专项测试 13/13；最终完整 EditMode 614/614、PlayMode 714/714，Unity 编译 0 错误。
 
+### P1 · UI 异步主线程提交边界
+
+- `IUIUtility` 明确维持主线程独占入口，不把同步窗口操作改成隐式调度；统一 `MainThreadGuard` 改用 UniTask PlayerLoop 的主线程身份，Mono UGUI / Toolkit 懒建入口也会在创建 Canvas / UIDocument 前诊断越线程调用。
+- `CreateWindow`、并发 Open 等待者、窗口入/出场过渡与 Toast 时钟可在 worker 物理结束，但窗口字典、owner、hook/backend 和公共成功/失败/取消终态都先回 Unity 主线程；`try/finally` 切换不包装根异常。
+- 两个内置 Adapter 在资源 await 后也先恢复主线程，再 Instantiate、提交可视树或执行失败回滚，避免只在整个 backend 返回后切线程而遗漏内部 Unity API。
+- 新增 backend worker 成功/失败、worker 取消等待者、worker 入/出场过渡与 worker Toast 时钟五项契约；UI 相关专项 70/70，最终完整 EditMode 614/614、PlayMode 719/719，Unity 编译 0 错误。
+
 ## 下一批候选（按杠杆排序）
 
 | 优先级 | 候选 | 证据 / 完成标准 |

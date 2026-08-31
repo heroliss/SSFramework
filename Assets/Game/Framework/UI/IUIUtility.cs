@@ -13,6 +13,8 @@ namespace Game.Framework.UI
     /// 心智同 <c>Bag.Load</c>）、System、Command（经 <c>ctx</c>）。需要被 CommandSystem 拦截（日志/回放）的业务语义流程可另包 Command。<br/>
     /// <b>窗口元数据</b>由窗口类上的 <see cref="UIWindowAttribute"/> 提供（层 / 资源 / 缓存 / 模态）。<br/>
     /// <b>渲染无关：</b>同一套 API 在 UGUI 与 UI Toolkit 后端下行为一致，由 <see cref="IUIBackend"/> 吸收差异。<br/>
+    /// <b>线程：</b>全部入口由调用方在 Unity 主线程调用；窗口状态不加锁。默认实现允许 Adapter、过渡或计时 task
+    /// 在任意线程物理完成，但会在提交窗口状态、调用 hook/backend 以及交付异步成功、失败或取消前恢复主线程。<br/>
     /// <b>所有权：</b><see cref="Open{T}(CancellationToken)"/> / <see cref="Get{T}"/> 返回的是借用窗口引用；
     /// 窗口的物理对象、资源句柄、缓存与销毁均由本 Utility 和后端持有。调用方不得自行 Destroy / Dispose，
     /// 只通过 Close / CloseAll 表达关闭意图。<br/>

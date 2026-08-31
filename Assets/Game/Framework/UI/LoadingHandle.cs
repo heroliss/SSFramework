@@ -9,7 +9,8 @@ namespace Game.Framework.UI
     /// <b>陈旧安全：</b>句柄重复释放、所属 UI 已清场/销毁、或 <c>default(LoadingHandle)</c> 都是安全 no-op；
     /// 内部用自增 id 区分不同时期的占用，旧句柄不会误关后来重新显示的 Loading。<br/>
     /// <b>生命周期：</b>优先写 <c>using var loading = await ui.AcquireLoading(...)</c>；也可把句柄登记进
-    /// <c>DisposableBag</c>，随 View / Context 生命周期自动释放。
+    /// <c>DisposableBag</c>，随 View / Context 生命周期自动释放。<see cref="IsActive"/> 与 <see cref="Dispose"/>
+    /// 会访问 UI owner，须与 <see cref="IUIUtility"/> 一样在 Unity 主线程调用。
     /// </remarks>
     public readonly struct LoadingHandle : IDisposable
     {

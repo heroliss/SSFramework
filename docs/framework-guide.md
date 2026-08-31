@@ -2087,6 +2087,11 @@ var opened = ui.Get<ShopWindow>();                               // 取已打开
 Adapter 的 `CreateWindow` 以“完整绑定并进入物理映射”作为提交点；调用方取消保持 `OperationCanceledException`，加载或绑定异常
 原样传播，但返回前会回滚已经创建的部分层级、View 和资源子 Bag，不把半窗口留到整个 UI 销毁时才兜底。
 
+UI 是 **Unity 主线程独占** 的：`Open / Close / Back / Get / LoadingHandle.Dispose` 等入口都从主线程调用，窗口栈与 owner 集合不加锁。
+自定义 Adapter、过渡动画或计时 task 可以在 worker 物理完成；默认核心会在更新窗口状态、调用 hook/backend、以及把成功、异常或取消
+交给调用方前统一恢复主线程。Adapter 自己若在 `CreateWindow` 内 await 资源，await 后的 Instantiate、VisualElement 操作与失败回滚也必须先回主线程；
+内置 UGUI / Toolkit 实现已经封住这条边界。业务若从 worker 发起 UI 意图，先 `await UniTask.SwitchToMainThread()`，不要把同步 UI API 当作线程安全队列。
+
 两种入口共用同一套 UI Implementation，只在失败策略上不同：
 
 | 入口 | Adapter 未创建窗口时 | 适用范围 |
@@ -2153,6 +2158,7 @@ protected override async UniTask OnCloseTransition(CancellationToken ct)
 - `Open<T>` 在 `OnOpen` 后即返回，**不等入场过渡**——动画是表现层的事，防护由挡输入承担。
 - **逻辑关闭先于表现**：`Close` 调用瞬间 `IsOpen` 已 false、同类型可立即重开（新实例），出场动画只是残影。依赖「关完才算关」的收尾放 `OnClose`。
 - `CloseAll` / Context 销毁不播过渡（场景切换要的是立刻干净）；过渡抛异常被框架隔离（记日志、不会挡死输入）。
+- 过渡 task 可以在 worker 结束；框架会回主线程后再撤挡板、执行 `OnClose` 与 backend 回收，窗口实现无需伪造主线程 continuation。
 
 ### 返回键（Android Back / Esc）
 

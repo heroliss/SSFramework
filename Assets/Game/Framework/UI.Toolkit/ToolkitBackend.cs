@@ -85,7 +85,7 @@ namespace Game.Framework.UI.Toolkit
                 if (!string.IsNullOrEmpty(meta.Asset))
                 {
                     wbag = (_loadBag ??= context.CreateBag()).CreateChild();
-                    var vta = await wbag.Load<VisualTreeAsset>(meta.Asset, ct);
+                    var vta = await CompleteOnMainThread(wbag.Load<VisualTreeAsset>(meta.Asset, ct));
                     if (vta == null) return null; // 加载失败，资源系统已打日志；finally 释放本窗口子 bag
                     ct.ThrowIfCancellationRequested();
                     root = vta.Instantiate();
@@ -236,6 +236,13 @@ namespace Game.Framework.UI.Toolkit
                     exception,
                     nameof(ToolkitBackend));
             }
+        }
+
+        // 资源实现允许从 worker 完成；后续可视树提交与失败回滚都必须先恢复 Unity 主线程。
+        private static async UniTask<T> CompleteOnMainThread<T>(UniTask<T> task)
+        {
+            try { return await task; }
+            finally { await UniTask.SwitchToMainThread(); }
         }
 
         private static void Stretch(VisualElement e)
