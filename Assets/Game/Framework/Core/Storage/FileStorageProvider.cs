@@ -15,7 +15,7 @@ namespace Game.Framework.Storage
     /// <remarks>
     /// 每个 key 至多三个文件：<c>&lt;key&gt;.sav</c>（主）/ <c>&lt;key&gt;.sav.bak</c>（上一版备份）/ <c>&lt;key&gt;.sav.tmp</c>（写入途中，残留会被下次写覆盖）。
     /// 读损坏的回退决策在 <see cref="StorageUtility"/>（它才知道字节能否反序列化），本类只提供主 / 备两个读取通道。
-    /// 文件 IO 一律切线程池执行（大存档写盘不卡帧），完成后回主线程返回（UniTask 默认行为）。
+    /// 文件 IO 一律切线程池执行（大存档写盘不卡帧），物理终态保持在线程池；公开主线程终态由 <see cref="StorageUtility"/> 统一恢复。
     /// key 已由 utility 层按 <see cref="StorageKey"/> 校验；直接使用本类型（不经 utility）时需自行保证 key 合法。
     /// 本类无长期持有的句柄，<see cref="Dispose"/> 为 no-op（接口上的 IDisposable 是给 SQLite 这类有连接的后端留的）。
     /// </remarks>
@@ -48,7 +48,7 @@ namespace Game.Framework.Storage
                 string tmp = main + TempSuffix;
                 File.WriteAllBytes(tmp, bytes);
                 ReplaceAtomic(tmp, main, main + BackupSuffix);
-            }, cancellationToken: ct);
+            }, configureAwait: false, cancellationToken: ct);
         }
 
         public UniTask<byte[]> ReadAsync(string key, CancellationToken ct)
@@ -72,7 +72,7 @@ namespace Game.Framework.Storage
                 File.Delete(main);
                 File.Delete(main + BackupSuffix);
                 File.Delete(main + TempSuffix);
-            }, cancellationToken: ct);
+            }, configureAwait: false, cancellationToken: ct);
         }
 
         public async UniTask<IReadOnlyList<string>> ListKeysAsync(string prefix, CancellationToken ct)
@@ -94,7 +94,7 @@ namespace Game.Framework.Storage
                 var sortedKeys = new List<string>(keys);
                 sortedKeys.Sort(StringComparer.Ordinal); // 稳定顺序，槽位列表 UI 不抖动
                 return sortedKeys;
-            }, cancellationToken: ct);
+            }, configureAwait: false, cancellationToken: ct);
         }
 
         public void Dispose() { /* 无长期句柄可释放（见类型 remarks） */ }
@@ -163,7 +163,7 @@ namespace Game.Framework.Storage
                         exception: e);
                     return null;
                 }
-            }, cancellationToken: ct);
+            }, configureAwait: false, cancellationToken: ct);
         }
     }
 }

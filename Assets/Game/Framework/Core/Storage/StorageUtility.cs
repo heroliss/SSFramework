@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using Cysharp.Threading.Tasks;
+using Game.Framework.Internal;
 using Game.Framework.Logging;
 using UnityEngine;
 
@@ -19,7 +20,8 @@ namespace Game.Framework.Storage
     /// <b>不依赖 Context</b>（无 IGameContext 引用），可被父子 Context 共享（子级解析回退父级）。公共 API 主线程调用。<br/>
     /// <b>并发模型</b>：所有操作进全局 FIFO 队列逐个执行（同 key 竞态 / 读写交错天然消失；存储低频，串行无感知）；
     /// 队列哨兵在 finally 里必然完成，单个操作的异常只传给它自己的调用方、不毒化队列。
-    /// 序列化在主线程（JsonUtility 最稳、典型存档体积耗时可忽略），文件 IO 由 provider 切线程池。<br/>
+    /// 序列化在主线程（JsonUtility 最稳、典型存档体积耗时可忽略），文件 IO 由 provider 切线程池；Provider 可在任意线程
+    /// 物理完成，但本类会在反序列化、推进 FIFO 和交付公共终态前恢复 Unity 主线程。<br/>
     /// <b>Dispose 后不可再用</b>（抛 <see cref="ObjectDisposedException"/>——写丢失必须 fail-fast，不学池的宽容警告）；
     /// Dispose 会立即发布逻辑终态、拒绝新请求，但不会同步等待尚未完成的 FIFO：此前已入队的操作仍会排空，
     /// provider 作为队列的最后一步释放。因此物理释放可能延后，但绝不会与已入队操作并发，也不会让排队操作访问已释放 provider。
@@ -60,11 +62,13 @@ namespace Game.Framework.Storage
             StorageKey.Validate(key);
             return await Enqueue(async () =>
             {
-                byte[] main = await _provider.ReadAsync(key, ct);
+                byte[] main = await MainThreadGuard.AwaitOnMainThread(
+                    _provider.ReadAsync(key, ct));
                 var data = TryDeserialize<T>(main, key, "主文件");
                 if (data != null) return data;
 
-                byte[] bak = await _provider.ReadBackupAsync(key, ct);
+                byte[] bak = await MainThreadGuard.AwaitOnMainThread(
+                    _provider.ReadBackupAsync(key, ct));
                 data = TryDeserialize<T>(bak, key, "备份");
                 if (data != null)
                 {
@@ -107,6 +111,7 @@ namespace Game.Framework.Storage
         /// </summary>
         public void Dispose()
         {
+            MainThreadGuard.AssertMainThread(nameof(StorageUtility));
             if (_disposed) return;
             _disposed = true;
             EnqueueProviderDisposal().Forget(e =>
@@ -115,6 +120,7 @@ namespace Game.Framework.Storage
 
         private void ThrowIfDisposed()
         {
+            MainThreadGuard.AssertMainThread(nameof(StorageUtility));
             if (_disposed)
                 throw new ObjectDisposedException(nameof(StorageUtility), "存储已随 Context 释放——检查是否持有了过期引用。");
         }
@@ -129,8 +135,8 @@ namespace Game.Framework.Storage
             UniTask prev = _tail;
             var gate = new UniTaskCompletionSource();
             _tail = gate.Task;
-            await prev;
-            try { await op(); }
+            await MainThreadGuard.AwaitOnMainThread(prev);
+            try { await MainThreadGuard.AwaitOnMainThread(op()); }
             finally { gate.TrySetResult(); }
         }
 
@@ -139,8 +145,8 @@ namespace Game.Framework.Storage
             UniTask prev = _tail;
             var gate = new UniTaskCompletionSource();
             _tail = gate.Task;
-            await prev;
-            try { return await op(); }
+            await MainThreadGuard.AwaitOnMainThread(prev);
+            try { return await MainThreadGuard.AwaitOnMainThread(op()); }
             finally { gate.TrySetResult(); }
         }
 

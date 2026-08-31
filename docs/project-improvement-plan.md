@@ -344,6 +344,11 @@
 - Provider 忽略取消并迟到返回 Asset / Scene handle 时，Core 会先安全回收结果再保留 OCE；资源引用的共享 attempt 在发布同步 continuation 前先撤掉旧 owner 槽，修复“失败 continuation 内立即重试仍加入旧 task”的确定性重入漏洞。无默认包的状态 / 下载器便捷入口也统一给出可行动的配置异常。
 - `MonoConfigUtilityBase` 在可删除 Config Module 自己的边界恢复主线程，确保表根构造、状态发布和 `EnsureReady` 终态不依赖 Adapter 的实际完成线程；公开 XML doc、guide 与 ADR-0009/0013 同步这一契约。Asset + Config 专项 36/36，最终完整 EditMode 616/616、PlayMode 734/734，Unity 编译 0 错误。
 
+### P1 · Storage Provider 线程与 FIFO 提交边界
+
+- `IStorageProvider` 从“每个 Adapter 自己切回主线程”收敛为“允许任意线程物理完成”；`StorageUtility` 统一在 serializer、FIFO gate、provider terminal 与公共成功 / 失败 / 取消前恢复 Unity 主线程。SQLite / 云存档 Adapter 只负责介质，不再复制调度样板，也不会把 JsonUtility 或后继队列偶发拖到 worker。
+- 默认文件 Provider 用 `configureAwait:false` 保持真实 I/O 终态在线程池，避免 Adapter 与 Utility 重复 PlayerLoop 往返。行为测试覆盖两个未 await Save 的 worker 终态、主线程反序列化、List/Delete、worker failure、worker cancellation、失败 / 取消后的后继 FIFO 和主线程 Dispose；Storage 专项 65/65、Demo CodeRef / 目录契约 20/20，最终完整 EditMode 616/616、PlayMode 736/736，Unity 编译 0 错误。
+
 ## 下一批候选（按杠杆排序）
 
 | 优先级 | 候选 | 证据 / 完成标准 |
