@@ -71,22 +71,29 @@ namespace Game.Framework.Network
     /// <b>刻意不做</b>：自动重连（订 <see cref="WebSocketClosedEvent"/> + 退避 Connect 样板见 guide §25）、
     /// WebGL（<see cref="ClientWebSocketProvider"/> 不支持）、RPC correlation id。<br/>
     /// <b>扩展点：</b>换传输 <see cref="IWebSocketProvider"/> / 换格式 <see cref="INetworkSerializer"/>（构造注入；
-    /// 二进制格式额外实现 <see cref="IWebSocketEnvelopeSerializer"/>）。
+    /// 二进制格式额外实现 <see cref="IWebSocketEnvelopeSerializer"/>）。<br/>
+    /// <b>生命周期：</b>Context 销毁时不发布关闭事件；此前取得的 <see cref="State"/> 正常完结，之后经旧 Utility 引用
+    /// 重新读取状态、注册、连接或发送会抛 <see cref="ObjectDisposedException"/>。<see cref="Disconnect"/> 是幂等清理入口，
+    /// 已销毁或已断开时仍为 no-op，方便 finally / 上层级联清理无需竞态判断。
     /// </remarks>
     public interface IWebSocketUtility : IUtility
     {
-        /// <summary>连接状态（响应式，订阅即得当前值）。UI 直接 <c>Bag.Subscribe(ws.State, ...)</c>。</summary>
+        /// <summary>连接状态（响应式，订阅即得当前值）。UI 直接 <c>Bag.Subscribe(ws.State, ...)</c>。
+        /// Utility 销毁会正常完结已取得的流；销毁后重新读取本属性抛 <see cref="ObjectDisposedException"/>，
+        /// 不会返回保留旧 CurrentValue 的幽灵状态。</summary>
         ReadOnlyReactiveProperty<NetworkConnectionState> State { get; }
 
         /// <summary>
         /// 把服务器推送的 <paramref name="type"/> 映射为框架事件：收到该 type 时把 payload 反序列化为 TEvent 并 SendEvent。
         /// 连接前后均可注册；同 type 重复注册抛 <see cref="InvalidOperationException"/>（代码写错了）。
+        /// type 是发送端与注册端精确匹配的 wire 标识，不能为空或包含空白；非法时抛 <see cref="ArgumentException"/>。
         /// TEvent 默认 JSON 下用 <c>[Serializable] struct</c> + 公共字段；二进制序列化器可用 class 消息（见类型 remarks 的约定）。
         /// </summary>
         void RegisterPush<TEvent>(string type) where TEvent : IEvent;
 
         /// <summary>以绝对 <c>ws://</c> / <c>wss://</c> 地址建立连接；地址必须包含 host，且不能包含
-        /// userinfo 或 fragment。格式不符合时抛 <see cref="ArgumentException"/>，且不会调用 Provider。
+        /// 未转义空白、userinfo 或 fragment。动态 URL 片段先用 <see cref="Uri.EscapeDataString(string)"/> 编码；
+        /// 格式不符合时抛 <see cref="ArgumentException"/>，且不会调用 Provider。
         /// 已在 Connecting/Connected 时调用抛
         /// <see cref="InvalidOperationException"/>；失败/超时（含 provider 在 token 未取消时自发 OCE）抛
         /// <see cref="NetworkException"/> 且状态回 Disconnected。调用方 / Context / Disconnect 取消仍原样抛 OCE。
@@ -108,14 +115,14 @@ namespace Game.Framework.Network
         /// </summary>
         UniTask Disconnect(CancellationToken ct = default);
 
-        /// <summary>发送一条 envelope 消息（type + 序列化后的 payload）。多次调用保序（内部 FIFO）。
+        /// <summary>发送一条 envelope 消息（type + 序列化后的 payload）。type 不能为空或包含空白；多次调用保序（内部 FIFO）。
         /// 未连接、发送中途断掉、或该帧仍排队时所属连接已被替换，均抛 <see cref="NetworkException"/>
         /// （<see cref="NetworkErrorKind.ConnectionError"/>）；旧帧不会跨连接发送。current session 的物理发送失败还会发布一次
         /// <see cref="WebSocketClosedEvent"/>(ByUser:false)，不依赖接收循环随后也报错。调用方 / Context 取消优先保持 OCE；
         /// Adapter 在已取消 owner 下抛出的其它异常形态只作为 inner 保留。</summary>
         UniTask Send<T>(string type, T payload, CancellationToken ct = default) where T : class;
 
-        /// <summary>发送无载荷消息（如心跳 ping）。</summary>
+        /// <summary>发送无载荷消息（如心跳 ping）；type 同样不能为空或包含空白。</summary>
         UniTask Send(string type, CancellationToken ct = default);
     }
 }

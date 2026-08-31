@@ -160,12 +160,19 @@ namespace Game.Framework.Network
 
         IGameContext IHasGameContext.Context => _context;
 
-        public ReadOnlyReactiveProperty<NetworkConnectionState> State => _state;
+        public ReadOnlyReactiveProperty<NetworkConnectionState> State
+        {
+            get
+            {
+                ThrowIfDisposed();
+                return _state;
+            }
+        }
 
         public void RegisterPush<TEvent>(string type) where TEvent : IEvent
         {
             ThrowIfDisposed();
-            if (string.IsNullOrEmpty(type)) throw new ArgumentException("推送 type 不能为空。", nameof(type));
+            ValidateMessageType(type);
             if (_pushHandlers.ContainsKey(type))
                 throw new InvalidOperationException($"[WebSocketUtility] 推送 type '{type}' 已注册过——一个 type 只能映射一个事件类型。");
 
@@ -206,26 +213,10 @@ namespace Game.Framework.Network
             if (_context == null)
                 throw new InvalidOperationException(
                     "[WebSocketUtility] 尚未挂到宿主 Context——用 builder.RegisterOwnedUtility(new WebSocketUtility()) 注册（注册即注入自动回填），不要脱离容器直接使用。");
-            if (string.IsNullOrEmpty(url)) throw new ArgumentException("url 不能为空。", nameof(url));
             if (_state.Value != NetworkConnectionState.Disconnected)
                 throw new InvalidOperationException($"[WebSocketUtility] 当前状态 {_state.Value}，不能重复 Connect——先 Disconnect。");
 
-            if (!Uri.TryCreate(url, UriKind.Absolute, out Uri uri))
-                throw new ArgumentException(
-                    $"WebSocket url 必须是绝对地址（ws:// 或 wss://）：'{url}'。", nameof(url));
-            if (!string.Equals(uri.Scheme, "ws", StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(uri.Scheme, "wss", StringComparison.OrdinalIgnoreCase))
-                throw new ArgumentException(
-                    $"WebSocket url 只支持 ws:// 或 wss://，当前 scheme 为 '{uri.Scheme}'：'{url}'。", nameof(url));
-            if (string.IsNullOrWhiteSpace(uri.Host))
-                throw new ArgumentException(
-                    $"WebSocket url 必须包含服务器 host（ws:// 或 wss://）：'{url}'。", nameof(url));
-            if (!string.IsNullOrEmpty(uri.UserInfo))
-                throw new ArgumentException(
-                    $"WebSocket url 不支持 userinfo，请通过协议约定传递认证信息：'{url}'。", nameof(url));
-            if (!string.IsNullOrEmpty(uri.Fragment))
-                throw new ArgumentException(
-                    $"WebSocket url 不支持 fragment（#...）：'{url}'。", nameof(url));
+            Uri uri = ValidateWebSocketUrl(url);
 
             // Disconnect 已把公开 State 置为 Disconnected 时，底层 Close 可能仍在退场。只等内部成功 barrier，
             // 不 await 上一个调用者的公共 Disconnect task（否则它的 OCE 会错误传给无关的 Connect）。
@@ -449,8 +440,8 @@ namespace Game.Framework.Network
             }
             finally
             {
-                // Provider 释放失败仍应交给 Context owner 记录，但不能截断响应式 State 自身的释放。
-                _state.Dispose();
+                // Provider 释放失败仍应交给 Context owner 记录，但不能截断已发布 State 的正常完结。
+                _state.Dispose(callOnCompleted: true);
             }
         }
 
@@ -458,7 +449,7 @@ namespace Game.Framework.Network
 
         private UniTask SendEnvelope(string type, byte[] payloadBytes, ConnectionSession session, CancellationToken ct)
         {
-            if (string.IsNullOrEmpty(type)) throw new ArgumentException("type 不能为空。", nameof(type));
+            ValidateMessageType(type);
             // envelope 序列化器接管时 payload 保持 byte[]；兼容路径按既有 JSON wire 格式把 payload 转为文本二次编码
             // （对 JSON 字节无损；二进制格式不实现 envelope 接口就走不到正确编码，所以接口 remarks 标了"必须实现"）。
             byte[] frame = _envelopeSerializer != null
@@ -672,9 +663,9 @@ namespace Game.Framework.Network
                     exception: e);
                 return;
             }
-            if (string.IsNullOrEmpty(type))
+            if (!IsValidMessageType(type))
             {
-                Log.Warning("收到缺 type 的消息，已丢弃。", "WebSocketUtility");
+                Log.Warning("收到 type 缺失或包含空白的消息，已丢弃。", "WebSocketUtility");
                 return;
             }
             if (!_pushHandlers.TryGetValue(type, out var handler))
@@ -841,6 +832,52 @@ namespace Game.Framework.Network
         {
             if (_disposed)
                 throw new ObjectDisposedException(nameof(WebSocketUtility), "WebSocket 工具已随 Context 释放——检查是否持有了过期引用。");
+        }
+
+        private static Uri ValidateWebSocketUrl(string url)
+        {
+            if (string.IsNullOrWhiteSpace(url))
+                throw new ArgumentException(
+                    $"WebSocket url 必须是带 host 的绝对 ws:// 或 wss:// 地址，不能是空白：'{url}'。", nameof(url));
+            if (ContainsWhitespace(url))
+                throw new ArgumentException(
+                    $"WebSocket url '{url}' 含未转义空白；请保持绝对 ws:// 或 wss:// 地址，并先用 Uri.EscapeDataString 编码动态片段。",
+                    nameof(url));
+            if (!Uri.TryCreate(url, UriKind.Absolute, out Uri uri))
+                throw new ArgumentException(
+                    $"WebSocket url 必须是绝对地址（ws:// 或 wss://）：'{url}'。", nameof(url));
+            if (!string.Equals(uri.Scheme, "ws", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(uri.Scheme, "wss", StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException(
+                    $"WebSocket url 只支持 ws:// 或 wss://，当前 scheme 为 '{uri.Scheme}'：'{url}'。", nameof(url));
+            if (string.IsNullOrWhiteSpace(uri.Host))
+                throw new ArgumentException(
+                    $"WebSocket url 必须包含服务器 host（ws:// 或 wss://）：'{url}'。", nameof(url));
+            if (!string.IsNullOrEmpty(uri.UserInfo))
+                throw new ArgumentException(
+                    $"WebSocket url 不支持 userinfo，请通过协议约定传递认证信息：'{url}'。", nameof(url));
+            if (!string.IsNullOrEmpty(uri.Fragment))
+                throw new ArgumentException(
+                    $"WebSocket url 不支持 fragment（#...）：'{url}'。", nameof(url));
+            return uri;
+        }
+
+        private static void ValidateMessageType(string type)
+        {
+            if (!IsValidMessageType(type))
+                throw new ArgumentException(
+                    "WebSocket 消息 type 不能为空且不能包含空白；它是发送端与注册端精确匹配的 wire 标识。",
+                    nameof(type));
+        }
+
+        private static bool IsValidMessageType(string type)
+            => !string.IsNullOrWhiteSpace(type) && !ContainsWhitespace(type);
+
+        private static bool ContainsWhitespace(string value)
+        {
+            for (int i = 0; i < value.Length; i++)
+                if (char.IsWhiteSpace(value[i])) return true;
+            return false;
         }
 
         [System.Diagnostics.Conditional("UNITY_EDITOR"), System.Diagnostics.Conditional("DEVELOPMENT_BUILD")]
