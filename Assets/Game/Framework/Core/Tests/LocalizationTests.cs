@@ -117,14 +117,23 @@ namespace Game.Framework.Test
         {
             Assert.Throws<ArgumentNullException>(() => _ = new LocalizationUtility(null, "zh-CN"));
             Assert.Throws<ArgumentException>(() => _ = new LocalizationUtility(_source, ""));
+            Assert.Throws<ArgumentException>(() => _ = new LocalizationUtility(_source, " \t"));
+            Assert.Throws<ArgumentException>(() => _ = new LocalizationUtility(_source, "zh-CN", " "));
             Assert.Throws<ArgumentException>(() => _loc.SetLocale(null));
+            Assert.Throws<ArgumentException>(() => _loc.SetLocale(" \t"));
             Assert.Throws<ArgumentException>(() => _loc.Get(""));
+            Assert.Throws<ArgumentException>(() => _loc.Get(" \t"));
             Assert.Throws<ArgumentException>(() => _source.Add("", "k", "v"));
+            Assert.Throws<ArgumentException>(() => _source.Add(" ", "k", "v"));
             Assert.Throws<ArgumentException>(() => _source.Add("zh-CN", null, "v"));
+            Assert.Throws<ArgumentException>(() => _source.Add("zh-CN", " \t", "v"));
             Assert.Throws<ArgumentNullException>(() => _source.Add("zh-CN", "k", null));
             Assert.Throws<ArgumentNullException>(() => _source.AddLocale("zh-CN", null));
+            Assert.Throws<ArgumentException>(() => _source.AddLocale(" ", Array.Empty<KeyValuePair<string, string>>()));
             Assert.Throws<ArgumentException>(() => _source.AddLocale("zh-CN",
                 new[] { new KeyValuePair<string, string>("k", null) }));
+            Assert.Throws<ArgumentException>(() => _source.AddLocale("zh-CN",
+                new[] { new KeyValuePair<string, string>(" \t", "value") }));
         }
 
         // ── 字典源 ───────────────────────────────────────────────────────────
@@ -156,8 +165,11 @@ namespace Game.Framework.Test
 
             ctx.Dispose(); // RegisterOwned：随 Context 释放
 
-            Assert.AreEqual("开始游戏", resolved.Get("menu/start")); // 查询读普通字段，Dispose 后仍安全
-            Assert.Throws<ObjectDisposedException>(() => resolved.SetLocale("en")); // 换语言是明确操作，过期引用应暴露
+            Assert.Throws<ObjectDisposedException>(() => _ = resolved.Locale);
+            Assert.Throws<ObjectDisposedException>(() => _ = resolved.TextRevision);
+            Assert.Throws<ObjectDisposedException>(() => resolved.Get("menu/start"));
+            Assert.Throws<ObjectDisposedException>(() => resolved.Get("lobby/welcome", "SS"));
+            Assert.Throws<ObjectDisposedException>(() => resolved.SetLocale("en"));
         }
 
         private sealed class DelayedTextSource : ILocalizedTextSource

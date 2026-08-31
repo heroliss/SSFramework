@@ -1,6 +1,6 @@
 # ADR-0024：本地化 —— 语言身份、文本失效与三态 Source 接缝
 
-**Status:** Accepted（2026-07-04；v2：2026-08-24）
+**Status:** Accepted（2026-07-04；v2：2026-08-24；2026-08-31 补强终态与空白字符串边界）
 
 ## Context
 
@@ -86,3 +86,9 @@ public interface ILocalizedTextSource
 - `LocalizationUtility` 随 Context 释放时退订 Source；Source 生命周期仍由其所属 Module / Container 管理。字典源每次实际内容变化都会发失效信号。
 - Demo 增加可操作的 Unavailable → Found 实验，证明不切语言也会刷新、且不产生假 missing；契约测试覆盖延迟源、Toolkit 实际标签、信号隔离、fallback 和释放退订。
 - `params object[]` 每次 `Get` 仍会分配——UI 文案频率无感；每帧热路径应缓存格式串或降低更新频率。
+
+## 2026-08-31 修订（借用终态与字符串契约）
+
+- `LocalizationUtility` 不再声称 Dispose 后仍可查询。`Get` 虽不读取响应容器，却仍会调用只保证“至少与 Utility 同寿”的外部 Source；Context 结束后继续调用它没有安全依据。现在释放会退订 Source、完结已经交付的两个响应流，此后重新访问响应属性、查询或切换语言统一抛 `ObjectDisposedException`。
+- 该选择把“缺文案”的宽容策略和“使用过期服务”的生命周期错误分开：有效生命周期内 Missing 仍回退裸 key，不炸游戏；生命周期已经结束则 fail-fast，不用一份可能也已释放的 Source 伪造陈旧文本。
+- locale code、fallback code、文本 key 与内置字典源的写入 key 统一拒绝纯空白。它们仍是开放字符串，不引入注册表或枚举；这里只阻止肉眼不可辨识、无法可靠诊断的无效契约。

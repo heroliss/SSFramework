@@ -2644,6 +2644,8 @@ loc.SetLocale("en");
 
 locale code 是**开放字符串 + 业务常量**（与音频组、存储 key 同一「常量管理字符串契约」姿势）；语言列表、`SystemLanguage` → code 映射、语言选择持久化（设置数据走 §18 存储，启动回灌）都归业务。
 
+`ILocalizationUtility` 是随 Context 借用的服务，不要缓存到 owner 之外。Context 释放会先退订文本 Source，并正常完结已经取得的 `Locale` / `TextRevision` 流；之后重新访问响应属性、`Get` 或 `SetLocale` 都会抛 `ObjectDisposedException`。查询也不能像纯字典快照那样在释放后继续：Utility 每次 `Get` 仍会调用外部 `ILocalizedTextSource`，而 Source 只承诺至少与 Utility 同寿。重新进入新作用域时应从新 Context 解析服务。locale code、fallback code 与文本 key 的纯空白值均视为参数错误，避免产生肉眼不可辨识的字符串契约。
+
 > 表 Adapter 的**活实物**在 demo「本地化 · 多语言」章（`LubanTextSource`，连 `TbL10N` 表定义 / `l10n.xlsx` 数据一起）。注意一个注册细节：**源要吃别的服务**（配置表 Utility）时用 `RegisterOwnedFactory(c => new LocalizationUtility(new LubanTextSource((IConfigUtility<Tables>)c.Resolve(...)), ...), typeof(ILocalizationUtility))`——容器在首次解析时解决依赖顺序，同时仍负责释放 `LocalizationUtility`；Factory 是显式接线位，所以仍需列出契约。普通 `RegisterFactory` 只管构造和缓存、不拥有产物。不依赖其他服务的源（字典源）直接 `RegisterOwnedUtility`。
 
 ### 延迟文本源：不可用不等于缺失

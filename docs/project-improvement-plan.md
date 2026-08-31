@@ -360,6 +360,12 @@
 - `UIUtility` 的全部公共意图在 Dispose 后统一 fail-fast，不再出现 Open/Back/Acquire 抛异常、Close/Get/IsOpen 却静默返回的分裂语义；此前已交付的 `LoadingHandle` 仍是可幂等释放的清理句柄。音量组同时拒绝纯空白名称，避免创建不可辨识的字符串契约。
 - `propose-rule-evolution` 归类为“真实行为测试作权威门禁 + Framework AGENTS 一条窄规则 + guide/ADR/Demo 承载原理”：新增纯核心与真实 Mono 销毁五项契约，生命周期教学解释“借用能力、终态风险分级、保留内核不等于复活”。Demo CodeRef / 目录契约 20/20，最终完整 EditMode 616/616、PlayMode 744/744，Unity 编译 0 错误。
 
+### P1 · Localization Source 生命周期与终态
+
+- `ILocalizationUtility` 不再把 Dispose 后的 `Get` 描述成安全快照：查询仍会调用只保证与 Utility 同寿的外部 Source，因此 Context 结束后，重新访问响应属性、查询或切换语言统一抛 `ObjectDisposedException`；已经取得的 `Locale` / `TextRevision` 流仍正常完结。
+- 有效生命周期内的 Missing 继续回退裸 key，和“使用过期服务”的 fail-fast 明确分层；locale、fallback locale、文本 key 与内置字典源写入 key 同时拒绝纯空白，避免生成肉眼不可辨识的字符串契约。
+- Interface XML doc、guide、ADR 与 Demo 教学同步“借用能力、Source 所有权与重新解析”边界；定向 Localization 7/7、Demo CodeRef / 目录契约 20/20，最终完整 EditMode 616/616、PlayMode 744/744，Unity 编译 0 错误。
+
 ## 下一批候选（按杠杆排序）
 
 | 优先级 | 候选 | 证据 / 完成标准 |
