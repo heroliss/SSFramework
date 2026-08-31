@@ -73,6 +73,7 @@ namespace Game.Framework.UI
             UIBuiltinWindows builtins,
             Func<TimeSpan, CancellationToken, UniTask> toastDelay)
         {
+            MainThreadGuard.AssertMainThread(nameof(UIUtility));
             _context = context ?? throw new ArgumentNullException(nameof(context));
             _backend = backend ?? throw new ArgumentNullException(nameof(backend));
             _builtins = builtins;
@@ -88,6 +89,7 @@ namespace Game.Framework.UI
         // Open 的非泛型主体：泛型壳与内置件（ShowToast/AcquireLoading 按注册的 Type 开窗）共用。
         private async UniTask<IUIWindow> OpenCore(Type type, object args, CancellationToken ct)
         {
+            MainThreadGuard.AssertMainThread(nameof(UIUtility));
             ThrowIfDisposed();
             EnsureInitialized();
             ct.ThrowIfCancellationRequested();
@@ -116,7 +118,7 @@ namespace Game.Framework.UI
             // 成功则命中上面的「已打开 → 置顶 + OnOpen(args) 刷新」路径（本次 args 生效），失败则由本次调用重试创建。
             if (_creating.TryGetValue(type, out var creating))
             {
-                await creating.Task.AttachExternalCancellation(ct);
+                await CompleteOnMainThread(creating.Task.AttachExternalCancellation(ct));
                 if (_disposed) return null;
                 return await OpenCore(type, args, ct);
             }
@@ -140,7 +142,7 @@ namespace Game.Framework.UI
                     // 新建：backend 加载资源 + 实例化 + 绑定 context。创建期间登记 _creating，让并发 Open 等待而非重复创建。
                     creatingTcs = new UniTaskCompletionSource<IUIWindow>();
                     _creating[type] = creatingTcs;
-                    window = await _backend.CreateWindow(meta, _context, ct);
+                    window = await CompleteOnMainThread(_backend.CreateWindow(meta, _context, ct));
                     if (window == null) return null; // 资源加载失败，已由资源系统打日志
                     // 加载期间被释放、或 token 在加载完成后才被取消（竞态）：物理拆掉刚建好的窗口，不入栈。
                     if (_disposed) { _backend.DestroyWindow(window); return null; }
@@ -188,6 +190,7 @@ namespace Game.Framework.UI
 
         public void CloseTop(UILayer layer)
         {
+            MainThreadGuard.AssertMainThread(nameof(UIUtility));
             var list = GetLayerList(layer);
             if (list.Count > 0) Close(list[list.Count - 1]);
         }
@@ -197,6 +200,7 @@ namespace Game.Framework.UI
 
         public bool Back()
         {
+            MainThreadGuard.AssertMainThread(nameof(UIUtility));
             ThrowIfDisposed();
             // 过渡进行中直接吞掉：与全屏挡输入同一语义，键盘/硬件返回键路径不绕过挡板（ADR-0020）。
             if (_transitionCount > 0) return true;
@@ -215,6 +219,7 @@ namespace Game.Framework.UI
 
         public void CloseAll(UILayer layer)
         {
+            MainThreadGuard.AssertMainThread(nameof(UIUtility));
             // Toast 可能仍在异步创建、尚未入栈；先使创建请求与旧计时器失效，避免清场后幽灵重现。
             if (IsToastLayer(layer)) InvalidateToastOwners();
             // Loading 可能尚在异步创建、还没进入层栈。先使其 owner/句柄失效，创建续体回来后会发现陈旧并立即关掉。
@@ -240,14 +245,22 @@ namespace Game.Framework.UI
         }
 
         public T Get<T>() where T : class, IUIWindow
-            => _open.TryGetValue(typeof(T), out var w) ? (T)w : null;
+        {
+            MainThreadGuard.AssertMainThread(nameof(UIUtility));
+            return _open.TryGetValue(typeof(T), out var w) ? (T)w : null;
+        }
 
-        public bool IsOpen<T>() where T : class, IUIWindow => _open.ContainsKey(typeof(T));
+        public bool IsOpen<T>() where T : class, IUIWindow
+        {
+            MainThreadGuard.AssertMainThread(nameof(UIUtility));
+            return _open.ContainsKey(typeof(T));
+        }
 
         // ── Top 层内置件（ADR-0020 §4）：按注册的类型表开窗，业务对后端零感知 ──
 
         public async UniTask ShowToast(string text, float duration = 2f, CancellationToken ct = default)
         {
+            MainThreadGuard.AssertMainThread(nameof(UIUtility));
             if (_builtins?.Toast == null)
             {
                 Log.Error("未注册 Toast 内置窗口类型（UIBuiltinWindows.Toast）——本后端入口未提供内置件。",
@@ -285,6 +298,7 @@ namespace Game.Framework.UI
 
         public async UniTask<LoadingHandle> AcquireLoading(string text = null, CancellationToken ct = default)
         {
+            MainThreadGuard.AssertMainThread(nameof(UIUtility));
             ThrowIfDisposed();
             if (!TryGetLoadingType(out var loadingType)) return default;
 
@@ -315,6 +329,7 @@ namespace Game.Framework.UI
         [Obsolete("ShowLoading/HideLoading 仅用于旧源码迁移；请改用 using var loading = await AcquireLoading(text, ct)，由句柄表达并发所有权。", false)]
         public async UniTask ShowLoading(string text = null, CancellationToken ct = default)
         {
+            MainThreadGuard.AssertMainThread(nameof(UIUtility));
             ThrowIfDisposed();
             if (!TryGetLoadingType(out var loadingType)) return;
 
@@ -341,16 +356,21 @@ namespace Game.Framework.UI
         [Obsolete("ShowLoading/HideLoading 仅用于旧源码迁移；请释放 AcquireLoading 返回的 LoadingHandle，通常使用 using var 自动释放。", false)]
         public void HideLoading()
         {
+            MainThreadGuard.AssertMainThread(nameof(UIUtility));
             ++_legacyLoadingGeneration;
             _legacyLoadingHeld = false;
             ReconcileLoadingVisibility();
         }
 
         public bool IsLoadingActive(int id)
-            => !_disposed && id != 0 && _loadingHandleIds.Contains(id);
+        {
+            MainThreadGuard.AssertMainThread(nameof(UIUtility));
+            return !_disposed && id != 0 && _loadingHandleIds.Contains(id);
+        }
 
         public void ReleaseLoading(int id)
         {
+            MainThreadGuard.AssertMainThread(nameof(UIUtility));
             if (_disposed || id == 0 || !_loadingHandleIds.Remove(id)) return;
             ReconcileLoadingVisibility();
         }
@@ -358,6 +378,7 @@ namespace Game.Framework.UI
         /// <summary>释放：拆掉所有窗口与层根。<b>不</b>触发窗口生命周期 hook（此时 Context 通常已在销毁、调 hook 会触碰已释放的 Context）——纯物理拆除，窗口各自的 Bag 由 backend 销毁时释放。</summary>
         public void Dispose()
         {
+            MainThreadGuard.AssertMainThread(nameof(UIUtility));
             if (_disposed) return;
             _disposed = true;
             InvalidateToastOwners();
@@ -375,6 +396,7 @@ namespace Game.Framework.UI
 
         private void CloseType(Type type)
         {
+            MainThreadGuard.AssertMainThread(nameof(UIUtility));
             // Toast 的计时与创建请求都是核心 owner；显式关闭也必须先让旧 continuation 失效。
             if (IsToastType(type)) InvalidateToastOwners();
             // Close/CloseAll 是强制清场语义：让所有旧 handle 失效，之后新 Acquire 得到的新 id 不会被旧句柄误关。
@@ -479,7 +501,7 @@ namespace Game.Framework.UI
             CancellationToken ownerToken = owner.Token;
             try
             {
-                await _toastDelay(TimeSpan.FromSeconds(duration), ownerToken);
+                await CompleteOnMainThread(_toastDelay(TimeSpan.FromSeconds(duration), ownerToken));
                 shouldClose = ReferenceEquals(_toastAutoClose, owner);
             }
             catch (OperationCanceledException) when (ownerToken.IsCancellationRequested)
@@ -549,7 +571,7 @@ namespace Game.Framework.UI
             CancellationToken ownerToken)
         {
             BeginTransition();
-            try { await transition; }
+            try { await CompleteOnMainThread(transition); }
             catch (OperationCanceledException) when (ownerToken.IsCancellationRequested)
             {
                 // Context 销毁级联取消：正常路径，无需日志。
@@ -601,7 +623,7 @@ namespace Game.Framework.UI
             CancellationToken ownerToken)
         {
             BeginTransition();
-            try { await transition; }
+            try { await CompleteOnMainThread(transition); }
             catch (OperationCanceledException) when (ownerToken.IsCancellationRequested) { }
             catch (Exception e) { LogHookFailure(window, nameof(IUIWindow.OnOpenTransition), e); }
             finally { EndTransition(); }
@@ -666,6 +688,20 @@ namespace Game.Framework.UI
         private void ThrowIfDisposed()
         {
             if (_disposed) throw new ObjectDisposedException(nameof(UIUtility));
+        }
+
+        // Adapter / hook / 测试时钟可以在任意线程完成。finally 既保留原始成功、异常和取消身份，
+        // 又保证窗口字典、生命周期 hook 与后续 backend 调用只在 Unity 主线程提交。
+        private static async UniTask CompleteOnMainThread(UniTask task)
+        {
+            try { await task; }
+            finally { await UniTask.SwitchToMainThread(); }
+        }
+
+        private static async UniTask<T> CompleteOnMainThread<T>(UniTask<T> task)
+        {
+            try { return await task; }
+            finally { await UniTask.SwitchToMainThread(); }
         }
     }
 }

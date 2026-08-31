@@ -31,6 +31,7 @@ namespace Game.Framework.UI.Toolkit
         {
             get
             {
+                MainThreadGuard.AssertMainThread(nameof(MonoToolkitUI));
                 if (_core == null)
                 {
                     var ctx = ((IHasGameContext)this).Context

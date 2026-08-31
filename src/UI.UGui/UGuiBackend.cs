@@ -87,7 +87,7 @@ namespace Game.Framework.UI.UGui
                 {
                     _loadBag ??= context.CreateBag();
                     wbag = _loadBag.CreateChild();
-                    var prefab = await wbag.Load<GameObject>(meta.Asset, ct);
+                    var prefab = await CompleteOnMainThread(wbag.Load<GameObject>(meta.Asset, ct));
                     if (prefab == null) return null; // 加载失败，资源系统已打日志；finally 释放本窗口子 bag
                     ct.ThrowIfCancellationRequested();
                     // Instantiate 到层根下：prefab 上的 MonoViewBase 在 Awake 沿父链找到 Context 自动注入。
@@ -207,6 +207,13 @@ namespace Game.Framework.UI.UGui
                 if (rt != null) Object.Destroy(rt.gameObject);
             _layerRoots.Clear();
             _initialized = false;
+        }
+
+        // 资源实现允许从 worker 完成；后续 Instantiate 与失败回滚都必须先恢复 Unity 主线程。
+        private static async UniTask<T> CompleteOnMainThread<T>(UniTask<T> task)
+        {
+            try { return await task; }
+            finally { await UniTask.SwitchToMainThread(); }
         }
 
         private static void Stretch(RectTransform rt)

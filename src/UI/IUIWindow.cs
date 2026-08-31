@@ -9,7 +9,7 @@ namespace Game.Framework.UI
     /// UI 框架核心（<see cref="UIUtility"/>）只面向本接口编排，对底层渲染技术无感。
     /// </summary>
     /// <remarks>
-    /// 这些 hook 由 <see cref="UIUtility"/> 在恰当时机调用，<b>不是</b> Unity 生命周期：<br/>
+    /// 这些 hook 由 <see cref="UIUtility"/> 在 Unity 主线程的恰当时机调用，<b>不是</b> Unity 生命周期：<br/>
     /// 调用次序：<c>OnCreate</c>（实例化 + 绑定 Context 后一次）→ <c>OnOpen</c>（每次打开，收参数）→
     /// <c>OnOpenTransition</c>（入场过渡）→ 期间可能 <c>OnCover</c>/<c>OnReveal</c>（被上层盖住 / 重新露出）→
     /// <c>OnCloseTransition</c>（出场过渡）→ <c>OnClose</c>（每次关闭）。
@@ -38,6 +38,7 @@ namespace Game.Framework.UI
         /// 返回已完成 task（基类默认）= 无过渡、零开销。<paramref name="ct"/> 随 Context 销毁取消——动画实现应响应它。
         /// 只有 <paramref name="ct"/> 已取消时的 <see cref="System.OperationCanceledException"/> 属于正常生命周期收口；
         /// token 未取消时自行抛出的取消异常与其它异常一样会被框架记日志并视为完成（不会挡死输入）。
+        /// 返回 task 可以在任意线程物理结束；核心会回主线程后再撤输入挡板或调用后续 hook/backend。
         /// </summary>
         UniTask OnOpenTransition(CancellationToken ct);
 
@@ -47,6 +48,7 @@ namespace Game.Framework.UI
         /// <c>CloseAll</c> / Context 销毁走立即路径，不会调用本 hook。
         /// 只有传入 token 已取消时的 <see cref="System.OperationCanceledException"/> 会静默收口；其它取消异常按 hook 故障记录，
         /// 但仍会放开挡板并完成 <c>OnClose</c> 与物理回收。
+        /// 返回 task 可以在任意线程物理结束；核心会回主线程后再完成关闭提交。
         /// </summary>
         UniTask OnCloseTransition(CancellationToken ct);
     }

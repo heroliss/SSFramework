@@ -33,6 +33,7 @@ namespace Game.Framework.UI.UGui
         {
             get
             {
+                MainThreadGuard.AssertMainThread(nameof(MonoUGuiUI));
                 if (_core == null)
                 {
                     var ctx = ((IHasGameContext)this).Context
