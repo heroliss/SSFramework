@@ -1,5 +1,4 @@
 using Game.Framework.Demo.Core;
-using Game.Framework.Logging;
 
 namespace Game.Framework.Demo.Modules
 {
@@ -46,7 +45,7 @@ namespace Game.Framework.Demo.Modules
             host.AddConcept("这种设计换来了什么", "中央窗口只依赖很窄的 Registry Seam，可选 Build、Fonts、Proto、UGUI 等实现保持可删除；代价是每个新配置类型都要写一条本地注册，并由契约测试检查 id、顺序和菜单入口。");
 #if UNITY_EDITOR
             host.AddActionRow("打开配置中心（观察已安装 Module 的卡片）",
-                () => RunMenu(ConfigCenterMenu),
+                () => DemoEditorNav.OpenMenu(ConfigCenterMenu),
                 new CodeRef("Assets/Game/Framework/Editor/FrameworkConfigRegistry.cs", "public static class FrameworkConfigRegistry", "FrameworkConfigRegistry · Module 自注册 Seam"));
 #endif
 
@@ -57,10 +56,10 @@ namespace Game.Framework.Demo.Modules
             host.AddStep("④", "最后跑 Module Audit、Unity 测试与目标平台真实构建；隔离构建探针只能给可比较上界，发布判断仍以真实 BuildReport 为准。");
 #if UNITY_EDITOR
             host.AddActionRow("打开模块裁剪审计（逐 Module 保留原因 / 任意入口）",
-                () => RunMenu(ModuleAuditMenu),
+                () => DemoEditorNav.OpenMenu(ModuleAuditMenu),
                 new CodeRef("Assets/Game/Framework/Editor/FrameworkModuleAudit.cs", "internal static class FrameworkModuleAudit", "Framework Module Audit · 真实引用闭包"));
             host.AddActionRow("打开真实构建体积证据（隔离删除 / 任意 Module）",
-                () => RunMenu(BuildSizeProbeMenu),
+                () => DemoEditorNav.OpenMenu(BuildSizeProbeMenu),
                 new CodeRef("Assets/Game/Framework/Editor/FrameworkBuildSizeProbe.cs", "internal static class FrameworkBuildSizeProbe", "Framework Build Size Probe · 隔离删除构建"));
 #endif
 
@@ -75,12 +74,5 @@ namespace Game.Framework.Demo.Modules
             host.AddSubNote("Module 的职责、依赖方向与删除测试集中记录在 `docs/framework-module-map.md`；完整工作流见 framework-guide §26 / ADR-0039。");
         }
 
-#if UNITY_EDITOR
-        private static void RunMenu(string path)
-        {
-            if (!UnityEditor.EditorApplication.ExecuteMenuItem(path))
-                Log.Warning($"[Demo] 菜单不存在：{path}");
-        }
-#endif
     }
 }

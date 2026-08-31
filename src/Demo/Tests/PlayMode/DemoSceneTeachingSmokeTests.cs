@@ -159,6 +159,45 @@ namespace Game.Framework.Demo.PlayMode.Tests
                 "按钮链路除了切换内容，还必须更新真实选中态");
         }
 
+        [UnityTest]
+        public IEnumerator SidebarFilter_ChangesOnlyTheDirectoryAndKeepsCurrentChapterAlive()
+        {
+            var shell = FindDemoObject<DemoShellController>();
+            Assert.IsNotNull(shell);
+            IDemoModule current = shell.Modules[1];
+            IDemoModule target = shell.Modules.Single(module => module.Id == "module-boundaries");
+            shell.SelectChapter(current);
+
+            VisualElement root = shell.GetComponent<UIDocument>().rootVisualElement;
+            TextField filter = root.Q<TextField>(className: "demo-nav-filter-input");
+            Assert.IsNotNull(filter, "35 章目录应提供常驻的本地查找入口。 ");
+
+            filter.value = target.Id;
+            yield return null; // 覆盖“切章刚排队 ScrollTo，筛选立即移除旧按钮”的下一帧竞态。
+
+            Button result = root.Query<Button>(className: "demo-nav-item").ToList().Single();
+            Assert.AreEqual(target.Title, result.text);
+            Assert.AreSame(current, shell.CurrentModule,
+                "输入查找词只过滤左侧目录，不能隐式切章并取消当前章节工作。 ");
+            StringAssert.Contains("当前正文保持不变",
+                root.Q<Label>(className: "demo-nav-filter-summary").text);
+
+            filter.value = "绝对不存在的章节关键词";
+            Assert.IsEmpty(root.Query<Button>(className: "demo-nav-item").ToList());
+            Assert.IsNotNull(root.Q<Label>(className: "demo-nav-filter-empty"),
+                "零结果要直接解释如何恢复，不能只留一块空白导航。 ");
+            Assert.AreSame(current, shell.CurrentModule);
+
+            Button clear = root.Q<Button>(className: "demo-nav-filter-clear");
+            SimulateClick(clear);
+            yield return null;
+            Assert.AreEqual(shell.Modules.Count,
+                root.Query<Button>(className: "demo-nav-item").ToList().Count);
+            Assert.AreSame(current, shell.CurrentModule);
+            Assert.AreEqual(1, root.Query<Button>(className: "demo-nav-item--active").ToList().Count,
+                "清空查找后应恢复当前章节的可见选中态。 ");
+        }
+
         [Test]
         public void RealUguiAndUiFrameworkModules_FallBackToStructuredUnavailablePages()
         {

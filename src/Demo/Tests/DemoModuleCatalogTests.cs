@@ -17,15 +17,16 @@ namespace Game.Framework.Demo.Tests
         public void DemoModuleBase_UsesIViewAsItsOnlyFrameworkLayerRole()
         {
             var module = new BaseRoleModule();
+            object role = module;
 
             Assert.IsInstanceOf<IView>(module,
                 "章节 Adapter 的运行期交互身份应直接复用 IView，而不是复制一组容易漂移的权限。");
             Assert.IsInstanceOf<ICanSendCommand>(module);
             Assert.IsInstanceOf<ICanRegisterEvent>(module);
             Assert.IsInstanceOf<ICanGetUtility>(module);
-            Assert.IsFalse(module is ICanGetModel, "View 角色不能直接读取 Model。");
-            Assert.IsFalse(module is ICanGetSystem, "View 角色不能直接读取 System。");
-            Assert.IsFalse(module is ICanSendEvent, "View 角色不能绕过 System 发送领域事件。");
+            Assert.IsFalse(role is ICanGetModel, "View 角色不能直接读取 Model。");
+            Assert.IsFalse(role is ICanGetSystem, "View 角色不能直接读取 System。");
+            Assert.IsFalse(role is ICanSendEvent, "View 角色不能绕过 System 发送领域事件。");
             Assert.IsFalse(typeof(IView).IsAssignableFrom(typeof(IDemoModule)),
                 "IDemoModule 是教学目录生命周期，不应把所有目录 Adapter 强制定义成某个框架层。");
         }

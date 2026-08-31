@@ -171,7 +171,7 @@ namespace Game.Framework.Demo.Modules
             host.AddNote("这套 demo 配置自成一套——profile + 源（`Configs~/`）+ 生成代码（`Demo/Config/Gen/`）+ 数据（`Demo/Res/Configs/`）全在 `Demo/` 内，" +
                          "随 demo 程序集（带 `UNITY_EDITOR` 约束）与样例资源包一并被正式打包排除。正式游戏在自己目录里建**另一个** `LubanConfigProfile`" +
                          "（各自的 `luban.conf` 源 + 输出 + 命名空间）即可与 demo 并存；「生成全部」逐套生成，定位 / 打开目录 / 单独生成都在「配置总览」窗口。");
-            host.AddActionRow("打开配置总览（定位 / 打开目录 / 单独生成）", () => RunMenu(OverviewMenu),
+            host.AddActionRow("打开配置总览（定位 / 打开目录 / 单独生成）", () => DemoEditorNav.OpenMenu(OverviewMenu),
                 new CodeRef("Assets/Game/Framework/Config/Editor/LubanConfigOverviewWindow.cs", "class LubanConfigOverviewWindow", "多套配置的集中视图"));
             host.AddSubNote("「多套配置」同时就是**懒加载的落点**——按需加载分两个粒度看：**单表**没有、也不建议（生成的 `Tables` 一次性构造全表、" +
                             "且跨表 `ResolveRef` 要全表在场，配置又是小体积只读数据，全量预载最省心）；真要「用到才加载」就**按配置集拆**：把 DLC / 活动 / " +
@@ -179,12 +179,6 @@ namespace Game.Framework.Demo.Modules
                             "数据再放非自动初始化的包，还能顺带按需下载。下载（包级）+ 配置集拆分（set 级），都是组合现成原语，框架不另设单表 lazy API。");
 
             host.AddTip("深度阅读：docs/framework-guide.md §16（用法手册：接入步骤 / 换 Excel 数据源 / 命名空间坑）、docs/adr/0009（设计取舍）。");
-        }
-
-        private static void RunMenu(string path)
-        {
-            if (!UnityEditor.EditorApplication.ExecuteMenuItem(path))
-                Debug.LogWarning($"[ConfigTableModule] 菜单执行失败：{path}（菜单路径变更？）");
         }
 
         // 在资源管理器里打开 demo 自带的表定义 / 数据源目录（~ 后缀 Unity 不导入，故直接走文件系统而非资产 ping）。

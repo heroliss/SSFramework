@@ -35,9 +35,13 @@ namespace Game.Framework.Demo.Core
         private IReadOnlyList<IDemoModule> _modules = Array.Empty<IDemoModule>();
         private readonly Dictionary<string, Button> _navButtons = new();
         private IDemoModule _current;
+        private string _chapterFilter = string.Empty;
 
         private VisualElement _navList;
         private ScrollView _navScroll;
+        private TextField _navFilterField;
+        private Button _navFilterClearButton;
+        private Label _navFilterSummary;
         private ScrollView _contentScroll;
         private VisualElement _contentArea;
         private Label _headerProgress;
@@ -134,10 +138,38 @@ namespace Game.Framework.Demo.Core
             body.AddToClassList("demo-body");
             root.Add(body);
 
+            var navPanel = new VisualElement();
+            navPanel.AddToClassList("demo-nav");
+            body.Add(navPanel);
+
+            var filterRow = new VisualElement();
+            filterRow.AddToClassList("demo-nav-filter");
+            navPanel.Add(filterRow);
+
+            _navFilterField = new TextField("查找");
+            _navFilterField.AddToClassList("demo-nav-filter-input");
+            _navFilterField.tooltip = "按章节标题、分类、简介或 Id 查找；多个关键词用空格分隔";
+            _navFilterField.SetValueWithoutNotify(_chapterFilter);
+            _navFilterField.RegisterValueChangedCallback(evt =>
+            {
+                _chapterFilter = evt.newValue ?? string.Empty;
+                BuildNav();
+            });
+            filterRow.Add(_navFilterField);
+
+            _navFilterClearButton = new Button(() => _navFilterField.value = string.Empty) { text = "清除" };
+            _navFilterClearButton.AddToClassList("demo-nav-filter-clear");
+            _navFilterClearButton.tooltip = "清空章节查找，恢复完整目录";
+            filterRow.Add(_navFilterClearButton);
+
+            _navFilterSummary = new Label();
+            _navFilterSummary.AddToClassList("demo-nav-filter-summary");
+            navPanel.Add(_navFilterSummary);
+
             var nav = new ScrollView();
-            nav.AddToClassList("demo-nav");
+            nav.AddToClassList("demo-nav-scroll");
             nav.horizontalScrollerVisibility = ScrollerVisibility.Hidden;
-            body.Add(nav);
+            navPanel.Add(nav);
             _navScroll = nav;
             _navList = nav.contentContainer;
 
@@ -197,10 +229,15 @@ namespace Game.Framework.Demo.Core
 
         private void BuildNav()
         {
+            if (_navList == null) return;
+            _navList.Clear();
             _navButtons.Clear();
             string lastCategory = null;
+            int visibleCount = 0;
             foreach (var m in _modules)
             {
+                if (!MatchesChapterFilter(m, _chapterFilter)) continue;
+
                 if (m.Category != lastCategory)
                 {
                     lastCategory = m.Category;
@@ -214,9 +251,20 @@ namespace Game.Framework.Demo.Core
                 btn.AddToClassList("demo-nav-item");
                 btn.tooltip = BuildChapterTooltip(m);
                 if (m.IsComingSoon) btn.AddToClassList("demo-nav-item--soon");
+                if (ReferenceEquals(m, _current)) btn.AddToClassList("demo-nav-item--active");
                 _navList.Add(btn);
                 _navButtons[m.Id] = btn;
+                visibleCount++;
             }
+
+            if (visibleCount == 0)
+            {
+                var empty = new Label("没有匹配章节\n可尝试更短或更少的关键词");
+                empty.AddToClassList("demo-nav-filter-empty");
+                _navList.Add(empty);
+            }
+
+            UpdateFilterSummary(visibleCount);
         }
 
         /// <summary>
@@ -231,6 +279,7 @@ namespace Game.Framework.Demo.Core
 
             foreach (var kv in _navButtons)
                 kv.Value.EnableInClassList("demo-nav-item--active", kv.Key == module.Id);
+            UpdateFilterSummary(_navButtons.Count);
 
             _headerTitle.text = module.Title;
             _headerSummary.text = module.Summary;
@@ -255,7 +304,12 @@ namespace Game.Framework.Demo.Core
             // 导航滚到选中项（延一帧等布局）：用户点击时按钮本就可见，这是给「UI 重建后恢复选中」兜底——
             // 重建让导航回到顶部，恢复的选中章可能在可视区外。ScrollTo 只滚最小距离，可见时是空操作。
             if (_navButtons.TryGetValue(module.Id, out var navBtn))
-                _navScroll.schedule.Execute(() => _navScroll.ScrollTo(navBtn));
+                _navScroll.schedule.Execute(() =>
+                {
+                    // 排队后用户可能立刻输入筛选或 UIDocument 重建；旧按钮已脱离当前目录时 ScrollTo 会抛。
+                    if (_navScroll?.contentContainer?.Contains(navBtn) == true)
+                        _navScroll.ScrollTo(navBtn);
+                });
         }
 
         // 所有离开当前章节的路径都走同一出口；目录集中保证先取消 Host 异步按钮，再释放模块 Bag。
@@ -315,6 +369,47 @@ namespace Game.Framework.Demo.Core
             => string.IsNullOrWhiteSpace(module.Summary)
                 ? module.Title
                 : module.Title + "\n\n" + module.Summary;
+
+        /// <summary>
+        /// 章节查找只过滤左侧目录，不切换或销毁当前正文。空格分隔的关键词必须全部命中标题、分类、简介或 Id；
+        /// 因此既适合新手按中文概念查找，也保留维护者按稳定 Id 定位的入口。
+        /// </summary>
+        internal static bool MatchesChapterFilter(IDemoModule module, string filter)
+        {
+            if (module == null) return false;
+            if (string.IsNullOrWhiteSpace(filter)) return true;
+
+            string searchable = string.Join("\n",
+                module.Title ?? string.Empty,
+                module.Category ?? string.Empty,
+                module.Summary ?? string.Empty,
+                module.Id ?? string.Empty);
+            string[] terms = filter.Split(
+                new[] { ' ', '\t', '\r', '\n' },
+                StringSplitOptions.RemoveEmptyEntries);
+            foreach (string term in terms)
+                if (searchable.IndexOf(term, StringComparison.OrdinalIgnoreCase) < 0)
+                    return false;
+            return true;
+        }
+
+        private void UpdateFilterSummary(int visibleCount)
+        {
+            if (_navFilterSummary == null) return;
+
+            bool filtering = !string.IsNullOrWhiteSpace(_chapterFilter);
+            _navFilterClearButton?.SetEnabled(filtering);
+            if (!filtering)
+            {
+                _navFilterSummary.text = $"全部 {_modules.Count} 章";
+                return;
+            }
+
+            bool currentVisible = _current == null || MatchesChapterFilter(_current, _chapterFilter);
+            _navFilterSummary.text = currentVisible
+                ? $"找到 {visibleCount}/{_modules.Count} 章"
+                : $"找到 {visibleCount}/{_modules.Count} 章 · 当前正文保持不变";
+        }
 
         private int IndexOfModule(IDemoModule module)
         {

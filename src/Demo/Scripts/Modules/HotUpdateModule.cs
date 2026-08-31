@@ -1,5 +1,4 @@
 using Game.Framework.Demo.Core;
-using UnityEngine;
 
 namespace Game.Framework.Demo.Modules
 {
@@ -61,18 +60,13 @@ namespace Game.Framework.Demo.Modules
             // ── 可现场执行的部分:构建期校验 ──
             host.AddSectionTitle("现场可跑：构建期校验（真实调用，与工作台同源）");
             host.AddNote("校验「AOT 不引用热更」（违规逐条指出元凶与修法）并展示自动拓扑排序的加载顺序——这是构建管线在编辑器侧真实存在的部分，与真机无关，可以现场跑。");
-            host.AddActionRow("打开代码热更新工作台（校验 · 配置 · 构建）", () => RunMenu(WorkbenchMenu),
+            host.AddActionRow("打开代码热更新工作台（校验 · 配置 · 构建）", () => DemoEditorNav.OpenMenu(WorkbenchMenu),
                 new CodeRef("Assets/Game/Framework/Build/HybridCLR/Editor/HotUpdateAssemblyGraph.cs", "class HotUpdateAssemblyGraph", "引用图校验 + 拓扑排序"));
-            host.AddActionRow("查看热更产物链（只读，不自动修改）", () => RunMenu(ModuleAuditMenu),
+            host.AddActionRow("查看热更产物链（只读，不自动修改）", () => DemoEditorNav.OpenMenu(ModuleAuditMenu),
                 new CodeRef("Assets/Game/Framework/Build/HybridCLR/Editor/FrameworkHotUpdateBuilder.cs", "InspectEvidence(FrameworkHotUpdateProfile profile)", "Profile → Settings → Generate → DLL 中转证据"));
 
             host.AddTip("深度阅读：docs/framework-guide.md §15（用法手册）、docs/adr/0008（热更机制）、docs/adr/0045（构建 Module 拆分与删除测试）。");
         }
 
-        private static void RunMenu(string path)
-        {
-            if (!UnityEditor.EditorApplication.ExecuteMenuItem(path))
-                Debug.LogWarning($"[HotUpdateModule] 菜单执行失败：{path}（菜单路径变更？）");
-        }
     }
 }
