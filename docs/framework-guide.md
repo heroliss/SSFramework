@@ -2957,6 +2957,12 @@ var resp = await http.Post<LoginReq, LoginResp>("api/login", new LoginReq { User
 http.SetHeader("Authorization", $"Bearer {resp.Token}");        // 之后每个请求自动带上
 var board = await http.Get<Leaderboard>($"api/rank?count={n}"); // query 写在 path，动态值用 Uri.EscapeDataString
 
+// 某个公开端点只在本次请求移除全局 Authorization；后续请求仍保留默认头
+await http.Send(new HttpRequest {
+    Path = "api/public",
+    Headers = new Dictionary<string, string> { ["Authorization"] = null }
+});
+
 // ── WebSocket 推送转事件 ──
 var ws = this.GetUtility<IWebSocketUtility>();
 await ws.Connect("wss://push.example.com/game");
@@ -2972,8 +2978,8 @@ await ws.Send("say", new SayReq { Text = "hi" });               // 客户端 →
 | `IHttpUtility` | 说明 |
 |---|---|
 | `Get<TResp>(path)` / `Post<TReq,TResp>(path, body)` / `Post<TReq>(path, body)` | 动词门面；2xx 空体 → null，非 2xx **抛** `NetworkException(HttpError)` |
-| `SetHeader(name, value)` | 设默认头（value=null 移除）；典型登录后设 Authorization |
-| `Send(HttpRequest)` | 逃生舱：任意动词 / raw 字节 / 每请求头；**只要交换完成就返回不抛**（查 `IsSuccess`），PUT/DELETE 走这里 |
+| `SetHeader(name, value)` | 设默认头（value=null 移除）；典型登录后设 Authorization。头名须为 ASCII token，值不能含 CR/LF |
+| `Send(HttpRequest)` | 逃生舱：任意动词 / raw 字节 / 每请求头；**只要交换完成就返回不抛**（查 `IsSuccess`），PUT/DELETE 走这里；每请求 header 的 null value 只临时移除同名默认头 |
 
 | `IWebSocketUtility` | 说明 |
 |---|---|
@@ -2994,6 +3000,9 @@ await ws.Send("say", new SayReq { Text = "hi" });               // 客户端 →
 | WS caller / Context 已取消，Adapter 却抛 ODE / socket error | 仍按 owner 意图返回 OCE；Adapter 原异常保留为 inner |
 | 非 2xx（动词门面） | `NetworkException(HttpError)`，带 `StatusCode` + `ResponseBody` |
 | 响应体 / 推送载荷反序列化失败 | `NetworkException(DeserializeError)` |
+| 自定义 HTTP Provider 返回 null response / Body / Headers | `NetworkException(ConnectionError)`，消息指出 Adapter 违反的响应契约 |
+
+`HttpUtility` 会在网络 I/O 前验证协议输入：非 null `baseUrl` 在构造时就必须是带 host、无 userinfo / query / fragment 的绝对 `http(s)` 地址；请求 method / header name 必须是 ASCII token，URL 中的动态空白先用 `Uri.EscapeDataString` 转义，header value 不能包含 CR/LF。环境配置因此在组合根暴露，而不是拖到玩家第一次请求时才由不同 Provider 给出不一致错误。
 
 **非 2xx 不折叠成 null**（状态码语义因服务器而异，隐藏即丢信息）：预期内的业务错误用 `catch ... when` 过滤——
 

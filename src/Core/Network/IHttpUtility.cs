@@ -21,7 +21,8 @@ namespace Game.Framework.Network
     /// </summary>
     /// <remarks>
     /// <b>注册：</b><c>builder.RegisterOwnedUtility(new HttpUtility("https://api.xxx.com"))</c>——
-    /// 随 Context Dispose 取消所有在途请求。环境切换（dev / prod）= 注册时传不同 baseUrl（构造定死，运行期不可变）。<br/>
+    /// 随 Context Dispose 取消所有在途请求。环境切换（dev / prod）= 注册时传不同 baseUrl（构造定死，运行期不可变）；
+    /// 非 null baseUrl 必须是带 host、无 userinfo / query / fragment 的绝对 http(s) 地址，配置错误在构造期暴露。<br/>
     /// <b>线程：</b>公共 API 主线程调用（框架统一契约）；默认传输走 UnityWebRequest 引擎异步、全程不下线程池
     /// （WebGL 兼容的来源）。自定义 provider 可以在任意线程完成，Utility 会在成功、失败或取消完成公共调用前
     /// 恢复 Unity 主线程。请求之间天然并行（无共享介质，不像存储需要 FIFO）。<br/>
@@ -48,6 +49,7 @@ namespace Game.Framework.Network
         /// <summary>
         /// 设置随后每个请求都携带的默认头（同名覆盖、头名不区分大小写；value 传 null 移除）。
         /// 典型用法：登录拿到 token 后 <c>SetHeader("Authorization", $"Bearer {token}")</c>，之后所有请求自动带上。
+        /// 名称必须是 HTTP ASCII token，值不能含 CR/LF；非法输入在调用 Provider 前抛参数异常。
         /// </summary>
         void SetHeader(string name, string value);
 
@@ -67,7 +69,8 @@ namespace Game.Framework.Network
         /// <summary>
         /// 逃生舱：任意动词 / raw 字节体 / 每请求头与超时 / 读状态码与响应头。
         /// 与动词方法的关键差异——只要 HTTP 交换完成（含 4xx/5xx）就<b>返回响应不抛</b>（查 <see cref="HttpResponse.IsSuccess"/>）；
-        /// 只有传输层失败（连不上 / 超时 / 取消）才抛。
+        /// 只有传输层失败（连不上 / 超时 / 取消）才抛。<see cref="HttpRequest.Headers"/> 中某项值为 null
+        /// 表示仅对本次请求移除同名默认头，不修改后续请求的默认集合。
         /// </summary>
         UniTask<HttpResponse> Send(HttpRequest request, CancellationToken ct = default);
     }

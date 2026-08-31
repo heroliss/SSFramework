@@ -142,6 +142,58 @@ namespace Game.Framework.Test
                 "共享的默认空 Headers 必须冻结；不暴露 IDictionary 或写入抛异常都不能让一个响应污染后续响应");
         }
 
+        [TestCase("")]
+        [TestCase(" \t")]
+        [TestCase("api.test")]
+        [TestCase("ftp://api.test")]
+        [TestCase("https://user:secret@api.test")]
+        [TestCase("https://api.test/root?tenant=a")]
+        [TestCase("https://api.test/root?")]
+        [TestCase("https://api.test/root#fragment")]
+        [TestCase("https://api.test/root#")]
+        [TestCase("https://api.test/has space")]
+        public void Constructor_InvalidBaseUrl_FailsAtCompositionRoot(string baseUrl)
+        {
+            Assert.Throws<ArgumentException>(() => _ = new HttpUtility(baseUrl, _fake));
+            Assert.AreEqual(0, _fake.SendCount, "环境地址配置错误不能拖到第一次请求才暴露");
+        }
+
+        [Test]
+        public void SetHeader_InvalidNameOrLineBreak_FailsBeforeAnyRequest()
+        {
+            Assert.Throws<ArgumentException>(() => _http.SetHeader(" ", "value"));
+            Assert.Throws<ArgumentException>(() => _http.SetHeader("Bad Header", "value"));
+            Assert.Throws<ArgumentException>(() => _http.SetHeader("Bad:Header", "value"));
+            Assert.Throws<ArgumentException>(() => _http.SetHeader("X-Test", "safe\r\nInjected: value"));
+            Assert.AreEqual(0, _fake.SendCount);
+        }
+
+        [UnityTest]
+        public IEnumerator Send_InvalidProtocolMetadata_FailsBeforeProvider() => UniTask.ToCoroutine(async () =>
+        {
+            await ExpectArgument(_http.Send(new HttpRequest { Method = "GET bad", Path = "api/x" }));
+            await ExpectArgument(_http.Send(new HttpRequest { Method = "GET", Path = " \t" }));
+            await ExpectArgument(_http.Send(new HttpRequest { Method = "GET", Path = "api/has space" }));
+            await ExpectArgument(_http.Send(new HttpRequest { Method = "GET", Path = "ftp://api.test/x" }));
+            await ExpectArgument(_http.Send(new HttpRequest { Method = "GET", Path = "https://user:secret@api.test/x" }));
+            await ExpectArgument(_http.Send(new HttpRequest { Method = "GET", Path = "https://api.test/x#fragment" }));
+            await ExpectArgument(_http.Send(new HttpRequest { Method = "GET", Path = "api/x", ContentType = " \t" }));
+            await ExpectArgument(_http.Send(new HttpRequest
+            {
+                Method = "GET",
+                Path = "api/x",
+                Headers = new Dictionary<string, string> { ["Bad Header"] = "value" },
+            }));
+            await ExpectArgument(_http.Send(new HttpRequest
+            {
+                Method = "GET",
+                Path = "api/x",
+                Headers = new Dictionary<string, string> { ["X-Test"] = "safe\nInjected: value" },
+            }));
+
+            Assert.AreEqual(0, _fake.SendCount, "Method / URL / header 契约应在进入 Adapter 前一次性封闭");
+        });
+
         [UnityTest]
         public IEnumerator Post_Roundtrip_SerializesRequest_DeserializesResponse() => UniTask.ToCoroutine(async () =>
         {
@@ -202,6 +254,40 @@ namespace Game.Framework.Test
             Assert.IsFalse(_fake.LastHeaders.Exists(h => h.Key == "Authorization"));
 
             string Find(string name) => _fake.LastHeaders.Find(h => string.Equals(h.Key, name, StringComparison.OrdinalIgnoreCase)).Value;
+        });
+
+        [UnityTest]
+        public IEnumerator PerRequestNullHeader_RemovesDefaultOnlyForThatRequest() => UniTask.ToCoroutine(async () =>
+        {
+            _http.SetHeader("Authorization", "Bearer private");
+
+            await _http.Send(new HttpRequest
+            {
+                Path = "api/public",
+                Headers = new Dictionary<string, string> { ["authorization"] = null },
+            });
+            Assert.IsTrue(_fake.LastHeaders == null ||
+                          !_fake.LastHeaders.Exists(h => string.Equals(h.Key, "Authorization", StringComparison.OrdinalIgnoreCase)),
+                "每请求 null 应从本次合并快照移除默认头");
+
+            await _http.Get<LoginResp>("api/private");
+            Assert.AreEqual("Bearer private",
+                _fake.LastHeaders.Find(h => string.Equals(h.Key, "Authorization", StringComparison.OrdinalIgnoreCase)).Value,
+                "临时移除不能反向修改后续请求的默认头");
+        });
+
+        [UnityTest]
+        public IEnumerator Provider_InvalidResponseShape_BecomesConnectionErrorInsteadOfNullReference() => UniTask.ToCoroutine(async () =>
+        {
+            _fake.Handler = _ => UniTask.FromResult(new HttpResponse { Body = null });
+            NetworkException missingBody = await CaptureNetworkFailure(_http.Get<LoginResp>("api/body-null"));
+            Assert.AreEqual(NetworkErrorKind.ConnectionError, missingBody.Kind);
+            StringAssert.Contains("Body 不能为 null", missingBody.Message);
+
+            _fake.Handler = _ => UniTask.FromResult(new HttpResponse { Headers = null });
+            NetworkException missingHeaders = await CaptureNetworkFailure(_http.Get<LoginResp>("api/headers-null"));
+            Assert.AreEqual(NetworkErrorKind.ConnectionError, missingHeaders.Kind);
+            StringAssert.Contains("Headers 不能为 null", missingHeaders.Message);
         });
 
         [UnityTest]
@@ -626,6 +712,30 @@ namespace Game.Framework.Test
             }
             catch (ArgumentNullException) { /* 预期 */ }
         });
+
+        private static async UniTask ExpectArgument<T>(UniTask<T> task)
+        {
+            try
+            {
+                await task;
+                Assert.Fail("非法 HTTP 协议元数据应在进入 Provider 前抛 ArgumentException。");
+            }
+            catch (ArgumentException) { }
+        }
+
+        private static async UniTask<NetworkException> CaptureNetworkFailure<T>(UniTask<T> task)
+        {
+            try
+            {
+                await task;
+                Assert.Fail("违规 Provider 响应应折叠为 NetworkException(ConnectionError)。");
+                return null;
+            }
+            catch (NetworkException e)
+            {
+                return e;
+            }
+        }
 
         private static async UniTask CancelOnThreadPool(CancellationTokenSource cts)
         {

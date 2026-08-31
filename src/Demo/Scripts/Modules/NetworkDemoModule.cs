@@ -142,6 +142,8 @@ namespace Game.Framework.Demo.Modules
                 http.SetHeader("Authorization", $"Bearer {token}");
                 httpLabel.text = "已设置 Authorization 默认头 ✓ 之后每个请求都自动带上（典型 auth 姿势）。";
             }, CodeRef.Here("http.SetHeader(\"Authorization\"", "默认头"));
+            host.AddSubNote("`baseUrl` 会在 `HttpUtility` 构造时验证为带 host、无 userinfo / query / fragment 的绝对 `http(s)` 地址；Method、URL 与 Header 也会在进入 Provider 前校验。某个公开端点不应携带全局 Authorization 时，可在该次 `HttpRequest.Headers` 中写 `[\"Authorization\"] = null`：只移除本次合并快照，不会改掉后续请求的默认头。",
+                new CodeRef("Assets/Game/Framework/Core/Network/HttpMessages.cs", "public Dictionary<string, string> Headers", "每请求头与临时移除语义"));
 
             host.AddAsyncActionRow("GET /api/leaderboard?count=3（需 token，缺则 401）", async ct =>
             {

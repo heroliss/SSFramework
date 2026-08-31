@@ -120,7 +120,10 @@ namespace Game.Framework.Network
 
         public string BaseUrl { get; }
 
-        /// <param name="baseUrl">基地址（尾部 / 自动去除）；null = 所有 path 必须是绝对 URL。</param>
+        /// <param name="baseUrl">
+        /// 基地址（尾部 / 自动去除）；null = 所有 path 必须是绝对 URL。非 null 时必须是带 host、无
+        /// userinfo / query / fragment 的绝对 http(s) 地址；配置错误在构造期抛参数异常。
+        /// </param>
         /// <param name="provider">传输实现；null = 默认 <see cref="UnityWebRequestHttpProvider"/>。</param>
         /// <param name="serializer">序列化格式；null = 默认 <see cref="JsonUtilityNetworkSerializer"/>。</param>
         /// <param name="defaultTimeoutSeconds">默认超时秒数（有限值；&lt;=0 = 不限时，一般只在调试用）。单次覆盖走 <see cref="Send"/>。</param>
@@ -128,7 +131,7 @@ namespace Game.Framework.Network
             INetworkSerializer serializer = null, float defaultTimeoutSeconds = 10f)
         {
             ValidateTimeout(defaultTimeoutSeconds, nameof(defaultTimeoutSeconds));
-            BaseUrl = string.IsNullOrEmpty(baseUrl) ? null : baseUrl.TrimEnd('/');
+            BaseUrl = NormalizeBaseUrl(baseUrl);
             _provider = provider ?? new UnityWebRequestHttpProvider();
             _serializer = serializer ?? new JsonUtilityNetworkSerializer();
             _defaultTimeoutSeconds = defaultTimeoutSeconds;
@@ -137,7 +140,8 @@ namespace Game.Framework.Network
         public void SetHeader(string name, string value)
         {
             ThrowIfDisposed();
-            if (string.IsNullOrEmpty(name)) throw new ArgumentException("header 名不能为空。", nameof(name));
+            ValidateHeaderName(name, nameof(name));
+            ValidateHeaderValue(value, nameof(value));
             if (value == null) _defaultHeaders.Remove(name);
             else _defaultHeaders[name] = value;
         }
@@ -164,7 +168,13 @@ namespace Game.Framework.Network
         {
             ThrowIfDisposed();
             if (request == null) throw new ArgumentNullException(nameof(request));
-            if (string.IsNullOrEmpty(request.Method)) throw new ArgumentException("HttpRequest.Method 不能为空。", nameof(request));
+            ValidateMethod(request.Method);
+            if (request.ContentType != null)
+            {
+                if (string.IsNullOrWhiteSpace(request.ContentType))
+                    throw new ArgumentException("HttpRequest.ContentType 不能是空白字符串；无请求体类型请传 null。", nameof(request));
+                ValidateHeaderValue(request.ContentType, nameof(request));
+            }
 
             string contentType = request.ContentType ?? (request.Body != null ? _serializer.ContentType : null);
             return await SendCore(request.Method, request.Path, request.Body, contentType,
@@ -262,8 +272,8 @@ namespace Game.Framework.Network
                 await UniTask.SwitchToMainThread();
                 if (owner.TimedOut)
                     throw CreateTimeoutException(timeout, method, url);
-                return response ?? throw new NetworkException(NetworkErrorKind.ConnectionError,
-                    $"HTTP provider 返回了 null response：{method} {url}");
+                ValidateProviderResponse(response, method, url);
+                return response;
             }
             catch (Exception e)
             {
@@ -362,13 +372,26 @@ namespace Game.Framework.Network
 
         private string ResolveUrl(string path)
         {
-            if (string.IsNullOrEmpty(path)) throw new ArgumentException("path 不能为空。", nameof(path));
-            if (path.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
-                path.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("path 不能为空。", nameof(path));
+            if (ContainsWhitespace(path))
+                throw new ArgumentException(
+                    $"path '{path}' 含未转义空白；动态片段请先用 Uri.EscapeDataString。", nameof(path));
+
+            // 以 / 开头的是 BaseUrl 根相对路径；// 开头的 scheme-relative 地址容易把 host 所有权藏进 path，拒绝。
+            bool rootRelative = path[0] == '/' && (path.Length == 1 || path[1] != '/');
+            if (!rootRelative && Uri.TryCreate(path, UriKind.Absolute, out Uri absolute))
+            {
+                ValidateAbsoluteHttpUri(absolute, path, nameof(path), allowQuery: true);
                 return path;
+            }
+            if (path.StartsWith("//", StringComparison.Ordinal) || path.IndexOf("://", StringComparison.Ordinal) >= 0)
+                throw new ArgumentException(
+                    $"path '{path}' 不是有效的绝对 http(s) 地址；相对路径不能包含 scheme 或独立 host。", nameof(path));
             if (BaseUrl == null)
                 throw new ArgumentException($"path '{path}' 是相对路径但未配置 BaseUrl——注册时传 baseUrl，或使用绝对 URL。", nameof(path));
-            return path[0] == '/' ? BaseUrl + path : BaseUrl + "/" + path;
+            string resolved = rootRelative ? BaseUrl + path : BaseUrl + "/" + path;
+            ValidateAbsoluteHttpUrl(resolved, nameof(path), allowQuery: true);
+            return resolved;
         }
 
         // 默认头与每请求头合并，同名（不区分大小写）后者覆盖。去重在编排层完成、provider 拿到的列表无重复名——
@@ -384,10 +407,18 @@ namespace Game.Framework.Network
             }
             else
             {
+                // 只有每请求覆盖存在时才复制：列表在返回前已经形成快照，普通请求无需再分配一份字典。
                 source = new Dictionary<string, string>(_defaultHeaders, StringComparer.OrdinalIgnoreCase);
-                foreach (var h in extra) source[h.Key] = h.Value;
+                foreach (var h in extra)
+                {
+                    ValidateHeaderName(h.Key, nameof(HttpRequest.Headers));
+                    ValidateHeaderValue(h.Value, nameof(HttpRequest.Headers));
+                    if (h.Value == null) source.Remove(h.Key);
+                    else source[h.Key] = h.Value;
+                }
             }
 
+            if (source.Count == 0) return null;
             var merged = new List<KeyValuePair<string, string>>(source.Count);
             foreach (var h in source) merged.Add(h);
             return merged;
@@ -417,6 +448,95 @@ namespace Game.Framework.Network
 
         private static string Truncate(string s) =>
             string.IsNullOrEmpty(s) ? null : (s.Length <= ErrorBodyMaxChars ? s : s.Substring(0, ErrorBodyMaxChars));
+
+        private static string NormalizeBaseUrl(string baseUrl)
+        {
+            if (baseUrl == null) return null;
+            if (string.IsNullOrWhiteSpace(baseUrl))
+                throw new ArgumentException("baseUrl 只能为 null 或有效的绝对 http(s) 地址，不能是空白字符串。", nameof(baseUrl));
+            if (ContainsWhitespace(baseUrl))
+                throw new ArgumentException("baseUrl 含未转义空白。", nameof(baseUrl));
+
+            ValidateAbsoluteHttpUrl(baseUrl, nameof(baseUrl), allowQuery: false);
+            return baseUrl.TrimEnd('/');
+        }
+
+        private static Uri ValidateAbsoluteHttpUrl(string value, string paramName, bool allowQuery)
+        {
+            if (!Uri.TryCreate(value, UriKind.Absolute, out Uri uri))
+                throw new ArgumentException($"'{value}' 不是有效的绝对 http(s) 地址。", paramName);
+            ValidateAbsoluteHttpUri(uri, value, paramName, allowQuery);
+            return uri;
+        }
+
+        private static void ValidateAbsoluteHttpUri(Uri uri, string original, string paramName, bool allowQuery)
+        {
+            if (!string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException($"HTTP 地址只支持 http:// 或 https://：'{original}'。", paramName);
+            if (string.IsNullOrWhiteSpace(uri.Host))
+                throw new ArgumentException($"HTTP 地址必须包含 host：'{original}'。", paramName);
+            if (!string.IsNullOrEmpty(uri.UserInfo))
+                throw new ArgumentException($"HTTP 地址不支持 userinfo；认证信息请放请求头：'{original}'。", paramName);
+            if (original.IndexOf('#') >= 0)
+                throw new ArgumentException($"HTTP 地址不支持 fragment（#...）：'{original}'。", paramName);
+            if (!allowQuery && original.IndexOf('?') >= 0)
+                throw new ArgumentException($"baseUrl 不应携带 query；query 请写在每次请求的 path：'{original}'。", paramName);
+        }
+
+        private static void ValidateMethod(string method)
+        {
+            if (string.IsNullOrWhiteSpace(method))
+                throw new ArgumentException("HttpRequest.Method 不能为空。", nameof(HttpRequest));
+            for (int i = 0; i < method.Length; i++)
+            {
+                if (!IsHttpTokenChar(method[i]))
+                    throw new ArgumentException(
+                        $"HttpRequest.Method '{method}' 含非法字符；HTTP method 必须是 ASCII token。", nameof(HttpRequest));
+            }
+        }
+
+        private static void ValidateHeaderName(string name, string paramName)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                throw new ArgumentException("HTTP header 名不能为空。", paramName);
+            for (int i = 0; i < name.Length; i++)
+            {
+                if (!IsHttpTokenChar(name[i]))
+                    throw new ArgumentException(
+                        $"HTTP header 名 '{name}' 含非法字符；名称必须是 ASCII token，不能包含冒号或空白。", paramName);
+            }
+        }
+
+        private static void ValidateHeaderValue(string value, string paramName)
+        {
+            if (value != null && (value.IndexOf('\r') >= 0 || value.IndexOf('\n') >= 0))
+                throw new ArgumentException("HTTP header 值不能包含 CR/LF 换行。", paramName);
+        }
+
+        private static bool IsHttpTokenChar(char c) =>
+            (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+            c == '!' || c == '#' || c == '$' || c == '%' || c == '&' || c == '\'' || c == '*' ||
+            c == '+' || c == '-' || c == '.' || c == '^' || c == '_' || c == '`' || c == '|' || c == '~';
+
+        private static bool ContainsWhitespace(string value)
+        {
+            for (int i = 0; i < value.Length; i++)
+                if (char.IsWhiteSpace(value[i])) return true;
+            return false;
+        }
+
+        private static void ValidateProviderResponse(HttpResponse response, string method, string url)
+        {
+            if (response == null)
+                throw new InvalidOperationException($"HTTP provider 返回了 null response：{method} {url}。");
+            if (response.Body == null)
+                throw new InvalidOperationException(
+                    $"HTTP provider 违反响应契约：Body 不能为 null（空体请返回 Array.Empty<byte>()）：{method} {url}。");
+            if (response.Headers == null)
+                throw new InvalidOperationException(
+                    $"HTTP provider 违反响应契约：Headers 不能为 null（无响应头请返回空字典）：{method} {url}。");
+        }
 
         private void ThrowIfDisposed()
         {

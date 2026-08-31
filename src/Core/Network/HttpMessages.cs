@@ -11,19 +11,25 @@ namespace Game.Framework.Network
     /// </summary>
     public sealed class HttpRequest
     {
-        /// <summary>HTTP 动词（大写惯例："GET" / "POST" / "PUT" / "DELETE"…）。</summary>
+        /// <summary>HTTP 动词（大写惯例："GET" / "POST" / "PUT" / "DELETE"…）；必须是非空 ASCII token。</summary>
         public string Method = "GET";
 
-        /// <summary>相对 BaseUrl 的路径（query 直接写在里面），或 <c>http(s)://</c> 开头的绝对地址。</summary>
+        /// <summary>
+        /// 相对 BaseUrl 的路径（query 直接写在里面），或带 host、无 userinfo / fragment 的绝对 http(s) 地址。
+        /// 不接受未转义空白；动态片段先用 <see cref="Uri.EscapeDataString(string)"/>。
+        /// </summary>
         public string Path;
 
         /// <summary>请求体原始字节；null = 无请求体。已序列化对象体自己先过 serializer。</summary>
         public byte[] Body;
 
-        /// <summary>请求体的 Content-Type；null 且有 Body 时取 serializer 的 <see cref="INetworkSerializer.ContentType"/>。</summary>
+        /// <summary>请求体的 Content-Type；null 且有 Body 时取 serializer 的 <see cref="INetworkSerializer.ContentType"/>。显式值不能是空白或含 CR/LF。</summary>
         public string ContentType;
 
-        /// <summary>附加请求头，叠加在 <see cref="IHttpUtility.SetHeader"/> 默认头之上（同名覆盖）；null = 无附加。</summary>
+        /// <summary>
+        /// 附加请求头，叠加在 <see cref="IHttpUtility.SetHeader"/> 默认头之上（同名覆盖）；集合为 null = 无附加，
+        /// 某项 value 为 null = 仅对本请求移除同名默认头。名称必须是 HTTP ASCII token，非 null 值不能含 CR/LF。
+        /// </summary>
         public Dictionary<string, string> Headers;
 
         /// <summary>本次请求的有限超时秒数；null = 用 utility 默认值，&lt;=0 = 不限时；NaN / Infinity / 超出 TimeSpan 范围会在发送前 fail-fast。</summary>

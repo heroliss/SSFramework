@@ -1,6 +1,6 @@
 # ADR-0028：网络模块 —— IHttpUtility 请求-响应 + IWebSocketUtility 推送转事件，传输与序列化双接缝
 
-**Status:** Accepted（2026-07-06）
+**Status:** Accepted（2026-07-06；2026-08-31 补强 HTTP 协议与 Provider 边界）
 
 ## Context
 
@@ -50,7 +50,7 @@ public interface IWebSocketUtility : IUtility     // 有状态长连接（一个
 
 | 情形 | 行为 |
 |---|---|
-| path/body 参数非法、相对 path 但 BaseUrl 为 null | 抛 `ArgumentException`（代码写错） |
+| baseUrl、method、path、header 参数非法，或相对 path 但 BaseUrl 为 null | 在调用 Provider 前抛 `ArgumentException`（配置 / 代码写错） |
 | WS url 不是带 host 的绝对 `ws://` / `wss://` 地址，或包含 userinfo / fragment | 在调用 Provider 前抛 `ArgumentException`（配置错误） |
 | Dispose 后调用 | 抛 `ObjectDisposedException` |
 | DNS 失败 / 拒绝连接 / 网络断开 | `NetworkException(ConnectionError)` |
@@ -130,6 +130,8 @@ IWebSocketUtility ── WebSocketUtility（状态机 / envelope / 推送注册�
 - Provider 的 `Abort()` 是与优雅 `CloseAsync` 正交的物理重置：立即中止并摘除当前已提交 socket，Provider 之后仍可重连。它用于未发布的 success-win、意外 Close 超时/损坏和 session 最终退场，保证 barrier 放行时旧物理连接不再由可变 Provider 字段持有。
 - .NET `CancellationTokenSource.Cancel()` 会把注册回调异常聚合抛出，即使 token 本身已经成功取消。Connect Attempt、Connection Session 与 Utility lifetime 三层 owner 的主动取消都经同一个隔离点：记录异常并继续 owner cleanup，不能让 Adapter/业务回调截断 provider Dispose、State 终态或 teardown barrier。
 - HTTP 每次请求有独立 Request Owner。caller / Utility lifetime token 的回调只调用 owner 的安全 Cancel，因此 Adapter 的坏取消回调不会从外部 `CancellationTokenSource.Cancel()` 或 Utility Dispose 反向逃逸；Dispose 仍会继续释放 Provider。deadline 先赢后仍等待守约 Provider 到物理终态并观察其异常；若这段收尾期间 caller / lifetime 在公共 completion 前取消，scope 已不再需要结果，OCE 明确优先于早先 deadline，避免已销毁页面收到迟到 Timeout。否则 deadline 折叠 Timeout；Provider 在 owner token 未取消时自发 OCE 是 ConnectionError。物理成功结果是提交点，不做迟到的 caller token post-check。
+- HTTP 的环境与协议元数据在 Adapter 前封闭：非 null BaseUrl 构造时就必须是带 host、无 userinfo / query / fragment 的绝对 http(s) 地址；请求 method / header name 使用 ASCII token，URL 不接受未转义空白，header value 不接受 CR/LF。每请求 Headers 的 null value 表示从本次合并快照临时移除同名默认头，解决“全局 Authorization 已设置，但某个公开端点不能携带”的常见场景，不修改后续默认集合。
+- Provider 返回也在接缝处验证：response、Body、Headers 任一为 null 都视为 Adapter 违反契约，并稳定折叠为 `NetworkException(ConnectionError)`；不会把错误推迟成 `BodyText` / 反序列化处的 `NullReferenceException`。空响应体与无响应头必须显式返回空数组 / 空字典。
 - Dispose：`HttpUtility` 取消所有在途 Request Owner；`WebSocketUtility` claim 并停掉当前 Connection Session、释放 Provider 与响应式 State，不发 ClosedEvent。Provider Dispose 失败仍原样交给上层 owner 观察，但不能截断 State 释放。随 Context 整棵撤。
 
 ### 8. 环境实测结论（落地时的两个坑，spike 已验证）
