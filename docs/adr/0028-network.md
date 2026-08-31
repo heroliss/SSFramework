@@ -1,6 +1,6 @@
 # ADR-0028：网络模块 —— IHttpUtility 请求-响应 + IWebSocketUtility 推送转事件，传输与序列化双接缝
 
-**Status:** Accepted（2026-07-06；2026-08-31 补强 HTTP 协议与 Provider 边界）
+**Status:** Accepted（2026-07-06；2026-08-31 补强 HTTP / WebSocket 协议、终态与 Provider 边界）
 
 ## Context
 
@@ -51,8 +51,9 @@ public interface IWebSocketUtility : IUtility     // 有状态长连接（一个
 | 情形 | 行为 |
 |---|---|
 | baseUrl、method、path、header 参数非法，或相对 path 但 BaseUrl 为 null | 在调用 Provider 前抛 `ArgumentException`（配置 / 代码写错） |
-| WS url 不是带 host 的绝对 `ws://` / `wss://` 地址，或包含 userinfo / fragment | 在调用 Provider 前抛 `ArgumentException`（配置错误） |
-| Dispose 后调用 | 抛 `ObjectDisposedException` |
+| WS url 不是带 host 的绝对 `ws://` / `wss://` 地址，或包含未转义空白 / userinfo / fragment | 在调用 Provider 前抛 `ArgumentException`（配置错误） |
+| WS 注册或发送的消息 type 为空、纯空白或任意位置含空白 | 在写注册表 / 调用 Provider 前抛 `ArgumentException`；不自动 Trim 改写 wire 身份 |
+| Dispose 后重新读取 WS State，或继续注册 / 连接 / 发送 | 抛 `ObjectDisposedException`；已取得的 State 正常完结。幂等清理 `Disconnect` 例外，保持 no-op |
 | DNS 失败 / 拒绝连接 / 网络断开 | `NetworkException(ConnectionError)` |
 | 超时（HTTP Request Owner 的 deadline 先于物理发送完成） | `NetworkException(Timeout)` |
 | 外部 ct 取消 | `OperationCanceledException`（不包装，框架统一约定） |
@@ -85,6 +86,7 @@ public interface IWebSocketUtility : IUtility     // 有状态长连接（一个
 ```
 
 - `RegisterPush<TEvent>("type")` 把服务器推送映射为框架事件：收到该 type → payload 反序列化为 `TEvent` → `SendEvent`。业务消费推送 = `Bag.Subscribe<TEvent>`，与 Model 事件同一套心智——**这正是「推送转事件」双轨建模的落点**。
+- type 是双方精确匹配的 wire 标识，不是用户可见文案：空值或任意位置的空白都会在发送 / 注册时 fail-fast，收到这类畸形帧则 warning + 丢弃当条。框架不调用 `Trim`，因为静默把 `"chat "` 改写为 `"chat"` 会掩盖协议两端不一致。
 - payload 是**字符串二次编码**而非嵌套对象：默认 `JsonUtility` 无法从泛型外层提取嵌套原始 JSON 片段，字符串载荷让零依赖序列化稳定工作。envelope 是 v1 的 wire 契约（demo 服务器同款）。
 - **2026-07 修订（Outpost M4 驱动）**：字符串二次编码对二进制格式是破坏性的（Protobuf 字节过 `UTF8.GetString` 不保真）。新增可选接缝 `IWebSocketEnvelopeSerializer : INetworkSerializer`——序列化器实现它即整体接管 envelope 编解码与帧类型（payload 全程 `byte[]`、`UseBinaryFrames` 决定发二进制帧；`IWebSocketProvider.SendAsync` 相应加 `binary` 参数）。不实现的序列化器走原 JSON 兼容路径（wire 字节不变，零迁移）。envelope 的线上形态由格式自定（如 Protobuf 的 `{string type=1; bytes payload=2}`），框架不再规定嵌套编码方式。
 - 推送事件类型约定：`[Serializable] struct + 公共字段`（`JsonUtility` 只认字段，**record 位置参数是属性、反序列化不出来**）。框架自产事件（如 `WebSocketClosedEvent`）不经反序列化、本无此约束，但内核程序集无 `IsExternalInit` polyfill、位置参数 record 的 init 访问器编译不过，故照 `FlowChangedEvent` 先例用 `readonly struct` + 显式字段。
@@ -132,7 +134,7 @@ IWebSocketUtility ── WebSocketUtility（状态机 / envelope / 推送注册�
 - HTTP 每次请求有独立 Request Owner。caller / Utility lifetime token 的回调只调用 owner 的安全 Cancel，因此 Adapter 的坏取消回调不会从外部 `CancellationTokenSource.Cancel()` 或 Utility Dispose 反向逃逸；Dispose 仍会继续释放 Provider。deadline 先赢后仍等待守约 Provider 到物理终态并观察其异常；若这段收尾期间 caller / lifetime 在公共 completion 前取消，scope 已不再需要结果，OCE 明确优先于早先 deadline，避免已销毁页面收到迟到 Timeout。否则 deadline 折叠 Timeout；Provider 在 owner token 未取消时自发 OCE 是 ConnectionError。物理成功结果是提交点，不做迟到的 caller token post-check。
 - HTTP 的环境与协议元数据在 Adapter 前封闭：非 null BaseUrl 构造时就必须是带 host、无 userinfo / query / fragment 的绝对 http(s) 地址；请求 method / header name 使用 ASCII token，URL 不接受未转义空白，header value 不接受 CR/LF。每请求 Headers 的 null value 表示从本次合并快照临时移除同名默认头，解决“全局 Authorization 已设置，但某个公开端点不能携带”的常见场景，不修改后续默认集合。
 - Provider 返回也在接缝处验证：response、Body、Headers 任一为 null 都视为 Adapter 违反契约，并稳定折叠为 `NetworkException(ConnectionError)`；不会把错误推迟成 `BodyText` / 反序列化处的 `NullReferenceException`。空响应体与无响应头必须显式返回空数组 / 空字典。
-- Dispose：`HttpUtility` 取消所有在途 Request Owner；`WebSocketUtility` claim 并停掉当前 Connection Session、释放 Provider 与响应式 State，不发 ClosedEvent。Provider Dispose 失败仍原样交给上层 owner 观察，但不能截断 State 释放。随 Context 整棵撤。
+- Dispose：`HttpUtility` 取消所有在途 Request Owner；`WebSocketUtility` claim 并停掉当前 Connection Session、释放 Provider 与响应式 State，不发 ClosedEvent。已经交付的 State 会正常 OnCompleted，旧 Utility 引用不能再重新取得带旧 CurrentValue 的状态流；`Disconnect` 作为幂等清理仍是 no-op。Provider Dispose 失败仍原样交给上层 owner 观察，但不能截断 State 释放。随 Context 整棵撤。
 
 ### 8. 环境实测结论（落地时的两个坑，spike 已验证）
 

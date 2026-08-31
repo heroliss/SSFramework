@@ -2983,10 +2983,10 @@ await ws.Send("say", new SayReq { Text = "hi" });               // 客户端 →
 
 | `IWebSocketUtility` | 说明 |
 |---|---|
-| `State` | `ReadOnlyReactiveProperty<NetworkConnectionState>`（Disconnected/Connecting/Connected） |
-| `RegisterPush<TEvent>(type)` | 推送 type → 框架事件映射；重复注册抛 |
-| `Connect(url)` / `Disconnect()` | 以带 host、无 userinfo / fragment 的绝对 `ws://` / `wss://` 地址建连（已连时抛；上一代正在 Close 时内部等待）/ 优雅关闭（未连 = no-op；连接中 = 取消在途 Connect、不发关闭事件） |
-| `Send<T>(type, payload)` / `Send(type)` | 发消息（每个连接代际内 FIFO 保序）；未连接、发送中途断掉、或旧帧排队时连接已替换，均抛 `NetworkException(ConnectionError)` |
+| `State` | `ReadOnlyReactiveProperty<NetworkConnectionState>`（Disconnected/Connecting/Connected）；销毁时已取得的流正常完结，之后重新读取抛 ODE |
+| `RegisterPush<TEvent>(type)` | 推送 type → 框架事件映射；重复注册抛；type 不能为空或包含空白 |
+| `Connect(url)` / `Disconnect()` | 以带 host、无未转义空白 / userinfo / fragment 的绝对 `ws://` / `wss://` 地址建连（已连时抛；上一代正在 Close 时内部等待）/ 幂等优雅关闭（未连或已销毁 = no-op；连接中 = 取消在途 Connect、不发关闭事件） |
+| `Send<T>(type, payload)` / `Send(type)` | 发消息（type 不能为空或包含空白；每个连接代际内 FIFO 保序）；未连接、发送中途断掉、或旧帧排队时连接已替换，均抛 `NetworkException(ConnectionError)` |
 
 ### 失败语义（单一 `NetworkException` + `Kind` 分级）
 
@@ -3003,6 +3003,8 @@ await ws.Send("say", new SayReq { Text = "hi" });               // 客户端 →
 | 自定义 HTTP Provider 返回 null response / Body / Headers | `NetworkException(ConnectionError)`，消息指出 Adapter 违反的响应契约 |
 
 `HttpUtility` 会在网络 I/O 前验证协议输入：非 null `baseUrl` 在构造时就必须是带 host、无 userinfo / query / fragment 的绝对 `http(s)` 地址；请求 method / header name 必须是 ASCII token，URL 中的动态空白先用 `Uri.EscapeDataString` 转义，header value 不能包含 CR/LF。环境配置因此在组合根暴露，而不是拖到玩家第一次请求时才由不同 Provider 给出不一致错误。
+
+WebSocket 也在 Adapter 前封闭协议元数据：URL 拒绝未转义空白，动态 path / query 片段同样先 `Uri.EscapeDataString`；消息 `type` 是精确匹配的 wire 标识，空值和任意位置的空白都拒绝。框架不会偷偷 `Trim`：`"chat"` 与 `"chat "` 本来就说明两端协议不一致，静默改写只会把错误藏得更深。收到带畸形 type 的帧只 warning + 丢弃当条，不毒化接收循环。
 
 **非 2xx 不折叠成 null**（状态码语义因服务器而异，隐藏即丢信息）：预期内的业务错误用 `catch ... when` 过滤——
 
@@ -3030,7 +3032,7 @@ HTTP 对业务是一次 `await`，但一次物理交换同时受到 caller token
 
 `WebSocketUtility` 因而为**每次成功连接**建立一个私有 Connection Session：这一代独占接收 token、发送 token、FIFO 队尾和一次终态发布权。每个 Provider 方法还必须在入口固定当时的物理 socket；两层隔离让旧 Receive 即使迟到，也只能结束旧 session。`Connect` 遇到上一代仍在 Close / 清发送 owner 时会等待一个永不带错的 teardown barrier，业务不需要认识额外的 Disconnecting 状态。
 
-每个成功 session 至多收到一次 `WebSocketClosedEvent`：主动 `Disconnect` 是 `ByUser=true`，对端关闭 / 收发异常（包括 Provider 在 token 未取消时自发 OCE）是 `false`；发送失败会主动结束 session，不会等挂起的 Receive 碰巧再报错。Context `Dispose` 属于整棵拆除，不发事件。推荐从 ClosedEvent 启动业务重连；State 的同步回调即使表达取消/重试也不会丢 owner，但 ClosedEvent 更直接表达“本代已经终结”。`Reason` 只是框架拥有的稳定摘要，适合展示和诊断，不是业务枚举：重连只判断 `ByUser`，平台 / Adapter 的原始异常从结构化日志或调用异常的 inner 查看。
+每个成功 session 至多收到一次 `WebSocketClosedEvent`：主动 `Disconnect` 是 `ByUser=true`，对端关闭 / 收发异常（包括 Provider 在 token 未取消时自发 OCE）是 `false`；发送失败会主动结束 session，不会等挂起的 Receive 碰巧再报错。Context `Dispose` 属于整棵拆除，不发事件，但会正常完结调用方已经取得的 `State` 流；旧 Utility 引用之后重新读取 `State` 会抛 `ObjectDisposedException`，不会拿到仍残留 Connected 值的“幽灵状态”。`Disconnect` 单独保留幂等 no-op，方便 finally 与上层级联清理。推荐从 ClosedEvent 启动业务重连；State 的同步回调即使表达取消/重试也不会丢 owner，但 ClosedEvent 更直接表达“本代已经终结”。`Reason` 只是框架拥有的稳定摘要，适合展示和诊断，不是业务枚举：重连只判断 `ByUser`，平台 / Adapter 的原始异常从结构化日志或调用异常的 inner 查看。
 
 两个取消边界容易误判。第一，Provider 的 `ConnectAsync` **成功返回就是物理 ownership 提交点**；普通 caller 取消若恰好与完成竞态，允许成功赢，不能在成功后再检查 token、把已经打开的 socket 丢成无 owner 资源。但 Connecting-Disconnect intent 若已先成立，框架会在发布 Connected / 启动收发前 `Abort()` 这个物理 success-win，以 OCE 收口且不发事件。Send / Disconnect 也按 owner 意图分类：caller 或 Context 已取消时，即使坏 Adapter 以 ODE / socket error 退场，外层仍得到 OCE，原异常只作为 inner 留证。第二，意外断线没有业务 caller token，框架给 best-effort Close 一个内部 1 秒上限；坏连接即使关不干净，也不能永久扣住 ClosedEvent 和后续重连。自定义 Provider 必须尊重传入 token，并实现可重连的立即 `Abort()`。
 

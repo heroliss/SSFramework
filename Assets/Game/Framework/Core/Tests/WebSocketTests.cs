@@ -229,9 +229,13 @@ namespace Game.Framework.Test
         {
             string[] invalidUrls =
             {
+                "   ",
                 "/relative",
                 "ws:relative",
                 "http://fake/",
+                " ws://fake/",
+                "ws://fake/path with space",
+                "ws://fake/?query=has space",
                 "ws://user:password@fake/",
                 "ws://fake/path#fragment",
                 "not a uri",
@@ -446,6 +450,25 @@ namespace Game.Framework.Test
             await UniTask.DelayFrame(2);
             // 无异常、连接仍在（未毒化）
             Assert.AreEqual(NetworkConnectionState.Connected, _ws.State.CurrentValue);
+        });
+
+        [UnityTest]
+        public IEnumerator Push_TypeContainingWhitespace_WarnsAndDropsButLoopContinues() => UniTask.ToCoroutine(async () =>
+        {
+            _ws.RegisterPush<ChatPush>("chat");
+            ChatPush? received = null;
+            using var sub = _ctx.RegisterEvent<ChatPush>(e => received = e);
+            await _ws.Connect("ws://fake/");
+            await UniTask.DelayFrame(1);
+
+            LogAssert.Expect(LogType.Warning, new System.Text.RegularExpressions.Regex("type.*空白"));
+            _fake.InjectMessage(Envelope("chat room", "{}"));
+            await UniTask.DelayFrame(2);
+            Assert.IsFalse(received.HasValue, "含空白的 type 是畸形 wire 标识，不能走未知 type 分支或误匹配注册项");
+
+            _fake.InjectMessage(Envelope("chat", JsonUtility.ToJson(new ChatPush { Text = "ok", UserId = 1 })));
+            await UniTask.DelayFrame(2);
+            Assert.IsTrue(received.HasValue, "畸形 type 只丢弃当前消息，不能毒化接收循环");
         });
 
         [UnityTest]
@@ -1189,6 +1212,23 @@ namespace Game.Framework.Test
         });
 
         [UnityTest]
+        public IEnumerator Dispose_CompletesHeldStateAndRejectsNewStateAccess() => UniTask.ToCoroutine(async () =>
+        {
+            ReadOnlyReactiveProperty<NetworkConnectionState> state = _ws.State;
+            bool completed = false;
+            using var subscription = state.Subscribe(_ => { }, _ => completed = true);
+            await _ws.Connect("ws://fake/");
+
+            _ctx.Dispose();
+
+            Assert.IsTrue(completed, "已经交付给调用方的 State 应以 OnCompleted 正常结束，而不是留下悬空订阅");
+            Assert.Throws<ObjectDisposedException>(() => _ = _ws.State,
+                "销毁后的旧 Utility 引用不得重新暴露仍带旧 CurrentValue 的状态流");
+            Assert.DoesNotThrow(() => _ws.Disconnect().GetAwaiter().GetResult(),
+                "Disconnect 是幂等清理入口；Context 已接管拆除后继续保持 no-op");
+        });
+
+        [UnityTest]
         public IEnumerator Dispose_ThrowingCancellationCallback_StillReleasesProvider() => UniTask.ToCoroutine(async () =>
         {
             _fake.ThrowOnReceiveCancellation = true;
@@ -1268,6 +1308,41 @@ namespace Game.Framework.Test
             _ws.RegisterPush<ChatPush>("chat");
             Assert.Throws<InvalidOperationException>(() => _ws.RegisterPush<ChatPush>("chat"));
         }
+
+        [Test]
+        public void RegisterPush_InvalidType_ThrowsBeforeMutatingRegistry()
+        {
+            foreach (string invalidType in new[] { null, string.Empty, "   ", "chat room", "chat\t" })
+            {
+                var error = Assert.Throws<ArgumentException>(() => _ws.RegisterPush<ChatPush>(invalidType));
+                Assert.AreEqual("type", error.ParamName);
+                StringAssert.Contains("空白", error.Message);
+            }
+
+            Assert.DoesNotThrow(() => _ws.RegisterPush<ChatPush>("chat"),
+                "非法输入不得留下不可见的注册项或污染后续合法装配");
+        }
+
+        [UnityTest]
+        public IEnumerator Send_InvalidType_FailsBeforeProvider() => UniTask.ToCoroutine(async () =>
+        {
+            await _ws.Connect("ws://fake/");
+            foreach (string invalidType in new[] { null, string.Empty, "   ", "chat room", "chat\t" })
+            {
+                try
+                {
+                    await _ws.Send(invalidType);
+                    Assert.Fail($"非法 WebSocket type 应在调用 Provider 前失败：'{invalidType}'");
+                }
+                catch (ArgumentException e)
+                {
+                    Assert.AreEqual("type", e.ParamName);
+                    StringAssert.Contains("空白", e.Message);
+                }
+            }
+
+            Assert.AreEqual(0, _fake.Sent.Count, "非法 type 不能写入任何物理帧");
+        });
 
         private static async UniTask AssertConnectionError(UniTask task, string message)
         {

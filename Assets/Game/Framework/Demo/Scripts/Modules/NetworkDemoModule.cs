@@ -257,7 +257,7 @@ namespace Game.Framework.Demo.Modules
 
             host.AddConcept("一次 Connect = 一个内部 Connection Session",
                 "每次成功连接独占接收 token、发送 token、FIFO 队尾和一次关闭事件发布权。旧连接的接收异常或排队帧即使迟到，也只能结束旧 session，不会覆盖新 State 或写进新 socket；这是框架藏在门面后的并发正确性。");
-            host.AddSubNote("`State=Disconnected` 表示业务已不可再用，不等于违规 Adapter 中忽略取消的旧 Receive 已经物理返回。若此时立刻 Connect，框架会等待旧发送与 Close owner 清场；每个 Provider 方法还会固定入口 socket，所以迟到接收无权碰新 session。不额外暴露 Disconnecting，换来更小的业务状态机。每个成功 session 至多一个 ClosedEvent；Context Dispose 是整棵拆除，不发事件。",
+            host.AddSubNote("`State=Disconnected` 表示业务已不可再用，不等于违规 Adapter 中忽略取消的旧 Receive 已经物理返回。若此时立刻 Connect，框架会等待旧发送与 Close owner 清场；每个 Provider 方法还会固定入口 socket，所以迟到接收无权碰新 session。不额外暴露 Disconnecting，换来更小的业务状态机。每个成功 session 至多一个 ClosedEvent；Context Dispose 是整棵拆除，不发事件，但会完结已取得的 State，旧 Utility 引用重新取 State 则抛 ODE。Disconnect 仍是幂等清理 no-op。",
                 new CodeRef("Assets/Game/Framework/Core/Network/IWebSocketUtility.cs", "public interface IWebSocketUtility", "连接门面契约"));
             host.AddSubNote("取消边界：Disconnect 入口 token 已取消 = 不提交断开；关闭开始后才取消 = session 仍清理并发 `ByUser:true`，调用方随后收到 OCE。取消的是优雅握手等待，不是把已经发生的断开倒回去。");
             host.AddSubNote("传输层在 token 未取消时自己抛 OCE，不算业务取消：Connect 按 ConnectionError，Close 只算 best-effort 握手失败，Receive / Send 则结束 current session 并发 `ByUser:false`。尤其发送失败不能只等接收循环以后也出错，否则 UI 可能永久看到假 Connected。");
@@ -265,7 +265,7 @@ namespace Game.Framework.Demo.Modules
             host.AddSubNote("Connecting 时 await Disconnect 会等旧 Connect Attempt 的本地 outcome，返回后可以立即重连，也不会误关 State 回调中新建的 session；caller 取消只脱离等待，Attempt owner 仍会处理物理 success-win。Provider 可以从任意线程完成，caller token 也可能从 worker 取消，但框架在更新 State、发布 Event 和完成主线程 API 前会切回主线程；发送首帧失败也会先封住 session、再唤醒排队后帧。");
             host.AddSubNote("实现 Provider 时不要在 CancellationToken 回调里抛异常。.NET 会在 token 已经取消后，把回调异常从 Cancel() 聚合抛出；框架会记录并隔离它，继续完成 session、barrier 与 provider 释放，但异常仍说明 Adapter 自己的取消回调写错了。");
 
-            host.AddSubNote("推送事件类型是 `[Serializable] struct + 公共字段`（`ServerTickEvent { public int count; }`）——JsonUtility 只认字段，别用 record 位置参数（那是属性、反序列化不出来）。映射用 `RegisterPush<TEvent>(\"type\")`，本章在 InstallBindings 里配好。",
+            host.AddSubNote("推送事件类型是 `[Serializable] struct + 公共字段`（`ServerTickEvent { public int count; }`）——JsonUtility 只认字段，别用 record 位置参数（那是属性、反序列化不出来）。映射用 `RegisterPush<TEvent>(\"type\")`，本章在 InstallBindings 里配好。type 是双方精确匹配的 wire 标识，空值或任意位置含空白都会被拒绝；框架不偷偷 Trim，以免掩盖协议两端不一致。",
                 CodeRef.Here("ws.RegisterPush<ServerTickEvent>", "推送映射"));
         }
     }
