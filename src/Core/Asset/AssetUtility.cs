@@ -820,7 +820,8 @@ namespace Game.Framework
             packageName = NormalizePackageName(packageName);
             RequireReadyForDownloader(packageName);
             return WrapDownloader(
-                _provider.CreateAllDownloader(packageName, _config.DownloadingMaxNumber, _config.FailedTryAgain));
+                _provider.CreateAllDownloader(packageName, _config.DownloadingMaxNumber, _config.FailedTryAgain),
+                nameof(IAssetProvider.CreateAllDownloader));
         }
 
         /// <inheritdoc />
@@ -941,7 +942,8 @@ namespace Game.Framework
             packageName = NormalizePackageName(packageName);
             RequireReadyForDownloader(packageName);
             return WrapDownloader(
-                _provider.CreateTagDownloader(packageName, tags, _config.DownloadingMaxNumber, _config.FailedTryAgain));
+                _provider.CreateTagDownloader(packageName, tags, _config.DownloadingMaxNumber, _config.FailedTryAgain),
+                nameof(IAssetProvider.CreateTagDownloader));
         }
 
         private IAssetDownloader CreateLocationDownloaderInternal(string packageName, IReadOnlyList<string> locations)
@@ -949,7 +951,8 @@ namespace Game.Framework
             packageName = NormalizePackageName(packageName);
             RequireReadyForDownloader(packageName);
             return WrapDownloader(
-                _provider.CreateLocationDownloader(packageName, locations, _config.DownloadingMaxNumber, _config.FailedTryAgain));
+                _provider.CreateLocationDownloader(packageName, locations, _config.DownloadingMaxNumber, _config.FailedTryAgain),
+                nameof(IAssetProvider.CreateLocationDownloader));
         }
 
         // 三种下载器（tag / 全部 / 按地址）共用：建下载器前必须包已就绪，否则统计不出待下载清单。
@@ -1069,8 +1072,15 @@ namespace Game.Framework
             }
         }
 
-        private static IAssetDownloader WrapDownloader(IAssetDownloader downloader)
-            => downloader == null ? null : new MainThreadAssetDownloader(downloader);
+        private IAssetDownloader WrapDownloader(IAssetDownloader downloader, string operation)
+        {
+            if (downloader == null)
+                throw new InvalidOperationException(
+                    $"资源 Provider {_provider.GetType().FullName} 违反 IAssetProvider 契约：{operation} 返回了 null；" +
+                    "无内容可下载也必须返回 TotalCount == 0 的有效下载器。");
+
+            return new MainThreadAssetDownloader(downloader);
+        }
 
         private static ISceneHandle WrapSceneHandle(ISceneHandle handle)
             => handle == null ? null : new MainThreadSceneHandle(handle);

@@ -113,6 +113,10 @@ namespace Game.Framework.Test
             => Downloader_ProviderWorkerSuccessFailureAndCancellation_ReturnOnMainThreadAsync().ToCoroutine();
 
         [UnityTest]
+        public IEnumerator DownloaderFactories_ProviderReturnsNull_FailAtAdapterBoundary()
+            => DownloaderFactories_ProviderReturnsNull_FailAtAdapterBoundaryAsync().ToCoroutine();
+
+        [UnityTest]
         public IEnumerator SceneHandle_ProviderWorkerUnloadSuccessAndFailure_ReturnOnMainThread()
             => SceneHandle_ProviderWorkerUnloadSuccessAndFailure_ReturnOnMainThreadAsync().ToCoroutine();
 
@@ -596,6 +600,30 @@ namespace Game.Framework.Test
                 Assert.AreEqual(mainThread, Thread.CurrentThread.ManagedThreadId,
                     "下载取消终态也必须回到 Unity 主线程");
             }
+        }
+
+        private async UniTask DownloaderFactories_ProviderReturnsNull_FailAtAdapterBoundaryAsync()
+        {
+            await MakeReady();
+            _provider.DownloaderResult = null;
+
+            var tagError = Assert.Throws<InvalidOperationException>(() =>
+                _utility.CreateTagDownloader(Package, new[] { "core" }));
+            var allError = Assert.Throws<InvalidOperationException>(() =>
+                _utility.CreateAllDownloader(Package));
+            var locationError = Assert.Throws<InvalidOperationException>(() =>
+                _utility.CreateLocationDownloader(Package, new[] { "ui/logo" }));
+
+            AssertDownloaderContractError(tagError, nameof(IAssetProvider.CreateTagDownloader));
+            AssertDownloaderContractError(allError, nameof(IAssetProvider.CreateAllDownloader));
+            AssertDownloaderContractError(locationError, nameof(IAssetProvider.CreateLocationDownloader));
+        }
+
+        private static void AssertDownloaderContractError(InvalidOperationException error, string operation)
+        {
+            StringAssert.Contains(nameof(ControllableAssetProvider), error.Message);
+            StringAssert.Contains(operation, error.Message);
+            StringAssert.Contains("TotalCount == 0", error.Message);
         }
 
         private async UniTask SceneHandle_ProviderWorkerUnloadSuccessAndFailure_ReturnOnMainThreadAsync()

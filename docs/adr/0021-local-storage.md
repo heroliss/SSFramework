@@ -77,6 +77,7 @@ IStorageUtility（业务入口，GetUtility 解析）
 - 自定义 Serializer 的成功输出必须确定：编码无内容也返回空数组，不能返回 null；非 null 存储字节必须还原为非 null 根对象，
   否则直接抛。Utility 在 Provider 前拒绝 null 编码，并把 null 根纳入原有“记录 → 回退备份 → 主备均坏时新档”路径，
   不让 Adapter 违约静默冒充存档缺失。
+- 自定义 Provider 的集合输出同样确定：`ListKeysAsync` 无匹配项返回空列表，不能返回 null。Utility 在 Adapter 边界用包含实现类型与成员名的契约异常拒绝违约结果，让业务始终只处理“空集合 / 有内容”两态。
 
 ### 6. 并发与线程：全局 FIFO 串行 + IO 下线程池
 

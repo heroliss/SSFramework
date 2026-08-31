@@ -18,6 +18,8 @@ namespace Game.Framework
     ///   <item><b>非泛型 + Type 参数</b>：泛型留在 <see cref="IAssetUtility.Load{T}"/> 公开 API 层；
     ///         provider 不重复实现 Component → GameObject 解析（这是框架共性逻辑）。</item>
     ///   <item><b>每个 Load 调用返回独立 handle</b>：handle 是 ref-count token，provider 不能跨调用共享实例。</item>
+    ///   <item><b>下载器工厂始终返回实例</b>：没有待下载内容也返回 <c>TotalCount == 0</c> 的有效下载器，
+    ///         不能用 <c>null</c> 同时表示“空任务”和“Adapter 故障”。</item>
     ///   <item><b>每个 package 独立 init</b>：单包失败不影响其他包，由调用方按 packageName 串行/并行调度。</item>
     ///   <item><b>取消等待不等于强停原生操作</b>：<see cref="AssetUtility"/> 已为初始化与维护拆分短命调用者和 utility owner；
     ///         普通加载 API 收到调用者与 utility 生命周期合并后的 token。实现应在物理操作开始前响应取消；若第三方操作一旦启动就无法安全停止，
@@ -97,16 +99,21 @@ namespace Game.Framework
         /// 进度通过 <see cref="IAssetDownloader.Progress"/> 暴露，
         /// provider 实现需保证回调在 Unity 主线程触发（参见 <see cref="IAssetDownloader"/> 文档）。
         /// 这是同步缓存快照：共享 package 有维护 Writer 活跃或排队时应 fail-fast，不能阻塞主线程或越过 Writer。
+        /// 无待下载内容仍返回 <c>TotalCount == 0</c> 的有效下载器，不得返回 null。
         /// </summary>
         IAssetDownloader CreateTagDownloader(
             string packageName, IReadOnlyList<string> tags, int maxConcurrent, int retries);
 
-        /// <summary>创建「下载该包当前清单下全部尚未缓存 bundle」的下载器（无 tag 过滤）。</summary>
+        /// <summary>
+        /// 创建「下载该包当前清单下全部尚未缓存 bundle」的下载器（无 tag 过滤）。
+        /// 无待下载内容仍返回 <c>TotalCount == 0</c> 的有效下载器，不得返回 null。
+        /// </summary>
         IAssetDownloader CreateAllDownloader(string packageName, int maxConcurrent, int retries);
 
         /// <summary>
         /// 创建「下载这些 location 资源所需 bundle（含依赖）」的下载器。
         /// manifest 里解析不到的 location 跳过并打 warning（同 <see cref="ClearCacheByLocationsAsync"/> 的理由）。
+        /// 即使所有 location 均被跳过，也返回 <c>TotalCount == 0</c> 的有效下载器，不得返回 null。
         /// </summary>
         IAssetDownloader CreateLocationDownloader(string packageName, IReadOnlyList<string> locations, int maxConcurrent, int retries);
 

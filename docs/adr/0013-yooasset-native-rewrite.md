@@ -105,3 +105,5 @@ YooAsset 3.0 的 `AsyncOperationBase` 没有通用外部取消；框架的 `Wait
 无默认包也是 Core 的配置前置条件：默认包状态与下载器便捷入口统一经 `RequirePackage` 给出可行动的 `InvalidOperationException`，不再把空键泄漏为实现层 `ArgumentNullException`。只用具名包的项目应始终传 `packageName`。
 
 下载进度值对象同时修正了空快照语义：`0 / 0, 0%` 是刚创建、尚未执行，`0 / 0, 100%` 是 `Download` 已确认无内容可下。`DownloadProgressReport.IsDone` 只把后者视为完成，避免状态流和 downloader 自身对同一次 no-op 下载给出相反答案；非空任务仍以完成文件数为真源，不受浮点进度舍入影响。
+
+下载器工厂的非空产物也是 Adapter 契约：没有待下载内容用 `TotalCount == 0` 的有效下载器表达，不能返回 `null`。Core 会在 `CreateTagDownloader` / `CreateAllDownloader` / `CreateLocationDownloader` 边界立即抛出包含 Provider 类型和工厂名的契约异常，避免违约结果在业务订阅进度或调用 `Download` 时才退化为空引用。

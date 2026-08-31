@@ -1462,6 +1462,8 @@ await downloader.Download(this.GetCancellationTokenOnDestroy());
 
 空快照有两个时刻要区分：刚创建时 `TotalCount == 0` 且进度为 0%，表示“尚未执行”；`Download()` 确认无需物理下载后会发布 `0 / 0, 100%`。因此 `DownloadProgressReport.IsDone` 对前者为 false、后者为 true，与 downloader 自身的 `IsDone` 保持一致。业务仍应以 `await Download()` 的成功终态作为流程门禁，而不是用进度值代替异常处理。即使自定义 Provider 在 worker 完成下载，Core 返回的 downloader 也会把成功、异常和取消恢复到 Unity 主线程。
 
+三个下载器工厂始终返回有效实例；没有待下载内容用 `TotalCount == 0` 表达，而不是返回 null。自定义 `IAssetProvider` 若违约，Core 会在工厂边界抛出包含实现类型和方法名的契约异常，不把空引用延迟到业务进度绑定或 `Download()`。
+
 ### 初始化、缓存与卸载
 
 场景只需把 `AssetUtility` 挂到 Context 节点。所有包与运行参数都在其 `Settings` 中；每个包各有“自动初始化”开关：开则 `Start` 拉清单，关则启动不碰它的网络（DLC 懒加载 / 隐私同意 / 选区前不联网的合规启动），业务在合适时机显式冷启动它。配置是资源基础设施设置，不注册成业务 Model，自动初始化也不再需要一个只做转发的 System（见 ADR-0046）：
