@@ -13,8 +13,9 @@ namespace Game.Framework.Localization
     /// <b>注册：</b>已有 source 时用 <c>builder.RegisterOwnedUtility(new LocalizationUtility(source, "zh-CN", fallbackLocale: "en"))</c>；
     /// source 需从容器解析其他服务时用 <c>RegisterOwnedFactory</c>，既延迟接线又保留 Context 所有权。<br/>
     /// <b>缺 key 警告去重</b>：同一 (locale, key) 只警告一次——绑定标签每次推送都会重查，不去重会刷屏。<br/>
-    /// <b>Dispose</b>：完结 <see cref="Locale"/> 订阅（随宿主 Context 释放）；之后 <see cref="Get(string)"/> 仍可安全调用
-    /// （读普通字段），<see cref="SetLocale"/> 抛 <see cref="ObjectDisposedException"/>（R3 行为，换语言是明确的用户操作，过期引用应暴露）。
+    /// <b>Dispose</b>：完结 <see cref="Locale"/> / <see cref="TextRevision"/> 订阅并退订 Source（随宿主 Context 释放）；
+    /// 之后所有公共入口统一抛 <see cref="ObjectDisposedException"/>。查询同样不能越过 owner 生命周期，因为它仍需调用
+    /// 只保证与本 Utility 同寿的外部 <see cref="ILocalizedTextSource"/>。
     /// </remarks>
     public sealed class LocalizationUtility : ILocalizationUtility, IDisposable
     {
@@ -24,7 +25,7 @@ namespace Game.Framework.Localization
         private readonly RP<int> _textRevision = new(0);
         private readonly IDisposable _sourceInvalidationSubscription;
 
-        // 与 _locale.Value 同步的普通字段：Get 不读 RP（Dispose 后仍可安全查询）。
+        // 与 _locale.Value 同步的普通字段：Get 热路径不必穿过响应式容器。
         private string _current;
         private bool _disposed;
 
@@ -38,8 +39,10 @@ namespace Game.Framework.Localization
         public LocalizationUtility(ILocalizedTextSource source, string initialLocale, string fallbackLocale = null)
         {
             _source = source ?? throw new ArgumentNullException(nameof(source));
-            if (string.IsNullOrEmpty(initialLocale))
+            if (string.IsNullOrWhiteSpace(initialLocale))
                 throw new ArgumentException("initialLocale 不能为空。", nameof(initialLocale));
+            if (fallbackLocale != null && string.IsNullOrWhiteSpace(fallbackLocale))
+                throw new ArgumentException("fallbackLocale 只能为 null 或非空白 locale code。", nameof(fallbackLocale));
             _current = initialLocale;
             _fallbackLocale = fallbackLocale;
             _locale = new RP<string>(initialLocale);
@@ -48,15 +51,29 @@ namespace Game.Framework.Localization
                 .Subscribe(_ => BumpTextRevision());
         }
 
-        public ReadOnlyReactiveProperty<string> Locale => _locale;
-        public ReadOnlyReactiveProperty<int> TextRevision => _textRevision;
+        public ReadOnlyReactiveProperty<string> Locale
+        {
+            get
+            {
+                ThrowIfDisposed();
+                return _locale;
+            }
+        }
+
+        public ReadOnlyReactiveProperty<int> TextRevision
+        {
+            get
+            {
+                ThrowIfDisposed();
+                return _textRevision;
+            }
+        }
 
         public void SetLocale(string locale)
         {
-            if (string.IsNullOrEmpty(locale))
+            ThrowIfDisposed();
+            if (string.IsNullOrWhiteSpace(locale))
                 throw new ArgumentException("locale 不能为空。", nameof(locale));
-            if (_disposed)
-                throw new ObjectDisposedException(nameof(LocalizationUtility), "本地化服务已随 Context 释放——检查是否持有了过期引用。");
             if (_current == locale) return;
             _current = locale;
             _locale.Value = locale;
@@ -65,7 +82,8 @@ namespace Game.Framework.Localization
 
         public string Get(string key)
         {
-            if (string.IsNullOrEmpty(key))
+            ThrowIfDisposed();
+            if (string.IsNullOrWhiteSpace(key))
                 throw new ArgumentException("本地化 key 不能为空。", nameof(key));
 
             var currentStatus = Lookup(_current, key, out var text);
@@ -132,6 +150,13 @@ namespace Game.Framework.Localization
             if (_disposed) return;
             _textRevision.Value = unchecked(_textRevision.Value + 1);
         }
+
+        private void ThrowIfDisposed()
+        {
+            if (_disposed)
+                throw new ObjectDisposedException(nameof(LocalizationUtility),
+                    "本地化服务已随 Context 释放——检查是否持有了过期引用。");
+        }
     }
 
     /// <summary>
@@ -149,8 +174,8 @@ namespace Game.Framework.Localization
         /// <summary>添加一条文本（同 locale + key 后写覆盖先写）。</summary>
         public DictionaryLocalizedTextSource Add(string locale, string key, string text)
         {
-            if (string.IsNullOrEmpty(locale)) throw new ArgumentException("locale 不能为空。", nameof(locale));
-            if (string.IsNullOrEmpty(key)) throw new ArgumentException("key 不能为空。", nameof(key));
+            if (string.IsNullOrWhiteSpace(locale)) throw new ArgumentException("locale 不能为空。", nameof(locale));
+            if (string.IsNullOrWhiteSpace(key)) throw new ArgumentException("key 不能为空。", nameof(key));
             if (text == null) throw new ArgumentNullException(nameof(text));
             var dict = GetOrCreate(locale);
             if (dict.TryGetValue(key, out var existing) && existing == text) return this;
@@ -162,12 +187,12 @@ namespace Game.Framework.Localization
         /// <summary>批量添加某语言的文本（与既有条目合并，同 key 覆盖）。</summary>
         public DictionaryLocalizedTextSource AddLocale(string locale, IEnumerable<KeyValuePair<string, string>> entries)
         {
-            if (string.IsNullOrEmpty(locale)) throw new ArgumentException("locale 不能为空。", nameof(locale));
+            if (string.IsNullOrWhiteSpace(locale)) throw new ArgumentException("locale 不能为空。", nameof(locale));
             if (entries == null) throw new ArgumentNullException(nameof(entries));
             var validatedEntries = new List<KeyValuePair<string, string>>();
             foreach (var kv in entries)
             {
-                if (string.IsNullOrEmpty(kv.Key))
+                if (string.IsNullOrWhiteSpace(kv.Key))
                     throw new ArgumentException("文本 key 不能为空。", nameof(entries));
                 if (kv.Value == null)
                     throw new ArgumentException($"文本 '{kv.Key}' 的值不能为 null。", nameof(entries));

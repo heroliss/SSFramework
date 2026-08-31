@@ -19,7 +19,10 @@ namespace Game.Framework.Localization
     /// 屏幕上直接显示裸 key 就是最好的缺失报告，不抛异常（文案缺失不炸游戏）也不给空串（静默丢文案最难发现）。<br/>
     /// <b>per-locale 资源</b>（图 / 音频按语言分包）不在本接口：用资源系统多 package / location 命名约定 +
     /// <c>Bag.Subscribe(Locale, ...)</c> 响应式组合。<br/>
-    /// <b>线程：</b>主线程独占（框架统一契约）。
+    /// <b>线程：</b>主线程独占（框架统一契约）。<br/>
+    /// <b>终态：</b>随 owner 释放时，已经取得的 <see cref="Locale"/> / <see cref="TextRevision"/> 流正常完结；
+    /// 此后重新访问属性、查询文本或切换语言均抛 <see cref="System.ObjectDisposedException"/>。Utility 只拥有 Source 订阅，
+    /// Source 本身仅承诺与 Utility 同寿，因此旧服务引用不能在 Context 结束后继续查询。
     /// </remarks>
     public interface ILocalizationUtility : IUtility
     {
@@ -37,12 +40,13 @@ namespace Game.Framework.Localization
 
         /// <summary>
         /// 切换当前语言并推送 <see cref="Locale"/> 与 <see cref="TextRevision"/>。code 为空抛参数异常；
-        /// 与当前相同 = no-op（两个信号都不推送）。
+        /// 与当前相同 = no-op（两个信号都不推送）。纯空白 code 也视为参数错误。
         /// </summary>
         void SetLocale(string locale);
 
         /// <summary>
         /// 取 key 在当前语言下的文本。缺失时依次回退 fallbackLocale → 返回 key 本身（Editor/Dev 警告，同一缺失只警告一次）。
+        /// key 为空白时抛参数异常。
         /// </summary>
         string Get(string key);
 
