@@ -72,6 +72,31 @@ namespace Game.Framework.Test
             }
         }
 
+        [Test]
+        public void DestroyedFacade_OldInterfaceCannotCreateLazyCore()
+        {
+            var contextObject = new GameObject("toolkit-terminal-context");
+            var uiObject = new GameObject("toolkit-terminal-facade");
+            try
+            {
+                var context = contextObject.AddComponent<MonoGameContextBase>();
+                uiObject.transform.SetParent(contextObject.transform);
+                var facade = uiObject.AddComponent<MonoToolkitUI>();
+                IUIUtility stale = context.GetUtility<IUIUtility>();
+                Assert.AreSame(facade, stale);
+
+                UnityEngine.Object.DestroyImmediate(uiObject);
+
+                Assert.Throws<ObjectDisposedException>(() => stale.IsOpen<TestWindow>(),
+                    "从未创建过内核的 Mono 外壳销毁后也必须停在终态，不能补建 UIDocument / UIUtility");
+            }
+            finally
+            {
+                if (uiObject != null) UnityEngine.Object.DestroyImmediate(uiObject);
+                UnityEngine.Object.DestroyImmediate(contextObject);
+            }
+        }
+
         private sealed class FakeBackend : IUIBackend
         {
             public void Initialize() { }

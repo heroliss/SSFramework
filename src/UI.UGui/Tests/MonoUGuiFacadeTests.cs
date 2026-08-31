@@ -72,6 +72,32 @@ namespace Game.Framework.Test
             }
         }
 
+        [Test]
+        public void DestroyedFacade_OldInterfaceRejectsCallsWithoutResurrectingCore()
+        {
+            var contextObject = new GameObject("ugui-terminal-context");
+            var uiObject = new GameObject("ugui-terminal-facade");
+            try
+            {
+                var context = contextObject.AddComponent<MonoGameContextBase>();
+                uiObject.transform.SetParent(contextObject.transform);
+                var facade = uiObject.AddComponent<MonoUGuiUI>();
+                IUIUtility stale = context.GetUtility<IUIUtility>();
+                Assert.AreSame(facade, stale);
+                Assert.IsFalse(stale.IsOpen<TestWindow>(), "首次查询建立核心，但不应初始化物理后端");
+
+                UnityEngine.Object.DestroyImmediate(uiObject);
+
+                Assert.Throws<ObjectDisposedException>(() => stale.IsOpen<TestWindow>(),
+                    "销毁后的旧接口必须明确报告终态，不能 NRE 或重新创建 Canvas / UIUtility");
+            }
+            finally
+            {
+                if (uiObject != null) UnityEngine.Object.DestroyImmediate(uiObject);
+                UnityEngine.Object.DestroyImmediate(contextObject);
+            }
+        }
+
         private sealed class FakeBackend : IUIBackend
         {
             public void Initialize() { }

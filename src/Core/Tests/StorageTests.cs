@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using Cysharp.Threading.Tasks;
+using Game.Framework.Context;
 using Game.Framework.Logging;
 using Game.Framework.Storage;
 using NUnit.Framework;
@@ -621,6 +622,31 @@ namespace Game.Framework.Test
             var storage = new StorageUtility(new FileStorageProvider(Path.Combine(_root, "disposed")));
             storage.Dispose();
             Assert.Throws<ObjectDisposedException>(() => storage.Exists("any")); // 写丢失必须 fail-fast，不学池的宽容警告
+        }
+
+        [Test]
+        public void MonoFacade_DestroyedReference_PreservesStorageFailFastContract()
+        {
+            var contextObject = new GameObject("storage-terminal-context");
+            var storageObject = new GameObject("storage-terminal-facade");
+            try
+            {
+                var context = contextObject.AddComponent<MonoGameContextBase>();
+                storageObject.transform.SetParent(contextObject.transform);
+                var facade = storageObject.AddComponent<MonoStorageUtility>();
+                IStorageUtility stale = context.GetUtility<IStorageUtility>();
+                Assert.AreSame(facade, stale);
+
+                UnityEngine.Object.DestroyImmediate(storageObject);
+
+                Assert.Throws<ObjectDisposedException>(() => stale.Exists("slot"),
+                    "Mono 外壳销毁后，旧接口应保留 StorageUtility 的 fail-fast 终态而不是 NRE");
+            }
+            finally
+            {
+                if (storageObject != null) UnityEngine.Object.DestroyImmediate(storageObject);
+                UnityEngine.Object.DestroyImmediate(contextObject);
+            }
         }
 
         [UnityTest]

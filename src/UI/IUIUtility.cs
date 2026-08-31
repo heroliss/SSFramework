@@ -23,6 +23,9 @@ namespace Game.Framework.UI
     /// Flow 主页面等不可缺席的路径使用 <see cref="UIUtilityExtensions.OpenRequired{T}(IUIUtility, CancellationToken)"/>，
     /// 让失败阻止上层状态提交。调用方取消保持 <see cref="OperationCanceledException"/>；非预期的后端异常原样传播，
     /// 窗口生命周期 hook 的异常则由核心记录并隔离，避免单个表现回调破坏整个窗口栈。
+    /// <br/><b>终态：</b>UI owner / Context 释放后，所有本接口入口统一抛 <see cref="ObjectDisposedException"/>；
+    /// Mono 外观不会在宿主销毁后重建核心。此前已经交付的 <see cref="LoadingHandle"/> 仍可安全查询 / 释放，
+    /// 但只会得到 inactive / no-op，便于宿主清理链幂等收口。
     /// </remarks>
     public interface IUIUtility : IUtility
     {

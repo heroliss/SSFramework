@@ -88,6 +88,30 @@ namespace Game.Framework.Test
         }
 
         [Test]
+        public void Dispose_AllPublicIntentsFailFast_WhileDisposeRemainsIdempotent()
+        {
+            _ui.Dispose();
+
+            Assert.Throws<ObjectDisposedException>(() => _ui.Open<PageA>().GetAwaiter().GetResult());
+            Assert.Throws<ObjectDisposedException>(() => _ui.Open<PageA>("args").GetAwaiter().GetResult());
+            Assert.Throws<ObjectDisposedException>(() => _ui.Close<PageA>());
+            Assert.Throws<ObjectDisposedException>(() => _ui.Close((IUIWindow)null));
+            Assert.Throws<ObjectDisposedException>(() => _ui.CloseTop(UILayer.Page));
+            Assert.Throws<ObjectDisposedException>(() => _ui.Back());
+            Assert.Throws<ObjectDisposedException>(() => _ui.CloseAll(UILayer.Page));
+            Assert.Throws<ObjectDisposedException>(() => _ui.CloseAll());
+            Assert.Throws<ObjectDisposedException>(() => _ui.Get<PageA>());
+            Assert.Throws<ObjectDisposedException>(() => _ui.IsOpen<PageA>());
+            Assert.Throws<ObjectDisposedException>(() => _ui.ShowToast("toast").GetAwaiter().GetResult());
+            Assert.Throws<ObjectDisposedException>(() => _ui.AcquireLoading("loading").GetAwaiter().GetResult());
+#pragma warning disable CS0618 // 有意验证迁移期旧入口也遵守统一终态；生产代码不得调用。
+            Assert.Throws<ObjectDisposedException>(() => _ui.ShowLoading("legacy").GetAwaiter().GetResult());
+            Assert.Throws<ObjectDisposedException>(() => _ui.HideLoading());
+#pragma warning restore CS0618
+            Assert.DoesNotThrow(() => _ui.Dispose(), "Dispose 本身仍须幂等，便于 owner 清理链重复收口");
+        }
+
+        [Test]
         public void Open_SameTypeTwice_BringsToFront_NoRecreate()
         {
             var w1 = Open<PageA>();

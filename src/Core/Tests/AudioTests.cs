@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using Cysharp.Threading.Tasks;
 using Game.Framework.Audio;
+using Game.Framework.Context;
 using Game.Framework.Logging;
 using NUnit.Framework;
 using UnityEngine;
@@ -106,6 +107,7 @@ namespace Game.Framework.Test
             Assert.Throws<ArgumentNullException>(() => _audio.PlayMusic(null));
             Assert.Throws<ArgumentException>(() => _audio.PlaySfx(_clipA, group: null));
             Assert.Throws<ArgumentException>(() => _audio.GetGroupVolume(""));
+            Assert.Throws<ArgumentException>(() => _audio.GetGroupVolume(" \t"));
             Assert.Throws<ArgumentException>(() => _audio.SetGroupVolume(null, 0.5f));
         }
 
@@ -325,6 +327,8 @@ namespace Game.Framework.Test
         [UnityTest]
         public IEnumerator Dispose_StopsEverything_FurtherCallsAreSafeNoOps() => UniTask.ToCoroutine(async () =>
         {
+            _audio.MasterVolume = 0.75f;
+            _audio.SetGroupVolume("Voice", 0.4f);
             var handle = _audio.PlaySfx(_clipA, loop: true);
             _audio.PlayMusic(_clipB, fadeSeconds: 0f);
 
@@ -335,12 +339,20 @@ namespace Game.Framework.Test
 
             // Dispose 后误用：Editor/Dev 报 error 帮抓过期引用，但返回失效 handle、不炸游戏。
             LogAssert.Expect(LogType.Error, new Regex("音频服务已释放"));
+            LogAssert.Expect(LogType.Error, new Regex("音频服务已释放"));
+            LogAssert.Expect(LogType.Error, new Regex("音频服务已释放"));
             var sink = new CapturingSink();
             Log.AddSink(sink);
             AudioHandle stale;
             try
             {
                 stale = _audio.PlaySfx(_clipA);
+                _audio.MasterVolume = 0.1f;
+                _audio.SetGroupVolume("Voice", 0.1f);
+
+                Assert.AreEqual(0.75f, _audio.MasterVolume, 1e-4f,
+                    "释放后的音量修改必须是 no-op，查询保留最终快照");
+                Assert.AreEqual(0.4f, _audio.GetGroupVolume("Voice"), 1e-4f);
             }
             finally
             {
@@ -348,17 +360,47 @@ namespace Game.Framework.Test
             }
 
             Assert.IsFalse(stale.IsPlaying);
-            Assert.AreEqual(1, sink.Entries.Count);
-            Assert.AreEqual(LogLevel.Error, sink.Entries[0].Level);
-            Assert.AreEqual(nameof(AudioUtility), sink.Entries[0].Category);
-            StringAssert.Contains("音频服务已释放", sink.Entries[0].Message);
+            Assert.AreEqual(3, sink.Entries.Count);
+            Assert.That(sink.Entries, Has.All.Matches<LogEntry>(entry =>
+                entry.Level == LogLevel.Error && entry.Category == nameof(AudioUtility)));
             StringAssert.Contains(nameof(AudioUtility.PlaySfx), sink.Entries[0].Message);
-            StringAssert.Contains(nameof(IAudioUtility), sink.Entries[0].Message);
+            StringAssert.Contains(nameof(AudioUtility.MasterVolume), sink.Entries[1].Message);
+            StringAssert.Contains(nameof(AudioUtility.SetGroupVolume), sink.Entries[2].Message);
+            Assert.That(sink.Entries, Has.All.Matches<LogEntry>(entry =>
+                entry.Message.Contains("音频服务已释放") && entry.Message.Contains(nameof(IAudioUtility))));
             handle.Stop(); // 陈旧句柄静默
 
             await UniTask.Yield(); // 让帧末延迟销毁生效
             Assert.IsNull(GameObject.Find(RootName), "Dispose 应销毁音频根节点");
         });
+
+        [Test]
+        public void MonoFacade_DestroyedReference_PreservesAudioSafeTerminalContract()
+        {
+            var contextObject = new GameObject("audio-terminal-context");
+            var audioObject = new GameObject("audio-terminal-facade");
+            try
+            {
+                var context = contextObject.AddComponent<MonoGameContextBase>();
+                audioObject.transform.SetParent(contextObject.transform);
+                var facade = audioObject.AddComponent<MonoAudioUtility>();
+                IAudioUtility stale = context.GetUtility<IAudioUtility>();
+                Assert.AreSame(facade, stale);
+
+                stale.MasterVolume = 0.6f;
+                UnityEngine.Object.DestroyImmediate(audioObject);
+
+                LogAssert.Expect(LogType.Error, new Regex("音频服务已释放"));
+                stale.MasterVolume = 0.1f;
+                Assert.AreEqual(0.6f, stale.MasterVolume, 1e-4f,
+                    "Mono 外壳销毁后，旧接口应委托给已释放内核而不是 NRE，并保留最终快照");
+            }
+            finally
+            {
+                if (audioObject != null) UnityEngine.Object.DestroyImmediate(audioObject);
+                UnityEngine.Object.DestroyImmediate(contextObject);
+            }
+        }
 
         private sealed class CapturingSink : ILogSink
         {

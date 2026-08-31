@@ -1,6 +1,6 @@
 # ADR-0021：本地存储（存档）—— IStorageUtility + 原子写文件 provider + 可插拔序列化
 
-**Status:** Accepted（2026-07-03；**2026-08-31 修订 §6**：Provider 物理完成线程与 Utility 的 serializer / FIFO / 公共提交线程解耦）
+**Status:** Accepted（2026-07-03；**2026-08-31 修订 §6 / §7**：Provider 物理完成线程与公共提交线程解耦，并锁定 Mono 外观终态）
 
 ## Context
 
@@ -107,3 +107,8 @@ IStorageUtility（业务入口，GetUtility 解析）
 - 默认 JSON 的体积与解析速度对「设置 + 常规存档」绰绰有余；重度存档（几 MB 起）换 MemoryPack serializer，接口不动。
 - `Load` 把「损坏」折叠进 null（打过日志）：业务无法区分「新玩家」与「双份全坏」——这是刻意的（两种情况的正确反应都是开新档）；需要区分的运营场景（上报损坏率）看日志 / 后续再议。
 - 全局 FIFO 意味着一个超大存档的写会让后续存储操作排队（不卡主线程，只是延后完成）——低频场景可接受，热路径本就不该同步等存档。
+
+## 2026-08-31 修订（Mono 外观保留 fail-fast 终态）
+
+- `MonoStorageUtility.OnDestroy` 仍先从 Context 反注册并 Dispose 底层，但不再把内核字段置 null。销毁前已经借出的 `IStorageUtility` 旧引用会继续委托给 disposed `StorageUtility`，稳定抛 `ObjectDisposedException`。
+- 保留内核不是延长存储服务寿命，而是保留它的逻辑终态：不会继续访问 provider，也不会把可行动的“持有过期引用”错误降级成缺少上下文的 `NullReferenceException`。真实 Mono 组件销毁测试与纯核心 Dispose 测试共同锁定两条入口同语义。

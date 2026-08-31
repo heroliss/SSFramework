@@ -13,7 +13,8 @@ namespace Game.Framework.Audio
     /// <b>何时用：</b>想在 Inspector 配置初始音量并在运行时观察音频状态、或希望音频随某个 Context 节点生命周期释放时用本类；
     /// 全局共享、纯代码配置用 <c>builder.RegisterOwnedUtility(new AudioUtility())</c>（纯 C# 路径）。<br/>
     /// <b>生命周期：</b>继承 <see cref="MonoUtilityBase"/>——Awake 注册为 <see cref="IAudioUtility"/>（+ <c>IUtility</c>），
-    /// OnDestroy 反注册并 Dispose 底层实现（销毁音频根节点，全部停声）。<br/>
+    /// OnDestroy 反注册并 Dispose 底层实现（销毁音频根节点，全部停声）；已释放内核会被保留为终态守卫，
+    /// 使销毁前借出的 <see cref="IAudioUtility"/> 旧引用仍遵循音频的宽容 no-op 契约，而不是退化成空引用异常。<br/>
     /// <b>实现：</b>组合而非继承底层（同 <c>MonoPoolUtility</c> / <c>MonoStorageUtility</c> 模式），
     /// 全部成员转发给内部 <see cref="AudioUtility"/>。Inspector 音量只是初始值，运行期改音量走 <see cref="SetGroupVolume"/>。
     /// </remarks>
@@ -56,7 +57,8 @@ namespace Game.Framework.Audio
         {
             base.OnDestroy(); // 释放 Bag + 从容器反注册
             _impl?.Dispose();
-            _impl = null;
+            // 不置 null：销毁前借出的 IAudioUtility 引用仍可能短暂存活，必须由已 Dispose 的内核
+            // 保留“修改安全 no-op、查询最终快照”的终态契约，不能退化成 NullReferenceException。
         }
 
         // ── IAudioUtility 转发到底层 AudioUtility ─────────────────────────────

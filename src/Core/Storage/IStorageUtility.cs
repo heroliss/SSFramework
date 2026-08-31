@@ -30,7 +30,8 @@ namespace Game.Framework.Storage
     ///   <item><see cref="Load{T}"/>：key 不存在 → null（新玩家常态）；主数据损坏、备份可用 → 回退备份 + warning；
     ///         主备全坏 → null + error（业务当新档处理，游戏能继续）。</item>
     ///   <item><see cref="Save{T}"/>：磁盘满 / 权限 / IO 失败 → <b>抛异常</b>（数据没落盘必须让业务知道）。</item>
-    ///   <item>key 非法 / data 为 null → 抛参数异常；Dispose 后调用 → 抛 <see cref="ObjectDisposedException"/>。</item>
+    ///   <item>key 非法 / data 为 null → 抛参数异常；Dispose 后调用 → 抛 <see cref="ObjectDisposedException"/>。
+    ///         <c>MonoStorageUtility</c> 宿主销毁前借出的旧接口也保留同一终态，不会退化成空引用异常。</item>
     /// </list>
     /// <b>线程与并发</b>：公共 API 主线程调用（框架统一契约）；内部全局 FIFO 串行（同 key 竞态、读写交错天然消失），
     /// Provider 可在任意线程物理完成，但 Utility 会在序列化、队列推进以及成功、异常、取消的公共终态前恢复 Unity 主线程。

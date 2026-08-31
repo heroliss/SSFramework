@@ -47,6 +47,7 @@
 - `[DefaultExecutionOrder]` 留在具体类，泛型基类上的特性不按预期生效。
 - `MonoViewBase` 只 Inject、不注册，保持独立，不继承 `MonoLayerBase`。
 - 父 Context 先销毁时的 `IsDisposed` 短路已集中实现。只有新增“会注册到 Container 的 Mono 层基类”才复用同一模式。
+- Mono 组合外壳若把公共 Interface 转发给纯 C# 内核，`OnDestroy` 后必须保留已释放内核或显式终态守卫；不得把字段置 null 后让旧借用引用退化成 NRE，也不得让懒初始化在销毁后复活。旧引用行为应与 Interface 既定的 post-dispose 语义一致，并用真实 Mono 行为测试锁定。
 - Unity fake null 判定使用 `==/!=`；序列化必填引用默认 fail-fast，不静默降级。
 
 ## Container、生命周期与错误语义
