@@ -100,6 +100,22 @@ namespace Game.Framework.Test
             public void Dispose() { }
         }
 
+        /// <summary>刻意破坏 Serializer 契约，用于证明 Utility 会在 Adapter 接缝处阻止非法输出继续传播。</summary>
+        private sealed class ContractBreakingNetworkSerializer : INetworkSerializer
+        {
+            private readonly JsonUtilityNetworkSerializer _inner = new();
+
+            public string ContentType { get; set; } = "application/json";
+            public bool ReturnNullFromSerialize { get; set; }
+            public bool ReturnNullFromDeserialize { get; set; }
+
+            public byte[] Serialize<T>(T data) =>
+                ReturnNullFromSerialize ? null : _inner.Serialize(data);
+
+            public T Deserialize<T>(byte[] bytes) =>
+                ReturnNullFromDeserialize ? default : _inner.Deserialize<T>(bytes);
+        }
+
         private FakeHttpProvider _fake;
         private HttpUtility _http;
 
@@ -326,6 +342,72 @@ namespace Game.Framework.Test
             catch (NetworkException e)
             {
                 Assert.AreEqual(NetworkErrorKind.DeserializeError, e.Kind);
+            }
+        });
+
+        [UnityTest]
+        public IEnumerator Serializer_NullEncodedBody_FailsBeforeProvider() => UniTask.ToCoroutine(async () =>
+        {
+            var provider = new FakeHttpProvider();
+            var serializer = new ContractBreakingNetworkSerializer { ReturnNullFromSerialize = true };
+            using var http = new HttpUtility("https://api.test", provider, serializer);
+
+            try
+            {
+                await http.Post("api/login", new LoginReq { User = "hero" });
+                Assert.Fail("Serializer 的 null 编码结果不能进入 Provider。");
+            }
+            catch (InvalidOperationException e)
+            {
+                StringAssert.Contains("Serialize<LoginReq>", e.Message);
+                StringAssert.Contains("返回了 null", e.Message);
+            }
+
+            Assert.AreEqual(0, provider.SendCount, "Serializer 契约错误必须在网络 I/O 前 fail-fast。");
+        });
+
+        [UnityTest]
+        public IEnumerator Serializer_InvalidContentType_FailsBeforeProvider() => UniTask.ToCoroutine(async () =>
+        {
+            foreach (string invalid in new[] { null, " \t", "application/json\r\nX-Injected: yes" })
+            {
+                var provider = new FakeHttpProvider();
+                var serializer = new ContractBreakingNetworkSerializer { ContentType = invalid };
+                using var http = new HttpUtility("https://api.test", provider, serializer);
+
+                try
+                {
+                    await http.Post("api/login", new LoginReq { User = "hero" });
+                    Assert.Fail($"非法 Serializer ContentType 应在 Provider 前失败：'{invalid}'");
+                }
+                catch (InvalidOperationException e)
+                {
+                    StringAssert.Contains("ContentType", e.Message);
+                }
+
+                Assert.AreEqual(0, provider.SendCount);
+            }
+        });
+
+        [UnityTest]
+        public IEnumerator Serializer_NullRootForNonEmptyResponse_BecomesDeserializeError() => UniTask.ToCoroutine(async () =>
+        {
+            var provider = new FakeHttpProvider
+            {
+                Handler = _ => UniTask.FromResult(FakeHttpProvider.Json(200, "{\"Token\":\"abc\"}")),
+            };
+            var serializer = new ContractBreakingNetworkSerializer { ReturnNullFromDeserialize = true };
+            using var http = new HttpUtility("https://api.test", provider, serializer);
+
+            try
+            {
+                await http.Get<LoginResp>("api/login");
+                Assert.Fail("非空响应体不能被 Serializer 静默解释成 null。");
+            }
+            catch (NetworkException e)
+            {
+                Assert.AreEqual(NetworkErrorKind.DeserializeError, e.Kind);
+                StringAssert.Contains("返回了 null", e.Message);
             }
         });
 

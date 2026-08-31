@@ -37,6 +37,12 @@ namespace Game.Framework.Test
             public int UserId;
         }
 
+        [Serializable]
+        private sealed class ClassChatPush : IEvent
+        {
+            public string Text;
+        }
+
         // Send 的 payload 需为 class（IWebSocketUtility.Send<T> 约束）；接收侧事件是 struct。
         [Serializable]
         private class ChatOutbound
@@ -1365,6 +1371,34 @@ namespace Game.Framework.Test
 
         // ── IWebSocketEnvelopeSerializer 路径（二进制格式接管 envelope）─────────
 
+        /// <summary>刻意破坏 Serializer / envelope 输出契约，验证非法结果不会越过 Utility 进入传输或事件层。</summary>
+        private sealed class ContractBreakingEnvelopeSerializer : IWebSocketEnvelopeSerializer
+        {
+            public string ContentType => "application/x-contract-test";
+            public bool UseBinaryFrames => true;
+            public bool ReturnNullFromSerialize { get; set; }
+            public bool ReturnNullFromDeserialize { get; set; }
+            public bool ReturnNullFromEnvelope { get; set; }
+
+            public byte[] Serialize<T>(T data) => ReturnNullFromSerialize
+                ? null
+                : Encoding.UTF8.GetBytes(JsonUtility.ToJson(data));
+
+            public T Deserialize<T>(byte[] bytes) => ReturnNullFromDeserialize
+                ? default
+                : JsonUtility.FromJson<T>(Encoding.UTF8.GetString(bytes));
+
+            public byte[] EncodeEnvelope(string type, byte[] payload) => ReturnNullFromEnvelope
+                ? null
+                : payload;
+
+            public void DecodeEnvelope(byte[] frame, out string type, out byte[] payload)
+            {
+                type = "class-chat";
+                payload = Encoding.UTF8.GetBytes("{\"Text\":\"hello\"}");
+            }
+        }
+
         /// <summary>
         /// 测试用二进制 envelope 序列化器：payload = JSON 字节前加 <c>0xFF 0x00</c> 魔数（0xFF 是非法 UTF-8 起始字节，
         /// 一旦 utility 内部对 payload 做过字符串 round-trip 就会被替换损坏、Deserialize 的魔数校验立刻揭穿）；
@@ -1412,14 +1446,104 @@ namespace Game.Framework.Test
         }
 
         // 与 SetUp 的默认 JSON 实例并行：envelope 序列化器路径用独立的一套（构造后由调用方负责 ctx.Dispose）。
-        private static (FakeWebSocketProvider fake, WebSocketUtility ws, GameContext ctx) CreateBinaryWs()
+        private static (FakeWebSocketProvider fake, WebSocketUtility ws, GameContext ctx) CreateWs(
+            INetworkSerializer serializer)
         {
             var fake = new FakeWebSocketProvider();
-            var ws = new WebSocketUtility(fake, new BinaryEnvelopeSerializer());
+            var ws = new WebSocketUtility(fake, serializer);
             var builder = new ContainerBuilder();
             builder.RegisterOwned(ws, typeof(IWebSocketUtility));
             return (fake, ws, new GameContext(builder.Build(), inheritFromGlobal: false));
         }
+
+        private static (FakeWebSocketProvider fake, WebSocketUtility ws, GameContext ctx) CreateBinaryWs() =>
+            CreateWs(new BinaryEnvelopeSerializer());
+
+        [UnityTest]
+        public IEnumerator Serializer_NullPayloadBytes_FailsBeforeProvider() => UniTask.ToCoroutine(async () =>
+        {
+            var serializer = new ContractBreakingEnvelopeSerializer { ReturnNullFromSerialize = true };
+            var (fake, ws, ctx) = CreateWs(serializer);
+            try
+            {
+                await ws.Connect("ws://fake/");
+                try
+                {
+                    await ws.Send("chat", new ChatOutbound { Text = "hello" });
+                    Assert.Fail("Serializer 的 null payload 不能进入 envelope 或 Provider。");
+                }
+                catch (InvalidOperationException e)
+                {
+                    StringAssert.Contains("Serialize<ChatOutbound>", e.Message);
+                    StringAssert.Contains("返回了 null", e.Message);
+                }
+
+                Assert.AreEqual(0, fake.Sent.Count);
+                Assert.AreEqual(NetworkConnectionState.Connected, ws.State.CurrentValue,
+                    "编码前的代码契约错误不应误伤仍健康的物理连接。");
+            }
+            finally { ctx.Dispose(); }
+        });
+
+        [UnityTest]
+        public IEnumerator EnvelopeSerializer_NullFrame_FailsBeforeProvider() => UniTask.ToCoroutine(async () =>
+        {
+            var serializer = new ContractBreakingEnvelopeSerializer { ReturnNullFromEnvelope = true };
+            var (fake, ws, ctx) = CreateWs(serializer);
+            try
+            {
+                await ws.Connect("ws://fake/");
+                try
+                {
+                    await ws.Send("chat", new ChatOutbound { Text = "hello" });
+                    Assert.Fail("Envelope Serializer 的 null frame 不能进入 Provider。");
+                }
+                catch (InvalidOperationException e)
+                {
+                    StringAssert.Contains("EncodeEnvelope", e.Message);
+                    StringAssert.Contains("返回了 null", e.Message);
+                }
+
+                Assert.AreEqual(0, fake.Sent.Count);
+                Assert.AreEqual(NetworkConnectionState.Connected, ws.State.CurrentValue);
+            }
+            finally { ctx.Dispose(); }
+        });
+
+        [UnityTest]
+        public IEnumerator Serializer_NullClassEventForNonEmptyPush_WarnsAndDrops() => UniTask.ToCoroutine(async () =>
+        {
+            var serializer = new ContractBreakingEnvelopeSerializer { ReturnNullFromDeserialize = true };
+            var (fake, ws, ctx) = CreateWs(serializer);
+            var sink = new CapturingLogSink();
+            Log.AddSink(sink);
+            try
+            {
+                ws.RegisterPush<ClassChatPush>("class-chat");
+                int received = 0;
+                using var sub = ctx.RegisterEvent<ClassChatPush>(_ => received++);
+                await ws.Connect("ws://fake/");
+                await UniTask.DelayFrame(1);
+
+                LogAssert.Expect(LogType.Warning,
+                    new System.Text.RegularExpressions.Regex("载荷无法反序列化"));
+                fake.InjectMessage(new byte[] { 1 });
+                await UniTask.DelayFrame(2);
+
+                Assert.AreEqual(0, received, "非空载荷反序列化为 null 时不能发布空引用事件。");
+                Assert.AreEqual(NetworkConnectionState.Connected, ws.State.CurrentValue,
+                    "单条坏推送只应丢弃当条，不能毒化接收循环。");
+                LogEntry entry = sink.Entries.Find(e =>
+                    e.Category == nameof(WebSocketUtility) && e.Message.Contains("载荷无法反序列化"));
+                Assert.IsNotNull(entry.Exception);
+                StringAssert.Contains("返回了 null", entry.Exception.Message);
+            }
+            finally
+            {
+                Log.RemoveSink(sink);
+                ctx.Dispose();
+            }
+        });
 
         [UnityTest]
         public IEnumerator EnvelopeSerializer_Send_BinaryFrame_PayloadBytesIntact() => UniTask.ToCoroutine(async () =>

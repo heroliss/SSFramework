@@ -58,7 +58,9 @@ public interface IWebSocketUtility : IUtility     // 有状态长连接（一个
 | 超时（HTTP Request Owner 的 deadline 先于物理发送完成） | `NetworkException(Timeout)` |
 | 外部 ct 取消 | `OperationCanceledException`（不包装，框架统一约定） |
 | 非 2xx（动词门面） | `NetworkException(HttpError)`，携带 `StatusCode` + `ResponseBody`（截断 ≤4KB） |
-| 响应体 / 推送载荷反序列化失败 | `NetworkException(DeserializeError)`（服务器契约不符） |
+| HTTP 响应体反序列化失败，或非空体被 Serializer 还原为 null | `NetworkException(DeserializeError)`（服务器 / Serializer 契约不符） |
+| WS 推送载荷反序列化失败，或非空载荷被还原为 null | warning + 丢弃当条，接收循环继续 |
+| Serializer 返回 null 编码 / envelope，或有请求体时 ContentType 为空、含 CR/LF | 调用 Provider 前抛 `InvalidOperationException`（Adapter 契约错误） |
 | 2xx 空响应体 | 返回 `null`（唯一的 null 语义） |
 | 未连接时 WS `Send` / 发送中途 socket 断掉 | `NetworkException(ConnectionError)`（传输层原始异常不外泄给业务） |
 | WS 帧排队期间所属连接被 Disconnect / 替换 | `NetworkException(ConnectionError)`；旧帧绝不转发到新连接 |
@@ -107,6 +109,10 @@ IWebSocketUtility ── WebSocketUtility（状态机 / envelope / 推送注册�
 - provider 接口保留 `Async` 后缀（适配层惯例）；门面 API 无后缀。
 - Utility 串行化 Connect 与前一次 Close；只允许 Receive 与 Close 按契约重叠。Provider 每个方法必须在入口 capture 当前物理连接，分片 Receive 全程只用同一 socket，不能因后续重连改读可变字段。
 - `INetworkSerializer` **无 `class` 约束**（与 `IStorageSerializer` 不同）：WS 推送事件是 struct。
+- Serializer 是格式 Adapter，不是可向下游传播“不确定值”的宽松扩展点：成功编码必须返回非 null 字节（无内容用空数组），
+  非空输入成功解码不得返回 null；有 HTTP 请求体时 `ContentType` 还必须是非空、无 CR/LF 的 header value。
+  Utility 在 Provider / Event 接缝前执行这些门禁：编码或 envelope 违规直接 fail-fast，不建立物理 I/O；HTTP 非空响应根为
+  null 按 `DeserializeError` 交付调用方；WS 非空推送根为 null 则按单条坏消息 warning + 丢弃，不发布空引用事件。
 - 超时不归 provider：`HttpUtility` 为每次交换创建私有 HTTP Request Owner，把 caller、Utility lifetime 与 deadline 三种取消意图汇入 owner token。deadline 使用不受 `Time.timeScale` 影响的实时时钟；Send-vs-Delay 通过独立 completion signal 竞速，Provider task 永远只有一个 observer，避免在 pending UniTask 上注册多个 continuation。Send 先完成会立即取消并观察 loser deadline，避免响应体被 timer promise 滞留；deadline 先完成则经安全 owner Cancel，不让 `CancelAfter` timer 线程承接第三方回调异常，并等待守约 provider 到物理终态。timeout 在启动 Provider 前验证为有限、可表示的秒数，非法配置 fail-fast，不遗弃已启动请求。
 
 ### 6. 第三方定位（本模块与候选库的边界）
@@ -134,6 +140,8 @@ IWebSocketUtility ── WebSocketUtility（状态机 / envelope / 推送注册�
 - HTTP 每次请求有独立 Request Owner。caller / Utility lifetime token 的回调只调用 owner 的安全 Cancel，因此 Adapter 的坏取消回调不会从外部 `CancellationTokenSource.Cancel()` 或 Utility Dispose 反向逃逸；Dispose 仍会继续释放 Provider。deadline 先赢后仍等待守约 Provider 到物理终态并观察其异常；若这段收尾期间 caller / lifetime 在公共 completion 前取消，scope 已不再需要结果，OCE 明确优先于早先 deadline，避免已销毁页面收到迟到 Timeout。否则 deadline 折叠 Timeout；Provider 在 owner token 未取消时自发 OCE 是 ConnectionError。物理成功结果是提交点，不做迟到的 caller token post-check。
 - HTTP 的环境与协议元数据在 Adapter 前封闭：非 null BaseUrl 构造时就必须是带 host、无 userinfo / query / fragment 的绝对 http(s) 地址；请求 method / header name 使用 ASCII token，URL 不接受未转义空白，header value 不接受 CR/LF。每请求 Headers 的 null value 表示从本次合并快照临时移除同名默认头，解决“全局 Authorization 已设置，但某个公开端点不能携带”的常见场景，不修改后续默认集合。
 - Provider 返回也在接缝处验证：response、Body、Headers 任一为 null 都视为 Adapter 违反契约，并稳定折叠为 `NetworkException(ConnectionError)`；不会把错误推迟成 `BodyText` / 反序列化处的 `NullReferenceException`。空响应体与无响应头必须显式返回空数组 / 空字典。
+- Serializer 输出也在接缝处验证：null 请求字节、null WebSocket payload / envelope 和非法 HTTP ContentType 都在 Provider
+  前以 `InvalidOperationException` 暴露；HTTP 非空响应不得被还原为 null，WS 非空推送不得发布 null 事件。
 - Dispose：`HttpUtility` 取消所有在途 Request Owner；`WebSocketUtility` claim 并停掉当前 Connection Session、释放 Provider 与响应式 State，不发 ClosedEvent。已经交付的 State 会正常 OnCompleted，旧 Utility 引用不能再重新取得带旧 CurrentValue 的状态流；`Disconnect` 作为幂等清理仍是 no-op。Provider Dispose 失败仍原样交给上层 owner 观察，但不能截断 State 释放。随 Context 整棵撤。
 
 ### 8. 环境实测结论（落地时的两个坑，spike 已验证）
