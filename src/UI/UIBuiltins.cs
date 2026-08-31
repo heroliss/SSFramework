@@ -19,9 +19,14 @@ namespace Game.Framework.UI
     /// <summary>Toast 打开参数：adapter 渲染 <see cref="Text"/>；核心 <see cref="UIUtility"/> 消费 <see cref="Duration"/> 并统一持有自动关闭时序。</summary>
     public sealed class UIToastArgs
     {
+        /// <summary>提示文本。</summary>
         public readonly string Text;
+        /// <summary>自动关闭前的持续秒数。</summary>
         public readonly float Duration;
 
+        /// <summary>创建 Toast 打开参数。</summary>
+        /// <param name="text">提示文本。</param>
+        /// <param name="duration">自动关闭前的持续秒数。</param>
         public UIToastArgs(string text, float duration)
         {
             Text = text;
@@ -32,8 +37,11 @@ namespace Game.Framework.UI
     /// <summary>Loading 打开参数：提示文本（可空 = 只显示指示动画）。</summary>
     public sealed class UILoadingArgs
     {
+        /// <summary>提示文本；可为 <c>null</c>。</summary>
         public readonly string Text;
 
+        /// <summary>创建 Loading 打开参数。</summary>
+        /// <param name="text">提示文本；传 <c>null</c> 时只显示指示动画。</param>
         public UILoadingArgs(string text) => Text = text;
     }
 }

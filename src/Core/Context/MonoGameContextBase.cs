@@ -91,12 +91,14 @@ namespace Game.Framework.Context
         [LockInPlayMode]
         [InspectorName("自动查找父级上下文")]
         [Tooltip("是否自动向上查找 Transform 层级中的父级上下文。关闭时不会自动查找，但显式设置的 Parent Context 仍然生效。")]
+        /// <summary>未显式指定父 Context 时，是否沿 Transform 父链自动查找。</summary>
         protected bool _inheritFromParent = true;
 
         [SerializeField]
         [LockInPlayMode]
         [InspectorName("回退到全局主上下文（GameContext.Main）")]
         [Tooltip("是否在本地和父级解析不到时回退到全局静态主上下文（GameContext.Main）。")]
+        /// <summary>本地与父级均无法解析服务时，是否回退到 <see cref="GameContext.Main"/>。</summary>
         protected bool _inheritFromGlobal = true;
 
         private IGameContext _resolvedParent;
@@ -150,6 +152,7 @@ namespace Game.Framework.Context
         /// <summary>IHasGameContext 实现：MonoGameContextBase 本身也是上下文持有者。</summary>
         public IGameContext Context => this;
 
+        /// <summary>初始化并提交 Context；派生类覆写时必须调用基类实现。</summary>
         protected virtual void Awake() => Initialize();
 
         /// <summary>
@@ -228,6 +231,7 @@ namespace Game.Framework.Context
             }
         }
 
+        /// <summary>释放 Context 及其拥有的 Container；派生类覆写时必须调用基类实现。</summary>
         protected virtual void OnDestroy()
         {
             var context = _context;

@@ -92,6 +92,7 @@ namespace Game.Framework
         [FormerlySerializedAs("FileOffset")]
         [Min(0)] [SerializeField] private ulong _fileOffset;
 
+        /// <summary>创建一份采用 Inspector 默认值的资源运行配置。</summary>
         public AssetRuntimeSettings() { }
 
         internal AssetRuntimeSettings(
@@ -268,8 +269,13 @@ namespace Game.Framework
         [InspectorName("允许按需下载")]
         [SerializeField] private bool _enableOnDemandDownload = true;
 
+        /// <summary>供 Unity 序列化创建空资源包配置；代码装配应优先使用带包名构造。</summary>
         public AssetPackageConfig() { }
 
+        /// <summary>创建一份资源包运行配置。</summary>
+        /// <param name="name">YooAsset 资源包名。</param>
+        /// <param name="autoInitialize">进入场景入口时是否自动初始化。</param>
+        /// <param name="enableOnDemandDownload">Host 模式下是否允许加载时按需下载。</param>
         public AssetPackageConfig(string name, bool autoInitialize = true, bool enableOnDemandDownload = true)
         {
             _name = name;

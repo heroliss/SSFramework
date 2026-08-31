@@ -57,6 +57,15 @@ namespace Game.Framework.Logging
         /// </remarks>
         public readonly bool FromUnity;
 
+        /// <summary>创建一条在各日志接收器之间传递的不可变日志记录。</summary>
+        /// <param name="level">日志级别。</param>
+        /// <param name="message">可读消息。</param>
+        /// <param name="category">可选分类。</param>
+        /// <param name="exception">可选异常。</param>
+        /// <param name="fields">可选结构化字段。</param>
+        /// <param name="context">可选 Unity 对象上下文。</param>
+        /// <param name="stackTrace">可选调用栈文本。</param>
+        /// <param name="fromUnity">是否由 Unity 日志流桥接而来。</param>
         public LogEntry(
             LogLevel level,
             string message,

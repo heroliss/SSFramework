@@ -15,6 +15,7 @@ namespace Game.Framework.UI.Toolkit
     [UxmlElement]
     public partial class SafeAreaContainer : VisualElement
     {
+        /// <summary>创建一个随面板几何变化自动更新边距的安全区容器。</summary>
         public SafeAreaContainer()
         {
             pickingMode = PickingMode.Ignore; // 容器自身不吃事件，交互由子元素负责

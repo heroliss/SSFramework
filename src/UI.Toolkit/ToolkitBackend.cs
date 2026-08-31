@@ -37,6 +37,9 @@ namespace Game.Framework.UI.Toolkit
             public VisualElement Mask;
         }
 
+        /// <summary>创建借用指定 <see cref="UIDocument"/> 的 UI Toolkit 后端。</summary>
+        /// <param name="document">承载全部层根的文档；其生命周期由外部宿主管理。</param>
+        /// <exception cref="ArgumentNullException"><paramref name="document"/> 为 <c>null</c>。</exception>
         public ToolkitBackend(UIDocument document) => _document = document != null
             ? document
             : throw new ArgumentNullException(nameof(document));

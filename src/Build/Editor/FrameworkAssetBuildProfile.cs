@@ -294,11 +294,14 @@ namespace Game.Framework.Build
         [FormerlySerializedAs("GenerateBuiltinShaderBundle")]
         [SerializeField] private bool _generateBuiltinShaderBundle = true;
 
-        // Unity 序列化需要无参构造；代码路径（对账补条目 / 自动建 profile）用带名构造。
+        /// <summary>供 Unity 序列化创建空条目；业务代码应优先使用带包名构造。</summary>
         public PackageBuildEntry() { }
 
+        /// <summary>创建指定资源包的构建条目。</summary>
+        /// <param name="packageName">YooAsset 资源包名；后续对账按 Trim 后的值匹配。</param>
         public PackageBuildEntry(string packageName) => _packageName = packageName;
 
+        /// <summary>YooAsset 资源包名。</summary>
         public string PackageName => _packageName;
 
         /// <summary>是否参与构建；false = 跳过但保留配置（排除包用它，别删条目——会被对账补回）。</summary>

@@ -22,6 +22,11 @@ namespace Game.Framework.UI.UGui.Editor
         private Vector2 _dragMouseStart; // 标题条拖拽起点（屏幕坐标）
         private Vector2 _dragWinStart;   // 标题条拖拽起点（窗口左上角）
 
+        /// <summary>创建指定绑定节点的就地编辑面板。</summary>
+        /// <param name="root">持有 <see cref="UIBindingData"/> 的 Prefab 根。</param>
+        /// <param name="path">节点相对根路径；空字符串表示根节点。</param>
+        /// <param name="node">当前节点对象。</param>
+        /// <param name="editable">是否允许写回绑定；运行实例通常只读。</param>
         public UIBindingNodePopup(GameObject root, string path, GameObject node, bool editable = true)
         {
             _root = root;

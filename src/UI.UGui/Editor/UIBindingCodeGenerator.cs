@@ -514,7 +514,7 @@ namespace Game.Framework.UI.UGui.Editor
             sb.AppendLine("        protected override void OnCreated()");
             sb.AppendLine("        {");
             if (isVariant) sb.AppendLine("            base.OnCreated(); // 复用基类接线（基类已绑字段为 protected，子类可直接用）");
-            sb.AppendLine("            // TODO: 在此接线——订阅查询 Command、接按钮（绑定字段此时已就绪）。");
+            sb.AppendLine("            // 接线入口：订阅查询 Command、接按钮（绑定字段此时已就绪）。");
             sb.AppendLine("        }");
             sb.AppendLine("    }");
             sb.AppendLine("}");

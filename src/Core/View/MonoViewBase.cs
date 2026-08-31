@@ -60,6 +60,9 @@ namespace Game.Framework.View
         /// </summary>
         protected DisposableBag CreateBag() => new DisposableBag(_contextProvider);
 
+        /// <summary>
+        /// 解析 View Context、注入字段并绑定资源引用；派生类覆写时先调用基类实现，再进行自己的接线。
+        /// </summary>
         protected virtual void Awake()
         {
             var contextProvider = this.ResolveViewContext(_targetContext);
@@ -93,6 +96,7 @@ namespace Game.Framework.View
             }
         }
 
+        /// <summary>幂等释放 View 的 <see cref="Bag"/> 与临时 Context；派生类覆写时必须调用基类实现。</summary>
         protected virtual void OnDestroy()
         {
             TearDownView();
