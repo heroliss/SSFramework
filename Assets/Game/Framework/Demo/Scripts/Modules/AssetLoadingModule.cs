@@ -149,7 +149,7 @@ namespace Game.Framework.Demo.Modules
                 ct.ThrowIfCancellationRequested();
                 loadResult.text = "已卸载引用归零的 bundle。仍被其他 Bag / 引用持有的资源不会受影响。";
             }, CodeRef.Here("asset.UnloadUnusedAssets(ct)", "回收零引用内存 bundle"));
-            host.AddNote("释放有三层：`Dispose / Unload` 先归还 handle；`UnloadUnusedAssets` 再把零引用 bundle 从内存卸掉；`ClearCache` 删除的是磁盘下载缓存，属于相邻的「资源分发」章。把短期资源放进子 Bag，既能随宿主兜底释放，也能在阶段结束时就近提前归还。");
+            host.AddNote("释放有三层：`Dispose / Unload` 先归还 handle；`UnloadUnusedAssets` 再把零引用 bundle 从内存卸掉；`ClearCache` 删除的是磁盘下载缓存，属于相邻的「资源分发」章。把短期资源放进子 Bag，既能随宿主兜底释放，也能在阶段结束时就近提前归还。直接持有 handle 时，其属性、Dispose、场景 Activate / UnSuspend 都从 Unity 主线程调用；显式 await 场景 Unload 后也会回到主线程。");
 
             // ── 3. 失败语义 ──
             host.AddSectionTitle("第三步：分清资源级缺失与系统级失败");

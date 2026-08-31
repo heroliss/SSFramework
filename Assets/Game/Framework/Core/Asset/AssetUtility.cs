@@ -687,7 +687,7 @@ namespace Game.Framework
             using var link = LinkDispose(ct, out var lct);
             var handle = await MainThreadGuard.AwaitOnMainThread(
                 _provider.LoadSceneAsync(packageName, location, mode, suspendLoad, lct));
-            if (!lct.IsCancellationRequested) return handle;
+            if (!lct.IsCancellationRequested) return WrapSceneHandle(handle);
 
             DisposeLateSceneHandle(handle, location);
             lct.ThrowIfCancellationRequested();
@@ -794,7 +794,8 @@ namespace Game.Framework
             ThrowIfDisposed();
             packageName = NormalizePackageName(packageName);
             RequireReadyForDownloader(packageName);
-            return _provider.CreateAllDownloader(packageName, _config.DownloadingMaxNumber, _config.FailedTryAgain);
+            return WrapDownloader(
+                _provider.CreateAllDownloader(packageName, _config.DownloadingMaxNumber, _config.FailedTryAgain));
         }
 
         public IAssetDownloader CreateLocationDownloader(params string[] locations)
@@ -904,14 +905,16 @@ namespace Game.Framework
         {
             packageName = NormalizePackageName(packageName);
             RequireReadyForDownloader(packageName);
-            return _provider.CreateTagDownloader(packageName, tags, _config.DownloadingMaxNumber, _config.FailedTryAgain);
+            return WrapDownloader(
+                _provider.CreateTagDownloader(packageName, tags, _config.DownloadingMaxNumber, _config.FailedTryAgain));
         }
 
         private IAssetDownloader CreateLocationDownloaderInternal(string packageName, IReadOnlyList<string> locations)
         {
             packageName = NormalizePackageName(packageName);
             RequireReadyForDownloader(packageName);
-            return _provider.CreateLocationDownloader(packageName, locations, _config.DownloadingMaxNumber, _config.FailedTryAgain);
+            return WrapDownloader(
+                _provider.CreateLocationDownloader(packageName, locations, _config.DownloadingMaxNumber, _config.FailedTryAgain));
         }
 
         // 三种下载器（tag / 全部 / 按地址）共用：建下载器前必须包已就绪，否则统计不出待下载清单。
@@ -1031,25 +1034,155 @@ namespace Game.Framework
             }
         }
 
+        private static IAssetDownloader WrapDownloader(IAssetDownloader downloader)
+            => downloader == null ? null : new MainThreadAssetDownloader(downloader);
+
+        private static ISceneHandle WrapSceneHandle(ISceneHandle handle)
+            => handle == null ? null : new MainThreadSceneHandle(handle);
+
+        /// <summary>
+        /// Provider 的物理下载允许在 worker 结束；业务拿到的 downloader 则保持 AssetUtility 的主线程终态契约。
+        /// Progress 不复制、不二次订阅，Provider 仍按 SPI 契约在主线程发布，避免为一次性下载器引入额外订阅所有权。
+        /// </summary>
+        private sealed class MainThreadAssetDownloader : IAssetDownloader
+        {
+            private readonly IAssetDownloader _inner;
+
+            public MainThreadAssetDownloader(IAssetDownloader inner)
+                => _inner = inner ?? throw new ArgumentNullException(nameof(inner));
+
+            public int TotalCount
+            {
+                get
+                {
+                    MainThreadGuard.AssertMainThread(nameof(MainThreadAssetDownloader));
+                    return _inner.TotalCount;
+                }
+            }
+
+            public long TotalBytes
+            {
+                get
+                {
+                    MainThreadGuard.AssertMainThread(nameof(MainThreadAssetDownloader));
+                    return _inner.TotalBytes;
+                }
+            }
+
+            public bool IsDone
+            {
+                get
+                {
+                    MainThreadGuard.AssertMainThread(nameof(MainThreadAssetDownloader));
+                    return _inner.IsDone;
+                }
+            }
+
+            public ReadOnlyReactiveProperty<DownloadProgressReport> Progress
+            {
+                get
+                {
+                    MainThreadGuard.AssertMainThread(nameof(MainThreadAssetDownloader));
+                    return _inner.Progress;
+                }
+            }
+
+            public async UniTask Download(CancellationToken ct = default)
+            {
+                MainThreadGuard.AssertMainThread(nameof(MainThreadAssetDownloader));
+                await MainThreadGuard.AwaitOnMainThread(_inner.Download(ct));
+            }
+        }
+
+        /// <summary>
+        /// 场景句柄的同步操作仍直接委托 Provider；异步 Unload 的所有终态统一恢复到 Unity 主线程。
+        /// </summary>
+        private sealed class MainThreadSceneHandle : ISceneHandle
+        {
+            private readonly ISceneHandle _inner;
+
+            public MainThreadSceneHandle(ISceneHandle inner)
+                => _inner = inner ?? throw new ArgumentNullException(nameof(inner));
+
+            public Scene Scene
+            {
+                get
+                {
+                    MainThreadGuard.AssertMainThread(nameof(MainThreadSceneHandle));
+                    return _inner.Scene;
+                }
+            }
+
+            public bool IsValid
+            {
+                get
+                {
+                    MainThreadGuard.AssertMainThread(nameof(MainThreadSceneHandle));
+                    return _inner.IsValid;
+                }
+            }
+
+            public bool Activate()
+            {
+                MainThreadGuard.AssertMainThread(nameof(MainThreadSceneHandle));
+                return _inner.Activate();
+            }
+
+            public bool UnSuspend()
+            {
+                MainThreadGuard.AssertMainThread(nameof(MainThreadSceneHandle));
+                return _inner.UnSuspend();
+            }
+
+            public async UniTask Unload()
+            {
+                MainThreadGuard.AssertMainThread(nameof(MainThreadSceneHandle));
+                await MainThreadGuard.AwaitOnMainThread(_inner.Unload());
+            }
+
+            public void Dispose()
+            {
+                MainThreadGuard.AssertMainThread(nameof(MainThreadSceneHandle));
+                _inner.Dispose();
+            }
+        }
+
         private sealed class TypedAssetHandle<T> : IAssetHandle<T> where T : UnityEngine.Object
         {
             private IAssetHandle<UnityEngine.Object> _inner;
+            private T _asset;
 
             public TypedAssetHandle(IAssetHandle<UnityEngine.Object> inner, T asset)
             {
                 _inner = inner;
-                Asset = asset;
+                _asset = asset;
             }
 
-            public T Asset { get; private set; }
-            public bool IsValid => _inner != null && _inner.IsValid;
+            public T Asset
+            {
+                get
+                {
+                    MainThreadGuard.AssertMainThread(nameof(TypedAssetHandle<T>));
+                    return _asset;
+                }
+            }
+
+            public bool IsValid
+            {
+                get
+                {
+                    MainThreadGuard.AssertMainThread(nameof(TypedAssetHandle<T>));
+                    return _inner != null && _inner.IsValid;
+                }
+            }
 
             public void Dispose()
             {
+                MainThreadGuard.AssertMainThread(nameof(TypedAssetHandle<T>));
                 if (_inner == null) return;
                 _inner.Dispose();
                 _inner = null;
-                Asset = null;
+                _asset = null;
             }
         }
     }

@@ -13,6 +13,8 @@ namespace Game.Framework
     ///
     /// 业务很少直接持有 handle：只有"加载完即用即释"、"用完手动卸载"这种场景才有意义。
     /// 否则统一用 <c>Bag.Load</c>。
+    /// 由 <see cref="IAssetUtility"/> 返回的 handle 属于 Unity 主线程；属性与 <see cref="IDisposable.Dispose"/>
+    /// 都应从主线程访问。
     /// </summary>
     public interface IAssetHandle<out T> : IDisposable where T : UnityEngine.Object
     {
@@ -30,6 +32,8 @@ namespace Game.Framework
     /// 因此场景不能简单等同于 <c>IAssetHandle&lt;T&gt;</c>，而是单独抽象一层。
     ///
     /// <see cref="IDisposable.Dispose"/> 发起一次 fire-and-forget 卸载；需要等待卸载完成请显式 await <see cref="Unload"/>。
+    /// 由 <see cref="IAssetUtility"/> 返回的句柄属于 Unity 主线程；同步成员、Dispose 与 Unload 入口都从主线程访问，
+    /// Unload 的成功、异常也在主线程交付。
     /// </summary>
     public interface ISceneHandle : IDisposable
     {
@@ -48,7 +52,10 @@ namespace Game.Framework
         /// </summary>
         bool UnSuspend();
 
-        /// <summary>异步卸载场景并释放底层句柄。可重复调用，第一次后为 no-op。</summary>
+        /// <summary>
+        /// 异步卸载场景并释放底层句柄。可重复调用，第一次后为 no-op；经 <see cref="IAssetUtility"/>
+        /// 返回的句柄会在 Unity 主线程交付成功或异常。
+        /// </summary>
         UniTask Unload();
     }
 }

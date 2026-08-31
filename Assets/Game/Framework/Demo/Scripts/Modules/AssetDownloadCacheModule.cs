@@ -187,7 +187,7 @@ namespace Game.Framework.Demo.Modules
                     progressResult.text = $"下载失败：{e.Message}。修复网络后要重新创建下载器；失败实例是一次性的。";
                 }
             }), CodeRef.Here("await current.Download(CancellationToken.None)", "等待物理下载终态"));
-            host.AddNote("下载器是“创建那一刻”的待下载快照。失败后重复调用同一个实例只会重现失败；应修复网络后重建，已经成功的分片会命中缓存，相当于断点续传。进度是状态流，View 订阅即可，不需要 `while (!IsDone)` 轮询。");
+            host.AddNote("下载器是“创建那一刻”的待下载快照。失败后重复调用同一个实例只会重现失败；应修复网络后重建，已经成功的分片会命中缓存，相当于断点续传。进度是状态流，View 订阅即可，不需要 `while (!IsDone)` 轮询。空快照刚创建时是 `0 / 0, 0%`，Download 确认无需下载后才变成 `0 / 0, 100%`；流程门禁仍以 await 的成功终态为准。即使自定义 Provider 在 worker 完成，Download 的成功、异常和取消也会回到 Unity 主线程。");
 
             // ── 4. 缓存维护 ──
             host.AddSectionTitle("缓存维护：范围和下载器对应，清理后旧快照作废");

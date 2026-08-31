@@ -349,6 +349,11 @@
 - `IStorageProvider` 从“每个 Adapter 自己切回主线程”收敛为“允许任意线程物理完成”；`StorageUtility` 统一在 serializer、FIFO gate、provider terminal 与公共成功 / 失败 / 取消前恢复 Unity 主线程。SQLite / 云存档 Adapter 只负责介质，不再复制调度样板，也不会把 JsonUtility 或后继队列偶发拖到 worker。
 - 默认文件 Provider 用 `configureAwait:false` 保持真实 I/O 终态在线程池，避免 Adapter 与 Utility 重复 PlayerLoop 往返。行为测试覆盖两个未 await Save 的 worker 终态、主线程反序列化、List/Delete、worker failure、worker cancellation、失败 / 取消后的后继 FIFO 和主线程 Dispose；Storage 专项 65/65、Demo CodeRef / 目录契约 20/20，最终完整 EditMode 616/616、PlayMode 736/736，Unity 编译 0 错误。
 
+### P1 · Asset 二级对象线程与空下载快照契约
+
+- `AssetUtility` 不再把 Provider 创建的 downloader / scene handle 原样泄漏给业务：轻量代理保持同步成员主线程独占，并把 `Download` / `Unload` 的成功、异常、取消统一恢复到 Unity 主线程；进度流仍直接透传，由 Provider 在主线程发布，避免制造额外订阅所有权。
+- `DownloadProgressReport.IsDone` 区分“刚创建的空快照（0 / 0, 0%）”和“已确认无需下载（0 / 0, 100%）”，消除进度快照与 downloader 完成状态相互矛盾。契约测试覆盖 worker success / failure / cancellation、场景 worker unload 与非空计数真源；资源线程专项 27/27、YooAsset 集成 15/15、Demo CodeRef / 目录契约 20/20，最终完整 EditMode 616/616、PlayMode 739/739，Unity 编译 0 错误。
+
 ## 下一批候选（按杠杆排序）
 
 | 优先级 | 候选 | 证据 / 完成标准 |
