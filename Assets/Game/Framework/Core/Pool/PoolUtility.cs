@@ -129,6 +129,9 @@ namespace Game.Framework.Pool
             marker.OwningPool.Despawn(instance);
         }
 
+        /// <summary>诊断用池数量；不枚举或格式化每个池的计数。</summary>
+        internal int DiagnosticPoolCount => (_goPools?.Count ?? 0) + _pools.Count;
+
         /// <summary>
         /// 诊断用：当前各池概要——GameObject 池给 <c>[GO] prefab名 借出=N 空闲=M</c>，C# 对象池给 <c>[C#] 类型名 借出=N 空闲=M</c>。
         /// 仅供只读展示（<see cref="MonoPoolUtility"/> Inspector / 框架诊断面板），不参与池逻辑；无池时返回空列表。

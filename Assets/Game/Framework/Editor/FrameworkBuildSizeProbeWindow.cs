@@ -19,14 +19,21 @@ namespace Game.Framework.Editor
         private VisualElement _actions;
         private VisualElement _profileGrid;
         private VisualElement _advancedProfileGrid;
+        private Foldout _advancedProfilesFoldout;
         private VisualElement _profileLoader;
         private VisualElement _results;
+        private Label _environmentSummary;
         private HelpBox _status;
         private Button _loadProfilesButton;
         private Button _startButton;
         private Button _stopButton;
         private bool _profilesLoaded;
         private bool _profilesLoading;
+        private bool _advancedProfilesPopulated;
+        // 选择是构建意图，不是当前是否已创建 Toggle 的 UI 状态；进阶区折叠和证据刷新都不能丢失它。
+        private HashSet<string> _selectedProfileKeys;
+        private FrameworkModuleAudit.AuditProfile[] _availableAdvancedProfiles =
+            Array.Empty<FrameworkModuleAudit.AuditProfile>();
         private bool? _lastEditorReady;
         private bool? _lastRunning;
 
@@ -38,15 +45,21 @@ namespace Game.Framework.Editor
         {
             FrameworkBuildSizeProbe.Changed += RefreshState;
             FrameworkModuleAuditCache.Invalidated += OnEvidenceInvalidated;
+            FrameworkModuleAuditCache.Refreshed += OnEvidenceRefreshed;
         }
 
         private void OnDisable()
         {
             FrameworkBuildSizeProbe.Changed -= RefreshState;
             FrameworkModuleAuditCache.Invalidated -= OnEvidenceInvalidated;
+            FrameworkModuleAuditCache.Refreshed -= OnEvidenceRefreshed;
         }
 
-        private void OnInspectorUpdate() => RefreshActionAvailability(updateStatusOnChange: true);
+        private void OnInspectorUpdate()
+        {
+            RefreshEnvironmentCard();
+            RefreshActionAvailability(updateStatusOnChange: true);
+        }
 
         /// <summary>创建支持窄窗纵排的 UI Toolkit 构建控制台。</summary>
         public void CreateGUI()
@@ -57,6 +70,10 @@ namespace Game.Framework.Editor
             _metricRows.Clear();
             _profilesLoaded = false;
             _profilesLoading = false;
+            _advancedProfilesPopulated = false;
+            _selectedProfileKeys = null;
+            _availableAdvancedProfiles = Array.Empty<FrameworkModuleAudit.AuditProfile>();
+            _environmentSummary = null;
 
             VisualElement root = rootVisualElement;
             root.Clear();
@@ -107,14 +124,14 @@ namespace Game.Framework.Editor
             scroll.Add(_profileLoader);
             scroll.Add(_profileGrid);
 
-            var advancedProfiles = new Foldout
+            _advancedProfilesFoldout = new Foldout
             {
                 name = "build-size-probe-advanced-profiles",
                 text = "任意 Module 入口（按需选择，默认不构建）",
                 value = false,
                 style = { marginTop = 5, marginBottom = 4 },
             };
-            advancedProfiles.Add(Wrap(new Label(
+            _advancedProfilesFoldout.Add(Wrap(new Label(
                 "每项以一个 Runtime Module 为入口并自动带上真实依赖闭包；适合验证 Config、Fonts、Proto、Bridge 等任意 Module，不是全局启用开关。")));
             _advancedProfileGrid = new VisualElement
             {
@@ -125,8 +142,24 @@ namespace Game.Framework.Editor
                     flexWrap = UnityEngine.UIElements.Wrap.Wrap,
                 },
             };
-            advancedProfiles.Add(_advancedProfileGrid);
-            scroll.Add(advancedProfiles);
+            _advancedProfilesFoldout.Add(_advancedProfileGrid);
+            _advancedProfilesFoldout.RegisterValueChangedCallback(change =>
+            {
+                if (ReferenceEquals(change.target, _advancedProfilesFoldout) && change.newValue)
+                    PopulateAdvancedProfiles();
+            });
+            Toggle advancedTitle = _advancedProfilesFoldout.Q<Toggle>();
+            if (advancedTitle == null)
+                throw new InvalidOperationException("进阶组合 Foldout 缺少标题 Toggle，无法建立懒构建边界。");
+            advancedTitle.RegisterCallback<NavigationMoveEvent>(_ =>
+            {
+                if (_advancedProfilesFoldout.value) PopulateAdvancedProfiles();
+            });
+            advancedTitle.RegisterCallback<KeyDownEvent>(_ =>
+            {
+                if (_advancedProfilesFoldout.value) PopulateAdvancedProfiles();
+            });
+            scroll.Add(_advancedProfilesFoldout);
 
             var scope = CreateCard("build-size-probe-scope");
             scope.Add(CreateCardTitle("如何理解数字"));
@@ -181,20 +214,39 @@ namespace Game.Framework.Editor
 
         internal void ApplyResponsiveLayoutForTests(float width) => ApplyResponsiveLayout(width);
 
-        private static VisualElement CreateEnvironmentCard()
+        private VisualElement CreateEnvironmentCard()
         {
-            BuildTarget target = EditorUserBuildSettings.activeBuildTarget;
-            var named = NamedBuildTarget.FromBuildTargetGroup(BuildPipeline.GetBuildTargetGroup(target));
             var card = CreateCard("build-size-probe-environment");
             card.Add(CreateCardTitle("本轮构建环境"));
-            card.Add(Wrap(new Label($"{Application.unityVersion} · {target} · " +
-                                    $"{PlayerSettings.GetScriptingBackend(named)} · " +
-                                    $"代码裁剪等级（Stripping）{PlayerSettings.GetManagedStrippingLevel(named)}")));
+            _environmentSummary = Wrap(new Label { name = "build-size-probe-environment-summary" });
+            card.Add(_environmentSummary);
             var hint = Wrap(new Label("探针不自动切换平台；想测 WebGL，请先正常切到 WebGL，再从这里构建。"));
             hint.style.color = MutedTextColor;
             hint.style.marginTop = 3;
             card.Add(hint);
+            RefreshEnvironmentCard();
             return card;
+        }
+
+        private void RefreshEnvironmentCard()
+        {
+            if (_environmentSummary == null) return;
+            BuildTarget target = EditorUserBuildSettings.activeBuildTarget;
+            string summary;
+            try
+            {
+                var named = NamedBuildTarget.FromBuildTargetGroup(BuildPipeline.GetBuildTargetGroup(target));
+                summary = $"{Application.unityVersion} · {target} · " +
+                          $"{PlayerSettings.GetScriptingBackend(named)} · " +
+                          $"代码裁剪等级（Stripping）{PlayerSettings.GetManagedStrippingLevel(named)}";
+            }
+            catch (Exception exception)
+            {
+                summary = $"{Application.unityVersion} · {target} · 无法读取完整环境：{exception.Message}";
+            }
+
+            if (!string.Equals(_environmentSummary.text, summary, StringComparison.Ordinal))
+                _environmentSummary.text = summary;
         }
 
         private void ScheduleLoadProfiles()
@@ -211,25 +263,21 @@ namespace Game.Framework.Editor
 
         private void LoadProfilesNow()
         {
+            _profilesLoading = true;
             try
             {
-                FrameworkModuleAuditCache.Entry evidence = FrameworkModuleAuditCache.GetOrRefresh();
-                ClearProfiles();
-                foreach (FrameworkModuleAudit.AuditProfile profile in evidence.Result.CommonProfiles)
-                    AddProfile(profile, advanced: false);
-                AddProfile(evidence.Result.FullProfile, advanced: false);
-                foreach (FrameworkModuleAudit.AuditProfile profile in evidence.Result.ModuleProfiles)
-                    AddProfile(profile, advanced: true);
-                _profilesLoaded = true;
-                _loadProfilesButton.text = "刷新可构建组合";
-                _status.text = $"已读取 { _profileToggles.Count} 个组合（审计耗时 {evidence.DurationSeconds:F1}s）。" +
-                               "点击构建时会重新采集执行证据，并只冻结所选档位。";
-                _status.messageType = HelpBoxMessageType.Info;
+                // 第一次读取可以复用同一会话里仍有效的 Module 审计；按钮已经显示“刷新”后，
+                // 再次点击必须绕过缓存，不能只重画上一份组合。
+                FrameworkModuleAuditCache.Entry evidence = _profilesLoaded
+                    ? FrameworkModuleAuditCache.Refresh()
+                    : FrameworkModuleAuditCache.GetOrRefresh();
+                ApplyProfileEvidence(evidence);
             }
             catch (Exception ex)
             {
                 ClearProfiles();
                 _profilesLoaded = false;
+                if (_loadProfilesButton != null) _loadProfilesButton.text = "重新读取可构建组合";
                 _status.text = "无法读取模块组合：" + ex.Message;
                 _status.messageType = HelpBoxMessageType.Error;
             }
@@ -242,19 +290,68 @@ namespace Game.Framework.Editor
             }
         }
 
+        private void ApplyProfileEvidence(FrameworkModuleAuditCache.Entry evidence)
+        {
+            if (evidence?.Result == null) throw new ArgumentNullException(nameof(evidence));
+            FrameworkModuleAudit.AuditProfile[] commonProfiles = evidence.Result.CommonProfiles ??
+                                                                  Array.Empty<FrameworkModuleAudit.AuditProfile>();
+            FrameworkModuleAudit.AuditProfile[] advancedProfiles = evidence.Result.ModuleProfiles ??
+                                                                    Array.Empty<FrameworkModuleAudit.AuditProfile>();
+            var availableKeys = commonProfiles
+                .Concat(evidence.Result.FullProfile == null
+                    ? Enumerable.Empty<FrameworkModuleAudit.AuditProfile>()
+                    : new[] { evidence.Result.FullProfile })
+                .Concat(advancedProfiles)
+                .Where(profile => profile != null)
+                .Select(profile => profile.Key)
+                .ToHashSet(StringComparer.Ordinal);
+            _selectedProfileKeys = _selectedProfileKeys == null
+                ? commonProfiles.Where(profile => profile != null && profile.Key != "full")
+                    .Select(profile => profile.Key)
+                    .ToHashSet(StringComparer.Ordinal)
+                : _selectedProfileKeys.Where(availableKeys.Contains).ToHashSet(StringComparer.Ordinal);
+
+            ClearProfiles();
+            foreach (FrameworkModuleAudit.AuditProfile profile in commonProfiles)
+                AddProfile(profile, advanced: false);
+            AddProfile(evidence.Result.FullProfile, advanced: false);
+            _availableAdvancedProfiles = advancedProfiles;
+            if (_advancedProfilesFoldout?.value == true) PopulateAdvancedProfiles();
+            _profilesLoaded = true;
+            if (_loadProfilesButton != null) _loadProfilesButton.text = "刷新可构建组合";
+            int totalProfiles = commonProfiles.Length +
+                                (evidence.Result.FullProfile == null ? 0 : 1) +
+                                _availableAdvancedProfiles.Length;
+            _status.text = $"已读取 {totalProfiles} 个组合（审计耗时 {evidence.DurationSeconds:F1}s）。" +
+                           "点击构建时会重新采集执行证据，并只冻结所选档位。";
+            _status.messageType = HelpBoxMessageType.Info;
+            RefreshEnvironmentCard();
+        }
+
         private void ClearProfiles()
         {
             _profileToggles.Clear();
             _profileCards.Clear();
+            _advancedProfilesPopulated = false;
+            _availableAdvancedProfiles = Array.Empty<FrameworkModuleAudit.AuditProfile>();
             _profileGrid?.Clear();
             _advancedProfileGrid?.Clear();
-            _advancedProfileGrid?.Add(Wrap(new Label(
-                "每项以一个 Runtime Module 为入口并自动带上真实依赖闭包；适合验证 Config、Fonts、Proto、Bridge 等任意 Module，不是全局启用开关。")));
+        }
+
+        private void PopulateAdvancedProfiles()
+        {
+            if (_advancedProfilesPopulated || _advancedProfileGrid == null) return;
+            foreach (FrameworkModuleAudit.AuditProfile profile in _availableAdvancedProfiles)
+                AddProfile(profile, advanced: true);
+            _advancedProfilesPopulated = true;
+            RefreshActionAvailability(updateStatusOnChange: false);
+            ApplyResponsiveLayout(position.width);
         }
 
         private void OnEvidenceInvalidated()
         {
-            if (_profileGrid == null) return;
+            RefreshEnvironmentCard();
+            if (_profileGrid == null || _profilesLoading) return;
             ClearProfiles();
             _profilesLoaded = false;
             if (_loadProfilesButton != null)
@@ -264,6 +361,15 @@ namespace Game.Framework.Editor
             _status.text = "工程、Package、构建目标或编译图已经变化，组合预览已失效；最近构建结果仍可查看。";
             _status.messageType = HelpBoxMessageType.Warning;
             RefreshActionAvailability(updateStatusOnChange: false);
+        }
+
+        private void OnEvidenceRefreshed(FrameworkModuleAuditCache.Entry evidence)
+        {
+            RefreshEnvironmentCard();
+            if (_profileGrid == null || _profilesLoading) return;
+            ApplyProfileEvidence(evidence);
+            RefreshActionAvailability(updateStatusOnChange: false);
+            ApplyResponsiveLayout(position.width);
         }
 
         private void AddProfile(FrameworkModuleAudit.AuditProfile profile, bool advanced)
@@ -280,10 +386,16 @@ namespace Game.Framework.Editor
 
             var toggle = new Toggle(profile.Title)
             {
-                value = !advanced && profile.Key != "full",
+                value = _selectedProfileKeys?.Contains(profile.Key) == true,
                 name = "build-size-probe-toggle-" + profile.Key,
                 tooltip = profile.Description,
             };
+            toggle.RegisterValueChangedCallback(change =>
+            {
+                if (change.newValue) _selectedProfileKeys?.Add(profile.Key);
+                else _selectedProfileKeys?.Remove(profile.Key);
+                RefreshActionAvailability(updateStatusOnChange: false);
+            });
             toggle.style.unityFontStyleAndWeight = FontStyle.Bold;
             card.Add(toggle);
             var description = Wrap(new Label(profile.Description));
@@ -302,9 +414,7 @@ namespace Game.Framework.Editor
         {
             try
             {
-                FrameworkBuildSizeProbe.Start(_profileToggles
-                    .Where(pair => pair.Value.value)
-                    .Select(pair => pair.Key));
+                FrameworkBuildSizeProbe.Start(_selectedProfileKeys ?? Enumerable.Empty<string>());
             }
             catch (Exception ex)
             {
@@ -368,7 +478,8 @@ namespace Game.Framework.Editor
                 out string blockedReason);
             foreach (Toggle toggle in _profileToggles.Values) toggle.SetEnabled(!running);
             _loadProfilesButton?.SetEnabled(!_profilesLoading && !running);
-            _startButton?.SetEnabled(!running && editorReady && _profilesLoaded && _profileToggles.Count > 0);
+            _startButton?.SetEnabled(
+                !running && editorReady && _profilesLoaded && _selectedProfileKeys?.Count > 0);
             _stopButton?.SetEnabled(running && !FrameworkBuildSizeProbe.StopAfterCurrentRequested);
 
             bool stateChanged = _lastRunning != running || _lastEditorReady != editorReady;

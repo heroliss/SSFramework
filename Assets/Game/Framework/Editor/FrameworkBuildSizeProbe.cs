@@ -31,7 +31,9 @@ namespace Game.Framework.Editor
         internal const string UnityIl2CppPathEnvironmentVariable = "UNITY_IL2CPP_PATH";
 
         private const string LatestRunPreferencePrefix = "SSFramework.BuildSizeProbe.LatestRun.";
-        internal const int CurrentReportFormatVersion = 8;
+        private const string PreviousLatestRunPreferencePrefix =
+            "SSFramework.BuildSizeProbe.PreviousLatestRun.";
+        internal const int CurrentReportFormatVersion = 9;
         private static readonly Regex DependencyEntryRegex = new(
             "\\\"(?<id>[^\\\"]+)\\\"\\s*:\\s*\\\"(?<value>(?:\\\\.|[^\\\"])*)\\\"",
             RegexOptions.Compiled);
@@ -45,6 +47,13 @@ namespace Game.Framework.Editor
         private sealed class FrozenInputDriftException : Exception
         {
             internal FrozenInputDriftException(string message) : base(message) { }
+        }
+
+        internal enum ChildProcessAttachResult
+        {
+            Attached,
+            ConfirmedNotOwned,
+            UnknownInspectionFailure,
         }
 
         [Serializable]
@@ -129,6 +138,7 @@ namespace Game.Framework.Editor
             public int Warnings;
             public int ExitCode;
             public int ChildProcessId;
+            public long ChildProcessStartUtcTicks;
             public OutputFileRecord[] LargestFiles = Array.Empty<OutputFileRecord>();
         }
 
@@ -156,6 +166,7 @@ namespace Game.Framework.Editor
         {
             internal string ProjectDirectory;
             internal string RunDirectory;
+            internal string PreviousLatestRunDirectory;
             internal Queue<ProfilePlan> Pending;
             internal RunReport Report;
         }
@@ -265,7 +276,7 @@ namespace Game.Framework.Editor
             if (report == null) return;
             EnsureReportCanBeRebuilt(report);
             WriteReports(report);
-            Changed?.Invoke();
+            NotifyChanged();
         }
 
         internal static void EnsureReportCanBeRebuilt(RunReport report)
@@ -641,6 +652,7 @@ namespace Game.Framework.Editor
             string runDirectory = FullPath(Path.Combine(RunsRoot, runId));
             string projectDirectory = Path.Combine(runDirectory, "Project");
             string childTemplateContent = ReadCurrentChildTemplate();
+            string previousLatestRunDirectory = LatestRunDirectory;
 
             var report = new RunReport
             {
@@ -675,11 +687,27 @@ namespace Game.Framework.Editor
             {
                 ProjectDirectory = projectDirectory,
                 RunDirectory = runDirectory,
+                PreviousLatestRunDirectory = previousLatestRunDirectory,
                 Pending = new Queue<ProfilePlan>(plans),
                 Report = report,
             };
-            EditorPrefs.SetString(LatestRunPreferencePrefix + HashProjectPath(), runDirectory);
-            WriteReports(_activeRun.Report);
+            try
+            {
+                // previous latest 属于本机 owner journal，不进入可分享 JSON。report.json 是恢复提交标记，
+                // 因而必须先完整发布首代报告、最后才切 latest：任意中断点都至少保留一份可读取的 latest。
+                EditorPrefs.SetString(
+                    PreviousLatestRunPreferencePrefix + HashProjectPath(),
+                    previousLatestRunDirectory ?? string.Empty);
+                WriteReports(_activeRun.Report);
+                EditorPrefs.SetString(LatestRunPreferencePrefix + HashProjectPath(), runDirectory);
+            }
+            catch (Exception exception)
+            {
+                AbortActiveRunAfterPersistenceFailure(exception, "写入初始报告");
+                throw new IOException(
+                    "隔离构建尚未启动：无法安全写入可恢复报告。请检查 Library 目录权限和磁盘状态。",
+                    exception);
+            }
             EditorApplication.update += PollChildProcess;
             StartNextProfile();
             if (_activeRun == null)
@@ -734,8 +762,16 @@ namespace Game.Framework.Editor
                 "用户请求：当前组合完成后停止，不再启动后续档位。";
             foreach (var record in _activeRun.Report.Profiles.Where(record => record.Status == "等待"))
                 record.Message = _activeRun.Report.StopAfterCurrentReason;
-            WriteReports(_activeRun.Report);
-            Changed?.Invoke();
+            try
+            {
+                WriteReports(_activeRun.Report);
+            }
+            catch (Exception exception)
+            {
+                // 停止意图仍保留在内存；当前 child 继续由 Poll 拥有。磁盘恢复后最终报告会再次尝试落盘。
+                LogPersistenceFailure(exception, "保存‘当前完成后停止’状态");
+            }
+            NotifyChanged();
         }
 
         internal static string CreateLinkXml(IEnumerable<string> assemblyNames)
@@ -846,7 +882,7 @@ namespace Game.Framework.Editor
             ProfileRecord record = FindRecord(_activeProfile.Key);
             record.Status = "准备";
             record.Message = "正在复制所选 Module 并准备隔离工程。";
-            Changed?.Invoke();
+            NotifyChanged();
 
             try
             {
@@ -867,19 +903,46 @@ namespace Game.Framework.Editor
                 record.Status = "构建中";
                 record.Message = $"Unity 子进程正在构建 {_activeProfile.Title}；主工程可继续查看，但不要重复启动探针。";
                 WriteReports(_activeRun.Report);
-                Changed?.Invoke();
+                NotifyChanged();
 
                 _childProcess = StartUnityChild(_activeRun, _activeProfile, outputPath, resultPath, logPath);
                 record.ChildProcessId = _childProcess.Id;
-                WriteReports(_activeRun.Report);
-                Changed?.Invoke();
+                record.ChildProcessStartUtcTicks = _childProcess.StartTime.ToUniversalTime().Ticks;
+                try
+                {
+                    WriteReports(_activeRun.Report);
+                }
+                catch (Exception exception)
+                {
+                    // child 已经启动，不能因报告 I/O 失败把它留成无 owner 进程，也不能覆盖引用去跑下一档。
+                    StopAfterCurrentForOwnerFailure(record, exception, "保存子进程 PID");
+                    return;
+                }
+                NotifyChanged();
             }
             catch (Exception ex)
             {
+                if (_childProcess != null)
+                {
+                    // Process.Start 之后的 PID 读取、报告写入或 Changed 订阅者也可能抛错；此时 child
+                    // 已经归本轮所有，绝不能递归启动下一档并覆盖唯一进程句柄。
+                    StopAfterCurrentForOwnerFailure(record, ex, "接管已启动的子进程");
+                    return;
+                }
                 record.Status = "失败";
                 record.Message = ex.Message;
                 record.Errors = Math.Max(record.Errors, 1);
-                WriteReports(_activeRun.Report);
+                try
+                {
+                    WriteReports(_activeRun.Report);
+                }
+                catch (Exception persistenceException)
+                {
+                    AbortActiveRunAfterPersistenceFailure(
+                        persistenceException,
+                        "记录档位准备失败");
+                    return;
+                }
                 Debug.LogException(ex);
                 if (ex is FrozenInputDriftException)
                 {
@@ -945,9 +1008,19 @@ namespace Game.Framework.Editor
             ProfileRecord record = FindRecord(_activeProfile.Key);
             record.ExitCode = exitCode;
             record.ChildProcessId = 0;
+            record.ChildProcessStartUtcTicks = 0;
             ApplyChildResult(record, exitCode);
-            WriteReports(_activeRun.Report);
-            Changed?.Invoke();
+            try
+            {
+                WriteReports(_activeRun.Report);
+            }
+            catch (Exception exception)
+            {
+                // child 已到终态，立即收口内存状态，避免 update 每帧看到 null child 而永久保持 running。
+                AbortActiveRunAfterPersistenceFailure(exception, "保存子进程结果");
+                return;
+            }
+            NotifyChanged();
             StartNextProfile();
         }
 
@@ -998,11 +1071,153 @@ namespace Game.Framework.Editor
             if (_activeRun == null) return;
             CompleteWaitingProfiles(_activeRun.Report, note);
             _activeRun.Report.CompletedUtc = DateTime.UtcNow.ToString("O");
-            WriteReports(_activeRun.Report);
+            try
+            {
+                WriteReports(_activeRun.Report);
+                ClearPreviousLatestRunPreferenceNoThrow();
+            }
+            catch (Exception exception)
+            {
+                // 旧 JSON 仍是未完成状态；不能让 Domain Reload 把已经在内存中结束的任务复活。
+                RestoreLatestRunPreference(_activeRun);
+                LogPersistenceFailure(exception, "保存最终报告");
+            }
+            finally
+            {
+                ClearActiveRunState();
+            }
+        }
+
+        private static void StopAfterCurrentForOwnerFailure(
+            ProfileRecord record,
+            Exception exception,
+            string phase)
+        {
+            if (_activeRun == null) return;
+            string reason = $"主进程状态提交失败；当前组合完成后停止（{phase}）：{exception.Message}";
+            _activeRun.Report.StopAfterCurrentReason = reason;
+            if (record != null)
+                record.Message = (record.Message ?? string.Empty) + "\n" + reason;
+            foreach (ProfileRecord waiting in _activeRun.Report.Profiles.Where(item => item.Status == "等待"))
+                waiting.Message = reason;
+            LogPersistenceFailure(exception, phase);
+            NotifyChanged();
+        }
+
+        private static void AbortActiveRunAfterPersistenceFailure(Exception exception, string phase)
+        {
+            ActiveRun failedRun = _activeRun;
+            try
+            {
+                if (_activeRun != null)
+                {
+                    string reason = $"报告持久化失败，本轮已安全收口（{phase}）：{exception.Message}";
+                    _activeRun.Report.StopAfterCurrentReason = reason;
+                    CompleteWaitingProfiles(_activeRun.Report, reason);
+                    _activeRun.Report.CompletedUtc = DateTime.UtcNow.ToString("O");
+                }
+                RestoreLatestRunPreference(failedRun);
+                LogPersistenceFailure(exception, phase);
+            }
+            finally
+            {
+                // EditorPrefs 或日志本身异常也不能把 IsRunning 留在 true。
+                ClearActiveRunState();
+            }
+        }
+
+        private static void RestoreLatestRunPreference(ActiveRun failedRun)
+        {
+            if (failedRun == null) return;
+            string key = LatestRunPreferencePrefix + HashProjectPath();
+            string previousKey = PreviousLatestRunPreferencePrefix + HashProjectPath();
+            // 只有本轮仍占据 latest 指针时才恢复，避免覆盖别的窗口/进程刚写入的新任务。
+            try
+            {
+                if (!string.Equals(EditorPrefs.GetString(key, string.Empty), failedRun.RunDirectory,
+                        StringComparison.Ordinal))
+                    return;
+                string previous = !string.IsNullOrWhiteSpace(failedRun.PreviousLatestRunDirectory)
+                    ? failedRun.PreviousLatestRunDirectory
+                    : EditorPrefs.GetString(previousKey, string.Empty);
+                if (string.IsNullOrWhiteSpace(previous))
+                    EditorPrefs.DeleteKey(key);
+                else
+                    EditorPrefs.SetString(key, previous);
+            }
+            finally
+            {
+                EditorPrefs.DeleteKey(previousKey);
+            }
+        }
+
+        private static void ClearPreviousLatestRunPreferenceNoThrow()
+        {
+            try
+            {
+                EditorPrefs.DeleteKey(PreviousLatestRunPreferencePrefix + HashProjectPath());
+            }
+            catch (Exception exception)
+            {
+                Debug.LogWarning($"[BuildSizeProbe] 清理本地 previous-latest owner journal 失败：{exception.Message}");
+            }
+        }
+
+        private static string ReadPreviousLatestRunDirectory()
+        {
+            try
+            {
+                return EditorPrefs.GetString(
+                    PreviousLatestRunPreferencePrefix + HashProjectPath(), string.Empty);
+            }
+            catch (Exception exception)
+            {
+                Debug.LogWarning($"[BuildSizeProbe] 读取本地 previous-latest owner journal 失败：{exception.Message}");
+                return string.Empty;
+            }
+        }
+
+        private static void ClearActiveRunState()
+        {
+            Process child = _childProcess;
             _activeRun = null;
             _activeProfile = null;
+            _childProcess = null;
+            if (child != null)
+            {
+                try
+                {
+                    if (child.HasExited) child.Dispose();
+                }
+                catch
+                {
+                    // 进程句柄的清理不应让 Editor 回到永久 running；活动 child 不会走此分支。
+                }
+            }
             EditorApplication.update -= PollChildProcess;
-            Changed?.Invoke();
+            NotifyChanged();
+        }
+
+        private static void LogPersistenceFailure(Exception exception, string phase) =>
+            Debug.LogError(
+                $"[BuildSizeProbe] {phase}失败；旧报告仍保持完整，详情：{exception}");
+
+        internal static void NotifyChanged()
+        {
+            Action handlers = Changed;
+            if (handlers == null) return;
+            foreach (Action handler in handlers.GetInvocationList())
+            {
+                try
+                {
+                    handler();
+                }
+                catch (Exception exception)
+                {
+                    // UI 观察者不拥有探针状态机，坏窗口不能阻断下一档、最终落盘或 owner 清理。
+                    Debug.LogError($"[BuildSizeProbe] 状态观察者刷新失败，探针继续运行：{exception}");
+                }
+            }
         }
 
         /// <summary>
@@ -1039,7 +1254,10 @@ namespace Game.Framework.Editor
 
             try
             {
-                string sourceDrift = TryCreateRecoveryPlans(report, CreatePlans, out var plans);
+                string sourceDrift = TryCreateRecoveryPlans(
+                    report,
+                    () => CreatePlansForKeys(GetRecoveryProfileKeys(report)),
+                    out var plans);
                 foreach (var record in report.Profiles.Where(record => record.Status == "准备"))
                 {
                     record.Status = "等待";
@@ -1053,6 +1271,7 @@ namespace Game.Framework.Editor
                 {
                     ProjectDirectory = Path.Combine(report.RunDirectory, "Project"),
                     RunDirectory = report.RunDirectory,
+                    PreviousLatestRunDirectory = ReadPreviousLatestRunDirectory(),
                     Pending = pending,
                     Report = report,
                 };
@@ -1064,7 +1283,13 @@ namespace Game.Framework.Editor
                 {
                     string driftStopReason =
                         "检测到证据输入漂移；当前组合完成后停止：" + sourceDrift;
-                    if (building != null && TryAttachUnityProcess(building.ChildProcessId, out _childProcess))
+                    ChildProcessAttachResult driftAttach = building == null
+                        ? ChildProcessAttachResult.ConfirmedNotOwned
+                        : TryAttachUnityProcess(
+                            building.ChildProcessId,
+                            building.ChildProcessStartUtcTicks,
+                            out _childProcess);
+                    if (building != null && driftAttach == ChildProcessAttachResult.Attached)
                     {
                         _activeProfile = plans.TryGetValue(building.Key, out ProfilePlan currentPlan)
                             ? currentPlan
@@ -1074,7 +1299,7 @@ namespace Game.Framework.Editor
                         foreach (ProfileRecord waiting in report.Profiles.Where(record => record.Status == "等待"))
                             waiting.Message = report.StopAfterCurrentReason;
                         WriteReports(report);
-                        Changed?.Invoke();
+                        NotifyChanged();
                         return;
                     }
 
@@ -1090,6 +1315,7 @@ namespace Game.Framework.Editor
                         building.Status = "失败";
                         building.Errors = Math.Max(building.Errors, 1);
                         building.ChildProcessId = 0;
+                        building.ChildProcessStartUtcTicks = 0;
                         building.Message = sourceDrift;
                     }
                     else
@@ -1116,17 +1342,29 @@ namespace Game.Framework.Editor
                 if (!plans.TryGetValue(building.Key, out _activeProfile))
                     throw new InvalidOperationException("恢复时找不到构建组合：" + building.Key);
 
-                if (TryAttachUnityProcess(building.ChildProcessId, out _childProcess))
+                ChildProcessAttachResult attach = TryAttachUnityProcess(
+                    building.ChildProcessId,
+                    building.ChildProcessStartUtcTicks,
+                    out _childProcess);
+                if (attach == ChildProcessAttachResult.Attached)
                 {
                     building.Message = "主 Unity 重载后已重新附着正在运行的隔离构建子进程。";
                     WriteReports(report);
-                    Changed?.Invoke();
+                    NotifyChanged();
                     return;
                 }
 
-                if (File.Exists(building.ResultPath))
+                bool unknownChildOwner =
+                    attach == ChildProcessAttachResult.UnknownInspectionFailure ||
+                    MustStopRecoveryForUnknownChild(building);
+                bool hasResultFile = File.Exists(building.ResultPath);
+                string unknownOwnerStopReason = unknownChildOwner
+                    ? CreateUnknownChildOwnerStopReason(hasResultFile)
+                    : null;
+                if (hasResultFile)
                 {
                     building.ChildProcessId = 0;
+                    building.ChildProcessStartUtcTicks = 0;
                     ApplyChildResult(building, building.ExitCode);
                 }
                 else
@@ -1134,20 +1372,69 @@ namespace Game.Framework.Editor
                     building.Status = "失败";
                     building.Errors = Math.Max(building.Errors, 1);
                     building.ChildProcessId = 0;
-                    building.Message = "主 Unity 重载后没有找到原子进程或结果文件；未猜测成功，继续后续组合。";
+                    building.ChildProcessStartUtcTicks = 0;
+                    building.Message = unknownChildOwner
+                        ? unknownOwnerStopReason
+                        : "主 Unity 重载后没有找到原子进程或结果文件；未猜测成功，继续后续组合。";
+                }
+                if (unknownChildOwner)
+                {
+                    report.StopAfterCurrentReason = unknownOwnerStopReason;
+                    CompleteRun(unknownOwnerStopReason);
+                    return;
                 }
                 WriteReports(report);
                 StartNextProfile();
             }
             catch (Exception ex)
             {
+                if (HasRunningChildProcess())
+                {
+                    ProfileRecord building = _activeRun?.Report?.Profiles?
+                        .FirstOrDefault(record => record.Status == "构建中");
+                    StopAfterCurrentForOwnerFailure(
+                        building,
+                        ex,
+                        "恢复主进程所有权状态");
+                    EditorApplication.update -= PollChildProcess;
+                    EditorApplication.update += PollChildProcess;
+                    return;
+                }
+
                 Debug.LogException(ex);
-                _activeRun = null;
-                _activeProfile = null;
-                _childProcess = null;
-                EditorApplication.update -= PollChildProcess;
+                ClearActiveRunState();
             }
         }
+
+        private static bool HasRunningChildProcess()
+        {
+            if (_childProcess == null) return false;
+            try
+            {
+                return !_childProcess.HasExited;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// “构建中但 PID 未提交”可能意味着 child 已启动、主进程只来不及持久化 owner journal。
+        /// 没有独立结果前不能据此启动下一档；宁可停止矩阵，也不能让两个 Unity 写同一隔离工程。
+        /// </summary>
+        internal static bool MustStopRecoveryForUnknownChild(ProfileRecord building) =>
+            building != null &&
+            string.Equals(building.Status, "构建中", StringComparison.Ordinal) &&
+            (building.ChildProcessId <= 0 || building.ChildProcessStartUtcTicks <= 0) &&
+            (string.IsNullOrWhiteSpace(building.ResultPath) || !File.Exists(building.ResultPath));
+
+        internal static string CreateUnknownChildOwnerStopReason(bool hasResultFile) =>
+            "主 Unity 无法确认原 child 已终止（PID / 启动时间缺失或进程检查失败）" +
+            (hasResultFile
+                ? "；已接收原子结果，但仍不能证明旧进程不会继续写隔离工程。"
+                : "，且尚无结果文件。") +
+            "为避免两个 Unity 并发写同一隔离工程，本轮停止后续组合。";
 
         /// <summary>
         /// 漂移只禁止启动后续档位；已由冻结输入启动并原子落盘的当前 child 结果仍属于本轮证据。
@@ -1163,6 +1450,7 @@ namespace Game.Framework.Editor
                 !File.Exists(building.ResultPath))
                 return false;
             building.ChildProcessId = 0;
+            building.ChildProcessStartUtcTicks = 0;
             ApplyChildResult(building, building.ExitCode);
             report.StopAfterCurrentReason = driftStopReason;
             return true;
@@ -1193,27 +1481,87 @@ namespace Game.Framework.Editor
             }
         }
 
-        private static bool TryAttachUnityProcess(int processId, out Process process)
+        /// <summary>
+        /// Domain Reload 只重建本轮报告实际记录的组合。完整 Module 假设矩阵可能包含数十个档位；
+        /// 为恢复三四个已选档位重新计算全部源码/Package 指纹只会放大主线程停顿，并不增加证据强度。
+        /// </summary>
+        internal static string[] GetRecoveryProfileKeys(RunReport report)
+        {
+            if (report == null) throw new ArgumentNullException(nameof(report));
+            return (report.Profiles ?? Array.Empty<ProfileRecord>())
+                .Where(record => record != null && !string.IsNullOrWhiteSpace(record.Key))
+                .Select(record => record.Key.Trim())
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+        }
+
+        private static ChildProcessAttachResult TryAttachUnityProcess(
+            int processId,
+            long processStartUtcTicks,
+            out Process process) =>
+            TryAttachUnityProcess(
+                processId,
+                processStartUtcTicks,
+                Process.GetProcessById,
+                Process.GetCurrentProcess().Id,
+                out process);
+
+        internal static ChildProcessAttachResult TryAttachUnityProcess(
+            int processId,
+            long processStartUtcTicks,
+            Func<int, Process> processResolver,
+            int ownerProcessId,
+            out Process process)
         {
             process = null;
-            if (processId <= 0) return false;
+            if (processResolver == null) throw new ArgumentNullException(nameof(processResolver));
+            if (processId <= 0 || processStartUtcTicks <= 0)
+                return ChildProcessAttachResult.UnknownInspectionFailure;
+            Process candidate = null;
             try
             {
-                Process candidate = Process.GetProcessById(processId);
-                if (candidate.HasExited ||
-                    candidate.ProcessName.IndexOf("Unity", StringComparison.OrdinalIgnoreCase) < 0)
+                candidate = processResolver(processId);
+                long candidateStartUtcTicks = candidate.StartTime.ToUniversalTime().Ticks;
+                if (candidate.HasExited || !MatchesChildProcessIdentity(
+                        processId,
+                        processStartUtcTicks,
+                        candidate.Id,
+                        candidateStartUtcTicks,
+                        candidate.ProcessName,
+                        ownerProcessId))
                 {
                     candidate.Dispose();
-                    return false;
+                    return ChildProcessAttachResult.ConfirmedNotOwned;
                 }
                 process = candidate;
-                return true;
+                return ChildProcessAttachResult.Attached;
+            }
+            catch (ArgumentException)
+            {
+                candidate?.Dispose();
+                return ChildProcessAttachResult.ConfirmedNotOwned;
             }
             catch
             {
-                return false;
+                candidate?.Dispose();
+                return ChildProcessAttachResult.UnknownInspectionFailure;
             }
         }
+
+        internal static bool MatchesChildProcessIdentity(
+            int expectedProcessId,
+            long expectedStartUtcTicks,
+            int candidateProcessId,
+            long candidateStartUtcTicks,
+            string candidateProcessName,
+            int ownerProcessId) =>
+            expectedProcessId > 0 &&
+            expectedStartUtcTicks > 0 &&
+            candidateProcessId == expectedProcessId &&
+            candidateProcessId != ownerProcessId &&
+            candidateStartUtcTicks == expectedStartUtcTicks &&
+            !string.IsNullOrWhiteSpace(candidateProcessName) &&
+            candidateProcessName.IndexOf("Unity", StringComparison.OrdinalIgnoreCase) >= 0;
 
         private static void PrepareProfileSources(
             string projectDirectory,
@@ -1424,10 +1772,41 @@ namespace Game.Framework.Editor
         {
             NormalizeShippingEvidence(report);
             Directory.CreateDirectory(report.RunDirectory);
-            File.WriteAllText(Path.Combine(report.RunDirectory, "report.json"),
-                JsonUtility.ToJson(report, true), new UTF8Encoding(false));
-            File.WriteAllText(Path.Combine(report.RunDirectory, "report.md"),
-                CreateMarkdownReport(report), new UTF8Encoding(false));
+            string json = JsonUtility.ToJson(report, true);
+            string markdown = CreateMarkdownReport(report);
+
+            // JSON 是 Domain Reload 恢复的提交标记，最后发布。两个文件都先在同目录完整写入临时文件，
+            // 单个替换失败时旧报告仍保持可解析，不会留下被截断的 JSON 冒充最新状态。
+            WriteTextAtomically(Path.Combine(report.RunDirectory, "report.md"), markdown);
+            WriteTextAtomically(Path.Combine(report.RunDirectory, "report.json"), json);
+        }
+
+        internal static void WriteTextAtomically(
+            string path,
+            string content,
+            Action<string, string> writeTemporary = null)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                throw new ArgumentException("报告路径不能为空。", nameof(path));
+            string destination = Path.GetFullPath(path);
+            string parent = Path.GetDirectoryName(destination) ??
+                            throw new InvalidOperationException("无法解析报告父目录：" + destination);
+            Directory.CreateDirectory(parent);
+            string temporary = destination + ".ssframework-write-" + Guid.NewGuid().ToString("N");
+            try
+            {
+                (writeTemporary ?? ((file, text) =>
+                    File.WriteAllText(file, text ?? string.Empty, new UTF8Encoding(false))))(
+                    temporary, content ?? string.Empty);
+                if (File.Exists(destination))
+                    File.Replace(temporary, destination, null);
+                else
+                    File.Move(temporary, destination);
+            }
+            finally
+            {
+                if (File.Exists(temporary)) File.Delete(temporary);
+            }
         }
 
         internal static string CreateMarkdownReport(RunReport report)
@@ -1695,14 +2074,20 @@ namespace Game.Framework.Editor
 
         internal static string ReadDiagnosticLogExcerpt(string path, int lines)
         {
-            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return string.Empty;
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path) || lines <= 0) return string.Empty;
             try
             {
-                string[] all = File.ReadAllLines(path);
-                string[] signals = all.Where(IsDiagnosticLogLine).Take(lines).ToArray();
-                return signals.Length > 0
+                var signals = new List<string>(lines);
+                var tail = new Queue<string>(lines);
+                foreach (string line in File.ReadLines(path))
+                {
+                    if (signals.Count < lines && IsDiagnosticLogLine(line)) signals.Add(line);
+                    if (tail.Count == lines) tail.Dequeue();
+                    tail.Enqueue(line);
+                }
+                return signals.Count > 0
                     ? string.Join("\n", signals)
-                    : string.Join("\n", all.Skip(Math.Max(0, all.Length - lines)));
+                    : string.Join("\n", tail);
             }
             catch
             {
@@ -1877,7 +2262,7 @@ namespace Game.Framework.Editor
             if (report == null) return "恢复报告为空，无法验证 Module 源码身份。";
             if (report.FormatVersion != CurrentReportFormatVersion)
                 return report.FormatVersion < CurrentReportFormatVersion
-                    ? $"报告格式早于 v{CurrentReportFormatVersion}，缺少冻结输入前后复核、证据实现快照或 Player 编译图证据契约，" +
+                    ? $"报告格式早于 v{CurrentReportFormatVersion}，缺少冻结输入前后复核、子进程身份或 Player 编译图证据契约，" +
                       "拒绝跨 Domain Reload 猜测续跑。"
                     : $"报告格式 v{report.FormatVersion} 新于当前工具支持的 v{CurrentReportFormatVersion}；" +
                       "旧代码不能安全解释未知字段，拒绝续跑。";

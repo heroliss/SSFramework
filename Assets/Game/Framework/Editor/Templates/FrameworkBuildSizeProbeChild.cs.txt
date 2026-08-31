@@ -241,7 +241,23 @@ public static class SSFrameworkBuildProbeChild
     private static void WriteResult(string path, ProfileRecord record)
     {
         if (string.IsNullOrWhiteSpace(path)) return;
-        Directory.CreateDirectory(Path.GetDirectoryName(path) ?? ".");
-        File.WriteAllText(path, JsonUtility.ToJson(record, true), new UTF8Encoding(false));
+        string destination = Path.GetFullPath(path);
+        Directory.CreateDirectory(Path.GetDirectoryName(destination) ?? ".");
+        string temporary = destination + ".ssframework-write-" + Guid.NewGuid().ToString("N");
+        try
+        {
+            File.WriteAllText(
+                temporary,
+                JsonUtility.ToJson(record, true),
+                new UTF8Encoding(false));
+            if (File.Exists(destination))
+                File.Replace(temporary, destination, null);
+            else
+                File.Move(temporary, destination);
+        }
+        finally
+        {
+            if (File.Exists(temporary)) File.Delete(temporary);
+        }
     }
 }
