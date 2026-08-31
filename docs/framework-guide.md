@@ -1341,7 +1341,7 @@ public class MiniGameController : MonoBehaviour
 
 框架通过 `IAssetUtility` 与 `AssetReference<T>` 提供统一资源入口。业务动态加载用 location；Inspector 拖拽引用用 `AssetReference<T>`。GUID 只保存在引用内部，不作为业务 API 暴露。资源在工程里按类型 / 模块怎么摆（及 YooAsset 寻址 / 打包约定）见 §26「推荐项目结构」。
 
-资源服务与 `AssetReference` 的可变状态由 **Unity 主线程独占**，入口也必须从主线程调用；这不是一个可从 worker 并发访问的容器。自定义 Provider 可以在任意线程物理完成 I/O，但 `IAssetUtility` 自身的初始化、等待、加载和维护 task 会把成功、异常、取消都恢复到 Unity 主线程后再交付，状态流、维护队列和 handle owner 也只在主线程提交。因此业务在 `await` 后可以直接继续操作 Context、Bag、Model 与 Unity 对象，不需要猜第三方 task 最后停在哪条线程。这里保证的是 Utility 公共 task 的终态；从它创建出的 downloader、scene handle 等独立对象仍按各自 Interface / Adapter 契约使用。
+资源服务与 `AssetReference` 的可变状态由 **Unity 主线程独占**，入口也必须从主线程调用；这不是一个可从 worker 并发访问的容器。自定义 Provider 可以在任意线程物理完成 I/O，但 `IAssetUtility` 自身的初始化、等待、加载和维护 task 会把成功、异常、取消都恢复到 Unity 主线程后再交付，状态流、维护队列和 handle owner 也只在主线程提交。因此业务在 `await` 后可以直接继续操作 Context、Bag、Model 与 Unity 对象，不需要猜第三方 task 最后停在哪条线程。这个边界也覆盖 Utility 返回的 downloader 与 scene handle：`Download` / `Unload` 的成功、异常、取消由 Core 包装后在主线程交付；同步属性、`Dispose` 与下载进度通知仍是主线程成员，Provider 负责在主线程实现 / 发布。
 
 `MonoViewBase/MonoModelBase/MonoSystemBase/MonoUtilityBase` 内置 protected `Bag`——动态加载通过 `Bag.Load<T>(location)` / `Bag.LoadScene(...)`，handle 自动登记到 Bag，`OnDestroy` 时统一释放；`Bag.LoadText` / `Bag.LoadBytes` 是内容直读（拷出即释放句柄、不进 Bag），按包构建类型自动路由（普通 AB 包按 TextAsset 取内容，RawFile 包走原生通道）。`AssetReference<T>` 字段则自己持有 handle，并由宿主 `OnDestroy` 自动 `Dispose`。真实引用计数由具体资源 provider 维护，框架只管理“谁负责释放哪一类 handle”。
 
@@ -1460,6 +1460,8 @@ await downloader.Download(this.GetCancellationTokenOnDestroy());
 
 下载器是创建时的快照：清缓存或切版本后要重新 `CreateTagDownloader` / `CreateAllDownloader` / `CreateLocationDownloader` 才会重新统计。单文件失败由配置里的 `FailedTryAgain` 自动重试；整体最终失败时 `Download()` 抛异常，业务用 `try/catch` 接住并重新创建下载器再下，已成功分片会走缓存跳过。
 
+空快照有两个时刻要区分：刚创建时 `TotalCount == 0` 且进度为 0%，表示“尚未执行”；`Download()` 确认无需物理下载后会发布 `0 / 0, 100%`。因此 `DownloadProgressReport.IsDone` 对前者为 false、后者为 true，与 downloader 自身的 `IsDone` 保持一致。业务仍应以 `await Download()` 的成功终态作为流程门禁，而不是用进度值代替异常处理。即使自定义 Provider 在 worker 完成下载，Core 返回的 downloader 也会把成功、异常和取消恢复到 Unity 主线程。
+
 ### 初始化、缓存与卸载
 
 场景只需把 `AssetUtility` 挂到 Context 节点。所有包与运行参数都在其 `Settings` 中；每个包各有“自动初始化”开关：开则 `Start` 拉清单，关则启动不碰它的网络（DLC 懒加载 / 隐私同意 / 选区前不联网的合规启动），业务在合适时机显式冷启动它。配置是资源基础设施设置，不注册成业务 Model，自动初始化也不再需要一个只做转发的 System（见 ADR-0046）：
@@ -1524,6 +1526,8 @@ switch (asset.GetLocationState("ui/logo"))
 | `Unload()` / `Dispose()` / `Bag.Dispose()` | 释放 handle，让 bundle 引用计数归零 | 关闭界面 / 离开功能 |
 | `UnloadUnusedAssets()` | 卸载内存中引用归零的 bundle | 场景切换 / 关卡结束 |
 | `ClearCache(...)` / `ClearCacheByTags(...)` / `ClearCacheByLocations(...)` | 删除磁盘上的已下载 bundle 缓存 | 强制重下 / 热更后省空间 / 卸 DLC 缓存 |
+
+直接持有 `IAssetHandle<T>` / `ISceneHandle` 时，属性、`Dispose`、`Activate` 与 `UnSuspend` 都在 Unity 主线程访问；显式 `await sceneHandle.Unload()` 的成功或异常也由 Core 返回的包装句柄在主线程交付。通常交给 Bag 托管更省心，只有确实需要控制场景激活门或精确等待卸载时才直接持有 scene handle。
 
 资源并发采用两层协调。`AssetUtility` 先让自身发起的同包 `ClearCache*` 与 `UnloadUnusedAssets` 进入 FIFO 维护 lane；Yoo Adapter 再按实际 `ResourcePackage` 建立进程级公平 Reader/Writer 协调器，覆盖跨 Utility/Provider 的按需 `Load`、显式 `Download`、初始化与维护。Reader 可并行；Writer 独占，且 Writer 排队后新 Reader 不得插队，所以持续加载不会饿死清理。
 

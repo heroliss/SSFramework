@@ -1,6 +1,6 @@
 # ADR-0013：YooAsset 原生 3.0 重写 —— 去兼容层
 
-**Status:** Accepted（`YooAssetProvider` 已重写为原生 3.0 API，`YOOASSET_LEGACY_API` define 已移除，编译 0 错 0 警告，PlayMode 141/141 全绿；**2026-08-31 修订**：Provider 物理完成线程与 Core 公共终态解耦，并补齐迟到 handle / 重入 owner 边界）
+**Status:** Accepted（`YooAssetProvider` 已重写为原生 3.0 API，`YOOASSET_LEGACY_API` define 已移除，编译 0 错 0 警告，PlayMode 141/141 全绿；**2026-08-31 修订**：Provider 物理完成线程与 Core 公共终态解耦，并补齐二级句柄、迟到 handle / 重入 owner 边界）
 
 ## Context
 
@@ -98,8 +98,10 @@ YooAsset 3.0 的 `AsyncOperationBase` 没有通用外部取消；框架的 `Wait
 
 - Provider 的异步物理操作允许在任意线程结束；它不能假设调用方 continuation 的线程。
 - `IAssetUtility` 的所有入口仍从 Unity 主线程调用；初始化、就绪等待、资源 / 场景 / 文本 / 字节加载以及维护 operation 的成功、异常与取消，都先恢复主线程，再提交状态和公共 task 终态。调用方 token 即使从 worker 取消也遵守同一边界。
-- 返回的 downloader / scene handle 是独立对象，不由这一条 Utility task 契约替它们暗中扩张语义；各自继续按 Interface 与 Adapter 实现使用。
+- Provider 返回的 downloader / scene handle 也是 SPI 的异步结果源，`Download` / `Unload` 同样允许在 worker 物理完成；`AssetUtility` 不把原对象直接泄漏给业务，而是用轻量代理恢复主线程后再交付成功、异常与取消。同步属性、`Dispose` 与下载进度通知仍按 Interface 约定在主线程访问 / 发布；Core 不复制进度流，避免给一次性 downloader 引入第二份订阅所有权。
 
 取消与迟到结果也在 Core 兜底：若 Provider 忽略 token 并在调用者离开后返回 Asset / Scene handle，Utility 先安全回收 handle，再保留原 `OperationCanceledException`；回收自身失败只记录日志，不把取消替换成第二个异常。`AssetReference` 在发布本次共享 TCS 终态前先撤掉旧 owner 槽，否则同步恢复的失败 continuation 立即重试会误加入已经完成的旧 task，并可能被旧 finally 擦掉新 owner。这个顺序现在由确定性重入测试锁定，而不是依赖“continuation 大概下一帧才跑”。
 
 无默认包也是 Core 的配置前置条件：默认包状态与下载器便捷入口统一经 `RequirePackage` 给出可行动的 `InvalidOperationException`，不再把空键泄漏为实现层 `ArgumentNullException`。只用具名包的项目应始终传 `packageName`。
+
+下载进度值对象同时修正了空快照语义：`0 / 0, 0%` 是刚创建、尚未执行，`0 / 0, 100%` 是 `Download` 已确认无内容可下。`DownloadProgressReport.IsDone` 只把后者视为完成，避免状态流和 downloader 自身对同一次 no-op 下载给出相反答案；非空任务仍以完成文件数为真源，不受浮点进度舍入影响。

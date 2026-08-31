@@ -109,6 +109,14 @@ namespace Game.Framework.Test
             => LoadVariants_ProviderWorkerSuccessAndFailure_ReturnOnMainThreadAsync().ToCoroutine();
 
         [UnityTest]
+        public IEnumerator Downloader_ProviderWorkerSuccessFailureAndCancellation_ReturnOnMainThread()
+            => Downloader_ProviderWorkerSuccessFailureAndCancellation_ReturnOnMainThreadAsync().ToCoroutine();
+
+        [UnityTest]
+        public IEnumerator SceneHandle_ProviderWorkerUnloadSuccessAndFailure_ReturnOnMainThread()
+            => SceneHandle_ProviderWorkerUnloadSuccessAndFailure_ReturnOnMainThreadAsync().ToCoroutine();
+
+        [UnityTest]
         public IEnumerator Load_ProviderIgnoresCancellation_LateHandleIsDisposedAndOceReturnsMainThread()
             => Load_ProviderIgnoresCancellation_LateHandleIsDisposedAndOceReturnsMainThreadAsync().ToCoroutine();
 
@@ -141,6 +149,19 @@ namespace Game.Framework.Test
         {
             Assert.AreEqual(0, _provider.InitializeCalls,
                 "代码引导在 Start 前 Configure 后，AssetUtility 不应再按 Inspector 默认设置额外启动一个包");
+        }
+
+        [Test]
+        public void DownloadProgressReport_EmptySnapshotOnlyCompletesAfterExplicitHundredPercent()
+        {
+            Assert.IsFalse(new DownloadProgressReport(0f, 0, 0, 0, 0).IsDone,
+                "创建时的空快照还没有执行 Download，不能提前显示完成");
+            Assert.IsTrue(new DownloadProgressReport(1f, 0, 0, 0, 0).IsDone,
+                "无内容可下的 Download 完成后，进度快照应与 downloader.IsDone 一致");
+            Assert.IsTrue(new DownloadProgressReport(0.75f, 4, 4, 100, 100).IsDone,
+                "非空任务以完成数量为真源，不依赖浮点进度恰好等于 1");
+            Assert.IsFalse(new DownloadProgressReport(1f, 4, 3, 100, 75).IsDone,
+                "非空任务的矛盾快照不能用浮点进度掩盖尚未完成的文件");
         }
 
         /// <summary>
@@ -371,14 +392,57 @@ namespace Game.Framework.Test
         {
             public Scene Scene => default;
             public bool IsValid { get; private set; } = true;
+            public bool CompleteUnloadOnThreadPool { get; set; }
+            public Exception UnloadFailure { get; set; }
+            public int UnloadCompletionThread { get; private set; } = -1;
             public bool Activate() => IsValid;
             public bool UnSuspend() => IsValid;
-            public UniTask Unload()
+            public async UniTask Unload()
             {
+                if (CompleteUnloadOnThreadPool)
+                    await UniTask.SwitchToThreadPool();
+                UnloadCompletionThread = Thread.CurrentThread.ManagedThreadId;
+                if (UnloadFailure != null) throw UnloadFailure;
                 IsValid = false;
-                return UniTask.CompletedTask;
             }
             public void Dispose() => IsValid = false;
+        }
+
+        private sealed class TestAssetDownloader : IAssetDownloader
+        {
+            private readonly ReactiveProperty<DownloadProgressReport> _progress =
+                new(new DownloadProgressReport(0f, 1, 0, 10, 0));
+
+            public readonly UniTaskCompletionSource Started = new();
+            public readonly UniTaskCompletionSource Release = new();
+            public bool CompleteOnThreadPool { get; set; }
+            public bool WaitForRelease { get; set; }
+            public Exception Failure { get; set; }
+            public int CompletionThread { get; private set; } = -1;
+            public int TotalCount => 1;
+            public long TotalBytes => 10;
+            public bool IsDone { get; private set; }
+            public ReadOnlyReactiveProperty<DownloadProgressReport> Progress => _progress;
+
+            public async UniTask Download(CancellationToken ct = default)
+            {
+                Started.TrySetResult();
+                if (WaitForRelease)
+                    await Release.Task.AttachExternalCancellation(ct);
+                else
+                    ct.ThrowIfCancellationRequested();
+
+                if (Failure == null)
+                {
+                    IsDone = true;
+                    _progress.Value = new DownloadProgressReport(1f, 1, 1, 10, 10);
+                }
+
+                if (CompleteOnThreadPool)
+                    await UniTask.SwitchToThreadPool();
+                CompletionThread = Thread.CurrentThread.ManagedThreadId;
+                if (Failure != null) throw Failure;
+            }
         }
 
         private async UniTask Initialize_ProviderWorkerCompletion_PublishesStateAndReturnsOnMainThreadAsync()
@@ -450,7 +514,9 @@ namespace Game.Framework.Test
 
             var loadedScene = await _utility.LoadScene(Package, "worker-scene", LoadSceneMode.Additive);
             Assert.AreEqual(mainThread, Thread.CurrentThread.ManagedThreadId);
-            Assert.AreSame(sceneHandle, loadedScene);
+            Assert.AreNotSame(sceneHandle, loadedScene,
+                "Core 应包装 Provider 场景句柄，统一后续 Unload 的主线程终态");
+            Assert.IsTrue(loadedScene.IsValid);
 
             Assert.AreEqual("worker-text", await _utility.LoadText(Package, "worker-text"));
             Assert.AreEqual(mainThread, Thread.CurrentThread.ManagedThreadId);
@@ -475,6 +541,102 @@ namespace Game.Framework.Test
 
             assetHandle.Dispose();
             loadedScene.Dispose();
+            Assert.IsFalse(sceneHandle.IsValid, "包装句柄 Dispose 必须委托到底层 handle");
+        }
+
+        private async UniTask Downloader_ProviderWorkerSuccessFailureAndCancellation_ReturnOnMainThreadAsync()
+        {
+            await MakeReady();
+            int mainThread = Thread.CurrentThread.ManagedThreadId;
+
+            var success = new TestAssetDownloader { CompleteOnThreadPool = true };
+            _provider.DownloaderResult = success;
+            IAssetDownloader publicSuccess = _utility.CreateAllDownloader(Package);
+            Assert.AreSame(success.Progress, publicSuccess.Progress,
+                "Core 不应复制进度流；Provider 仍负责在主线程发布原状态流");
+            await publicSuccess.Download();
+            Assert.AreNotEqual(mainThread, success.CompletionThread,
+                "测试 Provider 必须真实在 worker 结束物理下载");
+            Assert.AreEqual(mainThread, Thread.CurrentThread.ManagedThreadId,
+                "下载成功终态必须回到 Unity 主线程");
+
+            var expected = new InvalidOperationException("worker-download-failed");
+            var failure = new TestAssetDownloader
+            {
+                CompleteOnThreadPool = true,
+                Failure = expected,
+            };
+            _provider.DownloaderResult = failure;
+            try
+            {
+                await _utility.CreateAllDownloader(Package).Download();
+                Assert.Fail("Provider 下载失败应原样传播。");
+            }
+            catch (InvalidOperationException actual)
+            {
+                Assert.AreSame(expected, actual);
+                Assert.AreNotEqual(mainThread, failure.CompletionThread);
+                Assert.AreEqual(mainThread, Thread.CurrentThread.ManagedThreadId,
+                    "下载异常终态必须回到 Unity 主线程");
+            }
+
+            var cancellation = new TestAssetDownloader { WaitForRelease = true };
+            _provider.DownloaderResult = cancellation;
+            using var caller = new CancellationTokenSource();
+            UniTask waiting = _utility.CreateAllDownloader(Package).Download(caller.Token);
+            await cancellation.Started.Task;
+            CancelOnThreadPool(caller).Forget();
+            try
+            {
+                await waiting;
+                Assert.Fail("worker 发出的取消应保留 OperationCanceledException。");
+            }
+            catch (OperationCanceledException)
+            {
+                Assert.AreEqual(mainThread, Thread.CurrentThread.ManagedThreadId,
+                    "下载取消终态也必须回到 Unity 主线程");
+            }
+        }
+
+        private async UniTask SceneHandle_ProviderWorkerUnloadSuccessAndFailure_ReturnOnMainThreadAsync()
+        {
+            await MakeReady();
+            int mainThread = Thread.CurrentThread.ManagedThreadId;
+
+            var success = new TestSceneHandle { CompleteUnloadOnThreadPool = true };
+            _provider.SceneResult = success;
+            ISceneHandle publicSuccess = await _utility.LoadScene(Package, "worker-unload-success");
+            await publicSuccess.Unload();
+            Assert.AreNotEqual(mainThread, success.UnloadCompletionThread,
+                "测试 Provider 必须真实在 worker 结束物理卸载");
+            Assert.AreEqual(mainThread, Thread.CurrentThread.ManagedThreadId,
+                "场景卸载成功终态必须回到 Unity 主线程");
+            Assert.IsFalse(publicSuccess.IsValid);
+
+            var expected = new InvalidOperationException("worker-unload-failed");
+            var failure = new TestSceneHandle
+            {
+                CompleteUnloadOnThreadPool = true,
+                UnloadFailure = expected,
+            };
+            _provider.SceneResult = failure;
+            ISceneHandle publicFailure = await _utility.LoadScene(Package, "worker-unload-failure");
+            try
+            {
+                await publicFailure.Unload();
+                Assert.Fail("Provider 场景卸载失败应原样传播。");
+            }
+            catch (InvalidOperationException actual)
+            {
+                Assert.AreSame(expected, actual);
+                Assert.AreNotEqual(mainThread, failure.UnloadCompletionThread);
+                Assert.AreEqual(mainThread, Thread.CurrentThread.ManagedThreadId,
+                    "场景卸载异常终态必须回到 Unity 主线程");
+            }
+            finally
+            {
+                publicFailure.Dispose();
+            }
         }
 
         private async UniTask Load_ProviderIgnoresCancellation_LateHandleIsDisposedAndOceReturnsMainThreadAsync()
@@ -1092,6 +1254,7 @@ namespace Game.Framework.Test
             public int AssetLoadCalls { get; private set; }
             public IAssetHandle<UnityEngine.Object> AssetResult { get; set; }
             public ISceneHandle SceneResult { get; set; }
+            public IAssetDownloader DownloaderResult { get; set; }
             public string TextResult { get; set; }
             public byte[] BytesResult { get; set; }
             public Exception NextAssetLoadFailure { get; set; }
@@ -1273,14 +1436,16 @@ namespace Game.Framework.Test
                 return NeedDownload;
             }
             public string GetPackageVersion(string packageName) => _readyPackages.Contains(packageName) ? "test" : null;
-            public IAssetDownloader CreateTagDownloader(string packageName, IReadOnlyList<string> tags, int maxConcurrent, int retries) => null;
+            public IAssetDownloader CreateTagDownloader(string packageName, IReadOnlyList<string> tags, int maxConcurrent, int retries)
+                => DownloaderResult;
             public IAssetDownloader CreateAllDownloader(string packageName, int maxConcurrent, int retries)
             {
                 LastDownloaderMaxConcurrent = maxConcurrent;
                 LastDownloaderRetries = retries;
-                return null;
+                return DownloaderResult;
             }
-            public IAssetDownloader CreateLocationDownloader(string packageName, IReadOnlyList<string> locations, int maxConcurrent, int retries) => null;
+            public IAssetDownloader CreateLocationDownloader(string packageName, IReadOnlyList<string> locations, int maxConcurrent, int retries)
+                => DownloaderResult;
             public void Dispose()
             {
                 Disposed = true;
