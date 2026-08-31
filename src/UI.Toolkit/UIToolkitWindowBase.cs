@@ -13,6 +13,8 @@ namespace Game.Framework.UI.Toolkit
     /// 里搭 UI / 查询 UXML 子元素 + 接线，在 <see cref="OnOpen"/> 里取打开参数。元数据用类上的 <see cref="UIWindowAttribute"/> 声明
     /// （<c>Asset</c> 指向 UXML，留空则纯代码搭建）。<br/>
     /// 生命周期 hook 由框架调用，<see cref="UIToolkitViewBase.OnCreated"/> 经框架的 <c>OnCreate</c> 触发（绑定 Context 时不重复调）。
+    /// 正常逻辑关闭会调用 <see cref="OnClose"/>；UI owner / Context teardown 会跳过 hook 做纯物理拆除，
+    /// 因此关键持久化不要只依赖 <see cref="OnClose"/>。
     /// </remarks>
     public abstract class UIToolkitWindowBase : UIToolkitViewBase, IUIWindow
     {
@@ -28,7 +30,7 @@ namespace Game.Framework.UI.Toolkit
         /// <summary>每次打开（显示）调用，<paramref name="args"/> 为打开参数（可空）。</summary>
         protected virtual void OnOpen(object args) { }
 
-        /// <summary>每次关闭调用——停动画、提交临时态等。之后窗口被隐藏（缓存）或销毁。</summary>
+        /// <summary>每次正常逻辑关闭调用——停动画、提交临时态等。之后窗口被隐藏（缓存）或销毁；UI owner / Context teardown 不调用。</summary>
         protected virtual void OnClose() { }
 
         /// <summary>被同层新窗口盖住时调用。</summary>

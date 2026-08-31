@@ -67,7 +67,8 @@ namespace Game.Framework.Demo.Modules
             host.AddActionRow("取消", () => cts?.Cancel(),
                 CodeRef.Here("statusLabel.text = \"状态：已取消\"", "取消→接住"));
             host.AddNote("异步命令实现 `IAsyncCommand`，签名带 `CancellationToken`；View 用 `await this.ExecuteCommandAsync(...)`。"
-                + "无参重载会自动把 View 销毁 + Context 生命周期令牌链接（任一销毁即取消）；这里另传自定义令牌演示主动取消。",
+                + "Mono View 无参调用会自动链接 GameObject 销毁 + Context；本 DemoModuleBase 是纯 C# View，没有 GameObject 销毁令牌，"
+                + "所以显式传入章节令牌，并在它之上再加主动取消。可取消的显式令牌会选择调用方生命周期、替代 Mono 销毁默认值，但 Context 始终保留。",
                 CodeRef.Here("myCts.Token", "自定义令牌"));
             host.AddSubNote("留意 RunTaskCommand 是 `readonly struct`——异步命令默认也用 struct，不是 class："
                 + "`readonly struct` 一样能写 `async` 方法，框架对同步/异步走同一套泛型分发、struct 两边都零装箱。"

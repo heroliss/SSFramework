@@ -34,7 +34,7 @@ Game.Framework.UI        (核心，渲染中立)  IUIUtility / UIUtility 编排 
 
 ### 4. 窗口生命周期 hook 由核心调度
 
-`IUIWindow`：`OnCreate`（建后一次）→ `OnOpen(object args)`（每次打开，收参数）→ `OnCover`/`OnReveal`（被盖/露出，**按层内计算**）→ `OnClose`（每次关闭）。销毁由 backend 负责。cover/reveal 是做「被盖暂停 / 露出恢复」的关键。
+`IUIWindow`：`OnCreate`（建后一次）→ `OnOpen(object args)`（每次打开，收参数）→ `OnCover`/`OnReveal`（被盖/露出，**按层内计算**）→ `OnClose`（每次正常逻辑关闭）。销毁由 backend 负责。cover/reveal 是做「被盖暂停 / 露出恢复」的关键。UI owner / Context teardown 是纯物理拆除：跳过全部 hook，避免销毁期触碰已释放 Context；关键持久化不得只依赖 `OnClose`。
 
 ### 5. 数据绑定统一走 R3 订阅，不引入 UIToolkit 原生 DataBinding
 

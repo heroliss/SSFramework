@@ -92,7 +92,8 @@ namespace Game.Framework.Context
         }
 
         /// <summary>
-        /// 创建 GameContext。inheritFromGlobal 控制本容器未命中时是否回退到 GameContext.Main。
+        /// 创建 GameContext，并从进入构造函数起接管 <paramref name="container"/> 的所有权。
+        /// <paramref name="inheritFromGlobal"/> 控制本容器未命中时是否回退到 GameContext.Main。
         /// </summary>
         /// <remarks>
         /// 构造时先验证容器里全部<b>构建期值绑定</b>（RegisterValue / RegisterOwned）的 Context 归属，再整批
@@ -103,6 +104,8 @@ namespace Game.Framework.Context
         /// 暴露（与 Mono 路径同一套 InjectionPlan 语义）。
         /// 工厂产物不自动注入——工厂经 <c>Func&lt;Container, object&gt;</c> 显式接线。任意 <c>[Inject]</c> 方法或
         /// 属性 setter 的外部副作用属于用户代码，框架无法通用回滚；构造失败只保证撤销框架控制的 Context 附着并释放 owned 资源。
+        /// 无论正常 <see cref="Dispose"/> 还是构造失败，本 Context 都会释放传入的 Container；同一个 Container
+        /// 不能再交给第二个 Context 或由调用方重复释放。Container 引用的 parent 只是解析借用关系，子 Context 不拥有也不释放 parent。
         /// </remarks>
         public GameContext(Container container, bool inheritFromGlobal = true)
         {

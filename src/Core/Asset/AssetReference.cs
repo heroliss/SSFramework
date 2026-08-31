@@ -237,11 +237,13 @@ namespace Game.Framework
         /// <summary>
         /// 并行加载所有资源并返回结果列表。
         /// 多个 AssetReference 会并发触发底层加载，受资源 provider 的下载/加载并发上限约束。
-        /// 若某个资源加载失败，对应位置为 null（不影响其他项）。
+        /// 已就绪包内的单项资源级失败（空 GUID、无效地址、类型不符或 provider 返回空 handle）在对应位置返回 null，
+        /// 不影响其他项；配置错误、包未初始化/初始化失败、Adapter 异常等系统级故障以及调用方取消会让整个 GetAll 失败，
+        /// 不会被降级成局部 null。
         /// </summary>
         public UniTask<T[]> GetAll() => GetAll(default);
 
-        /// <summary>支持取消的批量加载。</summary>
+        /// <summary>支持取消当前批量等待；取消会以 <see cref="OperationCanceledException"/> 结束整个调用。</summary>
         public async UniTask<T[]> GetAll(CancellationToken ct)
         {
             if (_items.Count == 0) return Array.Empty<T>();

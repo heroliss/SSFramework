@@ -15,8 +15,9 @@ namespace Game.Framework.UI.UGui
     /// <b>不要</b>覆写 Awake——注入由 <c>MonoViewBase</c> 负责。资源两种来源：<c>[UIWindow(Asset="ui/x")]</c> 指 prefab（拖好引用），
     /// 或 <b>Asset 留空纯代码搭建</b>（backend 空 GameObject + AddComponent，窗口自己代码搭 UGUI 控件）。<br/>
     /// <b>生命周期 hook</b>（由 <see cref="UIUtility"/> 调，非 Unity 生命周期）：
-    /// <c>OnCreated</c>（建后一次）→ <c>OnOpen</c>（每次打开）→ 可能 <c>OnCover</c>/<c>OnReveal</c> → <c>OnClose</c>（每次关闭）。
+    /// <c>OnCreated</c>（建后一次）→ <c>OnOpen</c>（每次打开）→ 可能 <c>OnCover</c>/<c>OnReveal</c> → <c>OnClose</c>（每次正常逻辑关闭）。
     /// 销毁由 backend <c>Destroy</c> GameObject → <c>MonoViewBase.OnDestroy</c> → <c>Bag.Dispose</c> 退订。<br/>
+    /// UI owner / Context teardown 会跳过 hook 做纯物理拆除；关键持久化不要只放在 <c>OnClose</c>。<br/>
     /// 元数据（层 / 资源 prefab / 缓存 / 模态）用类上的 <see cref="UIWindowAttribute"/> 声明。
     /// </remarks>
     public abstract class UGuiWindowBase : MonoViewBase, IUIWindow
@@ -81,7 +82,7 @@ namespace Game.Framework.UI.UGui
         /// <summary>每次打开（显示）调用，<paramref name="args"/> 为打开参数（可空）。</summary>
         protected virtual void OnOpen(object args) { }
 
-        /// <summary>每次关闭调用——停动画、提交临时态等。之后窗口被隐藏（缓存）或销毁。</summary>
+        /// <summary>每次正常逻辑关闭调用——停动画、提交临时态等。之后窗口被隐藏（缓存）或销毁；UI owner / Context teardown 不调用。</summary>
         protected virtual void OnClose() { }
 
         /// <summary>被同层新窗口盖住时调用。</summary>

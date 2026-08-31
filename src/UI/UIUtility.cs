@@ -430,7 +430,7 @@ namespace Game.Framework.UI
 
             if (transition.Status == UniTaskStatus.Succeeded)
             {
-                FinishClose(window, meta); // 无过渡：同步走完，行为与旧版逐帧一致
+                CompleteClose(window, meta, ownerToken); // 无过渡：同步走完，行为与旧版逐帧一致
                 return;
             }
             RunCloseTransition(window, meta, transition, ownerToken).Forget();
@@ -581,8 +581,21 @@ namespace Game.Framework.UI
             {
                 EndTransition();
                 // Dispose 后 Teardown 已物理拆除全部窗口，这里不能再碰。
-                if (!_disposed) FinishClose(window, meta);
+                if (!_disposed) CompleteClose(window, meta, ownerToken);
             }
+        }
+
+        // Context 已进入 terminal 时不能再调用业务 hook：GameContext.Dispose 先标记 disposed 再取消 token，
+        // OnClose 中的 GetUtility / ExecuteCommand 此刻都会访问已释放 Context。窗口已从逻辑栈摘除，直接物理回收即可。
+        private void CompleteClose(IUIWindow window, UIWindowMeta meta, CancellationToken ownerToken)
+        {
+            if (ownerToken.CanBeCanceled && ownerToken.IsCancellationRequested)
+            {
+                _backend.DestroyWindow(window);
+                return;
+            }
+
+            FinishClose(window, meta);
         }
 
         // 关闭收尾：OnClose → 按缓存策略隐藏或销毁。

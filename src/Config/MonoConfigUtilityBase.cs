@@ -104,10 +104,15 @@ namespace Game.Framework
         /// </summary>
         protected abstract TTables CreateTables(Func<string, byte[]> getBytes);
 
-        // 在 Start 而非 Awake 加载：保证全场景 Awake（含 AssetUtility 的 Configure）已完成——
-        // 否则空包名会在 AssetUtility 被 Configure 之前解析默认包名，拿到错误的包。
-        // protected virtual（而非 private）：Unity 魔法方法按最派生类调用，若基类 Start 是 private，
-        // 子类自己声明 Start() 会静默顶掉这里的加载且无编译警告；virtual 让子类必须写 override（并调 base.Start()）。
+        /// <summary>
+        /// 在 Start 而非 Awake 发起共享加载，保证全场景 Awake（含 AssetUtility.Configure）已经完成。
+        /// 项目子类通常不应覆写；如必须在加载前同步补配置，override 必须在准备完成后恰好调用一次
+        /// <c>base.Start()</c>。漏调会让服务永远不启动，重复调用会制造竞争的加载 owner。
+        /// </summary>
+        /// <remarks>
+        /// 保持 <c>protected virtual</c> 是为了让子类声明同名 Unity 消息时必须显式 override；若基类 Start 为 private，
+        /// 子类同名方法会无编译警告地遮蔽自动加载。
+        /// </remarks>
         protected virtual void Start()
         {
             // 只链接 Context；组件自身销毁由 OnDestroy 在 try/catch 边界内显式 Cancel。

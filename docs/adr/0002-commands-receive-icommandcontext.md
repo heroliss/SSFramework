@@ -24,3 +24,5 @@ struct Command 又不能用 `this.GetXxx<T>()` 扩展方法（值类型接口调
 **2026-08-30 命名澄清：**`ICommandSystem` / `CommandSystem` 的 `System` 是早期公共类型名，不表示五层业务 `ISystem`。命令分发器是 Context 基础设施 Seam：使用 `RegisterValue(..., typeof(ICommandSystem))` 精确注册，不使用 `RegisterSystem`。`LoggingCommandSystem` 已证明该 Interface 的替换价值，因此不删除 Seam；同时不引入 `ICommandDispatcher` 双契约别名——精确类型 DI 下两种 key 可能指向不同实例。若未来破坏性版本改名，应一次性迁移 Interface、Implementation、装饰器与注册 key。
 
 **2026-08-31 异步完成边界：**Command 的异步实现允许临时切到 worker 处理纯数据，但 `ICommandSystem` 返回的 UniTask 必须在 Unity 主线程交付成功、异常或取消。默认 `CommandSystem` 以 `finally` 切回主线程，既覆盖全部终态，又保留原始异常对象与堆栈；`LoggingCommandSystem` 在落无锁环形缓冲前再次兜底，因为可替换的 inner 可能来自项目代码。这个保证让调用方 await 后可直接继续访问主线程独占的 Context / Event / Model，不把线程恢复责任扩散到每个业务 Command。
+
+**2026-08-31 View 生命周期覆盖：**View 命令入口始终包含 Context owner；Mono 销毁令牌只是无参调用的界面侧默认值。调用方显式传入可取消 token 时，该 token 替代 Mono 销毁默认值，而不是追加成第三个取消源；`CancellationToken.None/default` 不构成覆盖。这样窗口发起但已经提交给更长寿命 owner 的保存、上传等工作可在原 View 销毁后继续，仍受 Context 最终收口；纯 C# View 则用 Bag / host token 显式表达自己的界面生命周期。该“替代”语义不符合 token 通常只追加的直觉，因此由 API XML、行为测试和教程共同锁定。

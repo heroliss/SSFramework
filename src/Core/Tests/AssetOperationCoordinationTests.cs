@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Reflection;
 using System.Text.RegularExpressions;
 using System.Threading;
 using Cysharp.Threading.Tasks;
@@ -135,6 +136,83 @@ namespace Game.Framework.Test
             }
         }
 
+        [UnityTest]
+        public IEnumerator AssetReferenceList_ResourceLevelNullPreservesOtherPositions()
+            => UniTask.ToCoroutine(async () =>
+            {
+                var asset = new GameObject("LoadedListItem");
+                asset.transform.SetParent(_root.transform);
+                var loaded = new AssetReference<GameObject>();
+                SetPrivateField(loaded, "_handle", new TestAssetHandle<GameObject>(asset));
+                var missing = new AssetReference<GameObject>();
+                var list = CreateReferenceList(loaded, missing);
+
+                LogAssert.Expect(LogType.Warning, new Regex(@"\[AssetReference\].*GUID 为空"));
+                var results = await list.GetAll();
+
+                Assert.AreEqual(2, results.Length);
+                Assert.AreSame(asset, results[0]);
+                Assert.IsNull(results[1],
+                    "单项资源级问题应保留原位置的 null，不能抹掉其它成功结果。");
+                list.Dispose();
+            });
+
+        [UnityTest]
+        public IEnumerator AssetReferenceList_SystemFailureFailsWholeBatchWithoutWrappingRoot()
+            => UniTask.ToCoroutine(async () =>
+            {
+                var gate = new UniTaskCompletionSource<IAssetHandle<GameObject>>();
+                var reference = CreatePendingReference(gate);
+                var list = CreateReferenceList(reference);
+                var expected = new InvalidOperationException("asset-list-system-failure");
+                UniTask<GameObject[]> loading = list.GetAll();
+
+                gate.TrySetException(expected);
+                try
+                {
+                    await loading;
+                    Assert.Fail("系统级故障必须终止整个 GetAll。");
+                }
+                catch (InvalidOperationException actual)
+                {
+                    Assert.AreSame(expected, actual,
+                        "GetAll 不应把初始化/Adapter 根异常降级成 null 或包装成另一异常。");
+                }
+                finally
+                {
+                    ResetPendingReference(reference);
+                    list.Dispose();
+                }
+            });
+
+        [UnityTest]
+        public IEnumerator AssetReferenceList_CallerCancellationCancelsWholeWait()
+            => UniTask.ToCoroutine(async () =>
+            {
+                var gate = new UniTaskCompletionSource<IAssetHandle<GameObject>>();
+                var reference = CreatePendingReference(gate);
+                var list = CreateReferenceList(reference);
+                using var caller = new CancellationTokenSource();
+                UniTask<GameObject[]> loading = list.GetAll(caller.Token);
+
+                caller.Cancel();
+                try
+                {
+                    await loading;
+                    Assert.Fail("调用方取消必须终止整个 GetAll 等待。");
+                }
+                catch (OperationCanceledException actual)
+                {
+                    Assert.AreEqual(caller.Token, actual.CancellationToken);
+                }
+                finally
+                {
+                    gate.TrySetResult(null);
+                    ResetPendingReference(reference);
+                    list.Dispose();
+                }
+            });
+
         private async UniTask EnsureInitialized_BeforeUtilityStart_StartsConfiguredAutoPackageAsync()
         {
             var contextObject = new GameObject("EarlyAssetContext");
@@ -203,6 +281,50 @@ namespace Game.Framework.Test
             };
             _utility.Configure(Package, _callerConfig, AssetPlayMode.EditorSimulate);
             await UniTask.Yield();
+        }
+
+        private AssetReference<GameObject> CreatePendingReference(
+            UniTaskCompletionSource<IAssetHandle<GameObject>> gate)
+        {
+            var reference = new AssetReference<GameObject>();
+            SetPrivateField((AssetReferenceBase)reference, "_assetGUID", "test-guid");
+            reference.Bind(_utility, default);
+            SetPrivateField(reference, "<IsLoading>k__BackingField", true);
+            SetPrivateField(reference, "_loadTcs", gate);
+            return reference;
+        }
+
+        private static void ResetPendingReference(AssetReference<GameObject> reference)
+        {
+            SetPrivateField(reference, "<IsLoading>k__BackingField", false);
+            SetPrivateField<UniTaskCompletionSource<IAssetHandle<GameObject>>>(reference, "_loadTcs", null);
+        }
+
+        private static AssetReferenceList<T> CreateReferenceList<T>(params AssetReference<T>[] items)
+            where T : UnityEngine.Object
+        {
+            var list = new AssetReferenceList<T>();
+            SetPrivateField(list, "_items", new List<AssetReference<T>>(items));
+            return list;
+        }
+
+        private static void SetPrivateField<TValue>(object target, string name, TValue value)
+        {
+            var field = target.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)
+                        ?? target.GetType().BaseType?.GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.IsNotNull(field, $"测试夹具找不到字段 {target.GetType().Name}.{name}");
+            field.SetValue(target, value);
+        }
+
+        private sealed class TestAssetHandle<T> : IAssetHandle<T> where T : UnityEngine.Object
+        {
+            private bool _valid = true;
+
+            public TestAssetHandle(T asset) => Asset = asset;
+
+            public T Asset { get; }
+            public bool IsValid => _valid;
+            public void Dispose() => _valid = false;
         }
 
         private async UniTask Configure_FreezesCallerConfigAndIsolatesProviderSnapshotAsync()
