@@ -33,6 +33,9 @@ namespace Game.Framework.Network
         /// </summary>
         public readonly string Reason;
 
+        /// <summary>创建一次已提交的连接关闭事件。</summary>
+        /// <param name="byUser">是否由调用方主动执行 <see cref="IWebSocketUtility.Disconnect"/>。</param>
+        /// <param name="reason">框架生成的稳定人类可读摘要；业务分支不应匹配其完整文本。</param>
         public WebSocketClosedEvent(bool byUser, string reason)
         {
             ByUser = byUser;

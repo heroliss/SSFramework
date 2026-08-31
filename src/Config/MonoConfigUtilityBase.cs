@@ -53,7 +53,10 @@ namespace Game.Framework
         private readonly UniTaskCompletionSource _completion = new();
         private ExceptionDispatchInfo _failure;
 
+        /// <inheritdoc />
         public TTables Tables => _tables;
+
+        /// <inheritdoc />
         public ReadOnlyReactiveProperty<ConfigInitState> State => _state;
 
         /// <inheritdoc />

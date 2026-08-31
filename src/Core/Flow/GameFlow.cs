@@ -73,8 +73,10 @@ namespace Game.Framework.Flow
 
         IGameContext IHasGameContext.Context => _context;
 
+        /// <inheritdoc />
         public FlowState Current => _current;
 
+        /// <inheritdoc />
         public bool IsTransitioning => !_disposed && _running;
 
 #if UNITY_EDITOR
@@ -90,8 +92,10 @@ namespace Game.Framework.Flow
             _disposed);
 #endif
 
+        /// <inheritdoc />
         public bool IsIn<TState>() where TState : FlowState => _current is TState;
 
+        /// <inheritdoc />
         public UniTask GoTo(FlowState next)
         {
             if (_disposed)

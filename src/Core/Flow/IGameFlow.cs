@@ -67,6 +67,9 @@ namespace Game.Framework.Flow
         /// <summary>切换后的状态（即此刻的 <see cref="IGameFlow.Current"/>）。</summary>
         public readonly FlowState To;
 
+        /// <summary>创建一次已成功提交的流程切换事件。</summary>
+        /// <param name="from">连续转换开始前最后一个完整进入的状态；首次进入时为 null。</param>
+        /// <param name="to">本次完整进入并成为 <see cref="IGameFlow.Current"/> 的状态。</param>
         public FlowChangedEvent(FlowState from, FlowState to)
         {
             From = from;

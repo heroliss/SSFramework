@@ -55,6 +55,10 @@ namespace Game.Framework.Audio
         private bool _driverRunning;
         private bool _disposed;
 
+        /// <summary>
+        /// 创建默认音频编排实例。首次播放时才创建持久化根节点与驱动；推荐由
+        /// <c>RegisterOwnedUtility</c> 交给 Context 释放，避免声音与池化节点越过业务作用域。
+        /// </summary>
         public AudioUtility() : this(() => Time.unscaledDeltaTime)
         {
         }
@@ -72,8 +76,10 @@ namespace Game.Framework.Audio
 
         // ── 音乐单通道 ─────────────────────────────────────────────────────────
 
+        /// <inheritdoc />
         public AudioClip CurrentMusic => _music != null && _music.Source != null ? _music.Source.clip : null;
 
+        /// <inheritdoc />
         public void PlayMusic(AudioClip clip, float fadeSeconds = 0.5f, bool loop = true, float volume = 1f)
         {
             if (clip == null) throw new ArgumentNullException(nameof(clip), "PlayMusic 的 clip 不能为 null——停音乐用 StopMusic。");
@@ -102,6 +108,7 @@ namespace Game.Framework.Audio
             EnsureDriver();
         }
 
+        /// <inheritdoc />
         public void StopMusic(float fadeSeconds = 0.5f)
         {
             if (WarnIfDisposed(nameof(StopMusic))) return;
@@ -112,9 +119,11 @@ namespace Game.Framework.Audio
 
         // ── 音效 ──────────────────────────────────────────────────────────────
 
+        /// <inheritdoc />
         public AudioHandle PlaySfx(AudioClip clip, float volume = 1f, float pitch = 1f, bool loop = false, string group = AudioGroups.Sfx)
             => PlayCore(clip, null, volume, pitch, loop, group, 1f, 500f);
 
+        /// <inheritdoc />
         public AudioHandle PlaySfxAt(AudioClip clip, Vector3 position, float volume = 1f, float pitch = 1f, bool loop = false, string group = AudioGroups.Sfx, float minDistance = 1f, float maxDistance = 500f)
             => PlayCore(clip, position, volume, pitch, loop, group, minDistance, maxDistance);
 
@@ -142,6 +151,7 @@ namespace Game.Framework.Audio
             return new AudioHandle(this, voice.Id);
         }
 
+        /// <inheritdoc />
         public void StopAllSfx()
         {
             if (WarnIfDisposed(nameof(StopAllSfx))) return;
@@ -154,6 +164,7 @@ namespace Game.Framework.Audio
 
         // ── 分组音量 ──────────────────────────────────────────────────────────
 
+        /// <inheritdoc />
         public float MasterVolume
         {
             get => _masterVolume;
@@ -165,12 +176,14 @@ namespace Game.Framework.Audio
             }
         }
 
+        /// <inheritdoc />
         public float GetGroupVolume(string group)
         {
             ValidateGroup(group);
             return _groupVolumes.TryGetValue(group, out float vol) ? vol : 1f;
         }
 
+        /// <inheritdoc />
         public void SetGroupVolume(string group, float volume)
         {
             ValidateGroup(group);

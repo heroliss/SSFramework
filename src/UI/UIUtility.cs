@@ -62,6 +62,13 @@ namespace Game.Framework.UI
         private bool _legacyLoadingHeld;
         private int _legacyLoadingPending;
 
+        /// <summary>
+        /// 创建一套渲染中立的 UI 编排实例。Context 只借用且不由本类释放；backend 作为本实例的物理后端，
+        /// <see cref="Dispose"/> 时会收到一次幂等 <see cref="IUIBackend.Teardown"/> 并负责释放窗口与资源句柄。
+        /// </summary>
+        /// <param name="context">窗口注入、资源访问与 owner 取消所依赖的宿主 Context。</param>
+        /// <param name="backend">独占服务于本实例的渲染 Adapter；不能与另一套 <see cref="UIUtility"/> 共享可变窗口状态。</param>
+        /// <param name="builtins">可选的 Toast / Loading 窗口类型表；未配置时对应便捷入口会记录可恢复错误。</param>
         public UIUtility(IGameContext context, IUIBackend backend, UIBuiltinWindows builtins = null)
             : this(context, backend, builtins, DelayToastRealtime)
         {
@@ -80,9 +87,11 @@ namespace Game.Framework.UI
             _toastDelay = toastDelay ?? throw new ArgumentNullException(nameof(toastDelay));
         }
 
+        /// <inheritdoc />
         public UniTask<T> Open<T>(CancellationToken ct = default) where T : class, IUIWindow
             => Open<T>(null, ct);
 
+        /// <inheritdoc />
         public async UniTask<T> Open<T>(object args, CancellationToken ct = default) where T : class, IUIWindow
             => (T)await OpenCore(typeof(T), args, ct);
 
@@ -181,6 +190,7 @@ namespace Game.Framework.UI
             }
         }
 
+        /// <inheritdoc />
         public void Close<T>() where T : class, IUIWindow
         {
             MainThreadGuard.AssertMainThread(nameof(UIUtility));
@@ -188,6 +198,7 @@ namespace Game.Framework.UI
             CloseType(typeof(T));
         }
 
+        /// <inheritdoc />
         public void Close(IUIWindow window)
         {
             MainThreadGuard.AssertMainThread(nameof(UIUtility));
@@ -195,6 +206,7 @@ namespace Game.Framework.UI
             if (window != null) CloseType(window.GetType());
         }
 
+        /// <inheritdoc />
         public void CloseTop(UILayer layer)
         {
             MainThreadGuard.AssertMainThread(nameof(UIUtility));
@@ -206,6 +218,7 @@ namespace Game.Framework.UI
         // 返回导航参与的层，从高到低。Top/System 不参与（Toast/系统提示不是导航单元）、Background 不参与（底景）。
         private static readonly UILayer[] BackLayers = { UILayer.Popup, UILayer.Window, UILayer.Page };
 
+        /// <inheritdoc />
         public bool Back()
         {
             MainThreadGuard.AssertMainThread(nameof(UIUtility));
@@ -225,6 +238,7 @@ namespace Game.Framework.UI
             return false;
         }
 
+        /// <inheritdoc />
         public void CloseAll(UILayer layer)
         {
             MainThreadGuard.AssertMainThread(nameof(UIUtility));
@@ -248,6 +262,7 @@ namespace Game.Framework.UI
             }
         }
 
+        /// <inheritdoc />
         public void CloseAll()
         {
             MainThreadGuard.AssertMainThread(nameof(UIUtility));
@@ -255,6 +270,7 @@ namespace Game.Framework.UI
             foreach (UILayer layer in Enum.GetValues(typeof(UILayer))) CloseAll(layer);
         }
 
+        /// <inheritdoc />
         public T Get<T>() where T : class, IUIWindow
         {
             MainThreadGuard.AssertMainThread(nameof(UIUtility));
@@ -262,6 +278,7 @@ namespace Game.Framework.UI
             return _open.TryGetValue(typeof(T), out var w) ? (T)w : null;
         }
 
+        /// <inheritdoc />
         public bool IsOpen<T>() where T : class, IUIWindow
         {
             MainThreadGuard.AssertMainThread(nameof(UIUtility));
@@ -271,6 +288,7 @@ namespace Game.Framework.UI
 
         // ── Top 层内置件（ADR-0020 §4）：按注册的类型表开窗，业务对后端零感知 ──
 
+        /// <inheritdoc />
         public async UniTask ShowToast(string text, float duration = 2f, CancellationToken ct = default)
         {
             MainThreadGuard.AssertMainThread(nameof(UIUtility));
@@ -310,6 +328,7 @@ namespace Game.Framework.UI
             }
         }
 
+        /// <inheritdoc />
         public async UniTask<LoadingHandle> AcquireLoading(string text = null, CancellationToken ct = default)
         {
             MainThreadGuard.AssertMainThread(nameof(UIUtility));
@@ -340,6 +359,7 @@ namespace Game.Framework.UI
             }
         }
 
+        /// <inheritdoc />
         [Obsolete("ShowLoading/HideLoading 仅用于旧源码迁移；请改用 using var loading = await AcquireLoading(text, ct)，由句柄表达并发所有权。", false)]
         public async UniTask ShowLoading(string text = null, CancellationToken ct = default)
         {
@@ -367,6 +387,7 @@ namespace Game.Framework.UI
             }
         }
 
+        /// <inheritdoc />
         [Obsolete("ShowLoading/HideLoading 仅用于旧源码迁移；请释放 AcquireLoading 返回的 LoadingHandle，通常使用 using var 自动释放。", false)]
         public void HideLoading()
         {
@@ -377,12 +398,14 @@ namespace Game.Framework.UI
             ReconcileLoadingVisibility();
         }
 
+        /// <inheritdoc />
         public bool IsLoadingActive(int id)
         {
             MainThreadGuard.AssertMainThread(nameof(UIUtility));
             return !_disposed && id != 0 && _loadingHandleIds.Contains(id);
         }
 
+        /// <inheritdoc />
         public void ReleaseLoading(int id)
         {
             MainThreadGuard.AssertMainThread(nameof(UIUtility));

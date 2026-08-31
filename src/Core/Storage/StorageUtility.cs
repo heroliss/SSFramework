@@ -36,6 +36,10 @@ namespace Game.Framework.Storage
         private UniTask _tail = UniTask.CompletedTask;
         private bool _disposed;
 
+        /// <summary>
+        /// 创建存储编排实例。传入的 provider 在构造成功后由本实例接管，并在已接纳的 FIFO 操作排空后释放；
+        /// serializer 只借用，不要求实现释放协议。
+        /// </summary>
         /// <param name="provider">存储介质；null = 默认 <see cref="FileStorageProvider"/>（persistentDataPath/storage）。</param>
         /// <param name="serializer">序列化格式；null = 默认 <see cref="JsonUtilityStorageSerializer"/>（UTF-8 JSON）。</param>
         public StorageUtility(IStorageProvider provider = null, IStorageSerializer serializer = null)
@@ -44,6 +48,7 @@ namespace Game.Framework.Storage
             _serializer = serializer ?? new JsonUtilityStorageSerializer();
         }
 
+        /// <inheritdoc />
         public async UniTask Save<T>(string key, T data, CancellationToken ct = default) where T : class
         {
             ThrowIfDisposed();
@@ -56,6 +61,7 @@ namespace Game.Framework.Storage
             await Enqueue(() => _provider.WriteAsync(key, bytes, ct));
         }
 
+        /// <inheritdoc />
         public async UniTask<T> Load<T>(string key, CancellationToken ct = default) where T : class
         {
             ThrowIfDisposed();
@@ -83,6 +89,7 @@ namespace Game.Framework.Storage
             });
         }
 
+        /// <inheritdoc />
         public bool Exists(string key)
         {
             ThrowIfDisposed();
@@ -90,6 +97,7 @@ namespace Game.Framework.Storage
             return _provider.Exists(key);
         }
 
+        /// <inheritdoc />
         public async UniTask Delete(string key, CancellationToken ct = default)
         {
             ThrowIfDisposed();
@@ -97,6 +105,7 @@ namespace Game.Framework.Storage
             await Enqueue(() => _provider.DeleteAsync(key, ct));
         }
 
+        /// <inheritdoc />
         public async UniTask<IReadOnlyList<string>> ListKeys(string prefix = null, CancellationToken ct = default)
         {
             ThrowIfDisposed();
