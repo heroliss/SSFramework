@@ -40,7 +40,7 @@ flowchart TB
 4. **能够持续生产**：架构、工具、资产、性能和质量体系不会随内容增长失控。
 5. **能够发行并学习**：构建、平台、无障碍、本地化、数据、市场、运营和授权风险可控。
 
-多人、F2P / IAP、开放世界、UGC / Mod、XR、主机认证、运行时 LLM NPC、程序化大世界和长期 LiveOps 是条件分支。只有产品方向需要时才进入 `Now`，不为图谱完整预建。
+多人、F2P / IAP、UGC / Mod、XR、主机认证、运行时 LLM NPC 和长期 LiveOps 仍是条件分支，不为图谱完整预建。《游牧工坊》当前确实需要**有界的种子世界、局部流送和分级持久化**，因此只把这条受控能力进入 `Now`；它不等于预先建设可复用于所有游戏的无限开放世界框架。
 
 ## 3. 能力不是 Skill
 
@@ -74,9 +74,10 @@ Skill 只写会改变执行质量的非显然知识。已经由代码或测试�
 
 | ID | 能力 | 当前 → 目标 | 已有证据 | 主要缺口 / 下一实验 |
 |---|---|---:|---|---|
-| P1 | 受众、幻想、差异化、产品支柱 | M2 → M3 | [商业 3D 游戏策略](commercial-3d-game-strategy.md)的目标玩家、概念矩阵、范围盒与证据 Gate | 用 Concept Card、共享灰盒和 5 名目标玩家验证《游牧工坊》与备选方向，不把推荐误写成结论 |
+| P1 | 受众、幻想、差异化、产品支柱 | M2 → M3 | [商业 3D 游戏策略](commercial-3d-game-strategy.md)的产品定位与证据 Gate；[《游牧工坊》玩法愿景](nomad-workshop-game-vision.md)的核心支柱与首版范围 | 用 Foundation Prototype 和少量目标玩家验证自动居民、连续旅途与车内/车外循环，不把讨论稿误写成已经成立的产品结论 |
 | G1 | 核心循环与 Game Feel | M3 → M4 | 可运行 Outpost 流程、玩家路径 smoke | 增加真实 Input 路径、时序视觉证据和人工手感 rubric |
 | G2 | 系统、AI、成长、经济与平衡 | M4 → M4 | 固定 seed、双后端对拍、黄金轨迹和长跑 guard | 自动结果仍需真实玩家难度与节奏校准 |
+| W1 | 种子世界、流式区域与分级持久化 | M1 → M3 | [《游牧工坊》玩法愿景](nomad-workshop-game-vision.md)已定义连续坐标、局部模拟和状态等级 | 用有限原型区域验证 Seed 重建、目标点旅行、区块卸载/返回、迷雾与保存规模，不先抽象无限世界框架 |
 | C1 | 关卡、遭遇、节奏与叙事内容 | M1 → M3 | 当前垂直切片内容 | 先用真实关卡任务形成可重复评审，再决定是否建 Skill |
 | V1 | Art Direction、2D / 3D 资产 | M1 → M3 | `imagegen` 可做概念与 2D 原型 | 缺 art bible、资产 brief、来源记录、导入和场景验收闭环 |
 | V2 | Shader、VFX、材质、灯光、镜头与动画 | M1 → M3 | Unity 6 + URP 17.3 基础 | 在首个代表性效果上建立 RenderGraph、性能和视觉证据 |
@@ -198,7 +199,8 @@ Unity Test Framework + BattleSim / PlayerPath Harness
 - 维护本能力图谱，并把新缺口绑定到真实任务证据。
 - 使用 `unity-validation-harness` 收口每次非琐碎变更的验证。
 - 在真实架构任务中使用 `improve-ssframework-architecture`，按证据继续收窄或补充，而不直接复制通用 Skill。
-- 按[商业 3D 游戏策略](commercial-3d-game-strategy.md)先对《游牧工坊》与备选方向做 Concept Card、共享灰盒和目标玩家验证，再确认正式产品方向并跑通实现、编译、Play、观察、验收和恢复。
+- 按[《游牧工坊》玩法愿景](nomad-workshop-game-vision.md)实现受控的 Foundation Prototype，验证目标点旅行、自动居民、单层建造、车外作业和选择性持久化，再决定是否进入正式垂直切片。
+- 在游戏独立程序集内建立最小种子世界与局部流送接缝，用固定 Seed、区块返回和存档往返证据约束 W1；出现第二个真实消费者前不回流 Framework。
 - 游戏业务先留在独立目录/asmdef；只有跨游戏通用或阻断公共用法的证据才回流 Framework。
 
 ### Next
