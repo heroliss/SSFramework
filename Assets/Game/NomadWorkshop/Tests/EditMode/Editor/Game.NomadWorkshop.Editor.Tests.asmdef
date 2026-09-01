@@ -1,0 +1,24 @@
+{
+    "name": "Game.NomadWorkshop.Editor.Tests",
+    "rootNamespace": "Game.NomadWorkshop.Editor.Tests",
+    "references": [
+        "Game.NomadWorkshop",
+        "Game.NomadWorkshop.Editor",
+        "UnityEngine.TestRunner"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

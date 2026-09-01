@@ -243,6 +243,8 @@ MonoBehaviour:
   simulationSpeed: 4
   residentMoveSpeed: 2.2
   worldSeed: 20260901
+  humanoidPrefab: {fileID: 919132149155446097, guid: 1abe4b01bb1bf0c44af9f818f8043621, type: 3}
+  humanoidController: {fileID: 9100000, guid: 48f608bad9f5bc04ca20468ba89499c0, type: 2}
 --- !u!4 &1534902975
 Transform:
   m_ObjectHideFlags: 0

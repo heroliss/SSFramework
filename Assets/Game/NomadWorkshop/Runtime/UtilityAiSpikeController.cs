@@ -6,8 +6,8 @@ using UnityEngine;
 namespace Game.NomadWorkshop
 {
     /// <summary>
-    /// 居民 Utility AI 的可丢弃灰盒展示器：程序化生成固定俯视角 3D 甲板、一个假人和六类行动，
-    /// 把纯 C# 决策结果驱动为移动与交互。正式 Humanoid、寻路、设施 Prefab 和 UI 不属于此组件职责。
+    /// 居民 Utility AI 的可丢弃灰盒展示器：程序化生成固定俯视角 3D 甲板、一个居民和六类行动，
+    /// 把纯 C# 决策结果驱动为移动与交互。Humanoid 只作为可替换表现接缝；寻路、正式设施和 UI 不属于此组件职责。
     /// </summary>
     public sealed class UtilityAiSpikeController : MonoBehaviour
     {
@@ -17,17 +17,20 @@ namespace Game.NomadWorkshop
         [SerializeField, Min(0.1f)] private float simulationSpeed = 4f;
         [SerializeField, Min(0.1f)] private float residentMoveSpeed = 2.2f;
         [SerializeField] private int worldSeed = 20260901;
+        [SerializeField] private GameObject humanoidPrefab;
+        [SerializeField] private RuntimeAnimatorController humanoidController;
 
         private readonly UtilityDecisionEngine _decisionEngine = new();
         private readonly UtilityDecisionPolicy _decisionPolicy = new();
         private readonly ReservationLedger _reservations = new();
-        private readonly Dictionary<string, Vector3> _actionTargets = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, FacilityInteractionAnchor> _interactionAnchors = new(StringComparer.Ordinal);
         private readonly List<Material> _runtimeMaterials = new();
         private readonly float[] _deficits = new float[NeedCount];
         private readonly Dictionary<string, float> _waitingSeconds = new(StringComparer.Ordinal);
 
         private Transform _residentRoot;
         private Transform _residentVisual;
+        private ResidentHumanoidPresentation _humanoidPresentation;
         private ResidentActionCandidate _currentAction;
         private ResidentDecisionResult _lastDecision;
         private ReservationLease _currentReservation;
@@ -54,6 +57,12 @@ namespace Game.NomadWorkshop
 
         /// <summary>展示器是否已经生成居民视觉根，用于区分初始化完成与只有组件存在。</summary>
         public bool HasGeneratedResident => _residentRoot != null;
+
+        /// <summary>当前是否使用通过 Avatar 与状态契约验证的 Humanoid 表现，而不是程序假人。</summary>
+        public bool HasHumanoidResident => _humanoidPresentation != null && _humanoidPresentation.IsReady;
+
+        /// <summary>运行时生成并纳入行动导航的设施交互锚点数量。</summary>
+        public int InteractionAnchorCount => _interactionAnchors.Count;
 
         /// <summary>已经提交给决策内核的快照数量。</summary>
         public long DecisionCount => _decisionSequence;
@@ -180,11 +189,33 @@ namespace Game.NomadWorkshop
             Vector3 scale,
             Color color)
         {
-            CreatePrimitive(objectName, primitive, position, scale, color);
+            GameObject station = CreatePrimitive(objectName, primitive, position, scale, color);
             Vector3 approach = position;
             approach.y = 0.12f;
             approach += position.x < 0f ? Vector3.right * 0.9f : Vector3.left * 0.9f;
-            _actionTargets.Add(actionId, approach);
+
+            var standPointObject = new GameObject("InteractionStandPoint");
+            standPointObject.transform.SetParent(station.transform, true);
+            standPointObject.transform.position = approach;
+            Vector3 facing = position - approach;
+            facing.y = 0f;
+            standPointObject.transform.rotation = facing.sqrMagnitude > 0.0001f
+                ? Quaternion.LookRotation(facing.normalized, Vector3.up)
+                : Quaternion.identity;
+
+            Transform handTarget = null;
+            ResidentAnimationSemantic semantic = ResolveFacilitySemantic(actionId);
+            if (semantic != ResidentAnimationSemantic.Idle && semantic != ResidentAnimationSemantic.Rest)
+            {
+                var handTargetObject = new GameObject("PrimaryHandTarget");
+                handTargetObject.transform.SetParent(station.transform, true);
+                handTargetObject.transform.position = position + Vector3.up * Math.Max(0.45f, scale.y * 0.42f);
+                handTarget = handTargetObject.transform;
+            }
+
+            FacilityInteractionAnchor anchor = station.AddComponent<FacilityInteractionAnchor>();
+            anchor.ConfigureRuntime(actionId, semantic, standPointObject.transform, handTarget);
+            _interactionAnchors.Add(actionId, anchor);
         }
 
         private void CreateResident()
@@ -193,6 +224,16 @@ namespace Game.NomadWorkshop
             root.transform.SetParent(transform, false);
             root.transform.localPosition = new Vector3(0f, 0.12f, 0f);
             _residentRoot = root.transform;
+
+            var humanoid = root.AddComponent<ResidentHumanoidPresentation>();
+            if (humanoid.TryInitialize(humanoidPrefab, humanoidController))
+            {
+                _humanoidPresentation = humanoid;
+                _residentVisual = humanoid.VisualRoot;
+                return;
+            }
+
+            Destroy(humanoid);
 
             var visual = new GameObject("ProceduralPlaceholderVisual");
             visual.transform.SetParent(root.transform, false);
@@ -208,6 +249,17 @@ namespace Game.NomadWorkshop
                 new Vector3(0.19f, 0.48f, 0.19f), new Color(0.13f, 0.48f, 0.55f), visual.transform, true);
             CreatePrimitive("RightArm", PrimitiveType.Capsule, new Vector3(0.38f, 0.93f, 0f),
                 new Vector3(0.19f, 0.48f, 0.19f), new Color(0.13f, 0.48f, 0.55f), visual.transform, true);
+        }
+
+        private static ResidentAnimationSemantic ResolveFacilitySemantic(string actionId)
+        {
+            return actionId switch
+            {
+                "repair" => ResidentAnimationSemantic.Work,
+                "rest" => ResidentAnimationSemantic.Rest,
+                "drink" or "eat" or "haul" => ResidentAnimationSemantic.Pickup,
+                _ => ResidentAnimationSemantic.Idle,
+            };
         }
 
         private GameObject CreatePrimitive(
@@ -344,7 +396,7 @@ namespace Game.NomadWorkshop
         private List<ResidentActionCandidate> BuildCandidates()
         {
             float DistanceCost(string id)
-                => Vector3.Distance(_residentRoot.position, _actionTargets[id]) * 0.018f;
+                => Vector3.Distance(_residentRoot.position, _interactionAnchors[id].StandPoint.position) * 0.018f;
 
             var drink = new ResidentActionCandidate("drink", "drink", "饮水")
             {
@@ -439,12 +491,14 @@ namespace Game.NomadWorkshop
 
         private void TickMovement(float deltaTime)
         {
-            Vector3 target = _actionTargets[_currentAction.Id];
+            FacilityInteractionAnchor anchor = _interactionAnchors[_currentAction.Id];
+            Vector3 target = anchor.StandPoint.position;
             Vector3 direction = target - _residentRoot.position;
             direction.y = 0f;
             if (direction.sqrMagnitude <= 0.0025f)
             {
                 _residentRoot.position = target;
+                _residentRoot.rotation = anchor.StandPoint.rotation;
                 _phase = ActionPhase.Performing;
                 return;
             }
@@ -503,6 +557,13 @@ namespace Game.NomadWorkshop
         private void AnimateResident(float deltaTime)
         {
             if (_residentVisual == null) return;
+            if (HasHumanoidResident)
+            {
+                _humanoidPresentation.SetPlaybackSpeed(_simulationPaused ? 0f : simulationSpeed);
+                _humanoidPresentation.SetSemantic(ResolveCurrentAnimationSemantic());
+                return;
+            }
+
             bool moving = _phase == ActionPhase.Moving && !_simulationPaused;
             bool performing = _phase == ActionPhase.Performing && !_simulationPaused;
             float frequency = moving ? 11f : performing ? 5f : 2f;
@@ -516,13 +577,26 @@ namespace Game.NomadWorkshop
                 deltaTime * 8f);
         }
 
+        private ResidentAnimationSemantic ResolveCurrentAnimationSemantic()
+        {
+            if (_phase == ActionPhase.Moving) return ResidentAnimationSemantic.Move;
+            if (_phase == ActionPhase.Performing && _currentAction != null &&
+                _interactionAnchors.TryGetValue(_currentAction.Id, out FacilityInteractionAnchor anchor))
+                return anchor.AnimationSemantic;
+            return ResidentAnimationSemantic.Idle;
+        }
+
         private void OnGUI()
         {
             EnsureGuiStyles();
             float width = Math.Min(560f, Screen.width * 0.45f);
             GUILayout.BeginArea(new Rect(16f, 16f, width, Screen.height - 32f), GUI.skin.box);
             GUILayout.Label("《游牧工坊》居民 Utility AI 灰盒", _titleStyle);
-            GUILayout.Label("程序化 3D 假人仅验证决策、移动和交互接缝；Humanoid 资产管线尚未验收。", _smallStyle);
+            GUILayout.Label(
+                HasHumanoidResident
+                    ? "实时 Humanoid 已接入五类共享动作；模拟仍拥有移动、占用与行动结算。"
+                    : "未配置或未通过验证时自动回退程序假人，便于隔离资产管线故障。",
+                _smallStyle);
             GUILayout.Space(6f);
 
             GUILayout.BeginHorizontal();

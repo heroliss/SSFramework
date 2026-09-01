@@ -3,6 +3,9 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.TestTools;
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
 
 namespace Game.NomadWorkshop.PlayMode.Tests
 {
@@ -56,6 +59,9 @@ namespace Game.NomadWorkshop.PlayMode.Tests
             Assert.IsTrue(_controller.LastDecision.HasSelection);
             Assert.GreaterOrEqual(_controller.DecisionCount, 1);
             Assert.AreSame(_camera, FindOnlyCamera(_testScene));
+            Assert.AreEqual(6, _controller.InteractionAnchorCount);
+            Assert.IsFalse(_controller.HasHumanoidResident,
+                "未提供资产引用的隔离测试必须证明程序假人回退仍可用。");
 
             Transform resident = _root.transform.Find("Resident_Ada");
             Assert.IsNotNull(resident);
@@ -65,6 +71,52 @@ namespace Game.NomadWorkshop.PlayMode.Tests
             Assert.Greater(Vector3.Distance(start, resident.position), 0.001f,
                 "选出行动后，展示层应开始向设施交互位移动。 ");
         }
+
+#if UNITY_EDITOR
+        [UnityTest]
+        public IEnumerator SelectedHumanoidAndControllerInstantiateAcrossAllSemanticStates()
+        {
+            GameObject model = AssetDatabase.LoadAssetAtPath<GameObject>(
+                "Assets/Game/NomadWorkshop/ThirdParty/QuaterniusUniversalBaseCharacters/Superhero_Male_FullBody.fbx");
+            RuntimeAnimatorController animatorController = AssetDatabase.LoadAssetAtPath<RuntimeAnimatorController>(
+                "Assets/Game/NomadWorkshop/Animation/NomadResident.controller");
+            Assert.IsNotNull(model);
+            Assert.IsNotNull(animatorController);
+
+            var host = new GameObject("Humanoid Presentation Test");
+            try
+            {
+                ResidentHumanoidPresentation presentation = host.AddComponent<ResidentHumanoidPresentation>();
+                Assert.IsTrue(presentation.TryInitialize(model, animatorController));
+                Assert.IsTrue(presentation.IsReady);
+                Assert.IsFalse(presentation.Animator.applyRootMotion);
+
+                ResidentAnimationSemantic[] semantics =
+                {
+                    ResidentAnimationSemantic.Idle,
+                    ResidentAnimationSemantic.Move,
+                    ResidentAnimationSemantic.Pickup,
+                    ResidentAnimationSemantic.Work,
+                    ResidentAnimationSemantic.Rest,
+                };
+                for (int i = 0; i < semantics.Length; i++)
+                {
+                    ResidentAnimationSemantic semantic = semantics[i];
+                    presentation.SetSemantic(semantic, true);
+                    presentation.Animator.Update(0.2f);
+                    Assert.IsTrue(
+                        presentation.Animator.GetCurrentAnimatorStateInfo(0).IsName(
+                            ResidentAnimationStates.GetStateName(semantic)),
+                        semantic.ToString());
+                }
+                yield return null;
+            }
+            finally
+            {
+                Object.Destroy(host);
+            }
+        }
+#endif
 
         private static Camera FindOnlyCamera(Scene scene)
         {
