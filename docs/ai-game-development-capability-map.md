@@ -79,7 +79,7 @@ Skill 只写会改变执行质量的非显然知识。已经由代码或测试�
 | G2 | 系统、AI、成长、经济与平衡 | M4 → M4 | 固定 seed、双后端对拍、黄金轨迹和长跑 guard | 自动结果仍需真实玩家难度与节奏校准 |
 | W1 | 种子宏观地图、旅途舞台与分级持久化 | M1 → M3 | [《游牧工坊》玩法愿景](nomad-workshop-game-vision.md)已定义双尺度世界、固定车体表现和状态等级 | 用有限原型区域验证 Seed 重建、目标点旅行、景物复用、临时停靠、主要地点返回、迷雾与保存规模，不先抽象一比一世界框架 |
 | C1 | 关卡、遭遇、节奏与叙事内容 | M1 → M3 | 当前垂直切片内容 | 先用真实关卡任务形成可重复评审，再决定是否建 Skill |
-| V1 | Art Direction、2D / 3D 资产 | M1 → M3 | `imagegen` 可做概念与 2D 原型 | 缺 art bible、资产 brief、来源记录、导入和场景验收闭环 |
+| V1 | Art Direction、2D / 3D 资产 | M2 → M3 | `imagegen` 可做概念与 2D 原型；[Blender 资产管线](blender-art-pipeline.md)已用 5.2.1 LTS 完成可重复的脚本化 `.blend` / FBX / 预览 / manifest Smoke | 尚未把自制 3D 资产导入 Unity 代表性镜头；缺 art bible、正式 brief、Importer / Prefab / 性能和授权闭环 |
 | V2 | Shader、VFX、材质、灯光、镜头与动画 | M1 → M3 | Unity 6 + URP 17.3 基础 | 在首个代表性效果上建立 RenderGraph、性能和视觉证据 |
 | U1 | UI / UX、输入、教程、无障碍、本地化 | M3 → M4 | UGUI / UI Toolkit / Bridge、Localization、相关测试 | 缺游戏级视觉语言、真实输入 E2E、无障碍与多分辨率矩阵 |
 | A1 | 音效、音乐、配音和动态混音 | M2 → M3 | Framework Audio 契约与测试；[AI 音频生产候选](ai-audio-production-research.md)已整理少量平台、授权边界与共用 Spike | 尚无生成结果真实进入 Unity；需验证同族一致性、DAW 后期、响度与目标设备表现 |
@@ -88,7 +88,7 @@ Skill 只写会改变执行质量的非显然知识。已经由代码或测试�
 | E3 | AI 执行可承接性 | M2 → M3 | `AGENTS.md`、开放 `.agents/skills`、`ai-agent-onboarding.md` 与共享 Harness | Codex 已闭环；其他 Agent 不预配置，真实采用时完成规则、工具与代表性任务 smoke |
 | Q1 | 编译、EditMode / PlayMode 与验证编排 | M4 → M5 | 1396 项基线、预检、后台自动化 | 用 `unity-validation-harness` 统一最小充分证据和交付摘要 |
 | Q2 | 视觉回归、性能与内存预算 | M2 → M4 | 截图、Profiler / Frame Debugger 能力 | 固定场景、设备、采样窗口、批准基线和预算阈值 |
-| Q3 | Agent Playtest 与真实玩家测试 | M2 → M4 | 业务 Command 玩家路径 smoke | 加极薄 Input Driver；另建真实玩家观察和访谈循环 |
+| Q3 | Agent Playtest 与真实玩家测试 | M2 → M4 | 业务 Command 玩家路径 smoke；[Harness 调研](ai-game-development-harness-research.md)已形成 Trace、双通道观察、Evidence Bundle 与采用边界 | 加极薄 Input Driver 和可回放动作轨迹；另建真实玩家观察和访谈循环 |
 | R1 | 构建、发布、平台和商店 | M3 → M4 | Unity CLI Adapter、隔离 Player Build、Steam / Windows 首发建议与移动 Gate | 概念通过后建立 Windows 可分发 Player 包、Steamworks 准备与目标设备 smoke |
 | R2 | 市场、分析、社区、运营、隐私与授权 | M1 → M2 | 平台官方约束、概念商业 Gate 与生成资产台账字段已进入商业游戏策略 | 用真实竞品集、试玩指标和第一批资产授权记录证明流程，再形成发布 checklist |
 
@@ -112,14 +112,14 @@ Unity Test Framework + BattleSim / PlayerPath Harness
 4. 经 Input System 虚拟设备和 Input Action 驱动的薄 Playtest Driver。
 5. 当 Project Skill 数量增长后，用真实历史任务做有 / 无 Skill 对照 Eval。
 
-外部 Harness 只按缺口采用：
+外部 Harness 的源码级比较、生产 / Benchmark 边界和最小证据契约见 [AI 游戏开发 Harness 调研](ai-game-development-harness-research.md)。这里只保留会影响近期采用的缺口：
 
 | 缺口 | 候选 | 当前决策 |
 |---|---|---|
 | 性能 Oracle | Unity [Performance Testing Extension](https://docs.unity3d.com/Packages/com.unity.test-framework.performance@3.2/manual/index.html) + `ProfilerRecorder` | 先在分支验证与当前 Unity / UTF 的包兼容，只建 3–5 个固定场景；Editor 数据用于诊断，门禁优先固定 Player |
 | 视觉 Oracle | Unity [Graphics Test Framework](https://docs.unity3d.com/Packages/com.unity.testframework.graphics@9.0/manual/index.html) | 当前为 pre-release 候选，只试点一个运行时 UI、一个 EditorWindow、一个 Shader 场景；黄金图必须人工批准 |
 | GitHub CI 执行 | [GameCI Unity Test Runner](https://github.com/game-ci/unity-test-runner) | 真正建立 GitHub CI 时再接；它远程运行 UTF，不替代本地 MCP 或项目 Oracle |
-| Playtest 设计参考 | [DeNA Anjin](https://github.com/DeNA/Anjin)、[Signal Loop Unity Code MCP](https://github.com/Signal-Loop/UnityCodeMCPServer) | 借鉴 fixed seed、timeout、observe → act → observe 和真实 Input Action；不原装，不引入第二套 MCP |
+| Playtest 设计参考 | [DeNA Anjin](https://github.com/DeNA/Anjin)、[GameDevBench](https://github.com/waynchi/gamedevbench)、[GameCraft-Bench](https://github.com/FreedomIntelligence/gamecraft-bench)、[Gamebrew](https://github.com/ataberk-xyz/Gamebrew) | 借鉴 fixed seed、timeout、可回放输入、状态 Dump + 截图 / 视频和证据包；不原装，不引入第二套 MCP，也不把 VLM 分数当“好玩”或确定性真值 |
 | 跨设备黑盒 E2E | [AltTester Unity SDK](https://github.com/alttester/AltTester-Unity-SDK) | 只有外部 QA / 真机矩阵成为需求时评估，并先审 GPL-3.0 与测试构建边界 |
 | 学习型探索 Agent | [Unity ML-Agents](https://github.com/Unity-Technologies/ml-agents) | 仅用于关卡探索、平衡或涌现行为问题；不替代普通回归 Harness 和业务 Oracle |
 
@@ -154,6 +154,7 @@ Unity Test Framework + BattleSim / PlayerPath Harness
 |---|---|---|
 | 已项目化 | `improve-ssframework-architecture`，参考 [mattpocock/skills](https://github.com/mattpocock/skills) 的 `improve-codebase-architecture` / `codebase-design` | 通用版不是 Claude 专属，但项目已有五层、CONTEXT、ADR、Unity 生命周期与 Adapter 语言；合并成一个项目 Skill 比同时安装多个互相调用的上游 Skill 更少误触发 |
 | 已项目化 | `unity-validation-harness` | 填补“按改动风险选择并收口已有证据”的真实缺口，不另造 Runner 或第二套 Unity MCP |
+| 作为高信誉上游，逐项适配 | [Unity Technologies Skills](https://github.com/Unity-Technologies/skills) 的 UI Toolkit、URP、Render Graph、Shader Graph、Audio、AI Navigation、Localization 等窄 Skill | 官方来源且 API 陷阱具体，但整包安装会带入当前不用的服务，并假设 Unity 官方 CLI / Pipeline；真实任务触发时只审查相关 Skill，吸收到项目工具、文档或窄 Skill |
 | 下一真实测试任务再适配 | [.NET `test-gap-analysis`](https://github.com/dotnet/skills/blob/main/plugins/dotnet-test/skills/test-gap-analysis/SKILL.md) | “改变可观察行为时测试是否真会失败”价值高；必须改成 Unity EditMode / PlayMode、预检、`UnityTest`、帧与 `total > 0` 语义，不能原样安装 |
 | 遇到重复 R3 时序问题再适配 | [`r3-reactive-extensions`](https://github.com/Aaronontheweb/dotnet-skills/blob/master/skills/r3-reactive-extensions/SKILL.md) | 与项目 R3 版本高度相关，但需覆盖 SSFramework 的 Bag、UniTask、取消和生命周期所有权；没有真实重复痛点前先不增加常驻候选 |
 | 作为材料，不单独安装 | 通用 bug diagnosis、test anti-patterns、code review | 可把可证伪假设、假通过检查和需求/规则双轴审查吸收到现有诊断、验证或 review 流程；单独安装会与已有 Skill 和 Codex review 重叠 |
@@ -172,7 +173,7 @@ Unity Test Framework + BattleSim / PlayerPath Harness
 | 图片、概念图、2D 资产 | Codex `imagegen` + 项目资产验收流程 | 同一风格资产族能稳定生成、规范化并在 Unity 中通过验收 | 探索 |
 | Sprite 法线 / 高度 / AO | [Laigter](https://github.com/azagaya/laigter) | 项目确定 2D 光照方案、贴图命名和导入规则 | 候选 |
 | 程序化 PBR 材质 | [Material Maker](https://github.com/RodZill4/material-maker) | 首个 Shader / 材质垂直切片需要 | 候选 |
-| 3D 制作自动化 | Blender + [Blender MCP](https://github.com/ahujasid/blender-mcp) | Blender 成为正式 DCC，且任意脚本执行边界可接受 | 候选 |
+| 3D 制作自动化 | [Blender 5.2 CLI / Python 基线](blender-art-pipeline.md)；[Blender MCP](https://github.com/ahujasid/blender-mcp)仅为交互候选 | 第二种资产复验，并完成一次 Unity Import / Prefab / 固定镜头验收；只有交互修改成为真实瓶颈才隔离评估 MCP | CLI Smoke 已验证；Unity 闭环待做 |
 | AI 3D 原型 | [Meshy](https://github.com/meshy-dev/meshy-3d-agent) | API、成本、拓扑 / UV 质量和商业授权验证通过 | 候选 |
 | UI 设计真值 | [Figma MCP](https://developers.figma.com/docs/figma-mcp-server/) | Figma 真正成为设计源，而不是只为接插件 | 候选 |
 | 游戏音效生成 | [AI 音频生产候选](ai-audio-production-research.md)：Stable Audio 3 Small SFX + ElevenLabs；Adobe Firefly 为人工备选 | 同一 Brief 的质量、循环、同族一致性、API / 本地成本和商业授权验证通过 | 探索 |
@@ -200,12 +201,13 @@ Unity Test Framework + BattleSim / PlayerPath Harness
 - 使用 `unity-validation-harness` 收口每次非琐碎变更的验证。
 - 在真实架构任务中使用 `improve-ssframework-architecture`，按证据继续收窄或补充，而不直接复制通用 Skill。
 - 按[《游牧工坊》玩法愿景](nomad-workshop-game-vision.md)实现受控的 Foundation Prototype，验证目标点旅行、自动居民、单层建造、车外作业和选择性持久化，再决定是否进入正式垂直切片。
+- 生活模拟先用“具体库存 → 实际搬运 → 摄入 / 使用 → 污物、垃圾或污渍 → 处理”的垂直因果链验证选择性真实，不同时铺开洗澡、衣物、关系和所有家务。
 - 在游戏独立程序集内建立最小宏观地图、固定旅途舞台和停靠场景接缝，用固定 Seed、路线进度、主要地点返回和存档往返证据约束 W1；出现第二个真实消费者前不回流 Framework。
 - 游戏业务先留在独立目录/asmdef；只有跨游戏通用或阻断公共用法的证据才回流 Framework。
 
 ### Next
 
-- 从真实美术任务建立 art brief、资产 manifest、来源和 Unity 导入验收。
+- 以已通过的 Blender CLI Smoke 为起点，从真实美术任务建立 art brief、资产 manifest、来源和 Unity 导入验收；第二次稳定复现后再考虑 `blender-asset-pipeline` Project Skill。
 - 按 [AI 音频生产候选](ai-audio-production-research.md)完成一轮小规模 Audio Spike，再决定主线平台、DAW 和是否形成项目 Skill。
 - 选择性适配游戏 UI / UX、Game Feel、关卡设计和 test-gap-analysis Skill。
 - 建立 3–5 个性能场景；选择少量 UI / Shader 试点视觉回归。
@@ -213,7 +215,7 @@ Unity Test Framework + BattleSim / PlayerPath Harness
 
 ### Later
 
-- 根据正式美术风格选择 Blender / Meshy / 法线材质工具和音效服务。
+- 根据正式美术风格选择 Meshy / 法线材质工具和音效服务，并判断 Blender 交互 MCP 是否真的比 CLI / Python 节省迭代成本。
 - 首个目标平台的 Player 构建、设备 smoke、无障碍与本地化矩阵。
 - Skill Eval Harness、CI 并发验证和可恢复的证据 manifest。
 - 将稳定的跨项目能力抽成可移植 Agent Skill；将产品专属体验按需抽成 Plugin / Extension，将 Unity 执行层抽成 UPM Package。
@@ -239,6 +241,8 @@ Unity Test Framework + BattleSim / PlayerPath Harness
 - `AGENTS.md`：始终加载的协作和安全边界。
 - `CONTEXT.md`：框架领域语言与设计上下文。
 - `docs/ai-collaboration-guide.md`：公共规则、Skill、工具与 Harness 的协作原则。
+- `docs/ai-game-development-harness-research.md`：公开 Harness、Playtest、Benchmark 与项目最小证据契约的调研决策。
+- `docs/blender-art-pipeline.md`：Blender 5.2 CLI / Python 基线、插件边界和首个资产 Smoke。
 - `docs/ai-agent-onboarding.md`：新 Agent 的最小接入、验证与 Handoff 契约。
 - `docs/unity-mcp-tips.md`：当前 Unity MCP 的稳定调用语义。
 - `docs/project-improvement-plan.md`：最新可复核工程基线。
