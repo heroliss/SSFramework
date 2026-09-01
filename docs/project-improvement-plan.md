@@ -419,7 +419,7 @@
 - **需要重复生产证据**：Asset 维护 session 等第三个生产调用方、UI window lease 的并发 owner、第二个 Asset Provider、字体输入/扫描优化与大文件拆分；触发前不为概念完整预建抽象。
 - **持续健康工作**：中文、注释和 Editor 体验在发现具体误导或摩擦时随任务修正，不再作为阻止阶段结束的无限审计清单。
 
-下一阶段先按[《游牧工坊》产品愿景与第一版地基](nomad-workshop-game-vision.md)从独立游戏 asmdef 实现受控的 Foundation Prototype，验证自动居民、目标点行驶、单层建造、车外作业和选择性持久化；通过后再扩大为可从头玩到阶段目标的正式垂直切片。它仍是需要真实试玩推翻或收窄的产品假设，不因适合展示 Framework 或生成式资产就跳过 Gate。缺口按“游戏专属 / Framework 通用 / Skill-Harness 流程 / 人工审美与玩家反馈”分流，并回写 `ai-game-development-capability-map.md`。
+下一阶段先按[《游牧工坊》产品愿景与第一版地基](nomad-workshop-game-vision.md)从独立游戏 asmdef 实现受控的 Foundation Prototype，验证自动居民、目标点行驶、车体固定的旅途舞台、单层建造、车外作业和选择性持久化；通过后再扩大为可从头玩到阶段目标的正式垂直切片。它仍是需要真实试玩推翻或收窄的产品假设，不因适合展示 Framework 或生成式资产就跳过 Gate。缺口按“游戏专属 / Framework 通用 / Skill-Harness 流程 / 人工审美与玩家反馈”分流，并回写 `ai-game-development-capability-map.md`。
 
 ## 保留候选（仅在触发条件成立时）
 
