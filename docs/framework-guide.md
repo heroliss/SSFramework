@@ -2766,7 +2766,7 @@ CJK 全量字库体积大（单字体 15~30MB），全量随包不现实；砍�
 | **Mono 初始化问题**（左上，按需出现） | 把父级失败引发的多层 Context 失败聚合为“根因组”，显示最先失败对象、受影响链和当前 / 历史证据 | 先修哪一个异常；看到“影响 3 个”时不会误判成 3 个独立 bug |
 | **Context 作用域树**（左） | 所有存活 `GameContext` 按父子成树（含纯 C# Context——GameFlow 状态子 Context 首次可见）；节点带徽标（`Main` / `Mono`·`C#` / `可→Main` 策略 / `→Main ×N` 实际解析）与「注册 N · 订阅 M · 存活时长」摘要 | 切走的阶段 / 关卡 Context 还在树上 = 忘了 Dispose；本应隔离的节点出现实际 Main 回退 = 接线嫌疑 |
 | **Context 明细**（右） | 选中节点的本地注册表（契约 → 实例，标注运行时 / 构建时 / 工厂——**不触发工厂**，观察不改变系统；Unity 对象带「定位」按钮）、实际解析回退（契约 → 来源 / 次数）、本地 `IGameFlow` 的 Current / 退出中 / 进入中 / 待处理、事件订阅计数、池借出 / 空闲 | 「这个 Context 里到底注册了什么」「哪些服务确实越过了本地边界」「流程卡在哪个事务阶段」「哪个事件订阅数在涨」不再逐个点场景节点 |
-| **Command 流水表格**（下） | `LoggingCommandSystem` 最近记录：时间 / 帧 / 同步异步 / 命令 / Context / 耗时 / 状态，新的在上；**耗时着色**（≥1 帧黄、≥100ms 红）、错误行红字，选中行底部展开完整信息 | 用户操作到底触发了哪些命令、谁在偷偷发命令、哪个命令异常 / 超慢 |
+| **Command 流水表格**（下） | `LoggingCommandSystem` 最近记录：时间 / 帧 / 同步异步 / 命令 / Context / 耗时 / 状态，新的在上；命令名后可显示中文意图，双击跳转到类型声明；**耗时着色**（≥1 帧黄、≥100ms 红）、错误行红字，选中行底部展开完整信息 | 用户操作到底触发了哪些命令、谁在偷偷发命令、哪个命令异常 / 超慢 |
 
 **交互**：工具栏搜索过滤 Context 树（匹配名称 / 注册契约 / 回退契约与来源 / 事件类型，保留祖先链）；**双击树节点定位场景对象**（Mono Context）；命令表格独立搜索 + 「仅错误」开关 + **「复制」导出 TSV**（可直接粘进表格软件）+ 清空；「自动刷新」可关（冻结快照细看），展开 / 折叠一键全树。
 
@@ -2809,6 +2809,19 @@ protected override void InstallBindings(ContainerBuilder builder)
 - 保持命令结果语义：六个重载泛型直转发，struct Command 路径保持零装箱，异常照原样冒出；异步公共终态按 `ICommandSystem` 契约在主线程交付。
 - **完成时落账**：异步命令 await 完成（含取消 / 异常）后才出现在流水里，耗时才有意义；在途异步不显示。
 - `new LoggingCommandSystem(echoToConsole: true)` 可同时逐条打 Console（Development Build 真机排查用——面板本身是 Editor 专用）。
+- 需要中文意图时，在命令类型上使用标准特性，无需引入框架专用 Attribute：
+
+```csharp
+using System.ComponentModel;
+
+[Description("修复主水箱出水阀并开始新的故障风险周期")]
+public readonly struct RepairWaterValveCommand : ICommand
+{
+    public void Execute(ICommandContext ctx) { /* ... */ }
+}
+```
+
+XML doc 继续负责 API 契约，诊断窗口不会反向解析注释：注释在 Player / DLL 中不一定存在，且同一文件可有多个命令。流水只记类型身份，不记字段 payload；Editor 再按当前编译程序集解析 `DescriptionAttribute` 和源文件。刚编译后的旧流水或只有 DLL 的命令可能无法跳转，窗口会给出原因而不猜测文件。
 - demo 的 `MonoDemoContext` 已这样注册：打开 demo 场景点任意按钮，流水实时可见。
 
 ### 给纯 C# Context 起名字

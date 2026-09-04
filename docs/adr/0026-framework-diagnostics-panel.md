@@ -39,10 +39,10 @@ roadmap 中期第六项：把散在各组件 Inspector「运行时诊断」折�
 
 `Core/Systems/LoggingCommandSystem.cs`，public、**opt-in**——根 Context 的 `InstallBindings` 里把 `new CommandSystem()` 换成 `new LoggingCommandSystem()` 即接入（就是 `ICommandSystem` XML doc 里教的装饰器姿势，正好验证「命令分发可替换」不是纸面能力）：
 
-- **静态环形缓冲**（默认 256 条）记录命令流水：开始时刻/帧号、命令类型名、同步/异步、耗时、异常、Context 名。多实例共写同一条时间线（多 Context 各自注册也能看到全局顺序）。
+- **静态环形缓冲**（默认 256 条）记录命令流水：开始时刻/帧号、命令类型短名与程序集限定身份、同步/异步、耗时、异常、Context 名。多实例共写同一条时间线（多 Context 各自注册也能看到全局顺序）。类型身份只供 Editor 解析说明与源码，不包含实例字段。
 - **完成时落账**：同步命令执行完立即记录；异步命令经 wrapper `await` 完成（含异常/取消）后记录，耗时才有意义。在途异步不显示——诊断面板不是 profiler。
 - **主线程提交**：自定义 inner dispatcher 即使在 worker 完成，wrapper 也先切回 Unity 主线程再落无锁缓冲并交付终态；异常对象与取消语义原样传播。默认 `CommandSystem` 也遵守同一 Interface 契约，这里重复兜底是为了装饰器可安全包住项目实现。
-- **零装箱红线**：只记 `typeof(T).Name`（缓存串），不对 struct 命令调 `ToString()`；六个重载全部泛型直转发 `_inner`，struct 路径保持零装箱。
+- **零装箱红线**：只读取 `typeof(T)` / 已有引用的运行时 `Type` 元数据，不对 struct 命令调 `ToString()`；六个重载全部泛型直转发 `_inner`，struct 路径保持零装箱。
 - 记录本身不条件编译（类是 opt-in 的，挂了就要工作——Development Build 真机也能用它排查）；可选 `echoToConsole` 逐条打日志，默认关。
 
 ### 5. 对象池补「借出」计数
@@ -57,7 +57,7 @@ C# 池在所有构建中按引用身份维护完整实例状态，`PoolUtility` 
 
 1. **左：Context 作用域树**（TreeView）——存活 Context 按 `Container.Parent` 链成树，节点带徽标（Main / Mono·C# / `可→Main` 策略 / `→Main ×N` 实际成功解析）与「注册 · 订阅 · 存活时长」摘要；工具栏搜索按「名称 / 注册契约 / 回退契约与来源 / 事件类型」过滤（保留祖先链）；双击定位场景对象。
 2. **右：选中 Context 明细**——本地注册表（契约 → 实例，运行时 / 构建时 / 工厂徽标——**绝不触发工厂**，诊断不得改变被观察系统；Unity 对象带定位按钮）、实际解析回退（契约 → 最终来源、父链 / Main、解析次数）、本地 `IGameFlow` 的 Current / 进入中 / 退出中 / 待处理事务、事件订阅计数（异常增长 = 泄漏嫌疑）、本地 `IPoolUtility` 池借出 / 空闲。流程诊断只读已构造绑定：自定义 Adapter 使用公共 `Current / IsTransitioning`，默认 `GameFlow` 通过 Editor-only 内部快照补充事务阶段，不为调试扩张业务 Interface，也不触发 Lazy Factory。
-3. **下：Command 流水表格**（MultiColumnListView）——`LoggingCommandSystem` 环形缓冲，新的在上；耗时着色（≥1 帧 / ≥100ms）、过滤 + 仅错误开关 + TSV 复制导出；未接入时显示一行接入指引，不报错。
+3. **下：Command 流水表格**（MultiColumnListView）——`LoggingCommandSystem` 环形缓冲，新的在上；耗时着色（≥1 帧 / ≥100ms）、过滤 + 仅错误开关 + TSV 复制导出；命令类型可用标准 `System.ComponentModel.DescriptionAttribute` 提供中文意图，表格保留 C# 类型名并同时显示说明。双击一行时，Editor 用程序集源文件清单和类型声明定位源码；同名结果不唯一时明确拒绝跳转，不猜。未接入时显示一行接入指引，不报错。
 4. **顶栏计数条**：存活 Context / Bag 存活（各带约 30 秒窗口的趋势 sparkline，Painter2D 自绘）/ 命令累计。Play 模式外树区显示提示（登记表只在运行期有内容）。
 
 500ms 定时**增量刷新**：结构签名没变只重绑可见行（树的展开状态按稳定 id 记忆、选中与滚动不丢），变了才重建；「自动刷新」可暂停冻结快照。
@@ -67,7 +67,7 @@ C# 池在所有构建中按引用身份维护完整实例状态，`PoolUtility` 
 - **运行时 overlay / 真机面板**：真机分工已定（SelfCheck 冒烟 + FrameworkLog + Development Build 下的 LoggingCommandSystem 日志），面板是 Editor 工具。
 - **历史曲线 / 采样存储**：泄漏排查看「当前值 + 趋势肉眼观察」够用；要精确追踪用 Unity Profiler / Memory Profiler，不重造。
 - **订阅点堆栈捕获**（谁订阅的）：每次订阅抓栈分配巨大；计数 + Context 归属已能把嫌疑范围缩到单个 Context 的单个事件类型，剩下的搜代码即达。
-- **Bag 逐实例登记 / 命令 payload 展示**：同上，成本压不住收益。
+- **Bag 逐实例登记 / 命令 payload 展示**：同上，成本压不住收益。中文类型说明和源码定位只是静态元数据，不改变这条边界。
 - **demo 章节**：面板没有业务 API，五件套的「demo」不适用——guide 章节 + 现有 demo 场景（多上下文/流程/池章节本就是最好的观察素材）即覆盖。
 
 ## Consequences

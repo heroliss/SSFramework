@@ -187,6 +187,45 @@ namespace Game.Framework.Editor.Tests
         }
 
         [Test]
+        public void CommandMetadata_ReadsStandardChineseDescription()
+        {
+            string description = FrameworkCommandMetadataCatalog.GetDescription(
+                typeof(DescribedDiagnosticCommand).AssemblyQualifiedName);
+
+            Assert.That(description, Is.EqualTo("诊断窗口中文说明样例"));
+        }
+
+        [Test]
+        public void CommandSourceScanner_IgnoresCommentsAndStringLiterals()
+        {
+            const string source =
+                "// public struct TargetCommand {}\n" +
+                "namespace Scanner.Sample\n" +
+                "{\n" +
+                "    const string Fake = \"class TargetCommand {}\";\n" +
+                "\n" +
+                "    public readonly struct TargetCommand {}\n" +
+                "}";
+
+            Assert.That(FrameworkCommandMetadataCatalog.FindDeclarationLine(
+                source,
+                "TargetCommand"), Is.EqualTo(6));
+        }
+
+        [Test]
+        public void CommandMetadata_FindsDeclarationInsideOwningAssemblySources()
+        {
+            FrameworkCommandMetadataCatalog.SourceReference source =
+                FrameworkCommandMetadataCatalog.FindSource(
+                    typeof(DescribedDiagnosticCommand).AssemblyQualifiedName);
+
+            Assert.That(source.Found, Is.True, source.Issue);
+            Assert.That(source.AssetPath.Replace('\\', '/'),
+                Does.EndWith("Assets/Game/Framework/Editor/Tests/FrameworkDiagnosticsWindowTests.cs"));
+            Assert.That(source.Line, Is.GreaterThan(0));
+        }
+
+        [Test]
         public void LocalGameFlowLookup_ReadsConstructedBindingWithoutTriggeringFactory()
         {
             var flow = new GameFlow();
@@ -476,6 +515,11 @@ namespace Game.Framework.Editor.Tests
             protected override void InstallBindings(ContainerBuilder builder)
             {
             }
+        }
+
+        [System.ComponentModel.Description("诊断窗口中文说明样例")]
+        private sealed class DescribedDiagnosticCommand
+        {
         }
     }
 }

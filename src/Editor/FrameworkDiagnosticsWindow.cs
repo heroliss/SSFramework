@@ -21,7 +21,7 @@ namespace Game.Framework.Editor
     /// 「运行时诊断」（菜单 <c>SSFramework/诊断与分析/运行时诊断</c>）：调试器风格的运行时总览——
     /// 左侧存活 Context 作用域树（搜索过滤、双击定位场景对象），右侧选中 Context 的明细
     /// （本地注册表 / 事件订阅计数 / 池借出），底部 <see cref="LoggingCommandSystem"/> 命令流水表格
-    /// （过滤 / 仅错误 / 复制导出），顶栏全局计数带趋势 sparkline。定位是调试与泄漏排查入口：
+    /// （中文描述 / 双击源码 / 过滤 / 仅错误 / 复制导出），顶栏全局计数带趋势 sparkline。定位是调试与泄漏排查入口：
     /// 订阅数 / Bag 数只增不减、Context 切走后仍在树上，都是泄漏嫌疑（ADR-0026）。
     /// </summary>
     /// <remarks>
@@ -1016,7 +1016,7 @@ namespace Game.Framework.Editor
             _commandSearchField = new ToolbarSearchField
             {
                 name = "diagnostics-command-search",
-                tooltip = "过滤命令流水：匹配命令类型名 / Context 名。",
+                tooltip = "过滤命令流水：匹配命令类型名 / 中文说明 / Context 名。",
                 style = { flexGrow = 1, flexShrink = 1 },
             };
             _commandSearchField.RegisterValueChangedCallback(e => { _cmdFilter = e.newValue?.Trim() ?? ""; _cmdFilterDirty = true; Tick(); });
@@ -1065,7 +1065,16 @@ namespace Game.Framework.Editor
                 l.text = e.IsAsync ? "异步" : "同步";
                 l.style.color = e.IsAsync ? ColAsync : ColMuted;
             });
-            _commandColumn = MakeColumn("命令", 200, true, (l, e) => l.text = e.CommandType);
+            _commandColumn = MakeColumn("命令", 200, true, (l, e) =>
+            {
+                string description = FrameworkCommandMetadataCatalog.GetDescription(e);
+                l.text = string.IsNullOrEmpty(description)
+                    ? e.CommandType
+                    : $"{description} · {e.CommandType}";
+                l.tooltip = string.IsNullOrEmpty(description)
+                    ? $"{e.CommandType}\n双击跳转到命令声明。"
+                    : $"{e.CommandType}\n{description}\n双击跳转到命令声明。";
+            });
             _contextColumn = MakeColumn("上下文（Context）", 130, false, (l, e) => l.text = e.ContextName);
             _durationColumn = MakeColumn("耗时", 78, false, (l, e) =>
             {
@@ -1091,8 +1100,11 @@ namespace Game.Framework.Editor
             {
                 if (items.FirstOrDefault() is LoggingCommandSystem.Entry e)
                 {
+                    string description = FrameworkCommandMetadataCatalog.GetDescription(e);
                     _commandDetail.value =
                         $"{FormatClock(e.StartTime)} 帧{e.Frame} {(e.IsAsync ? "异步" : "同步")} {e.CommandType} @{e.ContextName} {e.DurationMs:F2}ms" +
+                        (!string.IsNullOrEmpty(description) ? $"\n说明：{description}" : "") +
+                        "\n双击这条命令可跳转到类型声明。" +
                         (e.Error != null ? $"\n{e.Error}" : "");
                     _commandDetail.style.display = DisplayStyle.Flex;
                 }
@@ -1101,9 +1113,14 @@ namespace Game.Framework.Editor
                     _commandDetail.style.display = DisplayStyle.None;
                 }
             };
+            _commandTable.itemsChosen += items =>
+            {
+                if (items.FirstOrDefault() is LoggingCommandSystem.Entry entry)
+                    OpenCommandSource(entry);
+            };
             pane.Add(_commandTable);
 
-            _commandDetail = new TextField { multiline = true, isReadOnly = true, style = { display = DisplayStyle.None, maxHeight = 52 } };
+            _commandDetail = new TextField { multiline = true, isReadOnly = true, style = { display = DisplayStyle.None, maxHeight = 76 } };
             pane.Add(_commandDetail);
             return pane;
 
@@ -1119,22 +1136,34 @@ namespace Game.Framework.Editor
                     var label = (Label)ve;
                     label.style.color = StyleKeyword.Null; // 重置复用 cell 的颜色
                     label.style.unityTextAlign = TextAnchor.MiddleLeft;
+                    label.tooltip = string.Empty;
                     if (i >= 0 && i < _cmdRows.Count) bind(label, _cmdRows[i]);
                 },
             };
         }
 
+        private void OpenCommandSource(in LoggingCommandSystem.Entry entry)
+        {
+            if (FrameworkCommandMetadataCatalog.TryOpenSource(entry, out string message)) return;
+            ShowNotification(new GUIContent(message));
+            Debug.LogWarning($"[SSFramework.Tool] 命令源码定位失败：{message}");
+        }
+
         private void CopyCommandsTsv()
         {
-            var sb = new StringBuilder("时间\t帧\t模式\t命令\t上下文\t耗时ms\t状态\n");
+            var sb = new StringBuilder("时间\t帧\t模式\t命令\t说明\t上下文\t耗时ms\t状态\n");
             foreach (var e in _cmdRows)
                 sb.Append(FormatClock(e.StartTime)).Append('\t').Append(e.Frame).Append('\t')
                   .Append(e.IsAsync ? "异步" : "同步").Append('\t').Append(e.CommandType).Append('\t')
+                  .Append(TsvCell(FrameworkCommandMetadataCatalog.GetDescription(e))).Append('\t')
                   .Append(e.ContextName).Append('\t').Append(e.DurationMs.ToString("F2")).Append('\t')
-                  .Append(e.Error ?? "✓").Append('\n');
+                  .Append(TsvCell(e.Error ?? "✓")).Append('\n');
             EditorGUIUtility.systemCopyBuffer = sb.ToString();
             ShowNotification(new GUIContent($"已复制 {_cmdRows.Count} 行"));
         }
+
+        private static string TsvCell(string value) =>
+            (value ?? string.Empty).Replace('\t', ' ').Replace('\r', ' ').Replace('\n', ' ');
 
         // ── 响应式布局 ──────────────────────────────────────────────────────
 
@@ -1633,8 +1662,10 @@ namespace Game.Framework.Editor
             {
                 var e = _cmdRing[i];
                 if (_onlyErrors && e.Error == null) continue;
+                string description = FrameworkCommandMetadataCatalog.GetDescription(e);
                 if (_cmdFilter.Length > 0 &&
                     e.CommandType.IndexOf(_cmdFilter, StringComparison.OrdinalIgnoreCase) < 0 &&
+                    description.IndexOf(_cmdFilter, StringComparison.OrdinalIgnoreCase) < 0 &&
                     e.ContextName.IndexOf(_cmdFilter, StringComparison.OrdinalIgnoreCase) < 0)
                     continue;
                 _cmdRows.Add(e);

@@ -328,6 +328,7 @@ namespace Game.Framework.Test
                 LoggingCommandSystem.CopyRecent(entries);
                 Assert.AreEqual(1, entries.Count);
                 Assert.AreEqual(nameof(TestCommand), entries[0].CommandType);
+                Assert.AreEqual(typeof(TestCommand).AssemblyQualifiedName, entries[0].CommandTypeId);
                 Assert.AreEqual("LogTest", entries[0].ContextName);
                 Assert.IsNull(entries[0].Error);
                 Assert.IsFalse(entries[0].IsAsync);
@@ -351,7 +352,13 @@ namespace Game.Framework.Test
                 LoggingCommandSystem.CopyRecent(entries);
                 Assert.AreEqual(2, entries.Count); // 旧 → 新
                 Assert.AreEqual(nameof(TestResultCommand), entries[0].CommandType);
+                Assert.AreEqual(
+                    typeof(TestResultCommand).AssemblyQualifiedName,
+                    entries[0].CommandTypeId);
                 Assert.AreEqual(nameof(TestStructResultCommand), entries[1].CommandType);
+                Assert.AreEqual(
+                    typeof(TestStructResultCommand).AssemblyQualifiedName,
+                    entries[1].CommandTypeId);
             }
             finally { ctx.Dispose(); }
         }

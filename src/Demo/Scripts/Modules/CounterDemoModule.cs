@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using Game.Framework.Command;
 using Game.Framework.Common;
 using Game.Framework.Context;
@@ -79,18 +80,21 @@ namespace Game.Framework.Demo.Modules
     }
 
     /// <summary>计数 +1。struct Command：零分配，只能经 <c>ctx.GetModel</c> 访问层。</summary>
+    [Description("将计数器加一")]
     public readonly struct IncrementCommand : ICommand
     {
         public void Execute(ICommandContext ctx) => ctx.GetModel<CounterModel>().Count.Value++;
     }
 
     /// <summary>计数重置为 0。</summary>
+    [Description("将计数器重置为零")]
     public readonly struct ResetCountCommand : ICommand
     {
         public void Execute(ICommandContext ctx) => ctx.GetModel<CounterModel>().Count.Value = 0;
     }
 
     /// <summary>只读查询：返回计数的只读状态流，供 View 订阅（订阅即得当前值）。</summary>
+    [Description("读取计数器的响应式状态")]
     public readonly struct GetCountCommand : ICommand<ReadOnlyReactiveProperty<int>>
     {
         public ReadOnlyReactiveProperty<int> Execute(ICommandContext ctx) => ctx.GetModel<CounterModel>().Count;

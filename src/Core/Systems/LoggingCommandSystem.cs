@@ -19,7 +19,9 @@ namespace Game.Framework.Systems
     /// <c>builder.RegisterValue(new LoggingCommandSystem(), typeof(ICommandSystem))</c>。
     /// 多个 Context 各自注册也共写同一条时间线（缓冲是静态的），可观察全局命令顺序。<br/>
     /// <b>装饰语义</b>：六个重载全部泛型直转发内层 dispatcher（默认 <see cref="CommandSystem"/>），
-    /// struct Command 路径保持零装箱；只记 <c>typeof(T).Name</c>，<b>不</b>对命令调 <c>ToString()</c>（struct 会装箱）。
+    /// struct Command 路径保持零装箱；只读取命令的 <see cref="Type"/> 元数据，<b>不</b>对命令调
+    /// <c>ToString()</c>（struct 会装箱）。短名用于人工阅读，程序集限定类型名供 Editor 解析描述与源码；
+    /// 它不是 Command payload，也不会执行业务代码。
     /// 异常照原样冒出（记录后 rethrow），并遵守 <see cref="ICommandSystem"/> 的主线程完成契约。<br/>
     /// <b>落账时机</b>：完成时——同步命令执行返回即记；异步命令 await 完成（含异常 / 取消）后记，耗时才有意义；
     /// 在途异步不出现在流水里。<br/>
@@ -40,6 +42,12 @@ namespace Game.Framework.Systems
             /// <summary>命令类型短名。</summary>
             public readonly string CommandType;
 
+            /// <summary>
+            /// 命令的程序集限定类型名；Editor 用它读取类型描述并定位声明源码。
+            /// 该字符串只描述类型，不包含命令实例字段。
+            /// </summary>
+            public readonly string CommandTypeId;
+
             /// <summary>执行命令的 Context 诊断名（<see cref="GameContext.DebugName"/>；未命名为 <c>#哈希</c>）。</summary>
             public readonly string ContextName;
 
@@ -52,12 +60,15 @@ namespace Game.Framework.Systems
             /// <summary>是否异步命令（IAsyncCommand 系）。</summary>
             public readonly bool IsAsync;
 
-            internal Entry(float startTime, int frame, string commandType, string contextName,
+            internal Entry(float startTime, int frame, Type commandType, string contextName,
                 float durationMs, string error, bool isAsync)
             {
                 StartTime = startTime;
                 Frame = frame;
-                CommandType = commandType;
+                CommandType = commandType.Name;
+                CommandTypeId = commandType.AssemblyQualifiedName ??
+                                commandType.FullName ??
+                                commandType.Name;
                 ContextName = contextName;
                 DurationMs = durationMs;
                 Error = error;
@@ -114,17 +125,18 @@ namespace Game.Framework.Systems
         {
             var p = Pending.Begin();
             try { _inner.ExecuteCommand(command, ctx); }
-            catch (Exception e) { Record(typeof(T).Name, ctx, p, e, isAsync: false); throw; }
-            Record(typeof(T).Name, ctx, p, null, isAsync: false);
+            catch (Exception e) { Record(typeof(T), ctx, p, e, isAsync: false); throw; }
+            Record(typeof(T), ctx, p, null, isAsync: false);
         }
 
         public TResult ExecuteCommand<TResult>(ICommand<TResult> command, GameContext ctx)
         {
             var p = Pending.Begin();
+            Type commandType = command.GetType();
             TResult result;
             try { result = _inner.ExecuteCommand(command, ctx); }
-            catch (Exception e) { Record(command.GetType().Name, ctx, p, e, isAsync: false); throw; }
-            Record(command.GetType().Name, ctx, p, null, isAsync: false);
+            catch (Exception e) { Record(commandType, ctx, p, e, isAsync: false); throw; }
+            Record(commandType, ctx, p, null, isAsync: false);
             return result;
         }
 
@@ -133,8 +145,8 @@ namespace Game.Framework.Systems
             var p = Pending.Begin();
             TResult result;
             try { result = _inner.ExecuteCommand<T, TResult>(command, ctx); }
-            catch (Exception e) { Record(typeof(T).Name, ctx, p, e, isAsync: false); throw; }
-            Record(typeof(T).Name, ctx, p, null, isAsync: false);
+            catch (Exception e) { Record(typeof(T), ctx, p, e, isAsync: false); throw; }
+            Record(typeof(T), ctx, p, null, isAsync: false);
             return result;
         }
 
@@ -147,17 +159,18 @@ namespace Game.Framework.Systems
             var p = Pending.Begin();
             UniTask task;
             try { task = _inner.ExecuteCommandAsync(command, ctx, cancellationToken); }
-            catch (Exception e) { Record(typeof(T).Name, ctx, p, e, isAsync: true); throw; }
-            return Await(typeof(T).Name, ctx, p, task);
+            catch (Exception e) { Record(typeof(T), ctx, p, e, isAsync: true); throw; }
+            return Await(typeof(T), ctx, p, task);
         }
 
         public UniTask<TResult> ExecuteCommandAsync<TResult>(IAsyncCommand<TResult> command, GameContext ctx, CancellationToken cancellationToken)
         {
             var p = Pending.Begin();
+            Type commandType = command.GetType();
             UniTask<TResult> task;
             try { task = _inner.ExecuteCommandAsync(command, ctx, cancellationToken); }
-            catch (Exception e) { Record(command.GetType().Name, ctx, p, e, isAsync: true); throw; }
-            return Await(command.GetType().Name, ctx, p, task);
+            catch (Exception e) { Record(commandType, ctx, p, e, isAsync: true); throw; }
+            return Await(commandType, ctx, p, task);
         }
 
         public UniTask<TResult> ExecuteCommandAsync<T, TResult>(T command, GameContext ctx, CancellationToken cancellationToken)
@@ -166,11 +179,11 @@ namespace Game.Framework.Systems
             var p = Pending.Begin();
             UniTask<TResult> task;
             try { task = _inner.ExecuteCommandAsync<T, TResult>(command, ctx, cancellationToken); }
-            catch (Exception e) { Record(typeof(T).Name, ctx, p, e, isAsync: true); throw; }
-            return Await(typeof(T).Name, ctx, p, task);
+            catch (Exception e) { Record(typeof(T), ctx, p, e, isAsync: true); throw; }
+            return Await(typeof(T), ctx, p, task);
         }
 
-        private async UniTask Await(string commandType, GameContext ctx, Pending p, UniTask task)
+        private async UniTask Await(Type commandType, GameContext ctx, Pending p, UniTask task)
         {
             Exception error = null;
             try { await task; }
@@ -182,7 +195,7 @@ namespace Game.Framework.Systems
             }
         }
 
-        private async UniTask<TResult> Await<TResult>(string commandType, GameContext ctx, Pending p, UniTask<TResult> task)
+        private async UniTask<TResult> Await<TResult>(Type commandType, GameContext ctx, Pending p, UniTask<TResult> task)
         {
             Exception error = null;
             try { return await task; }
@@ -214,7 +227,7 @@ namespace Game.Framework.Systems
                 => new(Time.realtimeSinceStartup, Time.frameCount, System.Diagnostics.Stopwatch.GetTimestamp());
         }
 
-        private void Record(string commandType, GameContext ctx, in Pending p, Exception error, bool isAsync)
+        private void Record(Type commandType, GameContext ctx, in Pending p, Exception error, bool isAsync)
         {
             float durationMs = (float)((System.Diagnostics.Stopwatch.GetTimestamp() - p.StartTimestamp)
                                        * 1000.0 / System.Diagnostics.Stopwatch.Frequency);
@@ -231,7 +244,7 @@ namespace Game.Framework.Systems
 
             if (_echoToConsole)
                 Log.Info(
-                    $"[Command] {commandType} @{contextName} {(isAsync ? "async " : "")}{durationMs:F2}ms" +
+                    $"[Command] {commandType.Name} @{contextName} {(isAsync ? "async " : "")}{durationMs:F2}ms" +
                     (errorText != null ? $" ✗ {errorText}" : ""),
                     nameof(LoggingCommandSystem));
         }
