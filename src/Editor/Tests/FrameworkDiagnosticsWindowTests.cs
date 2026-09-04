@@ -46,6 +46,8 @@ namespace Game.Framework.Editor.Tests
             Assert.That(FrameworkDiagnosticsWindow.IsCommandColumnVisible(
                 mode, FrameworkDiagnosticsWindow.CommandColumnId.Command), Is.True);
             Assert.That(FrameworkDiagnosticsWindow.IsCommandColumnVisible(
+                mode, FrameworkDiagnosticsWindow.CommandColumnId.Description), Is.True);
+            Assert.That(FrameworkDiagnosticsWindow.IsCommandColumnVisible(
                 mode, FrameworkDiagnosticsWindow.CommandColumnId.Duration), Is.True);
             Assert.That(FrameworkDiagnosticsWindow.IsCommandColumnVisible(
                 mode, FrameworkDiagnosticsWindow.CommandColumnId.Status), Is.True);
@@ -100,9 +102,9 @@ namespace Game.Framework.Editor.Tests
                 affected), Is.EqualTo(expected));
         }
 
-        [TestCase(420f, TwoPaneSplitViewOrientation.Vertical, 3, "diagnostics-toolbar-search-row")]
-        [TestCase(720f, TwoPaneSplitViewOrientation.Horizontal, 5, "diagnostics-toolbar-search-row")]
-        [TestCase(1100f, TwoPaneSplitViewOrientation.Horizontal, 7, "diagnostics-toolbar-actions")]
+        [TestCase(420f, TwoPaneSplitViewOrientation.Vertical, 4, "diagnostics-toolbar-search-row")]
+        [TestCase(720f, TwoPaneSplitViewOrientation.Horizontal, 6, "diagnostics-toolbar-search-row")]
+        [TestCase(1100f, TwoPaneSplitViewOrientation.Horizontal, 8, "diagnostics-toolbar-actions")]
         public void CreateGUI_InitialWidthBuildsExpectedResponsiveStructure(
             float width,
             TwoPaneSplitViewOrientation expectedOrientation,

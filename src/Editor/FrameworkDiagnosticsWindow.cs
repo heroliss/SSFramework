@@ -63,6 +63,7 @@ namespace Game.Framework.Editor
             Frame,
             Mode,
             Command,
+            Description,
             Context,
             Duration,
             Status,
@@ -103,7 +104,8 @@ namespace Game.Framework.Editor
         private Toolbar _commandToolbarPrimary, _commandToolbarSearchRow;
         private ToolbarSearchField _commandSearchField;
         private MultiColumnListView _commandTable;
-        private Column _timeColumn, _frameColumn, _modeColumn, _commandColumn, _contextColumn, _durationColumn, _statusColumn;
+        private Column _timeColumn, _frameColumn, _modeColumn, _commandColumn,
+            _descriptionColumn, _contextColumn, _durationColumn, _statusColumn;
         private HelpBox _commandHint;
         private TextField _commandDetail;
         private Label _ctxCountLabel, _bagCountLabel, _cmdCountLabel;
@@ -1065,15 +1067,18 @@ namespace Game.Framework.Editor
                 l.text = e.IsAsync ? "异步" : "同步";
                 l.style.color = e.IsAsync ? ColAsync : ColMuted;
             });
-            _commandColumn = MakeColumn("命令", 200, true, (l, e) =>
+            _commandColumn = MakeColumn("命令类型", 180, true, (l, e) =>
+            {
+                l.text = e.CommandType;
+                l.tooltip = $"{e.CommandType}\n双击跳转到命令声明。";
+            });
+            _descriptionColumn = MakeColumn("说明", 200, true, (l, e) =>
             {
                 string description = FrameworkCommandMetadataCatalog.GetDescription(e);
-                l.text = string.IsNullOrEmpty(description)
-                    ? e.CommandType
-                    : $"{description} · {e.CommandType}";
+                l.text = description;
                 l.tooltip = string.IsNullOrEmpty(description)
-                    ? $"{e.CommandType}\n双击跳转到命令声明。"
-                    : $"{e.CommandType}\n{description}\n双击跳转到命令声明。";
+                    ? "该命令尚未通过 DescriptionAttribute 提供说明。"
+                    : description;
             });
             _contextColumn = MakeColumn("上下文（Context）", 130, false, (l, e) => l.text = e.ContextName);
             _durationColumn = MakeColumn("耗时", 78, false, (l, e) =>
@@ -1091,6 +1096,7 @@ namespace Game.Framework.Editor
             _commandTable.columns.Add(_frameColumn);
             _commandTable.columns.Add(_modeColumn);
             _commandTable.columns.Add(_commandColumn);
+            _commandTable.columns.Add(_descriptionColumn);
             _commandTable.columns.Add(_contextColumn);
             _commandTable.columns.Add(_durationColumn);
             _commandTable.columns.Add(_statusColumn);
@@ -1181,7 +1187,8 @@ namespace Game.Framework.Editor
             if (mode == LayoutMode.Wide) return true;
             if (mode == LayoutMode.Medium)
                 return column is not CommandColumnId.Frame and not CommandColumnId.Mode;
-            return column is CommandColumnId.Command or CommandColumnId.Duration or CommandColumnId.Status;
+            return column is CommandColumnId.Command or CommandColumnId.Description or
+                CommandColumnId.Duration or CommandColumnId.Status;
         }
 
         /// <summary>
@@ -1290,6 +1297,7 @@ namespace Game.Framework.Editor
             _frameColumn.visible = IsCommandColumnVisible(mode, CommandColumnId.Frame);
             _modeColumn.visible = IsCommandColumnVisible(mode, CommandColumnId.Mode);
             _commandColumn.visible = IsCommandColumnVisible(mode, CommandColumnId.Command);
+            _descriptionColumn.visible = IsCommandColumnVisible(mode, CommandColumnId.Description);
             _contextColumn.visible = IsCommandColumnVisible(mode, CommandColumnId.Context);
             _durationColumn.visible = IsCommandColumnVisible(mode, CommandColumnId.Duration);
             _statusColumn.visible = IsCommandColumnVisible(mode, CommandColumnId.Status);
@@ -1304,31 +1312,37 @@ namespace Game.Framework.Editor
                 _durationColumn.minWidth = 64f;
                 _statusColumn.width = 76f;
                 _statusColumn.minWidth = 70f;
-                _commandColumn.width = Mathf.Max(90f, available - 146f);
-                _commandColumn.minWidth = 80f;
+                _descriptionColumn.width = 120f;
+                _descriptionColumn.minWidth = 90f;
+                _commandColumn.width = Mathf.Max(90f, available - 266f);
+                _commandColumn.minWidth = 90f;
                 return;
             }
 
             if (mode == LayoutMode.Medium)
             {
                 _commandColumn.minWidth = 40f;
+                _descriptionColumn.minWidth = 90f;
                 _durationColumn.minWidth = 40f;
                 _statusColumn.minWidth = 40f;
                 _timeColumn.width = 70f;
                 _contextColumn.width = 120f;
                 _durationColumn.width = 76f;
                 _statusColumn.width = 110f;
-                _commandColumn.width = Mathf.Max(150f, width - 390f);
+                _descriptionColumn.width = 160f;
+                _commandColumn.width = Mathf.Max(140f, width - 550f);
                 return;
             }
 
             _commandColumn.minWidth = 40f;
+            _descriptionColumn.minWidth = 90f;
             _durationColumn.minWidth = 40f;
             _statusColumn.minWidth = 40f;
             _timeColumn.width = 70f;
             _frameColumn.width = 56f;
             _modeColumn.width = 48f;
-            _commandColumn.width = 200f;
+            _commandColumn.width = 180f;
+            _descriptionColumn.width = 200f;
             _contextColumn.width = 130f;
             _durationColumn.width = 78f;
             _statusColumn.width = 140f;

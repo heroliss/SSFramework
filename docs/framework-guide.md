@@ -2822,6 +2822,7 @@ public readonly struct RepairWaterValveCommand : ICommand
 ```
 
 XML doc 继续负责 API 契约，诊断窗口不会反向解析注释：注释在 Player / DLL 中不一定存在，且同一文件可有多个命令。流水只记类型身份，不记字段 payload；Editor 再按当前编译程序集解析 `DescriptionAttribute` 和源文件。刚编译后的旧流水或只有 DLL 的命令可能无法跳转，窗口会给出原因而不猜测文件。
+命令类型与中文说明在表格中各占独立一列，既可分别扫读，也会共同参与过滤；双击整行仍按类型身份跳转源码。
 - demo 的 `MonoDemoContext` 已这样注册：打开 demo 场景点任意按钮，流水实时可见。
 
 ### 给纯 C# Context 起名字
