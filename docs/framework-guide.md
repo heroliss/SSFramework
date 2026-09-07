@@ -608,8 +608,8 @@ public class EnemyAISystem : MonoSystemBase, IEnemyAISystem
     private void Update() { /* 每帧推进 AI，直接改 _model（持续规则由 System 负责） */ }
 }
 
-// 纯 C# 路径：用 R3 Observable.EveryUpdate() 订阅进 Bag，宿主 / Context 释放时自动退订
-// （MonoSystemBase 用内置 Bag；纯 C# System 用 new DisposableBag(ctx)）
+// 纯 C# 路径：System 作为 Context owned 注册，并在 Dispose 中释放自己的 Bag。
+// R3 订阅进该 Bag 后，owner 释放时一并退订；new DisposableBag(ctx) 本身不登记所有权。
 Bag.Subscribe(Observable.EveryUpdate(), _ => Tick());
 ```
 
@@ -1309,6 +1309,8 @@ ctx.Dispose();
 `using` 只负责“尚未 Build 就失败”的 Builder 回滚；Build 成功后 owner 已经是 `GameContext`，离开 Builder 的 using 作用域不会提前释放服务。仍应按上例显式 Dispose Context（或也写成 `using var ctx`）。
 
 纯代码 Context 与场景中的 `MonoGameContextBase` 完全独立，不受 Hierarchy 层级影响。如果场景里的 View 需要使用它，直接持有引用调用即可。订阅生命周期可以手动 `new DisposableBag(ctx)`，享受和 `MonoViewBase.Bag` 一样的统一 API：
+
+`new DisposableBag(ctx)` 和 `ctx.CreateBag()` 只关联能力环境，仍由调用方 Dispose，不会把 Bag 自动登记为 Context 的 owned 对象。需要 Context 持有整个执行 owner 时，用 `RegisterOwned` / `RegisterOwnedSystem` 显式接管该 owner，再由 owner 释放自己的 Bag；更短行动用 `Bag.CreateChild()`。例如低层值绑定 `builder.RegisterOwned(residentBag, typeof(DisposableBag))` 才表达 Context → Bag 的所有权。单独调用 `ctx.Dispose()` 不会清理未登记的外部 Bag。
 
 ```csharp
 public class MiniGameController : MonoBehaviour

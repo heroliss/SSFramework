@@ -210,7 +210,7 @@ namespace Game.Framework.Context
         }
 
         /// <summary>
-        /// 创建跟随当前 Context 的临时 bag。
+        /// 创建关联当前 Context 能力环境的临时 bag；不会自动随 Context 销毁。
         /// Bag 持有 ctx 引用以支持资源加载和 Framework Event 订阅；不会被注册到容器，调用方负责 Dispose。
         /// </summary>
         public DisposableBag CreateBag()

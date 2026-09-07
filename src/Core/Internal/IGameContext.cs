@@ -70,7 +70,7 @@ namespace Game.Framework.Internal
         object Resolve(Type type);
 
         /// <summary>
-        /// 创建跟随当前 Context 的新 <see cref="DisposableBag"/>。
+        /// 创建关联当前 Context 能力环境的新 <see cref="DisposableBag"/>，不隐式接管 Bag 的释放。
         /// Command 等没有 MonoBase 自带 bag 的场景用 <c>using var bag = ctx.CreateBag()</c> 做临时生命周期管理。
         /// Bag 本身不会被注册到 Context，业务自己负责 Dispose（using 块或显式调用）。
         /// </summary>
