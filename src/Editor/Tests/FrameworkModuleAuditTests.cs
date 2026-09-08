@@ -1496,7 +1496,8 @@ namespace Game.Framework.Editor.Tests
                 foreach (string blocker in bridgeStatus.RemovalBlockers)
                     Assert.That(bridgeStatus.RemovalSteps, Has.Some.Contains(blocker),
                         "物理删除计划必须列出当前完整 asmdef 图实际发现的每个声明引用。");
-            if (result.HotUpdateDeployment.HotUpdateBuildModuleAvailable)
+            if (result.HotUpdateDeployment.HotUpdateBuildModuleAvailable &&
+                result.HotUpdateDeployment.ProfileAvailable)
                 Assert.That(result.HotUpdateDeployment.InspectionAvailable, Is.True,
                     "安装 HybridCLR 热更构建 Module 时，通用审计应经只读反射接缝读取证据，不能建立编译期反向依赖。");
             Assert.That(result.Recommendations, Has.Some.Contains("Player BuildReport"));
@@ -1514,7 +1515,8 @@ namespace Game.Framework.Editor.Tests
             Assert.That(report, Does.Contain("全局与生成的 link.xml 证据"));
             Assert.That(report, Does.Contain("热更派生证据（只读）"));
             Assert.That(report, Does.Contain("第三方依赖证据目录"));
-            if (result.HotUpdateDeployment.HotUpdateBuildModuleAvailable)
+            if (result.HotUpdateDeployment.HotUpdateBuildModuleAvailable &&
+                result.HotUpdateDeployment.ProfileAvailable)
                 Assert.That(report, Does.Contain("CodePackage"));
         }
 
@@ -1800,7 +1802,12 @@ namespace Game.Framework.Editor.Tests
                 Assert.That(globalPreservations.value, Is.False,
                     "全局和生成规则用于追踪，不应抢占新手的首屏结论。 ");
                 Assert.That(hotUpdateEvidence, Is.Not.Null);
-                Assert.That(hotUpdateMetrics, Is.Not.Null);
+                bool hasHotUpdateMetrics = cachedEvidence.HotUpdateDeployment.ProfileAvailable &&
+                                            cachedEvidence.HotUpdateDeployment.InspectionAvailable;
+                Assert.That(hotUpdateMetrics, hasHotUpdateMetrics ? Is.Not.Null : Is.Null,
+                    hasHotUpdateMetrics
+                        ? "已有热更 Profile 且证据可读时必须显示热更指标。"
+                        : "纯 AOT 或尚无 Profile 时不应伪造热更指标区域。");
                 Assert.That(externalSummary, Is.Not.Null);
                 Assert.That(externalCatalog, Is.Not.Null);
                 Assert.That(externalCatalog.value, Is.False,
@@ -1836,7 +1843,8 @@ namespace Game.Framework.Editor.Tests
                 Assert.That(actions[0].style.flexBasis.keyword, Is.EqualTo(StyleKeyword.Auto));
                 Assert.That(summaryMetrics[0].style.flexGrow.value, Is.EqualTo(0f),
                     "窄窗纵排时使用内容高度，避免 flexBasis:0 把按钮或指标压扁。 ");
-                Assert.That(hotUpdateMetrics.style.flexDirection.value, Is.EqualTo(FlexDirection.Column));
+                if (hasHotUpdateMetrics)
+                    Assert.That(hotUpdateMetrics.style.flexDirection.value, Is.EqualTo(FlexDirection.Column));
                 Assert.That(externalMetrics.style.flexDirection.value, Is.EqualTo(FlexDirection.Column));
 
                 void SetExpanded(Foldout foldout, bool expanded)

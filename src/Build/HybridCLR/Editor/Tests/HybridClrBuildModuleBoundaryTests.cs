@@ -59,6 +59,16 @@ namespace Game.Framework.Build.Tests
                 .OrderBy(path => path, StringComparer.Ordinal)
                 .ToArray();
 
+            // 独立消费方可以选择纯 AOT，不需要为了让 Framework 测试通过而创建空 Profile。
+            // 有 Profile 时才验证旧资产在程序集拆分后的 GUID/类型兼容性。
+            if (paths.Length == 0)
+            {
+                Assert.That(AssetDatabase.GUIDToAssetPath(ProfileScriptGuid),
+                    Is.EqualTo("Packages/com.liss.ssframework/src/Build/HybridCLR/Editor/FrameworkHotUpdateProfile.cs"),
+                    "即使消费方没有热更 Profile，FrameworkHotUpdateProfile 脚本的 GUID 仍必须保持稳定。");
+                Assert.Pass("当前消费方没有热更 Profile，按纯 AOT 继续。");
+            }
+
             Assert.That(paths, Is.Not.Empty,
                 "工程中已有热更新 Profile，却无法按类型检索；程序集迁移兼容性门禁不能空跑。");
             Assert.That(paths, Does.Contain(ExistingProfilePath),
