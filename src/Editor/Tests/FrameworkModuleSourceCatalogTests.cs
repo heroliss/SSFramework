@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using System.Linq;
 using NUnit.Framework;
@@ -10,11 +11,12 @@ namespace Game.Framework.Editor.Tests
     public sealed class FrameworkModuleSourceCatalogTests
     {
         [Test]
-        public void AssetsSource_RoundTripsBetweenAssetAndPhysicalPath()
+        public void FrameworkPackageSource_RoundTripsBetweenAssetAndPhysicalPath()
         {
-            string asmdefPath = AssetDatabase.FindAssets("Game.Framework.Editor t:AssemblyDefinitionAsset")
-                .Select(AssetDatabase.GUIDToAssetPath)
-                .First(path => Path.GetFileName(path) == "Game.Framework.Editor.asmdef");
+            string asmdefPath = AssetDatabase.GetAllAssetPaths()
+                .Where(path => path.StartsWith("Packages/com.liss.ssframework/src/", StringComparison.Ordinal))
+                .Where(path => path.EndsWith("Game.Framework.Editor.asmdef", StringComparison.Ordinal))
+                .First();
 
             FrameworkModuleSourceCatalog.SourceLocation fromAsset =
                 FrameworkModuleSourceCatalog.Resolve(asmdefPath);
@@ -23,9 +25,9 @@ namespace Game.Framework.Editor.Tests
 
             Assert.That(fromAsset.AssetPath, Is.EqualTo(asmdefPath.Replace('\\', '/')));
             Assert.That(File.Exists(fromAsset.PhysicalPath), Is.True);
-            Assert.That(fromAsset.IsPackage, Is.False);
-            Assert.That(fromAsset.Kind, Is.EqualTo(FrameworkModuleSourceCatalog.SourceKind.ProjectAssets));
-            Assert.That(fromAsset.HasPackageDirectness, Is.False);
+            Assert.That(fromAsset.IsPackage, Is.True);
+            Assert.That(fromAsset.Kind, Is.Not.EqualTo(FrameworkModuleSourceCatalog.SourceKind.ProjectAssets));
+            Assert.That(fromAsset.HasPackageDirectness, Is.True);
             Assert.That(fromPhysical.AssetPath, Is.EqualTo(fromAsset.AssetPath));
         }
 
