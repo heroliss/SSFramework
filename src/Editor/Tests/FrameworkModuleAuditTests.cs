@@ -1802,8 +1802,8 @@ namespace Game.Framework.Editor.Tests
                 Assert.That(globalPreservations.value, Is.False,
                     "全局和生成规则用于追踪，不应抢占新手的首屏结论。 ");
                 Assert.That(hotUpdateEvidence, Is.Not.Null);
-                bool hasHotUpdateMetrics = cachedEvidence.HotUpdateDeployment.ProfileAvailable &&
-                                            cachedEvidence.HotUpdateDeployment.InspectionAvailable;
+                bool hasHotUpdateMetrics = cachedEvidence.Result.HotUpdateDeployment.ProfileAvailable &&
+                                            cachedEvidence.Result.HotUpdateDeployment.InspectionAvailable;
                 Assert.That(hotUpdateMetrics, hasHotUpdateMetrics ? Is.Not.Null : Is.Null,
                     hasHotUpdateMetrics
                         ? "已有热更 Profile 且证据可读时必须显示热更指标。"
