@@ -1,6 +1,6 @@
 # Game.Framework 内部编码约束
 
-本文件只约束 `Assets/Game/Framework/` 的源码维护。业务侧 API 规则见父目录 `AGENTS.md`；程序集职责与删除测试见 `docs/framework-module-map.md`；关键取舍见 `docs/adr/`。
+本文件只约束 `src/` 的源码维护。业务侧 API 规则见父目录 `AGENTS.md`；程序集职责与删除测试见 `docs/framework-module-map.md`；关键取舍见 `docs/adr/`。
 
 ## Module、Interface 与依赖方向
 
@@ -79,3 +79,4 @@
 - guide 与业务 `AGENTS.md` 只记录调用者真正需要的约束。
 
 避免把一次交互式开发拆成多个互相猜测的实现 Agent；改公共 API 或多文件架构后，按根规则完成独立视角自查，只有已获委派授权时才启动只读 Reviewer。
+

@@ -1,0 +1,24 @@
+{
+  "name": "com.heroliss.ssframework",
+  "version": "0.1.0",
+  "displayName": "SSFramework",
+  "description": "面向 Unity 游戏生产的模块化框架，提供 Context、MVCS、UI、资源、配置、网络、存档与构建基础设施。",
+  "unity": "6000.3",
+  "author": {
+    "name": "heroliss"
+  },
+  "keywords": [
+    "unity",
+    "framework",
+    "mvcs",
+    "context"
+  ],
+  "dependencies": {
+    "com.cysharp.r3": "1.3.1",
+    "com.cysharp.unitask": "2.5.11",
+    "com.code-philosophy.luban": "1.2.0",
+    "com.tuyoogame.yooasset": "3.0.5",
+    "com.unity.ugui": "2.0.0",
+    "com.unity.modules.uielements": "1.0.0"
+  }
+}
