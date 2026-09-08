@@ -34,9 +34,6 @@ namespace Game.Framework.Editor
         public const string SceneShortcuts = Root + "开发辅助/场景快捷入口";
         /// <summary>解释并打开工程、缓存和日志目录的导航窗口。</summary>
         public const string ProjectFolders = Root + "开发辅助/常用目录";
-        /// <summary>可选 Odin Editor Adapter 的能力说明窗口。</summary>
-        public const string OdinAdapter = Root + "开发辅助/Odin Inspector 适配";
-
         /// <summary>运行时 Context 与服务状态诊断窗口。</summary>
         public const string RuntimeDiagnostics = Root + "诊断与分析/运行时诊断";
         /// <summary>程序集、可选 Module 与第三方依赖审计窗口。</summary>

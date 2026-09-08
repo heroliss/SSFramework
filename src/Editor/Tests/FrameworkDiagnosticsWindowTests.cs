@@ -223,7 +223,7 @@ namespace Game.Framework.Editor.Tests
 
             Assert.That(source.Found, Is.True, source.Issue);
             Assert.That(source.AssetPath.Replace('\\', '/'),
-                Does.EndWith("Assets/Game/Framework/Editor/Tests/FrameworkDiagnosticsWindowTests.cs"));
+                Does.EndWith("Packages/com.liss.ssframework/src/Editor/Tests/FrameworkDiagnosticsWindowTests.cs"));
             Assert.That(source.Line, Is.GreaterThan(0));
         }
 
@@ -525,3 +525,5 @@ namespace Game.Framework.Editor.Tests
         }
     }
 }
+
+

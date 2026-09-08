@@ -83,7 +83,7 @@ Boot 场景（唯一随包场景：Launcher + 朴素进度 UI，只挂 Boot 程�
 
 ### 6. 反射兼容（已验证，2026-06-12）
 
-框架的 [InjectionPlan](../../Assets/Game/Framework/Core/Internal/InjectionPlan.cs) / [LayerInterfacesCache](../../Assets/Game/Framework/Core/Internal/LayerInterfacesCache.cs) / `GameContext.FindContextField` 对热更类型有效（都是真实 `System.Type`，解释器下元数据齐全）。AOT 泛型补元数据由 `AOTGenericReferences` 扫描自动覆盖。
+框架的 [InjectionPlan](../../Packages/com.liss.ssframework/src/Core/Internal/InjectionPlan.cs) / [LayerInterfacesCache](../../Packages/com.liss.ssframework/src/Core/Internal/LayerInterfacesCache.cs) / `GameContext.FindContextField` 对热更类型有效（都是真实 `System.Type`，解释器下元数据齐全）。AOT 泛型补元数据由 `AOTGenericReferences` 扫描自动覆盖。
 
 **历史 IL2CPP 真机自检通过（GameEntry 自检 8/8，Windows player）**：DI 容器注册/解析、`RP<T>` + R3 订阅（跨 AOT 泛型）、struct Command 分发、双泛型 `ExecuteCommand<TCmd,TResult>` 零装箱返回值、class Command `[Inject]` 注入、事件总线、UniTask 异步命令（解释器 async 状态机），以及当时项目已安装的 Odin `SerializationUtility` 对热更类型的序列化往返。最后一项只是第三方集成的历史证据，不再属于 Framework Core 自检契约。
 
@@ -113,3 +113,5 @@ Boot 场景（唯一随包场景：Launcher + 朴素进度 UI，只挂 Boot 程�
   `Initialize` → `LoadScene` 首场景 → Destroy 交棒），编辑器旁路走 EditorSimulate、桌面/移动玩家包走 Host、WebGL 强制走 Web 文件系统。
   首个真实业务程序集 `Game.Outpost` 入热更列表（9 个）；`Game.Outpost.Sim` 刻意留 AOT（M6 ECS 后端只依赖它）——
   「热更程序集引用 AOT 程序集」方向合法，Generate 的 link.xml 保住仅被热更侧引用的 AOT 类型不被裁剪。
+
+

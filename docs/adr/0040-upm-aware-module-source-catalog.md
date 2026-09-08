@@ -9,7 +9,7 @@ Framework Module Audit、隔离 Build Size Probe 和源码门禁都需要读取 
 - `Assets/...`、`Packages/...` 是 AssetDatabase、Project 窗口和报告应使用的稳定 Asset Path；
 - `System.IO` 需要真实 Physical Path。registry / Git 包的源码通常位于 `Library/PackageCache` 或外部缓存，并不在项目的 `Packages/<name>` 物理目录。
 
-旧实现由各工具自行把相对路径拼到 Project Root。它在当前仓库的 `Assets/Game/Framework` 布局下可工作，但一旦框架抽成 UPM package，就会把存在的 asmdef 当成缺失、漏扫 package 内 `link.xml`，或让隔离构建复制不到源码。继续给每个调用点增加 `Assets` / `Packages` 分支只会复制浅路径知识，形成多个会漂移的 owner。
+旧实现由各工具自行把相对路径拼到 Project Root。它在当前仓库的 `Packages/com.liss.ssframework/src` 布局下可工作，但一旦框架抽成 UPM package，就会把存在的 asmdef 当成缺失、漏扫 package 内 `link.xml`，或让隔离构建复制不到源码。继续给每个调用点增加 `Assets` / `Packages` 分支只会复制浅路径知识，形成多个会漂移的 owner。
 
 ## Decision
 
@@ -37,7 +37,7 @@ Framework Module Audit、隔离 Build Size Probe 和源码门禁都需要读取 
 
 - Module Audit 解析 CompilationPipeline 报告的 asmdef 路径，记录源码物理目录和 package 所有者；Module 内 `link.xml` 的所有权按物理目录判断，报告仍保存 Asset Path。
 - Build Size Probe 从审计结构化结果复制真实 Module 目录，以程序集名作为隔离工程目录，避免多个 package 都使用 `Runtime/` 叶名而发生覆盖；开始前拒绝两个 Module 源目录相同或互相嵌套，否则物理复制会夹带未选 asmdef。JSON / Markdown 只保存 Asset 目录、package id 与“过滤 Editor/Test 后实际复制文件”的 SHA-256 内容指纹，Physical Path 仅存在于内存运行计划。Domain Reload 恢复会逐一校验报告档位仍存在于当前拓扑，并比较内容指纹；漂移时只允许重新附着已经启动的子进程，完成后停止，不会静默跳过已移除档位或混用两套源码。
-- 模态弹窗审计与“通用 Framework 不硬编码当前项目”门禁先通过 Catalog 找到可复用源码，不依赖 `Assets/Game/Framework` 的物理位置。
+- 模态弹窗审计与“通用 Framework 不硬编码当前项目”门禁先通过 Catalog 找到可复用源码，不依赖 `Packages/com.liss.ssframework/src` 的物理位置。
 
 Catalog 是窄 Editor Implementation，目前没有第二种源码注册机制，因此不制造公共 Runtime Interface。若未来需要支持非 Unity Asset 的生成源码，再以真实替换需求扩展输入 Adapter。
 
@@ -64,3 +64,5 @@ Catalog 是窄 Editor Implementation，目前没有第二种源码注册机制�
 - ADR-0038（隔离 Framework Build Size Probe）
 - ADR-0039（Framework Module 选择与保留证据模型）
 - `docs/framework-module-map.md`
+
+

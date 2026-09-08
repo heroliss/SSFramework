@@ -15,7 +15,7 @@ namespace Game.Framework.Editor.Tests
         {
             string[] forbidden =
             {
-                "Assets/Game/Framework",
+                "Packages/com.liss.ssframework/src",
                 "Assets/Game/Outpost",
                 "Assets/Game/Main",
                 "Assets/Game/Settings",
@@ -57,3 +57,5 @@ namespace Game.Framework.Editor.Tests
         }
     }
 }
+
+

@@ -236,7 +236,7 @@ namespace Game.Framework.Editor.Tests
                 {
                     DependencyAssemblyName = "R3.Unity",
                     ConsumerAssemblyName = core.Name,
-                    ConsumerAsmdefPath = "Assets/Game/Framework/Core/Game.Framework.asmdef",
+                    ConsumerAsmdefPath = "Packages/com.liss.ssframework/src/Core/Game.Framework.asmdef",
                     ConsumerSourceKind = FrameworkModuleSourceCatalog.SourceKind.ProjectAssets,
                     PlatformScope = FrameworkModuleAudit.ConsumerPlatformScope.Player,
                 },
@@ -1224,7 +1224,7 @@ namespace Game.Framework.Editor.Tests
             var rule = new FrameworkModuleAudit.LinkerPreservation
             {
                 OwnerModuleName = optional.Name,
-                Path = "Assets/Game/Framework/Optional/link.xml",
+                Path = "Packages/com.liss.ssframework/src/Optional/link.xml",
                 AssemblyName = "ThirdParty",
                 Scope = "preserve=all",
             };
@@ -1585,7 +1585,7 @@ namespace Game.Framework.Editor.Tests
         {
             var issues = new List<string>();
             foreach (string path in AssetDatabase.GetAllAssetPaths()
-                         .Where(path => path.StartsWith("Assets/Game/Framework/", StringComparison.Ordinal) &&
+                         .Where(path => path.StartsWith("Packages/com.liss.ssframework/src/", StringComparison.Ordinal) &&
                                         path.EndsWith(".asmdef", StringComparison.OrdinalIgnoreCase)))
             {
                 var declaration = ReadAsmdefDeclaration(path);
@@ -2035,3 +2035,5 @@ namespace Game.Framework.Editor.Tests
         }
     }
 }
+
+

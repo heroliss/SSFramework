@@ -230,7 +230,9 @@ namespace Game.Framework.UI.UGui.Editor.Tests
 
             string frameworkFolder = Path.Combine(Application.dataPath, "Game", "Framework");
             Assert.That(UICodeGenEditorGUI.TryToAssetPath(frameworkFolder, out string frameworkPath), Is.True);
-            Assert.That(frameworkPath, Is.EqualTo("Assets/Game/Framework"));
+            Assert.That(frameworkPath, Is.EqualTo("Packages/com.liss.ssframework/src"));
         }
     }
 }
+
+

@@ -249,7 +249,7 @@ namespace Game.Framework.Editor.Tests
             var core = new FrameworkBuildSizeProbe.ModuleSourcePlan
             {
                 AssemblyName = "Game.Framework",
-                AssetDirectory = "Assets/Game/Framework/Core",
+                AssetDirectory = "Packages/com.liss.ssframework/src/Core",
             };
             var firstRuntime = new FrameworkBuildSizeProbe.ModuleSourcePlan
             {
@@ -1431,3 +1431,5 @@ namespace Game.Framework.Editor.Tests
         }
     }
 }
+
+

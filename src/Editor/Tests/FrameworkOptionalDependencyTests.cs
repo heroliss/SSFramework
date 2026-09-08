@@ -72,7 +72,7 @@ namespace Game.Framework.Editor.Tests
             Assert.That(scannedAsmdefs, Is.GreaterThan(0), "Framework asmdef 扫描数必须大于 0。");
 
             Assert.That(violations, Is.Empty,
-                "通用基线出现 Sirenix 源码、asmdef 或已编译 IL 直接依赖；可选增强只能属于获准的 Game.Framework.Odin.* Adapter：\n" +
+                "Framework 基线出现 Sirenix 源码、asmdef 或已编译 IL 直接依赖：\n" +
                 string.Join("\n", violations));
         }
 
@@ -104,7 +104,7 @@ namespace Game.Framework.Editor.Tests
         }
 
         [Test]
-        public void NativeMonoInspectors_AreFallbackAndInstalledOdinAdapterOverridesConcreteOdinType()
+        public void NativeMonoInspectors_KeepUnityFallbackWhenNoOdinAdapterIsInstalled()
         {
             string source = File.ReadAllText(FrameworkModuleSourceCatalog.FindUniqueFileInAssemblySource(
                 "FrameworkMonoInspectors.cs", "Game.Framework.Editor").PhysicalPath);

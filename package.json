@@ -1,5 +1,5 @@
 {
-  "name": "com.heroliss.ssframework",
+  "name": "com.liss.ssframework",
   "version": "0.1.0",
   "displayName": "SSFramework",
   "description": "面向 Unity 游戏生产的模块化框架，提供 Context、MVCS、UI、资源、配置、网络、存档与构建基础设施。",

@@ -4,13 +4,13 @@
 
 ## Context
 
-目标是让 `Assets/Game/Framework` 成为**多项目可复用**的框架。最彻底的形态是 UPM 包（版本化、边界清晰、易分发）。但框架仍在活跃重构期，过早抽包会带来包内只读、样例/测试组织、依赖声明等摩擦，且现有 `AGENTS.md`/skill 路径都假设 `Assets/` 布局。
+目标是让 `Packages/com.liss.ssframework/src` 成为**多项目可复用**的框架。最彻底的形态是 UPM 包（版本化、边界清晰、易分发）。但框架仍在活跃重构期，过早抽包会带来包内只读、样例/测试组织、依赖声明等摩擦，且现有 `AGENTS.md`/skill 路径都假设 `Assets/` 布局。
 
 ## Decision
 
-**第一阶段保留在 `Assets/Game/Framework`**，但用 asmdef 边界 + 规则做成自洽模块；UPM 抽包列为路线图里程碑（框架稳定后再做）。
+**第一阶段保留在 `Packages/com.liss.ssframework/src`**，但用 asmdef 边界 + 规则做成自洽模块；UPM 抽包列为路线图里程碑（框架稳定后再做）。
 
-复用铁律（写入 `Assets/Game/Framework/AGENTS.md`）：
+复用铁律（写入 `Packages/com.liss.ssframework/src/AGENTS.md`）：
 - `Game.Framework` / `Game.Framework.Editor` **禁止引用任何项目业务代码**；依赖只指向 asmdef references 声明的第三方/Unity 程序集。
 - 新增 `Game.Framework.Demo` 程序集验证"消费方边界"——若框架不小心依赖了项目代码，Demo 会编译失败暴露问题。
 
@@ -39,3 +39,5 @@
 一起带入。后续应为每个发布包建立干净消费者工程，明确 registry / Git 安装说明，并把聚合 NuGet 依赖按
 真实 package closure 拆开。因而“迁移主要是移动目录 + 写 package.json”的旧估计已不再成立；源码定位已
 准备好，但依赖发布、Samples、授权和干净安装验证仍是独立工作流。
+
+

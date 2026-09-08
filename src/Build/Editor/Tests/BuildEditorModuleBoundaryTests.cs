@@ -11,7 +11,7 @@ namespace Game.Framework.Build.Tests
     public sealed class BuildEditorModuleBoundaryTests
     {
         private const string AssemblyDefinitionPath =
-            "Assets/Game/Framework/Build/Editor/Game.Framework.Build.Editor.asmdef";
+            "Packages/com.liss.ssframework/src/Build/Editor/Game.Framework.Build.Editor.asmdef";
 
         [Test]
         public void ResourceBuildAssembly_DoesNotReferenceHotUpdateToolchain()
@@ -203,3 +203,5 @@ namespace Game.Framework.Build.Tests
         }
     }
 }
+
+

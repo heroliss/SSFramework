@@ -50,7 +50,7 @@ namespace Game.Framework.Config.Editor.Tests
             string assemblyDefinition = File.ReadAllText(
                 Path.Combine(
                     Directory.GetParent(UnityEngine.Application.dataPath)!.FullName,
-                    "Assets/Game/Framework/Config/Editor/Game.Framework.Config.Editor.asmdef"));
+                    "Packages/com.liss.ssframework/src/Config/Editor/Game.Framework.Config.Editor.asmdef"));
             Assert.That(assemblyDefinition,
                 Does.Contain("\"rootNamespace\": \"Game.Framework.Config.Editor\""));
         }
@@ -66,3 +66,5 @@ namespace Game.Framework.Config.Editor.Tests
         }
     }
 }
+
+

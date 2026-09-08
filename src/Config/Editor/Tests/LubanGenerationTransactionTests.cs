@@ -383,9 +383,9 @@ namespace Game.Framework.Config.Editor.Tests
             string id = Guid.NewGuid().ToString("N");
             string relativeInputRoot = "Temp/SSFrameworkLubanCli_" + id;
             string codeAssetPath =
-                "Assets/Game/Framework/Config/Editor/Tests/GeneratedLubanCode_" + id;
+                "Packages/com.liss.ssframework/src/Config/Editor/Tests/GeneratedLubanCode_" + id;
             string dataAssetPath =
-                "Assets/Game/Framework/Config/Editor/Tests/GeneratedLubanData_" + id;
+                "Packages/com.liss.ssframework/src/Config/Editor/Tests/GeneratedLubanData_" + id;
             string codeAbsolutePath = ProjectAbsolute(codeAssetPath);
             string dataAbsolutePath = ProjectAbsolute(dataAssetPath);
             var profile = CreateConfiguredProfile(relativeInputRoot, codeAssetPath, dataAssetPath);
@@ -585,3 +585,5 @@ namespace Game.Framework.Config.Editor.Tests
         }
     }
 }
+
+

@@ -12,7 +12,7 @@ namespace Game.Framework.Build.Tests
     public sealed class HybridClrBuildModuleBoundaryTests
     {
         private const string AssemblyDefinitionPath =
-            "Assets/Game/Framework/Build/HybridCLR/Editor/Game.Framework.Build.HybridCLR.Editor.asmdef";
+            "Packages/com.liss.ssframework/src/Build/HybridCLR/Editor/Game.Framework.Build.HybridCLR.Editor.asmdef";
         private const string ExistingProfilePath = "Assets/Game/Settings/FrameworkHotUpdateProfile.asset";
         private const string ProfileScriptGuid = "879c7d85708f1fe45a4c19bb4f116929";
 
@@ -64,7 +64,7 @@ namespace Game.Framework.Build.Tests
             Assert.That(paths, Does.Contain(ExistingProfilePath),
                 $"既有热更新 Profile 未被新程序集识别：{ExistingProfilePath}");
             Assert.That(AssetDatabase.GUIDToAssetPath(ProfileScriptGuid),
-                Is.EqualTo("Assets/Game/Framework/Build/HybridCLR/Editor/FrameworkHotUpdateProfile.cs"),
+                Is.EqualTo("Packages/com.liss.ssframework/src/Build/HybridCLR/Editor/FrameworkHotUpdateProfile.cs"),
                 "移动脚本时必须保留 MonoScript GUID，否则既有 Profile 会丢失类型。");
 
             foreach (string path in paths)
@@ -267,3 +267,5 @@ namespace Game.Framework.Build.Tests
         }
     }
 }
+
+

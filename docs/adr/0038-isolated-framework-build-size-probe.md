@@ -23,7 +23,7 @@ Framework Module Audit 已能从 Player 编译图和 DLL 元数据证明 Core、
 
 组合及 Module 源目录继续来自 Framework Module Audit，同一份审计结果同时驱动窗口、原始报告和真实构建，不维护第二份“Core / UGUI / Toolkit”清单。实际 DLL 闭包回答当前用了什么；探针再合并 asmdef 声明闭包，保证“只声明、尚未产生 IL 引用”的 Framework Module 仍被复制并完整保留，因为隔离工程编译时已经需要该程序集。这使 Module 变化集中在一个地方，保持 locality。
 
-Module 源码不假设位于 `Assets/Game/Framework`。审计先经 `FrameworkModuleSourceCatalog` 把 `Assets/...`、`Packages/...` 或 PackageCache 绝对路径还原为“稳定 Asset 身份 + 真实物理目录 + package id”，探针从物理目录复制，并在 JSON / Markdown 证据中只保留可分享的资产来源与实际复制内容指纹。运行目录、输出、结果与日志路径不进入 JSON，而由本机 EditorPrefs 指向最新运行目录，并在读取时按稳定 Profile key 重建。复制目标采用“源码职责叶目录 + 可读程序集名 + 稳定短哈希”（如 `Core__Game_Framework__<hash>`）：职责名让证据可读，程序集身份避免不同 Package 都使用 `Runtime/` 或 slug 恰好相同时互相覆盖，同时规避 Unity 6000.3 在目录与其中 asmdef 同名时可能把定义误交给 `DefaultImporter` 的导入歧义。若两个 asmdef 源目录相同或互相嵌套则 fail-fast，因为目录复制无法诚实表达删除组合。Domain Reload 恢复会逐一校验报告格式、证据实现、档位、package 身份与内容指纹；旧格式缺证据、未来格式含未知字段时都拒绝续跑，漂移时完成已启动档位后停止。旧工具也拒绝重写未来格式，避免保留版本号却丢失未知字段。详见 ADR-0040。
+Module 源码不假设位于 `Packages/com.liss.ssframework/src`。审计先经 `FrameworkModuleSourceCatalog` 把 `Assets/...`、`Packages/...` 或 PackageCache 绝对路径还原为“稳定 Asset 身份 + 真实物理目录 + package id”，探针从物理目录复制，并在 JSON / Markdown 证据中只保留可分享的资产来源与实际复制内容指纹。运行目录、输出、结果与日志路径不进入 JSON，而由本机 EditorPrefs 指向最新运行目录，并在读取时按稳定 Profile key 重建。复制目标采用“源码职责叶目录 + 可读程序集名 + 稳定短哈希”（如 `Core__Game_Framework__<hash>`）：职责名让证据可读，程序集身份避免不同 Package 都使用 `Runtime/` 或 slug 恰好相同时互相覆盖，同时规避 Unity 6000.3 在目录与其中 asmdef 同名时可能把定义误交给 `DefaultImporter` 的导入歧义。若两个 asmdef 源目录相同或互相嵌套则 fail-fast，因为目录复制无法诚实表达删除组合。Domain Reload 恢复会逐一校验报告格式、证据实现、档位、package 身份与内容指纹；旧格式缺证据、未来格式含未知字段时都拒绝续跑，漂移时完成已启动档位后停止。旧工具也拒绝重写未来格式，避免保留版本号却丢失未知字段。详见 ADR-0040。
 
 ### 2. 依赖版本来自当前工程，但按组合最小化
 
@@ -128,3 +128,5 @@ Unity Windows IL2CPP 会把 `*_BackUpThisFolder_ButDontShipItWithYourGame` 的 C
 - ADR-0010（UPM 抽包路线）
 - ADR-0027（列表绑定 Module 粒度）
 - `docs/framework-module-map.md`
+
+
