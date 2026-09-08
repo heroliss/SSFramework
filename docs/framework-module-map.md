@@ -13,11 +13,9 @@
 7. 外部程序集的直接依赖必须在 asmdef 显式可见，即使插件 DLL 的 auto-reference 已让代码偶然编译通过；否则 UPM 声明、删除测试与 AI 导航都看不到真实代价。
 8. “源码存在、参与编译、真实消费、linker 根、热更部署、最终 Player”是不同状态；工具与文档不得合并成一个含糊的“已启用”。
 
-Odin Inspector 是项目级可选专业工具，不是 Runtime 前置。通用基线用 Unity 原生 Drawer/fallback Editor
-保证资源包配置、UI 生成配置与诊断；可整体删除的 `Game.Framework.Odin.Editor` 用无持久化的临时 Editor 映射
-组合 OdinEditor 与 Framework 诊断，基线不得反向引用。Fonts 等可选 Module 的专属诊断经 Editor-only contributor
-接缝单向注册，避免通用
-Editor 反向引用。Adapter 不得随 Framework 分发付费插件本体。详见 [Odin 可选集成与移除](optional-odin-integration.md)与
+当前包不包含 Odin Inspector，也不把任何付费 Inspector 作为框架前置依赖。配置、UI 生成和诊断统一使用 Unity 原生
+Drawer/fallback Editor；如果某个项目需要 Odin，应在项目或独立扩展包中自行接入，不能让 `com.liss.ssframework`
+反向依赖插件本体。历史评估与迁移边界见 [Odin 可选集成与移除](optional-odin-integration.md) 与
 [ADR-0015](adr/0015-odin-decoupling-assessment.md)。
 
 ## 轻量组合档位与证据口径

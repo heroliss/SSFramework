@@ -7,7 +7,7 @@ using UnityEditor.Compilation;
 
 namespace Game.Framework.Editor.Tests
 {
-    /// <summary>防止可复用 Framework 源码重新把当前仓库的 Demo、业务程序集或目录当成产品默认值。</summary>
+    /// <summary>防止可复用 Framework 源码重新把教程、业务程序集或目录当成产品默认值。</summary>
     public sealed class FrameworkProjectAgnosticTests
     {
         [Test]
@@ -20,7 +20,6 @@ namespace Game.Framework.Editor.Tests
                 "Assets/Game/Main",
                 "Assets/Game/Settings",
                 "Assets/Scripts/UI",
-                "Game.Framework.Demo",
                 "Game.Main.GameEntry",
                 "Game.UI",
                 "DemoScene",
@@ -52,7 +51,7 @@ namespace Game.Framework.Editor.Tests
             }
 
             Assert.That(violations, Is.Empty,
-                "Framework 通用源码可动态展示当前工程证据，但不能硬编码仓库 Demo/业务项目：\n" +
+                "Framework 通用源码可动态展示当前工程证据，但不能硬编码教程或业务项目：\n" +
                 string.Join("\n", violations));
         }
     }

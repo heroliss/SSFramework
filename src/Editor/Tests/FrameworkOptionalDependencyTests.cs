@@ -104,71 +104,16 @@ namespace Game.Framework.Editor.Tests
         }
 
         [Test]
-        public void NativeMonoInspectors_KeepUnityFallbackWhenNoOdinAdapterIsInstalled()
+        public void NativeMonoInspectors_KeepUnityFallbackWithoutOdin()
         {
             string source = File.ReadAllText(FrameworkModuleSourceCatalog.FindUniqueFileInAssemblySource(
                 "FrameworkMonoInspectors.cs", "Game.Framework.Editor").PhysicalPath);
 
             int fallbackCount = source.Split("isFallback = true", StringSplitOptions.None).Length - 1;
             Assert.That(fallbackCount, Is.EqualTo(5),
-                "无 Odin 时的五个 Mono Inspector 必须保持 fallback。");
+                "没有可选 Inspector 插件时的五个 Mono Inspector 必须保持 fallback。");
             Assert.That(source, Does.Contain("finishedDefaultHeaderGUI"),
                 "遵循默认 Header 流程的业务 Editor 接管后仍应保留框架诊断入口。");
-
-            Type odinEditorType = Type.GetType(
-                "Game.Framework.Odin.Editor.FrameworkOdinInspector, Game.Framework.Odin.Editor");
-            Type registrationType = Type.GetType(
-                "Game.Framework.Odin.Editor.FrameworkOdinEditorRegistration, Game.Framework.Odin.Editor");
-            if (odinEditorType == null || registrationType == null) return;
-
-            MethodInfo registerNow = registrationType.GetMethod(
-                "RegisterNow", BindingFlags.Static | BindingFlags.NonPublic);
-            MethodInfo isOdinEnabled = registrationType.GetMethod(
-                "IsOdinEnabledForType",
-                BindingFlags.Static | BindingFlags.NonPublic,
-                binder: null,
-                types: new[] { typeof(Type) },
-                modifiers: null);
-            Assert.That(registerNow, Is.Not.Null);
-            Assert.That(isOdinEnabled, Is.Not.Null);
-
-            var gameObject = new GameObject("OptionalOdinEditorProbe");
-            UnityEditor.Editor editor = null;
-            try
-            {
-                var assetConfig = gameObject.AddComponent<AssetUtility>();
-                bool expectedOdin = (bool)isOdinEnabled.Invoke(null, new object[] { typeof(AssetUtility) });
-                registerNow.Invoke(null, null);
-                editor = UnityEditor.Editor.CreateEditor(assetConfig);
-                Type expectedEditor = expectedOdin ? odinEditorType : typeof(MonoUtilityInspector);
-                Assert.That(expectedEditor.IsAssignableFrom(editor.GetType()), Is.True,
-                    "Adapter 所有权必须与 Odin Inspector 总开关、程序集分类和逐类型设置一致；" +
-                    "禁用或排除 Odin 时还必须明确回退 Framework 原生 Inspector，不能落到无诊断的 OdinEditor。" +
-                    $"期望 Editor：{expectedEditor.AssemblyQualifiedName}\n" +
-                    $"实际 Editor：{editor.GetType().AssemblyQualifiedName}");
-
-                Type demoModelType = Type.GetType(
-                    "Game.Framework.Demo.Modules.MonoScoreModel, Game.Framework.Demo");
-                if (demoModelType != null)
-                {
-                    UnityEngine.Object.DestroyImmediate(editor);
-                    editor = null;
-                    Component demoModel = gameObject.AddComponent(demoModelType);
-                    bool demoExpectedOdin = (bool)isOdinEnabled.Invoke(null, new object[] { demoModelType });
-                    registerNow.Invoke(null, null);
-                    editor = UnityEditor.Editor.CreateEditor(demoModel);
-                    Type demoExpectedEditor = demoExpectedOdin ? odinEditorType : typeof(MonoModelInspector);
-                    Assert.That(demoExpectedEditor.IsAssignableFrom(editor.GetType()), Is.True,
-                        "Demo 具体组件也必须落到能绘制 Framework 诊断的 Editor。" +
-                        $"期望 Editor：{demoExpectedEditor.AssemblyQualifiedName}\n" +
-                        $"实际 Editor：{editor.GetType().AssemblyQualifiedName}");
-                }
-            }
-            finally
-            {
-                if (editor != null) UnityEngine.Object.DestroyImmediate(editor);
-                UnityEngine.Object.DestroyImmediate(gameObject);
-            }
         }
 
         [Test]
@@ -193,18 +138,13 @@ namespace Game.Framework.Editor.Tests
         }
 
         private static bool IsFrameworkAssembly(string name) =>
-            (name == "Game.Framework" || name.StartsWith("Game.Framework.", StringComparison.Ordinal)) &&
-            name != "Game.Framework.Odin" &&
-            !name.StartsWith("Game.Framework.Odin.", StringComparison.Ordinal);
+            name == "Game.Framework" || name.StartsWith("Game.Framework.", StringComparison.Ordinal);
 
         private static bool IsTestAssembly(string name) =>
             name.Contains(".Test", StringComparison.Ordinal) || name.Contains(".Tests", StringComparison.Ordinal);
 
         private static bool IsSirenixAssembly(string name) =>
             name.StartsWith("Sirenix.", StringComparison.Ordinal) || name == "Sirenix";
-
-        private static bool IsOdinAdapterAssembly(string name) =>
-            name == "Game.Framework.Odin" || name.StartsWith("Game.Framework.Odin.", StringComparison.Ordinal);
 
         private static void AddAssemblyPath(IDictionary<string, string> paths, string path)
         {
@@ -227,7 +167,7 @@ namespace Game.Framework.Editor.Tests
                 foreach (string reference in FrameworkModuleAudit.ReadAssemblyReferences(path))
                 {
                     string dependencyPath = current.path + " → " + reference;
-                    if (IsSirenixAssembly(reference) || IsOdinAdapterAssembly(reference)) return dependencyPath;
+                    if (IsSirenixAssembly(reference)) return dependencyPath;
                     if (visited.Add(reference)) pending.Enqueue((reference, dependencyPath));
                 }
             }
