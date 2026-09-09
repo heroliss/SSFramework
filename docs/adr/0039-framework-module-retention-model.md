@@ -80,7 +80,7 @@ Module 目录内的无条件 `link.xml` 进入 Module 保留成本说明；它�
 
 asmdef 管**编译依赖边界**，UnityLinker 管**成员裁剪**，HybridCLR Profile 管**热更部署集合**，UPM 管**源码包、版本和包依赖**。四者互补，不互相替代。
 
-当前 Framework 仓库仍位于项目 `Assets` 下，但 Module Audit 和体积探针已经能读取已安装 UPM 源码。它们只读说明依赖与移除条件，不接管 UPM 的安装、卸载、版本解析、registry 或 lockfile。等某个删除边界在真实项目中长期稳定，再按 ADR-0010 把粗粒度 Module 抽成独立 UPM package，由 Package Manager 负责安装和传递依赖；Module Audit 仍负责项目级真实消费者、热更与 linker 证据。
+Framework Package 以 package root/src 作为当前源码形态，同时允许消费工程通过 embedded、Git 或 registry 方式接入。Module Audit 和体积探针只读说明依赖与移除条件，不接管 UPM 的安装、卸载、版本解析、registry 或 lockfile；未来若要进一步拆分 Module，仍须由真实目标平台和删除测试证明边界。
 
 ## Consequences
 

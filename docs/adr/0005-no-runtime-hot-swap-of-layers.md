@@ -18,4 +18,4 @@
 - 替换整层实例：**整个 Context 一并 Dispose 重建**（场景切换、关卡重置）。
 - `IHasGameContext` 实例同样不能跨 Context 搬迁或共享：每个 Context 创建独立实例；确实无状态、需要共享的值不要持有 Context。
 - 想做声明式热替换需要"绑定 + Container 注册事件"机制，超出当前范围；如未来引入再补 ADR。
-- 详见 [`Assets/Game/AGENTS.md`「Mono 生命周期与 Context」](../../Assets/Game/AGENTS.md#mono-生命周期与-context)。
+- 详细边界见根目录 AGENTS.md、src/AGENTS.md 和 docs/README.md。

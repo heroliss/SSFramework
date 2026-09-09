@@ -4,7 +4,7 @@
 
 ## Context
 
-roadmap 中期新模块第四项：本地化——需求普适（出海即刚需），roadmap 圈定的思路是「表驱动（吃现成配置表）+ 资源按 locale 分包（吃现成多 package），基本是组合既有原语」。与中期⑤字体策略（ADR-0025）一起设计：字体本身也按 locale 切换，切换信号由本模块提供。
+早期规划中的中期新模块第四项：本地化——需求普适（出海即刚需），早期规划圈定的思路是「表驱动（吃现成配置表）+ 资源按 locale 分包（吃现成多 package），基本是组合既有原语」。与中期⑤字体策略（ADR-0025）一起设计：字体本身也按 locale 切换，切换信号由本模块提供。
 
 盘点已有原语后，真正缺的核心很小：**当前语言身份 + key → 当前语言文本的查询 + 查询答案变化时让已显示 UI 重取**。其余都是组合：
 
@@ -45,7 +45,7 @@ public interface ILocalizedTextSource
 }
 ```
 
-- **文本源经构造注入**（`new LocalizationUtility(source, initialLocale, fallbackLocale?)`，存储的 Provider 先例）：业务写一个 Adapter 包自己的 Luban 表；框架内置 `DictionaryLocalizedTextSource`（测试 / Demo / 小游戏直接用，也是第二实现，Seam 不空转）。
+- **文本源经构造注入**（`new LocalizationUtility(source, initialLocale, fallbackLocale?)`，存储的 Provider 先例）：业务写一个 Adapter 包自己的 Luban 表；框架内置 `DictionaryLocalizedTextSource`（测试 / 示例工程 / 小游戏直接用，也是第二实现，Seam 不空转）。
 - Source 的查询答案可能变化时发 `Invalidated`；静态源可返回永不推送的 Observable。Source 必须至少与 Utility 同寿，Utility 只拥有订阅、不拥有 Source 本身。
 - `TextRevision` 是不透明的重取信号：语言变化或 Source 失效时递增，数值没有业务含义。选择 revision 而不是暴露 Source Observable，避免 UI 依赖 Adapter，也让初始订阅立即获得当前快照。
 - locale code 是**开放字符串 + 业务常量**（`"zh-CN"` / `"en"`……）；语言列表、`SystemLanguage` → code 映射和持久化都归业务。
@@ -84,7 +84,7 @@ public interface ILocalizedTextSource
 - 消费方删除 `BootState` 对本地化配置 Ready 的硬等待；标题可先建立绑定，配置后到会在同一语言下原地重取。真正依赖业务配置的系统仍在自己的初始化入口等待。
 - 所有文本消费方必须从 `Locale` 迁到 `TextRevision`；字体和 per-locale 资源继续只订 `Locale`。这是一次有意的公共接口升级，不保留旧 `TryGet`，让自定义 Adapter 在编译期暴露并迁移。
 - `LocalizationUtility` 随 Context 释放时退订 Source；Source 生命周期仍由其所属 Module / Container 管理。字典源每次实际内容变化都会发失效信号。
-- Demo 增加可操作的 Unavailable → Found 实验，证明不切语言也会刷新、且不产生假 missing；契约测试覆盖延迟源、Toolkit 实际标签、信号隔离、fallback 和释放退订。
+- 示例工程增加可操作的 Unavailable → Found 实验，证明不切语言也会刷新、且不产生假 missing；契约测试覆盖延迟源、Toolkit 实际标签、信号隔离、fallback 和释放退订。
 - `params object[]` 每次 `Get` 仍会分配——UI 文案频率无感；每帧热路径应缓存格式串或降低更新频率。
 
 ## 2026-08-31 修订（借用终态与字符串契约）

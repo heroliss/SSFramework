@@ -23,7 +23,7 @@ Framework Module Audit 已能从 Player 编译图和 DLL 元数据证明 Core、
 
 组合及 Module 源目录继续来自 Framework Module Audit，同一份审计结果同时驱动窗口、原始报告和真实构建，不维护第二份“Core / UGUI / Toolkit”清单。实际 DLL 闭包回答当前用了什么；探针再合并 asmdef 声明闭包，保证“只声明、尚未产生 IL 引用”的 Framework Module 仍被复制并完整保留，因为隔离工程编译时已经需要该程序集。这使 Module 变化集中在一个地方，保持 locality。
 
-Module 源码不假设位于 `Packages/com.liss.ssframework/src`。审计先经 `FrameworkModuleSourceCatalog` 把 `Assets/...`、`Packages/...` 或 PackageCache 绝对路径还原为“稳定 Asset 身份 + 真实物理目录 + package id”，探针从物理目录复制，并在 JSON / Markdown 证据中只保留可分享的资产来源与实际复制内容指纹。运行目录、输出、结果与日志路径不进入 JSON，而由本机 EditorPrefs 指向最新运行目录，并在读取时按稳定 Profile key 重建。复制目标采用“源码职责叶目录 + 可读程序集名 + 稳定短哈希”（如 `Core__Game_Framework__<hash>`）：职责名让证据可读，程序集身份避免不同 Package 都使用 `Runtime/` 或 slug 恰好相同时互相覆盖，同时规避 Unity 6000.3 在目录与其中 asmdef 同名时可能把定义误交给 `DefaultImporter` 的导入歧义。若两个 asmdef 源目录相同或互相嵌套则 fail-fast，因为目录复制无法诚实表达删除组合。Domain Reload 恢复会逐一校验报告格式、证据实现、档位、package 身份与内容指纹；旧格式缺证据、未来格式含未知字段时都拒绝续跑，漂移时完成已启动档位后停止。旧工具也拒绝重写未来格式，避免保留版本号却丢失未知字段。详见 ADR-0040。
+Module 源码不假设位于 `src`。审计先经 `FrameworkModuleSourceCatalog` 把 `Assets/...`、`Packages/...` 或 PackageCache 绝对路径还原为“稳定 Asset 身份 + 真实物理目录 + package id”，探针从物理目录复制，并在 JSON / Markdown 证据中只保留可分享的资产来源与实际复制内容指纹。运行目录、输出、结果与日志路径不进入 JSON，而由本机 EditorPrefs 指向最新运行目录，并在读取时按稳定 Profile key 重建。复制目标采用“源码职责叶目录 + 可读程序集名 + 稳定短哈希”（如 `Core__Game_Framework__<hash>`）：职责名让证据可读，程序集身份避免不同 Package 都使用 `Runtime/` 或 slug 恰好相同时互相覆盖，同时规避 Unity 6000.3 在目录与其中 asmdef 同名时可能把定义误交给 `DefaultImporter` 的导入歧义。若两个 asmdef 源目录相同或互相嵌套则 fail-fast，因为目录复制无法诚实表达删除组合。Domain Reload 恢复会逐一校验报告格式、证据实现、档位、package 身份与内容指纹；旧格式缺证据、未来格式含未知字段时都拒绝续跑，漂移时完成已启动档位后停止。旧工具也拒绝重写未来格式，避免保留版本号却丢失未知字段。详见 ADR-0040。
 
 ### 2. 依赖版本来自当前工程，但按组合最小化
 
@@ -94,7 +94,7 @@ Unity Windows IL2CPP 会把 `*_BackUpThisFolder_ButDontShipItWithYourGame` 的 C
 
 这些数字只验证探针的输入隔离、结果口径与恢复机制。它们不是仓库金线，也不能回答 WebGL / 小游戏的增量；相关结构决策仍须切到真实发布目标后重跑。
 
-2026-08-27 在相同 Unity / 平台 / 后端 / 裁剪条件下，用新增的 Player 编译图真值门禁复验 Core、UGUI、Toolkit：三档分别为 77.76 MiB、93.41 MiB、95.75 MiB 可发布输出，用时 281.5s、341.8s、398.8s，仍均为 0 error / 0 warning。UGUI 的最小 manifest 只有 `com.unity.ugui`，Toolkit 不安装 UGUI，两者都不再因 Demo 的物理返回键接线安装 Input System。该轮是最终 v8 之前的三档真值门禁回归，用于证明目录消歧、每档重建和期望程序集门禁生效；数值变化仍不升级为跨机器基线，不能把它表述成最终 v8 三档矩阵。
+2026-08-27 在相同 Unity / 平台 / 后端 / 裁剪条件下，用新增的 Player 编译图真值门禁复验 Core、UGUI、Toolkit：三档分别为 77.76 MiB、93.41 MiB、95.75 MiB 可发布输出，用时 281.5s、341.8s、398.8s，仍均为 0 error / 0 warning。UGUI 的最小 manifest 只有 `com.unity.ugui`，Toolkit 不安装 UGUI，两者都不再因 示例工程的物理返回键接线安装 Input System。该轮是最终 v8 之前的三档真值门禁回归，用于证明目录消歧、每档重建和期望程序集门禁生效；数值变化仍不升级为跨机器基线，不能把它表述成最终 v8 三档矩阵。
 
 同日完成冻结/恢复边界修复与 37/37 针对性测试后，以最终 v8 契约复验 Core：可发布输出 77.76 MiB，BuildReport 530.60 MiB，用时 109.1s，0 error / 0 warning。报告的证据实现 SHA-256 为 `c13c4feb…d58e1`，与该次最终源码及已编译 Editor DLL 绑定；日志明确显示散列目录中的 `Game.Framework.asmdef` 由 `AssemblyDefinitionImporter` 导入，并生成 `Library/Bee/PlayerScriptAssemblies/Game.Framework.dll`。`report.json` / `report.md` 均含 64 字符的证据实现与模板快照指纹，run-owned `Inputs/` 也保留了实际模板。该复验关闭 v8 最终主链串联正确性，但不把单档结果包装成一次新的三档矩阵。
 
@@ -128,5 +128,3 @@ Unity Windows IL2CPP 会把 `*_BackUpThisFolder_ButDontShipItWithYourGame` 的 C
 - ADR-0010（UPM 抽包路线）
 - ADR-0027（列表绑定 Module 粒度）
 - `docs/framework-module-map.md`
-
-

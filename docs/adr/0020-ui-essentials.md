@@ -49,11 +49,11 @@ UniTask OnCloseTransition(CancellationToken ct);  // 出场动画：OnClose 之�
 - **`[UIWindow(BackClosable = false)]`** 进窗口元数据。
 - **UI Core 到此为止**：它提供稳定的 `IUIUtility.Back()`，不轮询键盘、不引用 Input System，也不猜项目使用 Input Action、旧 Input Manager、平台 SDK 还是统一输入路由。
 - **物理输入由 composition layer 显式接线**：输入回调取得同节点 / Context 的 `IUIUtility` 后调用 `Back()`；`false` 时是否退出、二次确认或交给玩法仍由项目决定。这样替换输入方案只改项目边缘，窗口调度与两个渲染后端都不变。
-- Demo 提供 `DemoInputSystemBackKeyDriver` 活样板：用新 Input System 检测 Esc（Android 硬件返回键在 Unity 中同样表现为 Escape）并调用 `Back()`。它位于 `Game.Framework.Demo`，是教学用 composition 代码，不是 Framework Runtime Module。
+- 示例工程提供 `InputSystemBackKeyDriver` 活样板：用新 Input System 检测 Esc（Android 硬件返回键在 Unity 中同样表现为 Escape）并调用 `Back()`。它位于 `示例程序集`，是教学用 composition 代码，不是 Framework Runtime Module。
 
-> **边界深化（2026-08-27）**：初版曾把双路径 `MonoUIBackKeyDriver` 放进 `Game.Framework.UI`，并让 asmdef 无条件引用 `Unity.InputSystem`。`#if ENABLE_INPUT_SYSTEM` 只能裁 C# 分支，不能让缺少 Package 的 asmdef 引用自动消失；所谓“未安装时删引用即可”也会在启用新输入分支时使类型不可见。这既不是真正可选依赖，也把单个浅胶水抬成了 Core 成本。删除测试显示唯一真实消费者是 Demo，故保留深导航 Interface、把物理输入 Implementation 下沉，而不为一个 50 行实现新建假想 Adapter Module。
+> **边界深化（2026-08-27）**：初版曾把双路径 `MonoUIBackKeyDriver` 放进 `Game.Framework.UI`，并让 asmdef 无条件引用 `Unity.InputSystem`。`#if ENABLE_INPUT_SYSTEM` 只能裁 C# 分支，不能让缺少 Package 的 asmdef 引用自动消失；所谓“未安装时删引用即可”也会在启用新输入分支时使类型不可见。这既不是真正可选依赖，也把单个浅胶水抬成了 Core 成本。删除测试显示唯一真实消费者是示例工程，故保留深导航 Interface、把物理输入 Implementation 下沉，而不为一个 50 行实现新建假想 Adapter Module。
 
-> **升级边界**：`MonoUIBackKeyDriver` 是已删除的 Runtime API；新的 Demo 样板使用独立脚本 GUID，不复用旧序列化身份。既有项目应显式移除旧组件，并从自己的 Input Action / 平台输入路由调用 `IUIUtility.Back()`；若仍需要逐帧 Esc 样板，再自行复制 Demo Implementation。宁可让旧场景暴露清晰迁移点，也不让公共 Runtime 组件静默变成 Demo-only 类型。
+> **升级边界**：`MonoUIBackKeyDriver` 是已删除的 Runtime API；新的输入样板使用独立脚本 GUID，不复用旧序列化身份。既有项目应显式移除旧组件，并从自己的 Input Action / 平台输入路由调用 `IUIUtility.Back()`；若仍需要逐帧 Esc 样板，再自行复制输入 Implementation。宁可让旧场景暴露清晰迁移点，也不让公共 Runtime 组件静默变成 示例专用类型。
 
 ### 3. 安全区：opt-in 内容避让组件，层根保持全屏
 
@@ -77,5 +77,5 @@ UniTask OnCloseTransition(CancellationToken ct);  // 出场动画：OnClose 之�
 - ⚠ **逻辑关闭先于表现**：出场动画期间 `IsOpen<T>()` 已是 false、重开同类型会新建实例——动画中的旧实例只是视觉残影。依赖「关完才算关」的业务应改在 `OnClose` 里做收尾。
 - ⚠ 过渡动画自己要响应传入的 ct（Context 销毁时取消）；不响应也只是白播几帧，物理对象已由 Teardown 拆除。
 - ⚠ `Back()` 返回值从无到有（`void`→`bool`）：纯源码级变更，既有调用方不接返回值照常编译。
-- ⚠ 输入接线不是 Framework Runtime 自动安装项；复制 Demo 样板或在项目既有输入路由里调用 `Back()`，不要在 UI Core 里重新轮询平台按键。
-- §3 / §4 的实现跟进在 roadmap「UI 刚需补齐」项下追踪。
+- ⚠ 输入接线不是 Framework Runtime 自动安装项；复制输入样板或在项目既有输入路由里调用 `Back()`，不要在 UI Core 里重新轮询平台按键。
+- §3 / §4 的实现跟进在 早期规划「UI 刚需补齐」项下追踪。

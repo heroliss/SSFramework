@@ -34,7 +34,7 @@
 | `Game.Framework.Boot`（新·薄引导） | AOT，永远 | 引导自举（鸡生蛋）；越薄越好，目标是几乎永不修改 |
 | UniTask、YooAsset | AOT，必须 | Boot 引用它们，AOT 不能引用热更 |
 | `Game.Framework`（内核） | 默认热更，**可退回 AOT** | Context/DI/Command/Event/层基类/Bag/RP/Pool + 资源系统后端无关部分；性能敏感版本移出列表跑原生 |
-| `Game.Framework.Asset.Yoo`（自内核抽出） | 默认热更 | YooAsset 接触面（Provider 及注册胶水）。把 ADR-0013 的「YooAsset 收口在 Provider」从口头纪律升格为 asmdef 编译期强制；适配层是集成 bug 高发区（见 `docs/yooasset-pitfalls.md`），可热修价值高 |
+| `Game.Framework.Asset.Yoo`（自内核抽出） | 默认热更 | YooAsset 接触面（Provider 及注册胶水）。把 ADR-0013 的「YooAsset 收口在 Provider」从口头纪律升格为 asmdef 编译期强制；适配层是集成 bug 高发区（见 ADR-0013 与框架使用指南第 13 节），可热修价值高 |
 | R3 | AOT（默认） | 有 `RuntimeInitializeOnLoad`/PlayerLoop 入位问题且更新频率极低，热更红利≈0。机制不禁止（满足 §3 准则即可进列表） |
 | Odin（项目可选） | 安装时为预编译 AOT DLL | Framework 原生基线不再依赖；项目若自行安装，仍按普通第三方 AOT 依赖管理，不进入 Framework 包。见 ADR-0015 |
 | 业务程序集、纯业务玩法库 | 热更 | 主战场；先单一热更 asmdef，多包拆分等真实业务出现再说 |
@@ -76,14 +76,14 @@ Boot 场景（唯一随包场景：Launcher + 朴素进度 UI，只挂 Boot 程�
 
 ### 5. 硬边界与代价（知情决策）
 
-- **随包场景不得挂热更程序集的脚本**：框架热更时连 `MonoGlobalContext` 都不能进随包场景；业务场景/prefab 一律 bundle 化（热更游戏标准形态）。Demo 场景只服务编辑器教学、不进包，不受影响。
+- **随包场景不得挂热更程序集的脚本**：框架热更时连 `MonoGlobalContext` 都不能进随包场景；业务场景/prefab 一律 bundle 化（热更游戏标准形态）。示例场景只服务编辑器教学、不进包，不受影响。
 - **性能**：热更代码走解释器（比 AOT 慢约一个数量级）。框架热更档位下 DI/事件/Command 分发全解释执行——当前项目可接受；性能敏感产品把内核移出列表。远期商业版 DHE（方法级差分）可两全，机制无需改动。
 - 热更↔AOT 边界调用有桥接开销，但最低档位（仅业务热更）本来就跨该边界，分层不引入新量级。
 - **完全不做代码热更也是一档**：热更列表为空 ⇒ 全程 AOT，Launcher 退化为 AppDomain 直连旁路，或干脆省掉 Boot 用 `MonoGlobalContext` 老式启动（业务场景也不必 bundle 化）；资源热更（YooAsset）独立可用。落地见框架手册 §15「不做代码热更怎么搭」。
 
 ### 6. 反射兼容（已验证，2026-06-12）
 
-框架的 [InjectionPlan](../../Packages/com.liss.ssframework/src/Core/Internal/InjectionPlan.cs) / [LayerInterfacesCache](../../Packages/com.liss.ssframework/src/Core/Internal/LayerInterfacesCache.cs) / `GameContext.FindContextField` 对热更类型有效（都是真实 `System.Type`，解释器下元数据齐全）。AOT 泛型补元数据由 `AOTGenericReferences` 扫描自动覆盖。
+框架的 [InjectionPlan](../../src/Core/Internal/InjectionPlan.cs) / [LayerInterfacesCache](../../src/Core/Internal/LayerInterfacesCache.cs) / `GameContext.FindContextField` 对热更类型有效（都是真实 `System.Type`，解释器下元数据齐全）。AOT 泛型补元数据由 `AOTGenericReferences` 扫描自动覆盖。
 
 **历史 IL2CPP 真机自检通过（GameEntry 自检 8/8，Windows player）**：DI 容器注册/解析、`RP<T>` + R3 订阅（跨 AOT 泛型）、struct Command 分发、双泛型 `ExecuteCommand<TCmd,TResult>` 零装箱返回值、class Command `[Inject]` 注入、事件总线、UniTask 异步命令（解释器 async 状态机），以及当时项目已安装的 Odin `SerializationUtility` 对热更类型的序列化往返。最后一项只是第三方集成的历史证据，不再属于 Framework Core 自检契约。
 
@@ -101,17 +101,15 @@ Boot 场景（唯一随包场景：Launcher + 朴素进度 UI，只挂 Boot 程�
 
 ## 已决事项（初版开放决策的落定）
 
-- 业务热更 asmdef 粒度：先单一 `Game.Main`（入口编排 + 未拆分业务），按需再拆模块/DLC。
+- 业务热更 asmdef 粒度：先单一 `业务入口程序集`（入口编排 + 未拆分业务），按需再拆模块/DLC。
 - **目录与程序集按领域命名（Main / 模块 / DLC），不按「是否热更」命名**——热更与否是热更 profile 里的
   部署决策（按版本可变），不是代码的内在属性；一个领域单元 = 一个 asmdef = 热更列表一行 =（DLC 时）一个资源 package。
-- Demo 不参与热更（编辑器教学定位，asmdef 用 `defineConstraints:["UNITY_EDITOR"]` 排除出玩家包——
+- 示例工程不参与热更（编辑器教学定位，asmdef 用 `defineConstraints:["UNITY_EDITOR"]` 排除出玩家包——
   **不能用 `includePlatforms:["Editor"]`**：编辑器平台程序集的 MonoBehaviour 挂在场景上进 Play 模式会被剔成 missing，教学场景直接报废；define 约束在编辑器域恒满足、Play 正常，仅出包时不编译）。
 - 热更入口：Launcher Inspector 显式配置程序集限定类型；该类型提供公共静态无参入口方法（默认方法名 `Enter`），作为游戏的 main。
 - 边玩边下/版本灰度：本期不做；YooAsset 按需下载原语已具备，需要时组合。
-- **入口的启动编排落地（2026-07，真实消费方验证）**：`GameEntry.Enter` 从「挂自检」模板换成真实编排——
+- **入口的启动编排落地（2026-07，真实消费工程验证）**：`GameEntry.Enter` 从「挂自检」模板换成真实编排——
   代码搭最小引导资源栈（`MonoGameContextBase` + `AssetUtility` 双 AddComponent → `Configure`(为此提升 public) →
   `Initialize` → `LoadScene` 首场景 → Destroy 交棒），编辑器旁路走 EditorSimulate、桌面/移动玩家包走 Host、WebGL 强制走 Web 文件系统。
   首个真实业务程序集进入热更列表；纯 C# 仿真程序集刻意留 AOT，保证需要 Burst 或原生后端时仍有稳定接缝——
   「热更程序集引用 AOT 程序集」方向合法，Generate 的 link.xml 保住仅被热更侧引用的 AOT 类型不被裁剪。
-
-

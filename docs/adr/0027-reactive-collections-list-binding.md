@@ -4,13 +4,13 @@
 
 ## Context
 
-roadmap 中期最后一项：`RP<T>` / `ReadOnlyReactiveProperty<T>` 是**单值**流——一个 HP、一个分数、一段文本，变化时推新值，`Bag.BindText` / `BindEnabled` 订阅刷新。可是「一串会增删的东西」——背包格子、聊天记录、在线玩家、排行榜、队伍成员——是**集合状态**，R3 单值订阅覆盖不到。
+早期规划中的中期最后一项：`RP<T>` / `ReadOnlyReactiveProperty<T>` 是**单值**流——一个 HP、一个分数、一段文本，变化时推新值，`Bag.BindText` / `BindEnabled` 订阅刷新。可是「一串会增删的东西」——背包格子、聊天记录、在线玩家、排行榜、队伍成员——是**集合状态**，R3 单值订阅覆盖不到。
 
 现状能怎么做、为什么不够：
 - 把集合塞进 `RP<IReadOnlyList<T>>`，每次增删推**整包**新列表。View 收到后只能「清空容器 → 重建全部子视图」。代价：丢滚动位置 / 选中 / 输入焦点，每帧重建抖 GC，大列表卡顿。它能跑，但把「加一项」放大成「重画整表」。
 - 缺的是**增量通知**：集合告诉订阅者「第 3 位插了一个」「第 5 位被删了」「0 和 2 换位了」，UI 只动那一处。
 
-Cysharp 的 **ObservableCollections** 正是这个原语（与已用的 UniTask / R3 同生态，roadmap「Cysharp 生态候选」已列）：`ObservableList<T>` 持有集合并发出细粒度变化事件；配套 **Observablecollections.R3** 把变化桥成 R3 `Observable<T>`，与框架「一切皆流 + Bag 订阅」的心智无缝。两个包已随 NuGetForUnity 装好（`Packages/nuget-packages`），且与框架用的同一个 R3 程序集（1.3.1）绑定，无类型身份冲突。PluginImporter 目前仍允许全平台 Auto Reference，但第一方消费 asmdef 必须用 `overrideReferences + precompiledReferences` 建立真实显式边；IL2CPP / 热更再由 linker 与 Generate 证据验证。
+Cysharp 的 **ObservableCollections** 正是这个原语（与已用的 UniTask / R3 同生态，早期规划「Cysharp 生态候选」已列）：`ObservableList<T>` 持有集合并发出细粒度变化事件；配套 **Observablecollections.R3** 把变化桥成 R3 `Observable<T>`，与框架「一切皆流 + Bag 订阅」的心智无缝。两个包已随 NuGetForUnity 装好（`Packages/nuget-packages`），且与框架用的同一个 R3 程序集（1.3.1）绑定，无类型身份冲突。PluginImporter 目前仍允许全平台 Auto Reference，但第一方消费 asmdef 必须用 `overrideReferences + precompiledReferences` 建立真实显式边；IL2CPP / 热更再由 linker 与 Generate 证据验证。
 
 实测 `ObservableList<T>.ObserveChanged()` 的语义（决定绑定正确性的关键，已在 Editor 验证而非猜测）：
 - 每次结构变化摊成**逐项** `Add` / `Remove` / `Move` 事件——`Add`/`AddRange`/`Insert` 都是逐项 `Add`（`NewStartingIndex` 为真实插入位）；`RemoveAt`/`RemoveRange` 逐项 `Remove`；`Move` 一条；索引器赋值一条 `Replace`；`Clear` 一条 `Reset`。
@@ -54,9 +54,9 @@ Model 持有集合就用 `ObservableList<T>`（如 `RP<T>` 之于单值）；只
 - 内核零改动、不新增内核依赖；ObservableCollections 只在 UI 层与业务层出现，守住范式无关内核不变量。绑定引擎在 `Game.Framework.UI`（热更列表内），两后端共享。
 - 增量维护逻辑单点、纯 C# 可测（`ReactiveListBindingTests` 用引用式假容器覆盖种入 / 增删移换 / 换值 / Reset / 解绑、每项子 bag 释放，以及 seed / create / attach / detach / reorder / Dispose 失败与同步重入），不依赖场景与帧推进；双后端另守无效容器与空 factory 结果的错误 locality。
 - Test 程序集 `overrideReferences:true`，显式补了 `ObservableCollections.dll` + `ObservableCollections.R3.dll` 两条 precompiledReferences；运行时共享 UI asmdef 同样显式声明两者，两个后端按各自直接使用的公开绑定签名声明 `ObservableCollections.dll`，不再把 DLL 名误写进 `references` 或借 Auto Reference 隐藏依赖。
-- 五件套齐：本 ADR / 引擎（`Game.Framework.UI/ReactiveListBinding.cs`）+ 双后端适配 / 测试（`ReactiveListBindingTests`）/ demo「响应式列表 · 集合绑定」章（`Modules/ReactiveListModule.cs`）/ guide §24 + AGENTS #31。
-- ObservableCollections 从「roadmap 候选」变成已融入依赖：Model 显式使用集合类型，`Bag.BindList` 收口增量维护与逐行生命周期 Implementation；不再用“整个库都被隐藏”描述这条依赖。
+- 五件套齐：本 ADR / 引擎（`src/UI/ReactiveListBinding.cs`）+ 双后端适配 / 测试（`ReactiveListBindingTests`）/ 列表绑定示例与测试/ guide §24 + AGENTS #31。
+- ObservableCollections 从「早期规划候选」变成已融入依赖：Model 显式使用集合类型，`Bag.BindList` 收口增量维护与逐行生命周期 Implementation；不再用“整个库都被隐藏”描述这条依赖。
 
 **2026-08-25 模块审计补充：**共享引擎当前位于 `Game.Framework.UI`，所以任何窗口框架消费方都会在编译闭包中看到 ObservableCollections，即使没有调用 `BindList`；两个后端 asmdef 也显式声明各自公开签名里的集合类型。该耦合是可见且可测的，不再借 NuGet auto-reference 隐藏。是否进一步拆成可选 Module，须以目标平台 Player BuildReport 证明收益；编辑器 `SSFramework/诊断与分析/模块与依赖` 可把任意 Module 作为入口查看真实闭包，再交给隔离构建探针验证体积上界，避免为理论体积提前制造浅 Module。
 
-**2026-08-24 验证补充：**Demo 为每个真实行 View 增加稳定实例身份，并从 item factory 与 rowBag Dispose 两个 Seam 采集创建 / 释放 / 存活计数；画面可直接观察 Move 复用同一行、Replace 仅重造一槽。EditMode 契约同时断言真实 `VisualElement` 引用、父子层级与 rowBag 释放状态，避免“列表结果正确”掩盖整表重建或逐行生命周期错误。
+**2026-08-24 验证补充：**示例工程为每个真实行 View 增加稳定实例身份，并从 item factory 与 rowBag Dispose 两个 Seam 采集创建 / 释放 / 存活计数；画面可直接观察 Move 复用同一行、Replace 仅重造一槽。EditMode 契约同时断言真实 `VisualElement` 引用、父子层级与 rowBag 释放状态，避免“列表结果正确”掩盖整表重建或逐行生命周期错误。

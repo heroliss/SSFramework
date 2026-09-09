@@ -6,7 +6,7 @@ SSFramework 将依赖注入、Context 作用域、Model / System / View 分层�
 
 它不规定游戏玩法、美术风格或项目目录。使用者可以从 Core 开始，按项目需要接入可选能力，并在需要替换第三方实现时保留自己的业务代码。
 
-[📖 使用指南](docs/framework-guide.md) · [🧭 模块地图](docs/framework-module-map.md) · [🔧 接入与升级](docs/consuming-framework.md) · [🧾 架构决策](docs/adr/README.md)
+[📖 使用指南](docs/framework-guide.md) · [🧭 文档索引](docs/README.md) · [🔧 接入与升级](docs/consuming-framework.md) · [🧾 架构决策](docs/adr/README.md)
 
 ![SSFramework 架构图](docs/SSFramework-architecture.png)
 

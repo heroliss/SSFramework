@@ -10,7 +10,7 @@
 - **手写契约与 Mono 路径口径漂移**：Mono 路径（`MonoXxxBase`）自动注册「具体类型 + 所有派生自层标记的接口」，手写路径全凭自觉，两条路径注册面不一致。
 - **纯 C# 路径注册后无人注入**：Mono 路径 Awake 时自动 `Inject + AttachTo`，而 `InstallBindings` 注册的实例没有对应步骤——带 `[Inject]` 字段或实现 `IHasGameContext` 的服务必须调用方手动补 `ctx.Inject(s); ctx.AttachTo(s);`（见 `FrameworkSelfCheck`、guide §11），极易遗漏且遗漏后是**静默 null**。
 
-roadmap 既定方向（2026-07 审查）：**编辑期扫描固定目录生成一份显式的安装器代码，刻意不做运行时反射扫描自动注册**——启动零扫描、AOT / 热更友好（HybridCLR 下运行时程序集遍历既慢又易踩裁剪坑）、注册关系落在 `.g.cs` 里 git diff 可见可审。
+早期规划既定方向（2026-07 审查）：**编辑期扫描固定目录生成一份显式的安装器代码，刻意不做运行时反射扫描自动注册**——启动零扫描、AOT / 热更友好（HybridCLR 下运行时程序集遍历既慢又易踩裁剪坑）、注册关系落在 `.g.cs` 里 git diff 可见可审。
 
 约束基线：
 

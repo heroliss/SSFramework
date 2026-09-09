@@ -34,7 +34,7 @@
 
 偏移之所以能做成普通字段，正因为它是**非密钥、两端相同**的数字。`FrameworkAssetBuildProfile.FileOffset` 与场景 `AssetUtility.Settings.FileOffset` 仍须人工一致；但首场景在场景内 Utility 出现前已经要读 bundle，不能依赖场景字段，也不能让 `GameEntry` 再手写第三份数字。
 
-因此 `AssetPackageConstantsGenerator` 除包名外，从构建 Profile 派生 `AssetBundleFileOffset`；代码引导的 `Configure` DTO 使用该生成常量。普通 AssetBundle 构建前以同一渲染函数逐字校验生成物，陈旧时拒绝写产物，不在构建中自动改 `.cs`（否则 Domain Reload 前的旧程序集仍会继续执行）。该常量只描述普通 AssetBundle 格式，不作用于独立 RawFile / CodePackage。修改偏移后必须把“生成 + 编译 Game.Main / Player + 构建资源 + 部署”视为同一发布事务；`const` 内联意味着源码新鲜不等于已部署 DLL 新鲜。
+因此 `AssetPackageConstantsGenerator` 除包名外，从构建 Profile 派生 `AssetBundleFileOffset`；代码引导的 `Configure` DTO 使用该生成常量。普通 AssetBundle 构建前以同一渲染函数逐字校验生成物，陈旧时拒绝写产物，不在构建中自动改 `.cs`（否则 Domain Reload 前的旧程序集仍会继续执行）。该常量只描述普通 AssetBundle 格式，不作用于独立 RawFile / CodePackage。修改偏移后必须把“生成 + 编译 业务入口程序集 / Player + 构建资源 + 部署”视为同一发布事务；`const` 内联意味着源码新鲜不等于已部署 DLL 新鲜。
 
 内置偏移实现共享 1 MiB 现实上限：偏移只破坏魔数，继续增大不会增加安全性，只会为每个 bundle 放大磁盘、网络与内存成本；构建侧另以 `long` 检查“正文 + 文件头”不能超过单个 `byte[]` 的长度边界。YooAsset 3 的 WebServer / WebNetwork 文件系统支持内存解密，因此 WebGL 也注入同一 `GameBundleOffsetDecryptor`，下载后剥头；自定义 Web 解密器必须实现 `IBundleMemoryDecryptor`，不能只提供文件偏移或流接口。
 
@@ -76,6 +76,6 @@
 - **开箱**：场景与构建 Profile 两个人工值对齐，首场景代码值自动派生；对 95% 场景足够，且零性能代价。
 - **可扩展**：强加密 / 清单加密经接入点接入，不 fork 框架；为 UPM 抽包预留干净扩展位。
 - **诚实的边界**：框架不假装提供「真安全」；强加密的密钥与性能取舍交还项目。
-- **对齐与发布成本**：场景运行值仍需与构建 Profile 对齐；代码引导由生成门禁防漂移，但修改后必须重编并原子部署实际 Game.Main / Player 与资源。自定义加 / 解密两半仍由项目保证一致。
+- **对齐与发布成本**：场景运行值仍需与构建 Profile 对齐；代码引导由生成门禁防漂移，但修改后必须重编并原子部署实际 业务入口程序集 / Player 与资源。自定义加 / 解密两半仍由项目保证一致。
 - **AES 缺位**：需要强加密的项目要自行实现 AES-CTR 流式解密器（含可 Seek 流），有一定门槛——这是有意的取舍，不是遗漏。
-- 完整 how-to / 选型 / 代码示例见 `docs/asset-encryption.md`。
+- 完整 how-to / 选型 / 代码示例见 `ADR-0018 与框架使用指南第 13 节`。

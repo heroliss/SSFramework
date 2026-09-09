@@ -17,7 +17,7 @@
 2. 新增可删除的 `Game.Framework.Build.HybridCLR.Editor`。它单向引用资源构建 Module、Boot、HybridCLR.Editor、YooAsset/YooAsset.Editor 与 dnlib，拥有热更 Profile、程序集图、Generate 新鲜度、目标 DLL 编译、RawFile 代码包和热更工作台。
 3. 热更新测试迁入 `Game.Framework.Build.HybridCLR.Editor.Tests`；资源构建测试不再引用 Boot、HybridCLR、YooAsset.Editor 或 dnlib。两侧分别锁定自己的工具/配置注册和程序集引用方向。
 4. 资源构建器不再读取 `FrameworkHotUpdateProfile` 或按 `CodePackageName` 猜特殊包。资源 Profile 的“参与构建”是唯一选择源；使用 `PackRawFile` 的包若被启用或由 CLI 点名，会在写入构建产物前明确失败，并要求关闭资源构建后改走拥有对应 RawFile 配方的 Module。
-5. 当前项目的 CodePackage 条目继续显式设为“不参与资源构建”。热更新 Module 仍复用资源 Profile 的版本格式、`FrameworkAssetBuilder.Deploy`、构建预检与 `FrameworkBuildArtifactPath`，不复制第二份路径和部署逻辑。
+5. 资源构建 Profile 中的 CodePackage 条目继续显式设为“不参与资源构建”。热更新 Module 仍复用资源 Profile 的版本格式、`FrameworkAssetBuilder.Deploy`、构建预检与 `FrameworkBuildArtifactPath`，不复制第二份路径和部署逻辑。
 6. 通用 Module Audit 继续用反射查找 `FrameworkHotUpdateProfile` / `FrameworkHotUpdateBuilder`，但证据字段和文案明确称为“HybridCLR 热更新构建 Module”；资源构建是否安装与热更派生证据正交。
 7. 保留移动脚本的 `.meta` GUID，既有 ScriptableObject Profile 通过 MonoScript GUID 继续加载；契约测试扫描并加载当前工程内已有 Profile，防止程序集迁移造成静默丢失。
 8. 部署保留两种明确语义：人工工作台可把某包磁盘上的最近一次构建重新平铺；`BuildAll` 的 CI 构建后部署则只消费本轮批次实际成功的包和精确版本。本轮请求但因空包跳过的包会移除输出根中的同名旧目录，未参与本轮请求的包不动；任一真实构建失败时不进入批次部署。历史目录不能冒充本轮发布证据。
@@ -49,6 +49,6 @@
 - 资源构建程序集元数据不得引用 `Game.Framework.Boot`、`Game.Framework.Build.HybridCLR.Editor`、HybridCLR.Editor 或 dnlib。
 - 热更新构建程序集必须显式引用资源构建、Boot、HybridCLR.Editor 与 dnlib。
 - 两个可选 Editor Module 均保持 `autoReferenced:false` 与 `overrideReferences:true`，测试 Module 跟随各自 owner 删除。
-- 已有 `FrameworkHotUpdateProfile` 资产能在拆分和域重载后加载；Demo CodeRef 指向迁移后的真实源码。
+- 已有 `FrameworkHotUpdateProfile` 资产能在拆分和域重载后加载；源码位置与程序集归属由当前 Package 目录和程序集元数据共同核对。
 - 批次部署测试证明固定使用本轮版本、清理本轮空包旧目录、真实失败不改部署结果；人工 latest 部署在无源产物时仍保持兼容的跳过语义。
 - Unity 编译、相关 EditMode、完整 EditMode / PlayMode 与 Module Audit 契约通过。

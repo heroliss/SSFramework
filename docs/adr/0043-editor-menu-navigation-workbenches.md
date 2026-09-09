@@ -21,7 +21,7 @@
    - `SSFramework/诊断/AI 自动化/*` 下由 ADR 锁定路径、供 MCP/CI 使用的稳定机器 Interface。
    后一类点击即执行且不弹确认框：无人值守调用需要确定终态，弹窗反而会占住 Unity 主线程。人工说明由同目录的“使用说明（人工入口）”窗口承载，逐项列出影响、完成判据与对应工作台；三个既有机器路径保持不变。配置驱动的 `SSFramework/场景/*` 动态项也保留，因为它们只执行明确导航，并已有保存/退出 Play 安全语义。
 6. `FrameworkMenuContractTests` 反射全部 `[MenuItem]`：除自动化白名单外，所有人工 `SSFramework/` 顶部入口的声明类型必须是 `EditorWindow`，执行路径必须唯一。
-7. Demo 特有维护入口归 `SSFramework/Demo 教学/维护与校验`，不注册进通用工具中心。
+7. 示例工程专有维护入口不注册进通用工具中心，不注册进通用工具中心。
 8. 共用的 `FrameworkProjectPath` 在写盘前把配置路径规范化并验证工程 / `Assets` 边界；只检查
    `StartsWith("Assets/")` 不足以阻止 `Assets/../..`，词法 containment 也不足以阻止 symbolic link、Windows junction 或其它 reparse point 穿透边界。递归读取、复制、指纹与删除会先验证整棵物理树，发现重解析节点就在任何 mutation 前 fail-fast；删除只接受严格位于已验证 boundary 内的目标，并按当前文件系统的大小写语义判断 containment。`FrameworkGeneratedOutputClaimCatalog` 再把跨生成器写入或清理范围收敛为三种中立声明：独占目录、递归文件后缀、精确文件。Luban、Protobuf、服务安装器、UI Binding、资源包名常量与字体字集分别在自己的可删除 Editor Module 中注册 collector；Core 只比较规范路径与后缀，不硬编码 Profile 或生成器类型。工作台预览只核对已有快照，缺失来源必须显示为待写盘前重采，不能从窗口绘制链冷启动 collector；任何创建、覆盖或清理前强制重采集，长耗时 Luban CLI 还会在 staging 完成、事务 commit 前再次重采。collector 异常 fail-fast，删除 Module 后声明自然消失。
 9. 资源包名与版本号同时是磁盘目录和 CDN URL 段，统一经 `FrameworkBuildArtifactPath` 限制为可移植叶子名；
@@ -37,7 +37,7 @@
 - “按钮为什么是灰的”与点击后动作层的拒绝原因一致；AI 可以读取窗口说明或稳定 Console 反馈，不需要靠抢前台焦点试点按钮。只读诊断仍可在 Play 中使用。
 - 机器菜单为何即时执行、会影响什么、怎样判定完成现在有可发现的人工说明入口；无需给稳定自动化 Interface 塞入模态确认。
 - 常用操作多一次“打开窗口”的动作，但窗口可连续执行同一流水线并保留上下文，整体操作成本更低。
-- 既有人工菜单字符串发生迁移；Demo、guide 和生成代码注释必须同步。机器自动化路径保持不变，避免破坏 MCP/CI。
+- 既有人工菜单字符串发生迁移；示例、guide 和生成代码注释必须同步。机器自动化路径保持不变，避免破坏 MCP/CI。
 - 错误路径或跨生成器输出冲突现在在任何目录创建、覆盖或清理前失败；已有把输出写到 `Assets` 外、放进其它生成器独占/清理范围的配置需要迁移。
 - 配置中心、工作台、构建入口与只读审计不再各自重复全工程 Profile 搜索；发现快照可复用，确定陈旧路径会自修复，固定路径创建不会覆盖已有或边界外资产，owner Module 仍保留自己的配置语义。
 - 递归文件操作不会跟随工程内的 symbolic link / junction 访问或删除边界外内容；代价是有意使用这类链接承载生成输入的项目需要改为真实目录或显式的外部工具流程。

@@ -4,14 +4,14 @@
 
 ## Context
 
-roadmap 中期新模块第一项：本地存储 / 存档——需求普适（所有游戏都要存设置和进度）、能立刻验证「接口在内核、实现可替换」的抽象，并顺带定下「存档版本迁移」的姿势。
+早期规划中的中期新模块第一项：本地存储 / 存档——需求普适（所有游戏都要存设置和进度）、能立刻验证「接口在内核、实现可替换」的抽象，并顺带定下「存档版本迁移」的姿势。
 
 既有约束与先例：
 
 - **框架理念**：用类型代替字符串 / 单向数据流 / 主线程独占 / 公共异步 API 返回 `UniTask` 且无同步版本时省略 `Async` 后缀。
 - **ports & adapters**：重第三方依赖的实现必须隔离在独立模块 asmdef（`IAssetProvider` ← `Game.Framework.Asset.Yoo`）；零依赖的能力可整体留内核（`PoolUtility` 先例）。
 - **失败语义先例**（资源系统）：「资源级问题给 null、系统级问题给异常」。
-- 候选后端盘点（roadmap）：PlayerPrefs（轻量 KV）、文件（存档主力）、SQLite（关系 / 大数据）、MemoryPack / Newtonsoft（序列化）。项目当前**没有** Newtonsoft / MemoryPack 依赖。
+- 候选后端盘点（早期规划）：PlayerPrefs（轻量 KV）、文件（存档主力）、SQLite（关系 / 大数据）、MemoryPack / Newtonsoft（序列化）。项目当前**没有** Newtonsoft / MemoryPack 依赖。
 
 ## Decision
 
@@ -59,7 +59,7 @@ public interface IStorageUtility : IUtility
 
 - **默认序列化是 JSON，字段级演进天然免迁移**：新增字段旧档读出取默认值、删除字段被忽略——覆盖绝大多数存档演进。
 - **结构性改动**（字段含义变化 / 类型重组）：约定在数据类型里放 `public int Version` 字段，`Load` 后检查并链式迁移（v1→v2→v3 就是业务代码里一个 switch），迁移完 Save 回写。
-- 框架**刻意不提供**迁移注册表 / 特性 / 管线：迁移逻辑本质是业务代码，一个 switch 足够直白；管线只是把 switch 搬进框架还丢了可读性（no-over-engineering）。姿势文档化在 guide / demo。
+- 框架**刻意不提供**迁移注册表 / 特性 / 管线：迁移逻辑本质是业务代码，一个 switch 足够直白；管线只是把 switch 搬进框架还丢了可读性（no-over-engineering）。姿势文档化在 guide / 示例。
 
 ### 5. 两个正交扩展点，接口在内核、默认实现零依赖也留内核
 
@@ -93,7 +93,7 @@ IStorageUtility（业务入口，GetUtility 解析）
 
 ### 7. 存储位置与注册
 
-- 根目录 = `Application.persistentDataPath/<folder>/`（默认 `storage`），Editor 与真机同语义；调试经 demo 章「打开存档目录」。
+- 根目录 = `Application.persistentDataPath/<folder>/`（默认 `storage`），Editor 与真机同语义；调试见示例章节「打开存档目录」。
   `MonoStorageUtility` 的 Inspector 字段是**单个可移植目录名**，长度 1–255，仅允许 `[A-Za-z0-9_-]`，并拒绝 Windows 保留设备名；它不是相对路径或绝对路径。
   解析后还会证明结果是 `persistentDataPath` 的直接子目录，避免 `..` / rooted path 越界和意外递归扫描。配置非法会在注册前 fail-fast，
   不 Trim、不兜底、不自动搬数据；确需显式绝对路径的工具或测试应代码构造 `FileStorageProvider`。

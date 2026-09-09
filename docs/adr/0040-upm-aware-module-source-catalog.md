@@ -9,7 +9,7 @@ Framework Module Audit、隔离 Build Size Probe 和源码门禁都需要读取 
 - `Assets/...`、`Packages/...` 是 AssetDatabase、Project 窗口和报告应使用的稳定 Asset Path；
 - `System.IO` 需要真实 Physical Path。registry / Git 包的源码通常位于 `Library/PackageCache` 或外部缓存，并不在项目的 `Packages/<name>` 物理目录。
 
-旧实现由各工具自行把相对路径拼到 Project Root。它在当前仓库的 `Packages/com.liss.ssframework/src` 布局下可工作，但一旦框架抽成 UPM package，就会把存在的 asmdef 当成缺失、漏扫 package 内 `link.xml`，或让隔离构建复制不到源码。继续给每个调用点增加 `Assets` / `Packages` 分支只会复制浅路径知识，形成多个会漂移的 owner。
+旧实现由各工具自行把相对路径拼到 Project Root。它只在单一物理布局下偶然成立；当 Framework 以 UPM package、embedded source 或项目 Assets 形式接入时，可能把存在的 asmdef 当成缺失、漏扫 package 内 `link.xml`，或让隔离构建复制不到源码。继续给每个调用点增加 `Assets` / `Packages` 分支只会复制浅路径知识，形成多个会漂移的 owner。
 
 ## Decision
 
@@ -37,13 +37,13 @@ Framework Module Audit、隔离 Build Size Probe 和源码门禁都需要读取 
 
 - Module Audit 解析 CompilationPipeline 报告的 asmdef 路径，记录源码物理目录和 package 所有者；Module 内 `link.xml` 的所有权按物理目录判断，报告仍保存 Asset Path。
 - Build Size Probe 从审计结构化结果复制真实 Module 目录，以程序集名作为隔离工程目录，避免多个 package 都使用 `Runtime/` 叶名而发生覆盖；开始前拒绝两个 Module 源目录相同或互相嵌套，否则物理复制会夹带未选 asmdef。JSON / Markdown 只保存 Asset 目录、package id 与“过滤 Editor/Test 后实际复制文件”的 SHA-256 内容指纹，Physical Path 仅存在于内存运行计划。Domain Reload 恢复会逐一校验报告档位仍存在于当前拓扑，并比较内容指纹；漂移时只允许重新附着已经启动的子进程，完成后停止，不会静默跳过已移除档位或混用两套源码。
-- 模态弹窗审计与“通用 Framework 不硬编码当前项目”门禁先通过 Catalog 找到可复用源码，不依赖 `Packages/com.liss.ssframework/src` 的物理位置。
+- 模态弹窗审计与“通用 Framework 不硬编码当前项目”门禁先通过 Catalog 找到可复用源码，不依赖 `src` 的物理位置。
 
 Catalog 是窄 Editor Implementation，目前没有第二种源码注册机制，因此不制造公共 Runtime Interface。若未来需要支持非 Unity Asset 的生成源码，再以真实替换需求扩展输入 Adapter。
 
 ## Consequences
 
-- ✅ UPM 抽包前先消除了工具链对仓库物理布局的耦合，迁移不再要求同时重写 Audit、Probe 和测试。
+- ✅ 工具链不再依赖某一种仓库物理布局；Framework 以 Package、embedded source 或项目 Assets 形式接入时，Audit、Probe 和测试共享同一套路径证据。
 - ✅ Asset Path、Physical Path 与 Package 所有权成为同源证据；“能在 Project 窗口看到但 `File.Exists` 为 false”的误报被结构性消除。
 - ✅ 项目 Assets 与已注册 Package 的 linker 根使用同一保留模型，Module 删除解释更完整。
 - ✅ 隔离构建报告可以追溯实际使用的 package 版本，同时不把机器专属缓存路径当成稳定身份。
@@ -55,7 +55,7 @@ Catalog 是窄 Editor Implementation，目前没有第二种源码注册机制�
 
 - **继续使用 `Path.Combine(ProjectRoot, assetPath)`**：拒绝。只对项目内物理 Assets / embedded package 偶然成立，registry/Git PackageCache 不成立。
 - **每个工具自行判断 Assets / Packages**：拒绝。重复 PackageInfo、路径逃逸与回转逻辑，错误会以不同方式出现。
-- **把 Framework 立即移动到 UPM 再修工具**：拒绝。会把结构迁移和证据工具失效绑成一次难审查变更；先建立 Seam 能降低后续迁移风险。
+- **直接在每个工具里硬编码当前 `src` 路径**：拒绝。它会把当前目录结构复制到多个调用点，后续 Package、embedded source 或项目 Assets 形态都需要重复改动。
 - **在 Catalog 中增删 package 或改 manifest**：拒绝。那是 UPM 的职责，也会把只读诊断变成破坏性操作。
 
 ## Related
@@ -64,5 +64,3 @@ Catalog 是窄 Editor Implementation，目前没有第二种源码注册机制�
 - ADR-0038（隔离 Framework Build Size Probe）
 - ADR-0039（Framework Module 选择与保留证据模型）
 - `docs/framework-module-map.md`
-
-

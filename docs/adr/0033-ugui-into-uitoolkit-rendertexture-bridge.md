@@ -6,7 +6,7 @@
 
 UGUI 与 UI Toolkit 是两套独立渲染系统，谁都不能当对方 hierarchy 里的子节点。可实际开发常要把一段 UGUI/TMP（或 3D 道具预览、小地图、相机画面）放进一张 UI Toolkit 面板的**内容流**里。
 
-demo 里现有两处「UGUI 嵌在 Toolkit」其实都是**伪嵌入**——`DemoPoolAssets.BindAnchor`（对象池右栏）、`FontsDemoModule` 的 TMP 浮层：用一个 `ScreenSpaceOverlay` 的 UGUI Canvas，每帧把 `RectTransform` 对齐到 Toolkit 占位元素的 `worldBound`。它简单，但**浮在整个面板之上**：
+示例工程中现有两处「UGUI 嵌在 Toolkit」其实都是**伪嵌入**——`对象池资产绑定逻辑`（对象池右栏）、`字体浮层逻辑` 的 TMP 浮层：用一个 `ScreenSpaceOverlay` 的 UGUI Canvas，每帧把 `RectTransform` 对齐到 Toolkit 占位元素的 `worldBound`。它简单，但**浮在整个面板之上**：
 
 - 不能被后来的 Toolkit 内容裁剪 / 遮挡、不能随 `ScrollView` 滚动（它不在 Toolkit 的绘制流里）。
 - `worldBound` 在面板拖到极窄时会退化成 `NaN`，得专门防（灌进 `RectTransform.sizeDelta` 会让布局反复重算卡死）。
@@ -30,7 +30,7 @@ demo 里现有两处「UGUI 嵌在 Toolkit」其实都是**伪嵌入**——`Dem
 `MonoUGuiEmbed`：给一个 UGUI 面板 prefab，自建一台**隔离层**透明背景相机 + `ScreenSpaceCamera` Canvas（`worldCamera` 指向该相机），把面板渲进 RT，`Bind` 到 `RenderTextureElement` 显示；纹理尺寸随元素布局自动同步；托管 `CanvasScaler` 以 Toolkit 内容框为稳定逻辑分辨率，让 RT 尺寸只控制采样清晰度、不会触发低像素重新排版；`EveryFrame` / `OnDemand` 两档刷新；解绑 / 销毁释放。
 
 - 模块显式 `references` = `Game.Framework` + `Game.Framework.UI` + `Game.Framework.UI.Toolkit`，并以 `overrideReferences:true` 退出预编译 DLL 的全局 Auto Reference；`UnityEngine.UI` 由已安装的 `com.unity.ugui` 提供，引擎引用保持 `noEngineReferences:false`。它桥的是**原生 UGUI → Toolkit**，不耦合框架的 `UI.UGui` Module，故不引用它。`autoReferenced:false`、可整块删除，同 `Game.Framework.Network.Proto` / `Game.Framework.Asset.Yoo` 先例（第三方 / 后端特化接缝单独开 asmdef 隔离）。
-- **隔离层**：托管 Canvas + 内容置于一个专用 layer（demo 用 `UGuiEmbed`），专用相机只拍此层、主相机剔除此层——否则嵌入内容会同时漏进游戏画面。这是接入方要在工程 Tags & Layers 预留的一步。
+- **隔离层**：托管 Canvas + 内容置于一个专用 layer（示例使用 `UGuiEmbed`），专用相机只拍此层、主相机剔除此层——否则嵌入内容会同时漏进游戏画面。这是接入方要在工程 Tags & Layers 预留的一步。
 
 ### 4. 输入穿透：v1 只读、v2 加指针（受控场景可解，见文末增补）
 
@@ -46,8 +46,8 @@ v1 只读显示——覆盖 TMP 富文本、3D 道具预览、小地图等绝大
 
 - 有了与 overlay-align 对照的「真嵌入」通路：纹理是 Toolkit 真内容，能被 `ScrollView` 裁剪 / 滚动、被后续元素遮挡。
 - 后端无关件（`RenderTextureElement` + `CameraTextureRenderer`）在 `UI.Toolkit`，也能拍 3D 道具预览 / 小地图；UGUI 特化的一键装配在可删的 `UI.Bridge`，删掉不影响两个 UI 后端（它们互不引用、也不引用 Bridge）。
-- 核心逻辑（尺寸换算、重建判定、低预算等比降采样、输入坐标）由 `UIEmbedTests` 13 例覆盖；渲染管线经 demo Play 实测：`908×190` 内容在 128px 最长边预算下得到 `128×27` RT，Canvas 仍以约 `908×190` 的逻辑尺寸排版，画面只变糊不变形；低清交互 RT 的手动 Raycast 仍命中目标按钮。
-- 五件套齐：本 ADR / 接缝（`UI.Toolkit/RenderTextureElement.cs` + `CameraTextureRenderer.cs`）+ 模块（`UI.Bridge/MonoUGuiEmbed.cs`）/ 测试（`UIEmbedTests`）/ demo「UI 融合 · UGUI 嵌进 Toolkit」章（`Modules/UIEmbedModule.cs`）/ guide §27 + AGENTS #33。
+- 核心逻辑（尺寸换算、重建判定、低预算等比降采样、输入坐标）由 `UIEmbedTests` 13 例覆盖；渲染管线经独立运行时场景实测：`908×190` 内容在 128px 最长边预算下得到 `128×27` RT，Canvas 仍以约 `908×190` 的逻辑尺寸排版，画面只变糊不变形；低清交互 RT 的手动 Raycast 仍命中目标按钮。
+- 五件套齐：本 ADR / 接缝（`src/UI.Toolkit/RenderTextureElement.cs` + `CameraTextureRenderer.cs`）+ 模块（`src/UI.Bridge/MonoUGuiEmbed.cs`）/ 测试（`UIEmbedTests`）/ UI 融合示例与测试 / guide §27 + AGENTS #33。
 - RenderTexture 从「项目零使用」变成「收口在 UI 嵌入桥后」的一等接缝，延续 `IAssetProvider` 隔离 YooAsset 的一贯做法。
 
 ## 增补 · v2（2026-07-13）：输入穿透 + 内容泛化
@@ -59,10 +59,10 @@ v1 落地后做了两处增强（用户驱动）：
 - 托管 Canvas 挂一个 **`enabled=false` 的 `GraphicRaycaster`**——`enabled=false` 让全局 `InputSystemUIInputModule`（本项目新输入系统）**不发现它**、不会拿真实鼠标坐标误射这块离屏画布；但 `Raycast()` 只停自动注册、仍可手动调（**已实测**：禁用的 raycaster 手动 Raycast 命中正常）。
 - `RenderTextureElement` 交互时 `pickingMode=Position`，转发器把元素内指针坐标翻成 **RT 空间屏幕点**（`x=u·rtW`、`y=(1-v)·rtH` 翻 y），构造 `PointerEventData`（复用场景 EventSystem）手动 `Raycast` + `ExecuteEvents` 分发。
 - 全指针状态机：enter/exit、down/up + 同目标判 click、**拖拽**（超 `pixelDragThreshold` 触发 beginDrag→drag→endDrag，拖拽期捕获指针）、**滚轮**。文本输入 / IME、多点触控不做。
-- 坐标换算与拖拽阈值抽纯静态函数进 `UIEmbedTests`；渲染 + 输入经 demo Play **头less实测**（向按钮 RT 位置手动 Raycast 命中 → click 计数 0→1；Slider 拖拽 0→1）。
+- 坐标换算与拖拽阈值抽纯静态函数进 `UIEmbedTests`；渲染 + 输入经独立运行时场景 **headless 实测**（向按钮 RT 位置手动 Raycast 命中 → click 计数 0→1；Slider 拖拽 0→1）。
 
 ### 内容泛化（不止 prefab）
 `EnsureContentRoot()` 暴露托管 Canvas 供 **code-built / 动态** UGUI 内容挂入（如运行时搭的 TMP 样本）；`Bind` 时对托管 Canvas 子树重跑 `SetLayerRecursive`，解决「后加内容不在隔离层」。
 
-### demo 消费
+### 示例工程接入
 UI 融合章加**可交互嵌入**（UGUI 计数 + 按钮 + Slider，点 / 拖穿透 RT 生效）；**字体章** TMP 样本卡从 ScreenSpaceOverlay 浮层 retrofit 为**内联嵌入**（经 `EnsureContentRoot`，随章滚动、化解「TMP 塞不进 Toolkit 只能作浮层」的张力）。对象池的 overlay-align 伪嵌入**保留**（那章刻意教它），仅加一句指路本桥。

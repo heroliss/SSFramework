@@ -10,7 +10,7 @@
 
 - `RP<T>` 移入 `Game.Framework` 运行时程序集（`Core/Reactive/RP.cs`）。业务在 Assembly-CSharp 仍可用（autoReferenced），将来独立 asmdef 引用框架后同样可用；框架内部也能用了。
 - 新增 `Game.Framework.Editor`（`includePlatforms:["Editor"]`）收纳所有编辑器代码：`RPDrawer`、`AssetReferenceDrawer`、文件夹菜单。
-- 新增 `Game.Framework.Demo` 程序集，作为"消费方如何引用框架"的活样板。
+- 新增 `示例程序集` 程序集，作为"消费方如何引用框架"的活样板。
 - 移除 `uPools` 悬空引用。
 - `Game.Framework` 需引用 `R3.Unity`（`SerializableReactiveProperty` 所在的 Unity 集成程序集；核心 `R3.dll` 是其预编译引用）。
 

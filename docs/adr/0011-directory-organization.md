@@ -1,23 +1,27 @@
-# ADR-0011：项目目录组织与第三方隔离
+# ADR-0011：消费工程目录与第三方隔离
 
-**Status:** Accepted
+**Status:** Accepted（消费工程约定，不约束 Framework Package 内部布局）
 
 ## Context
 
-`Assets/` 根下混杂着第一方代码与各种插件/Unity 自动生成的目录（TextMesh Pro、UI Toolkit、Settings、Plugins、Screenshots……），文件容易乱。目标：`Assets/Game/` 放第一方内容（可复用 `Framework` + 本项目 Art/Prefabs/Scenes/业务），第三方/自动生成目录尽量隔离或移出。
+Unity 工程同时包含第一方代码、项目配置、场景和第三方插件。若把这些内容与可复用 Framework 源码混在同一个目录，抽包、升级和删除依赖都会变得不清楚。本 ADR 记录消费工程应遵循的边界；Framework Package 自身只维护可复用源码、文档、测试和必要的 Editor 工具。
 
 ## Decision
 
-- **第一方内容**集中在 `Assets/Game/`：`Framework`（可复用框架）+ 项目资产 + 业务代码。
-- **框架代码与项目配置实例分离**：`Framework/` 只放**可复用代码**（随 UPM 抽包，[0010](0010-framework-reusability-upm.md)）；框架那些 `ScriptableObject` 配置的**资产实例**是**项目数据**，放项目自己的配置位，**不在 `Framework/` 内**——否则抽包时项目配置会被错误打进包。Profile 都按**类型扫描**定位、不认路径；现有项目无需迁移，框架无法推导业务布局时，新建单例默认落 `Assets/Settings/SSFramework/`。当前仓库已有实例仍保留在 `Assets/Game/Settings/`；`Resources.Load` 绑定的 YooAssetSettings 则必须位于任意 `Resources/` 目录。
-- **能转 UPM 的第三方优先转 UPM**，离开 `Assets`（R3、YooAsset 已是包；UniTask 计划转 `com.cysharp.unitask` UPM 包）。
-- **Screenshots 移出 `Assets`** 到项目根 `Screenshots/`（已 gitignore）；MCP 截图用 `unity_screenshot_game` / `unity_screenshot_scene` 并把 `path` 指到项目根 `Screenshots/`，避免被导入为纹理 / 入库。
-- **高风险/项目配置类目录暂留**：`TextMesh Pro`（与 TMP Settings 的 Resources 路径耦合）、URP `Settings` / `UI Toolkit`（被 ProjectSettings 按 GUID 引用）——搬动收益小风险高，留待需要时走 `AssetDatabase.MoveAsset` 保 GUID 并逐项 editor 验证。
-- **资源搬迁铁律**：一律走 Unity `AssetDatabase`（保 `.meta`/GUID），禁止裸文件移动；每搬一项即验证引用未断，异常立即回退。
+- Framework 源码和测试留在 Package 内；项目的场景、Prefab、玩法代码、构建 Profile、收集器配置和 ScriptableObject 实例由消费工程拥有。
+- Profile 按类型和所属 Module 发现，不把某个消费工程的固定资产路径写进 Framework 公共 API 或通用工具。
+- 需要搬迁 Unity 资产时使用 AssetDatabase 或项目自己的 Editor 迁移器，以保留 meta / GUID；不手改 Scene 或 Prefab YAML。
+- 第三方依赖优先通过 UPM 或独立 Adapter 接入；不要为了方便把插件文件复制进 Framework Package。
+- 截图、构建产物和本机缓存不属于 Framework 文档或源码提交；需要分享证据时保存可复核的报告和经过筛选的图片。
 
 ## Consequences
 
-- ✅ 第一方与第三方边界清晰；版本控制不被临时截图/可重建产物污染。
-- ✅ 项目配置（构建 / 热更 / UI 生成 / 收集器）与可复用框架源码分离；工具按类型发现，既兼容项目自定目录，也为新建资产提供中性的 `Assets/Settings/SSFramework/` 落点。
-- ⚠️ 部分 Unity 强管理目录（TMP 等）暂时仍在 `Assets` 根，属已知妥协。
-- 关联：[0010](0010-framework-reusability-upm.md)。
+- 消费工程可以按自己的场景、艺术资源和发布链组织目录，而不改变 Framework 的 Package 身份。
+- Profile、ProjectSettings 和第三方插件的生命周期由真正拥有它们的工程负责，Framework 只提供类型、Interface 和 Editor 接缝。
+- 资产搬迁需要 Unity Editor 验证，换来序列化引用和 GUID 的可追踪性。
+- 需要跨项目复用的规则应先回到 Framework 的 Interface、模块地图或 ADR，而不是复制某个项目目录。
+
+## Related
+
+- [ADR-0010：框架复用边界与 UPM 包形态](0010-framework-reusability-upm.md)
+- [命名约定](../naming-conventions.md)

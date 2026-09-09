@@ -37,10 +37,10 @@
 
 ## 开放决策（后续）
 
-- **下载尺寸暴露**：3.0 `GetDownloadSize(location)` 给出字节数；当前 `GetLocationState` 只回答分类状态，仍不能支持“需下载 X MB”的下载提示 UX——已记入 roadmap，真实交互需要时再加尺寸 API。
+- **下载尺寸暴露**：3.0 `GetDownloadSize(location)` 给出字节数；当前 `GetLocationState` 只回答分类状态，仍不能支持“需下载 X MB”的下载提示 UX——已记入 早期规划，真实交互需要时再加尺寸 API。
 - **框架资源 API**（`AssetPlayMode` / `AssetProviderConfig`）本轮判断"够用不改"；将来若接入 3.0 的 ArchiveBundle 加解密、Web 文件系统细分等新特性，再评估扩展。
 
-## 2026-07 修订（真实消费方的构建收口驱动）
+## 2026-07 修订（真实消费工程的构建收口驱动）
 
 - **运行模式拆成「编辑器 / 玩家包」两字段**：原 `AssetSystemConfigModel` 单一 `_playMode` 全局通吃，但 `EditorSimulate` 分支在 provider 里是 `#if UNITY_EDITOR` 编译的——场景配模拟模式进玩家包直接 `NotSupportedException`，且这个错误配置在编辑器 Play 完全无症状。新增 `_playerPlayMode`（默认 Offline），`ActualPlayMode` 按端选字段；`GetConfigError` 校验玩家包模式不得选 EditorSimulate（fail-fast 于启动校验而非 provider 初始化）。同一份场景配置由此两头通用：编辑器日常模拟、玩家包 Offline/Host。
 - **`AssetUtility.Configure` 提升 public**：热更引导下 Boot 场景只能挂 AOT 组件，当时的场景资源三组件没法先于首场景存在——首场景加载前的资源初始化必须有代码化路径。入口（GameEntry）用 `MonoGameContextBase + AssetUtility` 双 AddComponent 搭最小引导栈：`Configure → Initialize → LoadScene → Destroy` 交棒；provider 对已初始化的包按名复用（Dispose 不销毁包）正是为这类「多 utility 实例并存」预留的语义，本轮首次被真实消费。场景路径后来由 ADR-0046 收敛为同一个 `AssetUtility` 单入口，代码引导契约不变。
@@ -64,9 +64,9 @@ YooAsset 3.0 的 `AsyncOperationBase` 没有通用外部取消；框架的 `Wait
 
 协调器用 `ConditionalWeakTable<ResourcePackage, ...>` 建立身份映射：同一原生包跨 Provider 命中同一状态机，但协调器不会反向强持有已经从 YooAssets 注册表移除的包。纯协调器 EditMode 契约覆盖 Reader 并行 / Writer 公平与独占、排队取消、运行后 detach、失败终态、共享 owner、同步快照 admission、弃置结果和后台日志；EditorSimulate 集成测试覆盖已完成 downloader 经 Clear 后拒绝、重建成功，以及挂起场景到激活门后的恢复与完整卸载。
 
-## 2026-08-24 修订（Demo 驱动的资源地址四态快照）
+## 2026-08-24 修订（示例工程驱动的资源地址四态快照）
 
-原决策“不重新设计框架资源 API”只描述 3.0 原生迁移当时的证据，并不禁止真实调用方后来暴露 Interface 缺陷。资源加载 Demo 需要先守卫 `IsInitialized`，再组合 `CheckLocationValid` 与 `IsNeedDownload`；两者在包未 Ready 时都返回 false，而 `IsNeedDownload=false` 又同时包含“地址无效”和“已在本地”。调用方即使记住第一层守卫，仍可能把第二层 false 解释错，多包时也容易误守卫默认包状态。
+原决策“不重新设计框架资源 API”只描述 3.0 原生迁移当时的证据，并不禁止真实调用方后来暴露 Interface 缺陷。资源加载调用需要先守卫 `IsInitialized`，再组合 `CheckLocationValid` 与 `IsNeedDownload`；两者在包未 Ready 时都返回 false，而 `IsNeedDownload=false` 又同时包含“地址无效”和“已在本地”。调用方即使记住第一层守卫，仍可能把第二层 false 解释错，多包时也容易误守卫默认包状态。
 
 因此稳定 Interface 改为一次 `GetLocationState(package, location)`，返回四种互斥状态：
 
@@ -77,7 +77,7 @@ YooAsset 3.0 的 `AsyncOperationBase` 没有通用外部取消；框架的 `Wait
 
 没有采用“三态”，因为只拆出 NotReady 仍会让“Invalid”和“AvailableLocally”共用一个 false；也没有让未 Ready 直接抛异常，因为预检常用于不阻塞地驱动 UI，而初始化精确错误已有独立状态流。Core 的 `AssetUtility` 持有包生命周期真源：非 Ready 时不调用 Provider；Ready 后先验证地址，再读取下载缓存。两步之间若有维护 Writer 开始或排队，Yoo Adapter 继续 fail-fast，拒绝跨缓存世代拼出伪快照。
 
-`IAssetProvider` 不扩张：它的两个 bool 是 Adapter Implementation 细节，其他后端只需实现原有 Seam。旧 `CheckLocationValid` / `IsNeedDownload` 从 `IAssetUtility` 移出，仅以 `[Obsolete]` 扩展方法保留源码迁移路径并精确保留旧 false 语义；新业务与 Demo 只使用四态 Interface。
+`IAssetProvider` 不扩张：它的两个 bool 是 Adapter Implementation 细节，其他后端只需实现原有 Seam。旧 `CheckLocationValid` / `IsNeedDownload` 从 `IAssetUtility` 移出，仅以 `[Obsolete]` 扩展方法保留源码迁移路径并精确保留旧 false 语义；新业务与调用方只使用四态 Interface。
 
 ## 2026-08-26 修订（资源失败证据进入日志 Seam）
 

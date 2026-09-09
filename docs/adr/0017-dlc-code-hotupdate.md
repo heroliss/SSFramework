@@ -8,7 +8,7 @@ DLC = 自洽内容单元（资源 + 玩法代码 + 配置），按需下载，�
 
 现状基线：
 
-- **资源侧成熟**：多 package + 包级「自动初始化 / 按需下载」策略、tag 下载器、按 tag 清缓存（ADR-0008、`docs/asset-system-flow.md`）。
+- **资源侧成熟**：多 package + 包级「自动初始化 / 按需下载」策略、tag 下载器、按 tag 清缓存（ADR-0008、`ADR-0046 与框架使用指南第 13 节`）。
 - **代码侧只有单中央包**：`FrameworkHotUpdateProfile` 是「扁平 asmdef 列表 + 单个 `CodePackageName`」，Boot 启动期**一次性**把清单里全部热更 DLL 从 CodePackage（RawFile 包）加载完。没有「运行时按需加载某 DLC 代码」。
 - **业务 RawFile 包无法统一构建**：`FrameworkAssetBuilder`（SBP / AssetBundle 管线）对 RawFile 包 fail-fast 指路；视频等大体积原始内容（RawFile）目前不能走统一资源构建。
 - ADR-0008 已预留 DLC 方向（「一个领域单元 = 一个 asmdef = 热更列表一行 =（DLC 时）一个资源 package」），但与「边玩边下/版本灰度」一起列为本期不做。
@@ -45,7 +45,7 @@ DLC = 自洽内容单元（资源 + 玩法代码 + 配置），按需下载，�
 - 扩展 `FrameworkAssetBuilder`：遇 RawFile 包**额外跑 `RawFileBuildPipeline`**，而非 fail-fast。恢复与 YooAsset 原生能力对齐，不阉割 RawFile（视频 / 原始数据等常见内容可走统一构建）。
 - **代码包由 Profile 显式排除，不让资源 Module 读取热更配置**：代码包带 `CompileDll` + manifest + AOT 补元数据的特殊配方，归 `Game.Framework.Build.HybridCLR.Editor`。它在资源 Profile 中必须关闭“参与构建”；资源 Module 不读取 `FrameworkHotUpdateProfile`、不按默认包名猜另一个可删除 Module。误启用或由 CLI 点名时，在任何产物写入前明确失败并指向专属配方。
 - **目标结果**：执行「资源构建」= 构建 Profile 中启用的普通 AB 包 **+ 未来启用的业务 RawFile 包**；代码包保持禁用并独立走热更新工作台。删除热更新 Module 后，资源构建不需要修改源码或恢复虚构默认名称。
-- **落地状态**：① 构建 Editor Module 依赖拆分、代码包显式禁用和 RawFile fail-fast——**已实现**（ADR-0045）；② 业务 RawFile 包走 `RawFileBuildPipeline`——**待实现**（无业务 RawFile 包消费方前不盲写，等首个真实 RawFile 包 / Demo DLC 一起验证）。
+- **落地状态**：① 构建 Editor Module 依赖拆分、代码包显式禁用和 RawFile fail-fast——**已实现**（ADR-0045）；② 业务 RawFile 包走 `RawFileBuildPipeline`——**待实现**（无业务 RawFile 包消费方前不盲写，等首个真实 RawFile 包 / 最小验证工程 一起验证）。
 
 ## Consequences
 
@@ -64,9 +64,9 @@ DLC = 自洽内容单元（资源 + 玩法代码 + 配置），按需下载，�
   2. 抽 `IHotUpdateCodeLoader`（`Game.Framework.HotUpdate` 模块）；
   3. profile 支持「程序集 → DLC 组 / tag」映射；
   4. `FrameworkHotUpdateBuilder` 按组打 tag bundle + 子 manifest；
-  5. 一个 demo DLC（含一段 RawFile 视频 + 一个 DLC 玩法 asmdef）端到端验证。
+  5. 一个最小 DLC 验证工程（含一段 RawFile 视频 + 一个 DLC 玩法 asmdef）端到端验证。
 - **P2**：版本灰度 / 独立 code 包（独立 CDN / 第三方后发）/ 更细的就绪与回收。
 
 ## 关联
 
-ADR-0008（热更机制基线）、ADR-0005（不热替换 / 撤就整棵撤）、ADR-0011（目录组织）、`docs/asset-system-flow.md`（包级下载策略）、`docs/framework-guide.md` §15。
+ADR-0008（热更机制基线）、ADR-0005（不热替换 / 撤就整棵撤）、ADR-0011（目录组织）、`ADR-0046 与框架使用指南第 13 节`（包级下载策略）、`docs/framework-guide.md` §15。

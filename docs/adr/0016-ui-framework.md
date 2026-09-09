@@ -1,14 +1,14 @@
 # ADR-0016：UI 框架 —— 渲染后端无关的窗口/层级调度 + UGUI/UIToolkit 双 adapter
 
-**Status:** Accepted（2026-06-13 落地：核心 + 两 adapter + UIToolkit View 接入 + Demo 章 + 单测）
+**Status:** Accepted（2026-06-13 落地：核心 + 两 adapter + UIToolkit View 接入 + 示例章节 + 单测）
 
 ## Context
 
-`docs/roadmap.md` 把两件事写进规划但未落地：**Phase 2「UI Toolkit 接入」**与**「UI 框架」模块**（窗口/栈/层级管理）。当前框架：
+早期规划把两件事列为后续工作但未落地：**Phase 2「UI Toolkit 接入」**与**「UI 框架」模块**（窗口/栈/层级管理）。当前框架：
 
 - 核心层（Context / Command / Model / System / Utility / Event / Bag / 权限接口）**范式无关、纯 C#**，唯一绑 UI 的是 `MonoViewBase`（UGUI/Mono）。
 - View 权限 = `ICanSendCommand + ICanRegisterEvent + ICanGetUtility`——**View 可 `GetUtility`**，这是开窗 API 的合法入口（同 `Bag.Load` 心智）。
-- 已有可镜像的范式：`Game.Framework.Asset.Yoo` / `Game.Framework.Config`（core 后端无关 + adapter 分 asmdef）、`MonoPoolUtility`（单 Mono 组件 = 一套能力）、`DemoModuleBase`（教学 Adapter 在交互期直接扮演纯 C# `IView`）。
+- 已有可镜像的范式：`Game.Framework.Asset.Yoo` / `Game.Framework.Config`（core 后端无关 + adapter 分 asmdef）、`MonoPoolUtility`（单 Mono 组件 = 一套能力）、纯 C# View 基类（教学 Adapter 在交互期直接扮演 `IView`）。
 
 需求是一套**同时吃 UGUI 与 UI Toolkit** 的 UI 调度框架，且核心零渲染依赖。
 
@@ -48,36 +48,36 @@ Game.Framework.UI        (核心，渲染中立)  IUIUtility / UIUtility 编排 
 
 ### 7. UI Toolkit View 接入（Phase 2）
 
-`UIToolkitViewBase : IView, IHasGameContext`——纯 C# View 基类（照 `DemoModuleBase` 的 View 角色）：持借用的 `IGameContext` + 自己拥有的 `VisualElement Root` + `Bag`，`BindTo(ctx, root)` 注入并建 UI。让 UIToolkit 视图与 `MonoViewBase` 同享自动注入 / Bag / `ExecuteCommand` / `RegisterEvent` / `GetUtility`。UIToolkit 视图不在 GameObject 父链上，故由创建方（`IUIUtility` 或引导代码）**显式**交 Context（区别于 UGUI 沿父链自动找）；Context 不接管 View 的物理生命周期，独立创建方仍负责 `Dispose`。`BindTo` 以完整接线为提交点，注入、`OnCreated` 失败或创建期自释放会先回滚 Bag 与 Root，再传播最初异常；事务边界只覆盖 View 自有资源，不承诺撤销已发出的 Command 等外部副作用。
+`UIToolkitViewBase : IView, IHasGameContext`——纯 C# View 基类（沿用纯 C# View 基类的 View 角色）：持借用的 `IGameContext` + 自己拥有的 `VisualElement Root` + `Bag`，`BindTo(ctx, root)` 注入并建 UI。让 UIToolkit 视图与 `MonoViewBase` 同享自动注入 / Bag / `ExecuteCommand` / `RegisterEvent` / `GetUtility`。UIToolkit 视图不在 GameObject 父链上，故由创建方（`IUIUtility` 或引导代码）**显式**交 Context（区别于 UGUI 沿父链自动找）；Context 不接管 View 的物理生命周期，独立创建方仍负责 `Dispose`。`BindTo` 以完整接线为提交点，注入、`OnCreated` 失败或创建期自释放会先回滚 Bag 与 Root，再传播最初异常；事务边界只覆盖 View 自有资源，不承诺撤销已发出的 Command 等外部副作用。
 
 ### 8. 程序集与热更归属（ADR-0008）
 
-三个 asmdef 均 `autoReferenced:false`；因引用热更内核 `Game.Framework`，按 0008 铁律**必在热更列表**（AOT 不能引用热更）。已登记并经 `HotUpdateAssemblyGraph` 校验通过，拓扑序：`Framework → Asset.Yoo → Config → UI → UI.Toolkit → UI.UGui → Game.Main`。
+三个 asmdef 均 `autoReferenced:false`；因引用热更内核 `Game.Framework`，按 0008 铁律**必在热更列表**（AOT 不能引用热更）。已登记并经 `HotUpdateAssemblyGraph` 校验通过，拓扑序：`Framework → Asset.Yoo → Config → UI → UI.Toolkit → UI.UGui → 业务入口程序集`。
 
 ## Consequences
 
 - ✅ 换渲染后端零业务改动：开窗代码 `Open<T>()` 与核心对 UGUI/UIToolkit 一无所知。
 - ✅ 核心可单测：`UIUtility` 只依赖注入的 `IUIBackend` + `IGameContext`，fake backend 脱离场景验证栈/层/cover-reveal/模态/缓存/重开置顶/hook 异常隔离（12 个用例，随框架 PlayMode 测试全绿）。
 - ✅ 按需可删：不用某后端整目录删其 adapter asmdef，核心零感知。
-- ✅ 真实场景验证：Toolkit backend 在 demo 场景端到端跑通（注册 → 懒初始化 → 建窗 → 层放置 → 模态遮罩渲染）。
+- ✅ 真实场景验证：Toolkit backend 在 示例场景端到端跑通（注册 → 懒初始化 → 建窗 → 层放置 → 模态遮罩渲染）。
 - ⚠ **同一 Context 只能挂一个 UI 入口**（UGUI/Toolkit 二选一）；多后端并存需多 Context。
 - ⚠ cover/reveal **按层内计算**（同层栈语义）；跨层覆盖（如 Popup 盖 Page）不触发下层 cover，需要时业务自行处理。
 - ⚠ UI Toolkit 窗口需**无参构造**（框架用 `Activator` 实例化），数据经 `OnOpen(args)` 传入、不走构造函数。
 - ⚠ UI Toolkit 窗口 Context 由框架**显式注入**（非 GameObject 父链）；独立使用 `UIToolkitViewBase` 时由持有 Context 的装配方调 `BindTo`，并在自身结束时负责 `Dispose`。
 
-用法手册见 `docs/framework-guide.md` §17；活样例见 demo「界面（View）· UI Toolkit」+「UI 框架 · 窗口/层级」章。
+用法手册见 `docs/framework-guide.md` §17；端到端验证应覆盖注册、懒初始化、建窗、层放置和模态遮罩。
 
 **2026-08-24 验证补充：**教学场景新增 Destroy / Cache 两个现场对照窗，以稳定实例号和 `OnCreate / OnOpen / OnClose` 计数展示真实生命周期；PlayMode 契约穿过 Toolkit Adapter，锁定 Destroy 重开换实例、Cache 重开复用同一实例。这样核心 fake backend 测试与真实 Adapter 证据形成两层验证，也明确 Cache 是“常驻内存与状态管理复杂度换创建速度”，不是默认更优。
 
 **2026-08-26 Adapter 契约补强：**Toolkit 原本会在加载 UXML 前验证 `UIToolkitWindowBase`，UGUI 却只检查最终对象能否转成 `IUIWindow`，使普通 `MonoBehaviour + IUIWindow` 能绕过 `MonoViewBase` 注入与 Bag 所有权。两个 Adapter 现统一在创建层级或加载资源前验证各自窗口基类并 fail-fast；窗口类型、prefab 根组件、节点绑定与生命周期 hook 错误统一进入 `Log` Seam，category、异常和 Unity context 可同时被 Console、文件与测试 sink 消费。`UIRuntimeLoggingTests` 锁定“失败前无层级副作用”和 context 透传。
 
-**2026-08-26 异步交互所有权补强：**Toolkit Adapter 新增 `Bag.SubscribeClickAsync`，把按钮解绑、View 生命周期取消与异常观察收成一个窄而深的接缝；5 项 PlayMode 契约锁定异常日志、Bag 释放取消、单订阅释放、已释放 Bag 不接线，以及物理操作忽略 View token 后仍走到终态并被观察。真实消费方验证了两种边界：列表刷新跟随窗口取消；已启动的扩展包下载由包级物理操作拥有、窗口关闭后继续，但安装标记保存被纳入下载的完成终点。Adapter 刻意不自动实现 single-flight，也不把 UI 按钮语义推进 Core。
+**2026-08-26 异步交互所有权补强：**Toolkit Adapter 新增 `Bag.SubscribeClickAsync`，把按钮解绑、View 生命周期取消与异常观察收成一个窄而深的接缝；5 项 PlayMode 契约锁定异常日志、Bag 释放取消、单订阅释放、已释放 Bag 不接线，以及物理操作忽略 View token 后仍走到终态并被观察。真实消费工程验证了两种边界：列表刷新跟随窗口取消；已启动的扩展包下载由包级物理操作拥有、窗口关闭后继续，但安装标记保存被纳入下载的完成终点。Adapter 刻意不自动实现 single-flight，也不把 UI 按钮语义推进 Core。
 
 **2026-08-28 必需窗口失败边界：**`Open<T>` 继续保留“未获得实例时返回 null”的宽松 Interface，供可选窗口在调用点隐藏、替代或重试；null 可能来自 Adapter 创建失败，也可能来自创建期间 UI 生命周期结束。新增非破坏性的 `OpenRequired<T>` 扩展，把同一个 null 提升为带窗口类型与资源位置的异常，调用方取消仍保持 `OperationCanceledException`。没有把严格模式做成 `IUIUtility` 新成员或布尔参数：两种路径共享全部创建 Implementation，差异只是调用处的业务不变量，扩展方法既提高错误 Locality，也不迫使自定义 Adapter 重复实现；它不改变 hook 异常隔离，也不把开窗定义为事务提交。Flow 主页面与承诺打开可见窗口的动作使用严格入口；真实 `GameFlow` 契约锁定创建失败后 `Current` 仍为 null。
 
 **2026-08-30 Adapter 创建事务补强：**`IUIBackend.CreateWindow` 明确以“窗口已绑定 Context、挂入层级并登记物理映射”为提交点；返回实例只是借用值，物理对象、资源 handle 与销毁仍由 Adapter 拥有。UGUI / Toolkit 两个 Implementation 都在任何创建副作用前检查已取消 token，并在加载、实例化、注入或挂载途中取消/抛异常时回滚已创建的 GameObject / VisualElement、View 与窗口资源子 Bag；预期不可用仍返回 null，取消保持 `OperationCanceledException`，其它异常原样传播。Toolkit View 的 `OnDisposing` 失败也不能截断 Bag、Root、UXML handle 或其它窗口的清理：基类穷尽自身释放，Adapter 记录异常后继续物理 teardown。这个事务只约束物理创建，不改变 `UIUtility` 对 `OnCreate` / `OnOpen` hook 的异常隔离，也不把业务开窗提升为全链路事务。两个 Adapter 的本地契约测试锁定“预取消无窗口副作用、无伪 Error”以及“释放 hook 失败仍穷尽所有权清理”。
 
-**2026-08-31 独立 View 所有权补强：**非窗口 `UIToolkitViewBase.BindTo` 现在同样把“Context 关联、注入、`OnCreated` 完成”视为一次提交；失败时释放半成品 Bag、摘除 Root，清理 hook 的次生异常进入 `Log`，不能覆盖最初绑定异常。`OnCreated` 同步自释放也不能再成功返回可重新挂载的僵尸 Root；这里的原子性仅涵盖 View 自有资源，不回滚已发布的外部业务动作。独立 View 可直接 `Dispose()` 自己，正式 Window 则必须请求 `IUIUtility.Close(this)`，两者不合并成含糊的 `CloseSelf` Interface：后者还需维护窗口栈、模态、缓存、过渡和 Backend slot。Demo 章节只保留一个当前 View owner，开关重试不再向父 Bag 线性累积已释放实例。
+**2026-08-31 独立 View 所有权补强：**非窗口 `UIToolkitViewBase.BindTo` 现在同样把“Context 关联、注入、`OnCreated` 完成”视为一次提交；失败时释放半成品 Bag、摘除 Root，清理 hook 的次生异常进入 `Log`，不能覆盖最初绑定异常。`OnCreated` 同步自释放也不能再成功返回可重新挂载的僵尸 Root；这里的原子性仅涵盖 View 自有资源，不回滚已发布的外部业务动作。独立 View 可直接 `Dispose()` 自己，正式 Window 则必须请求 `IUIUtility.Close(this)`，两者不合并成含糊的 `CloseSelf` Interface：后者还需维护窗口栈、模态、缓存、过渡和 Backend slot。示例代码只保留一个当前 View owner，开关重试不再向父 Bag 线性累积已释放实例。
 
 **2026-08-31 异步主线程提交边界：**`IUIUtility` 继续采用与 Container 一致的主线程独占模型，不把同步 `Close/Get/Back/Dispose` 改成隐式排队。`IUIBackend.CreateWindow`、窗口过渡与 Toast 时钟允许在任意线程物理完成，但 `UIUtility` 在读写窗口栈、运行 hook/backend、完成公共 task 前统一恢复 Unity 主线程；并发 Open 等待者由 worker token 取消也遵守同一终态边界。UGUI / Toolkit Adapter 在自身资源 await 后同样先回主线程，再 Instantiate、提交可视树或回滚，不能指望核心在整个 backend 返回之后补救内部越线程。主线程切换使用 `try/finally`，不包装原异常或取消。五项线程契约覆盖 backend 成功/失败、等待者取消、入/出场过渡与 Toast 自动关闭。
 

@@ -4,7 +4,7 @@
 
 ## Context
 
-roadmap 中期第六项：把散在各组件 Inspector「运行时诊断」折叠组里的信息聚合成一个 Editor 总览窗口——定位是「框架状态一屏看穿」的调试与泄漏排查入口。
+早期规划中的中期第六项：把散在各组件 Inspector「运行时诊断」折叠组里的信息聚合成一个 Editor 总览窗口——定位是「框架状态一屏看穿」的调试与泄漏排查入口。
 
 要解决的真问题：框架的核心状态是**分布式**的——Context 嵌套成作用域树、每个 Container 有本地注册表、每个 Context 有独立事件总线、DisposableBag 到处创建、对象池按类型/prefab 散落。单点诊断已有（`MonoGameContextBase` / `MonoLayerBase` 的「运行时诊断」折叠组、`MonoPoolUtility` 的池概要、`FrameworkSelfCheck` 真机冒烟），但回答「**整个运行时现在什么样**」（有几个 Context 活着、谁挂在谁下面、哪个 Subject 订阅数在异常增长、Command 在按什么顺序跑）需要逐个点开场景节点拼图——纯 C# Context（GameFlow 状态子 Context、SelfCheck 自检 Context）更是根本没有 Inspector 可看。
 
@@ -47,7 +47,7 @@ roadmap 中期第六项：把散在各组件 Inspector「运行时诊断」折�
 
 ### 5. 对象池补「借出」计数
 
-`IObjectPool<T>` / `IGameObjectPool` 增加 `CountActive`，补齐 roadmap 所需的「借出 / 空闲」两半；`GetPoolDiagnostics()` 和 `MonoPoolUtility` Inspector 同步展示。后续 ADR-0007 的租借事务完善后，计数语义收紧为：只有 `Rent` / `Spawn` 已完整通过钩子并成功发布的 `Active` lease 才计入，`Renting` / `Returning` 事务态不计入。
+`IObjectPool<T>` / `IGameObjectPool` 增加 `CountActive`，补齐 早期规划所需的「借出 / 空闲」两半；`GetPoolDiagnostics()` 和 `MonoPoolUtility` Inspector 同步展示。后续 ADR-0007 的租借事务完善后，计数语义收紧为：只有 `Rent` / `Spawn` 已完整通过钩子并成功发布的 `Active` lease 才计入，`Renting` / `Returning` 事务态不计入。
 
 C# 池在所有构建中按引用身份维护完整实例状态，`PoolUtility` 还按真实来源池路由归还；外来、重复、上转型错配和钩子重入不会让计数漂移，因此 `CountActive` 是精确值。GameObject 同样以 `PooledObject` 状态保护租借，但活动实例若被调用方直接 `Destroy`，池没有可收到的归还事件，计数会刻意停在借出侧——它表示“已发布但没有正常结束的 lease”，正是泄漏排查需要暴露的证据。Unity fake-null 的 idle 死槽会在空闲计数与容量相关操作前剔除，不计入 `CountInactive`。
 
@@ -68,7 +68,7 @@ C# 池在所有构建中按引用身份维护完整实例状态，`PoolUtility` 
 - **历史曲线 / 采样存储**：泄漏排查看「当前值 + 趋势肉眼观察」够用；要精确追踪用 Unity Profiler / Memory Profiler，不重造。
 - **订阅点堆栈捕获**（谁订阅的）：每次订阅抓栈分配巨大；计数 + Context 归属已能把嫌疑范围缩到单个 Context 的单个事件类型，剩下的搜代码即达。
 - **Bag 逐实例登记 / 命令 payload 展示**：同上，成本压不住收益。中文类型说明和源码定位只是静态元数据，不改变这条边界。
-- **demo 章节**：面板没有业务 API，五件套的「demo」不适用——guide 章节 + 现有 demo 场景（多上下文/流程/池章节本就是最好的观察素材）即覆盖。
+- **示例章节**：面板没有业务 API，五件套的「示例」不适用——guide 章节 + 现有示例场景（多上下文/流程/池章节本就是最好的观察素材）即覆盖。
 
 ## Consequences
 
@@ -79,6 +79,6 @@ C# 池在所有构建中按引用身份维护完整实例状态，`PoolUtility` 
 
 **2026-08-23 失败宿主补诊断，2026-08-25 根因聚合：**初始化事务失败的 `MonoGameContextBase` 不会发布 `GameContext`，因此无法进入 `LiveContexts` 作用域树。Core 提供 Editor-only 只读快照（状态、已解析父级、Context、异常），窗口复用场景扫描在树上方单列问题；不制造假的 Context，也不增加静态强引用登记。父级初始化失败会被子级包装并继续传播，窗口按“同一最深异常对象 + 实际 Mono 父子链”聚合为根因组，显示最先失败宿主与受影响链；相同类型 / 文案但无父子关系的异常仍保持独立。没有异常的 `Uninitialized/Initializing` 只按实际父子链聚合为“时序提醒”，不计入根因数，也不宣称已经发生异常。运行中标为“当前 Play”，退出后保留的 `Failed` 标为“历史证据”，避免把上次运行残留误读成当前故障。Edit Mode 下普通 MonoBehaviour 尚未执行 `Awake`，`Uninitialized` 是正常场景资产状态，不显示为异常；Play Mode 中激活宿主仍为 `Uninitialized/Initializing` 才提示时序问题。该边界由 Editor 纯分析与状态分类契约测试锁定。
 
-**2026-08-29 Inspector 渐进披露：**Framework Mono 组件不再各自重复显示“打开完整框架诊断”按钮；总览入口只保留在顶部菜单、工具中心和 Demo 教学中。组件内的“运行时诊断”按目标实例记录展开状态并默认折叠，只有展开后才枚举注册契约、服务状态和可选 Module contributor。折叠不等于隐藏故障：失败 Context、当前 Play 中激活但仍未初始化的 Context，以及没有解析到 Context 的激活层组件仍显示一条摘要；普通 Edit Mode 不制造噪音。原生 fallback、Odin Adapter 与默认 Header 接缝复用同一绘制器，且 Odin 被禁用或排除时必须明确归还原生 fallback，不能落到不含诊断的 `OdinEditor`。
+**2026-08-29 Inspector 渐进披露：**Framework Mono 组件不再各自重复显示“打开完整框架诊断”按钮；总览入口只保留在顶部菜单、工具中心和 示例工程教学中。组件内的“运行时诊断”按目标实例记录展开状态并默认折叠，只有展开后才枚举注册契约、服务状态和可选 Module contributor。折叠不等于隐藏故障：失败 Context、当前 Play 中激活但仍未初始化的 Context，以及没有解析到 Context 的激活层组件仍显示一条摘要；普通 Edit Mode 不制造噪音。原生 fallback 与默认 Header 接缝复用同一绘制器，可选 Editor 扩展被禁用或排除时必须明确归还原生 fallback，不能落到不含诊断的 Inspector。
 
 **2026-08-30 解析回退证据：**过去树上的 `→Main` 只表达 `inheritFromGlobal` 策略，却容易被误读成“已经从 Main 取过服务”。现在未发生成功回退时显示 `可→Main`；真正命中后才显示警示色 `→Main ×N`，右侧列出契约、最终来源与 Resolve 次数。父链命中也进入明细，但作为正常组合语义而非默认告警。采集位于作出解析决策的 Container / GameContext Implementation，保持 Locality；窗口只读快照，不调用 Resolve，也不会触发 Lazy Factory。

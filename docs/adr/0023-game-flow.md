@@ -4,7 +4,7 @@
 
 ## Context
 
-roadmap 中期新模块第三项：游戏流程状态机——启动→登录→大厅→战斗的**显式 Flow**，圈定的核心思路是「每个状态一个子 Context，天然利用作用域树的整棵撤语义」。
+早期规划中的中期新模块第三项：游戏流程状态机——启动→登录→大厅→战斗的**显式 Flow**，圈定的核心思路是「每个状态一个子 Context，天然利用作用域树的整棵撤语义」。
 
 要解决的真问题：没有显式流程时，"现在游戏在哪个阶段、这个阶段占用的资源/订阅/服务什么时候撤"散落在各场景脚本里——切阶段漏清理是最常见的泄漏来源，而框架已有的 `GameContext` 作用域树 + `DisposableBag` 恰好就是为「整棵撤」造的，缺的只是一个把"阶段"显式化并驱动子 Context 建/撤的编排者。
 
@@ -92,4 +92,4 @@ public abstract class FlowState
 - 状态机自身无 Unity 对象，PlayMode 测试可全程无场景跑（转换/取消/失败/事件全可同步或短 await 断言），batchmode 无风险。
 - 没有取消 token 的 `OnExit` 不再拥有 flow 的逻辑寿命：宿主释放可立即完成 flow 收尾，同时由一个窄的物理 owner 保留异常观察。这增加了一条明确边界，但避免第三方上报、存档等退出任务把 Context 永久挂住。
 - `IGameFlow` 从 Utility 修订为 System 是一次有意的源码兼容性调整：运行时所有权不变，注册可用层感知入口简化为 `RegisterOwnedSystem(new GameFlow())`；调用端将 `GetUtility<IGameFlow>()` 改为 `GetSystem<IGameFlow>()`，View 端改走 Command / 只读投影。换来的是编译器重新阻止 View 与 Utility 直接驱动业务流程。
-- demo 章做「启动→登录→大厅→战斗」四状态迷你 Flow：面板实时显示 Current / 流转日志（含 GoTo 三种结局），大厅注册阶段私有服务演示整棵撤，战斗带构造参数 + 1.5s 模拟加载供手动验证最新意图胜。
+- 示例章节做「启动→登录→大厅→战斗」四状态迷你 Flow：面板实时显示 Current / 流转日志（含 GoTo 三种结局），大厅注册阶段私有服务演示整棵撤，战斗带构造参数 + 1.5s 模拟加载供手动验证最新意图胜。

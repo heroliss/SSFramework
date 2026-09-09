@@ -4,6 +4,8 @@
 
 格式：每个 ADR 含 `Status`（Accepted / Proposed / Superseded）、`Context`（背景/问题）、`Decision`（决策）、`Consequences`（后果/权衡）。
 
+ADR 编号按历史创建顺序保留，不要求连续。0029–0032 的项目级决策不属于当前 Framework Package，文件没有随包保留；空档用于避免旧引用被重新解释为另一项决策。需要先了解状态含义时，参见[文档索引](../README.md)。
+
 | # | 决策 | Status |
 |---|---|---|
 | [0001](0001-five-layers-and-permission-interfaces.md) | 五层 MVCS + 编译期权限接口 | Accepted |

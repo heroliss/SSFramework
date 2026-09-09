@@ -227,7 +227,7 @@ MainContext
 - **关卡 / 副本 / 面板的局部世界**：局部状态注册在局部 Context，切场景整层 Dispose，临时注册不泄漏到全局。
 - **prefab 即插即用**：内含 `MonoXxxBase` 的 prefab 实例化到任何位置，沿父链就近接入宿主作用域；换挂载位置 = 换依赖来源，拖一下节点完成。
 
-可运行演示见 demo「多上下文（Context）· 作用域树」章：同一个 Command 在子 / 根 Context 上执行，作用于各自作用域的数据。
+可通过对应的 Context / Command 测试验证同一条路径：相同 Command 在子 / 根 Context 上执行时，应作用于各自作用域的数据。
 
 ---
 
@@ -414,7 +414,7 @@ Luban 与 Protobuf 也遵循相同的两级口径：同一生成器内的输出�
 - `SSFramework/配置中心`：只读汇总各 Module 自注册的 Profile 类型、数量、位置和单例健康状态；缺配置时不暗中创建。所有 Framework Profile owner、配置中心与只读审计共享按工程 revision 缓存的路径发现快照，工程变化时统一失效；单例 stable-first 快照的首路径刚移动或删除时会只刷新该类型并重试。单例的重复 Warning、默认初始化、创建和业务校验仍由所属 Module 决定；固定路径创建会在任何目录写入前强制重扫，拒绝 reparse 与路径碰撞，并在写入后确认新资产确实是稳定生效项。窗口首次打开先显示轻量壳，需要立即确认磁盘状态时点击“重新扫描”。删除可选 Module 后对应卡片自然消失，中央窗口不保留程序集名特例。
 - `构建与发布`：资源包与代码热更新的分步流水线。
 - `代码生成`：Luban、Protobuf、服务安装器与 UI 绑定，各自在自己的输入/输出上下文里操作。
-- `开发辅助`：场景快捷入口、常用目录与可选 Odin Adapter；字体字集归在会产出文件的 `代码生成`。
+- `开发辅助`：场景快捷入口、常用目录与可选 Editor 扩展接入；字体字集归在会产出文件的 `代码生成`。
 - `诊断与分析`：运行时状态、Module 依赖/裁剪证据与真实 Player Build 体积。
 
 `Assets/SSFramework`、`GameObject/SSFramework` 保留有选择上下文的操作；`SSFramework/诊断/AI 自动化` 保留给 MCP/CI 的稳定无窗口入口。后三个机器菜单点击即执行且不弹确认框，因为无人值守流程需要稳定命令 Interface，模态框会阻塞 Unity 主线程。人工不确定用途时先打开同目录的 **“使用说明（人工入口）”**：它逐项解释影响、完成判据和对应工作台，本身不执行预检或构建。两类菜单都是有意的例外，不表示普通人工命令应重新回到即时菜单。设计取舍见 ADR-0043。
@@ -993,7 +993,7 @@ public readonly struct SaveProgressCommand : IAsyncCommand
 View 入口始终保留 Context 生命周期，但“界面侧生命周期”按 View 形态与调用方式选择：
 
 - `MonoViewBase` 无参调用（或显式传 `CancellationToken.None/default`）自动链接 GameObject 销毁令牌；
-- `UIToolkitViewBase`、Demo 模块等纯 C# View 没有 GameObject，若要随窗口、章节或一次交互结束，应显式传 `Bag.DisposeToken` / host token；
+- `UIToolkitViewBase`纯 C# View 没有 GameObject，若要随窗口、章节或一次交互结束，应显式传 `Bag.DisposeToken` / host token；
 - 显式传入**可取消** token 时，它是 View 侧的生命周期覆盖，会替代 Mono 销毁默认值，但不会替代 Context。这样已经交给更长寿命 owner 的提交工作可以在原 View 销毁后继续；若工作仍属于该 View，就传它的 Bag / destroy token。
 
 ```csharp
@@ -1103,7 +1103,7 @@ public class BossContext : MonoGameContextBase
 > ① **测试沙盒**：场景里拖一个子 Context、挂上被测层（缺的依赖回退父级、要替换的注册 Mock 覆盖），不启动整个游戏即可联调，测完删子树即净；
 > ② **关卡 / 副本局部世界**：局部 Model/System 注册在局部 Context，结束整层 Dispose，不污染全局；
 > ③ **自带 Context 的 prefab**：实例化到哪个子树就接入哪个作用域，换位置 = 换依赖来源。
-> 设计理念见 §1「树状思维」；可运行演示见 demo「多上下文（Context）· 作用域树」章。
+> 设计理念见 §1「树状思维」；验证时应覆盖子 / 根 Context 的作用域差异。
 
 ### 平行上下文
 
@@ -1232,7 +1232,7 @@ protected override void InstallBindings(ContainerBuilder builder)
 
 扫描口径：目录下「文件名 = 类名」的顶层非抽象 class、实现恰一个层标记（`IModel` / `ISystem` / `IUtility`）体系、非 `UnityEngine.Object`、有公共无参构造。契约推导与 Mono / 层感知手写入口同口径（具体类型 + 派生自层标记的接口）；`IDisposable` 服务自动用 `RegisterOwned`。生成物刻意使用低层入口把最终 contract 逐个写进 `.g.cs`，而不是把审查证据藏回运行时推导。不想被扫的类标 `[ExcludeFromInstaller]`（需要懒构造 / 带参构造的服务标上后回落手写）。同一安装器内两个实现撞同一接口契约会在生成期报错。
 
-生成前有两层边界。第一层是**写入安全**：空条目、不在 `Assets` 内的输出或规范化后重复的 `.cs` 所有权会让整批在写盘前停止，避免一份配置覆盖另一份。第二层是**条目就绪**：命名空间、扫描目录以及实际反射扫描按条目独立；一份 Profile 中 1/2 条就绪时，按钮会明确写出比例，生成有效条目并逐条报告其余失败。这样既不拿安全换“尽量生成”，也不会让一个尚在配置中的条目阻塞已经可用的安装器。设计取舍见 `docs/adr/0019-service-installer-codegen.md`；活样板（服务目录 + profile + 生成产物 + 一行接线）见 demo「服务注册生成 · 安装器」章。
+生成前有两层边界。第一层是**写入安全**：空条目、不在 `Assets` 内的输出或规范化后重复的 `.cs` 所有权会让整批在写盘前停止，避免一份配置覆盖另一份。第二层是**条目就绪**：命名空间、扫描目录以及实际反射扫描按条目独立；一份 Profile 中 1/2 条就绪时，按钮会明确写出比例，生成有效条目并逐条报告其余失败。这样既不拿安全换“尽量生成”，也不会让一个尚在配置中的条目阻塞已经可用的安装器。设计取舍见 `docs/adr/0019-service-installer-codegen.md`
 
 ### 运行时动态注册
 
@@ -1275,7 +1275,7 @@ Attach 也不会静默保留旧 Context。需要在两个作用域使用同一�
 | **移除** | ⚠️ | `Destroy` 会干净反注册，但 `[Inject]` 快照与已建立的 R3 订阅**不会被重定向**——场上还有消费者引用它时移除＝制造孤儿。没人引用时移除是安全的；正确姿势是把「层 + 它的消费者」放进同一棵子树，撤的时候**整棵子树连根撤**（子 Context 连同其下的 View / 层一并销毁），天然不存在孤儿引用。 |
 | **替换** | ❌ | 「移除再添加、期望既有引用指向新实例」不支持（刻意设计）：`[Inject]` 快照与订阅仍指旧实例、`ctx.GetXxx` 实时解析指新实例——访问路径分裂成「读的和写的不是同一份」的难查 bug。 |
 
-需要「换」时按场景选：**换数据** → 重置 Model 内部状态（引用与订阅全部继续有效，绝大多数需求到这就够）；**换实例** → 开子 Context 覆盖（新作用域挂新实例，新挂进去的消费者自然用新的）；**换整层** → Context 一并 Dispose 重建（场景切换、关卡重置）。这条规则的详细推论与示例见 [`Assets/Game/AGENTS.md`「Mono 生命周期与 Context」](../Assets/Game/AGENTS.md#mono-生命周期与-context)。
+需要「换」时按场景选：**换数据** → 重置 Model 内部状态（引用与订阅全部继续有效，绝大多数需求到这就够）；**换实例** → 开子 Context 覆盖（新作用域挂新实例，新挂进去的消费者自然用新的）；**换整层** → Context 一并 Dispose 重建（场景切换、关卡重置）。详细推论见本文第 10、11 节以及根目录和 src 目录中的协作规则。
 
 ---
 
@@ -1543,7 +1543,7 @@ switch (asset.GetLocationState("ui/logo"))
 
 Host 模式默认允许 `Load` 对未缓存 bundle 当场按需下载。大型 DLC 若不想“误 Load 一个资源就自动下载”，在 `AssetUtility.Settings.Packages` 列表里取消该包的“启用按需下载”：之后本包未缓存资源的 `Load` 直接失败，业务必须先用下载器显式预下载并展示进度。
 
-> **包名别写裸字符串**：`SSFramework/构建与发布/资源构建` 工作台的“生成包名与构建常量”从收集器包列表生成 `AssetPackages.Xxx`，并从构建 Profile 派生首场景使用的 `AssetBundleFileOffset`；输出路径与命名空间必须指向实际业务程序集，框架不猜项目布局。收集器包名或偏移变化后先重新生成并等待 Unity 编译：包名引用会在编译期发现改名，普通 AssetBundle 构建还会在写盘前逐字校验生成物是否新鲜。偏移常量会被 `const` 内联，因此修改后还必须重编并部署实际的 `Game.Main` / Player，不能只替换 CDN 资源。它只描述普通 AssetBundle，不作用于独立 RawFile / `CodePackage`。
+> **包名别写裸字符串**：`SSFramework/构建与发布/资源构建` 工作台的“生成包名与构建常量”从收集器包列表生成 `AssetPackages.Xxx`，并从构建 Profile 派生首场景使用的 `AssetBundleFileOffset`；输出路径与命名空间必须指向实际业务程序集，框架不猜项目布局。收集器包名或偏移变化后先重新生成并等待 Unity 编译：包名引用会在编译期发现改名，普通 AssetBundle 构建还会在写盘前逐字校验生成物是否新鲜。偏移常量会被 `const` 内联，因此修改后还必须重编并部署实际的 `业务入口程序集` / Player，不能只替换 CDN 资源。它只描述普通 AssetBundle，不作用于独立 RawFile / `CodePackage`。
 
 资源工作台的三个动作有意分开判断：**构建**与**部署**读取当前启用包，列表为空时会在保存场景、清 SBP 缓存或弹全量确认框之前停止；**启动本地服务器**只伺服已经存在的 Deploy 根，不依赖当前包勾选。于是你可以调整下一次构建配置，同时继续检查上一次部署产物；但若 Deploy 目录本身不存在，服务器按钮会直接说明先部署一次。
 
@@ -1558,7 +1558,7 @@ Host 模式默认允许 `Load` 对未缓存 bundle 当场按需下载。大型 D
 3. **强更下载**：`CreateAllDownloader()` 统计缺口（`TotalCount == 0` 即已最新）→ 订阅 `Progress` 驱动进度条 → `Download()`；失败或期间发生过清缓存都要**重建下载器**（已下分片走缓存跳过 = 断点续传）。`Download(ct)` 的 token 只取消当前等待者：排队且无人等待可跳过，已经开始的共享物理下载继续到终态。
 4. **回收旧版本**：确认包已是最新后尽力执行 `ClearCache(Unused)`，清掉不被新清单引用的历史 bundle。此时新内容已可用，非取消的清理失败只影响磁盘占用：应记录带原始异常的 Warning 并继续启动，稍后重试收尾清理，不要伪装成包更新失败。Context 销毁等物理生命周期取消仍保持取消异常（`OperationCanceledException`，OCE）；业务页面传入 `None` 只是不让等待方（waiter）提前脱离，真正的物理所有者（owner）仍由 `AssetUtility` 生命周期管理。
 
-`GetPackageVersion(pkg)` 返回包当前生效的清单版本（未就绪为 null）——设置页展示资源版本、客服排查、更新完成确认用它。「修复客户端」= `ClearCache(All)` + 重跑上述流程（全量重下）；全清本身是用户要求的核心动作，失败应保留异常并允许重试，不能套用 `Unused` 收尾清理的降级策略。可整段搬走的启动器流程活样板见 demo「资源运营 · 端到端」章（`AssetOpsFlowModule.RunUpdateFlow`）；只强更启动必需包，DLC 类「按需下载」包不进启动流程，进对应玩法时再 `Initialize` + tag 下载器。
+`GetPackageVersion(pkg)` 返回包当前生效的清单版本（未就绪为 null）——设置页展示资源版本、客服排查、更新完成确认用它。「修复客户端」= `ClearCache(All)` + 重跑上述流程（全量重下）；全清本身是用户要求的核心动作，失败应保留异常并允许重试，不能套用 `Unused` 收尾清理的降级策略。只强更启动必需包，DLC 类「按需下载」包不进启动流程，进对应玩法时再 `Initialize` + tag 下载器。
 
 ### Inspector 行为
 
@@ -1626,7 +1626,7 @@ UniTask / Task         —— 一次性的值（成功或失败）
 |---|---|---|
 | `Observable<T>` | 只读流抽象 | 只保证可订阅，不保证当前值；适合事件流、派生流、异步流 |
 | `ReactiveProperty<T>` | 可写状态流 | 有 `Value` 和 `CurrentValue`；只应在 Model/System 内部写入 |
-| `SerializableReactiveProperty<T>` | Unity 序列化状态流 | 推荐用于 Mono Model，Inspector 可见，便于 Demo/调试/配置初始值 |
+| `SerializableReactiveProperty<T>` | Unity 序列化状态流 | 推荐用于 Mono Model，Inspector 可见，便于 Editor 调试和配置初始值 |
 | `ReadOnlyReactiveProperty<T>` | 只读状态流 | 有 `CurrentValue`，无 `Value` setter；推荐作为 Command 返回给 View 的状态类型 |
 | `ISubject<T>` / `Subject<T>` | 手动推送源 | 既是观察者又是可订阅源，适合桥接外部回调；长期状态仍优先 ReactiveProperty |
 | `Observer<T>` | 订阅端处理器 | 需要处理错误/完成时用 `Observer.Create`，普通 UI 更新用 lambda 即可 |
@@ -1805,7 +1805,7 @@ Bag.Subscribe(
 
 哪些程序集热更，由**热更列表**（`FrameworkHotUpdateProfile`，在 `SSFramework/构建与发布/代码热更新` 工作台定位）决定——谁在列表里谁热更，按版本可调。因此：
 
-- **目录与程序集按领域命名**（`Game.Main`、`Game.X` 模块、`Game.DLC.Y`），永远不要出现 `Game.HotUpdate` 这种按部署属性起的名字。
+- **目录与程序集按领域命名**（`业务入口程序集`、`Game.X` 模块、`Game.DLC.Y`），永远不要出现 `Game.HotUpdate` 这种按部署属性起的名字。
 - 框架本体（`Game.Framework`）默认也在列表里（可热修框架 bug）；性能敏感的项目把它移出列表退回 AOT，业务代码零改动。
 
 ### 程序集三层
@@ -1814,7 +1814,7 @@ Bag.Subscribe(
 |---|---|---|
 | 引导 | `Game.Framework.Boot`（薄壳：下载 DLL、补元数据、`Assembly.Load`、反射入口） | 永不（鸡生蛋） |
 | 框架 | `Game.Framework`（内核）、`Game.Framework.Asset.Yoo`（YooAsset 适配） | 默认热更，可退 AOT |
-| 业务 | `Game.Main` 及未来模块/DLC | 热更（主战场） |
+| 业务 | `业务入口程序集` 及未来模块/DLC | 热更（主战场） |
 
 ### 构建工具也可以裁剪
 
@@ -1886,7 +1886,7 @@ await assets.LoadScene("FirstScene");            // Single：卸掉 Boot 场景�
 Object.Destroy(go);                              // 交棒：首场景根 Context 与其 AssetUtility 接管
 ```
 
-首场景内的 `AssetUtility` 随后按自己的 Settings 初始化；provider 对已初始化的包按名复用、不重复拉清单，引导栈与场景入口两个 Utility 实例可安全交棒。代码引导必须在 `Start` 前 `Configure`，这会抑制该实例的 Inspector 自动初始化。引导栈之所以使用生成的 `AssetBundleFileOffset`，是因为此刻还读不到首场景的 Settings；构建 Profile 改偏移后要执行“生成常量 → 等编译 → 重编 Game.Main / Player → 构建并部署资源”的完整发布事务。该偏移只属于普通 AssetBundle，Boot 的 RawFile `CodePackage` 仍由独立热更管线拥有。WebGL 的 Boot 与业务资源引导都改用 Web 文件系统；偏移 bundle 会下载到内存后剥头，内置值上限为 1 MiB。项目入口通常放在业务 Runtime 程序集中；本仓库的垂直切片另提供一份完整实现。
+首场景内的 `AssetUtility` 随后按自己的 Settings 初始化；provider 对已初始化的包按名复用、不重复拉清单，引导栈与场景入口两个 Utility 实例可安全交棒。代码引导必须在 `Start` 前 `Configure`，这会抑制该实例的 Inspector 自动初始化。引导栈之所以使用生成的 `AssetBundleFileOffset`，是因为此刻还读不到首场景的 Settings；构建 Profile 改偏移后要执行“生成常量 → 等编译 → 重编 业务入口程序集 / Player → 构建并部署资源”的完整发布事务。该偏移只属于普通 AssetBundle，Boot 的 RawFile `CodePackage` 仍由独立热更管线拥有。WebGL 的 Boot 与业务资源引导都改用 Web 文件系统；偏移 bundle 会下载到内存后剥头，内置值上限为 1 MiB。项目入口通常放在业务 Runtime 程序集中；Framework 只提供接入边界，不替项目生成入口实现。
 
 ### 铁则（违反会在构建期被校验器拦下或真机才爆雷）
 
@@ -2000,7 +2000,7 @@ var commandItem = ctx.GetConfig<Tables>().TbItem[id];
 
 **接入只补两个 override**——它们是框架（后端无关）与项目（具体后端）之间仅有的接缝：
 
-| override | 回答的问题 | demo（Luban）实现 | 换后端时 |
+| override | 回答的问题 | 实现示例 | 换后端时 |
 |---|---|---|---|
 | `TableFiles` | 预载哪些数据文件（数据清单） | 直接交还生成的 `LubanTableManifest.Files` | 不变（仍返回你的清单） |
 | `CreateTables` | 字节怎么变表根（反序列化适配器） | `new Tables(f => new ByteBuf(getBytes(f)))`——唯一碰 Luban `ByteBuf` 的一行 | 改这一行（JSON 就 parse JSON，不要 `ByteBuf`） |
@@ -2013,15 +2013,15 @@ var commandItem = ctx.GetConfig<Tables>().TbItem[id];
 2. 建一处 conf 源目录：`luban.conf`（入口）+ `Defines/*.xml`（表定义）+ `Datas/`（数据）。放哪都行（路径填进 profile）；想随某模块一起删 / 抽包就放该模块目录下、用 `~` 后缀避免 Unity 导入。
 3. 在“配置总览”显式新建一个 `LubanConfigProfile`：填 conf 源、输出目录、topModule（见下方铁则）。需要多套时继续新建，并为每项代码 / 数据产物分配互不嵌套的独立输出目录。
 4. 打开 `SSFramework/代码生成/配置表 (Luban)` 工作台。卡片会先检查 CLI、`luban.conf`、固定的 `cs-bin + bin` 组合与输出所有权；全部就绪时点“生成全部”，只有部分就绪时点“生成可用配置（x/y）”。每套独立执行暂存 → 校验 → 差量事务发布：前一套成功、后一套失败时，前者保持完整新代，后者保持完整旧代。
-5. 确认数据输出目录在某个 YooAsset 收集器范围内（`.bytes` 按普通资源收集成 TextAsset、按文件名寻址）；demo 复用现成的 `FrameworkDemoGroup` 收集器，真实项目通常加进 DefaultPackage 的收集组。
+5. 确认数据输出目录在某个 YooAsset 收集器范围内（.bytes 按普通资源收集成 TextAsset、按文件名寻址）；项目应把输出目录纳入自己的资源收集范围，具体收集器名称由项目决定。
 6. 写一个一行子类闭合泛型 `class GameConfigUtility : MonoConfigUtilityBase<Tables>`，补上面两个 override（`TableFiles` / `CreateTables`）；挂在 Context 子节点即可（与资源系统同 Context，靠容器父级回退共享 `IAssetUtility`，不必单独再挂一套资源系统）。
 7. 生成代码所在 asmdef 引用 `Luban.Runtime` + `Game.Framework.Config`；若业务程序集热更，它天然在热更侧（数据文件本就随资源包热更）。
 
 ### 数据源与格式
 
-- 数据源**按表选格式、同项目混搭**，表定义的 `input` 一个属性决定——demo 两种都有活样例：`item.json`（JSON 文本：git diff 可读、AI 可直接维护）+ `monster.xlsx`（Excel：策划直接编辑）。
+- 数据源**按表选格式、同项目混搭**，表定义的 `input` 一个属性决定——同一项目可以同时使用 JSON 与 Excel 数据源；具体文件名由项目决定。
 - JSON input 语法：`*@item.json` = 单文件多记录（根是数组），目录 input = 每文件一条记录。
-- Excel 布局约定：**A 列是标记列**——`##var` 行写字段名、`##` 行是注释行，数据行 A 列留空、数据从 B 列起；多 sheet 用 `表单名@文件.xlsx`。`monster.xlsx` 是活样例（程序生成的 xlsx Luban 也照常读，无需真装 Office）。
+- Excel 布局约定：**A 列是标记列**——`##var` 行写字段名、`##` 行是注释行，数据行 A 列留空、数据从 B 列起；多 sheet 用 `表单名@文件.xlsx`。Luban 也可以直接读取程序生成的 xlsx 文件，无需安装 Office。
 - 本框架运行时输出固定用 **bin + cs-bin**（紧凑、解析快，清单按根目录 `.bytes` 建立）。JSON / Excel 是可混搭的**输入源**，不要与 Luban 的 json 输出 target 混淆；需要查看内容时直接看源数据。若要支持 `cs-simple-json + json`，需先新增理解该输出 location 与反序列化方式的独立 Adapter，不能只改 Profile 字符串。
 - `codeTarget` / `dataTarget` 已不是 Profile 可编辑字段，而由生成管线固定为 `cs-bin` / `bin`；旧公开 getter 只为 Editor 源码迁移兼容返回常量，不能据此切换格式。
 
@@ -2049,7 +2049,7 @@ Luban 生成的 `Tables` 构造函数是**同步、一次性构造全表**（每
 
 ### 铁则与坑
 
-- **topModule 别嵌进含 `System` 子命名空间的层级**（如 `Game.Framework.*`）：生成代码裸写 `System.Func` / `System.Collections`，会被就近解析劫持（CS0234）。demo 用顶层 `DemoCfg`。
+- topModule 应避免嵌入含 System 子命名空间的层级（如 Game.Framework.*），以免生成代码中的 System.Func / System.Collections 被就近解析劫持。
 - **代码与数据输出目录被事务独占**：本次暂存快照没有的陌生文件会作为陈旧产物清理，勿手放任何文件进去；保留文件的 `.meta` 不会重造。输出路径现存链上的 symlink / junction 会在正式写盘前被拒绝。
 - **数据文件按普通资源收集（TextAsset），不要用 PackRawFile**：YooAsset 的 bundle 类型是包级二选一，AB 包混入 RawFile 收集器后运行时直接失败（实测）。读取统一用 `Bag.LoadBytes`——它按包构建管线自动路由（普通 AB 包按 TextAsset 取内容、RawFile 包走原生通道），业务无需关心包类型。
 - **流程门禁不要自己 `WaitUntil(State is Ready or Failed)`**：这会重复终态编排，并在 Failed 时丢掉根因。业务优先使用 `await this.EnsureConfig<Tables>(token)`；已经持有服务时可直接 `EnsureReady(token)`，只有加载提示等持续 UI 才订阅 `State`。
@@ -2151,7 +2151,7 @@ public sealed class ConfirmDialog : UGuiWindowBase { … }
 | `Destroy`（默认） | 低频窗口；持有大贴图、临时资源；关闭后理应彻底清场 | 重开会重新创建与加载，但状态最简单、资源释放最及时 |
 | `Cache` | 频繁开关；构建或加载昂贵；实例可安全复用 | `OnCreate` 只一次、`OnOpen(args)` 每次都调；临时选择、输入框、滚动位等必须在 `OnOpen` 明确刷新或重置 |
 
-不要凭“感觉更快”选择。Demo「UI 框架 · 窗口/层级」章提供两个真实 UI Toolkit 窗口：按“打开 → 关闭 → 重开”，Destroy 的实例号会变化且 hook 计数从头开始；Cache 保持同一实例号，`OnCreate` 仍为 1、`OnOpen` 递增。对应 PlayMode 契约直接穿过真实 Toolkit Adapter，避免只用 fake backend 证明核心编排。
+不要凭“感觉更快”选择后端。应由真实 UI 后端测试覆盖“打开 → 关闭 → 重开”与 Cache 重用两条路径，并检查实例与 hook 计数的生命周期语义。
 
 ### 层级（`UILayer`，固定有序，后者盖前者）
 
@@ -2204,9 +2204,9 @@ private void OnBackPerformed(InputAction.CallbackContext _)
 }
 ```
 
-这样改用旧 Input Manager、输入重绑定或平台 SDK 时，只换这层浅接线，窗口框架、UGUI 与 Toolkit 都不动。教学工程可以在自己的 composition layer 放置输入适配器，展示无需 Input Action 资产的最小新 Input System 实现；它不属于 Framework Runtime API。正式项目通常优先复用自己的 Input Action / 输入路由，而不是另起一份逐帧轮询。
+这样改用旧 Input Manager、输入重绑定或平台 SDK 时，只换这层浅接线，窗口框架、UGUI 与 Toolkit 都不动。项目可以在自己的 composition layer 放置输入适配器；它不属于 Framework Runtime API。正式项目通常优先复用自己的 Input Action / 输入路由，而不是另起一份逐帧轮询。
 
-从早期版本升级时，旧的 Runtime API `MonoUIBackKeyDriver` 已删除，Demo 样板刻意使用新的脚本 GUID，不会让既有 Scene / Prefab 静默改绑到 Demo 程序集。请在旧组件处显式移除 Missing Script / 旧组件，再把项目已有的 Back Input Action 接到 `IUIUtility.Back()`；只有确实要复制教学实现时才复制 `DemoInputSystemBackKeyDriver` 到项目层。这个迁移是一次有意的依赖边界收紧。
+从早期版本升级时，已删除的旧 Runtime API 需要由项目显式移除，再把现有输入路由接到 IUIUtility.Back()；兼容实现应留在项目自己的 composition layer，不回流到 Framework Runtime。
 
 ### Toast / Loading（Top 层内置件）
 
@@ -2311,13 +2311,13 @@ Bag.SubscribeClickAsync(button, async ct =>   // 异步点击：随 Bag 取消�
 > - 窗口 = View 的一种：自动注入 / Bag / 读写分离；元数据用 `[UIWindow]` 声明层 / 缓存 / 模态 / 返回键可关性
 > - 过渡动画重写 `OnOpenTransition` / `OnCloseTransition`，框架统一挡输入；项目把返回 Input Action 映射到 `IUIUtility.Back()`
 > - 核心渲染中立、可单测；换 UGUI ↔ UI Toolkit 业务零改，`IUIBackend` 吸收差异
-> - 数据绑定一套 R3 订阅；Toolkit 异步点击用 `SubscribeClickAsync` 明确生命周期与异常 owner；活样例见 demo「界面（View）· UI Toolkit」+「UI 框架 · 窗口/层级」章
+> - 数据绑定一套 R3 订阅；Toolkit 异步点击用 `SubscribeClickAsync` 明确生命周期与异常 owner。
 
 ---
 
 ## 18. 本地存储（存档）
 
-框架统一的持久化入口 `IStorageUtility`（`Game.Framework.Storage`）：**类型化整存整取**——每类持久数据定义一个 `[Serializable]` 类（设置 = `SettingsData`、存档 = `PlayerSaveData`），整对象 `Save` / `Load`。刻意不提供 `GetInt/SetString` 散装 KV（字符串 key 散落各处正是框架「用类型代替字符串」要消灭的东西；碎片标记 Unity 的 `PlayerPrefs` 本身够薄，框架不重复包装）。设计取舍见 ADR-0021，活样例见 demo「本地存储 · 存档」章。
+框架统一的持久化入口 `IStorageUtility`（`Game.Framework.Storage`）：**类型化整存整取**——每类持久数据定义一个 `[Serializable]` 类（设置 = `SettingsData`、存档 = `PlayerSaveData`），整对象 `Save` / `Load`。刻意不提供 `GetInt/SetString` 散装 KV（字符串 key 散落各处正是框架「用类型代替字符串」要消灭的东西；碎片标记 Unity 的 `PlayerPrefs` 本身够薄，框架不重复包装）。设计取舍见 ADR-0021。
 
 ### 快速开始
 
@@ -2364,7 +2364,7 @@ var loaded = await storage.Load<PlayerSaveData>("save/slot1");  // null = 无可
 
 `ListKeys` 与 `Exists` 使用同一条“可恢复”判定：主文件或备份任一存在就包含该 key，主备同时存在只返回一次；仅有 `.tmp` 代表写入尚未提交，不算存档。这样即使平台不支持 `File.Replace`、手动替换恰好在主文件移入 `.bak` 后中断，存档选择页也不会漏掉仍可由 `Load` 恢复的槽位。
 
-回退成功只说明“读到了健康备份”，坏主文件仍在。要主动修复成健康的主/备双份数据，需要把回退对象连续 `Save` 两次：第一次重建主文件时，原坏主文件可能被推进 `.bak`；第二次才把健康主文件推进备份。Demo 的 ③/④ 步骤会精确展示 2 条 Warning 与这个双写恢复过程，并提供只删除本章白名单 key 的幂等重置，避免测试数据跨 Play 干扰后续学习。
+回退成功只说明“读到了健康备份”，坏主文件仍在。项目测试应分别验证双写恢复、Warning 数量和只清理本测试白名单 key 的幂等重置，避免测试数据跨 Play 干扰后续学习。
 
 所有操作内部走**全局 FIFO 串行**（同 key 竞态、读写交错天然消失；存储低频，串行无感知），文件 IO 切线程池不卡帧。自定义 SQLite / 云存档 Provider 可以在任意线程物理完成；`StorageUtility` 会在反序列化、推进 FIFO 以及交付成功 / 异常 / 取消前恢复 Unity 主线程，业务 await 后可直接继续更新 Model / UI，但公共入口本身仍从主线程调用。**别 fire-and-forget Save**——await 它（`Exists` 是不排队的同步快照，紧跟未落盘的写可能看不到）。`Dispose` 会立即拒绝新请求，但不为等待未完成的队列而同步阻塞：已入队操作继续按 FIFO 做完，provider 最后释放；因此带连接的 SQLite / 云存储 Adapter 不会在排队请求仍存活时被提前拆掉。队列已空时同步 `provider.Dispose` 可能内联执行，所以 Adapter 的释放逻辑仍应短小。
 
@@ -2373,7 +2373,7 @@ var loaded = await storage.Load<PlayerSaveData>("save/slot1");  // null = 无可
 ### 版本迁移的姿势
 
 - 默认 JSON 对字段增删**天然宽容**（新增字段旧档取默认值、删除字段被忽略）——绝大多数存档演进免迁移。
-- 结构性改动：数据类型里放 `int Version` 字段 → `Load` 后按版本**链式** switch 迁移（v1→v2→v3 逐级经过）→ 迁移完 `Save` 回写。框架刻意不提供迁移注册表 / 管线——迁移逻辑本质是业务代码，一个 switch 最直白。样板见 demo 章 `MigrateIfNeeded`。
+- 结构性改动：数据类型里放 `int Version` 字段 → `Load` 后按版本**链式** switch 迁移（v1→v2→v3 逐级经过）→ 迁移完 `Save` 回写。框架刻意不提供迁移注册表 / 管线——迁移逻辑本质是业务代码，一个 switch 最直白。项目应在自己的数据类型中实现该迁移函数。
 
 ### 扩展点与刻意不做
 
@@ -2394,7 +2394,7 @@ var loaded = await storage.Load<PlayerSaveData>("save/slot1");  // null = 无可
 
 ## 19. 音频（BGM / 音效）
 
-框架统一的全局播放入口 `IAudioUtility`（`Game.Framework.Audio`）：**音乐单通道**（切换自动交叉淡入淡出）+ **池化音效**（一次性播完自动回收、循环音效 handle 进 Bag 随宿主自动停）+ **分组音量**（主 × 组 × 单次三级乘法，滑条即时生效）。它管「全局播放编排」，**不替代**挂在对象上的 `AudioSource` 组件——需要跟随对象移动的持续 3D 音源（引擎声、脚步循环）直接用组件（引擎组件可跨层）。设计取舍见 ADR-0022，活样例见 demo「音频 · 背景音乐（BGM）与音效」章。
+框架统一的全局播放入口 `IAudioUtility`（`Game.Framework.Audio`）：**音乐单通道**（切换自动交叉淡入淡出）+ **池化音效**（一次性播完自动回收、循环音效 handle 进 Bag 随宿主自动停）+ **分组音量**（主 × 组 × 单次三级乘法，滑条即时生效）。它管「全局播放编排」，**不替代**挂在对象上的 `AudioSource` 组件——需要跟随对象移动的持续 3D 音源（引擎声、脚步循环）直接用组件（引擎组件可跨层）。设计取舍见 ADR-0022。
 
 ### 快速开始
 
@@ -2482,7 +2482,7 @@ public sealed class FmodAudioUtility : IAudioUtility, IAudioHandleOwner, IDispos
 builder.RegisterOwnedUtility(new FmodAudioUtility());
 ```
 
-要点：中间件的「事件 / Bank / 总线」概念留在适配类内部消化（clip → 事件路径的映射是项目自己的约定）；分组音量映射到 FMOD 的 VCA / Wwise 的 Bus；`AudioHandle` 语义契约不变——陈旧句柄安全 no-op、`Dispose()` = 立即停。业务代码、demo、教程全部无感。
+要点：中间件的「事件 / Bank / 总线」概念留在适配类内部消化（clip → 事件路径的映射是项目自己的约定）；分组音量映射到 FMOD 的 VCA / Wwise 的 Bus；`AudioHandle` 语义契约不变——陈旧句柄安全 no-op、`Dispose()` = 立即停。业务代码不需要感知适配器差异。
 
 > **要点回顾**
 >
@@ -2612,7 +2612,7 @@ private static async UniTask Observe(IGameFlow flow, FlowState next)
 
 ## 21. 本地化（多语言）
 
-框架只管三件小事：**「当前语言」全局状态 + key → 文本查询 + 语言或文本源变化时让已显示 UI 重取**。文本数据来自 `ILocalizedTextSource` 接缝（业务包自己的配置表）；per-locale 资源、语言持久化、字体切换都是既有原语的组合。ADR-0024。
+- per-locale 资源：按 locale 分包（YooAsset 多 package，业务映射包名）或 location 后缀约定；换语言换图 = 在 Locale 订阅中 Dispose 旧子 Bag，再按新 locale 重新 Load。框架刻意零 API，因为命名 / 分包约定各项目不同。
 
 ### 快速开始
 
@@ -2653,7 +2653,7 @@ locale code 是**开放字符串 + 业务常量**（与音频组、存储 key �
 
 `ILocalizationUtility` 是随 Context 借用的服务，不要缓存到 owner 之外。Context 释放会先退订文本 Source，并正常完结已经取得的 `Locale` / `TextRevision` 流；之后重新访问响应属性、`Get` 或 `SetLocale` 都会抛 `ObjectDisposedException`。查询也不能像纯字典快照那样在释放后继续：Utility 每次 `Get` 仍会调用外部 `ILocalizedTextSource`，而 Source 只承诺至少与 Utility 同寿。重新进入新作用域时应从新 Context 解析服务。locale code、fallback code 与文本 key 的纯空白值均视为参数错误，避免产生肉眼不可辨识的字符串契约。
 
-> 表 Adapter 的**活实物**在 demo「本地化 · 多语言」章（`LubanTextSource`，连 `TbL10N` 表定义 / `l10n.xlsx` 数据一起）。注意一个注册细节：**源要吃别的服务**（配置表 Utility）时用 `RegisterOwnedFactory(c => new LocalizationUtility(new LubanTextSource((IConfigUtility<Tables>)c.Resolve(...)), ...), typeof(ILocalizationUtility))`——容器在首次解析时解决依赖顺序，同时仍负责释放 `LocalizationUtility`；Factory 是显式接线位，所以仍需列出契约。普通 `RegisterFactory` 只管构造和缓存、不拥有产物。不依赖其他服务的源（字典源）直接 `RegisterOwnedUtility`。
+> 表 Adapter 应由项目按自己的数据源实现。注意一个注册细节：**源要吃别的服务**（配置表 Utility）时用 `RegisterOwnedFactory(c => new LocalizationUtility(new LubanTextSource((IConfigUtility<Tables>)c.Resolve(...)), ...), typeof(ILocalizationUtility))`——容器在首次解析时解决依赖顺序，同时仍负责释放 `LocalizationUtility`；Factory 是显式接线位，所以仍需列出契约。普通 `RegisterFactory` 只管构造和缓存、不拥有产物。不依赖其他服务的源（字典源）直接 `RegisterOwnedUtility`。
 
 ### 延迟文本源：不可用不等于缺失
 
@@ -2665,11 +2665,11 @@ locale code 是**开放字符串 + 业务常量**（与音频组、存储 key �
 
 查询失败依次走：当前 locale → `fallbackLocale`（构造可选，如 zh-TW → zh-CN）→ **返回 key 本身** + Editor/Dev 一次性警告（同一缺失去重，不刷屏）。不抛异常（文案缺失不炸游戏）、不给空串（静默丢文案最难发现）——屏幕上直接显示裸 key 就是最好的缺失报告。`Get(key, args)` 的模板格式非法同样宽容：警告 + 返回未格式化模板。
 
-### 动态参数 / UGUI / per-locale 资源：一行组合
+- per-locale 资源：按 locale 分包（YooAsset 多 package，业务映射包名）或 location 后缀约定；换语言换图 = 在 Locale 订阅中 Dispose 旧子 Bag，再按新 locale 重新 Load。框架刻意零 API，因为命名 / 分包约定各项目不同。
 
 - **动态参数**（文案里嵌响应式数值）：不用专门 API——`Bag.Bind(model.Gold.CombineLatest(loc.TextRevision, (g, _) => loc.Get("shop/gold", g)), s => label.text = s)`，数据与文本修订两个方向都即时刷新。
 - **UGUI / TMP**：`Bag.Subscribe(loc.TextRevision, _ => tmpText.text = loc.Get(key))` 一行——UGui asmdef 刻意不引 R3，不为一个便捷方法加依赖。
-- **per-locale 资源**：按 locale 分包（YooAsset 多 package，业务映射包名）或 location 后缀约定；换语言换图 = `Bag.Subscribe(loc.Locale, ...)` 里 Dispose 旧子 Bag → 按新 locale 重新 `Load`（子 Bag 重建释放旧句柄，§13 既定写法）；语音 / 配音是瞬时动作，播放时按 `Locale.CurrentValue` 拼 location 取即可。框架刻意零 API——命名 / 分包约定各项目不同，helper 反而强加约定。**图片与音频的活实物都在 demo 本地化章**（`l10n-banner_<locale>` / `l10n-voice_<locale>`）。
+- per-locale 资源：按 locale 分包（YooAsset 多 package，业务映射包名）或 location 后缀约定；换语言换图 = 在 Locale 订阅中 Dispose 旧子 Bag，再按新 locale 重新 Load。框架刻意零 API，因为命名 / 分包约定各项目不同。
 
 ### 与其他多语言方案的关系
 
@@ -2690,9 +2690,9 @@ locale code 是**开放字符串 + 业务常量**（与音频组、存储 key �
 >
 > - 已有源直接 `RegisterOwned`；源需从容器解析其他服务时用 `RegisterOwnedFactory`，不要用不接管生命周期的普通 Factory
 > - Source 区分 `Unavailable / Missing / Found`，答案可能变化时发 `Invalidated`；不要把加载中伪装成 missing
-> - 文本 UI 全用 `Bag.BindLocalizedText` / `TextRevision`；字体和 per-locale 资源仍只订 `Locale`
+- per-locale 资源：按 locale 分包（YooAsset 多 package，业务映射包名）或 location 后缀约定；换语言换图 = 在 Locale 订阅中 Dispose 旧子 Bag，再按新 locale 重新 Load。框架刻意零 API，因为命名 / 分包约定各项目不同。
 > - 真缺 key 才走 fallback → 裸 key + 一次性警告；`SetLocale` 同值幂等
-> - 持久化 / 语言列表 / SystemLanguage 映射归业务；per-locale 资源走多 package 组合
+- per-locale 资源：按 locale 分包（YooAsset 多 package，业务映射包名）或 location 后缀约定；换语言换图 = 在 Locale 订阅中 Dispose 旧子 Bag，再按新 locale 重新 Load。框架刻意零 API，因为命名 / 分包约定各项目不同。
 
 ---
 
@@ -2731,11 +2731,11 @@ CJK 全量字库体积大（单字体 15~30MB），全量随包不现实；砍�
 
 - **TMP（UGUI 侧）没有引擎级 OS 兜底**：缺字就是豆腐块——②③ 在 TMP 侧是**刚需**。另外 TMP 缺字最后会查全局默认字体（TMP Settings → Default Font Asset）及其链，若主字体恰好就是默认字体，未列管的字体也会「沾光」——别依赖这个巧合。
 - **UI Toolkit 侧引擎内建 OS 字形兜底**（TextCore `TextSettings` 层）：缺字**不豆腐，但字形随平台走**（Windows 雅黑 / macOS 苹方，排版风格不受控）。② 层在 Toolkit 侧的价值是**把字形拿回自己手里**：链上的品牌字体优先于引擎 OS 兜底，各平台排版一致。
-- **fallback 解析结果有引擎缓存**：框架在链条应用 / 还原时已统一清缓存并强刷存活 TMP 文本；Toolkit 侧本地化文本随换语言重设 text 自然重排，**固定文本 + 链条变化**的罕见场景需业务重设一次 text 触发重排（demo 有样板）。
+- **fallback 解析结果有引擎缓存**：框架在链条应用 / 还原时已统一清缓存并强刷存活 TMP 文本；Toolkit 侧本地化文本随换语言重设 text 自然重排，**固定文本 + 链条变化**的罕见场景需业务重设一次 text 触发重排（项目应在切换语言后的 UI 回归中覆盖这一情况）。
 
 ### 使用要点
 
-- **主字体要显式列出**：链条只写在列出的资产上，没列的字体不受管理（demo 有活对照）。全工程挂**一份**（根 Context）；同一主字体被两份组件接管会互相覆盖快照，不要多挂。
+- **主字体要显式列出**：链条只写在列出的资产上，没列的字体不受管理（项目应在字体链回归中覆盖这一情况）。全工程挂**一份**（根 Context）；同一主字体被两份组件接管会互相覆盖快照，不要多挂。
 - **OS 族名用英文名**（「微软雅黑」在字体引擎查不到）；候选按目标平台配齐、按序试到第一个可用，全失败降级为①②（警告一次，不炸）。
 - **还原语义**：组件销毁（或 `LocaleFontChain.Dispose`）还原各主字体的原始表并销毁运行时创建的 OS 资产——Editor Play 会话不污染共享字体资产；资产上预配的 fallback（如 emoji 字体）始终保留在链条基底里。
 - **② 字体放 locale 分包按需下载**：字体资产就是普通资源，走 §21 的多 package 组合，不需要专门协议。
@@ -2752,7 +2752,7 @@ CJK 全量字库体积大（单字体 15~30MB），全量随包不现实；砍�
 > - 换语言由 §21 的 `SetLocale` 一并驱动，字体业务零调用；未配置 locale 降级不炸
 > - ① 在 `SSFramework/代码生成/字体字集` 工作台点“生成常用字集”，再用 TMP Font Asset Creator 烘焙
 > - TMP 缺字真豆腐（②③刚需）；Toolkit 引擎自带 OS 兜底（②管字形归属）
-> - 活样板见 demo「字体 · 多语言字体链」章 / ADR-0025
+> - 详见 ADR-0025
 
 ---
 
@@ -2825,7 +2825,7 @@ public readonly struct RepairWaterValveCommand : ICommand
 
 XML doc 继续负责 API 契约，诊断窗口不会反向解析注释：注释在 Player / DLL 中不一定存在，且同一文件可有多个命令。流水只记类型身份，不记字段 payload；Editor 再按当前编译程序集解析 `DescriptionAttribute` 和源文件。刚编译后的旧流水或只有 DLL 的命令可能无法跳转，窗口会给出原因而不猜测文件。
 命令类型与中文说明在表格中各占独立一列，既可分别扫读，也会共同参与过滤；双击整行仍按类型身份跳转源码。
-- demo 的 `MonoDemoContext` 已这样注册：打开 demo 场景点任意按钮，流水实时可见。
+- 命令流水是 opt-in 的：在根 Context 注册 LoggingCommandSystem 即可观察命令执行；不需要时不增加额外开销。
 
 ### 给纯 C# Context 起名字
 
@@ -2934,7 +2934,7 @@ Bag.BindList(contentTransform, this.ExecuteCommand(new GetItemsCommand()), (item
 
 `ObservableList<T>` 把每次结构变化摊成**逐项**事件：`Add`/`AddRange`/`Insert` → 逐项 Add；`RemoveAt`/`RemoveRange` → 逐项 Remove；`Move` → 一条 Move（视图复用同一行实例、只换位置）；索引器赋值 → Replace（框架重造该行）；`Clear` → Reset（清空重种）。`BindList` 按这些事件维护一份与源逐项对应的子视图表——你只管改 `ObservableList`，UI 自己跟上。
 
-“画面顺序对了”不足以证明增量绑定没有暗中重建整表。Demo「响应式列表 · 集合绑定」章给每个真实行 View 一个稳定 `实例 #N`，并从 item factory 与 rowBag Dispose 两个 Seam 统计创建 / 释放 / 存活数：Move 后实例号只换位置、计数不变；Replace 只释放旧槽并创建一行。对应 EditMode 测试还断言同一个 `VisualElement` 引用被移动、旧 rowBag 在 Replace 时真实释放，因此教学证据与 Implementation 共用同一事实来源。
+“画面顺序对了”不足以证明增量绑定没有暗中重建整表。测试应为每个真实行记录稳定实例标识，并从 item factory 与 rowBag Dispose 统计创建、释放和存活数；Move 不应改变实例总数，Replace 只应释放旧槽并创建一行。
 
 ### 失败与回调边界
 
@@ -2961,7 +2961,7 @@ Bag.Subscribe(source.ObserveChanged(), _ => { list.itemsSource = source.ToList()
 
 ## 25. 网络（HTTP / WebSocket）
 
-网络消息按最贴合因果的形态分两轨建模（`Game.Framework.Network`）：**请求-响应**（发起方等结果）= `IHttpUtility` 的 **UniTask 返回值**，不硬塞进事件；**服务器推送 / 广播**（谁都可能收到）= `IWebSocketUtility` 把推送转成**框架 Event**，`Bag.Subscribe<T>` 消费，与订 Model 事件同一套心智。传输与序列化是两个正交接缝，默认 UnityWebRequest + ClientWebSocket + JSON，全部零第三方依赖。设计取舍见 ADR-0028，活样例见 demo「网络 · HTTP 与 WebSocket」章。
+网络消息按最贴合因果的形态分两轨建模（`Game.Framework.Network`）：**请求-响应**（发起方等结果）= `IHttpUtility` 的 **UniTask 返回值**，不硬塞进事件；**服务器推送 / 广播**（谁都可能收到）= `IWebSocketUtility` 把推送转成**框架 Event**，`Bag.Subscribe<T>` 消费，与订 Model 事件同一套心智。传输与序列化是两个正交接缝，默认 UnityWebRequest + ClientWebSocket + JSON，全部零第三方依赖。设计取舍见 ADR-0028。
 
 ### 快速开始
 
@@ -3119,7 +3119,7 @@ builder.RegisterOwnedUtility(new HttpUtility(baseUrl, serializer: proto));
 
 **WS 的二进制格式还差一步**：默认 envelope 是「JSON `{type, payload}` + payload 文本二次编码 + 文本帧」，对二进制字节是破坏性的。`ProtobufNetworkSerializer` 已实现可选接缝 **`IWebSocketEnvelopeSerializer`**——整体接管 envelope 编解码（proto 消息 `{string type=1; bytes payload=2}`）与帧类型（二进制帧），payload 全程 `byte[]`。自写二进制序列化器（MemoryPack 等）照此接口补三个成员即可；JSON 序列化器不实现它，走原兼容路径、wire 字节不变。
 
-内置实现的定位是「消息不多的自建后端 / dev server」（真实消费方的排行榜是完整落地样例）：消息多到手写吃力、或要 `.proto` 契约共享 / map / oneof / 有符号 / 浮点，换官方 Google.Protobuf——框架已提供**增强模块 `Game.Framework.Network.Proto`** 承接这一档（可选启用，同 `Asset.Yoo` 收口姿势：Google.Protobuf 依赖收口于模块、内核仍零依赖，可整块删/抽 UPM）。接入三步：
+内置实现的定位是「消息不多的自建后端 / dev server」（可按项目的消息规模和协议需求选择）：消息多到手写吃力、或要 `.proto` 契约共享 / map / oneof / 有符号 / 浮点，换官方 Google.Protobuf——框架已提供**增强模块 `Game.Framework.Network.Proto`** 承接这一档（可选启用，同 `Asset.Yoo` 收口姿势：Google.Protobuf 依赖收口于模块、内核仍零依赖，可整块删/抽 UPM）。接入三步：
 
 1. **加引用 + 装 DLL**：业务 asmdef 引用 `Game.Framework.Network.Proto`；Google.Protobuf 经 NuGetForUnity 装入（模块自带 link.xml 防 IL2CPP 裁剪）。
 2. **配 + 生成**：打开 `SSFramework/代码生成/Protobuf` 工作台，新建 `ProtoConfigProfile` → Inspector 填 protoc 工具目录、.proto 源目录（放模块下的 `Proto~`，`~` 后缀不被 Unity 导入源文件）与 C# 输出目录 → 点“重新扫描”采集当前输入 → 按套或批量生成（差量同步：内容未变不落盘、陈旧 `*.g.cs` 自动清理）。卡片会递归统计 `.proto`，并在点击前一次列出缺失的 protoc、源目录或空输入；该输入快照在 IMGUI Layout / Repaint 间复用，工程或 Profile 路径变化后只标记失效，不在绘制期间暗中重扫。真正生成不信任这份预览，会重新检查当前磁盘与输出 claim。部分配置就绪时，批量按钮只生成可用项。每套配置必须独占一个位于 `Assets` 内的子目录；相同或父子嵌套目录会暂停整批，因为清理边界就是整棵输出目录。跨模块配置健康检查在 `SSFramework/配置中心`。
@@ -3154,20 +3154,20 @@ builder.RegisterOwnedUtility(new WebSocketUtility(serializer: proto));
 
 ## 26. 推荐项目结构
 
-把框架用进正式项目时，按「特性模块自洽 + 可整单元裁剪」组织，而不是按技术类型（all Models / all Views）摊平。下面是从 demo 提炼的原则——demo 自身是活样例，但有两处别照抄（见末尾）。
+下面是适用于正式项目的原则。
 
 ### 原则
 
 1. **特性模块自洽**：一个功能模块自带它要的一切——代码、资源、场景、配置源，放在同一目录子树。删 / 抽包时整目录带走，不必全工程翻依赖。
 2. **可寻址资源进 `Res/`，编辑器专用资产不进**：运行期按地址加载（被 YooAsset 收集器收集）的 prefab / SO / 数据 `.bytes` 放进被收集的 `Res/`；**纯编辑器**配置（如 `UICodeGenDirConfig`、`LubanConfigProfile`）放**非收集目录**，否则会被打进资源包（且带一个运行期失效的脚本引用）。
-   - `UICodeGenDirConfig` 是按 prefab 目录**向上解析**的，放在被管 prefab 的**非收集祖先目录**即可（demo 放模块根 `Demo/`），不必塞进 `Res/`。
-3. **可寻址加载 vs 直接引用 分开放**：按地址 `Load<T>("name")` 的资源进收集目录；靠 Inspector 直接引用 / `Instantiate` 的 prefab 不必收集，放普通目录（demo 的 `Prefabs/` 是后者，`Res/` 是前者）。
+   - `UICodeGenDirConfig` 是按 prefab 目录**向上解析**的，放在被管 prefab 的**非收集祖先目录**即可；不必塞进 `Res/`。
+3. **可寻址加载 vs 直接引用 分开放**：按地址 `Load<T>("name")` 的资源进收集目录；靠 Inspector 直接引用 / `Instantiate` 的 prefab 不必收集，放普通目录，把两类目录明确分开即可。
 4. **配置源放模块内、用 `~` 后缀挡 Unity 导入**：Luban 的 `Defines/Datas/luban.conf` 是构建期输入、不是运行期资源，放 `<模块>/Configs~/`（`~` 让 Unity 不导入），随模块一起删 / 抽包。
 5. **可整单元裁剪**：模块独立 asmdef；发布时不需要就不引用、不打它的资源包。配置 / 资源各成一套 profile（见 §16 多套并存），互不干扰。
 
 ### 轻量 / Web 项目怎么选 Framework Module
 
-先从最小入口开始：只要 MVCS / Context 时，业务 asmdef 只引用 `Game.Framework`；需要窗口调度再加 `Game.Framework.UI` 与 **UGUI 或 Toolkit 其中一个后端**；只有确实需要混合渲染时才加 Bridge，需要自动字体链、YooAsset Adapter 或 Google.Protobuf 时再加对应 Module。Demo 带 `UNITY_EDITOR` 约束，不进入真实玩家编译图。
+先从最小入口开始：只要 MVCS / Context 时，业务 asmdef 只引用 `Game.Framework`；需要窗口调度再加 `Game.Framework.UI` 与 **UGUI 或 Toolkit 其中一个后端**；只有确实需要混合渲染时才加 Bridge，需要自动字体链、YooAsset Adapter 或 Google.Protobuf 时再加对应 Module。示例或测试程序集可通过 defineConstraints 排除玩家构建；正式发布模块不要带这个约束。
 
 这里要区分两种 Unity 声明：另一个 asmdef 生成的程序集放 `references`；NuGet / PluginImporter 提供的预编译 DLL 放带 `.dll` 后缀的 `precompiledReferences`，并启用 `overrideReferences:true`。把 `R3`、`ObservableCollections` 或 `Google.Protobuf` 这类 DLL 名写进 `references` 不会形成有效 DLL 声明，编译成功只说明插件仍开着 Auto Reference。所有一方 Runtime、Editor 与测试 asmdef 都关闭这类全局 DLL 可见性；可删除 Editor Module 还设置 `autoReferenced:false`，使项目 Editor 代码必须显式引用它。若消费脚本仍散落在 `Assets/Editor` 并编进 `Assembly-CSharp-Editor`，预定义程序集无法填写 `references`；应把脚本移入自己的 Editor-only asmdef，再引用所需 Module。模块审计与 EditMode 门禁会把回退判为问题。
 
@@ -3211,7 +3211,7 @@ CI / AI 只需做最小删除测试时，可直接执行无窗口菜单 `SSFrame
 
 #### 与 Unity Package Manager 是什么关系
 
-它们不冲突，也不是同一层：asmdef 管编译依赖，UnityLinker 管成员裁剪，HybridCLR Profile 管热更部署集合，UPM 管 package 的安装、版本和传递依赖。当前仓库中的 Module 位于项目 `Assets`，但审计与体积探针已通过 Source Catalog 支持已安装 Package；工具仍只读分析和给清单，不自动改 `Packages/manifest.json`、删目录或实现一套小型 Package Manager。等某个删除边界经过多个项目验证稳定，再把它按 ADR-0010 抽成独立 UPM package；届时由 Package Manager 安装 / 卸载，审计工具仍负责告诉你项目消费者、linker 和热更是否真正清干净。设计依据见 ADR-0039、0040。
+它们不冲突，也不是同一层：asmdef 管编译依赖，UnityLinker 管成员裁剪，HybridCLR Profile 管热更部署集合，UPM 管 package 的安装、版本和传递依赖。Framework Package 当前以 package root/src 提供 Module；消费工程也可以通过 embedded、Git 或 registry 方式接入。审计与体积探针只读分析和给清单，不自动改 `Packages/manifest.json`、删目录或实现一套小型 Package Manager。未来若要进一步拆分 Module，仍需由删除边界和目标平台证据证明收益；设计依据见 ADR-0039、0040。
 
 当前第三方依赖的真实所有权不是“一包全装都算 Core”：
 
@@ -3221,7 +3221,7 @@ CI / AI 只需做最小删除测试时，可直接执行无窗口菜单 `SSFrame
 | UI Module | ObservableCollections + ObservableCollections.R3 | 增量列表引擎与公开绑定签名直接消费；删除共享 UI 及两个后端后，Core 不再需要它们。 |
 | Proto Adapter | Google.Protobuf | 只属于 `Game.Framework.Network.Proto` 与使用生成消息的业务程序集；不用官方 protobuf 时可删除 Adapter 与业务生成代码，Core 仍保留 JSON / 轻量 ProtoWire。 |
 | Asset Adapter | YooAsset | 由 `Game.Framework.Asset.Yoo` 实现并注册默认 Provider；可替换为另一个 `IAssetProvider` Adapter。 |
-| Editor 增强 | Odin Inspector | 只属于可选 `Game.Framework.Odin.Editor` 与项目插件，不进入 Runtime 基线，也不随 Framework 包重分发。 |
+| Editor 增强 | Odin Inspector | 由消费工程或独立扩展包自行接入，不进入 Runtime 基线，也不随 Framework 包重分发。 |
 
 目前 embedded `Packages/nuget-packages` 仍把 R3、ObservableCollections、Google.Protobuf 与支撑 DLL 放在一个物理 package 里，隔离探针会复制这整个来源，因此它能证明 Player 链接结果，却还不能证明“干净消费工程只安装最小 DLL 闭包”。正式 UPM 分发应让 Core / UI / Proto package 各自拥有真实二进制闭包、版本、哈希与 Third Party Notices；在完成干净工程安装/删除矩阵前，不把当前聚合目录冒充最终发布结构。
 
@@ -3259,14 +3259,14 @@ CI / AI 只需做最小删除测试时，可直接执行无窗口菜单 `SSFrame
 ### 资源组织的几点（本框架 YooAsset 约定）
 
 - **按类型分子目录只是给人看的**：运行期只认地址（默认 `AddressByFileName` → 地址 = 文件名），目录怎么分不影响加载。代价是**被收集资源的文件名要全包唯一**（撞名会构建报错）；资源量大想靠路径区分，把收集器 `AddressRule` 换成 `AddressByFilePath`（地址带相对路径）即可。
-- **只有「入口」资源要被收集 / 寻址**：你直接 `Load` / `Open` 的（prefab、SO、场景、按名播放的音频 / Sprite）才需进收集目录；它们引用的**依赖（贴图 / 材质 / Shader / 网格）随之自动打包**，不必逐个寻址。所以收集器常用 `CollectPrefab` / `CollectScene` 只收入口、依赖跟着走（demo 图省事用 `CollectAll` 全收，故需文件名唯一）。
+- **只有「入口」资源要被收集 / 寻址**：你直接 `Load` / `Open` 的（prefab、SO、场景、按名播放的音频 / Sprite）才需进收集目录；它们引用的**依赖（贴图 / 材质 / Shader / 网格）随之自动打包**，不必逐个寻址。所以收集器常用 `CollectPrefab` / `CollectScene` 只收入口、依赖跟着走；使用 CollectAll 时还要额外保证文件名唯一。
 - **打包粒度跟着目录**：默认 `PackDirectory`（每个子目录 → 一个 bundle），按类型分目录顺带定了 bundle 粒度；要更细 / 更粗调收集器 `PackRule`。
-- **直接引用的不进 `Res/`**：靠 Inspector 拖引用 / `Instantiate` 的 prefab（对象池源、手工接引用的视图等）不走地址加载，放模块内**非收集**目录即可（demo 的 `Prefabs/` 就是这类，与上面可寻址的 `Res/Prefabs/` 区分）。
+- **直接引用的不进 `Res/`**：靠 Inspector 拖引用 / `Instantiate` 的 prefab（对象池源、手工接引用的视图等）不走地址加载，放模块内**非收集**目录即可，把两类目录明确分开即可。
 
-### demo 是活样例，但两处别照抄
+### 示例与正式模块的边界
 
-- demo 程序集带 `defineConstraints:["UNITY_EDITOR"]`（教学定位、不进玩家包）——**正式模块要发布，不带这约束**。
-- demo 里的 `DemoModuleBase` 是教学目录 Adapter，不是新增的第六层；它在运行期直接扮演 `IView`，正式项目不需要这套章节脚手架。
+- 仅用于编辑器的示例或测试程序集可通过 defineConstraints 排除玩家构建；正式模块不要带这个约束。
+- 示例脚手架不是 Framework 的第六层；正式项目直接实现 IView 或使用现有 View 基类。
 
 其余（模块自洽、`Res/` 只放可寻址资源、编辑器配置外置、配置源 `~` 目录、独立 asmdef）都可直接借鉴。
 
@@ -3314,7 +3314,7 @@ embed.Bind(view);
 - **内容来源两条路**：Inspector 配 `Content Prefab`（静态面板 prefab，自身不带 Canvas）；或代码经 `embed.EnsureContentRoot()` 拿托管 Canvas 的 RectTransform，往里挂 code-built / 动态 UGUI（`Bind` 时自动补隔离层）。
 - **输入穿透**：勾 `MonoUGuiEmbed` 的 `Interactive` 后，指针事件（**点击 / 悬停 / 拖拽 / 滚轮**）穿透 RT 进嵌入 UGUI——按钮 / 开关 / Slider / ScrollRect 都能用（需场景有 EventSystem）。原理：转发器把元素内坐标翻成 RT 空间屏幕点 → 托管 Canvas 上一个 `enabled=false` 的 `GraphicRaycaster`（不被全局输入模块误触发）手动 `Raycast` → `ExecuteEvents` 分发。**文本输入 / IME、多点触控不做**（要在嵌入 UGUI 里打字直接用原生 UGUI 层）。纯显示（TMP 富文本 / 3D 预览 / 小地图）留 `Interactive` 关。
 
-可运行演示见 demo「UI 融合 · UGUI 嵌进 Toolkit」章（`Modules/UIEmbedModule.cs`）。详见 ADR-0033、AGENTS #33。
+可通过 `UIEmbedTests` 覆盖尺寸换算、输入转发和资源清理，并在真实消费工程中补一次场景渲染与交互验证。
 
 ---
 
@@ -3385,7 +3385,7 @@ Log.AddSink(new FileLogSink(
     minLevel: LogLevel.Info));
 ```
 
-文件 sink 采用持久追加：`Dispose`/离开页面只关闭句柄，不删除日志；下一次 Play 会追加新的会话头。Demo 的文件实验也遵守这一点，并在执行前明确文件路径、证据和恢复方式。
+文件 sink 的验证应明确文件路径、证据和恢复方式；Dispose 或离开页面只关闭句柄，不删除日志。
 
 - **多 sink 广播**：一条日志可同时进 Console + 文件（+ 未来的遥测）。
 - **每个 sink 自带 `MinLevel`**：让 Console 只留 Warning 以上（`new UnityDebugLogSink { MinLevel = LogLevel.Warning }`），细粒度日志交给文件 sink。
@@ -3416,6 +3416,6 @@ Log.CaptureUnityLogs();   // 订阅 Application.logMessageReceivedThreaded
 
 **刻意不做的还有消息模板**（Serilog / MEL 的 `Log.Information("处理了 {Count} 条", count)` 那套）：占位符自动变结构化字段是服务端的共识，但客户端几乎不产结构化日志（正是不上 ZLogger 的同一条理由），为它自研一套模板解析 + 缓存不划算。要结构化就用 `Log.Write(level, msg, fields)` 显式传字段。
 
-> **活样板**：demo「能力 · 日志 · 分级 + 可插拔 sink」章（`LoggingDemoModule`）把上面每一点做成可点的按钮——装 demo 捕获 sink 看多播、调全局/单 sink 的 `MinLevel` 看两道闸门独立过滤、**用一个计数器亲眼验证全局级别不放行 `Trace` 时插值表达式一次都没求值**、点「发一条裸 `Debug.LogError`」看它经桥接进入 sink、装 `FileLogSink` 看落盘。所有会故意制造红/黄 Console 项或持久文件的动作都先显示“影响范围 / 预期证据 / 恢复方式”，便于人工和 AI 自动化区分教学现象与 Demo 缺陷。
+> 日志验证应覆盖多播、两道级别闸门、插值惰性求值、Unity 日志桥和文件 sink；所有故意产生的 Console 或文件副作用都要先说明影响范围与恢复方式。
 
 详见 ADR-0034、AGENTS #34。

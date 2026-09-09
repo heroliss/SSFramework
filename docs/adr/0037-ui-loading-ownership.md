@@ -49,7 +49,7 @@ await Connect(ct);
 
 **2026-08-31 迁移阶段收紧：**`IUIUtility`、核心 `UIUtility` 与两个 Mono Adapter 上的旧成员统一标记为
 `[Obsolete(..., false)]`。这保持既有源码可重新编译，同时把 `AcquireLoading + LoadingHandle` 的替代写法直接放进编译警告；
-Framework 生产源码门禁只允许两个既有 Adapter 保留兼容转发，任何新业务、Demo 或 Module 调用都会使测试失败。兼容行为测试继续保留，
+Framework 生产源码门禁只允许两个既有 Adapter 保留兼容转发，任何新业务、示例代码或 Module 调用都会使测试失败。兼容行为测试继续保留，
 直到未来破坏性版本同时删除 Interface、转发与核心 legacy owner 状态。
 
 ### 4. 视觉文本采用 last writer wins
@@ -69,5 +69,5 @@ Framework 生产源码门禁只允许两个既有 Adapter 保留兼容转发，�
 - ✅ 所有权能进入 `using` / `DisposableBag`，成功、异常、取消和销毁共享一条释放路径。
 - ✅ generation 只处理兼容开关的时序，id 集合处理真正的多 owner 与陈旧句柄，两种职责不混淆。
 - ✅ 两个渲染 adapter 仍是薄转发，所有状态与测试集中在核心，保持 locality。
-- ⚠ 调用方丢弃 `AcquireLoading` 返回值等价于泄漏一次占用；Demo、guide 与 XML doc 必须始终展示 `using var`。
+- ⚠ 调用方丢弃 `AcquireLoading` 返回值等价于泄漏一次占用；示例、guide 与 XML doc 必须始终展示 `using var`。
 - ⚠ 多 owner 共用一段文本且 last writer wins；需要可合并进度或任务列表时应自建业务窗口，而不是扩张内置 Loading。

@@ -9,7 +9,7 @@
 - `RegisterOwned` 能让服务随 `GameContext.Dispose` 释放，但要求调用方先构造实例；
 - `RegisterFactory` 能在 Lazy 首次解析或 Eager 构建时解析其他依赖再构造，却不拥有工厂产物。
 
-真实消费方的本地化 adapter 需要先从 Container 解析异步注册的配置表服务，因此使用 Factory；但 `LocalizationUtility` 实现 `IDisposable`，普通 Factory 的产物不在 owned 列表中，根 Context 结束时不会释放。demo 与 guide 还把这条路径当推荐写法，说明问题不只是单点遗漏，而是公开 API 缺了一种生命周期表达。
+真实消费工程的本地化 adapter 需要先从 Container 解析异步注册的配置表服务，因此使用 Factory；但 `LocalizationUtility` 实现 `IDisposable`，普通 Factory 的产物不在 owned 列表中，根 Context 结束时不会释放。示例工程与 guide 还把这条路径当推荐写法，说明问题不只是单点遗漏，而是公开 API 缺了一种生命周期表达。
 
 ## Decision
 
@@ -41,7 +41,7 @@
 
 ## Consequences
 
-- 真实消费方本地化与 Container demo 改用 OwnedFactory，真实业务切片和教学内容共同验证新 Seam。
+- 真实消费工程本地化与 Container 示例代码改用 OwnedFactory，真实业务切片和教学内容共同验证新 Seam。
 - 普通 Factory 返回 `IDisposable` 仍合法，但调用方必须明确外部所有者；API 不猜测生命周期。
 - Builder 与 Container 共享内部 `OwnedDisposables` Module：引用去重、逆序释放、异常隔离与幂等语义只有一个实现。Builder 管 Build 前回滚，Container 承接 Build 后产生的 Lazy 实例与 Context 生命周期；Build 后 Builder 不再参与运行期生命周期。
 - 构建期绑定由内部 `ContainerBinding` 显式建模值 / 工厂，并集中管理 Singleton 缓存与诊断状态；不再拿 `object` 的运行时类型充当 tag，因此 `Func<Container, object>` 本身也可作为普通值注册，多 contract 的解析状态不会分叉。

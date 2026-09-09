@@ -4,7 +4,7 @@
 
 ## Context
 
-roadmap 中期新模块第二项：音频服务——需求普适（所有游戏都要 BGM + 音效 + 设置页音量条），roadmap 圈定的范围是**分组音量 / 淡入淡出 / AudioSource 池化（吃现成对象池）**。
+早期规划中的中期新模块第二项：音频服务——需求普适（所有游戏都要 BGM + 音效 + 设置页音量条），早期规划圈定的范围是**分组音量 / 淡入淡出 / AudioSource 池化（吃现成对象池）**。
 
 既有约束与先例：
 
@@ -55,12 +55,12 @@ public interface IAudioUtility : IUtility
 - `AudioUtility`（纯 C#，`IDisposable`）：惰性创建一个 DontDestroyOnLoad 的 `[Game.Framework Audio]` 根节点，池化的 AudioSource 全挂它下面（保持激活——要出声，与对象池「停用停放」相反）；Dispose 销毁根节点、全部停声。
 - `MonoAudioUtility`：`MonoUtilityBase` + 组合转发（同 `MonoPoolUtility` / `MonoStorageUtility` 模式），Inspector 配初始主音量 / 各组音量 + 运行时诊断（当前音乐、活动声音数）。
 - 注册三选一同池/存储：`RegisterOwned`（随 Context 释放，推荐）/ `RegisterValue`（全局）/ Mono 版（Inspector + 场景生命周期）。
-- **刻意不做 `IAudioProvider` 层**：`IAudioUtility` 本身就是 port，Unity `AudioSource` 实现就是 adapter。FMOD / Wwise 接入是「接口的第二实现」，不是「实现下面的第二 provider」——只有一个实现就预设 provider 层是纯抽象税（对齐 roadmap「第二实现才能验证抽象」的判断）。存储拆 provider/serializer 是因为「介质 × 格式」两轴独立可组合，音频没有这样的正交轴。
+- **刻意不做 `IAudioProvider` 层**：`IAudioUtility` 本身就是 port，Unity `AudioSource` 实现就是 adapter。FMOD / Wwise 接入是「接口的第二实现」，不是「实现下面的第二 provider」——只有一个实现就预设 provider 层是纯抽象税（对齐 早期规划中的「第二实现才能验证抽象」的判断）。存储拆 provider/serializer 是因为「介质 × 格式」两轴独立可组合，音频没有这样的正交轴。
 - **接缝的完整性靠 `IAudioHandleOwner`**：`AudioHandle` 的 owner 是公开接口 `IAudioHandleOwner`（`IsVoiceActive` / `StopVoice` 两成员）而非内核具体类，构造函数公开——第三方实现（FMOD / Wwise 适配类）实现该接口即可签发业务代码照常使用的句柄。没有这一步，"接口即接缝"只对无返回值成员成立，`PlaySfx` 的返回值会把接缝焊死在内核实现上。实现约定：陈旧 id 必须安全 no-op（业务丢着不管的旧句柄是常态）。
 
 ### 4. 池化与自动回收：复用 `ObjectPool<T>` 原语，不依赖 IPoolUtility 服务
 
-- 内部 `Voice` 类 = AudioSource + 播放态（组 / 基础音量 / 淡变系数 / 自增 id），用 `Core/Pool` 现成的 `ObjectPool<Voice>` 池化——roadmap 说的「吃现成对象池」吃的是**池原语（类）**，不是池**服务（IPoolUtility）**：拉服务会引入注册顺序耦合与工具间依赖（`PoolUtility` 不拉 `IAssetUtility` 同一先例）。
+- 内部 `Voice` 类 = AudioSource + 播放态（组 / 基础音量 / 淡变系数 / 自增 id），用 `Core/Pool` 现成的 `ObjectPool<Voice>` 池化——早期规划中「吃现成对象池」吃的是**池原语（类）**，不是池**服务（IPoolUtility）**：拉服务会引入注册顺序耦合与工具间依赖（`PoolUtility` 不拉 `IAssetUtility` 同一先例）。
 - **一次性音效自动回收**：一个中央驱动循环（UniTask 每帧扫描活动 voice，无活动自动停跑）把 `isPlaying == false` 的非循环 voice 归还池。回收判定叠加「`AudioListener.pause` 期间不回收」——全局暂停不该把暂停中的声音当播完收走。
 - **同时发声数不设上限**：Unity 自带 voice 虚拟化（超出可听上限自动静音低优先级声音），框架不重复造限流。
 
@@ -95,7 +95,7 @@ public interface IAudioUtility : IUtility
 
 - BGM 切换（交叉淡变）、一次性/循环音效、设置页三条音量滑条（主 / 音乐 / 音效）开箱即用，零场景配置（`RegisterOwnedUtility(new AudioUtility())` 一行）。
 - 循环音效进 Bag 随宿主自动停——音频生命周期并入框架统一心智，业务不用记「哪里还有环境声没停」。
-- 音量设置与存储模块天然组合（demo 演示 `SettingsData` 持久化回灌），两个模块互相成为对方的活样板。
+- 音量设置与存储模块天然组合（示例工程演示 `SettingsData` 持久化回灌），两个模块互相成为对方的活样板。
 
 **代价 / 权衡：**
 
