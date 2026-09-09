@@ -34,10 +34,6 @@
 | [0026](0026-framework-diagnostics-panel.md) | 框架诊断面板：Editor 采集层（Context 登记表 / 计数）+ 总览窗口 + LoggingCommandSystem | Accepted |
 | [0027](0027-reactive-collections-list-binding.md) | 响应式集合：ObservableList + 后端中立增量列表绑定（`Bag.BindList`），补 RP 单值订阅的集合空缺 | Accepted |
 | [0028](0028-network.md) | 网络：IHttpUtility 请求-响应 + IWebSocketUtility 推送转事件，传输/序列化双接缝 | Accepted |
-| [0029](0029-outpost-vertical-slice.md) | 垂直切片 Outpost：13 模块整合验收 + 接缝发现清单 + 玩家包端到端 | Accepted |
-| [0030](0030-outpost-ecs-battle-backend.md) | Outpost M6：DOTS 后端置换（EcsBattleSim）+ 两级对拍 + 跨编译域浮点边界 | Accepted |
-| [0031](0031-outpost-real-projectiles-wreck-interaction.md) | Outpost M7：真弹道碰撞 + 残骸减速泥地（让后端优势在真实游玩中可见） | Accepted |
-| [0032](0032-outpost-wreck-entities-sim-push.md) | Outpost M8：残骸实体化 + 推挤入模拟（让后端差距随战局拉大） | Accepted |
 | [0033](0033-ugui-into-uitoolkit-rendertexture-bridge.md) | UI 嵌入桥：RenderTexture 把 UGUI / 相机内容真嵌进 UI Toolkit 内容流（+ v2 输入穿透） | Accepted |
 | [0034](0034-framework-logging-seam.md) | 框架日志接缝：内核 `ILogSink` 多播 + Console/File sink + Unity 日志桥 | Accepted |
 | [0035](0035-container-factory-ownership.md) | Container 工厂所有权：构造时机与生命周期正交，显式 `RegisterOwnedFactory` | Accepted |

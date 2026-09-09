@@ -67,11 +67,11 @@ Game.Framework.UI        (核心，渲染中立)  IUIUtility / UIUtility 编排 
 
 用法手册见 `docs/framework-guide.md` §17；活样例见 demo「界面（View）· UI Toolkit」+「UI 框架 · 窗口/层级」章。
 
-**2026-08-24 验证补充：**Demo 新增 Destroy / Cache 两个现场对照窗，以稳定实例号和 `OnCreate / OnOpen / OnClose` 计数展示真实生命周期；PlayMode 契约穿过 DemoScene 的 `MonoToolkitUI` Adapter，锁定 Destroy 重开换实例、Cache 重开复用同一实例。这样核心 fake backend 测试与真实 Adapter 证据形成两层验证，也明确 Cache 是“常驻内存与状态管理复杂度换创建速度”，不是默认更优。
+**2026-08-24 验证补充：**教学场景新增 Destroy / Cache 两个现场对照窗，以稳定实例号和 `OnCreate / OnOpen / OnClose` 计数展示真实生命周期；PlayMode 契约穿过 Toolkit Adapter，锁定 Destroy 重开换实例、Cache 重开复用同一实例。这样核心 fake backend 测试与真实 Adapter 证据形成两层验证，也明确 Cache 是“常驻内存与状态管理复杂度换创建速度”，不是默认更优。
 
 **2026-08-26 Adapter 契约补强：**Toolkit 原本会在加载 UXML 前验证 `UIToolkitWindowBase`，UGUI 却只检查最终对象能否转成 `IUIWindow`，使普通 `MonoBehaviour + IUIWindow` 能绕过 `MonoViewBase` 注入与 Bag 所有权。两个 Adapter 现统一在创建层级或加载资源前验证各自窗口基类并 fail-fast；窗口类型、prefab 根组件、节点绑定与生命周期 hook 错误统一进入 `Log` Seam，category、异常和 Unity context 可同时被 Console、文件与测试 sink 消费。`UIRuntimeLoggingTests` 锁定“失败前无层级副作用”和 context 透传。
 
-**2026-08-26 异步交互所有权补强：**Toolkit Adapter 新增 `Bag.SubscribeClickAsync`，把按钮解绑、View 生命周期取消与异常观察收成一个窄而深的接缝；5 项 PlayMode 契约锁定异常日志、Bag 释放取消、单订阅释放、已释放 Bag 不接线，以及物理操作忽略 View token 后仍走到终态并被观察。Outpost 实战验证了两种边界：榜单刷新跟随窗口取消；已启动的扩展包下载由包级物理操作拥有、窗口关闭后继续，但安装标记保存被纳入下载的完成终点。Adapter 刻意不自动实现 single-flight，也不把 UI 按钮语义推进 Core。
+**2026-08-26 异步交互所有权补强：**Toolkit Adapter 新增 `Bag.SubscribeClickAsync`，把按钮解绑、View 生命周期取消与异常观察收成一个窄而深的接缝；5 项 PlayMode 契约锁定异常日志、Bag 释放取消、单订阅释放、已释放 Bag 不接线，以及物理操作忽略 View token 后仍走到终态并被观察。真实消费方验证了两种边界：列表刷新跟随窗口取消；已启动的扩展包下载由包级物理操作拥有、窗口关闭后继续，但安装标记保存被纳入下载的完成终点。Adapter 刻意不自动实现 single-flight，也不把 UI 按钮语义推进 Core。
 
 **2026-08-28 必需窗口失败边界：**`Open<T>` 继续保留“未获得实例时返回 null”的宽松 Interface，供可选窗口在调用点隐藏、替代或重试；null 可能来自 Adapter 创建失败，也可能来自创建期间 UI 生命周期结束。新增非破坏性的 `OpenRequired<T>` 扩展，把同一个 null 提升为带窗口类型与资源位置的异常，调用方取消仍保持 `OperationCanceledException`。没有把严格模式做成 `IUIUtility` 新成员或布尔参数：两种路径共享全部创建 Implementation，差异只是调用处的业务不变量，扩展方法既提高错误 Locality，也不迫使自定义 Adapter 重复实现；它不改变 hook 异常隔离，也不把开窗定义为事务提交。Flow 主页面与承诺打开可见窗口的动作使用严格入口；真实 `GameFlow` 契约锁定创建失败后 `Current` 仍为 null。
 
@@ -83,4 +83,4 @@ Game.Framework.UI        (核心，渲染中立)  IUIUtility / UIUtility 编排 
 
 **2026-08-31 Mono 外观终态补强：**UI owner 释放后，`IUIUtility` 全部公共意图统一抛 `ObjectDisposedException`，不再出现部分查询返回空、部分动作抛异常的分裂语义；`LoadingHandle` 仍作为清理句柄保留 inactive / no-op，避免 owner teardown 的幂等释放变成新故障。`MonoUGuiUI` / `MonoToolkitUI` 在 `OnDestroy` 先发布显式终态，已创建核心保留为 disposed 守卫，从未创建核心也不得在旧接口调用时惰性补建。这样旧借用引用只会得到可解释的生命周期错误，不会 NRE，也不会在已销毁宿主上复活 Canvas、UIDocument 或窗口栈。
 
-**2026-08-31 Toolkit 迟到可视更新边界：**Outpost 排行榜与扩展包下载各自用 `_closed` 阻止 await 后写旧 UI，但该标记只在正常 `OnClose` 置位；UI owner / Context teardown 按本 ADR 刻意跳过 hook，因此同一保护在整棵拆除时失效。`UIToolkitWindowBase` 现在集中拥有逻辑打开状态，并以受保护的 `CanUpdateVisuals = 逻辑打开 && !IsDisposed` 暴露唯一门禁；正常 Close、Cache 隐藏/重开与纯物理 teardown 都由基类生命周期更新。默认跟随 Bag token 的异步动作仍无需额外样板，只有刻意忽略 View token、要越过关窗完成的物理任务才在 await 后检查；没有把窗口状态推进渲染中立 `IUIWindow`，因为这个问题只来自 Toolkit `VisualElement` 的迟到写入。
+**2026-08-31 Toolkit 迟到可视更新边界：**列表刷新与扩展包下载各自用 `_closed` 阻止 await 后写旧 UI，但该标记只在正常 `OnClose` 置位；UI owner / Context teardown 按本 ADR 刻意跳过 hook，因此同一保护在整棵拆除时失效。`UIToolkitWindowBase` 现在集中拥有逻辑打开状态，并以受保护的 `CanUpdateVisuals = 逻辑打开 && !IsDisposed` 暴露唯一门禁；正常 Close、Cache 隐藏/重开与纯物理 teardown 都由基类生命周期更新。默认跟随 Bag token 的异步动作仍无需额外样板，只有刻意忽略 View token、要越过关窗完成的物理任务才在 await 后检查；没有把窗口状态推进渲染中立 `IUIWindow`，因为这个问题只来自 Toolkit `VisualElement` 的迟到写入。

@@ -6,7 +6,7 @@
 
 交互式 Unity Editor 从有未保存改动的场景启动测试时，会先显示原生保存弹窗。当前安装的 Unity Test Framework 在 EditMode / PlayMode 分支之前都无条件加入 `SaveModifiedSceneTask`，后者调用 `EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()`；因此两种模式都受影响。ab-unity-mcp 的命令经 Unity 主线程执行；弹窗一旦出现，测试 job 停在“运行中、发现 0 条测试”，其后的工具发现、状态查询和菜单命令也会排队阻塞。Unity MCP 可以在弹窗出现前保存场景，却不是独立桌面输入通道，无法可靠点击已经出现的原生模态窗口。
 
-这个问题在真实 Outpost 玩家路径 PlayMode 冒烟测试中连续复现。仅靠 Agent 记住“先保存”不够稳定；把它做成 Claude/Codex 各自的 Hook 又会产生两套配置，并且 Hook 离 Unity 场景状态的事件源更远。
+这个问题在真实消费方玩家路径 PlayMode 冒烟测试中连续复现。仅靠 Agent 记住“先保存”不够稳定；把它做成 Claude/Codex 各自的 Hook 又会产生两套配置，并且 Hook 离 Unity 场景状态的事件源更远。
 
 ## Decision
 

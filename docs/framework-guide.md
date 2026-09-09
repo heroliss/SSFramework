@@ -2204,7 +2204,7 @@ private void OnBackPerformed(InputAction.CallbackContext _)
 }
 ```
 
-这样改用旧 Input Manager、输入重绑定或平台 SDK 时，只换这层浅接线，窗口框架、UGUI 与 Toolkit 都不动。DemoScene 挂着 `DemoInputSystemBackKeyDriver`，展示无需 Input Action 资产的最小新 Input System 实现；它在 Demo composition layer，不是 Framework Runtime API。正式项目通常优先复用自己的 Input Action / 输入路由，而不是另起一份逐帧轮询。
+这样改用旧 Input Manager、输入重绑定或平台 SDK 时，只换这层浅接线，窗口框架、UGUI 与 Toolkit 都不动。教学工程可以在自己的 composition layer 放置输入适配器，展示无需 Input Action 资产的最小新 Input System 实现；它不属于 Framework Runtime API。正式项目通常优先复用自己的 Input Action / 输入路由，而不是另起一份逐帧轮询。
 
 从早期版本升级时，旧的 Runtime API `MonoUIBackKeyDriver` 已删除，Demo 样板刻意使用新的脚本 GUID，不会让既有 Scene / Prefab 静默改绑到 Demo 程序集。请在旧组件处显式移除 Missing Script / 旧组件，再把项目已有的 Back Input Action 接到 `IUIUtility.Back()`；只有确实要复制教学实现时才复制 `DemoInputSystemBackKeyDriver` 到项目层。这个迁移是一次有意的依赖边界收紧。
 
@@ -3119,7 +3119,7 @@ builder.RegisterOwnedUtility(new HttpUtility(baseUrl, serializer: proto));
 
 **WS 的二进制格式还差一步**：默认 envelope 是「JSON `{type, payload}` + payload 文本二次编码 + 文本帧」，对二进制字节是破坏性的。`ProtobufNetworkSerializer` 已实现可选接缝 **`IWebSocketEnvelopeSerializer`**——整体接管 envelope 编解码（proto 消息 `{string type=1; bytes payload=2}`）与帧类型（二进制帧），payload 全程 `byte[]`。自写二进制序列化器（MemoryPack 等）照此接口补三个成员即可；JSON 序列化器不实现它，走原兼容路径、wire 字节不变。
 
-内置实现的定位是「消息不多的自建后端 / dev server」（Outpost 的排行榜是完整落地样例）：消息多到手写吃力、或要 `.proto` 契约共享 / map / oneof / 有符号 / 浮点，换官方 Google.Protobuf——框架已提供**增强模块 `Game.Framework.Network.Proto`** 承接这一档（可选启用，同 `Asset.Yoo` 收口姿势：Google.Protobuf 依赖收口于模块、内核仍零依赖，可整块删/抽 UPM）。接入三步：
+内置实现的定位是「消息不多的自建后端 / dev server」（真实消费方的排行榜是完整落地样例）：消息多到手写吃力、或要 `.proto` 契约共享 / map / oneof / 有符号 / 浮点，换官方 Google.Protobuf——框架已提供**增强模块 `Game.Framework.Network.Proto`** 承接这一档（可选启用，同 `Asset.Yoo` 收口姿势：Google.Protobuf 依赖收口于模块、内核仍零依赖，可整块删/抽 UPM）。接入三步：
 
 1. **加引用 + 装 DLL**：业务 asmdef 引用 `Game.Framework.Network.Proto`；Google.Protobuf 经 NuGetForUnity 装入（模块自带 link.xml 防 IL2CPP 裁剪）。
 2. **配 + 生成**：打开 `SSFramework/代码生成/Protobuf` 工作台，新建 `ProtoConfigProfile` → Inspector 填 protoc 工具目录、.proto 源目录（放模块下的 `Proto~`，`~` 后缀不被 Unity 导入源文件）与 C# 输出目录 → 点“重新扫描”采集当前输入 → 按套或批量生成（差量同步：内容未变不落盘、陈旧 `*.g.cs` 自动清理）。卡片会递归统计 `.proto`，并在点击前一次列出缺失的 protoc、源目录或空输入；该输入快照在 IMGUI Layout / Repaint 间复用，工程或 Profile 路径变化后只标记失效，不在绘制期间暗中重扫。真正生成不信任这份预览，会重新检查当前磁盘与输出 claim。部分配置就绪时，批量按钮只生成可用项。每套配置必须独占一个位于 `Assets` 内的子目录；相同或父子嵌套目录会暂停整批，因为清理边界就是整棵输出目录。跨模块配置健康检查在 `SSFramework/配置中心`。
@@ -3128,7 +3128,7 @@ builder.RegisterOwnedUtility(new HttpUtility(baseUrl, serializer: proto));
 ```csharp
 // 生成代码里每个 .proto 文件有一个 XxxReflection.Descriptor，整文件注册免逐消息点名：
 var proto = new GoogleProtobufNetworkSerializer()
-    .RegisterFile(OutpostNetReflection.Descriptor); // 加消息 / import 新文件重新生成即自动纳入
+    .RegisterFile(GeneratedNetReflection.Descriptor); // 加消息 / import 新文件重新生成即自动纳入
 builder.RegisterOwnedUtility(new HttpUtility(baseUrl, serializer: proto));
 builder.RegisterOwnedUtility(new WebSocketUtility(serializer: proto));
 // 推送事件：protoc 生成的 IMessage 是 class，用 partial 补 IEvent 即可 RegisterPush（class 消息合法，见 §25 推送约定）。
@@ -3412,7 +3412,7 @@ Log.CaptureUnityLogs();   // 订阅 Application.logMessageReceivedThreaded
 
 内核这两个 sink（Console + File）+ Unity 日志流接管，覆盖了「开发期按级别过滤」「落盘捞日志」「引擎/第三方/崩溃全量捕获」——**绝大多数客户端排查够用**。剩下的**结构化 JSON / 精细滚动 / HTTP 遥测**能力，评估过 Cysharp ZLogger，实测后**客户端不引入**：装它会拖进 `System.Text.Json` 全家桶等 ≈1.4 MB 托管 DLL，而最大的一块纯为客户端几乎不产的 JSON 日志，性价比不划算（详见 ADR-0034 实测复盘）。**而 ZLogger 的另一大卖点「零分配」，我们用插值处理器已经拿到了**——这也是不引它的底气。
 
-正确落点是**服务端**（Outpost `Server~/` 本就是 .NET，直接用 ZLogger、无包体顾虑）。客户端将来若确有「结构化日志上报后台」刚需，再实现一个 `ZLoggerLogSink : ILogSink` 接进来即可——**接缝已为此留好位置，业务零改动**。这正是「先做零依赖接缝、把第三方隔在接口后」的价值：试错第三方库的代价被压到「删依赖」，内核不受牵连。
+正确落点是**服务端**（服务端工程通常可以直接使用 .NET 日志生态，无包体顾虑）。客户端将来若确有「结构化日志上报后台」刚需，再实现一个 `ZLoggerLogSink : ILogSink` 接进来即可——**接缝已为此留好位置，业务零改动**。这正是「先做零依赖接缝、把第三方隔在接口后」的价值：试错第三方库的代价被压到「删依赖」，内核不受牵连。
 
 **刻意不做的还有消息模板**（Serilog / MEL 的 `Log.Information("处理了 {Count} 条", count)` 那套）：占位符自动变结构化字段是服务端的共识，但客户端几乎不产结构化日志（正是不上 ZLogger 的同一条理由），为它自研一套模板解析 + 缓存不划算。要结构化就用 `Log.Write(level, msg, fields)` 显式传字段。
 

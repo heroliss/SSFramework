@@ -15,7 +15,7 @@ roadmap 中期新模块第四项：本地化——需求普适（出海即刚需
 
 既有约束与先例：内核零第三方依赖（R3/UniTask 除外）；`Game.Framework` 不能引用 `Game.Framework.Config`（Config 是独立 Module，且表 schema 是业务定义的）——文本来源必须是 Seam，不能是依赖。
 
-v1 只有 `TryGet(...): bool`，并把 `Locale` 当作文本绑定的唯一刷新信号。Outpost 与 Demo 的真实异步配置接入暴露了两个被混在一起的状态：配置 Loading 时“现在不能回答”，表 Ready 后“已经确认缺 key”。二者都返回 `false` 会制造假 missing / fallback；同时配置从 Loading → Ready 而语言不变时，既有绑定不会重取。业务只好让 `BootState` 硬等配置，泄漏了本应由 Localization Module 收口的加载时序。
+v1 只有 `TryGet(...): bool`，并把 `Locale` 当作文本绑定的唯一刷新信号。真实异步配置接入暴露了两个被混在一起的状态：配置 Loading 时“现在不能回答”，表 Ready 后“已经确认缺 key”。二者都返回 `false` 会制造假 missing / fallback；同时配置从 Loading → Ready 而语言不变时，既有绑定不会重取。业务只好让 `BootState` 硬等配置，泄漏了本应由 Localization Module 收口的加载时序。
 
 ## Decision
 
@@ -81,7 +81,7 @@ public interface ILocalizedTextSource
 ## Consequences
 
 - Localization Module 现在拥有更深的异步 Source Seam：业务 Adapter 负责把自己的状态映射为 `Unavailable / Missing / Found + Invalidated`，UI 与 Flow 不再知道配置加载时序。
-- Outpost 删除 `BootState` 对本地化配置 Ready 的硬等待；标题可先建立绑定，配置后到会在同一语言下原地重取。真正依赖战斗配置的系统仍在自己的初始化入口等待。
+- 消费方删除 `BootState` 对本地化配置 Ready 的硬等待；标题可先建立绑定，配置后到会在同一语言下原地重取。真正依赖业务配置的系统仍在自己的初始化入口等待。
 - 所有文本消费方必须从 `Locale` 迁到 `TextRevision`；字体和 per-locale 资源继续只订 `Locale`。这是一次有意的公共接口升级，不保留旧 `TryGet`，让自定义 Adapter 在编译期暴露并迁移。
 - `LocalizationUtility` 随 Context 释放时退订 Source；Source 生命周期仍由其所属 Module / Container 管理。字典源每次实际内容变化都会发失效信号。
 - Demo 增加可操作的 Unavailable → Found 实验，证明不切语言也会刷新、且不产生假 missing；契约测试覆盖延迟源、Toolkit 实际标签、信号隔离、fallback 和释放退订。
