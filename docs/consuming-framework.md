@@ -15,7 +15,7 @@ https://github.com/heroliss/SSFramework.git
 稳定构建建议固定到 tag 或 commit：
 
 ```text
-https://github.com/heroliss/SSFramework.git#v0.1.0
+https://github.com/heroliss/SSFramework.git#<commit-sha>
 ```
 
 Git URL 的 `#revision` 是可复现边界；不要在需要稳定验证的项目中隐式跟随未经审查的分支头。
