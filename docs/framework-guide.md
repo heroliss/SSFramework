@@ -310,9 +310,11 @@ public class ProjectileSystem : MonoSystemBase, IProjectileSystem
 | **System** | Model、System、Utility | 修改 Model、发送/监听事件 |
 | **Utility** | Utility | — |
 | **View** | Utility | 发送 Command、监听事件 |
-| **Command** | 通过 `Execute(ICommandContext ctx)` 参数访问一切层 | 调用 System、读取 Model、发送事件 |
+| **Command** | 通过 `Execute(ICommandContext ctx)` 参数获取 Model、System、Utility；不提供 View 获取入口 | 调用 System、读取/修改 Model、发送事件、执行同步/异步子 Command |
 
 > View 不在权限矩阵里直接访问 Model/System/EventBus，是为了强制所有外发动作只走 Command。需要 View 显示状态时，用只读查询 Command 返回值；持续状态用只读查询 Command 返回 `ReadOnlyReactiveProperty<T>` / `Observable<T>` 订阅源。
+
+> Command 不通过分层解析获取 View。让视图更新时，通常返回查询结果/只读订阅源，或发送 Event，由 View 自己响应。这里约束的是分层 API：例如 UI 的 `IUIUtility.Open/Get` 可以返回窗口引用，那是 Utility 对外公开的 UI 编排能力，不等于存在 `GetView` 层访问权限。
 
 > **约束的性质：防误用，不防绕过。** 这套权限是 C# 类型系统能给到的最强形态——顺手写 `this.GetModel<T>()` 在 View 里编译不过、`[Inject]` 越权在注入期被拦；但它不是运行时沙箱：刻意强转（如把 `ICommandContext` cast 回具体 Context）仍然可行。设计目标是让"无意间越界"变得困难、让"刻意越界"在代码评审里显式可见，而不是对抗恶意代码。
 
@@ -2096,7 +2098,7 @@ View 之上的 UI 调度：打开/关闭窗口、固定有序层级、Page 返�
 ### 开窗 / 关窗
 
 ```csharp
-// View / Command / System 里（View 有 ICanGetUtility，同 Bag.Load 心智）
+// View / System 里（View 有 ICanGetUtility，同 Bag.Load 心智）；Command 改用 ctx.GetUtility<IUIUtility>()
 var ui = this.GetUtility<IUIUtility>();
 ShopWindow optional = await ui.Open<ShopWindow>();               // 宽松入口：失败返回 null，由本地决定是否降级
 await ui.OpenRequired<MainPage>();                               // 严格入口：必需页面失败就抛异常，不提交上层状态
@@ -2109,6 +2111,9 @@ var opened = ui.Get<ShopWindow>();                               // 取已打开
 
 `Open` / `Get` 返回的是**借用窗口引用**：物理 GameObject / VisualElement、资源 handle、缓存与销毁都由
 `IUIUtility → IUIBackend` 持有，业务不要自行 `Destroy` / `Dispose`，只调用 `Close` / `CloseAll` 表达关闭意图。
+`Close(window)` 只关闭当前匹配的实例，旧引用或其他 UI owner 的窗口不会关闭同类型的新窗口；按类型关闭用 `Close<T>()`。
+`CloseAll(layer)` 关闭入口时该层的窗口快照，支持关闭回调重入；回调中新开的窗口留给新的 owner 管理。
+创建/打开回调若同步释放 UI owner，`Open` 返回 null，且不再发布窗口或启动过渡。
 Adapter 的 `CreateWindow` 以“完整绑定并进入物理映射”作为提交点；调用方取消保持 `OperationCanceledException`，加载或绑定异常
 原样传播，但返回前会回滚已经创建的部分层级、View 和资源子 Bag，不把半窗口留到整个 UI 销毁时才兜底。
 
@@ -3314,7 +3319,7 @@ embed.Bind(view);
 - **内容来源两条路**：Inspector 配 `Content Prefab`（静态面板 prefab，自身不带 Canvas）；或代码经 `embed.EnsureContentRoot()` 拿托管 Canvas 的 RectTransform，往里挂 code-built / 动态 UGUI（`Bind` 时自动补隔离层）。
 - **输入穿透**：勾 `MonoUGuiEmbed` 的 `Interactive` 后，指针事件（**点击 / 悬停 / 拖拽 / 滚轮**）穿透 RT 进嵌入 UGUI——按钮 / 开关 / Slider / ScrollRect 都能用（需场景有 EventSystem）。原理：转发器把元素内坐标翻成 RT 空间屏幕点 → 托管 Canvas 上一个 `enabled=false` 的 `GraphicRaycaster`（不被全局输入模块误触发）手动 `Raycast` → `ExecuteEvents` 分发。**文本输入 / IME、多点触控不做**（要在嵌入 UGUI 里打字直接用原生 UGUI 层）。纯显示（TMP 富文本 / 3D 预览 / 小地图）留 `Interactive` 关。
 
-可通过 `UIEmbedTests` 覆盖尺寸换算、输入转发和资源清理，并在真实消费工程中补一次场景渲染与交互验证。
+可通过 `RenderTextureElementTests` 与 `UGuiEmbedInputForwarderTests` 覆盖尺寸换算、输入转发和资源清理，并在真实消费工程中补一次场景渲染与交互验证。
 
 ---
 
@@ -3418,4 +3423,4 @@ Log.CaptureUnityLogs();   // 订阅 Application.logMessageReceivedThreaded
 
 > 日志验证应覆盖多播、两道级别闸门、插值惰性求值、Unity 日志桥和文件 sink；所有故意产生的 Console 或文件副作用都要先说明影响范围与恢复方式。
 
-详见 ADR-0034、AGENTS #34。
+详见 [ADR-0034](adr/0034-framework-logging-seam.md) 与[源码协作规则](../src/AGENTS.md)中的“异步、取消与日志”。

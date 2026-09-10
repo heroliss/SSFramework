@@ -163,6 +163,8 @@ IWebSocketUtility ── WebSocketUtility（状态机 / envelope / 推送注册�
 
 ## Consequences
 
+- 轻量 ProtoReader 在缩窄类型和分配前校验完整 varint 与剩余消息区间，拒绝溢出 tag、长度与非法 wire 类型；仍可跳过合法的十字节 uint64 未知字段。ProtoWriter 校验字段号，包括会省略的默认值；envelope 已知字段要求 wire 类型 2。非负 int32 写入范围保持不变；标准负 int32 使用十字节补码 varint，zigzag 属于 sint32，二者不能混称。编码依据见 [Protocol Buffers Encoding](https://protobuf.dev/programming-guides/encoding/)。
+
 - 业务发请求 = `await http.Post<LoginReq, LoginResp>("api/login", req, ct)` 一行；消费推送 = `Bag.Subscribe<TickPushEvent>` 与订 Model 事件零差别——网络数据以受控姿势进入单向数据流。
 - 线程边界由框架兜住：业务永远在主线程收到回调，「后台线程碰 UI/容器」这类偶发 bug 被结构性消灭。
 - 默认 JsonUtility 的限制随文档声明（只认 `[Serializable]` 字段、无 Dictionary / 多态）：请求/响应/推送类型照此设计；换强格式 = 换 serializer 一行构造参数，业务类型标注随所选库调整。

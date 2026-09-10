@@ -1,0 +1,47 @@
+# Framework 审查记录（2026-09-10）
+
+基线：`d953054`；修复分支：`codex/framework-review`，从干净的 `main` 创建。适合在同一分支评审这些相关修复，验证后再合并；依赖分发重构应另开分支，并先取得真实消费工程证据。
+
+本轮完成全仓静态检查、重点运行时路径审查与可复现问题修复。**这不是全部 Unity 测试通过或所有模块逐行审查完成的声明。**
+
+## 审查范围
+
+| 范围 | 本轮证据 |
+|---|---|
+| 全部源码 | 349 个 C# 文件，以 C# 10 解析 Editor / Player 两组条件编译分支；这是语法检查，不是 Unity 语义编译 |
+| 全部程序集 | 34 个 asmdef（17 个生产、17 个测试）；检查内部循环、Core / Boot / UI 后端依赖方向、Editor 平台边界及预编译依赖显式声明 |
+| Unity 元数据 | 源码与 asmdef 的 `.meta` 完整；471 个 `.meta` 未发现重复 GUID |
+| 重点逻辑 | Command 权限、注入计划、Container / Context 所有权、Bag / 对象池、存储 FIFO、Proto 解析、UI 栈与释放；结合相关测试核对 |
+| 其余 Module | Asset / Yoo、Config、Fonts、两套 UI 后端、Bridge、Boot、Editor 与 Build 以结构、语法、依赖及部分关键入口抽查为主；未执行真实资源、场景、生成和构建矩阵 |
+| 文档 | 重点核对权限表、注入说明、UI 调用、接入依赖与相关 ADR；没有把历史性能数字重新当作本轮测量 |
+
+## 已修复问题
+
+| 优先级 | 触发与影响 | 修复及回归入口 |
+|---|---|---|
+| P1 | Proto 长度先缩窄、再做整数加法校验，溢出可以绕过消息边界；高位 varint/tag 会被截断，损坏输入可能成为错误消息或触发大额分配 | 完整 64 位 varint 校验、按剩余区间检查长度、验证构造切片与字段号；envelope 校验已知字段 wire 类型。`ProtoWireTests` |
+| P1 | UI 的 OnCreate / OnOpen 同步释放 owner 后，Open 继续写窗口栈或交付已销毁窗口 | 在用户 hook 后复检释放状态，停止后续发布和过渡并返回 null。`UIWindowStackTests.Open_HookDisposesOwner_DoesNotPublishWindowOrStartTransition` |
+| P2 | `Close(oldWindow)` 只查类型，旧实例或其他 UI 的实例会关闭当前同类型窗口 | 实例关闭要求引用身份匹配；`Close<T>()` 保留按类型关闭。`Close_StaleOrForeignInstance_DoesNotCloseCurrentWindow` |
+| P2 | OnClose 重入 CloseAll 会修改正在反向遍历的活列表，造成下标越界；新实例也可能被旧批次误关 | 按入口快照遍历、保存嵌套批次状态，忽略已关闭或被替代的实例。`CloseAll_ReentrantClose_DoesNotInvalidateTraversal`、`CloseAll_CallbackReplacesSnapshotWindow_PreservesReplacement` |
+| P2 | 基类和 override 都标记 Inject 时，反射对基类的调用仍分派到 override，使初始化方法或 setter 执行两次 | 按虚槽位去重，保留 new 隐藏成员的独立调用；覆盖继承属性、方法和计划复用。`InstallBindingsInjectionTests.InjectionPlan_InheritedMembers_PreserveDistinctSlots` |
+| P2 | 文档将 Command 描述为“访问一切层”，并错误要求注册 View；另有 Utility 权限、无反射开销、Container 可见性及 Boot 依赖等描述漂移 | 同步 guide、接入说明、XML 注释与 ADR，修正失效测试名和 AGENTS 编号引用 |
+
+Command 的分层获取能力是 Model / System / Utility，没有 GetView。它可以读写 Model、调用 System、发送 Event、调用子 Command。需要更新视图时通常通过返回值、只读订阅源或事件；但 `IUIUtility.Open/Get` 本身可以返回窗口引用，所以“Command 在任何情况下都拿不到任何 View 引用”也不是准确的绝对表述。这是分层 API 的防误用约束。
+
+## 验证结果与限制
+
+- 本地同步验证：**29 通过、0 失败**。其中 21 项直接运行包内 ProtoWireTests；8 项用真实 InjectionPlan / UIUtility 配合替身 Context、日志与任务调度验证同步控制流。替身不验证 R3、Unity 对象语义、UniTask PlayerLoop 或线程恢复。
+- 首批回归在修复前为 11 通过、10 失败；另外分别复现了两项 envelope wire 类型错误、两项 UI hook 释放错误，再修复。没有将“源码推断”代替这些失败证据。
+- Editor / Player 两组语法检查、程序集图检查和元数据检查通过。解析基线使用 C# 10，不证明某个消费工程的 Unity 编译器配置已经满足它。
+- 本轮没有可用的、已接入当前 Framework 包并配齐依赖的 Unity 消费测试环境，**未运行 Unity EditMode / PlayMode 全套测试、实际 Module 删除编译、YooAsset 加载、UGUI / Toolkit 渲染、HybridCLR 或 Player 构建**。
+- 公共方法签名不变；错误输入更早失败，重复初始化被消除，旧窗口关闭请求不再作用于替代实例。这些行为收紧均已在接口旁和 guide 中说明。
+
+合并前的消费工程回归入口：`LayerAccessTests`、`ArchitectureTests`、`InstallBindingsInjectionTests`、`ContainerContractTests`、`ProtoWireTests`，以及 UI 的窗口栈、过渡、线程边界与 OpenRequired 测试。预检和取证流程见 [Unity 自动化与验证](unity-mcp-tips.md)。
+
+## 尚待处理：完整包的依赖分发
+
+**P1，未完成分发修复。** `package.json` 没有覆盖全部源码的外部依赖；例如 Boot / HybridCLR Editor 的直接 HybridCLR 引用未列入清单，UI / Proto 等还依赖外部预编译 DLL。业务只引用 Core 不会阻止同包其他无条件程序集编译。当前只能将完整依赖来源由消费方提供，不能承诺“干净工程添加 Git URL 即可编译”。
+
+已补充[依赖前置条件](consuming-framework.md#依赖前置条件)，并保留现有包结构。依据仓库要求，版本选择、传递依赖、许可证和拆包/删除策略必须先在真实消费方验证，再修改分发方案。静态审查无法为未知来源的 DLL 选择可靠版本，也没有用关闭 asmdef 错误检查掩盖缺失。
+
+下一步优先完成干净消费工程的安装与编译证据，再锁定包依赖，最后运行全部测试和目标 Player 构建。已有模块边界清楚，本轮没有证据支持先进行大规模重命名、额外抽象或模块拆分。

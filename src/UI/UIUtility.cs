@@ -117,10 +117,12 @@ namespace Game.Framework.UI
                 if (!wasTop)
                 {
                     if (curTop != null) SafeHook(nameof(IUIWindow.OnCover), curTop.OnCover, curTop);
+                    if (_disposed) return null;
                     SafeHook(nameof(IUIWindow.OnReveal), already.OnReveal, already);
                 }
+                if (_disposed) return null;
                 SafeOnOpen(already, args);
-                return already;
+                return _disposed ? null : already;
             }
 
             // 同类型正在异步创建中（并发 Open）：等首个创建完成，再整体重走一遍——
@@ -161,6 +163,9 @@ namespace Game.Framework.UI
                         ct.ThrowIfCancellationRequested();
                     }
                     SafeOnCreate(window);
+                    // 生命周期 hook 是用户代码，可能同步释放整个 UI owner。Teardown 已接管物理清理，
+                    // 不能再将这个窗口写回已清空的栈，也不能继续发 OnOpen / 过渡。
+                    if (_disposed) return null;
                 }
 
                 var layerList = GetLayerList(meta.Layer);
@@ -170,12 +175,13 @@ namespace Game.Framework.UI
 
                 if (meta.Modal) _backend.SetModalMask(window, true);
                 if (prevTop != null) SafeHook(nameof(IUIWindow.OnCover), prevTop.OnCover, prevTop);
-
+                if (_disposed) return null;
                 SafeOnOpen(window, args);
+                if (_disposed) return null;
                 // 入场过渡（新建 / 缓存复用都播；已打开置顶刷新不播）。不 await——Open 在 OnOpen 后即返回，
                 // 过渡是表现层的事，动画期间的防护由框架挡输入承担（ADR-0020）。
                 StartOpenTransition(window);
-                return window;
+                return _disposed ? null : window;
             }
             finally
             {
@@ -203,7 +209,9 @@ namespace Game.Framework.UI
         {
             MainThreadGuard.AssertMainThread(nameof(UIUtility));
             ThrowIfDisposed();
-            if (window != null) CloseType(window.GetType());
+            if (window != null && _open.TryGetValue(window.GetType(), out var current)
+                               && ReferenceEquals(current, window))
+                CloseType(window.GetType());
         }
 
         /// <inheritdoc />
@@ -251,14 +259,19 @@ namespace Game.Framework.UI
             // 批量关闭抑制中间 reveal：从顶往下逐个关时，每个"新栈顶"下一刻就会被关掉，
             // 给它发 OnReveal 会让做「露出恢复」逻辑的窗口白跑一轮（恢复→立即关闭）。
             var list = GetLayerList(layer);
+            if (list.Count == 0) return;
+            // OnClose 可同步关闭其它窗口或重入 CloseAll，遍历入口快照并按实例身份关闭，
+            // 避免活列表下标失效，也不误关回调中新打开的同类型替代窗口。
+            var closing = list.ToArray();
+            bool wasBatchClosing = _batchClosing;
             _batchClosing = true;
             try
             {
-                for (int i = list.Count - 1; i >= 0; i--) Close(list[i]);
+                for (int i = closing.Length - 1; i >= 0 && !_disposed; i--) Close(closing[i]);
             }
             finally
             {
-                _batchClosing = false;
+                _batchClosing = wasBatchClosing;
             }
         }
 

@@ -40,7 +40,7 @@ Drawer/fallback Editor；如果某个项目需要 Odin，应在项目或独立�
 
 当前 `Asset.Yoo`、`Network.Proto`、`UI.Toolkit` Module 目录各有无条件 `link.xml`：分别保留 Yoo Adapter、Google.Protobuf、UIElementsModule。它们不一定是错误，但意味着“业务没有静态调用”不能推出“最终自动消失”。`Asset.Yoo` 的默认 Provider 注册属于 Adapter Assembly，Core 不再保存具体类型名；保守的 `link.xml` 仍覆盖自定义属性 + 反射创建在不同 Unity linker 版本下的可达性差异。`Assets/HybridCLRGenerate/link.xml` 是生成物，第三方目录的规则有自己的升级边界；审计只读展示，不提供一键改写。
 
-当前所有 Runtime Module 都参与 Player 编译并引用 Core。若 Core 热更，仍留在编译图的可选 Module 不能被单独改成 AOT，否则形成 AOT → 热更违规。强裁剪应把“迁移消费者、删除 / 卸载 Module 使其退出编译图、清理 Profile、同步并重新 Generate”作为一项结构事务；不要先只从 Profile 取消再同步。完整决策见 ADR-0039。
+除不依赖 Core 的 AOT 薄壳 Boot 外，当前可热更新 Runtime Module 均依赖 Core；它们参与 Player 编译时，若 Core 热更，就不能被单独改成 AOT，否则形成 AOT → 热更违规。强裁剪应把“迁移消费者、删除 / 卸载 Module 使其退出编译图、清理 Profile、同步并重新 Generate”作为一项结构事务；不要先只从 Profile 取消再同步。完整决策见 ADR-0039。
 
 ## 程序集地图
 

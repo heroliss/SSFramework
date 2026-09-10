@@ -12,6 +12,8 @@ struct Command 又不能用 `this.GetXxx<T>()` 扩展方法（值类型接口调
 
 定义**受限上下文接口 `ICommandContext`**，只暴露 Command 合法的能力：`GetModel/GetSystem/GetUtility`、`SendEvent`、`CancellationToken`、`ExecuteCommand`（子命令）。`GameContext` 实现它；`CommandSystem` 把 `GameContext` 以 `ICommandContext` 传入。
 
+这不是“访问所有层”：没有 `GetView`。Command 可以直接读写 Model，也可以委托 System；视图通常经返回值、只读订阅源或 Event 观察结果。Utility 自身公开的 UI 窗口编排 API 属于独立能力，不改变分层获取权限。
+
 所有 Command 接口的方法签名统一为 `Execute(ICommandContext ctx)` / `ExecuteAsync(ICommandContext ctx, CancellationToken)`。
 
 ## Consequences

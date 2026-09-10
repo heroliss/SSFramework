@@ -22,6 +22,7 @@
 - **naming-conventions.md**：Package ID、程序集、命名空间和类型命名的边界。
 - **optional-odin-integration.md**：商业 Inspector 插件的可选接入边界。
 - **unity-mcp-tips.md**：与 Framework Editor 工具和测试预检有关的通用自动化注意事项。
+- **[2026-09-10 审查记录](framework-review-2026-09-10.md)**：本轮范围、已修复问题、验证证据与尚待处理的分发缺口。
 
 ## ADR 编号与状态
 

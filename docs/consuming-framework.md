@@ -38,17 +38,31 @@ Framework 新提交不会自动改写使用它的 Unity 工程；这是为了让
 ## 最小使用路径
 
 1. 在场景中放置一个 `MonoGlobalContext` 子类作为根 Context。
-2. 在 Context 子层级注册 Model、System、Utility 和 View，或在纯 C# 启动代码中注册它们。
+2. 在 Context 子层级挂载 Model、System、Utility（由 Mono 基类自动注册），或在纯 C# 启动代码中注册这些服务。View 挂载后由 `MonoViewBase` 注入依赖并关联 Context，不注册进容器。
 3. 让 View 通过 Command 表达用户意图；让 System 修改 Model 并发送 Event。
 4. 让 View 订阅只读 `ReadOnlyReactiveProperty<T>` 或 Event，并把订阅交给 `DisposableBag` 管理。
 
 详细 API 和生命周期语义见[框架使用指南](framework-guide.md)。
 
+## 依赖前置条件
+
+当前仓库将所有 Module 放在同一个 UPM 包中。`package.json` 已声明部分 UPM 依赖，**尚未形成干净工程可独立安装的完整依赖集合**。安装完整包时，即使业务 asmdef 只引用 Core，其余无条件参与编译的 Module 仍需要满足自己的引用。
+
+| 源码中的直接依赖 | 使用位置 | 消费方需确认 |
+|---|---|---|
+| `UniTask`、`R3.Unity`、`R3.dll` | Core 与多个 Runtime Module | UPM 来源可解析，R3 的预编译运行库及传递依赖齐全；仅有 Unity 适配层不等于 DLL 已安装 |
+| `ObservableCollections.dll`、`ObservableCollections.R3.dll` | UI Core 与后端 | 提供匹配版本的运行库与 R3 适配 DLL |
+| `Google.Protobuf.dll` | Network.Proto | 提供对应运行库及其传递依赖 |
+| `HybridCLR.Runtime`、`HybridCLR.Editor`、`dnlib.dll` | Boot 与 Build.HybridCLR.Editor | 当前 package.json 未声明 HybridCLR；消费方需提供这些程序集及匹配的构建工具链 |
+| `nunit.framework.dll`、`Microsoft.Bcl.TimeProvider.dll` | 包内测试 | 启用测试时提供 Unity Test Framework 与测试所需 DLL |
+
+这些是源码可证明的直接引用，不是完整的传递依赖安装清单。版本、来源、许可证与安装/删除验证应在真实消费工程中锁定，再回流到包的分发方案；不要凭程序集名臆造 UPM 包名或版本。已安装工程可用模块审计核对真实 DLL 依赖，干净安装验收仍需实际编译。完整边界见[模块地图](framework-module-map.md)。
+
 ## 兼容性边界
 
 - 当前 Unity 基线：`6000.3.22f1`。
 - Package ID：`com.liss.ssframework`。
-- 包内第三方依赖由 `package.json` 声明，Unity Package Manager 负责解析。
+- `package.json` 中已声明的依赖由 Unity Package Manager 解析；其余外部程序集见上面的依赖前置条件。
 - 场景、Prefab、业务资产和项目级 `ProjectSettings` 不属于 Framework 包。
 - 需要替换第三方实现时，应接入公开 Interface/Adapter，不修改 `Library/PackageCache/`。
 

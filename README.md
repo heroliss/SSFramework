@@ -67,11 +67,11 @@ https://github.com/heroliss/SSFramework.git
 https://github.com/heroliss/SSFramework.git#<commit-sha>
 ```
 
-<commit-sha> 需要替换成实际提交；当前包没有假定某个固定 tag。开发框架本身时，也可以使用 Package Manager 的本地路径方式引用工作副本。包的依赖由根目录 package.json 声明，项目仍应在自己的 manifest 中确认所需 Registry、Git 或本地依赖可被解析。
+<commit-sha> 需要替换成实际提交；当前包没有假定某个固定 tag。开发框架本身时，也可以使用 Package Manager 的本地路径方式引用工作副本。当前 package.json 尚未覆盖完整包的全部依赖：HybridCLR 和部分预编译 DLL 需要消费方提供。安装前先检查[依赖前置条件](docs/consuming-framework.md#依赖前置条件)，并确认所需 Registry、Git 或本地依赖可被解析。
 
 ### 2. 为业务程序集显式引用 Framework
 
-Framework 的程序集使用 autoReferenced:false，业务 asmdef 应明确引用需要的程序集。最小运行时通常引用 Game.Framework；使用 UI、YooAsset、Luban、Protobuf 或构建工具时，再按模块地图添加对应程序集。这样依赖会出现在项目自己的编译图中，也方便后续裁剪和升级。
+Core 与可热更新 Runtime 程序集使用 autoReferenced:false，业务 asmdef 应明确引用需要的程序集；AOT 启动薄壳 Game.Framework.Boot 是 autoReferenced:true 的例外。最小运行时通常引用 Game.Framework；使用 UI、YooAsset、Luban、Protobuf 或构建工具时，再按模块地图添加对应程序集。显式引用控制业务访问关系，不会让完整包里未被引用的 Module 自动停止编译。
 
 ### 3. 建立 Context、状态和规则
 
