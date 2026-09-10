@@ -45,6 +45,14 @@ https://github.com/heroliss/SSFramework.git#<commit-sha>
 
 Git URL 的 `#revision` 是可复现边界；不要在需要稳定验证的项目中隐式跟随未经审查的分支头。
 
+#### 安装时出现 Missing signature
+
+支持包签名验证的 Unity 版本可能在解析第三方依赖时弹出 **Missing signature**。这表示列出的包没有可验证的 UPM 签名；包已能被找到，但安装仍等待用户决定，后续还需完成编译验证。Unity 对缺少签名与签名无效的区分见[官方说明](https://discussions.unity.com/t/package-manager-changes-package-signing-and-status-labels/1688660)。
+
+2026-09-10 的消费方安装反馈中，窗口列出了上表四个版本，Source 均为 OpenUPM。使用本文配置的 `https://package.openupm.com`，并确认包名、版本和来源符合预期后，可以点击 **Install Anyway** 继续安装。缺少签名本身不代表包损坏，也不证明内容安全。如果提示的是 **Invalid signature**，应另行排查来源和包内容，不能直接沿用缺少签名的处理结论。
+
+要消除缺少签名的提示，需要采用带有效 UPM 签名的依赖发行版，并验证升级兼容性。OpenUPM 已支持发布作者签名的包，但不会代替作者签名；仅给 SSFramework 自身签名不能覆盖独立分发的第三方依赖。发行机制见 [OpenUPM 签名文档](https://openupm.com/docs/signing-upm-packages)。安装体验的优化应优先补齐依赖分发与验证，不以关闭签名检查作为接入前提。
+
 ### 本地开发包
 
 调试 Framework 源码时，可以通过 Package Manager 的本地路径引用工作副本。消费方只需要重新导入包即可看到修改；准备提交前仍应切换回明确的 tag 或 commit，避免把本地未提交状态当成版本依赖。
