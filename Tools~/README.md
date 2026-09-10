@@ -2,6 +2,8 @@
 
 首次安装前运行，自动补齐工程的 OpenUPM Scope。无需先安装 SSFramework、Node.js、OpenUPM CLI 或其他 PowerShell 模块。工具只配置包源，Framework 的 Git URL 仍由使用者在 Unity Package Manager 中添加。
 
+当前工具没有可选包选择器，也不安装 Unity MCP。Framework 根 `package.json` 中的依赖由 UPM 自动解析；按功能模块选择依赖与可选开发工具属于[初始化规划](../docs/project-startup.md#依赖与可选能力)，尚未实现。
+
 ## Windows 双击运行
 
 1. 关闭需要配置的 Unity 工程。
