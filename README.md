@@ -55,6 +55,8 @@ SSFramework 将依赖注入、Context 作用域、Model / System / View 分层�
 
 ### 1. 安装包
 
+首次接入先按[第三方包源配置](docs/consuming-framework.md#首次接入配置第三方包源)添加 OpenUPM Scoped Registry；配置一次后，添加 SSFramework 时会自动下载已声明的 UniTask、R3.Unity、Luban 和 YooAsset UPM 依赖。
+
 在 Unity Package Manager 中选择 **Add package from git URL**，输入：
 
 ```text

@@ -2,6 +2,31 @@
 
 这份文档面向任何需要在 Unity 工程中使用 `com.liss.ssframework` 的团队。它只描述包本身的公开接入契约，不依赖某个游戏、教程工程或工作区布局。
 
+## 首次接入：配置第三方包源
+
+SSFramework 的 `package.json` 已声明下面四个第三方 UPM 依赖。消费工程配置 OpenUPM 后，添加 SSFramework 时 Unity 会自动解析和下载这些包，无需逐个手动安装。
+
+在 **Edit → Project Settings → Package Manager → Scoped Registries** 中点击 **+**，填写：
+
+- **Name**：`OpenUPM`
+- **URL**：`https://package.openupm.com`
+- **Scope(s)**：下表的四个包名，每个单独一行；通过 Scope(s) 下方的 **+** 添加行。
+
+| Scope | 当前声明版本 |
+|---|---|
+| `com.cysharp.unitask` | `2.5.11` |
+| `com.cysharp.r3` | `1.3.1` |
+| `com.code-philosophy.luban` | `1.2.0` |
+| `com.tuyoogame.yooasset` | `3.0.5` |
+
+点击 **Save** 保存（修改已有 Registry 时为 **Apply**），再按下文添加 Framework 的 Git URL。如果此前出现这四个包 `cannot be found`，配置后可重试同一个 URL，不需要更换 Framework commit。若工程已配置 OpenUPM，只需补齐缺少的 Scope。
+
+上述四个版本已于 2026-09-10 通过 OpenUPM Registry 元数据核实存在。这验证了包的来源和版本可查询，不代表完整框架已通过干净工程编译。Unity 自带依赖继续使用默认 Unity Registry，不需要把 `com.unity` 加入 OpenUPM Scope。
+
+Registry 配置保存在**消费工程**的 `Packages/manifest.json` 中；Framework 的 `package.json` 不能代替工程设置 `scopedRegistries`。包内 Editor 安装脚本也不能作为解决首次依赖解析失败的前提。因此，当前流程是“每个工程配置一次包源，之后自动安装已声明的 UPM 依赖”。相关规则见 [Unity Scoped Registry 文档](https://docs.unity.cn/6000.6/Documentation/Manual/upm-scoped-use.html)。
+
+**这一步只解决 UPM 包源问题。** `com.cysharp.r3` 提供 Unity 适配层，R3 运行库等预编译 DLL 以及 HybridCLR 仍需按[依赖前置条件](#依赖前置条件)补齐；当前版本尚不支持仅粘贴一个 Git URL 就完成全部外部依赖安装。
+
 ## 选择安装方式
 
 ### Unity Package Manager：Git URL
@@ -69,6 +94,7 @@ Framework 新提交不会自动改写使用它的 Unity 工程；这是为了让
 ## 出现问题时先检查
 
 - Package Manager 是否解析到了预期的 revision。
+- 第三方包提示 `cannot be found` 时，先检查 OpenUPM URL、Scope 和网络连通性；包源可解析后若出现程序集缺失，再按依赖前置条件排查 DLL 和 HybridCLR。
 - Unity 版本和包依赖是否满足 `package.json`。
 - Context 是否先于 Model/System/View 完成初始化。
 - 订阅、异步操作、资源句柄和对象租借是否绑定到了正确的 Bag/Context 生命周期。
