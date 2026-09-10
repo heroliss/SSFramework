@@ -387,7 +387,7 @@ namespace Game.Framework.Config.Editor
         {
             string assetPath = AssetDatabase.GetAssetPath(profile);
             return string.IsNullOrEmpty(assetPath)
-                ? $"transient:{profile.name}:{profile.GetInstanceID()}"
+                ? $"transient:{profile.name}:{profile.GetEntityId()}"
                 : assetPath;
         }
 

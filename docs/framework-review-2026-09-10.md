@@ -40,8 +40,31 @@ Command 的分层获取能力是 Model / System / Utility，没有 GetView。它
 
 ## 尚待处理：完整包的依赖分发
 
-**P1，未完成分发修复。** `package.json` 没有覆盖全部源码的外部依赖；例如 Boot / HybridCLR Editor 的直接 HybridCLR 引用未列入清单，UI / Proto 等还依赖外部预编译 DLL。业务只引用 Core 不会阻止同包其他无条件程序集编译。当前只能将完整依赖来源由消费方提供，不能承诺“干净工程添加 Git URL 即可编译”。
+**初次静态审查阶段的 P1（对应 `182d967`，后续进展见下节）。** `package.json` 没有覆盖全部源码的外部依赖；例如 Boot / HybridCLR Editor 的直接 HybridCLR 引用未列入清单，UI / Proto 等还依赖外部预编译 DLL。业务只引用 Core 不会阻止同包其他无条件程序集编译。当时只能将完整依赖来源由消费方提供，不能承诺“干净工程添加 Git URL 即可编译”。
 
 已补充[依赖前置条件](consuming-framework.md#依赖前置条件)，并保留现有包结构。依据仓库要求，版本选择、传递依赖、许可证和拆包/删除策略必须先在真实消费方验证，再修改分发方案。静态审查无法为未知来源的 DLL 选择可靠版本，也没有用关闭 asmdef 错误检查掩盖缺失。
 
 下一步优先完成干净消费工程的安装与编译证据，再锁定包依赖，最后运行全部测试和目标 Player 构建。已有模块边界清楚，本轮没有证据支持先进行大规模重命名、额外抽象或模块拆分。
+
+## 消费方接入复核
+
+真实消费方 MoonBase 在 Unity `6000.6.0f1` 中手动安装 `182d967` 后，Editor 日志包含 429 条去重后的 C# 编译错误：R3 适配层 414 条（R3 / BCL 运行库缺失）、YooAsset Editor 14 条（已移除的 UxmlFactory / UxmlTraits）、Boot 1 条（HybridCLR 缺失）。另有 59 条 Framework 资产缺少 `.meta` 的警告。初次审查只核对 C# / asmdef 的元数据，漏掉了根目录、docs 与 src 文件夹；该检查范围不足以证明完整 Git 包可导入。
+
+接入修复在 `codex/package-installation` 分支进行。验证使用消费方 Assets、ProjectSettings、Packages 的独立副本与包的独立工作副本，未修改 MoonBase 的安装配置。先在副本补齐并验证，再回流 Framework；副本和下载产物位于忽略的 Temp 目录，不进入包。
+
+| 修复 | 证据与范围 |
+|---|---|
+| `0.1.1` 声明 R3 `1.3.1`、ObservableCollections / R3 适配 `3.3.4`、Google.Protobuf `3.36.1`、TimeProvider `8.0.0` 的 `org.nuget.*` 包，以及 HybridCLR `8.14.1` | OpenUPM 指定版本与传递依赖均可解析；Unity 在消费副本中实际完成安装，Bcl.AsyncInterfaces、Channels 等随依赖图安装，dnlib 由 HybridCLR 自带 |
+| 补齐 59 份元数据，移除孤立的 `src/Demo.meta` | 缺失路径与消费方日志逐一对应，新增 GUID 由 Unity 在本地包副本导入时生成；原有资产 GUID 保留，避免只读 PackageCache 生成失败与空 Demo 目录复活 |
+| 将 Editor 的对象身份与缓存键迁移为 `EntityId` | 包括 Context 诊断分组、迁移去重、生成输出标识与 Proto 预览缓存；StringBuilder 显式使用 EntityId.ToString，避免隐式转 int。UGUI Hierarchy 在 6.6 使用新回调，保留 6.3 的入口适配 |
+
+验证结果：
+
+- 在 `6000.6.0f1` 消费副本的 Unity 批处理编译中，R3.Unity、HybridCLR 及全部 10 个 Framework Runtime 程序集成功产出；原来的依赖缺失错误消失。Runtime 程序集在此为 Editor 目标的编译产物，**不是 Player 构建证明**。
+- 补齐依赖后进一步暴露了 Framework Editor 的旧对象身份 API 错误。修复后使用该副本由 Unity 生成的原始编译响应文件、引用程序集和 Roslyn 编译器，直接编译通过 `Game.Framework.Editor`、`Config.Editor`、`Network.Proto.Editor`、`Fonts.Editor`、`UI.UGui.Editor` 五个程序集。未修改第三方源码或禁用签名 / 程序集引用检查。
+- 349 个 C# 文件的两组条件语法检查和 34 个程序集结构检查通过；按待提交包内容检查，529 份元数据 GUID 唯一，导入资产无缺失元数据，也无孤立元数据。新增文件夹保留明确的 `folderAsset` 标记；修改文档的本地链接与实际消费副本锁定的第三方版本一致性检查通过。
+- 完整 Unity 6.6 编译仍被 YooAsset 3.0.5 的 14 条旧 UI API 错误阻塞，依赖 YooAsset.Editor 的 Build.Editor / Build.HybridCLR.Editor 尚未验证。OpenUPM 最新版及核对时的上游默认分支 `b989d1505d0a9506e89121a5d91f5fef6608edea` 均仍使用该旧 API。
+- 额外创建并启动隔离 Unity 测试工程的操作被自动审批以 `blocked by policy` 拒绝，未返回更具体原因；本次未执行 EditMode / PlayMode 测试。改为完成上述现有副本的直接编译验证，没有将它称作测试通过。
+- 本机当前仅有 Unity 6.6；推荐接入目标仍为 `6000.3.22f1`，本轮 **尚未取得 6.3 LTS 的完整编译、测试或热更新构建证据**。需由使用者手动在目标版本接入验收，不能立即将修复分支视为已验证发布版或合并 main。
+
+手动升级时，在已有四项 OpenUPM Scope 上增加 `org.nuget` 与 `com.code-philosophy.hybridclr`，然后更新到包含 `0.1.1` 的固定 commit。仅增加 Scope 而继续引用旧 `182d967` 不会安装新增依赖。完整操作见[接入文档](consuming-framework.md)。

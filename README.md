@@ -55,7 +55,7 @@ SSFramework 将依赖注入、Context 作用域、Model / System / View 分层�
 
 ### 1. 安装包
 
-首次接入先按[第三方包源配置](docs/consuming-framework.md#首次接入配置第三方包源)添加 OpenUPM Scoped Registry；配置一次后，添加 SSFramework 时会自动下载已声明的 UniTask、R3.Unity、Luban 和 YooAsset UPM 依赖。
+完整包当前以 **Unity 6.3 LTS** 为接入目标；**Unity 6.6 暂被 YooAsset 3.0.5 的 Editor API 兼容问题阻塞**。首次接入先按[第三方包源配置](docs/consuming-framework.md#首次接入配置第三方包源)添加 OpenUPM Scoped Registry；配置一次后，添加 SSFramework 时会自动下载已声明的 UPM 依赖、R3 / ObservableCollections / Protobuf 运行库和 HybridCLR。
 
 在 Unity Package Manager 中选择 **Add package from git URL**，输入：
 
@@ -69,7 +69,7 @@ https://github.com/heroliss/SSFramework.git
 https://github.com/heroliss/SSFramework.git#<commit-sha>
 ```
 
-<commit-sha> 需要替换成实际提交；当前包没有假定某个固定 tag。开发框架本身时，也可以使用 Package Manager 的本地路径方式引用工作副本。当前 package.json 尚未覆盖完整包的全部依赖：HybridCLR 和部分预编译 DLL 需要消费方提供。安装前先检查[依赖前置条件](docs/consuming-framework.md#依赖前置条件)，并确认所需 Registry、Git 或本地依赖可被解析。
+<commit-sha> 需要替换成实际提交；当前包没有假定某个固定 tag。开发框架本身时，也可以使用 Package Manager 的本地路径方式引用工作副本。从早期版本升级到 `0.1.1` 时，还需补充 `org.nuget` 和 `com.code-philosophy.hybridclr` 两项 Scope。安装前先检查[依赖前置条件](docs/consuming-framework.md#依赖前置条件)；完整 Editor、测试和构建验证仍应在消费工程完成。
 
 ### 2. 为业务程序集显式引用 Framework
 

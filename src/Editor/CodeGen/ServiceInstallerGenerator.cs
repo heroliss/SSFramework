@@ -262,7 +262,7 @@ namespace Game.Framework.Editor
                 if (profile.Installers == null) continue;
                 string profilePath = AssetDatabase.GetAssetPath(profile);
                 string profileId = string.IsNullOrEmpty(profilePath)
-                    ? $"transient:{profile.name}:{profile.GetInstanceID()}"
+                    ? $"transient:{profile.name}:{profile.GetEntityId()}"
                     : profilePath;
                 for (int i = 0; i < profile.Installers.Count; i++)
                 {
