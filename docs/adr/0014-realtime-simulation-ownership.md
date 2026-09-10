@@ -22,6 +22,7 @@ MVCS 经 Command 的写链（简单操作 `View → Command → Model`，规则�
 - **写入仍走正规通道**：逐帧逻辑里 System 直接改 Model（它是 Model 的合法写入者），需要广播时 `SendEvent`。逐帧**不要**绕 Command（System 本就无 `ICanSendCommand`）。View 仍只订阅、不参与仿真。
 - **tick 顺序编排**：同类 System 之间若有 tick 先后依赖，用 `[DefaultExecutionOrder]`（Mono）或在一个"编排 System"里显式按序调用子步骤（纯 C#），**不要**依赖容器注册顺序。
 - **不引入专门的 `ITickable` / `UpdateManager`**：`MonoBehaviour.Update` + `Observable.EveryUpdate()` 已覆盖常见需求；集中调度器属过度设计（见 memory「no-over-engineering」）。仅当出现明确的"集中控制 tick 频率 / 全局暂停 / 时间缩放 / 固定步长仿真"需求时，再补 ADR 引入。
+- **外部仿真后端**：以上是 Framework 管理仿真的默认路径，不要求 Unity ECS 的 System 实现 Framework 的 ISystem。Entities 的 World / SystemGroup 可以拥有仿真与数据；消费方通过离散输入和批量快照与 Framework 主线程层交接。当前只有[组合边界说明](../framework-guide.md#与-unity-ecs-配合的边界)，没有已验证的内置 ECS Adapter，不因某个项目计划使用 ECS 就让 Core 增加 Entities 依赖。
 
 ## Consequences
 

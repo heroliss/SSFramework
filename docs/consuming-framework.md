@@ -8,6 +8,14 @@
 
 SSFramework 的 `package.json` 已声明第三方 UPM 包和 NuGet 运行库的 UPM 分发包。消费工程配置 OpenUPM 后，添加 SSFramework 时 Unity 会自动解析和下载这些依赖，无需逐个安装 DLL 或额外引入 NuGetForUnity。
 
+### 推荐：使用配置工具
+
+Windows 使用者可以关闭目标 Unity 工程，双击仓库中的 [`Tools~/Configure-OpenUPM.cmd`](../Tools~/Configure-OpenUPM.cmd)，粘贴工程根目录，查看待补齐的 Scope 后输入 `y`。然后重新打开 Unity，亲自在 Package Manager 中添加下面的 Git URL。
+
+工具在 Unity 之外运行，不依赖 Framework 先安装成功。它保留现有依赖和其他包源，只合并缺少的 Scope；写入前备份原清单，已配置完整时重复运行不改文件。包源冲突会报告并停止，不自动改选其他来源。命令行预览、恢复与验证入口见[工具说明](../Tools~/README.md)。`Tools~` 被 Unity 忽略，不会随包导入自动执行。
+
+### 手动配置
+
 在 **Edit → Project Settings → Package Manager → Scoped Registries** 中点击 **+**，填写：
 
 - **Name**：`OpenUPM`
@@ -27,7 +35,7 @@ SSFramework 的 `package.json` 已声明第三方 UPM 包和 NuGet 运行库的 
 
 **从早期版本升级**：如果已经配置最初四项 Scope，请补充 `com.code-philosophy.hybridclr` 和 `org.nuget`，再将 Framework 更新到包含 `0.1.1` 依赖修复的 Git commit。旧 commit `182d967493c90b9632bc3a6e5b3ce95a7eb496b1` 没有声明这些新增依赖，仅补 Scope 不会让旧包自动安装它们。
 
-Registry 配置保存在**消费工程**的 `Packages/manifest.json` 中；Framework 的 `package.json` 不能代替工程设置 `scopedRegistries`。包内 Editor 安装脚本也不能作为解决首次依赖解析失败的前提。因此，当前流程是“每个工程配置一次包源，之后自动安装已声明的 UPM 依赖”。相关规则见 [Unity Scoped Registry 文档](https://docs.unity.cn/6000.6/Documentation/Manual/upm-scoped-use.html)。
+Registry 配置保存在**消费工程**的 `Packages/manifest.json` 中；Framework 的 `package.json` 不能代替工程设置 `scopedRegistries`。包内 Editor 安装脚本也不能作为解决首次依赖解析失败的前提。因此，工具或手动操作负责“每个工程配置一次包源”，之后由 UPM 自动安装已声明的依赖。相关规则见 [Unity Scoped Registry 文档](https://docs.unity.cn/6000.3/Documentation/Manual/upm-scoped-use.html)。
 
 `com.cysharp.r3` 提供 Unity 适配层，`org.nuget.r3` 提供 R3 运行库；两者都需要。已通过消费工程副本验证新增依赖可以自动解析，R3、HybridCLR 和 Framework 的 10 个运行时程序集可编译。完整包仍受上面的 Unity / YooAsset 版本兼容边界约束；不能把“依赖下载成功”视为完整 Editor、测试和 Player 构建均已通过。
 
@@ -38,10 +46,10 @@ Registry 配置保存在**消费工程**的 `Packages/manifest.json` 中；Frame
 在 Package Manager 中选择 **Add package from git URL**：
 
 ```text
-https://github.com/heroliss/SSFramework.git
+https://github.com/heroliss/SSFramework.git#cc1ada645083e53e014b9a81d65567d24df3737f
 ```
 
-稳定构建建议固定到 tag 或 commit：
+上面是包含 `0.1.1` 依赖修复的待验收提交，尚未完成 Unity 6.3 全部测试，也尚未合入 main。当前不要使用省略 revision 的地址，否则可能装到缺少依赖声明的旧 main。其他已审查版本同样固定到 tag 或 commit：
 
 ```text
 https://github.com/heroliss/SSFramework.git#<commit-sha>

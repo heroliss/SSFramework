@@ -617,6 +617,18 @@ Bag.Subscribe(Observable.EveryUpdate(), _ => Tick());
 
 逐帧逻辑里 System 直接改 Model、需要广播时 `SendEvent`；View 仍只订阅、不参与仿真。同类 System 的 tick 先后依赖用 `[DefaultExecutionOrder]`（Mono）或一个"编排 System"显式按序调用，别依赖注册顺序。设计理由见 `docs/adr/0014-realtime-simulation-ownership.md`。
 
+#### 与 Unity ECS 配合的边界
+
+上述两条路径适用于 Framework 自己管理的仿真。消费工程也可以将高密度仿真交给 Unity Entities；SSFramework **尚未提供内置 ECS Adapter，也没有对特定实体规模作性能保证**。以下是组合建议，具体桥接必须在消费工程中验证：
+
+- `Unity.Entities.ISystem` 与 `Game.Framework.Systems.ISystem` 是不同契约。ECS System 由 World / SystemGroup 管理，不必为了注册进 Context 而实现 Framework 的分层接口。
+- Framework Command 处理“建造、拆除、改变配方”等离散意图，交给消费方的仿真入口；ECS 的连续计算遵循自己的更新顺序，不为每个 Entity 每帧派发 Command。
+- Entity 数据由 ECS 持有。Framework Model 保存 UI 所需的选中状态或汇总快照，避免再维护一份可独立写入的完整仿真状态。
+- Burst / Job 中使用适合该环境的数据，不在工作线程直接调用 Context、R3 订阅或 View。消费方在满足 Job 依赖的主线程交接点批量提交输入、读取结果，并按 UI 所需频率发布状态。
+- 暂停、倍速、固定仿真步长、World 生命周期、存档标识与加载恢复由消费方明确设计。安装 Entities 不会自动使现有 MonoBehaviour 逻辑并行化；是否获益需由目标 Player 的性能测量证明。
+
+Entities 的数据与 System 概念见 [Unity ECS 文档](https://docs.unity3d.com/Packages/com.unity.entities@1.4/manual/concepts-intro.html)，Burst 的类型边界见 [C# type support](https://docs.unity3d.com/Packages/com.unity.burst@1.8/manual/csharp-type-support.html)。这些组合建议不增加 Framework 对 Entities 或 Input System 的包依赖。
+
 ---
 
 ## 7. Utility（工具层）

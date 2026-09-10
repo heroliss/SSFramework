@@ -55,15 +55,15 @@ SSFramework 将依赖注入、Context 作用域、Model / System / View 分层�
 
 ### 1. 安装包
 
-完整包当前以 **Unity 6.3 LTS** 为接入目标；**Unity 6.6 暂被 YooAsset 3.0.5 的 Editor API 兼容问题阻塞**。首次接入先按[第三方包源配置](docs/consuming-framework.md#首次接入配置第三方包源)添加 OpenUPM Scoped Registry；配置一次后，添加 SSFramework 时会自动下载已声明的 UPM 依赖、R3 / ObservableCollections / Protobuf 运行库和 HybridCLR。
+完整包当前以 **Unity 6.3 LTS** 为接入目标；**Unity 6.6 暂被 YooAsset 3.0.5 的 Editor API 兼容问题阻塞**。Windows 首次接入可双击仓库中的 [`Tools~/Configure-OpenUPM.cmd`](Tools~/Configure-OpenUPM.cmd)，输入 Unity 工程目录、查看计划并确认，自动补齐包源配置。也可按[第三方包源配置](docs/consuming-framework.md#首次接入配置第三方包源)手动填写；之后添加 SSFramework 时会自动下载已声明的依赖。
 
 在 Unity Package Manager 中选择 **Add package from git URL**，输入：
 
 ```text
-https://github.com/heroliss/SSFramework.git
+https://github.com/heroliss/SSFramework.git#cc1ada645083e53e014b9a81d65567d24df3737f
 ```
 
-需要可复现构建时，把 URL 固定到已经审查过的 commit SHA：
+上面的提交包含 `0.1.1` 依赖修复，仍等待完整 Unity 6.3 消费验收；修复尚未合入 main，当前不要省略 revision。升级到其他已审查提交时使用：
 
 ```text
 https://github.com/heroliss/SSFramework.git#<commit-sha>

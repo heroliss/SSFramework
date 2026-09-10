@@ -68,3 +68,15 @@ Command 的分层获取能力是 Model / System / Utility，没有 GetView。它
 - 本机当前仅有 Unity 6.6；推荐接入目标仍为 `6000.3.22f1`，本轮 **尚未取得 6.3 LTS 的完整编译、测试或热更新构建证据**。需由使用者手动在目标版本接入验收，不能立即将修复分支视为已验证发布版或合并 main。
 
 手动升级时，在已有四项 OpenUPM Scope 上增加 `org.nuget` 与 `com.code-philosophy.hybridclr`，然后更新到包含 `0.1.1` 的固定 commit。仅增加 Scope 而继续引用旧 `182d967` 不会安装新增依赖。完整操作见[接入文档](consuming-framework.md)。
+
+## Unity 6.3 重建后的接入准备复核
+
+后续真实消费工程已重新创建为 `6000.3.23f1`，本机也已安装该 Editor；这替代上节“本机仅有 6.6”的环境状态。检查时尚未安装 Framework，也尚未配置 OpenUPM，因此 **6.3 的完整 Framework 编译、EditMode / PlayMode、Player 与 HybridCLR 构建仍待验收**。
+
+- 消费工程已安装 Entities `1.4.8`、Entities Graphics `1.4.21`、Burst `1.8.30`、Input System `1.20.0`；新输入后端、Linear、Standalone IL2CPP、Force Text、Visible Meta Files 已启用。实际仍为 Built-in 渲染管线，与 Entities Graphics 的 SRP 要求不符。渲染选择属于消费方准备工作，不写入 Framework 默认配置。
+- 清空工作区保留了原有 Git 历史，但删掉了 `.gitignore` 与 `.gitattributes`。已从消费方自身 HEAD 恢复这两份文件，并确认 Library、Logs、Temp、UserSettings 再次被忽略；未恢复旧 Unity 工程设置或删除当前资产。
+- 提供 Unity 外部的包源配置工具，先在临时位置开发，以真实消费清单做只读预览、在其原始字节副本上执行写入，再回流到 `Tools~`。检查覆盖默认预览、WhatIf、原子备份、幂等、旧四项升级、命名空间覆盖、竞争包源、错误清单、Unicode / BOM、Unity 文件锁，以及根 package.json 依赖覆盖。此证据验证配置合并，**不代表 UPM 解析、签名、Unity 编译或游戏运行通过**。
+- 修正快速开始中的无 revision Git URL：修复尚未合入 main 时，该地址会引导使用者安装旧依赖声明。文档改为包含 `0.1.1` 修复的固定候选提交，并明确验收状态。
+- 补充 Framework 与 ECS 的职责边界，明确尚无内置 ECS Adapter、不能将实体仿真写成每帧 Command，也不能把配置选择作为性能验证。未增加运行时 API 或 Entities / Input System 依赖。
+
+当前继续在 `codex/package-installation` 上提交接入工具与说明。真实消费方仍由使用者手动配置和安装；完成目标版本验收后再合并 main。
