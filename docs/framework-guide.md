@@ -2715,11 +2715,13 @@ locale code 是**开放字符串 + 业务常量**（与音频组、存储 key �
 
 ## 22. 字体（多语言字体链）
 
-CJK 全量字库体积大（单字体 15~30MB），全量随包不现实；砍了字库，生僻字 / 用户输入又变豆腐块。框架的答案是**三层字体策略**，三层都挂在**主字体资产的 fallback 表**上——文本渲染自动逐层找字形，业务代码零感知、零调用。ADR-0025。
+Framework 当前提供字体链与字集生成机制，**不附带中文 / CJK 字体源、预生成字体资产或默认 locale 字体配置**。下文“随游戏发布的主字体”由消费工程提供，不表示安装 SSFramework 后已经有可直接使用的中文字体。
+
+CJK 字库及图集的体积取决于字符覆盖、字重、格式与图集设置。消费工程可以组合常用字静态图集、补充字体和系统字体候选；三层挂在**主字体资产的 fallback 表**上，完成配置后由文本引擎逐层查找字形。字形覆盖仍需验证，fallback 机制不会产生字体中不存在的字符。设计见 ADR-0025。
 
 | 层 | 内容 | 覆盖 |
 |---|---|---|
-| ① 随包主字体 | 精简常用字集烘焙的 static atlas | 已知 UI 文案与配置表文本（99% 显示量） |
+| ① 随游戏发布的主字体 | 按项目字集烘焙的 static atlas | 已知 UI 文案与配置表文本 |
 | ② locale 补充字体 | per-locale 配置的补充字体资产（动态 atlas，如 NotoSansSC） | 生僻字 / 特定语言差集 |
 | ③ OS 字体兜底 | 运行时按族名候选创建动态字体资产，挂链尾 | 用户名 / 聊天等不可预知文本 |
 
@@ -2740,14 +2742,14 @@ CJK 全量字库体积大（单字体 15~30MB），全量随包不现实；砍�
 
 ### ① 主字体怎么来：常用字集生成
 
-工作台 **SSFramework/代码生成/字体字集**（配置为 Charset Profile，全工程单例；缺失时由显式按钮创建）：扫描配置表（`.xlsx` 读 sharedStrings，Luban 源表直配）、代码字符串字面量（`.cs` 只取字面量，注释不进字集）、文案文件（`.json` / `.txt` 全文），去重出按码点排序的 charset 文件 → TMP Font Asset Creator 选主字体 ttf + **Characters from File** 烘焙 static atlas。常用字随包秒显，生僻字交给 ②③。
+工作台 **SSFramework/代码生成/字体字集**（配置为 Charset Profile，全工程单例；缺失时由显式按钮创建）：扫描配置表（`.xlsx` 读 sharedStrings，Luban 源表直配）、代码字符串字面量（`.cs` 只取字面量，注释不进字集）、文案文件（`.json` / `.txt` 全文），去重出按码点排序的 charset 文件 → TMP Font Asset Creator 选择项目提供的字体源 + **Characters from File** 烘焙 static atlas。预生成字形随游戏发布，其余字符由 ②③ 中具有对应字形的字体补充。
 
 工作台会在点击前区分错误与可恢复警告：扫描/输出路径逃逸工程、扫描路径实际是文件、输出目标实际是目录、文件名模式包含路径分隔符，或把 `.` / `..` 当作模式都会阻断，避免读写到扫描根或项目之外；`foo..txt` 仍是普通合法文件名模式。递归由扫描器统一负责，模式只写 `*.txt` 这类文件名。暂不存在的扫描目录会显示“将跳过”但仍允许生成，因为 ASCII 或额外字符可能就是本次的全部输入。未启用 ASCII 且没有额外字符时，预检不会为了绘制窗口而深度枚举全工程，而是提示扫描结果可能为空；生成后若实际得到 0 个字符，会明确以 Warning 报告已写入空字集。生成动作仍会重新检查，窗口提示不承担唯一安全线。
 
 ### 双后端的关键差异（实测 Unity 6000.3）
 
 - **TMP（UGUI 侧）没有引擎级 OS 兜底**：缺字就是豆腐块——②③ 在 TMP 侧是**刚需**。另外 TMP 缺字最后会查全局默认字体（TMP Settings → Default Font Asset）及其链，若主字体恰好就是默认字体，未列管的字体也会「沾光」——别依赖这个巧合。
-- **UI Toolkit 侧引擎内建 OS 字形兜底**（TextCore `TextSettings` 层）：缺字**不豆腐，但字形随平台走**（Windows 雅黑 / macOS 苹方，排版风格不受控）。② 层在 Toolkit 侧的价值是**把字形拿回自己手里**：链上的品牌字体优先于引擎 OS 兜底，各平台排版一致。
+- **UI Toolkit 侧引擎有 OS 字形兜底路径**（TextCore `TextSettings` 层）：只有系统提供可用字体及目标字形时才能补充，字形和排版可能随平台变化，不能保证所有中文、日韩文或用户输入都不缺字。② 层提供明确的项目字体来源，减少系统差异；仍需在目标平台检查实际字符覆盖与排版。
 - **fallback 解析结果有引擎缓存**：框架在链条应用 / 还原时已统一清缓存并强刷存活 TMP 文本；Toolkit 侧本地化文本随换语言重设 text 自然重排，**固定文本 + 链条变化**的罕见场景需业务重设一次 text 触发重排（项目应在切换语言后的 UI 回归中覆盖这一情况）。
 
 ### 使用要点
@@ -2759,7 +2761,7 @@ CJK 全量字库体积大（单字体 15~30MB），全量随包不现实；砍�
 
 ### 刻意不做
 
-- **全字库随包 / 每语言完整字体**：fallback 链的意义就是共享通用字形、语言层只补差集。
+- **Framework 强制附带全量字体**：字体来源、字符覆盖和发行体积由消费工程选择；可选入门字体资源的规划见[新项目准备](project-startup.md)，该资源包尚未提供。
 - **运行时字形卸载 / atlas 调优**：动态 atlas 内存策略交 TMP / TextCore 默认，量化出问题再调。
 - **每文本粒度换字体**：链条挂在主字体上全局生效；个别文本要专属字体直接在 UI 上指定，那不是「兜底」问题。
 
@@ -2768,7 +2770,7 @@ CJK 全量字库体积大（单字体 15~30MB），全量随包不现实；砍�
 > - 场景挂 `MonoLocaleFonts`：主字体列表（TMP / Toolkit 两栏）+ 各 locale 档案（②资产 + ③OS 英文族名）
 > - 换语言由 §21 的 `SetLocale` 一并驱动，字体业务零调用；未配置 locale 降级不炸
 > - ① 在 `SSFramework/代码生成/字体字集` 工作台点“生成常用字集”，再用 TMP Font Asset Creator 烘焙
-> - TMP 缺字真豆腐（②③刚需）；Toolkit 引擎自带 OS 兜底（②管字形归属）
+> - TMP 需显式配置缺字补充；Toolkit 的 OS 兜底也依赖目标平台实际可用的字体与字形
 > - 详见 ADR-0025
 
 ---
@@ -3240,7 +3242,7 @@ CI / AI 只需做最小删除测试时，可直接执行无窗口菜单 `SSFrame
 | Asset Adapter | YooAsset | 由 `Game.Framework.Asset.Yoo` 实现并注册默认 Provider；可替换为另一个 `IAssetProvider` Adapter。 |
 | Editor 增强 | Odin Inspector | 由消费工程或独立扩展包自行接入，不进入 Runtime 基线，也不随 Framework 包重分发。 |
 
-目前 embedded `Packages/nuget-packages` 仍把 R3、ObservableCollections、Google.Protobuf 与支撑 DLL 放在一个物理 package 里，隔离探针会复制这整个来源，因此它能证明 Player 链接结果，却还不能证明“干净消费工程只安装最小 DLL 闭包”。正式 UPM 分发应让 Core / UI / Proto package 各自拥有真实二进制闭包、版本、哈希与 Third Party Notices；在完成干净工程安装/删除矩阵前，不把当前聚合目录冒充最终发布结构。
+当前根 `package.json` 通过 OpenUPM 的独立 `org.nuget.*` 包声明 R3、ObservableCollections、Google.Protobuf 与支撑运行库，不要求消费工程创建 `Packages/nuget-packages` 聚合包。Framework 自身仍以单一 UPM 包分发，完整依赖随包解析；只引用 Core 不会阻止其他无条件 Module 编译。进一步拆分发布包仍需安装、删除和目标 Player 构建证据。当前接入方式与验证限制见[接入与升级](consuming-framework.md)。
 
 ### 参考结构
 

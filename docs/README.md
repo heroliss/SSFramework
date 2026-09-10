@@ -7,6 +7,7 @@
 | 目的 | 先读 | 然后看 |
 |---|---|---|
 | 第一次接入 | [接入与升级](consuming-framework.md)、[包源配置工具](../Tools~/README.md) | [框架使用指南](framework-guide.md) |
+| 规划新游戏工程 | [新项目准备与初始化规划](project-startup.md) | [消费工程目录边界](adr/0011-directory-organization.md) |
 | 了解结构 | [README](../README.md) | [模块地图](framework-module-map.md) |
 | 修改框架源码 | [根协作规则](../AGENTS.md) 与 [源码规则](../src/AGENTS.md) | 相关模块的源码、测试和 ADR |
 | 运行自动化验证 | [Unity 自动化与验证](unity-mcp-tips.md) | [ADR-0036：测试预检](adr/0036-ai-playmode-preflight.md)、[ADR-0038：隔离体积探针](adr/0038-isolated-framework-build-size-probe.md) |

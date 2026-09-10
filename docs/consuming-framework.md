@@ -2,6 +2,8 @@
 
 这份文档面向任何需要在 Unity 工程中使用 `com.liss.ssframework` 的团队。它只描述包本身的公开接入契约，不依赖某个游戏、教程工程或工作区布局。
 
+安装包不会自动配置消费工程根目录的 Git / AI 规则、生成完整项目目录或提供中文字体。现有能力与建议的初始化流程见[新项目准备](project-startup.md)。
+
 **完整包当前以 Unity 6.3 LTS 为接入目标，版本基线为 `6000.3.22f1`。Unity 6.6 暂不能完整编译此包**：YooAsset 3.0.5 的 Editor 使用了 Unity 6.6 已移除的 `UxmlFactory` / `UxmlTraits`。补齐 DLL 或切换同版本的 Git 来源不能解决这个 API 不兼容；新项目应优先在 6.3 LTS 中创建，不要直接把已经由 6.6 保存的工程降级打开。参见 [Unity 6.6 API 移除说明](https://unity.com/releases/editor/alpha/6000.6.0a5)。
 
 ## 首次接入：配置第三方包源
