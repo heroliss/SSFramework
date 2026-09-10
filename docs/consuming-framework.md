@@ -51,7 +51,11 @@ Git URL 的 `#revision` 是可复现边界；不要在需要稳定验证的项�
 
 2026-09-10 的消费方安装反馈中，窗口列出了上表四个版本，Source 均为 OpenUPM。使用本文配置的 `https://package.openupm.com`，并确认包名、版本和来源符合预期后，可以点击 **Install Anyway** 继续安装。缺少签名本身不代表包损坏，也不证明内容安全。如果提示的是 **Invalid signature**，应另行排查来源和包内容，不能直接沿用缺少签名的处理结论。
 
-要消除缺少签名的提示，需要采用带有效 UPM 签名的依赖发行版，并验证升级兼容性。OpenUPM 已支持发布作者签名的包，但不会代替作者签名；仅给 SSFramework 自身签名不能覆盖独立分发的第三方依赖。发行机制见 [OpenUPM 签名文档](https://openupm.com/docs/signing-upm-packages)。安装体验的优化应优先补齐依赖分发与验证，不以关闭签名检查作为接入前提。
+保留 Registry 安装方式时，要消除缺少签名的提示，需要采用带有效 UPM 签名的依赖发行版，并验证升级兼容性。OpenUPM 已支持发布作者签名的包，但不会代替作者签名；仅给 SSFramework 自身签名不能覆盖独立分发的第三方依赖。发行机制见 [OpenUPM 签名文档](https://openupm.com/docs/signing-upm-packages)。
+
+直接从 Git 安装是另一种来源选择。[Unity 团队于 2026-06-29 的说明](https://discussions.unity.com/t/unity-core-standards-new-features-and-what-s-next/1723174?page=2)指出，Git 和 Embedded 包当前不参与签名验证，因此不应触发自身缺少签名的提示；这不代表它们已获得 UPM 签名。Git 包仍可依赖来自 Registry 的包，后者会单独接受检查，这也是通过 Git 安装 SSFramework 时仍会看到上述窗口的原因。
+
+若将第三方依赖改为各作者的 Git 来源，需要由消费工程显式声明包路径和固定 revision，并验证兼容性。Unity 仅允许在工程 `Packages/manifest.json` 中声明 Git 依赖，不支持在 Framework 的 `package.json` 中声明另一 Git 包，见 [Unity Git 依赖文档](https://docs.unity3d.com/6000.6/Documentation/Manual/upm-git.html)。当前接入流程仍使用 OpenUPM 自动解析这四个依赖；尚未在消费方验证逐个改用 Git 的方案。安装体验的优化应优先补齐依赖分发与验证，不以关闭签名检查作为接入前提。
 
 ### 本地开发包
 
