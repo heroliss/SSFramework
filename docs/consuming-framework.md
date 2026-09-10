@@ -12,9 +12,11 @@ SSFramework 的 `package.json` 已声明第三方 UPM 包和 NuGet 运行库的 
 
 ### 推荐：使用配置工具
 
-Windows 使用者可以关闭目标 Unity 工程，双击 [`Tools~/Setup-SSFramework.cmd`](../Tools~/Setup-SSFramework.cmd)，粘贴工程根目录。无需 MCP 时直接回车跳过；需要时可选 AnkleBreaker 或 Coplay，默认显示手动安装指引，也可以选择将 MCP 包加入清单。核对待补齐的 Scope 和所选包后输入 `y`。然后重新打开 Unity，亲自在 Package Manager 中添加下面的 Framework Git URL。
+**先运行工具，再打开 Unity；无需先安装 Framework。** Windows 使用者关闭目标工程，双击 [`Tools~/Setup-SSFramework.cmd`](../Tools~/Setup-SSFramework.cmd)，粘贴工程根目录。Framework 默认推荐自动加入清单；MCP 可选 AnkleBreaker / Coplay，新工程推荐跳过，清单中已有单一提供方时推荐保留。选中 MCP 后，其安装方式推荐加入清单。
 
-工具在 Unity 之外运行，不依赖 Framework 先安装成功。它合并缺少的 Scope，仅在明确选择 MCP 的 Manifest 模式时添加对应依赖；写入前备份原清单，配置相同时重复运行不改文件。包源或 MCP 来源冲突会报告并停止。旧 `Configure-OpenUPM` 入口仍只配置包源；命令行、恢复与验证入口见[工具说明](../Tools~/README.md)。`Tools~` 被 Unity 忽略，不会随包导入自动执行。
+核对预览与联网检查后输入 `y`，工具一次保存包源、Framework Git 地址和所选 MCP，自动备份原清单。然后打开 Unity，UPM 会下载清单中的包及其依赖，自动模式无需再粘贴 Git 地址。想亲自操作 Package Manager 时选择 Framework / MCP 的手动模式，按工具最后显示的地址安装。
+
+工具只需同目录的 `.cmd` 与 `.ps1`，可单独发布或下载，不必先克隆整个框架仓库。它保留已有 Framework 版本，重复运行不会自动升级；包源、MCP 冲突或联网预检失败时停止写入。旧 `Configure-OpenUPM` 入口仍只配置包源；默认选项、详情输出、命令行、恢复与验证入口见[工具说明](../Tools~/README.md)。`Tools~` 被 Unity 忽略，不会随包导入自动执行。
 
 ### 手动配置
 
@@ -45,10 +47,10 @@ Registry 配置保存在**消费工程**的 `Packages/manifest.json` 中；Frame
 
 ### Unity Package Manager：Git URL
 
-在 Package Manager 中选择 **Add package from git URL**：
+手动模式下，在 Package Manager 中选择 **Add package from git URL**（工具自动模式已加入同一个地址，无需重复添加）：
 
 ```text
-https://github.com/heroliss/SSFramework.git#cc1ada645083e53e014b9a81d65567d24df3737f
+https://github.com/heroliss/SSFramework.git#175eadb5f930cc3685ce17ce071e5ca1a44fc7ce
 ```
 
 上面是包含 `0.1.1` 依赖修复的待验收提交，尚未完成 Unity 6.3 全部测试，也尚未合入 main。当前不要使用省略 revision 的地址，否则可能装到缺少依赖声明的旧 main。其他已审查版本同样固定到 tag 或 commit：
@@ -125,6 +127,9 @@ HybridCLR 包安装完成只满足托管程序集引用；实际热更新 Player
 
 - Package Manager 是否解析到了预期的 revision。
 - 第三方包提示 `cannot be found` 时，先检查 OpenUPM URL、Scope 和网络连通性；包源可解析后若出现程序集缺失，再按依赖前置条件排查 DLL 和 HybridCLR。
+- `Error searching for packages` / OpenUPM `ECONNRESET` 表示包源请求被中断，可能影响在线搜索或后续下载。先重试 Package Manager；持续发生时按 [Unity 网络配置说明](https://docs.unity3d.com/6000.3/Documentation/Manual/upm-config-network.html)检查 UPM 所用网络与代理。工具预检成功只说明当前 PowerShell 请求可用，不能证明 Unity 的重试已成功。
+- 搜索 `packages.unity.com` 返回 `504` 是 Unity 官方包源请求遇到网关超时，先稍后重试；它与 OpenUPM 是不同的请求目标，不应据此删除 Framework 依赖或重建工程。持续发生时继续检查服务状态与网络路径。
+- `UnityConnectWebRequestException: Token Exchange failed` 来自 Unity 账号服务的令牌交换请求，见 [Unity 官方源码](https://github.com/Unity-Technologies/UnityCsReference/blob/master/Editor/Mono/UnityConnect/ServiceToken/TokenExchange/TokenExchange.cs)。它可能影响需要账号的在线服务，本身不是 C# 编译失败；持续出现时检查网络及 Unity Hub 登录状态，必要时由使用者重新登录并重开 Editor。不要把它与 Framework 编译错误混为一项。
 - Unity 版本和包依赖是否满足 `package.json`。
 - Context 是否先于 Model/System/View 完成初始化。
 - 订阅、异步操作、资源句柄和对象租借是否绑定到了正确的 Bag/Context 生命周期。

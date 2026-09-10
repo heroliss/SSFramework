@@ -9,4 +9,4 @@ param(
     [switch] $Apply,
     [switch] $Interactive
 )
-& (Join-Path $PSScriptRoot 'Setup-SSFramework.ps1') @PSBoundParameters -UnityMcp None
+& (Join-Path $PSScriptRoot 'Setup-SSFramework.ps1') @PSBoundParameters -UnityMcp None -FrameworkInstallMode Manual

@@ -14,8 +14,8 @@ Framework 需要在多个 Unity 工程中复用，同时保持 Core、可选 Ada
 4. 示例、消费工程和项目配置作为包外工程维护。需要验证消费方边界时，应使用独立工程或测试程序集，不把示例类型回写进 Framework 公共 API。
 5. 是否进一步拆分为多个可发布 UPM 包，必须由真实目标平台、安装依赖和 Player BuildReport 共同证明；不按程序集数量机械拆包。
 6. 单包内无条件编译的 Module 所需运行库必须由根 package.json 声明。R3、ObservableCollections、Protobuf 和 BCL 运行库采用 OpenUPM 提供的 `org.nuget.*` 分发包；HybridCLR 采用 `com.code-philosophy.hybridclr`，其 dnlib 随包提供。包源由消费工程配置，Framework 不在导入期间运行自安装脚本，也不再复制一份第三方 DLL。已用真实消费工程副本验证自动解析和相关程序集编译，完整 Editor / Player 验收仍受已记录的 Unity 版本兼容边界约束。
-7. 首次接入提供独立于 Unity 的 `Tools~/Setup-SSFramework.ps1` 和 Windows 双击入口，原 `Configure-OpenUPM` 保留为只配置包源的兼容入口。使用者显式运行，默认预览、确认后合并清单并备份；不选择 Framework revision、不接管 UPM 下载与签名处理。遇到更具体的竞争包源时停止，保留消费方原有来源决策。引导工具与包内只读审计工具分开，经真实消费清单的只读预览及其副本写入验证后回流，不依赖 Unity 编译完成。
-8. Unity MCP 属于消费工程的可选开发工具，不加入 Framework 根包的必需依赖。接入工具默认提供固定版本的手动指引，使用者也可显式选择将 MCP 包加入清单；所有清单变更共同预览与备份，不替换已有 MCP 来源或版本、不安装本机服务端或修改客户端配置。配套服务端、客户端连接与 Unity 验收独立完成。
+7. 首次接入提供独立于 Unity 的 `Tools~/Setup-SSFramework.ps1` 和 Windows 双击入口，原 `Configure-OpenUPM` 保留为只配置包源的兼容入口。使用者显式运行，默认预览、确认后合并清单并备份；推荐将已审查、已推送的固定 Framework revision 加入清单，保留手动与跳过选项，不升级已有 Framework。双击入口先检查包元数据，失败有限重试后保留原清单，不接管 UPM 下载与签名处理。遇到更具体的竞争包源时停止，保留消费方原有来源决策。引导工具与包内只读审计工具分开，经真实消费清单的只读预览及其副本写入验证后回流，不依赖 Unity 编译完成。
+8. Unity MCP 属于消费工程的可选开发工具，不加入 Framework 根包的必需依赖。新工程推荐跳过，已有单一已知提供方时推荐保留；选择 MCP 后，交互流程推荐加入清单，同时保留固定版本的手动指引。非交互参数的 MCP 模式默认 Manual，以兼容原脚本调用。所有清单变更共同预览与备份，不替换已有 MCP 来源或版本、不安装本机服务端或修改客户端配置。配套服务端、客户端连接与 Unity 验收独立完成。
 
 ## Consequences
 

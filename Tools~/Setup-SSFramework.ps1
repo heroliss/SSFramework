@@ -1,15 +1,17 @@
 ﻿#requires -Version 5.1
 <#
 .SYNOPSIS
-Previews SSFramework package sources and optional Unity MCP installation.
+Previews SSFramework Git installation, package sources and optional Unity MCP.
 .DESCRIPTION
-Runs outside Unity. The default MCP mode prints manual installation steps.
-Manifest mode adds only the selected MCP dependency. -Apply writes one atomic
-manifest replacement with a byte-for-byte backup. No downloads or client edits.
+Runs outside Unity. Framework Manifest mode is recommended; existing framework
+versions are preserved. -Apply writes one atomic manifest replacement with an
+exact backup. -CheckNetwork probes metadata; Unity performs package downloads.
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
     [string] $ProjectPath,
+    [ValidateSet('Manifest', 'Manual', 'Skip')]
+    [string] $FrameworkInstallMode = 'Manifest',
     [ValidateSet('None', 'AnkleBreaker', 'Coplay')]
     [string] $UnityMcp = 'None',
     [ValidateSet('Manual', 'Manifest')]
@@ -17,17 +19,37 @@ param(
     [switch] $SkipOpenUPM,
     [switch] $Apply,
     [switch] $Interactive,
+    [switch] $Details,
+    [switch] $CheckNetwork,
+    [switch] $SkipNetworkCheck,
     [switch] $PassThru
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+function Write-SetupSection([string] $Title) {
+    Write-Host ''
+    Write-Host $Title -ForegroundColor Cyan
+    Write-Host ('-' * 56) -ForegroundColor DarkGray
+}
 function Test-JsonObject($Value) {
     return $null -ne $Value -and $Value -is [Management.Automation.PSCustomObject]
 }
 function Read-JsonBytes([byte[]] $Bytes) {
     $text = [Text.UTF8Encoding]::new($false, $true).GetString($Bytes).TrimStart([char]0xFEFF)
     return ConvertFrom-Json -InputObject $text
+}
+function Test-SetupEndpoint([string] $Name, [string] $Url, [string] $PackageName) {
+    for ($attempt = 1; $attempt -le 2; $attempt++) {
+        try {
+            $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 8
+            $data = ConvertFrom-Json -InputObject $response.Content
+            if ($response.StatusCode -ne 200 -or $data.name -cne $PackageName) { throw 'Unexpected package metadata response.' }
+            return [pscustomobject]@{ Name = $Name; Success = $true; Attempts = $attempt }
+        } catch {
+            if ($attempt -eq 2) { return [pscustomobject]@{ Name = $Name; Success = $false; Attempts = $attempt } }
+        }
+    }
 }
 function Merge-OpenUPM($Manifest) {
     $registryUrl = 'https://package.openupm.com'
@@ -91,28 +113,37 @@ $mcpProviders = @(
     [pscustomobject]@{
         Id = 'AnkleBreaker'; PackageId = 'com.anklebreaker.unity-mcp'; PluginVersion = '2.39.5'
         GitUrl = 'https://github.com/AnkleBreaker-Studio/unity-mcp-plugin.git#v2.39.5'
-        ServerVersion = '2.35.6'; Requirements = 'Node.js >= 18 (including npm/npx); Git'
+        MetadataUrl = 'https://raw.githubusercontent.com/AnkleBreaker-Studio/unity-mcp-plugin/v2.39.5/package.json'
+        ServerVersion = '2.35.6'; Requirements = 'Node.js 18 或以上（含 npm/npx）、Git'
         RequiredCommands = @('node', 'npx', 'git')
         ServerCommand = 'npx.cmd --yes --package=anklebreaker-unity-mcp@2.35.6 unity-mcp'
         ServerEnvironment = @{ UNITY_MCP_COMPACT_TOOLS = '1' }
         EditorMenu = 'Window > MCP Dashboard'
-        License = 'AnkleBreaker Open License v1.0: attribution and redistribution conditions apply.'
+        License = 'AnkleBreaker 自定义许可，包含署名与再分发条件。'
         LicenseUrl = 'https://github.com/AnkleBreaker-Studio/unity-mcp-plugin/blob/v2.39.5/LICENSE'
         DocsUrl = 'https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/v2.35.6/README.md'
     },
     [pscustomobject]@{
         Id = 'Coplay'; PackageId = 'com.coplaydev.unity-mcp'; PluginVersion = '10.2.0'
         GitUrl = 'https://github.com/CoplayDev/unity-mcp.git?path=/MCPForUnity#v10.2.0'
-        ServerVersion = '10.2.0'; Requirements = 'Python >= 3.10; uv/uvx; Git'
+        MetadataUrl = 'https://raw.githubusercontent.com/CoplayDev/unity-mcp/v10.2.0/MCPForUnity/package.json'
+        ServerVersion = '10.2.0'; Requirements = 'Python 3.10 或以上、uv/uvx、Git'
         RequiredCommands = @('uv', 'uvx', 'git')
         ServerCommand = 'uvx --from mcpforunityserver==10.2.0 mcp-for-unity --transport stdio'
         ServerEnvironment = @{}
         EditorMenu = 'Window > MCP for Unity'
-        License = 'MIT: retain the copyright and license notice when redistributing.'
+        License = 'MIT；再分发时保留版权与许可声明。'
         LicenseUrl = 'https://github.com/CoplayDev/unity-mcp/blob/v10.2.0/LICENSE'
         DocsUrl = 'https://github.com/CoplayDev/unity-mcp/blob/v10.2.0/website/docs/getting-started/install.md'
     }
 )
+
+# Keep this reviewed installation candidate in sync with consuming-framework.md.
+$frameworkGitUrl = 'https://github.com/heroliss/SSFramework.git#175eadb5f930cc3685ce17ce071e5ca1a44fc7ce'
+Write-Host ''
+Write-Host 'SSFramework 接入助手' -ForegroundColor Cyan
+Write-Host '先运行本工具准备安装，再打开 Unity；Unity 会按清单下载框架与依赖。'
+if ($Interactive) { Write-SetupSection '[1/4] 选择工程与可选工具' }
 
 if ([string]::IsNullOrWhiteSpace($ProjectPath) -and $Interactive) {
     $ProjectPath = (Read-Host 'Unity 工程根目录（粘贴路径；留空取消）').Trim().Trim('"')
@@ -132,19 +163,47 @@ $originalBytes = [IO.File]::ReadAllBytes($manifestPath)
 $manifest = Read-JsonBytes $originalBytes
 if (-not (Test-JsonObject $manifest) -or -not $manifest.PSObject.Properties['dependencies'] -or
     -not (Test-JsonObject $manifest.dependencies)) { throw 'manifest.json must contain a dependencies object.' }
+$frameworkDeclared = $null -ne $manifest.dependencies.PSObject.Properties['com.liss.ssframework']
+$frameworkPresent = $frameworkDeclared
+$versionLine = Get-Content -LiteralPath $versionPath | Where-Object { $_ -match '^m_EditorVersion:' } | Select-Object -First 1
+
+if ($Interactive -and -not $PSBoundParameters.ContainsKey('FrameworkInstallMode')) {
+    Write-Host ''
+    Write-Host 'SSFramework：提供 UI、资源、配置与生命周期等基础能力。'
+    Write-Host '  1  自动加入清单（推荐；已有版本会保留）'
+    Write-Host '  2  手动安装：只显示 Git 地址'
+    Write-Host '  0  跳过框架，仅配置其他选项'
+    switch ((Read-Host '选择 [1/2/0]，回车使用推荐项').Trim()) {
+        '' { $FrameworkInstallMode = 'Manifest' }; '1' { $FrameworkInstallMode = 'Manifest' }
+        '2' { $FrameworkInstallMode = 'Manual' }; '0' { $FrameworkInstallMode = 'Skip' }
+        default { throw 'Invalid framework selection. Use 1, 2 or 0; nothing was changed.' }
+    }
+}
 
 if ($Interactive -and -not $PSBoundParameters.ContainsKey('UnityMcp')) {
-    Write-Host '可选 Unity MCP：0 跳过（保留已有包）；1 AnkleBreaker；2 Coplay'
-    switch ((Read-Host '选择 [0/1/2]，直接回车跳过').Trim()) {
-        '' { $UnityMcp = 'None' }; '0' { $UnityMcp = 'None' }
+    $existingProviders = @($mcpProviders | Where-Object { $null -ne $manifest.dependencies.PSObject.Properties[$_.PackageId] })
+    $recommendedMcp = if ($existingProviders.Count -eq 1) { $existingProviders[0].Id } else { 'None' }
+    Write-Host ''
+    Write-Host 'Unity MCP（可选）'
+    Write-Host '让 AI 读取场景、操作编辑器和获取测试结果；游戏运行不需要它。'
+    Write-Host '  0  跳过，保留已有包'
+    Write-Host '  1  AnkleBreaker'
+    Write-Host '  2  Coplay'
+    $recommendation = if ($recommendedMcp -eq 'None') { '跳过；需要 AI 编辑器操作时再选择' } else { "保留工程已有的 $recommendedMcp" }
+    Write-Host "  推荐：$recommendation"
+    switch ((Read-Host '选择 [0/1/2]，回车使用推荐项').Trim()) {
+        '' { $UnityMcp = $recommendedMcp }; '0' { $UnityMcp = 'None' }
         '1' { $UnityMcp = 'AnkleBreaker' }; '2' { $UnityMcp = 'Coplay' }
         default { throw 'Invalid MCP selection. Use 0, 1 or 2; nothing was changed.' }
     }
 }
 if ($UnityMcp -ne 'None' -and $Interactive -and -not $PSBoundParameters.ContainsKey('McpInstallMode')) {
-    Write-Host 'MCP 安装方式：1 手动安装指引；2 将所选包加入工程清单'
-    switch ((Read-Host '选择 [1/2]，直接回车使用手动安装').Trim()) {
-        '' { $McpInstallMode = 'Manual' }; '1' { $McpInstallMode = 'Manual' }
+    Write-Host ''
+    Write-Host '所选 MCP 的安装方式'
+    Write-Host '  1  手动安装：显示 Git 地址和步骤'
+    Write-Host '  2  加入清单：Unity 启动后自动下载插件（推荐）'
+    switch ((Read-Host '选择 [1/2]，回车使用推荐项').Trim()) {
+        '' { $McpInstallMode = 'Manifest' }; '1' { $McpInstallMode = 'Manual' }
         '2' { $McpInstallMode = 'Manifest' }
         default { throw 'Invalid install mode. Use 1 or 2; nothing was changed.' }
     }
@@ -159,7 +218,7 @@ foreach ($dependency in $manifest.dependencies.PSObject.Properties) {
     }
 }
 # Locked transitive packages and embedded packages may not appear in dependencies.
-if ($null -ne $selectedMcp) {
+if ($null -ne $selectedMcp -or $FrameworkInstallMode -ne 'Skip') {
     $lockPath = Join-Path $projectRoot 'Packages/packages-lock.json'
     if (Test-Path -LiteralPath $lockPath -PathType Leaf) {
         $packageLock = Read-JsonBytes ([IO.File]::ReadAllBytes($lockPath))
@@ -167,6 +226,7 @@ if ($null -ne $selectedMcp) {
         if ($packageLock.PSObject.Properties['dependencies']) {
             if (-not (Test-JsonObject $packageLock.dependencies)) { throw 'packages-lock.json dependencies must be an object.' }
             foreach ($dependency in $packageLock.dependencies.PSObject.Properties) {
+                if ($dependency.Name -ceq 'com.liss.ssframework') { $frameworkPresent = $true }
                 if ($knownIds -ccontains $dependency.Name) {
                     $installedMcp += [pscustomobject]@{ PackageId = $dependency.Name; Source = 'lock'; Version = $null }
                 }
@@ -177,6 +237,7 @@ if ($null -ne $selectedMcp) {
         $embeddedPath = Join-Path $directory.FullName 'package.json'
         if (-not (Test-Path -LiteralPath $embeddedPath -PathType Leaf)) { continue }
         $embedded = Read-JsonBytes ([IO.File]::ReadAllBytes($embeddedPath))
+        if ((Test-JsonObject $embedded) -and $embedded.PSObject.Properties['name'] -and $embedded.name -ceq 'com.liss.ssframework') { $frameworkPresent = $true }
         if ((Test-JsonObject $embedded) -and $embedded.PSObject.Properties['name'] -and $knownIds -ccontains $embedded.name) {
             $installedMcp += [pscustomobject]@{ PackageId = $embedded.name; Source = 'embedded'; Version = $null }
         }
@@ -205,61 +266,110 @@ if ($null -ne $selectedMcp -and $McpInstallMode -eq 'Manifest') {
         $addedPackage = $true
     }
 }
+$addedFramework = $FrameworkInstallMode -eq 'Manifest' -and -not $frameworkPresent
+if ($addedFramework) {
+    if ($versionLine -notmatch '^m_EditorVersion:\s*6000\.3\.') { throw 'Automatic framework installation currently requires Unity 6.3 LTS. Use Manual mode to evaluate other versions.' }
+    if ($SkipOpenUPM) {
+        $sourceProbe = Read-JsonBytes $originalBytes
+        $missingSourceScopes = Merge-OpenUPM $sourceProbe
+        if ($missingSourceScopes.Count -gt 0) {
+            throw 'SSFramework requires OpenUPM scopes. Remove -SkipOpenUPM or configure the sources first.'
+        }
+    }
+    $manifest.dependencies | Add-Member -MemberType NoteProperty -Name 'com.liss.ssframework' -Value $frameworkGitUrl
+}
 $addedScopes = @()
 if (-not $SkipOpenUPM) { $addedScopes = Merge-OpenUPM $manifest }
-$changed = $addedScopes.Count -gt 0 -or $addedPackage
-$versionLine = Get-Content -LiteralPath $versionPath | Where-Object { $_ -match '^m_EditorVersion:' } | Select-Object -First 1
+$changed = $addedScopes.Count -gt 0 -or $addedPackage -or $addedFramework
 $plan = [pscustomobject]@{
     ProjectPath = $projectRoot; UnityVersion = $versionLine
     ConfigureOpenUPM = -not $SkipOpenUPM; AddedScopes = @($addedScopes)
     UnityMcp = $UnityMcp; McpInstallMode = $McpInstallMode; Mcp = $selectedMcp
     DetectedMcp = @($installedMcp); AddedMcpPackage = $addedPackage
     ManifestChanged = $changed; Applied = $false; BackupPath = $null
+    FrameworkDeclared = $frameworkDeclared; FrameworkGitUrl = $frameworkGitUrl
+    FrameworkPresent = $frameworkPresent; FrameworkInstallMode = $FrameworkInstallMode; AddedFrameworkPackage = $addedFramework
+    NetworkChecks = @(); NetworkBlocked = $false
 }
-Write-Host "Project: $projectRoot"
-Write-Host "$versionLine"
-if (-not $SkipOpenUPM) {
-    Write-Host 'Registry: https://package.openupm.com'
-    if ($versionLine -notmatch '6000\.3\.') {
-        Write-Warning 'The full SSFramework package currently targets Unity 6.3 LTS. Check compatibility before installation.'
-    }
-    foreach ($scope in $addedScopes) { Write-Host "  Add scope: $scope" }
+$versionDisplay = $versionLine -replace '^m_EditorVersion:\s*', ''
+$selectedAlreadyPresent = $null -ne $selectedMcp -and @($installedMcp | Where-Object { $_.PackageId -ceq $selectedMcp.PackageId }).Count -gt 0
+Write-SetupSection '[2/4] 变更预览'
+Write-Host "  工程：$projectRoot"
+Write-Host "  Unity：$versionDisplay"
+if ($frameworkPresent) { Write-Host '  SSFramework：已声明、解析或嵌入，保留现有来源与版本。' }
+elseif ($addedFramework) { Write-Host '  SSFramework：将固定提交 175eadb 加入清单，Unity 启动后自动下载。' }
+elseif ($FrameworkInstallMode -eq 'Manual') { Write-Host '  SSFramework：仅提供手动安装地址。' }
+else { Write-Host '  SSFramework：本次跳过。' }
+if ($addedFramework) { Write-Host '  框架依赖：含 YooAsset 等整包依赖，目前一并安装。' }
+if ($SkipOpenUPM) { Write-Host '  包源：本次跳过。' }
+elseif ($addedScopes.Count -eq 0) { Write-Host '  包源：OpenUPM 已配置，无需修改。' }
+else { Write-Host "  包源：OpenUPM，待补齐 $($addedScopes.Count) 项 Scope。" }
+if ($addedScopes.Count -gt 0) { Write-Host '  作用：Scope 告诉 Unity 哪些依赖去 OpenUPM 下载，无需逐个装包。' }
+if (-not $SkipOpenUPM -and $versionLine -notmatch '6000\.3\.') {
+    Write-Host '  提醒：完整框架当前以 Unity 6.3 LTS 为目标，请先核对兼容性。' -ForegroundColor Yellow
 }
 if ($null -ne $selectedMcp) {
-    Write-Host "MCP: $UnityMcp | Unity plugin $($selectedMcp.PluginVersion) | server $($selectedMcp.ServerVersion)"
-    Write-Host "Requirements: $($selectedMcp.Requirements)"
-    foreach ($commandName in $selectedMcp.RequiredCommands) {
-        $available = $null -ne (Get-Command $commandName -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1)
-        $status = if ($available) { 'found on PATH; check its version' } else { 'not found on PATH; install it before connecting' }
-        Write-Host "  ${commandName}: $status"
+    Write-Host "  MCP：$UnityMcp，候选插件版本 $($selectedMcp.PluginVersion)。"
+    if ($addedPackage) { Write-Host '  操作：将 MCP 加入清单；打开 Unity 后由 UPM 下载。' }
+    elseif ($selectedAlreadyPresent) { Write-Host '  操作：保留已有 MCP；本工具不重复添加或升级。' }
+    else { Write-Host '  操作：仅提供 MCP 手动安装指引。' }
+    Write-Host "  许可：$($selectedMcp.License)"
+    $missingCommands = @($selectedMcp.RequiredCommands | Where-Object {
+        $null -eq (Get-Command $_ -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1)
+    })
+    if ($missingCommands.Count -gt 0) {
+        Write-Host "  连接前需准备：$($missingCommands -join '、')（PATH 未找到）。" -ForegroundColor Yellow
     }
-    foreach ($detected in $installedMcp) { Write-Host "  Existing MCP: $($detected.PackageId) [$($detected.Source)]" }
-    Write-Host "License: $($selectedMcp.License)"
-    Write-Host $selectedMcp.LicenseUrl
-    if ($addedPackage) { Write-Host "  Add dependency: $($selectedMcp.PackageId) = $($selectedMcp.GitUrl)" }
-    Write-Host "MCP package mode: $McpInstallMode"
-    Write-Host '手动接入 / 后续连接步骤：'
-    if ($McpInstallMode -eq 'Manual') { Write-Host '  1. 在 Unity Package Manager 添加下方 Git URL；若已安装 MCP，先核对现有来源。' }
-    else { Write-Host '  1. 应用清单后打开 Unity，等待 Package Manager 完成解析与编译。' }
-    Write-Host "     $($selectedMcp.GitUrl)"
-    Write-Host "  2. 打开 $($selectedMcp.EditorMenu)，检查插件状态与所选客户端的连接配置。"
-    Write-Host "  3. 使用配套服务端版本 $($selectedMcp.ServerVersion)，按提供方说明配置客户端。"
-    Write-Host "     Windows 服务端命令（stdio；本工具不会执行）：$($selectedMcp.ServerCommand)"
-    foreach ($key in $selectedMcp.ServerEnvironment.Keys) { Write-Host "     服务端环境变量：$key=$($selectedMcp.ServerEnvironment[$key])" }
-    Write-Host "     $($selectedMcp.DocsUrl)"
-    Write-Host '  4. 在 AI 客户端读取工程路径、场景及 Console，确认目标，再验证编译后的重连与测试结果。'
-    Write-Host '服务端命令首次运行可能下载第三方代码。客户端配置格式与启动方式以提供方和宿主说明为准。'
-    Write-Host '仅检测了声明、锁文件和 embedded 包中的已知 MCP；Assets 导入的插件需在 Unity 中核对。'
-    Write-Host '本工具不安装本机运行环境、不启动服务端，也不修改 AI 客户端配置。'
-}
+    if (@($installedMcp | Where-Object { $_.PackageId -cne $selectedMcp.PackageId }).Count -gt 0) {
+        Write-Host '  提醒：工程已有其他 MCP 提供方，请先核对是否需要切换。' -ForegroundColor Yellow
+    }
+} else { Write-Host '  MCP：本次跳过，已有包保持原状。' }
 if ($changed) {
-    Write-Host '待修改：Packages/manifest.json（上述 Scope 与所选 MCP；JSON 排版可能变化）。'
-    Write-Host '原清单备份：UserSettings/SSFrameworkSetup/manifest-<unique-id>.json'
-    Write-Host '其他依赖版本、packages-lock.json 和 ProjectSettings 保持原状。'
+    Write-Host '  写入：Packages/manifest.json'
+    Write-Host '  范围：仅合并所选依赖与包源；JSON 排版可能变化。'
+    Write-Host '  备份：自动保存原清单，完成后显示路径。'
+} else { Write-Host '  写入：无；重复运行不会创建新备份。' }
+if (($addedFramework -or $addedPackage) -and $null -eq (Get-Command git -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1)) {
+    throw 'Git is required for automatic Git package installation. Install Git or select Manual mode.'
+}
+if ($CheckNetwork -and -not $SkipNetworkCheck -and $changed) {
+    Write-Host '  联网预检：正在检查包元数据（失败会重试一次）……'
+    if (-not $SkipOpenUPM) { $plan.NetworkChecks += Test-SetupEndpoint 'OpenUPM' 'https://package.openupm.com/com.cysharp.r3' 'com.cysharp.r3' }
+    if ($addedFramework) { $plan.NetworkChecks += Test-SetupEndpoint 'SSFramework / GitHub' 'https://raw.githubusercontent.com/heroliss/SSFramework/175eadb5f930cc3685ce17ce071e5ca1a44fc7ce/package.json' 'com.liss.ssframework' }
+    if ($addedPackage) { $plan.NetworkChecks += Test-SetupEndpoint "$UnityMcp / GitHub" $selectedMcp.MetadataUrl $selectedMcp.PackageId }
+    foreach ($check in $plan.NetworkChecks) {
+        $statusText = if ($check.Success) { '可访问' } else { '检查失败' }
+        Write-Host "    $($check.Name)：$statusText"
+    }
+    $plan.NetworkBlocked = @($plan.NetworkChecks | Where-Object { -not $_.Success }).Count -gt 0
+} elseif ($changed) { Write-Host '  联网预检：未执行；可添加 -CheckNetwork 检查包源。' -ForegroundColor DarkGray }
+if ($Details) {
+    Write-Host ''
+    Write-Host '配置明细' -ForegroundColor DarkCyan
+    if (-not $SkipOpenUPM) {
+        Write-Host '  Registry：https://package.openupm.com'
+        foreach ($scope in $addedScopes) { Write-Host "  新增 Scope：$scope" }
+    }
+    if ($null -ne $selectedMcp) {
+        Write-Host "  候选包：$($selectedMcp.PackageId)"
+        Write-Host "  来源：$($selectedMcp.GitUrl)"
+        Write-Host "  环境要求：$($selectedMcp.Requirements)"
+        foreach ($commandName in $selectedMcp.RequiredCommands) {
+            $available = $null -ne (Get-Command $commandName -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1)
+            $status = if ($available) { '已找到，版本仍需核对' } else { '未找到' }
+            Write-Host "    ${commandName}：$status"
+        }
+        foreach ($detected in $installedMcp) { Write-Host "  检测到：$($detected.PackageId) [$($detected.Source)]" }
+        Write-Host "  许可原文：$($selectedMcp.LicenseUrl)"
+    }
+    if ($addedFramework) { Write-Host "  框架来源：$frameworkGitUrl" }
+}
+if ($changed -and -not $plan.NetworkBlocked) {
+    Write-Host ''
     if ($Interactive -and -not $Apply -and -not $WhatIfPreference) {
         $Apply = (Read-Host '请先关闭该 Unity 工程。是否应用以上配置？[y/N]').Trim() -ieq 'y'
     }
-    if ($Apply -and $PSCmdlet.ShouldProcess($manifestPath, 'Apply package source/MCP plan with an atomic manifest backup')) {
+    if ($Apply -and $PSCmdlet.ShouldProcess($manifestPath, '应用框架、包源与所选 MCP 配置，并备份原清单')) {
         $unityLockPath = Join-Path $projectRoot 'Temp/UnityLockfile'
         if (Test-Path -LiteralPath $unityLockPath) {
             try {
@@ -289,9 +399,59 @@ if ($changed) {
         }
         $plan.Applied = $true
         $plan.BackupPath = $backupPath
-        Write-Host "Configured. Original manifest: $backupPath"
-    } else { Write-Host 'Preview only. Run again with -Apply to write the configuration.' }
-} else { Write-Host 'Already configured / no manifest changes selected. No files changed.' }
-Write-Host 'SSFramework Git URL 仍由使用者在 Unity 中添加；使用已审查的固定 revision。'
-Write-Host '清单配置完成不代表包安装、MCP 连接或 Unity 测试已经通过。'
+    }
+}
+Write-SetupSection '[3/4] 执行结果'
+if ($plan.NetworkBlocked) {
+    Write-Host '  暂停：包源预检失败，清单保持原状。' -ForegroundColor Yellow
+    Write-Host '  请检查网络或代理后重试；本工具不会更改系统网络设置。'
+} elseif ($plan.Applied) {
+    Write-Host '  已完成：工程清单配置已保存。' -ForegroundColor Green
+    if ($addedScopes.Count -gt 0) { Write-Host "    已补齐 $($addedScopes.Count) 项包源 Scope。" }
+    if ($addedFramework) { Write-Host '    已添加 SSFramework Git 依赖。' }
+    if ($addedPackage) { Write-Host "    已添加 $UnityMcp Git 依赖。" }
+    Write-Host "  原清单备份：$($plan.BackupPath)"
+} elseif ($changed) { Write-Host '  仅预览：尚未写入任何配置。' -ForegroundColor Yellow }
+else { Write-Host '  无需修改：所选配置已存在，或本次只查看指引。' -ForegroundColor Green }
+
+Write-SetupSection '[4/4] 下一步'
+if ($changed -and -not $plan.Applied) {
+    Write-Host '  先重新运行并确认应用，或添加 -Apply 参数；配置生效后：'
+}
+Write-Host '  1. 打开 Unity，等待 Package Manager 完成解析和编译。'
+if ($frameworkPresent) {
+    Write-Host '  2. SSFramework 已在工程中，在 Package Manager 核对来源和解析结果。'
+} elseif ($FrameworkInstallMode -eq 'Manifest') {
+    Write-Host '  2. SSFramework 将由 UPM 按清单安装，无需手动添加 Git 地址。'
+    Write-Host '     当前固定到待验收提交，完整 Unity 6.3 验收仍需完成。' -ForegroundColor DarkGray
+} elseif ($FrameworkInstallMode -eq 'Manual') {
+    Write-Host '  2. 在 Package Manager 中选择 Add package from git URL，添加 SSFramework：'
+    Write-Host "     $frameworkGitUrl"
+    Write-Host '     此地址为当前待验收提交，完整 Unity 6.3 验收仍需完成。' -ForegroundColor DarkGray
+} else {
+    Write-Host '  2. 本次跳过框架，继续核对已选择的其他配置。'
+}
+if ($null -ne $selectedMcp) {
+    if ($selectedAlreadyPresent) { Write-Host '  3. 所选 MCP 已存在，请在 Package Manager 核对版本和来源。' }
+    elseif ($McpInstallMode -eq 'Manifest') { Write-Host '  3. MCP 将由 UPM 按清单安装，无需再次粘贴它的 Git 地址。' }
+    else {
+        Write-Host '  3. 手动添加 MCP 的 Git 地址：'
+        Write-Host "     $($selectedMcp.GitUrl)"
+    }
+    Write-Host "     打开 $($selectedMcp.EditorMenu) 配置连接。"
+    Write-Host "     与候选插件配套的服务端版本：$($selectedMcp.ServerVersion)。"
+    if ($Details) {
+        Write-Host ''
+        Write-Host 'MCP 连接详情（供手动配置，本工具不执行）' -ForegroundColor DarkCyan
+        Write-Host "  Windows 服务端命令：$($selectedMcp.ServerCommand)"
+        foreach ($key in $selectedMcp.ServerEnvironment.Keys) { Write-Host "  服务端环境变量：$key=$($selectedMcp.ServerEnvironment[$key])" }
+        Write-Host "  提供方说明：$($selectedMcp.DocsUrl)"
+        Write-Host '  首次启动服务端可能下载代码；配置格式按所用 AI 客户端核对。'
+    }
+}
+Write-Host ''
+Write-Host '提示：配置清单与完成安装是两步；是否成功以 Unity 的解析、编译和连接结果为准。' -ForegroundColor DarkGray
+Write-Host '查看 Scope、来源与连接命令：运行脚本时添加 -Details。' -ForegroundColor DarkGray
+Write-Host '安装说明：https://github.com/heroliss/SSFramework/blob/codex/package-installation/Tools~/README.md' -ForegroundColor DarkGray
 if ($PassThru) { return $plan }
+if ($plan.NetworkBlocked) { throw 'Network preflight failed; no manifest changes were applied.' }
