@@ -12,9 +12,9 @@ SSFramework 的 `package.json` 已声明第三方 UPM 包和 NuGet 运行库的 
 
 ### 推荐：使用配置工具
 
-Windows 使用者可以关闭目标 Unity 工程，双击仓库中的 [`Tools~/Configure-OpenUPM.cmd`](../Tools~/Configure-OpenUPM.cmd)，粘贴工程根目录，查看待补齐的 Scope 后输入 `y`。然后重新打开 Unity，亲自在 Package Manager 中添加下面的 Git URL。
+Windows 使用者可以关闭目标 Unity 工程，双击 [`Tools~/Setup-SSFramework.cmd`](../Tools~/Setup-SSFramework.cmd)，粘贴工程根目录。无需 MCP 时直接回车跳过；需要时可选 AnkleBreaker 或 Coplay，默认显示手动安装指引，也可以选择将 MCP 包加入清单。核对待补齐的 Scope 和所选包后输入 `y`。然后重新打开 Unity，亲自在 Package Manager 中添加下面的 Framework Git URL。
 
-工具在 Unity 之外运行，不依赖 Framework 先安装成功。它保留现有依赖和其他包源，只合并缺少的 Scope；写入前备份原清单，已配置完整时重复运行不改文件。包源冲突会报告并停止，不自动改选其他来源。命令行预览、恢复与验证入口见[工具说明](../Tools~/README.md)。`Tools~` 被 Unity 忽略，不会随包导入自动执行。
+工具在 Unity 之外运行，不依赖 Framework 先安装成功。它合并缺少的 Scope，仅在明确选择 MCP 的 Manifest 模式时添加对应依赖；写入前备份原清单，配置相同时重复运行不改文件。包源或 MCP 来源冲突会报告并停止。旧 `Configure-OpenUPM` 入口仍只配置包源；命令行、恢复与验证入口见[工具说明](../Tools~/README.md)。`Tools~` 被 Unity 忽略，不会随包导入自动执行。
 
 ### 手动配置
 
