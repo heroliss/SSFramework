@@ -139,7 +139,7 @@ $mcpProviders = @(
 )
 
 # Keep this reviewed installation candidate in sync with consuming-framework.md.
-$frameworkGitUrl = 'https://github.com/heroliss/SSFramework.git#175eadb5f930cc3685ce17ce071e5ca1a44fc7ce'
+$frameworkGitUrl = 'https://github.com/heroliss/SSFramework.git#57062df9e56b6f562bc4e4a868367370fc657229'
 Write-Host ''
 Write-Host 'SSFramework 接入助手' -ForegroundColor Cyan
 Write-Host '先运行本工具准备安装，再打开 Unity；Unity 会按清单下载框架与依赖。'
@@ -297,7 +297,7 @@ Write-SetupSection '[2/4] 变更预览'
 Write-Host "  工程：$projectRoot"
 Write-Host "  Unity：$versionDisplay"
 if ($frameworkPresent) { Write-Host '  SSFramework：已声明、解析或嵌入，保留现有来源与版本。' }
-elseif ($addedFramework) { Write-Host '  SSFramework：将固定提交 175eadb 加入清单，Unity 启动后自动下载。' }
+elseif ($addedFramework) { Write-Host '  SSFramework：将固定提交 57062df 加入清单，Unity 启动后自动下载。' }
 elseif ($FrameworkInstallMode -eq 'Manual') { Write-Host '  SSFramework：仅提供手动安装地址。' }
 else { Write-Host '  SSFramework：本次跳过。' }
 if ($addedFramework) { Write-Host '  框架依赖：含 YooAsset 等整包依赖，目前一并安装。' }
@@ -335,7 +335,7 @@ if (($addedFramework -or $addedPackage) -and $null -eq (Get-Command git -Command
 if ($CheckNetwork -and -not $SkipNetworkCheck -and $changed) {
     Write-Host '  联网预检：正在检查包元数据（失败会重试一次）……'
     if (-not $SkipOpenUPM) { $plan.NetworkChecks += Test-SetupEndpoint 'OpenUPM' 'https://package.openupm.com/com.cysharp.r3' 'com.cysharp.r3' }
-    if ($addedFramework) { $plan.NetworkChecks += Test-SetupEndpoint 'SSFramework / GitHub' 'https://raw.githubusercontent.com/heroliss/SSFramework/175eadb5f930cc3685ce17ce071e5ca1a44fc7ce/package.json' 'com.liss.ssframework' }
+    if ($addedFramework) { $plan.NetworkChecks += Test-SetupEndpoint 'SSFramework / GitHub' 'https://raw.githubusercontent.com/heroliss/SSFramework/57062df9e56b6f562bc4e4a868367370fc657229/package.json' 'com.liss.ssframework' }
     if ($addedPackage) { $plan.NetworkChecks += Test-SetupEndpoint "$UnityMcp / GitHub" $selectedMcp.MetadataUrl $selectedMcp.PackageId }
     foreach ($check in $plan.NetworkChecks) {
         $statusText = if ($check.Success) { '可访问' } else { '检查失败' }

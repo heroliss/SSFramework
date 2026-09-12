@@ -71,7 +71,7 @@ SSFramework 将依赖注入、Context 作用域、Model / System / View 分层�
 3. 在 Package Manager 中选择 **Install package from git URL / Add package from git URL**，输入以下地址：
 
 ```text
-https://github.com/heroliss/SSFramework.git#175eadb5f930cc3685ce17ce071e5ca1a44fc7ce
+https://github.com/heroliss/SSFramework.git#57062df9e56b6f562bc4e4a868367370fc657229
 ```
 
 4. 等待依赖解析、签名确认和编译完成，再按需手动安装 [Unity MCP、Odin 等可选开发工具](docs/consuming-framework.md#可选开发工具)。这些工具不影响 Framework 是否必须安装；YooAsset、HybridCLR 等根包依赖目前仍随完整框架安装，不能取消。
@@ -88,7 +88,7 @@ Scope 明细、MCP 连接命令和来源可通过 `-Details` 查看；命令行�
 
 #### 版本固定与升级
 
-上面的提交包含 `0.1.1` 依赖修复，已在 Unity `6000.3.23f1` 消费工程观察到依赖解析与 Runtime / Editor 编译成功，完整测试和 Player 验收仍待完成；修复尚未合入 main，当前不要省略 revision。升级到其他已审查提交时使用：
+上面的候选包含 `0.1.1` 依赖修复、自检生命周期修复及 Unity C# 9 测试语法修正。依赖基线已在 Unity `6000.3.23f1` 消费工程解析并编译；本轮 Core / Editor / Core Tests 离线编译与真实 PlayMode 自检专项验证通过，完整包测试和 Player 验收仍待完成。修复尚未合入 main，当前不要省略 revision；[版本选择与发布标准](docs/consuming-framework.md#版本选择与发布)说明了后续简便入口与版本管理方式。升级到其他已审查提交时使用：
 
 ```text
 https://github.com/heroliss/SSFramework.git#<commit-sha>
