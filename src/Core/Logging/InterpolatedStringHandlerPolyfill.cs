@@ -6,8 +6,8 @@
 // 内部类型不外泄，多个程序集各带一份也不会互相冲突；而「某个类型是处理器」这一事实是写进
 // 该类型元数据的，调用方所在程序集**不需要**也声明这两个 attribute 就能识别（跨程序集调用照常工作）。
 //
-// 用途见 Logging/TraceInterpolatedStringHandler.cs：让 Log.Trace($"...") 在级别没开时
-// 连插值表达式都不求值（真·零成本），而不是先拼好字符串再丢弃。
+// 用途见 Logging/TraceInterpolatedStringHandler.cs：C# 10 调用方可在级别没开时跳过插值求值。
+// 这些声明不会改变调用方的语言版本；Unity 默认 C# 9 下仍需显式 IsEnabled 守卫。
 
 namespace System.Runtime.CompilerServices
 {

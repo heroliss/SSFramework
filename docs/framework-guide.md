@@ -127,11 +127,7 @@ eventBus.Send("player_hurt");
 eventBus.Send(EventType.PlayerHurt);
 
 // ✅ 类型事件：每种事件本身就是一个类型，IDE 可找到所有引用，重命名安全
-public readonly struct PlayerHurtEvent : IEvent
-{
-    public int Damage { get; }
-    public PlayerHurtEvent(int damage) => Damage = damage;
-}
+public record struct PlayerHurtEvent(int Damage) : IEvent;
 this.SendEvent(new PlayerHurtEvent(10));
 this.RegisterEvent<PlayerHurtEvent>(e => TakeDamage(e.Damage));
 ```
@@ -142,19 +138,11 @@ this.RegisterEvent<PlayerHurtEvent>(e => TakeDamage(e.Damage));
 
 ```csharp
 // 字符串驱动：
-public readonly struct StringEvent : IEvent
-{
-    public string Type { get; }
-    public StringEvent(string type) => Type = type;
-}
+public record struct StringEvent(string Type) : IEvent;
 this.SendEvent(new StringEvent("scene_loaded"));
 
 // 枚举驱动：
-public readonly struct UIEvent : IEvent
-{
-    public UIActionType Action { get; }
-    public UIEvent(UIActionType action) => Action = action;
-}
+public record struct UIEvent(UIActionType Action) : IEvent;
 this.SendEvent(new UIEvent(UIActionType.Open));
 ```
 
@@ -537,20 +525,12 @@ ctx.RegisterModel(new ConfigModel());
 
 ### Event：瞬时可观察数据
 
-Event 用于"发生了某件事"的一次性通知，不保留历史。推荐用兼容 Unity 6.3 所用 C# 9 的 `readonly struct` 定义，避免为事件实例额外分配对象；事件内引用的数据仍按其自身类型分配：
+Event 用于"发生了某件事"的一次性通知，不保留历史。默认用 C# 10 的 `record struct` 简洁声明数据与按值比较；普通 `struct` / `readonly struct` 也支持。业务程序集需按[语言版本约定](consuming-framework.md#c-10-默认约定与原因)配置。值类型不意味着整个调用链零分配，事件内引用数据仍按其自身类型分配：
 
 ```csharp
-public readonly struct GoldChangedEvent : IEvent
-{
-    public int Delta { get; }
-    public GoldChangedEvent(int delta) => Delta = delta;
-}
+public record struct GoldChangedEvent(int Delta) : IEvent;
 
-public readonly struct ItemAddedEvent : IEvent
-{
-    public ItemData Item { get; }
-    public ItemAddedEvent(ItemData item) => Item = item;
-}
+public record struct ItemAddedEvent(ItemData Item) : IEvent;
 ```
 
 System 在修改 Model 后发出对应事件，View 或其他 System 根据需要监听：
@@ -3403,19 +3383,19 @@ Log.Write(LogLevel.Info, "purchase",
 
 `Log.Error(message, exception)` 在日志模型中仍是**一个** `LogEntry`；默认 Unity sink 为保留 Console 的异常定位体验，会显示一条 Error 再调用一次 `Debug.LogException`，因此 Console 可见两条红色项。没有异常的 Error 通常只显示一条。测试断言和教学说明要区分“结构化条目数”与“Unity Console 项数”，不要把正常的双呈现误判为重复日志。
 
-### `Trace` 写成插值 —— 关掉时真·零成本
+### Trace 关闭时避免构造消息
 
 ```csharp
 Log.Trace($"[Container] REGISTER {type.Name}: {label}");
 ```
 
-`Trace` 的插值重载走 **C# 10 插值字符串处理器**：编译器把 `$"..."` 改写成一串 `Append` 调用，外面裹一个 `if (级别放行吗)` 守卫。**总闸门没放行到 `Trace` 时整块跳过——插值表达式一次都不求值、字符串一个字符都不拼。**
+SSFramework 的接入约定是 C# 10.0。上面的调用由插值处理器检查全局级别与 sink 阈值；无人接收 Trace 时，不计算插值表达式，也不构造消息字符串。
 
-对比普通 `string` 参数：`Log.Trace($"解析 {type.Name} 耗时 {ms}ms")` 会**先把字符串拼好**，进到方法里才发现级别没放行、直接丢弃——白拼、白分配。容器每解析一次就白拼一个字符串，这是真实的浪费。
+这要求**调用日志的程序集**也启用 C# 10；只配置框架不会改变业务调用点。Unity 6.3 原生默认是 C# 9，此时该调用选择普通 `string` 重载，先拼字符串再过滤；保留 C# 9 的调用方需写 `if (Log.IsEnabled(LogLevel.Trace)) Log.Trace($"...");`。配置步骤见[接入指南](consuming-framework.md#c-10-默认约定与原因)。
 
-> ⚠ **唯一要守的纪律**：惰性意味着求值语义变了——`Trace` 的插值参数里只放**纯读取**（属性、`ToString()`），**不要放有副作用的表达式**（`i++` / `list.Pop()`），级别没放行时它们不会执行。这与手写 `if (Log.IsEnabled(LogLevel.Trace)) Log.Trace(...)` 是**完全相同**的语义，处理器只是把守卫自动化了。另：别写 `Log.Trace("x " + y)`（字符串拼接会退回「先拼再丢」）。
+插值参数只放纯读取，不要放 `i++` / `list.Pop()` 等副作用；日志级别不应改变业务行为。普通字符串拼接也应放在守卫内。关闭时避免消息分配，不代表开启后的格式化、字符串生成与 sink 写入都没有分配。
 
-处理器所需的两个 C# 10 attribute 在 Unity BCL 里没有，框架自带一份 `internal` polyfill（R3 / ObservableCollections 等库也都这么做）。
+处理器所需的两个 attribute 由框架自带的 `internal` polyfill 补齐；polyfill 不会改变调用方语言版本。发布版仍通过 `Conditional` 移除 Trace 调用及其实参求值。
 
 ### sink：日志去哪
 
@@ -3453,7 +3433,7 @@ Log.CaptureUnityLogs();   // 订阅 Application.logMessageReceivedThreaded
 
 ### 需要结构化 / 遥测时（为什么客户端不上 ZLogger）
 
-内核这两个 sink（Console + File）+ Unity 日志流接管，覆盖了「开发期按级别过滤」「落盘捞日志」「引擎/第三方/崩溃全量捕获」——**绝大多数客户端排查够用**。剩下的**结构化 JSON / 精细滚动 / HTTP 遥测**能力，评估过 Cysharp ZLogger，实测后**客户端不引入**：装它会拖进 `System.Text.Json` 全家桶等 ≈1.4 MB 托管 DLL，而最大的一块纯为客户端几乎不产的 JSON 日志，性价比不划算（详见 ADR-0034 实测复盘）。**而 ZLogger 的另一大卖点「零分配」，我们用插值处理器已经拿到了**——这也是不引它的底气。
+内核的 Console / File sink 与 Unity 日志流接管覆盖分级过滤、落盘与引擎/第三方日志捕获。结构化 JSON、精细滚动与 HTTP 遥测可按需接入其他 sink。客户端暂不引入 ZLogger 的依赖取舍与历史测量见 ADR-0034；当前 Trace 保证的是关闭时避免消息构造，不能据此声称整个日志链零分配。
 
 正确落点是**服务端**（服务端工程通常可以直接使用 .NET 日志生态，无包体顾虑）。客户端将来若确有「结构化日志上报后台」刚需，再实现一个 `ZLoggerLogSink : ILogSink` 接进来即可——**接缝已为此留好位置，业务零改动**。这正是「先做零依赖接缝、把第三方隔在接口后」的价值：试错第三方库的代价被压到「删依赖」，内核不受牵连。
 

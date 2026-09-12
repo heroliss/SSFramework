@@ -4,8 +4,9 @@
 Previews SSFramework Git installation, package sources and optional Unity MCP.
 .DESCRIPTION
 Runs outside Unity. Framework Manifest mode is recommended; existing framework
-versions are preserved. -Apply writes one atomic manifest replacement with an
-exact backup. -CheckNetwork probes metadata; Unity performs package downloads.
+versions are preserved. Manifest mode also configures C# 10 response files.
+-Apply backs up existing files and rolls back completed writes on failure.
+-CheckNetwork probes metadata; Unity performs package downloads.
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
@@ -17,6 +18,7 @@ param(
     [ValidateSet('Manual', 'Manifest')]
     [string] $McpInstallMode = 'Manual',
     [switch] $SkipOpenUPM,
+    [switch] $SkipCompilerConfiguration,
     [switch] $Apply,
     [switch] $Interactive,
     [switch] $Details,
@@ -38,6 +40,96 @@ function Test-JsonObject($Value) {
 function Read-JsonBytes([byte[]] $Bytes) {
     $text = [Text.UTF8Encoding]::new($false, $true).GetString($Bytes).TrimStart([char]0xFEFF)
     return ConvertFrom-Json -InputObject $text
+}
+function New-CompilerPlan([string] $Root) {
+    $assetRoot = Join-Path $Root 'Assets'
+    $paths = @((Join-Path $assetRoot 'csc.rsp'))
+    foreach ($asmdef in Get-ChildItem -LiteralPath $assetRoot -Filter '*.asmdef' -Recurse -File) {
+        $localPath = Join-Path $asmdef.DirectoryName 'csc.rsp'
+        if ([IO.File]::Exists($localPath)) { $paths += $localPath }
+    }
+    foreach ($path in $paths | Select-Object -Unique) {
+        if ((Test-Path -LiteralPath $path) -and -not (Test-Path -LiteralPath $path -PathType Leaf)) {
+            throw "Compiler response file path is not a file: $path"
+        }
+        $exists = [IO.File]::Exists($path)
+        if ($exists -and ((Get-Item -LiteralPath $path).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            throw "Compiler response file is a link; review its target before configuring it: $path"
+        }
+        [byte[]]$bytes = @()
+        if ($exists) { $bytes = [IO.File]::ReadAllBytes($path) }
+        $text = [Text.UTF8Encoding]::new($false, $true).GetString($bytes).TrimStart([char]0xFEFF)
+        $pattern = '(?im)^[ \t]*[-/]langversion[ \t]*:[ \t]*(?<value>[^\s#]+)[ \t]*(?:#[^\r\n]*)?\r?$'
+        $languageMatches = [regex]::Matches($text, $pattern)
+        $uncommented = [regex]::Replace($text, '(?m)^[ \t]*#[^\r\n]*', '')
+        $mentions = [regex]::Matches($uncommented, '(?i)[-/]langversion\s*:')
+        if ($languageMatches.Count -gt 1 -or $mentions.Count -ne $languageMatches.Count) {
+            throw "Use one unambiguous -langversion option on its own line in $path"
+        }
+        $previous = if ($languageMatches.Count -eq 1) { $languageMatches[0].Groups['value'].Value.Trim('"') } else { '' }
+        $nextText = $text
+        $action = '保留已有版本'
+        if ($previous -eq '') {
+            $separator = if ($text.Length -eq 0 -or $text.EndsWith("`n")) { '' } else { [Environment]::NewLine }
+            $nextText = $text + $separator + '-langversion:10.0' + [Environment]::NewLine
+            $action = if ($exists) { '补充 C# 10.0' } else { '创建 C# 10.0 配置' }
+        } elseif ($previous -match '^\d+(\.\d+)?$' -and [double]::Parse($previous, [Globalization.CultureInfo]::InvariantCulture) -lt 10) {
+            $valueGroup = $languageMatches[0].Groups['value']
+            $nextText = $text.Remove($valueGroup.Index, $valueGroup.Length).Insert($valueGroup.Index, '10.0')
+            $action = "C# $previous → 10.0"
+        } elseif ($previous -notin @('10', '10.0')) {
+            $action = "保留自定义版本 $previous（本框架仅验证 10.0）"
+        }
+        $changed = $nextText -cne $text
+        $bom = $bytes.Length -ge 3 -and $bytes[0] -eq 239 -and $bytes[1] -eq 187 -and $bytes[2] -eq 191
+        $encoding = [Text.UTF8Encoding]::new($bom)
+        $updated = [byte[]]($encoding.GetPreamble() + $encoding.GetBytes($nextText))
+        [pscustomobject]@{
+            Path = $path; Kind = 'compiler'; Exists = $exists; OriginalBytes = [byte[]]$bytes
+            UpdatedBytes = $updated; Changed = $changed; Action = $action; BackupPath = $null
+        }
+    }
+}
+function Save-SetupFiles([object[]] $Files, [string] $BackupDirectory) {
+    foreach ($file in $Files) {
+        $exists = [IO.File]::Exists($file.Path)
+        if ($exists -ne $file.Exists -or ($exists -and
+            [Convert]::ToBase64String([IO.File]::ReadAllBytes($file.Path)) -cne [Convert]::ToBase64String($file.OriginalBytes))) {
+            throw "Configuration changed after preview. Run the tool again: $($file.Path)"
+        }
+    }
+    [IO.Directory]::CreateDirectory($BackupDirectory) | Out-Null
+    $written = [Collections.Generic.List[object]]::new()
+    try {
+        foreach ($file in $Files) {
+            $id = [Guid]::NewGuid().ToString('N')
+            $temporary = $file.Path + ".ssframework-$id.tmp"
+            try {
+                [IO.File]::WriteAllBytes($temporary, $file.UpdatedBytes)
+                if ($file.Exists) {
+                    if ([Convert]::ToBase64String([IO.File]::ReadAllBytes($file.Path)) -cne [Convert]::ToBase64String($file.OriginalBytes)) {
+                        throw "Configuration changed after preview. Run the tool again: $($file.Path)"
+                    }
+                    $extension = [IO.Path]::GetExtension($file.Path)
+                    $file.BackupPath = Join-Path $BackupDirectory "$($file.Kind)-$id$extension"
+                    [IO.File]::Replace($temporary, $file.Path, $file.BackupPath)
+                } else { [IO.File]::Move($temporary, $file.Path) }
+                $written.Add($file)
+            } finally { if ([IO.File]::Exists($temporary)) { [IO.File]::Delete($temporary) } }
+        }
+    } catch {
+        $failure = $_
+        for ($index = $written.Count - 1; $index -ge 0; $index--) {
+            $file = $written[$index]
+            if (-not [IO.File]::Exists($file.Path) -or
+                [Convert]::ToBase64String([IO.File]::ReadAllBytes($file.Path)) -cne [Convert]::ToBase64String($file.UpdatedBytes)) {
+                throw "Configuration write failed and another process changed $($file.Path). Review backups in $BackupDirectory. Original error: $failure"
+            }
+            if ($file.Exists) { [IO.File]::WriteAllBytes($file.Path, $file.OriginalBytes) }
+            else { [IO.File]::Delete($file.Path) }
+        }
+        throw $failure
+    }
 }
 function Test-SetupEndpoint([string] $Name, [string] $Url, [string] $PackageName) {
     for ($attempt = 1; $attempt -le 2; $attempt++) {
@@ -280,13 +372,18 @@ if ($addedFramework) {
 }
 $addedScopes = @()
 if (-not $SkipOpenUPM) { $addedScopes = Merge-OpenUPM $manifest }
-$changed = $addedScopes.Count -gt 0 -or $addedPackage -or $addedFramework
+$manifestChanged = $addedScopes.Count -gt 0 -or $addedPackage -or $addedFramework
+$compilerFiles = @()
+if ($FrameworkInstallMode -eq 'Manifest' -and -not $SkipCompilerConfiguration) { $compilerFiles = @(New-CompilerPlan $projectRoot) }
+$compilerChanges = @($compilerFiles | Where-Object Changed)
+$changed = $manifestChanged -or $compilerChanges.Count -gt 0
 $plan = [pscustomobject]@{
     ProjectPath = $projectRoot; UnityVersion = $versionLine
     ConfigureOpenUPM = -not $SkipOpenUPM; AddedScopes = @($addedScopes)
     UnityMcp = $UnityMcp; McpInstallMode = $McpInstallMode; Mcp = $selectedMcp
     DetectedMcp = @($installedMcp); AddedMcpPackage = $addedPackage
-    ManifestChanged = $changed; Applied = $false; BackupPath = $null
+    ManifestChanged = $manifestChanged; Applied = $false; BackupPath = $null
+    CompilerChanged = $compilerChanges.Count -gt 0; CompilerFiles = @($compilerFiles | Select-Object Path,Action,Changed,BackupPath)
     FrameworkDeclared = $frameworkDeclared; FrameworkGitUrl = $frameworkGitUrl
     FrameworkPresent = $frameworkPresent; FrameworkInstallMode = $FrameworkInstallMode; AddedFrameworkPackage = $addedFramework
     NetworkChecks = @(); NetworkBlocked = $false
@@ -325,14 +422,15 @@ if ($null -ne $selectedMcp) {
     }
 } else { Write-Host '  MCP：本次跳过，已有包保持原状。' }
 if ($changed) {
-    Write-Host '  写入：Packages/manifest.json'
-    Write-Host '  范围：仅合并所选依赖与包源；JSON 排版可能变化。'
-    Write-Host '  备份：自动保存原清单，完成后显示路径。'
+    if ($manifestChanged) { Write-Host '  写入：Packages/manifest.json（合并所选依赖与包源；JSON 排版可能变化）' }
+    foreach ($file in $compilerFiles) { Write-Host "  编译配置：$($file.Path)；$($file.Action)" }
+    if ($compilerChanges.Count -gt 0) { Write-Host '  作用：让业务代码使用 record struct 与日志插值处理器；保留其他编译参数。' }
+    Write-Host '  保护：已有文件逐份备份；写入失败时回滚已完成的修改。'
 } else { Write-Host '  写入：无；重复运行不会创建新备份。' }
 if (($addedFramework -or $addedPackage) -and $null -eq (Get-Command git -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1)) {
     throw 'Git is required for automatic Git package installation. Install Git or select Manual mode.'
 }
-if ($CheckNetwork -and -not $SkipNetworkCheck -and $changed) {
+if ($CheckNetwork -and -not $SkipNetworkCheck -and $manifestChanged) {
     Write-Host '  联网预检：正在检查包元数据（失败会重试一次）……'
     if (-not $SkipOpenUPM) { $plan.NetworkChecks += Test-SetupEndpoint 'OpenUPM' 'https://package.openupm.com/com.cysharp.r3' 'com.cysharp.r3' }
     if ($addedFramework) { $plan.NetworkChecks += Test-SetupEndpoint 'SSFramework / GitHub' 'https://raw.githubusercontent.com/heroliss/SSFramework/57062df9e56b6f562bc4e4a868367370fc657229/package.json' 'com.liss.ssframework' }
@@ -342,7 +440,8 @@ if ($CheckNetwork -and -not $SkipNetworkCheck -and $changed) {
         Write-Host "    $($check.Name)：$statusText"
     }
     $plan.NetworkBlocked = @($plan.NetworkChecks | Where-Object { -not $_.Success }).Count -gt 0
-} elseif ($changed) { Write-Host '  联网预检：未执行；可添加 -CheckNetwork 检查包源。' -ForegroundColor DarkGray }
+} elseif ($manifestChanged) { Write-Host '  联网预检：未执行；可添加 -CheckNetwork 检查包源。' -ForegroundColor DarkGray }
+elseif ($compilerChanges.Count -gt 0) { Write-Host '  联网预检：本次只调整本地编译配置，无需联网。' -ForegroundColor DarkGray }
 if ($Details) {
     Write-Host ''
     Write-Host '配置明细' -ForegroundColor DarkCyan
@@ -369,7 +468,7 @@ if ($changed -and -not $plan.NetworkBlocked) {
     if ($Interactive -and -not $Apply -and -not $WhatIfPreference) {
         $Apply = (Read-Host '请先关闭该 Unity 工程。是否应用以上配置？[y/N]').Trim() -ieq 'y'
     }
-    if ($Apply -and $PSCmdlet.ShouldProcess($manifestPath, '应用框架、包源与所选 MCP 配置，并备份原清单')) {
+    if ($Apply -and $PSCmdlet.ShouldProcess($projectRoot, '应用框架、包源、所选 MCP 与预览中的编译配置，备份已有文件')) {
         $unityLockPath = Join-Path $projectRoot 'Temp/UnityLockfile'
         if (Test-Path -LiteralPath $unityLockPath) {
             try {
@@ -378,27 +477,20 @@ if ($changed -and -not $plan.NetworkBlocked) {
             } catch { throw 'The Unity project is open or its lock is inaccessible. Close the Editor and retry.' }
         }
         $backupDirectory = Join-Path $projectRoot 'UserSettings/SSFrameworkSetup'
-        $operationId = [Guid]::NewGuid().ToString('N')
-        $backupPath = Join-Path $backupDirectory "manifest-$operationId.json"
-        $temporaryPath = Join-Path $projectRoot "Packages/ssframework-$operationId.tmp"
-        try {
-            $currentBytes = [IO.File]::ReadAllBytes($manifestPath)
-            if ([Convert]::ToBase64String($currentBytes) -cne [Convert]::ToBase64String($originalBytes)) {
-                throw 'manifest.json changed after preview. Run the tool again to review the new plan.'
-            }
+        $filesToWrite = @($compilerChanges)
+        $manifestFile = $null
+        if ($manifestChanged) {
             $updatedText = ($manifest | ConvertTo-Json -Depth 100) + [Environment]::NewLine
-            [IO.Directory]::CreateDirectory($backupDirectory) | Out-Null
-            [IO.File]::WriteAllText($temporaryPath, $updatedText, [Text.UTF8Encoding]::new($false))
-            $currentBytes = [IO.File]::ReadAllBytes($manifestPath)
-            if ([Convert]::ToBase64String($currentBytes) -cne [Convert]::ToBase64String($originalBytes)) {
-                throw 'manifest.json changed after preview. Run the tool again to review the new plan.'
+            $manifestFile = [pscustomobject]@{
+                Path = $manifestPath; Kind = 'manifest'; Exists = $true; OriginalBytes = $originalBytes
+                UpdatedBytes = [Text.UTF8Encoding]::new($false).GetBytes($updatedText); BackupPath = $null
             }
-            [IO.File]::Replace($temporaryPath, $manifestPath, $backupPath)
-        } finally {
-            if ([IO.File]::Exists($temporaryPath)) { [IO.File]::Delete($temporaryPath) }
+            $filesToWrite += $manifestFile
         }
+        Save-SetupFiles $filesToWrite $backupDirectory
         $plan.Applied = $true
-        $plan.BackupPath = $backupPath
+        if ($null -ne $manifestFile) { $plan.BackupPath = $manifestFile.BackupPath }
+        $plan.CompilerFiles = @($compilerFiles | Select-Object Path,Action,Changed,BackupPath)
     }
 }
 Write-SetupSection '[3/4] 执行结果'
@@ -406,15 +498,22 @@ if ($plan.NetworkBlocked) {
     Write-Host '  暂停：包源预检失败，清单保持原状。' -ForegroundColor Yellow
     Write-Host '  请检查网络或代理后重试；本工具不会更改系统网络设置。'
 } elseif ($plan.Applied) {
-    Write-Host '  已完成：工程清单配置已保存。' -ForegroundColor Green
+    Write-Host '  已完成：预览中的工程配置已保存。' -ForegroundColor Green
     if ($addedScopes.Count -gt 0) { Write-Host "    已补齐 $($addedScopes.Count) 项包源 Scope。" }
     if ($addedFramework) { Write-Host '    已添加 SSFramework Git 依赖。' }
     if ($addedPackage) { Write-Host "    已添加 $UnityMcp Git 依赖。" }
-    Write-Host "  原清单备份：$($plan.BackupPath)"
+    if ($plan.BackupPath) { Write-Host "  原清单备份：$($plan.BackupPath)" }
+    foreach ($file in $plan.CompilerFiles | Where-Object Changed) {
+        Write-Host "    已配置：$($file.Path)；$($file.Action)"
+        if ($file.BackupPath) { Write-Host "    原文件备份：$($file.BackupPath)" }
+    }
 } elseif ($changed) { Write-Host '  仅预览：尚未写入任何配置。' -ForegroundColor Yellow }
 else { Write-Host '  无需修改：所选配置已存在，或本次只查看指引。' -ForegroundColor Green }
 
 Write-SetupSection '[4/4] 下一步'
+if ($FrameworkInstallMode -eq 'Manual' -or $SkipCompilerConfiguration) {
+    Write-Host '  手动配置 C#：业务程序集需使用 C# 10；在 Assets/csc.rsp 或相应 asmdef 同目录的 csc.rsp 中设置 -langversion:10.0。'
+}
 if ($changed -and -not $plan.Applied) {
     Write-Host '  先重新运行并确认应用，或添加 -Apply 参数；配置生效后：'
 }

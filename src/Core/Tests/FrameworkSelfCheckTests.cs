@@ -34,7 +34,8 @@ namespace Game.Framework.Test
             // 消费工程可能关闭 Info 或移除 Console sink；用例自行建立观察条件，收尾恢复原配置。
             Log.ClearSinks();
             Log.AddSink(_sink);
-            Log.AddSink(new UnityDebugLogSink());
+            // 成功汇总由 SummarySink 断言；Console 只观察警告/错误，避免 NoUnexpectedReceived 把正常 Info 当成失败。
+            Log.AddSink(new UnityDebugLogSink { MinLevel = LogLevel.Warning });
             Log.MinLevel = LogLevel.Info;
             _host = new GameObject(nameof(FrameworkSelfCheckTests));
             _check = _host.AddComponent<FrameworkSelfCheck>();

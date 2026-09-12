@@ -124,7 +124,9 @@ namespace Game.Framework.Logging
         /// <c>if (Log.IsEnabled(LogLevel.Info)) Log.Info(BuildExpensiveReport());</c>
         /// </summary>
         /// <remarks>
-        /// <c>Log.Trace($"...")</c> 已由插值处理器自动做到这一点（<see cref="TraceInterpolatedStringHandler"/>），无需手写守卫；
+        /// Unity 默认 C# 9 调用方应显式判断本方法，再构造消息。
+        /// 调用方启用 C# 10 时，<c>Log.Trace($"...")</c> 才会自动使用插值处理器守卫
+        /// （<see cref="TraceInterpolatedStringHandler"/>）；
         /// 本方法是给「其它级别 + 参数确实昂贵」的少数场景准备的逃生舱。
         /// </remarks>
         public static bool IsEnabled(LogLevel level)
@@ -172,8 +174,9 @@ namespace Game.Framework.Logging
         /// </summary>
         /// <remarks>
         /// 发布版整个调用（含实参求值）被 <see cref="ConditionalAttribute"/> 从 IL 中删除，零成本。
-        /// 带插值的用 <c>Log.Trace($"...")</c> 走 <see cref="TraceInterpolatedStringHandler"/> 重载——
-        /// <see cref="MinLevel"/> 没放行到 Trace 时连字符串都不拼。
+        /// Unity 默认 C# 9 下，插值会先构造成 string；需要惰性求值时使用
+        /// <c>if (Log.IsEnabled(LogLevel.Trace)) Log.Trace($"...");</c>。
+        /// C# 10 调用方可自动绑定 <see cref="TraceInterpolatedStringHandler"/> 重载。
         /// </remarks>
         [HideInCallstack]
         [Conditional("UNITY_EDITOR"), Conditional("DEVELOPMENT_BUILD")]
@@ -182,7 +185,7 @@ namespace Game.Framework.Logging
 
         /// <summary>
         /// 诊断噪音的**插值版**：<c>Log.Trace($"解析 {type.Name} 耗时 {ms}ms")</c>。
-        /// Trace 没开时插值表达式**根本不求值**（详见 <see cref="TraceInterpolatedStringHandler"/>）。
+        /// 调用方启用 C# 10 后，Trace 没开时插值表达式不求值（详见 <see cref="TraceInterpolatedStringHandler"/>）。
         /// </summary>
         /// <remarks>
         /// ⚠ 参数里只放纯读取，<b>不要放有副作用的表达式</b>（<c>i++</c> 等）——级别没开时它们不会执行。

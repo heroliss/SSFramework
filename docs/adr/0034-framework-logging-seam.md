@@ -16,6 +16,12 @@
 
 ## Decision
 
+### 2026-09-13 编译约定补充：明确使用 C# 10
+
+真实 Unity 6.3 消费工程按默认 C# 9 编译时，`Log.Trace($"...")` 选择 string 重载，关闭级别仍会计算插值。下文阶段 C 的自动插值处理器结论仅适用于启用 C# 10 的调用方；属性 polyfill 不会切换语言版本，包内配置也不会传递给业务程序集。
+
+框架正式采用固定 C# 10.0，与 `record struct` 数据类型和自动日志插值的设计意图一致。各个包内 asmdef 附带自己的 `csc.rsp`；安装工具预览并配置业务侧响应文件，手动安装也提供相同步骤。包内自动转换测试由独立的测试程序集编译，防止只验证处理器内部实现而漏掉调用方配置。预先构造诊断清单时仍先检查 `Log.IsEnabled`。保证限于关闭时跳过消息构造，不包含开启日志后的全链零分配；原因、收益及 Unity 运行库边界见[接入约定](../consuming-framework.md#c-10-默认约定与原因)。
+
 ### 1. 接缝形态：静态 `FrameworkLog` 门面 + `ILogSink` 多播（**不是** DI Utility）
 
 日志必须在**任何地方**可用——包括没有 `Context`、身处 DI 之下的内核基础设施（`Container` / `InjectionPlan` / 构造期）。它们不能反向依赖 DI 去 `GetUtility` 取 logger（循环依赖 + 时序倒置）。`FrameworkLog` 现在正因此是静态。所以接缝**保持静态门面**，不做 `ILogUtility` 那种 DI 服务。
@@ -75,7 +81,7 @@
 - **处理器把守卫下沉到编译期**：编译器把 `$"..."` 改写成一串 `Append` 调用，外裹 `if (shouldAppend)`（值来自处理器构造函数里的 `Log.IsEnabled`）。级别没开 → 整块跳过 → 表达式一次都不求值。
 - **代价（唯一的）**：求值语义变了——插值参数里的副作用（`i++`）在级别没开时不执行。但这与手写 `if (Verbose) Trace(...)` 是**完全相同**的语义，而「日志开不开会改变程序行为」本身就是 bug，故此语义是刻意接受的，并写进 AGENTS #34 与 XML doc。
 - 另叠 `[Conditional("UNITY_EDITOR"), Conditional("DEVELOPMENT_BUILD")]`：发布版整个调用连同实参从 IL 中删除，比「方法体空转」更彻底。
-- **依赖**：Unity BCL（netstandard2.1 档）没有 `InterpolatedStringHandlerAttribute`（实测确认），框架自带一份 `internal` polyfill——R3 / ObservableCollections / Roslyn 自己都是这么做的（实测均为 `internal`）。**跨程序集可用性已实测**：`Game.Framework.Tests` / `Asset.Yoo` 都不声明 polyfill，仍能正确绑到处理器重载（`LoggingTests.Trace_Interpolation_IsLazy_WhenDisabled` 就是这条的回归测试）。
+- **依赖**：Unity BCL（netstandard2.1 档）没有 `InterpolatedStringHandlerAttribute`，框架自带一份 `internal` polyfill。调用方不需要再声明同名属性，但自动绑定仍要求 C# 10。阶段 C 的历史跨程序集测试没有记录这个环境前提，已由本 ADR 的兼容性修订纠正。
 - **顺带**：ZLogger 的两大卖点之一「零分配」我们自己拿到了，进一步坐实了「客户端不引 ZLogger」的决定。
 
 **④ `[HideInCallstack]` 是前提、不是可选，且必须**全链**覆盖**：任何「包一层 `Debug.Log`」的门面，若不标它，Console 双击日志会跳进门面的转发方法而不是真正的调用点——这一条足以让所有人退回裸 `Debug.Log`，是此类封装最常见的死因。

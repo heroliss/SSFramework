@@ -16,6 +16,27 @@ namespace Game.Framework.Editor.Tests
     public sealed class FrameworkModuleAuditTests
     {
         [Test]
+        public void FirstPartyAssemblyDefinitions_DeclareCSharp10WithoutProjectDefaults()
+        {
+            var assemblies = UnityEditor.Compilation.CompilationPipeline.GetAssemblies()
+                .Where(assembly => assembly.name == "Game.Framework" ||
+                                   assembly.name.StartsWith("Game.Framework.", StringComparison.Ordinal))
+                .ToArray();
+            Assert.That(assemblies, Is.Not.Empty);
+            foreach (var assembly in assemblies)
+            {
+                string assetPath = UnityEditor.Compilation.CompilationPipeline
+                    .GetAssemblyDefinitionFilePathFromAssemblyName(assembly.name);
+                var source = FrameworkModuleSourceCatalog.Resolve(assetPath);
+                string responsePath = Path.Combine(Path.GetDirectoryName(source.PhysicalPath), "csc.rsp");
+                Assert.That(File.Exists(responsePath), Is.True,
+                    assembly.name + " 必须自行声明语言版本，不能只在维护者的 Assets 根目录配置。");
+                Assert.That(File.ReadAllText(responsePath).Trim(), Is.EqualTo("-langversion:10.0"),
+                    assembly.name + " 应固定使用已验证的 C# 10.0。");
+            }
+        }
+
+        [Test]
         public void AuditOutcome_SeparatesKnownRetentionCostFromActionableFindings()
         {
             FrameworkModuleAudit.AuditResult CreateHealthyResult() => new()
@@ -1798,9 +1819,12 @@ namespace Game.Framework.Editor.Tests
                     "进阶 Profile 折叠时只创建导航壳，不能提前遍历全部任意 Module 组合。 ");
                 Assert.That(window.rootVisualElement.Q<Foldout>("module-audit-module-profiles"), Is.Null,
                     "内层任意 Module Foldout 应等外层进阶区域首次展开后才创建。 ");
-                Assert.That(globalPreservations, Is.Not.Null);
-                Assert.That(globalPreservations.value, Is.False,
-                    "全局和生成规则用于追踪，不应抢占新手的首屏结论。 ");
+                bool hasGlobalPreservations = cachedEvidence.Result.GlobalPreservations.Length > 0;
+                Assert.That(globalPreservations, hasGlobalPreservations ? Is.Not.Null : Is.Null,
+                    "只在消费工程实际存在全局保留规则时展示该区域。 ");
+                if (hasGlobalPreservations)
+                    Assert.That(globalPreservations.value, Is.False,
+                        "全局和生成规则用于追踪，不应抢占新手的首屏结论。 ");
                 Assert.That(hotUpdateEvidence, Is.Not.Null);
                 bool hasHotUpdateMetrics = cachedEvidence.Result.HotUpdateDeployment.ProfileAvailable &&
                                             cachedEvidence.Result.HotUpdateDeployment.InspectionAvailable;
@@ -1870,9 +1894,12 @@ namespace Game.Framework.Editor.Tests
                 SetExpanded(externalCatalog, true);
                 Assert.That(window.rootVisualElement.Q<VisualElement>(
                     "module-audit-external-catalog-body"), Is.Not.Null);
-                SetExpanded(globalPreservations, true);
-                Assert.That(window.rootVisualElement.Q<VisualElement>(
-                    "module-audit-global-preservations-body"), Is.Not.Null);
+                if (hasGlobalPreservations)
+                {
+                    SetExpanded(globalPreservations, true);
+                    Assert.That(window.rootVisualElement.Q<VisualElement>(
+                        "module-audit-global-preservations-body"), Is.Not.Null);
+                }
 
                 SetExpanded(advancedProfiles, true);
                 Assert.That(window.rootVisualElement.Q<VisualElement>(
@@ -2043,5 +2070,3 @@ namespace Game.Framework.Editor.Tests
         }
     }
 }
-
-

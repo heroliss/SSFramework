@@ -6,6 +6,31 @@
 
 **完整包当前以 Unity 6.3 LTS 为接入目标，版本基线为 `6000.3.22f1`。Unity 6.6 暂不能完整编译此包**：YooAsset 3.0.5 的 Editor 使用了 Unity 6.6 已移除的 `UxmlFactory` / `UxmlTraits`。补齐 DLL 或切换同版本的 Git 来源不能解决这个 API 不兼容；新项目应优先在 6.3 LTS 中创建，不要直接把已经由 6.6 保存的工程降级打开。参见 [Unity 6.6 API 移除说明](https://unity.com/releases/editor/alpha/6000.6.0a5)。
 
+## C# 10 默认约定与原因
+
+SSFramework 默认使用 **C# 10.0**，并在各个一方 `.asmdef` 同目录附带 `csc.rsp`。业务工程也应配置 `-langversion:10.0`，使指南中的写法与实际编译行为一致。Unity 6.3 官方默认语言版本仍为 C# 9；框架在此基础上显式选择 C# 10，而不是把 Unity 默认配置误当成已经启用。
+
+选择 C# 10 的收益：
+
+- **`record struct` 简化事件与数据载体。** 例如 `public record struct GoldChangedEvent(int Delta) : IEvent;` 自动生成位置属性、构造、按值比较、解构与 `with` 支持。它是值类型，普通实例创建不需要额外分配一个引用对象；装箱、引用字段和具体调用方式仍可能分配。无须这些生成行为的 Command、ECS 组件仍可用普通 `struct` / `readonly struct`，不做机械替换。
+- **日志插值处理器跳过关闭的 Trace 消息。** C# 10 调用方的 `Log.Trace($"数量：{GetCount()}")` 在全局或所有 sink 拒收时，不计算 `GetCount()`、不拼消息字符串。开启后仍有格式化和写入成本，插值参数不得依赖副作用。
+- **统一编译约定。** 框架源码、包内测试与业务示例使用同一固定语言版本；文件范围命名空间等语法可以按需使用，不强制全局 using，也不使用随编译器变化的 `latest` / `preview`。
+
+需要理解的边界：
+
+- **C# 10 不等于 .NET 10。** 响应文件只改变编译语言版本，不会升级 Unity 的 BCL、序列化、Burst 或 IL2CPP。新增语法和相关工具仍需在项目 Unity 版本上编译、测试并构建验证，不能据此保证所有 C# 10 特性都可用。
+- 普通位置 `record struct` 的属性默认可写；作为事件时按快照使用，不把它误称为不可变类型。位置 `readonly record struct` / `init` 还需要 `IsExternalInit` 标记，Unity 的对应 BCL 不自带；当前框架不替所有业务程序集注入该类型，使用前应在所属程序集显式补齐并验证，或采用已有的只读结构体写法。
+- 记录类型用于纯 C# 数据传递；Inspector / Unity 序列化配置继续用受支持的字段与资产类型。ECS 组件的布局与 Burst 限制单独评估，不因启用 C# 10 就统一改成 record。
+- 原来按 C# 9 编译的日志调用在 C# 10 下可能改选处理器重载，从而跳过原本会求值的插值。业务效果不能依赖日志参数中的 `i++`、写状态等操作。
+
+**配置位置与接入顺序：** 自动工具的 Framework 自动模式默认配置 `Assets/csc.rsp`，同时合并 `Assets` 下已有 asmdef 同目录响应文件中的语言选项；保留其他参数，预览全部路径，备份已有文件。手动安装可复制 [`csc.rsp` 模板](../Tools~/Templates/CSharp10/csc.rsp)，或在已有文件中合并 `-langversion:10.0`；不要覆盖其他参数或重复写多个 `-langversion`。
+
+Unity 优先读取 asmdef 同目录的响应文件，没有局部文件才回退到 `Assets/csc.rsp`，两者不会自动合并。框架包内文件负责框架程序集，不会传播给引用它的业务程序集；只在包根目录放一份也不能覆盖全部子模块。修改后重新编译，核对 Editor / PlayMode 测试与目标平台构建。不要修改自动生成的 `.csproj` 或 `PackageCache`。
+
+若有意保留某个 C# 9 业务程序集，其普通 API 调用仍可使用显式 `Log.IsEnabled` 守卫，但不能照搬 `record struct` 示例或假定自动插值转换。安装工具的 `-SkipCompilerConfiguration` 留给自行维护编译配置的使用者。
+
+依据：[Unity 6.3 编译器基线](https://docs.unity3d.com/6000.3/Documentation/Manual/csharp-compiler.html)、[C# 版本历史](https://learn.microsoft.com/en-us/dotnet/csharp/whats-new/csharp-version-history)、[记录类型语义](https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/builtin-types/record)、[Unity 响应文件选择实现](https://github.com/Unity-Technologies/UnityCsReference/blob/6000.3/Editor/Mono/Scripting/Compilers/ResponseFileProvider.cs)。
+
 ## 选择安装方式
 
 两条路线安装的是同一个完整包，可自由选择；**手动路线完全不需要下载或运行接入工具**。
@@ -28,6 +53,8 @@ SSFramework 的 `package.json` 已声明第三方 UPM 包和 NuGet 运行库的 
 工具只需同目录的 `.cmd` 与 `.ps1`，可单独发布或下载，不必先克隆整个框架仓库。它保留已有 Framework 版本，重复运行不会自动升级；包源、MCP 冲突或联网预检失败时停止写入。旧 `Configure-OpenUPM` 入口仍只配置包源；默认选项、详情输出、命令行、恢复与验证入口见[工具说明](../Tools~/README.md)。`Tools~` 被 Unity 忽略，不会随包导入自动执行。
 
 ## 手动安装（无需工具）
+
+先按上面的 [C# 10 配置说明](#c-10-默认约定与原因)准备业务响应文件，随后配置包源并安装框架。包内编译配置会随 UPM 一起安装，不需要逐个编辑框架文件。
 
 <a name="首次接入配置第三方包源"></a>
 <a name="手动配置"></a>
@@ -211,7 +238,7 @@ Framework 新提交不会自动改写使用它的 Unity 工程；批量升级可
 
 `Microsoft.Bcl.AsyncInterfaces`、`System.Threading.Channels` 等传递依赖也通过 `org.nuget` Scope 自动安装。已有工程若曾通过 NuGetForUnity 或手动复制安装同名 DLL，应先整理为单一来源，避免重复程序集。
 
-启用包内测试时，先在 Package Manager 核对工程已有适配当前 Unity 的 Test Framework；如缺少，从 Unity Registry 安装。在关闭 Editor 后，将 `"testables": ["com.liss.ssframework"]` 合并进工程 `Packages/manifest.json` 的顶层；若已有 `testables` 数组，只追加包名并保留其他项。重新打开工程后，在 **Window → General → Test Runner** 查看测试；`Game.Framework.Tests` 是 PlayMode 测试程序集，组件生命周期测试需要实际进入 PlayMode。Test Framework 不是游戏运行的前置依赖。早于 `57062df` 的包内测试含 C# 10 `record struct`，在 Unity 6.3 中启用测试前先升级到修复候选。
+启用包内测试时，先在 Package Manager 核对工程已有适配当前 Unity 的 Test Framework；如缺少，从 Unity Registry 安装。在关闭 Editor 后，将 `"testables": ["com.liss.ssframework"]` 合并进工程 `Packages/manifest.json` 的顶层；若已有 `testables` 数组，只追加包名并保留其他项。重新打开工程后，在 **Window → General → Test Runner** 查看测试；`Game.Framework.Tests` 是 PlayMode 测试程序集，组件生命周期测试需要实际进入 PlayMode。Test Framework 不是游戏运行的前置依赖。测试使用 C# 10 的 `record struct` 与跨程序集插值处理器；旧包若尚未自带响应文件，应先按上面的业务配置步骤启用 C# 10，不能只通过删除语法来替代接入配置。
 
 ### 构建前选择是否启用热更新
 

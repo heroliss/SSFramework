@@ -8,6 +8,8 @@ SSFramework 将依赖注入、Context 作用域、Model / System / View 分层�
 
 [📖 使用指南](docs/framework-guide.md) · [🧭 文档索引](docs/README.md) · [🔧 接入与升级](docs/consuming-framework.md) · [🧾 架构决策](docs/adr/README.md)
 
+默认语言版本为 **C# 10.0**，用于 `record struct` 数据类型与日志插值处理器。包内各程序集自带编译配置，业务工程由安装工具配置，或按[手动说明](docs/consuming-framework.md#c-10-默认约定与原因)添加 `csc.rsp`；该设置不会升级 Unity 的 .NET 运行库。
+
 ![SSFramework 架构图](docs/SSFramework-architecture.png)
 
 ## ✨ 核心特点
@@ -157,11 +159,7 @@ public interface IPlayerSystem : ISystem
     void TakeDamage(int amount);
 }
 
-public readonly struct PlayerHurtEvent : IEvent
-{
-    public readonly int Amount;
-    public PlayerHurtEvent(int amount) => Amount = amount;
-}
+public record struct PlayerHurtEvent(int Amount) : IEvent;
 
 public sealed class PlayerSystem : MonoSystemBase, IPlayerSystem
 {

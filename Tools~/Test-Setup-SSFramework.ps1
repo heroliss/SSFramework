@@ -1,4 +1,4 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 [CmdletBinding()]
 param(
     [string] $ConsumerProject,
@@ -361,6 +361,66 @@ if ($ConsumerProject) {
             Assert ((Read-Manifest $root).dependencies.PSObject.Properties[$dependency.Name].Value -ceq $dependency.Value) 'Framework setup changed existing consumer dependency.'
         }
         Assert ((Manifest-Bytes $ConsumerProject) -ceq $before) 'Framework copy validation changed real consumer.'
+    }
+}
+Invoke-Case 'Compiler preview, explicit skip and repeat preserve existing project state' {
+    $root = New-Project 'compiler-new'
+    $rsp = Join-Path $root 'Assets/csc.rsp'
+    & $tool -ProjectPath $root -WhatIf -Apply 6>$null
+    Assert (-not (Test-Path -LiteralPath $rsp)) 'WhatIf created compiler configuration.'
+    & $tool -ProjectPath $root -SkipCompilerConfiguration -Apply 6>$null
+    Assert (-not (Test-Path -LiteralPath $rsp)) 'Explicit skip created compiler configuration.'
+    $manifestBefore = Manifest-Bytes $root
+    $result = & $tool -ProjectPath $root -Apply -PassThru 6>$null
+    Assert ($result.Applied -and $result.CompilerChanged -and -not $result.ManifestChanged) 'Compiler-only application is wrong.'
+    Assert ((Manifest-Bytes $root) -ceq $manifestBefore) 'Compiler-only application changed manifest.'
+    Assert ([IO.File]::ReadAllText($rsp).Trim() -ceq '-langversion:10.0') 'Default language is wrong.'
+    $repeat = & $tool -ProjectPath $root -Apply -PassThru 6>$null
+    Assert (-not $repeat.Applied -and -not $repeat.CompilerChanged) 'Compiler repeat is not a no-op.'
+}
+Invoke-Case 'Compiler merge preserves BOM, flags and local asmdef options' {
+    $root = New-Project 'compiler-merge'
+    $rsp = Join-Path $root 'Assets/csc.rsp'
+    [IO.File]::WriteAllText($rsp, "-define:KEEP_ME`r`n-langversion:9.0`r`n-nowarn:0649`r`n", [Text.UTF8Encoding]::new($true))
+    $before = File-Bytes $rsp
+    $local = Join-Path $root 'Assets/Game'
+    [IO.Directory]::CreateDirectory($local) | Out-Null
+    Write-Json (Join-Path $local 'Game.asmdef') '{"name":"Game"}'
+    Write-Json (Join-Path $local 'csc.rsp') '-unsafe'
+    $result = & $tool -ProjectPath $root -Apply -PassThru 6>$null
+    Assert ($result.CompilerFiles.Count -eq 2) 'Local response file was missed.'
+    Assert ([IO.File]::ReadAllText($rsp) -ceq "-define:KEEP_ME`r`n-langversion:10.0`r`n-nowarn:0649`r`n") 'Compiler merge changed unrelated flags.'
+    Assert ([IO.File]::ReadAllBytes($rsp)[0] -eq 239) 'Compiler merge lost UTF-8 BOM.'
+    $rootFile = @($result.CompilerFiles | Where-Object { $_.Path -eq $rsp })[0]
+    Assert ((File-Bytes $rootFile.BackupPath) -ceq $before) 'Compiler backup is not exact.'
+    Assert ([IO.File]::ReadAllText((Join-Path $local 'csc.rsp')) -match '-unsafe\r?\n-langversion:10.0') 'Local flags or language setting missing.'
+}
+Invoke-Case 'Conflicting compiler options reject before any manifest or compiler write' {
+    $root = New-Project 'compiler-conflict'
+    $rsp = Join-Path $root 'Assets/csc.rsp'
+    Write-Json $rsp "-langversion:9.0`n-langversion:10.0"
+    $manifestBefore = Manifest-Bytes $root
+    $rspBefore = File-Bytes $rsp
+    $failure = ''
+    try { & $tool -ProjectPath $root -Apply 6>$null } catch { $failure = $_.Exception.Message }
+    Assert ($failure -like '*unambiguous*') 'Ambiguous language was not rejected.'
+    Assert ((Manifest-Bytes $root) -ceq $manifestBefore -and (File-Bytes $rsp) -ceq $rspBefore) 'Rejected compiler plan modified files.'
+}
+Invoke-Case 'A failed manifest replacement rolls back new and existing compiler files' {
+    foreach ($existing in @($false, $true)) {
+        $root = New-Project "compiler-rollback-$existing"
+        $rsp = Join-Path $root 'Assets/csc.rsp'
+        if ($existing) { Write-Json $rsp "-langversion:9.0`n-define:KEEP" }
+        $rspBefore = if ($existing) { File-Bytes $rsp } else { '' }
+        $manifestBefore = Manifest-Bytes $root
+        $handle = [IO.File]::Open((Join-Path $root 'Packages/manifest.json'), [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+        $failure = ''
+        try { & $tool -ProjectPath $root -Apply 6>$null } catch { $failure = $_.Exception.Message }
+        finally { $handle.Dispose() }
+        Assert ($failure.Length -gt 0) 'Locked manifest should reject replacement.'
+        Assert ((Manifest-Bytes $root) -ceq $manifestBefore) 'Failed replacement changed manifest.'
+        if ($existing) { Assert ((File-Bytes $rsp) -ceq $rspBefore) 'Rollback did not restore original compiler bytes.' }
+        else { Assert (-not (Test-Path -LiteralPath $rsp)) 'Rollback left newly created compiler configuration.' }
     }
 }
 Write-Host "$script:passed test groups passed. Fixtures: $runRoot"

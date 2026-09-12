@@ -93,6 +93,7 @@ namespace Game.Framework.Internal
         /// <summary>提交完成后的可观察 Trace；不参与注册原子性。</summary>
         internal static void TraceRegistration(LayerRegistrationPlan plan)
         {
+            if (!Log.IsEnabled(LogLevel.Trace)) return;
             Log.Trace($"[Container] 注册 {plan.ConcreteType.Name}：{plan.Label}");
             for (int i = 0; i < plan.Interfaces.Length; i++)
                 Log.Trace($"[Container] 注册 {plan.Interfaces[i].Name}：{plan.Label}");

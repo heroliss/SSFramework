@@ -29,14 +29,14 @@ Module 源码不假设位于 `src`。审计先经 `FrameworkModuleSourceCatalog`
 
 隔离工程不再维护“Module 名 → Package 名”的第二张映射表。每个组合从所选 Framework asmdef 的声明边与当前 Player DLL 元数据边收集直接外部依赖，再由 `FrameworkModuleSourceCatalog` 判定它属于 registry / Git / local / tarball / embedded / built-in / Assets 中的哪种来源：
 
-- registry Package 只按稳定 Package 名进入该组合的最小 manifest，版本规格直接复用主工程 `Packages/manifest.json`；主工程已有的 `scopedRegistries` 原样保留，不为某个供应商写死 registry；整轮启动时即冻结各档 manifest 与 SHA-256，后续档位不会因主工程中途改版本而混入另一套依赖；
+- registry Package 按稳定 Package 名与 Source Catalog 的已解析版本进入该组合的最小 manifest；Framework 依赖可以由 UPM 传递安装，不要求它直接写在消费工程的 `Packages/manifest.json` 中。主工程已有的 `scopedRegistries` 原样保留，不为某个供应商写死 registry；整轮启动时即冻结各档 manifest 与 SHA-256，后续档位不会因主工程中途改版本而混入另一套依赖；
 - Git、embedded、local directory 与 local tarball Package 都从 Source Catalog 的已解析源码根按 Package 整体复制；这既冻结 Git branch / tag 已解析到的实际内容，也避免主工程相对 `file:` spec 搬到隔离工程后改指向。报告只写可移植的“包名@版本”与实际复制内容 SHA-256，Unity packageId 中的本机 `file:` 路径、Git URL userinfo 或 token 不落盘，同一轮多个组合共享一次指纹计算；
 - `com.unity.modules.*` 仍作为同 Unity 版本的固定引擎背景统一保留；没有可安装来源的 BCL / Unity 平台程序集不被误当 Package；
 - Framework 若实际接触项目 `Assets` 中的外部程序集，或显式依赖无法还原来源，探针在启动子进程前 fail-fast，不把业务代码 / DLL 静默夹进框架体积证据。
 
 外部 Package 自身的 registry / built-in 传递依赖继续由它的 `package.json` 解析，探针不把主工程 `packages-lock.json` 中的偶然传递版本提升为根依赖。若复制 Package 的 `package.json` 仍含相对工作区的 `file:` 传递依赖，探针 fail-fast，不修改第三方 manifest 或猜目标目录；维护者应先把该依赖改成 registry 版本或独立 embedded Package。Framework 原生基线不依赖 Odin，探针也不复制付费插件。每个组合因此只携带它直接需要的 Package，例如 Core 不安装 Input System / UGUI，Toolkit 不因另一档需要 UGUI 而被污染。
 
-当前 `Packages/nuget-packages` 是一个聚合 embedded Package；只要组合需要其中任一预编译 DLL，探针就复制整个物理 Package。这能证明“当前可安装边界下的真实组合体积”，不能证明各 NuGet DLL 已达到最小安装闭包。若以后要独立拆卸某个 NuGet 依赖，应先把它拆成独立 Package / Adapter seam，再由同一依赖计划自然得到更细的证据，不在探针里按 DLL 名伪造虚拟 Package。
+若消费工程使用聚合的 embedded NuGet Package，只要组合需要其中任一预编译 DLL，探针就复制整个物理 Package；采用独立 Registry 分发包时则按实际来源纳入清单。探针不要求存在名为 `nuget-packages` 的项目私有包，也不按 DLL 名伪造虚拟 Package。这能证明当前可安装边界下的组合体积，不能证明每个 NuGet DLL 均达到最小安装闭包。
 
 探针不联网选择“更新版本”，也不修改第三方库。若主工程缺少选中 Module 声明的依赖，构建前 fail-fast，而不是默默换一个版本继续。
 

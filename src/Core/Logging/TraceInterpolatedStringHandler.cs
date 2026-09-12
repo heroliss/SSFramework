@@ -6,10 +6,13 @@ namespace Game.Framework.Logging
 {
     /// <summary>
     /// <see cref="Log.Trace(TraceInterpolatedStringHandler,string,UnityEngine.Object)"/> 的插值字符串处理器：
-    /// 让 <c>Log.Trace($"...")</c> 在 <see cref="LogLevel.Trace"/> 没开时**连插值表达式都不求值**（真·零成本）。
+    /// 调用方启用 C# 10 后，让 <c>Log.Trace($"...")</c> 在 <see cref="LogLevel.Trace"/> 没开时不求值插值表达式。
     /// </summary>
     /// <remarks>
-    /// <b>原理（编译期改写，不是运行时技巧）</b>：参数声明成本类型后，编译器把调用点
+    /// Unity 6.3 默认 C# 9 调用方不会进行处理器转换，应先用 <see cref="Log.IsEnabled"/> 判断级别。
+    /// 仅提高框架程序集的语言版本不会改变业务程序集中的调用点。
+    /// <br/><br/>
+    /// <b>原理（C# 10 编译期改写）</b>：参数声明成本类型后，编译器把调用点
     /// <c>Log.Trace($"解析 {type.Name} 耗时 {ms}ms")</c> 改写成：
     /// <code><![CDATA[
     /// var h = new TraceInterpolatedStringHandler(12, 2, out bool shouldAppend);
@@ -28,10 +31,11 @@ namespace Game.Framework.Logging
     /// ⚠ <b>求值语义会变（唯一需要守的纪律）</b>：级别没开时插值表达式不执行，因此参数里**只能放纯读取**
     /// （属性、<c>ToString()</c>、字符串拼接——这些正是要省掉的开销），<b>不要放有副作用的表达式</b>
     /// （<c>i++</c> / <c>list.Pop()</c> / <c>Interlocked.Increment</c>）：<c>Log.Trace($"值 {i++}")</c> 在
-    /// Verbose 关时不会自增。这与手写 <c>if (Log.Verbose) Log.Trace(...)</c> 是**完全相同**的语义，
+    /// Trace 关时不会自增。这与手写 <c>if (Log.IsEnabled(LogLevel.Trace)) Log.Trace(...)</c> 是相同的语义，
     /// 处理器只是把这个守卫自动化了；而"日志开不开会改变程序行为"本身就是 bug，故此语义是刻意的。
     /// <br/><br/>
-    /// 依赖的两个 C# 10 attribute 由 <c>InterpolatedStringHandlerPolyfill.cs</c> 自带（Unity BCL 缺失）。
+    /// 依赖的两个 attribute 由 <c>InterpolatedStringHandlerPolyfill.cs</c> 自带（Unity BCL 缺失）；
+    /// polyfill 只补类型，不会提高调用方的 C# 语言版本。
     /// </remarks>
     [InterpolatedStringHandler]
     public ref struct TraceInterpolatedStringHandler

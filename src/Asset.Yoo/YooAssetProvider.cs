@@ -611,11 +611,12 @@ namespace Game.Framework
             string version = null;
             string lastVersionError = null;
             bool versionOk = false;
-            string configured = (cdnUrls == null || cdnUrls.Count == 0) ? "(未配置)" : string.Join(", ", cdnUrls);
+            string DescribeCdnUrls() => (cdnUrls == null || cdnUrls.Count == 0)
+                ? "(未配置)" : string.Join(", ", cdnUrls);
             // 逐次尝试的诊断走 Log.Trace（开 Trace 才打、不污染正常运行）。
             // 失败 Error 通常已含实际 URL + HttpCode，配合开头候选清单即可定位是哪条 CDN 出问题。
-            // 走插值处理器重载：Trace 关时这些 $"..." 连拼都不拼。
-            Log.Trace($"'{packageName}' 拉版本：候选 CDN {attempts} 条 [{configured}]", nameof(YooAssetProvider));
+            // 候选清单只在诊断开启或构造最终异常时格式化。
+            Log.Trace($"'{packageName}' 拉版本：候选 CDN {attempts} 条 [{DescribeCdnUrls()}]", nameof(YooAssetProvider));
             for (int i = 0; i < attempts; i++)
             {
                 var versionOp = package.RequestPackageVersionAsync();
@@ -651,7 +652,7 @@ namespace Game.Framework
                 // 把「配置了哪些 CDN」「最终请求形如什么」一并写进异常，让 CDN 配错（端口 / 多余路径段 / 没部署）一眼可查，
                 // 不必去翻底层日志拼凑。lastVersionError 通常已含实际 URL 与 HttpCode。
                 throw new InvalidOperationException(
-                    $"[YooAssetProvider] 拉包版本失败 '{packageName}'：已尝试配置的 {attempts} 个 CDN 地址 [{configured}]，" +
+                    $"[YooAssetProvider] 拉包版本失败 '{packageName}'：已尝试配置的 {attempts} 个 CDN 地址 [{DescribeCdnUrls()}]，" +
                     $"最终请求形如 <CDN地址>/{packageName}/{packageName}.version——请对照部署目录与端口核对（端口须等于 LocalServePort，服务伺服 Deploy 根、无多余路径段）。" +
                     $"远端错误：{lastVersionError}；内置回退错误：{fallbackMessage}");
             }
@@ -690,7 +691,7 @@ namespace Game.Framework
             }
 
             throw new InvalidOperationException(
-                $"[YooAssetProvider] 拉包清单失败 '{packageName}'（版本 {version}）：已尝试配置的 {attempts} 个 CDN 地址 [{configured}]，" +
+                $"[YooAssetProvider] 拉包清单失败 '{packageName}'（版本 {version}）：已尝试配置的 {attempts} 个 CDN 地址 [{DescribeCdnUrls()}]，" +
                 $"最终请求形如 <CDN地址>/{packageName}/{packageName}_{version}.bytes。" +
                 $"远端错误：{lastManifestError}；内置回退错误：{manifestFallbackMessage}");
         }
