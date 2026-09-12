@@ -37,23 +37,31 @@ namespace Game.Framework.Diagnostics
         private readonly List<string> _results = new();
         private GameContext _ctx;
         private DisposableBag _bag;
+        private bool _destroyed;
 
         internal string KernelAssembly => typeof(GameContext).Assembly.GetName().Name;
 
         internal string Environment => $"{Application.platform}{(Application.isEditor ? "（编辑器旁路）" : "")}";
 
-        internal bool AllOk => _results.Count > 0 && !_results.Exists(r => r.StartsWith("✗", StringComparison.Ordinal));
+        internal bool IsRunning { get; private set; }
+
+        internal bool HasCompleted { get; private set; }
+
+        internal bool AllOk => HasCompleted && !_results.Exists(r => r.StartsWith("✗", StringComparison.Ordinal));
 
         internal IReadOnlyList<string> Results => _results;
 
         private void Start() => Run();
 
-        /// <summary>跑一遍全部自检（同步项立即出结果、异步项完成后追加）。可重复调用：每次先清理上一轮再重跑。</summary>
+        /// <summary>
+        /// 在 Unity 主线程跑一遍全部自检：同步项立即出结果，异步项完成后才发布最终汇总。
+        /// 可重复调用；重跑或销毁会取消并释放上一轮，旧轮的迟到结果不会追加到当前轮。
+        /// </summary>
+        /// <exception cref="ObjectDisposedException">组件已销毁，不可重新启动自检。</exception>
         public void Run()
         {
-            // 重跑前清掉上一轮（Inspector 按钮可能多次触发），避免 Context / 订阅泄漏。
-            _bag?.Dispose();
-            _ctx?.Dispose();
+            if (_destroyed) throw new ObjectDisposedException(nameof(FrameworkSelfCheck));
+            ReleaseRun();
             _results.Clear();
 
             // 自检专用 Context：自给自足，不依赖全局（玩家包里此刻可能还没有 GameContext.Main）。
@@ -66,6 +74,7 @@ namespace Game.Framework.Diagnostics
             // 值绑定实例（model / system）由 GameContext 构造时统一 Inject + AttachTo（ADR-0019），无需手动补。
             _ctx = new GameContext(builder.Build(), inheritFromGlobal: false) { DebugName = nameof(FrameworkSelfCheck) };
             _bag = new DisposableBag(_ctx);
+            IsRunning = true;
 
             Check("DI 容器注册/解析", () =>
             {
@@ -108,24 +117,36 @@ namespace Game.Framework.Diagnostics
                 if (got != 7) throw new Exception($"事件未送达（got {got}）");
             });
 
-            RunAsyncChecks().Forget(ex =>
-            {
-                _results.Add($"✗ 异步命令（UniTask）：{ex.GetType().Name} {ex.Message}");
-                LogSummary();
-            });
+            // 每轮绑定自己的 Context 与取消生命周期；异常和完成都由该任务观察后再检查是否仍为当前轮。
+            RunAsyncChecks(_ctx).Forget();
         }
 
-        private async UniTask RunAsyncChecks()
+        private async UniTask RunAsyncChecks(GameContext context)
         {
-            // 解释器下的 async 状态机 + AOT UniTask 跨界：分别跑 struct 异步命令与带返回值异步命令。
-            await _ctx.ExecuteCommandAsync(new DelayAddStructCommand(9));
-            if (_ctx.GetModel<CheckModel>().Count.Value != 60)
-                throw new Exception($"struct 异步命令未生效（Count={_ctx.GetModel<CheckModel>().Count.Value}）");
+            Exception failure = null;
+            try
+            {
+                // 解释器下的 async 状态机 + AOT UniTask 跨界：分别跑 struct 异步命令与带返回值异步命令。
+                await context.ExecuteCommandAsync(new DelayAddStructCommand(9));
+                if (!ReferenceEquals(_ctx, context)) return;
+                if (context.GetModel<CheckModel>().Count.Value != 60)
+                    throw new Exception($"struct 异步命令未生效（Count={context.GetModel<CheckModel>().Count.Value}）");
 
-            int echoed = await _ctx.ExecuteCommandAsync(new EchoAsyncCommand { Input = 123 });
-            if (echoed != 123) throw new Exception($"异步返回值错误（got {echoed}）");
+                int echoed = await context.ExecuteCommandAsync(new EchoAsyncCommand { Input = 123 });
+                if (echoed != 123) throw new Exception($"异步返回值错误（got {echoed}）");
+            }
+            catch (Exception ex)
+            {
+                failure = ex;
+            }
 
-            _results.Add("✓ 异步命令（UniTask 解释器状态机）");
+            // Dispose 的取消可能下一帧才被 UniTask 观察；旧轮的成功、失败与取消都不能污染新轮或销毁后的屏显。
+            if (!ReferenceEquals(_ctx, context)) return;
+            _results.Add(failure == null
+                ? "✓ 异步命令（UniTask 解释器状态机）"
+                : $"✗ 异步命令（UniTask）：{failure.GetType().Name} {failure.Message}");
+            IsRunning = false;
+            HasCompleted = true;
             LogSummary();
         }
 
@@ -153,14 +174,30 @@ namespace Game.Framework.Diagnostics
         private void OnGUI()
         {
             GUI.Label(new Rect(10, 70, Screen.width - 20, 24), $"{Caption} · 框架内核：{KernelAssembly}");
+            string status = IsRunning ? "自检进行中，请等待异步检查完成" :
+                HasCompleted ? (AllOk ? "全部通过" : "自检完成，存在失败项") : "尚未运行";
+            GUI.Label(new Rect(10, 98, Screen.width - 20, 22), status);
             for (int i = 0; i < _results.Count; i++)
-                GUI.Label(new Rect(10, 98 + i * 22, Screen.width - 20, 22), _results[i]);
+                GUI.Label(new Rect(10, 120 + i * 22, Screen.width - 20, 22), _results[i]);
         }
 
         private void OnDestroy()
         {
-            _bag?.Dispose();
-            _ctx?.Dispose();
+            _destroyed = true;
+            ReleaseRun();
+        }
+
+        private void ReleaseRun()
+        {
+            var bag = _bag;
+            var context = _ctx;
+            // 先撤销当前轮身份，再释放：取消回调即使同步恢复，也只能观察到自己已失效。
+            _bag = null;
+            _ctx = null;
+            IsRunning = false;
+            HasCompleted = false;
+            try { bag?.Dispose(); }
+            finally { context?.Dispose(); }
         }
 
         // ───────────── 自检用的最小层与命令（私有嵌套，全部是普通托管类型，不进框架公共面） ─────────────

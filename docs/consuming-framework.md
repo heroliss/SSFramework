@@ -82,7 +82,7 @@ https://github.com/heroliss/SSFramework.git#175eadb5f930cc3685ce17ce071e5ca1a44f
 https://github.com/heroliss/SSFramework.git#<commit-sha>
 ```
 
-Git URL 的 `#revision` 是可复现边界；不要在需要稳定验证的项目中隐式跟随未经审查的分支头。等待 UPM 下载和脚本编译后，继续选择下面的开发工具，或直接进行[安装验收](#安装验收)。
+正式项目优先使用完整 commit SHA 或发布后不再移动的 tag；`#main` 等分支名仍会随开发变化，不能单靠名字确认包内容。不同地址的解析与升级行为见[版本选择与发布](#版本选择与发布)。等待 UPM 下载和脚本编译后，继续选择下面的开发工具，或直接进行[安装验收](#安装验收)。
 
 #### 安装时出现 Missing signature
 
@@ -147,16 +147,39 @@ https://github.com/CoplayDev/unity-mcp.git?path=/MCPForUnity#v10.2.0
 
 调试 Framework 源码时，可以通过 Package Manager 的本地路径引用工作副本。消费方只需要重新导入包即可看到修改；准备提交前仍应切换回明确的 tag 或 commit，避免把本地未提交状态当成版本依赖。
 
+## 版本选择与发布
+
+**让安装入口长期不变，与让安装内容自动追踪最新版本，是两件事。** 推荐保留固定的安装说明 / 工具下载入口，由维护者更新其中已验证的推荐版本；正式工程继续记录具体版本，方便复现问题与回退。
+
+| Framework 地址形式 | 解析方式与适用场景 |
+|---|---|
+| Git 地址加 `#<完整 commit SHA>` 或已发布 tag | 指向已验证的版本，推荐用于游戏开发与构建；发布 tag 不再移动 |
+| Git 地址加 `#main` | 指向 main 分支，适合主动参与集成验证的使用者 |
+| `https://github.com/heroliss/SSFramework.git` | 首次解析时取远端默认分支当时的最新提交；仅在修复已合入默认分支后作为简便的可选入口 |
+
+省略 revision **不会持续自动更新**：UPM 将实际 Git commit 写入 `packages-lock.json`，已有工程按锁定结果加载。需要重新取分支最新内容时，可在 **Install package from git URL** 再次提交同一地址，UPM 会重新解析；随后检查变更并验收。当前修复尚未合入 main，首次安装仍使用上文固定候选。行为依据见 [Unity Git 版本与锁定说明](https://docs.unity3d.com/6000.3/Documentation/Manual/upm-git.html#git-locks)。
+
+第三方依赖也保留版本声明。Framework 的 `package.json` 依赖值必须是具体 SemVer，不能写 `latest`、`*`、版本范围或第三方 Git URL；这是 [Unity 包清单规则](https://docs.unity3d.com/6000.3/Documentation/Manual/upm-manifestPkg.html#dependencies)与 [Git 依赖限制](https://docs.unity3d.com/6000.3/Documentation/Manual/upm-git.html)。在 **Install package by name** 界面留空 Version，是让 UPM 当次选择最新兼容发行版；它仍把选择写入工程清单并记录解析结果，不等于依赖从此没有版本。Unity 的兼容版本选择也不能代替 SSFramework 的实际验证，首次接入优先使用本文依赖基线。[按名称安装](https://docs.unity3d.com/6000.3/Documentation/Manual/upm-ui-quick.html)、[工程清单](https://docs.unity3d.com/6000.3/Documentation/Manual/upm-manifestPrj.html)。
+
+### 合并 main 与发布的标准
+
+不以“所有未来优化都做完”为合并条件。对准备合入的同一候选提交，在真实消费工程完成以下检查即可推进发布：
+
+1. 审查源码、依赖声明与安装文档，完成 Unity 6.3 的依赖解析和 Runtime / Editor 编译。
+2. 运行受影响的包内 EditMode / PlayMode 测试，并验证[最小运行路径](#安装验收)。
+3. 以该场景完成 Windows x64 IL2CPP 构建并实际启动，记录 Unity 版本、候选 SHA、结果及未覆盖范围。
+4. 检查结果后合入 main，发布对应最终提交、之后不再移动的 tag。若合并冲突改变代码或依赖，先复验受影响范围。
+
+发布后同步推荐安装地址与安装工具默认候选。工具仍保留已有工程的版本，升级由使用者显式发起；在发布验收完成前，工具当前固定提交只是待验收候选，不能因工具成功写入清单就标为稳定版。
+
 ## 版本升级流程
 
-1. 阅读目标版本的 changelog、公共 API 变更和迁移说明。
-2. 在 Framework 仓库完成修改、包内测试和必要的构建验证。
-3. 发布一个 tag，或选定一个已经推送的 commit SHA。
-4. 在 Unity 工程中通过 Package Manager 添加目标 Git URL，或修改 `Packages/manifest.json` 中的 revision，再由 UPM 重新解析并更新 `packages-lock.json`；不要把手改锁文件当成升级入口。
-5. 运行消费方编译、受影响的测试和真实运行路径。
-6. 把使用的 tag/SHA 与验证结果记录在消费方自己的兼容性文档中。
+1. 阅读目标版本的 changelog、公共 API 变更和迁移说明，选定已发布的 tag 或已推送的完整 commit SHA。
+2. 保存消费工程当前清单与锁文件。在 Package Manager 添加目标 Git URL，或修改 `Packages/manifest.json` 中的 revision，再由 UPM 重新解析并更新 `packages-lock.json`；不要把手改锁文件当成升级入口。
+3. 复核工程自己显式指定的第三方版本，运行编译、受影响的测试、真实运行路径与必要的目标平台构建。
+4. 把使用的 tag/SHA 与验证结果记录在消费方自己的当前说明中，并提交清单与锁文件；验证失败时回退这两份文件及相关业务迁移。
 
-Framework 新提交不会自动改写使用它的 Unity 工程；这是为了让每个工程的验证结果可复现。批量升级可以由团队自己的脚本或 CI 编排，但每个消费方仍应显式记录版本和验证结果。
+Framework 新提交不会自动改写使用它的 Unity 工程；批量升级可以由团队自己的脚本或 CI 编排，但每个消费方仍应显式记录版本和验证结果。
 
 ## 最小使用路径
 

@@ -230,12 +230,22 @@ namespace Game.Framework.Test
     /// <summary>
     /// 测试用 Event
     /// </summary>
-    public record struct TestEvent(string Message, int Value) : IEvent;
+    public struct TestEvent : IEvent
+    {
+        public string Message;
+        public int Value;
+
+        public TestEvent(string message, int value)
+        {
+            Message = message;
+            Value = value;
+        }
+    }
 
     /// <summary>
     /// 测试用无参 Event
     /// </summary>
-    public record struct EmptyEvent : IEvent;
+    public struct EmptyEvent : IEvent { }
 
     /// <summary>
     /// 测试用 View。实现 IHasGameContext，通过 GameContext.AttachTo 设置上下文。

@@ -127,7 +127,11 @@ eventBus.Send("player_hurt");
 eventBus.Send(EventType.PlayerHurt);
 
 // ✅ 类型事件：每种事件本身就是一个类型，IDE 可找到所有引用，重命名安全
-public record struct PlayerHurtEvent(int Damage) : IEvent;
+public readonly struct PlayerHurtEvent : IEvent
+{
+    public int Damage { get; }
+    public PlayerHurtEvent(int damage) => Damage = damage;
+}
 this.SendEvent(new PlayerHurtEvent(10));
 this.RegisterEvent<PlayerHurtEvent>(e => TakeDamage(e.Damage));
 ```
@@ -138,11 +142,19 @@ this.RegisterEvent<PlayerHurtEvent>(e => TakeDamage(e.Damage));
 
 ```csharp
 // 字符串驱动：
-public record struct StringEvent(string Type) : IEvent;
+public readonly struct StringEvent : IEvent
+{
+    public string Type { get; }
+    public StringEvent(string type) => Type = type;
+}
 this.SendEvent(new StringEvent("scene_loaded"));
 
 // 枚举驱动：
-public record struct UIEvent(UIActionType Action) : IEvent;
+public readonly struct UIEvent : IEvent
+{
+    public UIActionType Action { get; }
+    public UIEvent(UIActionType action) => Action = action;
+}
 this.SendEvent(new UIEvent(UIActionType.Open));
 ```
 
@@ -525,11 +537,20 @@ ctx.RegisterModel(new ConfigModel());
 
 ### Event：瞬时可观察数据
 
-Event 用于"发生了某件事"的一次性通知，不保留历史。推荐用 `record struct` 定义，零堆分配：
+Event 用于"发生了某件事"的一次性通知，不保留历史。推荐用兼容 Unity 6.3 所用 C# 9 的 `readonly struct` 定义，避免为事件实例额外分配对象；事件内引用的数据仍按其自身类型分配：
 
 ```csharp
-public record struct GoldChangedEvent(int Delta) : IEvent;
-public record struct ItemAddedEvent(ItemData Item) : IEvent;
+public readonly struct GoldChangedEvent : IEvent
+{
+    public int Delta { get; }
+    public GoldChangedEvent(int delta) => Delta = delta;
+}
+
+public readonly struct ItemAddedEvent : IEvent
+{
+    public ItemData Item { get; }
+    public ItemAddedEvent(ItemData item) => Item = item;
+}
 ```
 
 System 在修改 Model 后发出对应事件，View 或其他 System 根据需要监听：
@@ -2859,6 +2880,7 @@ var ctx = new GameContext(builder.Build()) { DebugName = "MiniGame" };
 ### 边界（刻意行为）
 
 - **采集仅在 Editor**：存活登记表 / 订阅计数 / Bag 计数在玩家包（含 Development Build）里编译消除，零成本；真机诊断走 `FrameworkSelfCheck` 冒烟 + `Log` 日志（配 `CaptureUnityLogs()` + `FileLogSink` 可把引擎报错 / 崩溃一并落盘，见 §28）。
+- **自检等待异步项结束**：`FrameworkSelfCheck` 在屏显和 Inspector 中区分尚未运行、进行中与最终结果；只有当前轮全部检查完成后才显示通过或失败并输出汇总。重跑或销毁会取消上一轮，旧轮的迟到结果不会写入当前轮。
 - **登记表持强引用**：没 Dispose 的 Context 会一直挂在树上——这不是面板的 bug，这就是它要暴露的泄漏。
 - **回退来源只持弱引用**：实际回退历史不会为了显示来源而延长已替换 Main 的生命周期；来源已经释放时，明细保留次数并显示“已释放的 Context”。
 - 池概要的「借出」只统计已成功发布的 `Active` lease：C# 池按引用身份与真实来源路由精确计数；GameObject 若被调用方直接 Destroy，计数停在借出侧，表示一次没有正常 Despawn 的 lease。空闲栈中的 Unity fake-null 死槽会先清理，不会虚增「空闲」。
