@@ -2,6 +2,8 @@
 
 **先运行本工具，再打开 Unity。** 工具把 SSFramework 的固定 Git 地址、OpenUPM 包源和所选 Unity MCP 合并到工程清单；Unity 启动后负责下载和编译，无需先在 Package Manager 添加 Framework。
 
+如果希望完全自己操作 Package Manager，可直接使用[手动安装步骤](../docs/consuming-framework.md#手动安装无需工具)，无需运行本工具。两种方式都以[安装验收](../docs/consuming-framework.md#安装验收)结束，包括最小场景、测试、是否启用 HybridCLR 和目标 Player 构建。
+
 工具可独立分发，只需同目录的 `Setup-SSFramework.cmd` 和 `Setup-SSFramework.ps1`，无需先克隆整个框架仓库。脚本需要 Windows PowerShell 5.1 或 PowerShell 7；自动接入 Git 包还需要 Git。无需 OpenUPM CLI。Node.js / Python 等是可选 MCP 后续连接所需的环境。
 
 当前候选 Framework revision 见[接入指南](../docs/consuming-framework.md#unity-package-managergit-url)，固定到已推送提交；重复运行保留已有 Framework 版本，不自动升级。完整包仍需完成 Unity 6.3 消费验收。YooAsset 随整包安装，暂不能取消；字体、Git 文件和项目模板也尚未提供，用法边界见[初始化规划](../docs/project-startup.md#依赖与可选能力)。

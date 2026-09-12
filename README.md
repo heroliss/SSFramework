@@ -55,15 +55,40 @@ SSFramework 将依赖注入、Context 作用域、Model / System / View 分层�
 
 ### 1. 安装包
 
-完整包当前以 **Unity 6.3 LTS** 为接入目标；**Unity 6.6 暂被 YooAsset 3.0.5 的 Editor API 兼容问题阻塞**。推荐先关闭工程，双击 [`Tools~/Setup-SSFramework.cmd`](Tools~/Setup-SSFramework.cmd)：输入工程目录，接受自动安装 Framework 的推荐项，按需选择 MCP，核对预览并输入 `y`。工具会配置包源和固定 Git 依赖，再打开 Unity 即可自动下载，无需先手动安装 Framework。工具可单独分发，选项、联网检查和恢复见[接入工具](Tools~/README.md)。
+完整包当前以 **Unity 6.3 LTS** 为接入目标；**Unity 6.6 暂被 YooAsset 3.0.5 的 Editor API 兼容问题阻塞**。安装前准备 Git，并确认能访问 GitHub、Unity Registry 和 OpenUPM。
 
-如果选择手动安装，先按[第三方包源配置](docs/consuming-framework.md#首次接入配置第三方包源)准备 OpenUPM，再在 Unity Package Manager 中选择 **Add package from git URL**，输入：
+两种方式使用相同的框架与依赖，选择其中一条即可。手动方式完全不需要运行安装工具；也可以只让工具配置包源，再手动添加框架。
+
+| 方式 | 适合的情况 | 完整说明 |
+|---|---|---|
+| 手动接入 | 希望理解每项包源、依赖与可选工具，或需要自己管理版本 | [手动安装步骤](docs/consuming-framework.md#手动安装无需工具) |
+| 自动接入工具 | 希望一次预览、配置并备份工程清单 | [工具使用、默认项与恢复](Tools~/README.md) |
+
+#### 方式 A：手动接入
+
+1. 打开 Unity 工程，在 **Edit → Project Settings → Package Manager → Scoped Registries** 添加 `OpenUPM`，URL 填 `https://package.openupm.com`。按[包源配置](docs/consuming-framework.md#1-手动配置包源)添加六项 Scope 并保存；已有配置只补缺项。
+2. 必需依赖通常由 UPM 随框架自动解析。如果希望逐个安装和检查，在 Package Manager 中使用 **Install package by name / Add package by name**，按[依赖清单与手动步骤](docs/consuming-framework.md#依赖前置条件)填写包名及固定版本。无需再复制 DLL 或安装 NuGetForUnity。
+3. 在 Package Manager 中选择 **Install package from git URL / Add package from git URL**，输入以下地址：
 
 ```text
 https://github.com/heroliss/SSFramework.git#175eadb5f930cc3685ce17ce071e5ca1a44fc7ce
 ```
 
-上面的提交包含 `0.1.1` 依赖修复，仍等待完整 Unity 6.3 消费验收；修复尚未合入 main，当前不要省略 revision。升级到其他已审查提交时使用：
+4. 等待依赖解析、签名确认和编译完成，再按需手动安装 [Unity MCP、Odin 等可选开发工具](docs/consuming-framework.md#可选开发工具)。这些工具不影响 Framework 是否必须安装；YooAsset、HybridCLR 等根包依赖目前仍随完整框架安装，不能取消。
+5. 完成[安装验收](docs/consuming-framework.md#安装验收)：核对编译、业务程序集与最小场景，再测试和构建。**不做热更新时仍需显式关闭 HybridCLR 的 Enable**；安装其 UPM 包与启用热更新构建是两项不同的选择。
+
+#### 方式 B：自动接入工具
+
+1. 下载 [`Setup-SSFramework.cmd`](Tools~/Setup-SSFramework.cmd) 和 [`Setup-SSFramework.ps1`](Tools~/Setup-SSFramework.ps1)，放在同一个目录；无需先安装 Framework，也无需克隆整个仓库。
+2. 关闭目标 Unity 工程，双击 `.cmd`，输入工程目录，选择 Framework 安装方式及可选 MCP；每一步都显示推荐默认项。
+3. 核对变更预览与联网检查，输入 `y` 才应用并备份。默认自动加入固定 Framework Git 地址和所选包；手动模式只显示相应安装指引。
+4. 打开 Unity，等待 UPM 解析、签名确认与编译；自动模式无需再次粘贴 Git 地址。随后执行与手动方式相同的[安装验收](docs/consuming-framework.md#安装验收)。
+
+Scope 明细、MCP 连接命令和来源可通过 `-Details` 查看；命令行、保护机制和撤销方法见[工具说明](Tools~/README.md)。工具不会配置渲染管线、生成业务场景或自动完成 Player 构建。
+
+#### 版本固定与升级
+
+上面的提交包含 `0.1.1` 依赖修复，已在 Unity `6000.3.23f1` 消费工程观察到依赖解析与 Runtime / Editor 编译成功，完整测试和 Player 验收仍待完成；修复尚未合入 main，当前不要省略 revision。升级到其他已审查提交时使用：
 
 ```text
 https://github.com/heroliss/SSFramework.git#<commit-sha>
@@ -74,6 +99,25 @@ https://github.com/heroliss/SSFramework.git#<commit-sha>
 ### 2. 为业务程序集显式引用 Framework
 
 Core 与可热更新 Runtime 程序集使用 autoReferenced:false，业务 asmdef 应明确引用需要的程序集；AOT 启动薄壳 Game.Framework.Boot 是 autoReferenced:true 的例外。最小运行时通常引用 Game.Framework；使用 UI、YooAsset、Luban、Protobuf 或构建工具时，再按模块地图添加对应程序集。显式引用控制业务访问关系，不会让完整包里未被引用的 Module 自动停止编译。
+
+下面的按钮示例还直接使用 R3、TMP 和 UGUI。可在自己的业务目录创建 `Game.Main.asmdef`，使用以下引用配置，并将示例脚本放在它的目录范围内：
+
+```json
+{
+  "name": "Game.Main",
+  "references": [
+    "Game.Framework",
+    "R3.Unity",
+    "UniTask",
+    "Unity.TextMeshPro",
+    "UnityEngine.UI"
+  ],
+  "overrideReferences": true,
+  "precompiledReferences": ["R3.dll"]
+}
+```
+
+这是本文示例的引用集合；后续使用其他 Module 时再添加相应引用。已用 Unity `6000.3.23f1` 消费工程中的实际程序集离线编译此示例；场景接线、Play 和 Player 仍需在工程中验证。
 
 ### 3. 建立 Context、状态和规则
 
@@ -161,7 +205,9 @@ public sealed class HudView : MonoViewBase
 }
 ```
 
-在场景中创建一个 MainContext，将 PlayerModel、PlayerSystem 和 HudView 放到它的子层级，并在 Inspector 中绑定文本和按钮。实际项目应把这些类型放进自己的 asmdef；完整的 Context、生命周期、异步 Command 和 UI 接入说明见[框架使用指南](docs/framework-guide.md)。
+示例为集中展示；实际创建脚本时，将 `MainContext`、`PlayerModel`、`PlayerSystem` 和 `HudView` 各自保存到同名 `.cs` 文件，保留所需 using，才能分别挂载组件。接口、事件和 Command 可放在同一个普通 C# 文件中。
+
+在场景中创建一个 MainContext，将 PlayerModel、PlayerSystem 和 HudView 放到它的子层级，在 Canvas 中创建 TMP 文本和按钮，并在 Inspector 中绑定引用。新 Input System 工程的 EventSystem 使用 InputSystemUIInputModule，避免按钮只显示却收不到输入。保存场景，进入 Play 后点击按钮，应看到数值从 100 逐次减 10。实际项目应把这些类型放进自己的 asmdef；完整的 Context、生命周期、异步 Command 和 UI 接入说明见[框架使用指南](docs/framework-guide.md)。
 
 ## 🧰 能力模块
 
@@ -171,7 +217,7 @@ public sealed class HudView : MonoViewBase
 | **基础依赖** | R3 提供响应式数据流，UniTask 提供异步任务与取消协作；Unity 原生 UI、Editor 和序列化能力通过公开边界接入 | 业务可以直接使用这些基础能力，但不需要把第三方类型扩散到所有模块 |
 | **Asset.Yoo** | IAssetProvider 的 YooAsset Adapter、资源引用和运行时装配 | 项目选择 YooAsset 时接入；Core 不保存 YooAsset 类型 |
 | **UI** | 渲染中立的窗口、层级、栈、模态、过渡和响应式列表绑定 | 业务 UI 的编排与生命周期 |
-| **UI.UGui / UI.Toolkit / UI.Bridge** | UGUI、UI Toolkit 和内容嵌入桥的后端实现 | 只安装项目实际使用的渲染后端 |
+| **UI.UGui / UI.Toolkit / UI.Bridge** | UGUI、UI Toolkit 和内容嵌入桥的后端实现 | 业务只引用和装配实际使用的后端；当前仍随完整 UPM 包分发 |
 | **Config / Network.Proto** | 配置运行时、Luban Editor 工具、Protobuf 序列化 Adapter 和生成入口 | 配置表与协议生成属于项目构建链 |
 | **Fonts** | TMP 多语言字体 fallback、常用字集工具和相关测试 | 有多语言字体链需求时接入 |
 | **Build / Boot** | 资源构建、HybridCLR 热更新构建、CodePackage 和启动薄壳 | 仅在项目采用对应发布链时接入 |

@@ -629,6 +629,8 @@ Bag.Subscribe(Observable.EveryUpdate(), _ => Tick());
 
 Entities 的数据与 System 概念见 [Unity ECS 文档](https://docs.unity3d.com/Packages/com.unity.entities@1.4/manual/concepts-intro.html)，Burst 的类型边界见 [C# type support](https://docs.unity3d.com/Packages/com.unity.burst@1.8/manual/csharp-type-support.html)。这些组合建议不增加 Framework 对 Entities 或 Input System 的包依赖。
 
+仿真与渲染需要分别检查。只用 Entities 做数据计算，不要求切换渲染管线；若使用 Entities Graphics 1.4 渲染实体，则不支持 Built-in，需使用 URP 或 HDRP，其中 URP 要求 Forward+。在消费工程中先验证实体烘焙、材质、SRP Batcher 和目标 Player，再扩展实体数量；安装 ECS 配套包不会自动把现有工程切换为兼容管线。要求见 [Entities Graphics 兼容性](https://docs.unity3d.com/Packages/com.unity.entities.graphics@1.4/manual/requirements-and-compatibility.html)与[现有工程接入步骤](https://docs.unity3d.com/Packages/com.unity.entities.graphics@1.4/manual/creating-a-new-entities-graphics-project.html)。
+
 ---
 
 ## 7. Utility（工具层）
