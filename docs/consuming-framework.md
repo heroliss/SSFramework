@@ -82,7 +82,7 @@ SSFramework 的 `package.json` 已声明第三方 UPM 包和 NuGet 运行库的 
 
 Registry 配置保存在**消费工程**的 `Packages/manifest.json` 中；Framework 的 `package.json` 不能代替工程设置 `scopedRegistries`。包内 Editor 安装脚本也不能作为解决首次依赖解析失败的前提。因此，工具或手动操作负责“每个工程配置一次包源”，之后由 UPM 自动安装已声明的依赖。相关规则见 [Unity Scoped Registry 文档](https://docs.unity3d.com/6000.3/Documentation/Manual/upm-scoped-use.html)。
 
-`com.cysharp.r3` 提供 Unity 适配层，`org.nuget.r3` 提供 R3 运行库；两者都需要。`175eadb` 依赖基线已在真实消费工程的 Unity `6000.3.23f1` 中完成解析与 Runtime / Editor 编译复核。下面的 `57062df` 候选追加了自检生命周期和 Unity C# 9 测试语法修复：Core / Editor / Core Tests 使用该消费工程的 Unity 引用离线编译通过，自检候选组件也在真实 PlayMode 完成异步、重跑与销毁专项验证。消费工程仍需通过 Git 更新到此候选，再完成包内 Test Runner、最小运行路径和 Player 构建验收；专项验证不代表这些检查已经通过。
+`com.cysharp.r3` 提供 Unity 适配层，`org.nuget.r3` 提供 R3 运行库；两者都需要。依赖基线已在真实消费工程的 Unity `6000.3.23f1` 中完成解析与 Runtime / Editor 编译复核。下面的 `bdf01b5` 候选追加包内 C# 10 配置、日志与自检测试修正，以及消费工程传递依赖布局适配。修改程序集已用消费工程的 Unity 引用离线编译通过；业务语言配置与 26 项日志测试在真实 Editor 通过。消费工程仍需通过 Git 更新到完整候选，再完成全部相关回归和 Player 构建验收；这些专项验证不能代替发布验收。
 
 ### 2. 依赖自动解析或逐个手动安装
 
@@ -100,10 +100,10 @@ Registry 配置保存在**消费工程**的 `Packages/manifest.json` 中；Frame
 这是手动路线的第 3 步。在 Package Manager 左上角 **+** 中选择 **Install package from git URL**（部分界面显示 **Add package from git URL**），粘贴下面整行并点击 **Install / Add**。工具自动模式已加入同一个地址时，无需重复添加：
 
 ```text
-https://github.com/heroliss/SSFramework.git#57062df9e56b6f562bc4e4a868367370fc657229
+https://github.com/heroliss/SSFramework.git#bdf01b583210b83bb4850010b95ddcc633aa66d8
 ```
 
-上面是包含依赖、自检与 C# 9 测试编译修复的候选提交，尚未完成全部测试与 Player 验收，也尚未合入 main。当前不要使用省略 revision 的地址，否则可能装到缺少依赖声明的旧 main。其他已审查版本同样固定到 tag 或 commit：
+上面是包含依赖、自检与 C# 10 接入配置的候选提交，尚未完成全部测试与 Player 验收，也尚未合入 main。当前不要使用省略 revision 的地址，否则可能装到缺少依赖声明的旧 main。其他已审查版本同样固定到 tag 或 commit：
 
 ```text
 https://github.com/heroliss/SSFramework.git#<commit-sha>
