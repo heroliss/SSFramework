@@ -73,7 +73,7 @@ SSFramework 将依赖注入、Context 作用域、Model / System / View 分层�
 3. 在 Package Manager 中选择 **Install package from git URL / Add package from git URL**，输入以下地址：
 
 ```text
-https://github.com/heroliss/SSFramework.git#0d8e5b439a9e36b902330ef43358b3f86cc6853c
+https://github.com/heroliss/SSFramework.git
 ```
 
 4. 等待依赖解析、签名确认和编译完成，再按需手动安装 [Unity MCP、Odin 等可选开发工具](docs/consuming-framework.md#可选开发工具)。这些工具不影响 Framework 是否必须安装；YooAsset、HybridCLR 等根包依赖目前仍随完整框架安装，不能取消。
@@ -81,7 +81,7 @@ https://github.com/heroliss/SSFramework.git#0d8e5b439a9e36b902330ef43358b3f86cc6
 
 #### 方式 B：自动接入工具
 
-1. 下载 [`Setup-SSFramework.cmd`](Tools~/Setup-SSFramework.cmd) 和 [`Setup-SSFramework.ps1`](Tools~/Setup-SSFramework.ps1)，放在同一个目录；无需先安装 Framework，也无需克隆整个仓库。
+1. 下载并解压[接入工具 ZIP](https://github.com/heroliss/SSFramework/releases/latest/download/SSFramework-Setup.zip)；也可分别下载 [`Setup-SSFramework.cmd`](Tools~/Setup-SSFramework.cmd) 和 [`Setup-SSFramework.ps1`](Tools~/Setup-SSFramework.ps1)，放在同一个目录。无需先安装 Framework，也无需克隆整个仓库。
 2. 关闭目标 Unity 工程，双击 `.cmd`，输入工程目录，选择 Framework 安装方式及可选 MCP；每一步都显示推荐默认项。
 3. 核对变更预览与联网检查，输入 `y` 才应用并备份。默认自动加入固定 Framework Git 地址和所选包；手动模式只显示相应安装指引。
 4. 打开 Unity，等待 UPM 解析、签名确认与编译；自动模式无需再次粘贴 Git 地址。随后执行与手动方式相同的[安装验收](docs/consuming-framework.md#安装验收)。
@@ -90,13 +90,15 @@ Scope 明细、MCP 连接命令和来源可通过 `-Details` 查看；命令行�
 
 #### 版本固定与升级
 
-上面的候选包含依赖与自检修复、包内 C# 10 配置、消费工程依赖布局适配和 YooAsset 独立测试夹具。此前 `bdf01b5` 已在真实 Unity `6000.3.23f1` 消费工程通过 Core PlayMode 580 项、Editor 563 项及其余模块 174 项测试，并完成 Windows x64 IL2CPP 构建和最小场景运行。另有 15 项 YooAsset 测试因依赖旧工程配置失败；当前候选修复其资源与收集器准备，已通过 Unity 编译器检查，仍待真实回归。修复尚未合入 main，当前不要省略 revision；[版本选择与发布标准](docs/consuming-framework.md#版本选择与发布)说明了后续简便入口与版本管理方式。升级到其他已审查提交时使用：
+`v0.1.1` 包含依赖与自检修复、包内 C# 10 配置、消费工程依赖布局适配和 YooAsset 独立测试夹具。真实 Unity `6000.3.23f1` 消费工程已通过 **564 项 Editor / 769 项 PlayMode 测试**，完成普通 Windows x64 IL2CPP 构建（0 错误 / 0 警告）及最小场景的启动和交互验证。验证范围与后续发布标准见[接入指南](docs/consuming-framework.md#版本选择与发布)。
+
+上面的普通 Git 地址解析默认分支 main，UPM 用锁文件记录实际提交，不会随每次启动自动升级。希望固定本次发行版时使用下面的地址；接入工具默认也使用这个标签：
 
 ```text
-https://github.com/heroliss/SSFramework.git#<commit-sha>
+https://github.com/heroliss/SSFramework.git#v0.1.1
 ```
 
-<commit-sha> 需要替换成实际提交；当前包没有假定某个固定 tag。开发框架本身时，也可以使用 Package Manager 的本地路径方式引用工作副本。从早期版本升级到 `0.1.1` 时，还需补充 `org.nuget` 和 `com.code-philosophy.hybridclr` 两项 Scope。安装前先检查[依赖前置条件](docs/consuming-framework.md#依赖前置条件)；完整 Editor、测试和构建验证仍应在消费工程完成。
+发布标签不再移动；也可使用 `#<完整 commit SHA>` 固定其他已审查提交。开发框架本身时，可以使用 Package Manager 的本地路径方式引用工作副本。从早期版本升级到 `0.1.1` 时，还需补充 `org.nuget` 和 `com.code-philosophy.hybridclr` 两项 Scope。安装前先检查[依赖前置条件](docs/consuming-framework.md#依赖前置条件)；自己的场景、平台及所用内容构建链仍须在消费工程验收。
 
 ### 2. 为业务程序集显式引用 Framework
 

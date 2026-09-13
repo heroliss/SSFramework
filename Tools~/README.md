@@ -6,7 +6,7 @@
 
 工具可独立分发，只需同目录的 `Setup-SSFramework.cmd` 和 `Setup-SSFramework.ps1`，无需先克隆整个框架仓库。脚本需要 Windows PowerShell 5.1 或 PowerShell 7；自动接入 Git 包还需要 Git。无需 OpenUPM CLI。Node.js / Python 等是可选 MCP 后续连接所需的环境。
 
-当前候选 Framework revision 见[接入指南](../docs/consuming-framework.md#unity-package-managergit-url)，固定到已推送提交；重复运行保留已有 Framework 版本，不自动升级。完整包仍需完成 Unity 6.3 消费验收。YooAsset 随整包安装，暂不能取消；字体、Git 文件和项目模板也尚未提供，用法边界见[初始化规划](../docs/project-startup.md#依赖与可选能力)。
+下载[最新发布的工具 ZIP](https://github.com/heroliss/SSFramework/releases/latest/download/SSFramework-Setup.zip)后解压即可运行。工具默认固定 Framework 到已验证的 `v0.1.1` 标签；重复运行保留已有 Framework 版本，不自动升级。验证范围见[接入指南](../docs/consuming-framework.md#版本选择与发布)。YooAsset 随整包安装，暂不能取消；字体、Git 文件和项目模板也尚未提供，用法边界见[初始化规划](../docs/project-startup.md#依赖与可选能力)。
 
 ## Windows 双击运行
 

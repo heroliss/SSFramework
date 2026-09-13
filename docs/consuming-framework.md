@@ -82,7 +82,7 @@ SSFramework 的 `package.json` 已声明第三方 UPM 包和 NuGet 运行库的 
 
 Registry 配置保存在**消费工程**的 `Packages/manifest.json` 中；Framework 的 `package.json` 不能代替工程设置 `scopedRegistries`。包内 Editor 安装脚本也不能作为解决首次依赖解析失败的前提。因此，工具或手动操作负责“每个工程配置一次包源”，之后由 UPM 自动安装已声明的依赖。相关规则见 [Unity Scoped Registry 文档](https://docs.unity3d.com/6000.3/Documentation/Manual/upm-scoped-use.html)。
 
-`com.cysharp.r3` 提供 Unity 适配层，`org.nuget.r3` 提供 R3 运行库；两者都需要。依赖与 C# 10 基线 `bdf01b5` 已在真实 Unity `6000.3.23f1` 消费工程通过 Core PlayMode 580 项、Editor 563 项及其他模块 174 项测试，并完成普通 Windows x64 IL2CPP 构建（0 错误 / 0 警告）及最小场景的启动、Command、状态和 UI 更新验证。15 项 YooAsset 测试暴露了对旧工程收集器和失效图片 GUID 的依赖；下面的 `0d8e5b4` 候选改为自动管理独占测试夹具，已通过 Unity 编译器检查，仍需实际回归。上述 Player 结果不覆盖 HybridCLR 热更新、YooAsset 离线 / Host 内容或大规模 ECS 仿真。
+`com.cysharp.r3` 提供 Unity 适配层，`org.nuget.r3` 提供 R3 运行库；两者都需要。本依赖基线与 C# 10 配置已在真实 Unity `6000.3.23f1` 消费工程完成解析、编译、测试和普通 Windows IL2CPP 验收；范围见[发布验证](#v011-发布验证)。
 
 ### 2. 依赖自动解析或逐个手动安装
 
@@ -97,16 +97,16 @@ Registry 配置保存在**消费工程**的 `Packages/manifest.json` 中；Frame
 
 ### Unity Package Manager：Git URL
 
-这是手动路线的第 3 步。在 Package Manager 左上角 **+** 中选择 **Install package from git URL**（部分界面显示 **Add package from git URL**），粘贴下面整行并点击 **Install / Add**。工具自动模式已加入同一个地址时，无需重复添加：
+这是手动路线的第 3 步。在 Package Manager 左上角 **+** 中选择 **Install package from git URL**（部分界面显示 **Add package from git URL**），粘贴下面整行并点击 **Install / Add**。工具自动模式已加入 Framework 时，无需重复添加：
 
 ```text
-https://github.com/heroliss/SSFramework.git#0d8e5b439a9e36b902330ef43358b3f86cc6853c
+https://github.com/heroliss/SSFramework.git
 ```
 
-上面是包含依赖、自检与 C# 10 接入配置的候选提交，尚未完成全部测试与 Player 验收，也尚未合入 main。当前不要使用省略 revision 的地址，否则可能装到缺少依赖声明的旧 main。其他已审查版本同样固定到 tag 或 commit：
+上面解析默认分支 main，适合希望使用简便入口的工程。要固定到本次发行版，使用下面的地址；接入工具默认也使用这个标签。其他已审查版本可使用对应 tag 或完整 commit SHA：
 
 ```text
-https://github.com/heroliss/SSFramework.git#<commit-sha>
+https://github.com/heroliss/SSFramework.git#v0.1.1
 ```
 
 正式项目优先使用完整 commit SHA 或发布后不再移动的 tag；`#main` 等分支名仍会随开发变化，不能单靠名字确认包内容。不同地址的解析与升级行为见[版本选择与发布](#版本选择与发布)。等待 UPM 下载和脚本编译后，继续选择下面的开发工具，或直接进行[安装验收](#安装验收)。
@@ -182,9 +182,9 @@ https://github.com/CoplayDev/unity-mcp.git?path=/MCPForUnity#v10.2.0
 |---|---|
 | Git 地址加 `#<完整 commit SHA>` 或已发布 tag | 指向已验证的版本，推荐用于游戏开发与构建；发布 tag 不再移动 |
 | Git 地址加 `#main` | 指向 main 分支，适合主动参与集成验证的使用者 |
-| `https://github.com/heroliss/SSFramework.git` | 首次解析时取远端默认分支当时的最新提交；仅在修复已合入默认分支后作为简便的可选入口 |
+| `https://github.com/heroliss/SSFramework.git` | 首次解析时取远端默认分支 main 当时的最新提交，是手动安装的简便入口；检查并提交工程锁文件 |
 
-省略 revision **不会持续自动更新**：UPM 将实际 Git commit 写入 `packages-lock.json`，已有工程按锁定结果加载。需要重新取分支最新内容时，可在 **Install package from git URL** 再次提交同一地址，UPM 会重新解析；随后检查变更并验收。当前修复尚未合入 main，首次安装仍使用上文固定候选。行为依据见 [Unity Git 版本与锁定说明](https://docs.unity3d.com/6000.3/Documentation/Manual/upm-git.html#git-locks)。
+省略 revision **不会持续自动更新**：UPM 将实际 Git commit 写入 `packages-lock.json`，已有工程按锁定结果加载。需要重新取分支最新内容时，可在 **Install package from git URL** 再次提交同一地址，UPM 会重新解析；随后检查变更并验收。工具默认使用发布标签，重复运行保留工程已有版本。行为依据见 [Unity Git 版本与锁定说明](https://docs.unity3d.com/6000.3/Documentation/Manual/upm-git.html#git-locks)。
 
 第三方依赖也保留版本声明。Framework 的 `package.json` 依赖值必须是具体 SemVer，不能写 `latest`、`*`、版本范围或第三方 Git URL；这是 [Unity 包清单规则](https://docs.unity3d.com/6000.3/Documentation/Manual/upm-manifestPkg.html#dependencies)与 [Git 依赖限制](https://docs.unity3d.com/6000.3/Documentation/Manual/upm-git.html)。在 **Install package by name** 界面留空 Version，是让 UPM 当次选择最新兼容发行版；它仍把选择写入工程清单并记录解析结果，不等于依赖从此没有版本。Unity 的兼容版本选择也不能代替 SSFramework 的实际验证，首次接入优先使用本文依赖基线。[按名称安装](https://docs.unity3d.com/6000.3/Documentation/Manual/upm-ui-quick.html)、[工程清单](https://docs.unity3d.com/6000.3/Documentation/Manual/upm-manifestPrj.html)。
 
@@ -197,7 +197,18 @@ https://github.com/CoplayDev/unity-mcp.git?path=/MCPForUnity#v10.2.0
 3. 以该场景完成 Windows x64 IL2CPP 构建并实际启动，记录 Unity 版本、候选 SHA、结果及未覆盖范围。
 4. 检查结果后合入 main，发布对应最终提交、之后不再移动的 tag。若合并冲突改变代码或依赖，先复验受影响范围。
 
-发布后同步推荐安装地址与安装工具默认候选。工具仍保留已有工程的版本，升级由使用者显式发起；在发布验收完成前，工具当前固定提交只是待验收候选，不能因工具成功写入清单就标为稳定版。
+发布后同步推荐安装地址与安装工具默认标签。工具保留已有工程的版本，升级由使用者显式发起；后续候选也须完成上述验收，不能因工具成功写入清单就标为稳定版。
+
+### v0.1.1 发布验证
+
+2026-09-13，源码提交 `0d8e5b439a9e36b902330ef43358b3f86cc6853c` 在真实 Unity `6000.3.23f1` 消费工程完成：
+
+- Editor **564 / 564**、PlayMode **769 / 769**，零失败、零跳过；含 15 项独立 YooAsset EditorSimulate 真实加载测试。
+- 普通 Windows x64 IL2CPP Development Player 构建成功，BuildReport **0 错误 / 0 警告**。
+- Player 在 RTX 3070 上启动；通过 UI 提交与点击事件验证 Command → System → Model → HUD 状态从 0 到 3，进程退出码 0。
+- 安装工具的 30 组接入测试和 17 组包源测试分别在 Windows PowerShell 5.1 / PowerShell 7 通过，含真实消费工程的只读检查与清单副本写入验证。
+
+发行提交仅追加安装入口与发布说明，Runtime / Editor / 测试源码与上述验证提交一致。此结果不覆盖 HybridCLR 热更新、YooAsset 离线 / Host 内容构建、全部渲染设备或大规模 ECS 仿真；真实鼠标 / 键盘体验仍由消费工程人工验收。
 
 ## 版本升级流程
 
@@ -240,7 +251,7 @@ Framework 新提交不会自动改写使用它的 Unity 工程；批量升级可
 
 启用包内测试时，先在 Package Manager 核对工程已有适配当前 Unity 的 Test Framework；如缺少，从 Unity Registry 安装。在关闭 Editor 后，将 `"testables": ["com.liss.ssframework"]` 合并进工程 `Packages/manifest.json` 的顶层；若已有 `testables` 数组，只追加包名并保留其他项。重新打开工程后，在 **Window → General → Test Runner** 查看测试；`Game.Framework.Tests` 是 PlayMode 测试程序集，组件生命周期测试需要实际进入 PlayMode。Test Framework 不是游戏运行的前置依赖。测试使用 C# 10 的 `record struct` 与跨程序集插值处理器；旧包若尚未自带响应文件，应先按上面的业务配置步骤启用 C# 10，不能只通过删除语法来替代接入配置。
 
-YooAsset 的真实加载测试只在 Editor PlayMode 运行：每例自动建立独占 Prefab、Sprite、场景副本和内存收集器，结束后恢复原收集器并删除临时资产。不要求导入旧 Collector XML、创建 `FrameworkSamplesPackage` 或手工修复测试 GUID。Player 中的离线 / Host 内容构建与加载需由实际工程另行验收。
+YooAsset 的真实加载测试只在 Editor PlayMode 运行：每例自动建立独占 Prefab、Sprite、场景副本和内存收集器，结束后恢复原收集器并删除临时资产。不要求导入旧 Collector XML、创建 `FrameworkSamplesPackage` 或手工修复测试 GUID。YooAsset 默认把模拟构建缓存与资源构建产物写入工程根 `Bundles/`，应将该生成目录加入消费工程的 `.gitignore`。Player 中的离线 / Host 内容构建与加载需由实际工程另行验收。
 
 ### 构建前选择是否启用热更新
 
