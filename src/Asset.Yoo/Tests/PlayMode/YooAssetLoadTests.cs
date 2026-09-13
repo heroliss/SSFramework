@@ -9,9 +9,6 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.TestTools;
-#if UNITY_EDITOR
-using UnityEditor;
-#endif
 
 namespace Game.Framework.Test
 {
@@ -20,8 +17,10 @@ namespace Game.Framework.Test
     /// 覆盖：AssetUtility.Load 路径加载、AssetReference 缓存/并发/生命周期、AssetReferenceList 批量加载。
     /// 测试在内存中搭建一个最小 Context + AssetUtility，等单入口自动初始化完成后跑断言。
     /// </summary>
+    [UnityPlatform(RuntimePlatform.WindowsEditor, RuntimePlatform.OSXEditor, RuntimePlatform.LinuxEditor)]
     public class YooAssetLoadTests
     {
+        private IYooAssetPlayModeFixture _fixture;
         private YooAssetTestConfig _config;
         private GameObject _root;
         private MonoGameContextBase _context;
@@ -30,9 +29,12 @@ namespace Game.Framework.Test
         [UnitySetUp]
         public IEnumerator SetUp()
         {
-            _config = LoadTestConfig();
-            if (_config == null)
-                Assert.Fail("未找到 YooAssetTestConfig，请检查 Asset.Yoo/Tests/Fixtures 测试夹具");
+            // Runtime 测试程序集不能引用 Editor；只在 Editor 通过这个测试专用桥创建独占夹具。
+            var fixtureType = System.Type.GetType(
+                "Game.Framework.Asset.Yoo.Tests.YooAssetPlayModeFixture, Game.Framework.Asset.Yoo.Tests",
+                throwOnError: true);
+            _fixture = (IYooAssetPlayModeFixture)System.Activator.CreateInstance(fixtureType);
+            _config = _fixture.Config;
 
             yield return BuildAssetEnvironment().ToCoroutine();
         }
@@ -40,17 +42,25 @@ namespace Game.Framework.Test
         [UnityTearDown]
         public IEnumerator TearDown()
         {
-            if (_config != null)
+            try
             {
-                if (_config.PrefabReference != null) _config.PrefabReference.Dispose();
-                _config.ImageList?.Dispose();
+                if (_config != null)
+                {
+                    _config.PrefabReference?.Dispose();
+                    _config.ImageList?.Dispose();
+                }
+                if (_root != null) Object.Destroy(_root);
+                yield return null;
             }
-
-            if (_root != null) Object.Destroy(_root);
-            _root = null;
-            _context = null;
-            _utility = null;
-            yield return null;
+            finally
+            {
+                _fixture?.Dispose();
+                _fixture = null;
+                _config = null;
+                _root = null;
+                _context = null;
+                _utility = null;
+            }
         }
 
         // ── 测试环境搭建 ──────────────────────────────────────────────
@@ -73,17 +83,12 @@ namespace Game.Framework.Test
             _utility = utilityGo.AddComponent<AssetUtility>();
 
             var settings = new AssetRuntimeSettings();
-            // 框架样例资源已从 DefaultPackage 分到 FrameworkSamplesPackage（见 collector），测试随之指向该包。
-            // 默认包必须同时登记在 Packages 列表，两个字段都要设。
-            const string testPackage = "FrameworkSamplesPackage";
+            // 每个用例有独占包名；默认包必须同时登记在 Packages 列表。
+            string testPackage = _fixture.PackageName;
             SetPrivateField(settings, "_packages", new List<AssetPackageConfig> { new(testPackage) });
             SetPrivateField(settings, "_defaultPackageName", testPackage);
-            // 测试环境默认走 Editor 模拟模式；非编辑器跑测试时退到 Offline。
-#if UNITY_EDITOR
+            // 本组验证真实 EditorSimulate；Player 的离线内容构建另行验收。
             SetPrivateField(settings, "_playMode", AssetPlayMode.EditorSimulate);
-#else
-            SetPrivateField(settings, "_playerPlayMode", AssetPlayMode.Offline);
-#endif
             SetPrivateField(_utility, "_settings", settings);
             utilityGo.SetActive(true);
 
@@ -326,7 +331,7 @@ namespace Game.Framework.Test
         public IEnumerator AssetReferenceList_GetAll_ShouldLoadAllItems()
         {
             if (_config.ImageList == null || _config.ImageList.Count == 0)
-                Assert.Ignore("ImageList 未配置，跳过测试");
+                Assert.Fail("ImageList 测试夹具未配置。");
 
             IReadOnlyList<Sprite> assets = null;
             yield return _config.ImageList.GetAll().ContinueWith(x => assets = x).ToCoroutine();
@@ -340,7 +345,7 @@ namespace Game.Framework.Test
         public void AssetReferenceList_Indexer_ShouldReturnCorrectItem()
         {
             if (_config.ImageList == null || _config.ImageList.Count == 0)
-                Assert.Ignore("ImageList 未配置，跳过测试");
+                Assert.Fail("ImageList 测试夹具未配置。");
 
             for (int i = 0; i < _config.ImageList.Count; i++)
                 Assert.IsNotNull(_config.ImageList[i], $"索引 [{i}] 返回 null");
@@ -350,7 +355,7 @@ namespace Game.Framework.Test
         public IEnumerator AssetReferenceList_UnloadAll_ShouldUnloadAllItems()
         {
             if (_config.ImageList == null || _config.ImageList.Count == 0)
-                Assert.Ignore("ImageList 未配置，跳过测试");
+                Assert.Fail("ImageList 测试夹具未配置。");
 
             yield return _config.ImageList.GetAll().ToCoroutine();
             _config.ImageList.UnloadAll();
@@ -365,7 +370,7 @@ namespace Game.Framework.Test
         {
             if (reference == null || !reference.HasGuid)
             {
-                Assert.Ignore($"{name} 未配置或无效，跳过测试");
+                Assert.Fail($"{name} 测试夹具未配置或无效。");
                 return false;
             }
             return true;
@@ -377,18 +382,6 @@ namespace Game.Framework.Test
             var field = owner.GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.IsNotNull(field, $"{owner.Name} field '{fieldName}' not found.");
             field.SetValue(target, value);
-        }
-
-        private static YooAssetTestConfig LoadTestConfig()
-        {
-#if UNITY_EDITOR
-            var guids = AssetDatabase.FindAssets("t:YooAssetTestConfig");
-            if (guids == null || guids.Length == 0) return null;
-            string path = AssetDatabase.GUIDToAssetPath(guids[0]);
-            return AssetDatabase.LoadAssetAtPath<YooAssetTestConfig>(path);
-#else
-            return null;
-#endif
         }
 
         private async UniTask DownloaderCreatedBeforeCacheMaintenance_IsRejectedAndFreshDownloaderSucceedsAsync()
@@ -422,7 +415,7 @@ namespace Game.Framework.Test
 
         private async UniTask SuspendedSceneLoad_ReturnsAtActivationGate_ThenCanResumeAndUnloadAsync()
         {
-            const string ScenePackage = "FrameworkSamplesPackage";
+            string ScenePackage = _fixture.PackageName;
             const string SceneAddress = "SuspendedSceneProbe";
             ISceneHandle handle = null;
 

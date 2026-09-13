@@ -48,8 +48,8 @@ Drawer/fallback Editor；如果某个项目需要 Odin，应在项目或独立�
 |---|---|---|---|
 | `Game.Framework` | `Core/` | Context、Container、MVCS 权限、Command/Event、生命周期与通用 Interface；含零第三方实现的 Storage/Audio/Flow/Localization/Logging/Network 等能力。 | 不可删除；其余运行时 Module 的稳定依赖方向指向它。 |
 | `Game.Framework.Asset.Yoo` | `Asset.Yoo/` | `IAssetProvider` 的 YooAsset Adapter；YooAsset 接触面和 `[assembly: DefaultAssetProvider]` 默认装配都集中在这里。 | 删除后仅失去 YooAsset Implementation；Core 不含 Yoo 类型名，安装另一个注册 Adapter 即可替换。 |
-| `Game.Framework.Asset.Yoo.Tests` | `Asset.Yoo/Tests/Editor/` | Yoo package 进程级 Reader/Writer、取消、缓存世代、同步快照与后台终态的纯 EditMode 契约。 | 随 Yoo Adapter 删除；不进入玩家构建，也不让通用 Core Test 反向依赖可选 Adapter。 |
-| `Game.Framework.Asset.Yoo.PlayMode.Tests` | `Asset.Yoo/Tests/PlayMode/` | 真实 EditorSimulate Provider、资源引用缓存/并发/释放、下载器缓存世代与挂起场景激活门契约；所需 Prefab、材质、场景及配置集中在相邻 `Fixtures/`。 | 随 Yoo Adapter 与 Fixtures 一起删除；通用 Core Test 不引用 YooAsset，Collector 路径也不再指向通用 `Test/`。 |
+| `Game.Framework.Asset.Yoo.Tests` | `Asset.Yoo/Tests/Editor/` | Yoo package 进程级 Reader/Writer、取消、缓存世代、同步快照与后台终态的 EditMode 契约；向 PlayMode 测试提供临时资源和内存 Collector 夹具。 | 测试桥单向引用 Yoo PlayMode Tests、通用 Editor Catalog 和 YooAsset.Editor；随 Yoo Adapter 删除，不进入玩家构建。 |
+| `Game.Framework.Asset.Yoo.PlayMode.Tests` | `Asset.Yoo/Tests/PlayMode/` | 真实 EditorSimulate Provider、资源引用缓存/并发/释放、下载器缓存世代与挂起场景激活门契约；每例生成独占 Prefab / Sprite / 配置，场景模板从相邻 `Fixtures/` 经 Catalog 解析并复制到临时目录。 | 随 Yoo Adapter 与 Fixtures 一起删除；通用 Core Test 不引用 YooAsset。仅在 Editor 运行，不依赖游戏包名、旧 GUID 或人工导入 Collector。 |
 | `Game.Framework.Config` | `Config/` | 配置运行时编排与 `IConfigUtility<TTables>`；不依赖 Luban。 | 删除后失去配置表 Module，Core 不改。 |
 | `Game.Framework.Config.Editor` | `Config/Editor/` | Luban CLI/Profile/配置总览，以及代码 + 数据 + manifest 的暂存校验、双树差量发布与失败回滚；复用通用 Editor 反馈和输出 claim Catalog。 | 可与 Config 一起删除；不向 Runtime 泄漏 Editor 依赖，也不把 Luban 双树语义塞进 Proto。 |
 | `Game.Framework.Config.Editor.Tests` | `Config/Editor/Tests/` | Luban 配置/claim 注册、受控 CLI 参数、暂存产物边界、`.meta` 保留、零写盘差量与双目录回滚契约。 | 随 Config Editor Module 删除；不进入玩家构建。 |

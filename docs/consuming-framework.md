@@ -240,6 +240,8 @@ Framework 新提交不会自动改写使用它的 Unity 工程；批量升级可
 
 启用包内测试时，先在 Package Manager 核对工程已有适配当前 Unity 的 Test Framework；如缺少，从 Unity Registry 安装。在关闭 Editor 后，将 `"testables": ["com.liss.ssframework"]` 合并进工程 `Packages/manifest.json` 的顶层；若已有 `testables` 数组，只追加包名并保留其他项。重新打开工程后，在 **Window → General → Test Runner** 查看测试；`Game.Framework.Tests` 是 PlayMode 测试程序集，组件生命周期测试需要实际进入 PlayMode。Test Framework 不是游戏运行的前置依赖。测试使用 C# 10 的 `record struct` 与跨程序集插值处理器；旧包若尚未自带响应文件，应先按上面的业务配置步骤启用 C# 10，不能只通过删除语法来替代接入配置。
 
+YooAsset 的真实加载测试只在 Editor PlayMode 运行：每例自动建立独占 Prefab、Sprite、场景副本和内存收集器，结束后恢复原收集器并删除临时资产。不要求导入旧 Collector XML、创建 `FrameworkSamplesPackage` 或手工修复测试 GUID。Player 中的离线 / Host 内容构建与加载需由实际工程另行验收。
+
 ### 构建前选择是否启用热更新
 
 **HybridCLR 当前候选包默认启用热更新。仅安装 UPM 包，还没有完成原生工具链安装时，其构建预处理会阻止 Player 构建。** 这与是否已经编写热更新业务代码无关。

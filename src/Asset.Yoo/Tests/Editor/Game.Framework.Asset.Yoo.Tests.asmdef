@@ -4,7 +4,10 @@
     "references": [
         "Game.Framework.Asset.Yoo",
         "Game.Framework",
+        "Game.Framework.Editor",
+        "Game.Framework.Asset.Yoo.PlayMode.Tests",
         "YooAsset",
+        "YooAsset.Editor",
         "UniTask",
         "UnityEngine.TestRunner"
     ],
