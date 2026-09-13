@@ -254,7 +254,7 @@ $mcpProviders = @(
 )
 
 # Keep this immutable release tag in sync with consuming-framework.md.
-$frameworkGitUrl = 'https://github.com/heroliss/SSFramework.git#v0.1.4'
+$frameworkGitUrl = 'https://github.com/heroliss/SSFramework.git#v0.1.5'
 Write-Host ''
 Write-Host 'SSFramework 接入助手' -ForegroundColor Cyan
 Write-Host '先运行本工具准备安装，再打开 Unity；Unity 会按清单下载框架与依赖。'
@@ -458,7 +458,7 @@ Write-SetupSection '[2/4] 变更预览'
 Write-Host "  工程：$projectRoot"
 Write-Host "  Unity：$versionDisplay"
 if ($frameworkPresent) { Write-Host '  SSFramework：已声明、解析或嵌入，保留现有来源与版本。' }
-elseif ($addedFramework) { Write-Host '  SSFramework：将发布标签 v0.1.4 加入清单，Unity 启动后自动下载。' }
+elseif ($addedFramework) { Write-Host '  SSFramework：将发布标签 v0.1.5 加入清单，Unity 启动后自动下载。' }
 elseif ($FrameworkInstallMode -eq 'Manual') { Write-Host '  SSFramework：仅提供手动安装地址。' }
 else { Write-Host '  SSFramework：本次跳过。' }
 if ($addedFramework) { Write-Host '  框架依赖：含 YooAsset 等整包依赖，目前一并安装。' }
@@ -502,7 +502,7 @@ if (($addedFramework -or $addedPackage) -and $null -eq (Get-Command git -Command
 if ($CheckNetwork -and -not $SkipNetworkCheck -and $manifestChanged) {
     Write-Host '  联网预检：正在检查包元数据（失败会重试一次）……'
     if (-not $SkipOpenUPM) { $plan.NetworkChecks += Test-SetupEndpoint 'OpenUPM' 'https://package.openupm.com/com.cysharp.r3' 'com.cysharp.r3' }
-    if ($addedFramework) { $plan.NetworkChecks += Test-SetupEndpoint 'SSFramework / GitHub' 'https://raw.githubusercontent.com/heroliss/SSFramework/v0.1.4/package.json' 'com.liss.ssframework' }
+    if ($addedFramework) { $plan.NetworkChecks += Test-SetupEndpoint 'SSFramework / GitHub' 'https://raw.githubusercontent.com/heroliss/SSFramework/v0.1.5/package.json' 'com.liss.ssframework' }
     if ($addedPackage) { $plan.NetworkChecks += Test-SetupEndpoint "$UnityMcp / GitHub" $selectedMcp.MetadataUrl $selectedMcp.PackageId }
     foreach ($check in $plan.NetworkChecks) {
         $statusText = if ($check.Success) { '可访问' } else { '检查失败' }
@@ -626,6 +626,8 @@ Write-Host ''
 Write-Host '提示：配置清单与完成安装是两步；是否成功以 Unity 的解析、编译和连接结果为准。' -ForegroundColor DarkGray
 Write-Host 'Git / AI 规则：仅按所选项创建缺失文件；已有规则由项目维护，包升级不会重写。' -ForegroundColor DarkGray
 Write-Host '安装后自检：Unity 完成解析后运行 Check-SSFrameworkProject.cmd，查看只读文件检查与下一步。' -ForegroundColor DarkGray
+Write-Host '中文显示（可选）：另有字体导入包，含 TMP / UI Toolkit 资产；本工具不下载或修改全局字体。' -ForegroundColor DarkGray
+Write-Host '字体接入：https://github.com/heroliss/SSFramework/blob/main/docs/starter-fonts.md' -ForegroundColor DarkGray
 Write-Host '查看 Scope、来源与连接命令：运行脚本时添加 -Details。' -ForegroundColor DarkGray
 Write-Host '安装说明：https://github.com/heroliss/SSFramework/blob/main/Tools~/README.md' -ForegroundColor DarkGray
 if ($PassThru) { return $plan }

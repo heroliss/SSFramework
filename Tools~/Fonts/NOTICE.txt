@@ -1,0 +1,9 @@
+SSFramework Simplified Chinese Starter Fonts
+Source: Noto Sans SC Regular 2.004
+Copyright: © 2014-2021 Adobe (http://www.adobe.com/).
+License: SIL Open Font License 1.1, included in OFL.txt.
+Upstream: https://github.com/notofonts/noto-cjk/tree/523d033d6cb47f4a80c58a35753646f5c3608a78
+Font: Sans/SubsetOTF/SC/NotoSansSC-Regular.otf
+SHA-256: faa6c9df652116dde789d351359f3d7e5d2285a2b2a1f04a2d7244df706d5ea9
+The original OTF is unchanged. Unity font assets derive from this source and retain OFL 1.1.
+This starter uses Simplified Chinese regional glyphs, not a complete CJK or emoji fallback.

@@ -18,6 +18,7 @@
 - **framework-guide.md**：面向使用者的 API、生命周期和常见组合方式；不承担某个项目的完整玩法教程。
 - **framework-module-map.md**：程序集、依赖方向、删除边界和证据口径的结构真相。
 - **consuming-framework.md**：Git / 本地包接入、版本固定、升级和兼容性检查。
+- **starter-fonts.md**：可选简体中文资源的导入、双后端接线、许可、覆盖与验证边界。
 - **adr/**：记录关键设计为什么成立、刻意不做什么，以及后来如何修订。
 - **naming-conventions.md**：Package ID、程序集、命名空间和类型命名的边界。
 - **optional-odin-integration.md**：商业 Inspector 插件的可选接入边界。
@@ -27,7 +28,7 @@
 
 这些内容用于评估方向或复核结果，不加入每个任务的默认阅读清单。
 
-- **Proposed：[新项目准备与初始化规划](project-startup.md)**：参考目录、字体与模块选择等剩余规划；已实现的 Git / AI 初始化和自检用法以接入工具说明为准。
+- **Proposed：[新项目准备与初始化规划](project-startup.md)**：参考目录、更多语言与模块选择等剩余规划；已实现的 Git / AI 初始化、自检及入门字体用法以当前指南为准。
 - **Evidence：[2026-09-10 审查记录](framework-review-2026-09-10.md)**：列明修订与环境下的检查范围、修复和验证缺口；当前安装方式以接入指南为准。
 
 ## ADR 编号与状态

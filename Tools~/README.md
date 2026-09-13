@@ -6,7 +6,7 @@
 
 建议下载并完整解压工具 ZIP，无需克隆整个框架仓库。仅配置包与编译选项时仍可只使用同目录的 `Setup-SSFramework.cmd` / `.ps1`；选择 Git / AI 初始化时还需保留 `Templates/UnityProject`，自检使用 `Check-SSFrameworkProject.cmd` / `.ps1`。脚本需要 Windows PowerShell 5.1 或 PowerShell 7；自动接入 Git 包还需要 Git。无需 OpenUPM CLI。Node.js / Python 等是可选 MCP 后续连接所需的环境。
 
-下载[最新发布的工具 ZIP](https://github.com/heroliss/SSFramework/releases/latest/download/SSFramework-Setup.zip)后解压即可运行。工具默认固定 Framework 到 `v0.1.4` 标签；重复运行保留已有 Framework 版本，不自动升级。验证范围见[接入指南](../docs/consuming-framework.md#版本选择与发布)。YooAsset 随整包安装，暂不能取消；Git / AI 模板可选择仅创建缺失文件或完全手动采用，字体与完整项目目录初始化尚未提供。
+下载[最新发布的工具 ZIP](https://github.com/heroliss/SSFramework/releases/latest/download/SSFramework-Setup.zip)后解压即可运行。工具默认固定 Framework 到 `v0.1.5` 标签；重复运行保留已有 Framework 版本，不自动升级。验证范围见[接入指南](../docs/consuming-framework.md#版本选择与发布)。YooAsset 随整包安装，暂不能取消；Git / AI 模板可选择仅创建缺失文件或完全手动采用，中文字体另有可选导入包，完整项目目录初始化尚未提供。
 
 ## Windows 双击运行
 
@@ -121,6 +121,12 @@ Framework 自动模式同时配置业务代码的 **C# 10.0**，支持 `record s
 `-AiRules CreateMissing` 使用 [`AGENTS.md.template`](Templates/UnityProject/AGENTS.md.template)，只在工程根目录缺少 AGENTS.md 时创建。也可手动复制并去掉 `.template` 后缀；已有规则自行合并，工具不会检查后擅自改写。
 
 模板说明版本与包锁的真值位置、PackageCache 边界、Unity 资产操作、业务程序集、验证证据和文档生命周期；不绑定 AI 客户端，也不写入登录信息、MCP 配置、虚构的场景、测试命令或游戏设计。README / docs 已存在时按需读取，不预先创建空目录或一套无人维护的文档。模板采用后由项目维护，与 Framework 包内的维护用 AGENTS.md 分开。
+
+## 可选中文字体
+
+下载独立的 [简体中文字体包](https://github.com/heroliss/SSFramework/releases/latest/download/SSFramework-Fonts-zh-CN.unitypackage)，在 Unity 使用 **Assets → Import Package → Custom Package** 导入，按[字体接入说明](../docs/starter-fonts.md)指定 TMP 或 TextCore 字体资产。无需运行字体生成工具；已有 SSFramework 工程也无需为字体升级 UPM 包。
+
+字体包约 6.83 MiB，包含原始 OTF、两套动态字体资产、版权许可及说明。使用 TMP 时先导入 TMP Essential Resources。主安装器只提供入口，不下载字体或修改全局默认字体，使用者可以跳过或自行选择其他字体。
 
 ## MCP 环境与连接
 

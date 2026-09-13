@@ -6,7 +6,7 @@
 
 CJK 字体源及图集的体积随字符覆盖、字重、格式与生成设置变化。为兼顾发行体积与用户名 / 聊天 / UGC 等不可预知文本，消费工程可采用常用字静态图集、补充字体与运行时 OS 字体候选。字体按 locale 切换，信号来自 ADR-0024 的 `ILocalizationUtility.Locale`。
 
-**当前资产边界：SSFramework 只提供机制，没有随包分发任何中文 / CJK 字体源、预生成字体资产或默认语言档案。** 本 ADR 中的主字体和补充字体由消费工程提供并随游戏发行。可选入门字体包属于[初始化规划](../project-startup.md)，尚未实现，也不属于当前已验证的能力。
+**当前资产边界：Framework UPM 包不强制携带字体源或默认语言档案。** 2026-09-13 补充独立 Release 附件形式的[可选简体中文入门字体包](../starter-fonts.md)，含固定来源 OTF、TMP / TextCore 动态资产及许可；不改动本 ADR 的运行时字体链契约。资源由消费工程显式导入、接线并随游戏发行，不修改全局默认字体或每次升级重写项目资产。
 
 技术面（Unity 6000.3 实测）：UGUI 侧文本是 TMP（并入 `com.unity.ugui` 2.0，程序集 `Unity.TextMeshPro`）；UI Toolkit 侧是 TextCore `FontAsset`。两套 fallback 机制独立，但**双后端都有 public 可写的 per-font fallback 表**（`TMP_FontAsset.fallbackFontAssetTable` / `FontAsset.fallbackFontAssetTable`）和**按 OS 字体族名直接建动态字体资产**的对称 API（`CreateFontAsset(familyName, styleName, pointSize)`，找不到返回 null、只打 info 日志）。
 

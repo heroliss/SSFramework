@@ -1,0 +1,25 @@
+{
+  "family": "Noto Sans SC",
+  "style": "Regular",
+  "version": "2.004",
+  "upstreamCommit": "523d033d6cb47f4a80c58a35753646f5c3608a78",
+  "fontUrl": "https://raw.githubusercontent.com/notofonts/noto-cjk/523d033d6cb47f4a80c58a35753646f5c3608a78/Sans/SubsetOTF/SC/NotoSansSC-Regular.otf",
+  "fontFile": "NotoSansSC-Regular.otf",
+  "fontBytes": 8331336,
+  "fontSha256": "faa6c9df652116dde789d351359f3d7e5d2285a2b2a1f04a2d7244df706d5ea9",
+  "license": "OFL-1.1",
+  "licenseUrl": "https://raw.githubusercontent.com/notofonts/noto-cjk/523d033d6cb47f4a80c58a35753646f5c3608a78/LICENSE",
+  "licenseSha256": "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2",
+  "copyright": "© 2014-2021 Adobe (http://www.adobe.com/).",
+  "unity": "6000.3",
+  "settings": {
+    "population": "Dynamic",
+    "samplingPointSize": 48,
+    "padding": 5,
+    "renderMode": "SDFAA",
+    "atlasWidth": 1024,
+    "atlasHeight": 1024,
+    "multiAtlas": true,
+    "clearDynamicDataOnBuild": true
+  }
+}
