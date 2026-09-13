@@ -6,7 +6,7 @@
 
 建议下载并完整解压工具 ZIP，无需克隆整个框架仓库。仅配置包与编译选项时仍可只使用同目录的 `Setup-SSFramework.cmd` / `.ps1`；选择 Git / AI 初始化时还需保留 `Templates/UnityProject`，自检使用 `Check-SSFrameworkProject.cmd` / `.ps1`。脚本需要 Windows PowerShell 5.1 或 PowerShell 7；自动接入 Git 包还需要 Git。无需 OpenUPM CLI。Node.js / Python 等是可选 MCP 后续连接所需的环境。
 
-下载[最新发布的工具 ZIP](https://github.com/heroliss/SSFramework/releases/latest/download/SSFramework-Setup.zip)后解压即可运行。工具默认固定 Framework 到 `v0.1.5` 标签；重复运行保留已有 Framework 版本，不自动升级。验证范围见[接入指南](../docs/consuming-framework.md#版本选择与发布)。YooAsset 随整包安装，暂不能取消；Git / AI 模板可选择仅创建缺失文件或完全手动采用，中文字体另有可选导入包，完整项目目录初始化尚未提供。
+下载[最新发布的工具 ZIP](https://github.com/heroliss/SSFramework/releases/latest/download/SSFramework-Setup.zip)后解压即可运行。工具默认使用 `https://github.com/heroliss/SSFramework.git`，首次解析 main 的最新提交；UPM 随后用锁文件记录实际版本。重复运行保留已有 Framework 来源与版本，不自动升级。验证范围见[接入指南](../docs/consuming-framework.md#版本选择与发布)。YooAsset 随整包安装，暂不能取消；Git / AI 模板可选择仅创建缺失文件或完全手动采用，中文字体另有可选导入包，完整项目目录初始化尚未提供。
 
 ## Windows 双击运行
 
@@ -39,7 +39,7 @@ Framework 自动模式同时配置业务代码的 **C# 10.0**，支持 `record s
 
 | 参数 | 含义 |
 |---|---|
-| `-FrameworkInstallMode Manifest / Manual / Skip` | 默认 Manifest，把固定 Git 地址纳入计划；Manual 显示手动地址；Skip 跳过 Framework。均不升级或删除已有 Framework |
+| `-FrameworkInstallMode Manifest / Manual / Skip` | 默认 Manifest，把普通 Git 地址纳入计划；Manual 显示同一手动地址；Skip 跳过 Framework。均不升级或删除已有 Framework |
 | `-UnityMcp None / AnkleBreaker / Coplay` | 选择提供方，默认 None；None 不卸载已有 MCP |
 | `-McpInstallMode Manual / Manifest` | 非交互命令默认 Manual，保留原脚本行为；交互选择推荐 Manifest，将所选包纳入计划 |
 | `-GitConfiguration Skip / CreateMissing` | 非交互默认 Skip；CreateMissing 仅创建缺失的 `.gitignore` / `.gitattributes`，不合并或替换已有规则 |

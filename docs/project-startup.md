@@ -9,7 +9,7 @@
 | 项目 | 当前状态 |
 |---|---|
 | Git 配置 | 提供经消费工程验证的 Git 模板；外部接入工具可选仅创建缺失文件，已有规则保留，也可手动采用 |
-| Framework 与第三方包源 | `Tools~/Setup-SSFramework` 可将固定 Framework Git 地址与包源共同加入清单，提供推荐选项、预览、联网检查和备份；原 `Configure-OpenUPM` 保留为只配置包源的入口 |
+| Framework 与第三方包源 | `Tools~/Setup-SSFramework` 可将普通 Framework Git 地址与包源共同加入清单，提供推荐选项、预览、联网检查和备份；实际提交由 UPM 锁定，原 `Configure-OpenUPM` 保留为只配置包源的入口 |
 | 文档与协作规则 | 包内有框架文档和维护规则；另有消费工程 AGENTS.md 模板，可手动采用或由外部工具仅在缺失时创建 |
 | 安装后自检 | 外部工具只读检查文件配置并提示下一步；不启动 Unity，不把锁文件或配置检查当成编译与 Player 验收 |
 | 项目目录 | guide 有按特性组织的参考结构；没有一键创建整个游戏工程的工具 |

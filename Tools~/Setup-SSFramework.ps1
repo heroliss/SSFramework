@@ -254,7 +254,7 @@ $mcpProviders = @(
 )
 
 # Keep this immutable release tag in sync with consuming-framework.md.
-$frameworkGitUrl = 'https://github.com/heroliss/SSFramework.git#v0.1.5'
+$frameworkGitUrl = 'https://github.com/heroliss/SSFramework.git'
 Write-Host ''
 Write-Host 'SSFramework 接入助手' -ForegroundColor Cyan
 Write-Host '先运行本工具准备安装，再打开 Unity；Unity 会按清单下载框架与依赖。'
@@ -458,7 +458,7 @@ Write-SetupSection '[2/4] 变更预览'
 Write-Host "  工程：$projectRoot"
 Write-Host "  Unity：$versionDisplay"
 if ($frameworkPresent) { Write-Host '  SSFramework：已声明、解析或嵌入，保留现有来源与版本。' }
-elseif ($addedFramework) { Write-Host '  SSFramework：将发布标签 v0.1.5 加入清单，Unity 启动后自动下载。' }
+elseif ($addedFramework) { Write-Host '  SSFramework：加入普通 Git 地址，首次解析默认分支 main 的最新提交。' }
 elseif ($FrameworkInstallMode -eq 'Manual') { Write-Host '  SSFramework：仅提供手动安装地址。' }
 else { Write-Host '  SSFramework：本次跳过。' }
 if ($addedFramework) { Write-Host '  框架依赖：含 YooAsset 等整包依赖，目前一并安装。' }
@@ -502,7 +502,7 @@ if (($addedFramework -or $addedPackage) -and $null -eq (Get-Command git -Command
 if ($CheckNetwork -and -not $SkipNetworkCheck -and $manifestChanged) {
     Write-Host '  联网预检：正在检查包元数据（失败会重试一次）……'
     if (-not $SkipOpenUPM) { $plan.NetworkChecks += Test-SetupEndpoint 'OpenUPM' 'https://package.openupm.com/com.cysharp.r3' 'com.cysharp.r3' }
-    if ($addedFramework) { $plan.NetworkChecks += Test-SetupEndpoint 'SSFramework / GitHub' 'https://raw.githubusercontent.com/heroliss/SSFramework/v0.1.5/package.json' 'com.liss.ssframework' }
+    if ($addedFramework) { $plan.NetworkChecks += Test-SetupEndpoint 'SSFramework / GitHub' 'https://raw.githubusercontent.com/heroliss/SSFramework/main/package.json' 'com.liss.ssframework' }
     if ($addedPackage) { $plan.NetworkChecks += Test-SetupEndpoint "$UnityMcp / GitHub" $selectedMcp.MetadataUrl $selectedMcp.PackageId }
     foreach ($check in $plan.NetworkChecks) {
         $statusText = if ($check.Success) { '可访问' } else { '检查失败' }
@@ -596,11 +596,11 @@ if ($frameworkPresent) {
     Write-Host '  2. SSFramework 已在工程中，在 Package Manager 核对来源和解析结果。'
 } elseif ($FrameworkInstallMode -eq 'Manifest') {
     Write-Host '  2. SSFramework 将由 UPM 按清单安装，无需手动添加 Git 地址。'
-    Write-Host '     默认使用固定发行标签；仍需在你的工程完成编译、场景与构建验收。' -ForegroundColor DarkGray
+    Write-Host '     UPM 会锁定实际提交；提交 packages-lock.json，更新由你显式发起，再验证编译、场景和构建。' -ForegroundColor DarkGray
 } elseif ($FrameworkInstallMode -eq 'Manual') {
     Write-Host '  2. 在 Package Manager 中选择 Add package from git URL，添加 SSFramework：'
     Write-Host "     $frameworkGitUrl"
-    Write-Host '     此地址使用固定发行标签；仍需在你的工程完成编译、场景与构建验收。' -ForegroundColor DarkGray
+    Write-Host '     此地址解析 main；UPM 锁定实际提交，不会每次启动自动更新。接入后仍需验收。' -ForegroundColor DarkGray
 } else {
     Write-Host '  2. 本次跳过框架，继续核对已选择的其他配置。'
 }

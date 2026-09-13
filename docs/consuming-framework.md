@@ -103,11 +103,7 @@ Registry 配置保存在**消费工程**的 `Packages/manifest.json` 中；Frame
 https://github.com/heroliss/SSFramework.git
 ```
 
-上面解析默认分支 main，适合希望使用简便入口的工程。要固定到本次发行版，使用下面的地址；接入工具默认也使用这个标签。其他已审查版本可使用对应 tag 或完整 commit SHA：
-
-```text
-https://github.com/heroliss/SSFramework.git#v0.1.5
-```
+上面是手动接入与安装工具共同使用的默认地址，首次解析默认分支 main 的最新提交。需要固定某次发行版时，在地址后追加 `#` 和 [Releases](https://github.com/heroliss/SSFramework/releases) 中的 tag，或完整 commit SHA；这仍是可选的复现与回退方式。
 
 正式项目优先使用完整 commit SHA 或发布后不再移动的 tag；`#main` 等分支名仍会随开发变化，不能单靠名字确认包内容。不同地址的解析与升级行为见[版本选择与发布](#版本选择与发布)。等待 UPM 下载和脚本编译后，继续选择下面的开发工具，或直接进行[安装验收](#安装验收)。
 
@@ -192,15 +188,15 @@ https://github.com/CoplayDev/unity-mcp.git?path=/MCPForUnity#v10.2.0
 
 ## 版本选择与发布
 
-**让安装入口长期不变，与让安装内容自动追踪最新版本，是两件事。** 推荐保留固定的安装说明 / 工具下载入口，由维护者更新其中已验证的推荐版本；正式工程继续记录具体版本，方便复现问题与回退。
+**默认安装入口是普通 Git 地址，实际使用的提交仍有记录。** 手动安装与工具都解析 main，UPM 在工程锁文件中保存具体 SHA；发布编号与不可移动的标签继续用于复现、升级评估和回退。
 
 | Framework 地址形式 | 解析方式与适用场景 |
 |---|---|
 | Git 地址加 `#<完整 commit SHA>` 或已发布 tag | 指向已验证的版本，推荐用于游戏开发与构建；发布 tag 不再移动 |
 | Git 地址加 `#main` | 指向 main 分支，适合主动参与集成验证的使用者 |
-| `https://github.com/heroliss/SSFramework.git` | 首次解析时取远端默认分支 main 当时的最新提交，是手动安装的简便入口；检查并提交工程锁文件 |
+| `https://github.com/heroliss/SSFramework.git` | 首次解析时取远端默认分支 main 当时的最新提交，是手动安装与工具的默认入口；检查并提交工程锁文件 |
 
-省略 revision **不会持续自动更新**：UPM 将实际 Git commit 写入 `packages-lock.json`，已有工程按锁定结果加载。需要重新取分支最新内容时，可在 **Install package from git URL** 再次提交同一地址，UPM 会重新解析；随后检查变更并验收。工具默认使用发布标签，重复运行保留工程已有版本。行为依据见 [Unity Git 版本与锁定说明](https://docs.unity3d.com/6000.3/Documentation/Manual/upm-git.html#git-locks)。
+省略 revision **不会持续自动更新**：UPM 将实际 Git commit 写入 `packages-lock.json`，已有工程按锁定结果加载。需要重新取分支最新内容时，可在 **Install package from git URL** 再次提交同一地址，UPM 会重新解析；随后检查变更并验收。工具默认使用普通 Git 地址，重复运行保留工程已有来源与版本，包括原先固定的 tag。行为依据见 [Unity Git 版本与锁定说明](https://docs.unity3d.com/6000.3/Documentation/Manual/upm-git.html#git-locks)。
 
 第三方依赖也保留版本声明。Framework 的 `package.json` 依赖值必须是具体 SemVer，不能写 `latest`、`*`、版本范围或第三方 Git URL；这是 [Unity 包清单规则](https://docs.unity3d.com/6000.3/Documentation/Manual/upm-manifestPkg.html#dependencies)与 [Git 依赖限制](https://docs.unity3d.com/6000.3/Documentation/Manual/upm-git.html)。在 **Install package by name** 界面留空 Version，是让 UPM 当次选择最新兼容发行版；它仍把选择写入工程清单并记录解析结果，不等于依赖从此没有版本。Unity 的兼容版本选择也不能代替 SSFramework 的实际验证，首次接入优先使用本文依赖基线。[按名称安装](https://docs.unity3d.com/6000.3/Documentation/Manual/upm-ui-quick.html)、[工程清单](https://docs.unity3d.com/6000.3/Documentation/Manual/upm-manifestPrj.html)。
 
@@ -213,7 +209,7 @@ https://github.com/CoplayDev/unity-mcp.git?path=/MCPForUnity#v10.2.0
 3. 以该场景完成 Windows x64 IL2CPP 构建并实际启动，记录 Unity 版本、候选 SHA、结果及未覆盖范围。
 4. 检查结果后合入 main，发布对应最终提交、之后不再移动的 tag。若合并冲突改变代码或依赖，先复验受影响范围。
 
-发布后同步推荐安装地址与安装工具默认标签。工具保留已有工程的版本，升级由使用者显式发起；后续候选也须完成上述验收，不能因工具成功写入清单就标为稳定版。
+发布后检查普通 Git 地址、main 元数据和公开工具 ZIP 一致。包自身版本号和发布标签继续保留，便于追踪内容；它们不要求使用者修改默认安装地址。工具保留已有工程的版本，升级由使用者显式发起；后续候选也须完成上述验收，不能因工具成功写入清单就标为稳定版。
 
 ### v0.1.1 发布验证
 
@@ -270,6 +266,12 @@ v0.1.3 仅更新包版本、接入工具提示、消费工程 Git 模板与说�
 - 字体创建与导出配方通过七项检查，包含已有目录 / 输出保留、路径逃逸、源文件缺失及哈希不匹配；归档检查另拒绝五种损坏样例。安装提示更新后，Windows PowerShell 5.1 / PowerShell 7 分别通过 20 组初始化、30 组安装和 17 组包源回归。
 
 这轮验证针对简体中文 Regular 的资源接入，不覆盖完整中日韩、其他字重、所有分辨率、其他平台或热更新。用法与开销见[字体指南](starter-fonts.md)。
+
+### v0.1.6 统一普通 Git 安装入口
+
+2026-09-13，手动说明、安装工具的 Manifest / Manual 模式及联网预检统一使用默认分支 main，不再要求使用者替换地址中的发行标签。已安装工程仍保留自己的来源和锁定记录；包元数据版本、发行标签和第三方依赖版本声明不删除。
+
+Windows PowerShell 5.1 / PowerShell 7 分别通过 30 组安装回归，包含真实消费工程的只读预览与清单副本检查；普通 Git 地址和 main 元数据经过真实联网预检。`src/` 与依赖声明和 v0.1.2 一致，字体附件与 v0.1.5 逐字节一致；本次不重复框架全套测试和 Player 构建，沿用对应的既有验收范围。
 
 ## 版本升级流程
 

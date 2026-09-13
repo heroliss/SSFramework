@@ -244,7 +244,7 @@ Invoke-Case 'Automatic framework and MCP are applied together with one exact bac
     $result = & $setupTool -ProjectPath $root -UnityMcp AnkleBreaker -McpInstallMode Manifest -Apply -PassThru 6>$null
     $manifest = Read-Manifest $root
     Assert ($result.Applied -and $result.AddedFrameworkPackage -and $result.AddedMcpPackage) 'Combined automatic installation failed.'
-    Assert ($manifest.dependencies.'com.liss.ssframework' -ceq $result.FrameworkGitUrl) 'Framework did not use the reviewed revision.'
+    Assert ($manifest.dependencies.'com.liss.ssframework' -ceq 'https://github.com/heroliss/SSFramework.git') 'Framework default must use the revision-free Git URL.'
     Assert ($manifest.dependencies.$ankleId -ceq $ankleUrl) 'Selected MCP was not added.'
     Assert ((File-Bytes $result.BackupPath) -ceq $before) 'Combined backup is not exact.'
     $after = Manifest-Bytes $root

@@ -89,7 +89,7 @@ https://github.com/heroliss/SSFramework.git
 
 1. 下载并完整解压[接入工具 ZIP](https://github.com/heroliss/SSFramework/releases/latest/download/SSFramework-Setup.zip)。无需先安装 Framework，也无需克隆整个仓库。
 2. 关闭目标 Unity 工程，双击 `Setup-SSFramework.cmd`，输入工程目录，选择 Framework 安装方式、可选 MCP，以及是否创建缺失的 Git / AI 规则；每一步都显示推荐默认项，已有规则保留。
-3. 核对变更预览与联网检查，输入 `y` 才应用并备份。默认自动加入固定 Framework Git 地址和所选包；手动模式只显示相应安装指引。
+3. 核对变更预览与联网检查，输入 `y` 才应用并备份。默认自动加入上面的普通 Framework Git 地址和所选包；手动模式只显示相应安装指引。
 4. 打开 Unity，等待 UPM 解析、签名确认与编译；自动模式无需再次粘贴 Git 地址。可运行 `Check-SSFrameworkProject.cmd` 做[只读配置自检](Tools~/README.md#安装后配置自检只读)，再完成与手动方式相同的[安装验收](docs/consuming-framework.md#安装验收)。
 
 Scope 明细、MCP 连接命令和来源可通过 `-Details` 查看；命令行、保护机制和撤销方法见[工具说明](Tools~/README.md)。工具不会配置渲染管线、生成业务场景或自动完成 Player 构建。
@@ -98,11 +98,9 @@ Scope 明细、MCP 连接命令和来源可通过 `-Details` 查看；命令行�
 
 #### 版本固定与升级
 
-上面的普通 Git 地址解析默认分支 main，UPM 用锁文件记录实际提交，不会随每次启动自动升级。希望固定本次发行版时使用下面的地址；接入工具默认也使用这个标签：
+手动接入与安装工具默认都使用上面的普通 Git 地址，首次解析默认分支 main 的最新提交。UPM 用 `Packages/packages-lock.json` 记录实际提交，不会随每次启动自动升级；清单和锁文件应一起提交。
 
-```text
-https://github.com/heroliss/SSFramework.git#v0.1.5
-```
+需要更新时，在 Package Manager 再次添加同一地址并验收。需要复现某次发行版时，可在地址后追加 [Releases](https://github.com/heroliss/SSFramework/releases) 中的 tag 或完整 commit SHA。包自身仍保留版本号，已发布标签不会移动。
 
 发布标签不再移动；也可使用 `#<完整 commit SHA>` 固定其他已审查提交。开发框架本身时，可以使用 Package Manager 的本地路径方式引用工作副本。从早期版本升级到 `0.1.1` 时，还需补充 `org.nuget` 和 `com.code-philosophy.hybridclr` 两项 Scope。安装前先检查[依赖前置条件](docs/consuming-framework.md#依赖前置条件)；自己的场景、平台及所用内容构建链仍须在消费工程验收。
 
