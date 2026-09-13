@@ -2,7 +2,7 @@
 
 这份文档面向任何需要在 Unity 工程中使用 `com.liss.ssframework` 的团队。它只描述包本身的公开接入契约，不依赖某个游戏、教程工程或工作区布局。
 
-安装包不会自动配置消费工程根目录的 Git / AI 规则、生成完整项目目录或提供中文字体。现有能力与建议的初始化流程见[新项目准备](project-startup.md)。
+安装包不会自动配置消费工程根目录的 Git / AI 规则、生成完整项目目录或提供中文字体。已有[可手动采用的消费工程 Git 模板](../Tools~/README.md#消费工程的-git-配置)；其余能力与建议的初始化流程见[新项目准备](project-startup.md)。
 
 **完整包当前以 Unity 6.3 LTS 为接入目标，版本基线为 `6000.3.22f1`。Unity 6.6 暂不能完整编译此包**：YooAsset 3.0.5 的 Editor 使用了 Unity 6.6 已移除的 `UxmlFactory` / `UxmlTraits`。补齐 DLL 或切换同版本的 Git 来源不能解决这个 API 不兼容；新项目应优先在 6.3 LTS 中创建，不要直接把已经由 6.6 保存的工程降级打开。参见 [Unity 6.6 API 移除说明](https://unity.com/releases/editor/alpha/6000.6.0a5)。
 
@@ -106,7 +106,7 @@ https://github.com/heroliss/SSFramework.git
 上面解析默认分支 main，适合希望使用简便入口的工程。要固定到本次发行版，使用下面的地址；接入工具默认也使用这个标签。其他已审查版本可使用对应 tag 或完整 commit SHA：
 
 ```text
-https://github.com/heroliss/SSFramework.git#v0.1.2
+https://github.com/heroliss/SSFramework.git#v0.1.3
 ```
 
 正式项目优先使用完整 commit SHA 或发布后不再移动的 tag；`#main` 等分支名仍会随开发变化，不能单靠名字确认包内容。不同地址的解析与升级行为见[版本选择与发布](#版本选择与发布)。等待 UPM 下载和脚本编译后，继续选择下面的开发工具，或直接进行[安装验收](#安装验收)。
@@ -237,6 +237,18 @@ https://github.com/CoplayDev/unity-mcp.git?path=/MCPForUnity#v10.2.0
 - 更新默认标签后的接入工具，30 组安装测试和 17 组包源测试分别在 Windows PowerShell 5.1 / PowerShell 7 通过，包含真实工程只读检查和清单副本写入验证。
 
 使用完整 Framework Editor Module 的工程更新 UPM 包后即可获得修复，无需手动复制 `link.xml`。本轮不覆盖 HybridCLR 代码热更新、Host/CDN 更新、其他平台 / 显卡或大规模 ECS 仿真；选用这些能力时补对应验收。
+
+### v0.1.3 接入改进与首次安装验证
+
+v0.1.3 仅更新包版本、接入工具提示、消费工程 Git 模板与说明，`src/` 和第三方依赖声明与 v0.1.2 一致，沿用上面的目标 Player 验收。
+
+2026-09-13，另用 Unity `6000.3.23f1` 创建独立空工程，使用公开 v0.1.2 工具 ZIP 配置包源与 C# 10，跳过 MCP，通过单独的空 UPM 全局缓存解析并下载依赖；没有复制已有游戏工程的场景、设置或包缓存。网络使用该验证进程的代理设置。额外编写的验证脚本修正两处命名冲突后通过：固定 Git revision、Framework 编译、业务 `record struct` / 关闭 Trace 的惰性求值、Context / Command / Event 链路、唯一 Provider 声明和 Package linker 回调均符合预期，Unity 退出码 0。
+
+这轮实测同时确认：UPM 安装后工程根目录没有 `.gitignore`、`.gitattributes` 或 `AGENTS.md`。因此 v0.1.3 另提供可手动采用的 Git 模板，已在这个消费工程检查忽略与保留范围、换行属性和二进制资产保护；不自动覆盖项目规则。安装器的“待验收提交”旧提示和旧开发分支文档链接也已修正。
+
+更新后的安装工具在 Windows PowerShell 5.1 / PowerShell 7 分别通过 30 组回归，包括对该独立消费工程的只读预览和清单副本写入检查。
+
+此检查验证首次包安装与基础 API；不替代具体项目的场景、字体、输入、签名弹窗、热更新选择或 Player 构建验收。手动接入仍需配置 OpenUPM 和业务 `csc.rsp`，不做代码热更新时仍需关闭 HybridCLR 的 Enable。
 
 ## 版本升级流程
 

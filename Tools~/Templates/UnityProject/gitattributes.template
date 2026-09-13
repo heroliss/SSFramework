@@ -1,0 +1,51 @@
+# Put this file at the Unity project root as .gitattributes.
+# This template does not enable Git LFS or a custom Unity merge driver.
+* text=auto
+
+# Source, configuration and documentation
+*.cs text eol=lf
+*.json text eol=lf
+*.asmdef text eol=lf
+*.asmref text eol=lf
+*.rsp text eol=lf
+*.md text eol=lf
+*.xml text eol=lf
+*.uxml text eol=lf
+*.uss text eol=lf
+*.shader text eol=lf
+*.hlsl text eol=lf
+*.compute text eol=lf
+*.ps1 text eol=lf
+*.sh text eol=lf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Unity files: detect binary content before applying text normalization.
+*.meta text eol=lf
+*.unity text=auto eol=lf
+*.prefab text=auto eol=lf
+*.asset text=auto eol=lf
+*.mat text=auto eol=lf
+*.anim text=auto eol=lf
+*.controller text=auto eol=lf
+*.inputactions text eol=lf
+
+# Binary assets are kept as ordinary Git blobs unless the project adopts LFS.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.psd binary
+*.exr binary
+*.tga binary
+*.wav binary
+*.mp3 binary
+*.ogg binary
+*.mp4 binary
+*.fbx binary
+*.FBX binary
+*.ttf binary
+*.otf binary
+*.dll binary
+*.exe binary
+*.zip binary
+*.unitypackage binary

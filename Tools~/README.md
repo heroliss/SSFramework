@@ -6,7 +6,7 @@
 
 工具可独立分发，只需同目录的 `Setup-SSFramework.cmd` 和 `Setup-SSFramework.ps1`，无需先克隆整个框架仓库。脚本需要 Windows PowerShell 5.1 或 PowerShell 7；自动接入 Git 包还需要 Git。无需 OpenUPM CLI。Node.js / Python 等是可选 MCP 后续连接所需的环境。
 
-下载[最新发布的工具 ZIP](https://github.com/heroliss/SSFramework/releases/latest/download/SSFramework-Setup.zip)后解压即可运行。工具默认固定 Framework 到已验证的 `v0.1.2` 标签；重复运行保留已有 Framework 版本，不自动升级。验证范围见[接入指南](../docs/consuming-framework.md#版本选择与发布)。YooAsset 随整包安装，暂不能取消；字体、Git 文件和项目模板也尚未提供，用法边界见[初始化规划](../docs/project-startup.md#依赖与可选能力)。
+下载[最新发布的工具 ZIP](https://github.com/heroliss/SSFramework/releases/latest/download/SSFramework-Setup.zip)后解压即可运行。工具默认固定 Framework 到 `v0.1.3` 标签；重复运行保留已有 Framework 版本，不自动升级。验证范围见[接入指南](../docs/consuming-framework.md#版本选择与发布)。YooAsset 随整包安装，暂不能取消；Git 模板可按下文手动采用，字体与完整项目初始化尚未提供，用法边界见[初始化规划](../docs/project-startup.md#依赖与可选能力)。
 
 ## Windows 双击运行
 
@@ -65,6 +65,24 @@ Framework 自动模式同时配置业务代码的 **C# 10.0**，支持 `record s
 联网预检读取包元数据，每个请求超时设置为 8 秒，失败最多重试一次；任一检查仍失败，整份清单保持原状。它只验证当前 PowerShell 进程访问这些元数据的情况，不保证 Unity 的代理、所有依赖下载、Git 克隆或账号服务都可用。配置已完整时不再联网。预检失败先检查网络并重试，已确认是预检环境差异时可显式跳过；脚本不会更改系统代理或证书。
 
 遇到红色 Console 信息，先区分 Package Manager 下载错误、Unity 账号服务错误和 C# 编译错误，见[故障排查](../docs/consuming-framework.md#出现问题时先检查)。签名确认仍由 Unity 展示；工具不会自动点击确认。
+
+## 消费工程的 Git 配置
+
+仓库根目录的 `.gitignore` / `.gitattributes` 只管理 Framework 仓库，UPM 不会把它们复制或应用到游戏工程。新工程可手动采用下面的模板，发行 ZIP 的 `Templates/UnityProject` 目录也附带同样的文件：
+
+| 模板 | 放在 Unity 工程根目录时的名称 | 作用 |
+|---|---|---|
+| [`gitignore.template`](Templates/UnityProject/gitignore.template) | `.gitignore` | 排除 Unity / IDE 缓存、本机设置及资源构建输出；保留 Assets 与 meta、包清单 / 锁文件、ProjectSettings |
+| [`gitattributes.template`](Templates/UnityProject/gitattributes.template) | `.gitattributes` | 统一源码与配置的文本换行，保持二进制资产；不启用 Git LFS 或自定义 Merge Driver |
+
+1. 没有相应文件时，将模板复制到与 `Assets`、`Packages`、`ProjectSettings` 同级的位置并重命名；不要保留 `.template` 或误加 `.txt`。
+2. 已有文件时对比后手动合并需要的条目，保留项目原有 LFS、合并与忽略策略。不要直接覆盖，也不在采纳模板时自动对整个仓库执行换行重写。
+3. `Assets/StreamingAssets/yoo` 的忽略条目默认注释。只有确定每次检出都会先重建随包资源时才启用；不要忽略整个 StreamingAssets 或父目录的 `.meta`。
+4. 用 `git status --short` 检查结果：源码、资源、meta、清单与项目设置应可提交，Library / UserSettings / 构建产物应被忽略。后加规则不会自动取消跟踪已经入库的缓存文件，需要自行审查处理。
+
+安装工具不自动创建 Git 仓库、不写这些规则，也不创建项目 AGENTS.md。模板是一次性采用的起点；之后由消费工程维护，Framework 升级不会重写它们。Git LFS 与 Unity YAML Merge 在项目确有需要时单独配置。
+
+模板已在独立 Unity 6.3 消费工程中核对 15 个应忽略路径、13 个应保留路径、5 项属性约定，以及二进制 `.asset` 不被文本换行转换；不将这组基线规则当作所有团队的完整 Git 策略。
 
 ## MCP 环境与连接
 

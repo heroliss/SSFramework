@@ -231,7 +231,7 @@ $mcpProviders = @(
 )
 
 # Keep this immutable release tag in sync with consuming-framework.md.
-$frameworkGitUrl = 'https://github.com/heroliss/SSFramework.git#v0.1.2'
+$frameworkGitUrl = 'https://github.com/heroliss/SSFramework.git#v0.1.3'
 Write-Host ''
 Write-Host 'SSFramework 接入助手' -ForegroundColor Cyan
 Write-Host '先运行本工具准备安装，再打开 Unity；Unity 会按清单下载框架与依赖。'
@@ -394,7 +394,7 @@ Write-SetupSection '[2/4] 变更预览'
 Write-Host "  工程：$projectRoot"
 Write-Host "  Unity：$versionDisplay"
 if ($frameworkPresent) { Write-Host '  SSFramework：已声明、解析或嵌入，保留现有来源与版本。' }
-elseif ($addedFramework) { Write-Host '  SSFramework：将发布标签 v0.1.2 加入清单，Unity 启动后自动下载。' }
+elseif ($addedFramework) { Write-Host '  SSFramework：将发布标签 v0.1.3 加入清单，Unity 启动后自动下载。' }
 elseif ($FrameworkInstallMode -eq 'Manual') { Write-Host '  SSFramework：仅提供手动安装地址。' }
 else { Write-Host '  SSFramework：本次跳过。' }
 if ($addedFramework) { Write-Host '  框架依赖：含 YooAsset 等整包依赖，目前一并安装。' }
@@ -433,7 +433,7 @@ if (($addedFramework -or $addedPackage) -and $null -eq (Get-Command git -Command
 if ($CheckNetwork -and -not $SkipNetworkCheck -and $manifestChanged) {
     Write-Host '  联网预检：正在检查包元数据（失败会重试一次）……'
     if (-not $SkipOpenUPM) { $plan.NetworkChecks += Test-SetupEndpoint 'OpenUPM' 'https://package.openupm.com/com.cysharp.r3' 'com.cysharp.r3' }
-    if ($addedFramework) { $plan.NetworkChecks += Test-SetupEndpoint 'SSFramework / GitHub' 'https://raw.githubusercontent.com/heroliss/SSFramework/v0.1.2/package.json' 'com.liss.ssframework' }
+    if ($addedFramework) { $plan.NetworkChecks += Test-SetupEndpoint 'SSFramework / GitHub' 'https://raw.githubusercontent.com/heroliss/SSFramework/v0.1.3/package.json' 'com.liss.ssframework' }
     if ($addedPackage) { $plan.NetworkChecks += Test-SetupEndpoint "$UnityMcp / GitHub" $selectedMcp.MetadataUrl $selectedMcp.PackageId }
     foreach ($check in $plan.NetworkChecks) {
         $statusText = if ($check.Success) { '可访问' } else { '检查失败' }
@@ -522,11 +522,11 @@ if ($frameworkPresent) {
     Write-Host '  2. SSFramework 已在工程中，在 Package Manager 核对来源和解析结果。'
 } elseif ($FrameworkInstallMode -eq 'Manifest') {
     Write-Host '  2. SSFramework 将由 UPM 按清单安装，无需手动添加 Git 地址。'
-    Write-Host '     当前固定到待验收提交，完整 Unity 6.3 验收仍需完成。' -ForegroundColor DarkGray
+    Write-Host '     默认使用固定发行标签；仍需在你的工程完成编译、场景与构建验收。' -ForegroundColor DarkGray
 } elseif ($FrameworkInstallMode -eq 'Manual') {
     Write-Host '  2. 在 Package Manager 中选择 Add package from git URL，添加 SSFramework：'
     Write-Host "     $frameworkGitUrl"
-    Write-Host '     此地址为当前待验收提交，完整 Unity 6.3 验收仍需完成。' -ForegroundColor DarkGray
+    Write-Host '     此地址使用固定发行标签；仍需在你的工程完成编译、场景与构建验收。' -ForegroundColor DarkGray
 } else {
     Write-Host '  2. 本次跳过框架，继续核对已选择的其他配置。'
 }
@@ -550,7 +550,8 @@ if ($null -ne $selectedMcp) {
 }
 Write-Host ''
 Write-Host '提示：配置清单与完成安装是两步；是否成功以 Unity 的解析、编译和连接结果为准。' -ForegroundColor DarkGray
+Write-Host '新工程 Git：可手动采用 Templates/UnityProject 模板；本工具不创建或覆盖 Git / AI 规则。' -ForegroundColor DarkGray
 Write-Host '查看 Scope、来源与连接命令：运行脚本时添加 -Details。' -ForegroundColor DarkGray
-Write-Host '安装说明：https://github.com/heroliss/SSFramework/blob/codex/package-installation/Tools~/README.md' -ForegroundColor DarkGray
+Write-Host '安装说明：https://github.com/heroliss/SSFramework/blob/main/Tools~/README.md' -ForegroundColor DarkGray
 if ($PassThru) { return $plan }
 if ($plan.NetworkBlocked) { throw 'Network preflight failed; no manifest changes were applied.' }

@@ -1,0 +1,41 @@
+# Put this file at the Unity project root as .gitignore.
+# Keep Assets and their .meta files, Packages and ProjectSettings in Git.
+
+# Unity caches, local preferences and generated output
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Bb]uild/
+/[Bb]uilds/
+/[Ll]ogs/
+/[Uu]ser[Ss]ettings/
+/[Mm]emoryCaptures/
+/[Rr]ecordings/
+
+# YooAsset / SSFramework resource build output
+/Bundles/
+/AssetBuild/
+
+# IDE caches and generated solution files
+/.vs/
+/.idea/
+*.csproj
+*.unityproj
+*.sln
+*.slnx
+*.suo
+*.user
+*.userprefs
+*.pidb
+*.opendb
+*.VC.db
+*.DotSettings.user
+
+# Local crash reports
+/sysinfo.txt
+/mono_crash.*
+
+# Generated builtin bundles: enable only if every checkout rebuilds these.
+# Keep other StreamingAssets content and the parent folder's .meta tracked.
+# /Assets/StreamingAssets/yoo/
+# /Assets/StreamingAssets/yoo.meta

@@ -8,7 +8,7 @@
 
 | 项目 | 当前状态 |
 |---|---|
-| Git 配置 | 仓库根目录有 `.gitignore`、`.gitattributes`，作用于 Framework 仓库；UPM 安装不会把它们应用到消费工程根目录 |
+| Git 配置 | Framework 仓库有自己的规则；另提供经消费工程验证的 Git 模板及手动采用说明，UPM / 接入工具不会自动应用到工程根目录 |
 | Framework 与第三方包源 | `Tools~/Setup-SSFramework` 可将固定 Framework Git 地址与包源共同加入清单，提供推荐选项、预览、联网检查和备份；原 `Configure-OpenUPM` 保留为只配置包源的入口 |
 | 文档与协作规则 | 包内有 API、ADR、模块地图与维护用 AGENTS.md；不是消费工程的项目文档或根 AI 规则 |
 | 项目目录 | guide 有按特性组织的参考结构；没有一键创建整个游戏工程的工具 |
@@ -18,11 +18,11 @@
 
 ## 初始化流程与后续工作
 
-Framework、包源和可选 MCP 的统一清单配置已实现，用法统一维护在[接入工具说明](../Tools~/README.md)。当前工程模板、字体资源与运行时模块选择仍属以下规划，MCP 在具体工程中的连接、编译与构建也需单独验收。
+Framework、包源和可选 MCP 的统一清单配置，以及手动采用的 Git 模板已实现，用法统一维护在[接入工具说明](../Tools~/README.md)。完整工程初始化、字体资源与运行时模块选择仍属以下规划，MCP 在具体工程中的连接、编译与构建也需单独验收。
 
 在现有外部接入工具与包内 Editor 工作台之间划分职责，由一个可理解的流程呈现：
 
-1. **安装前**：现有工具已检查工程版本、预览并配置包源与 Git 依赖；后续按需提供消费工程的 Git / 文档 / AI 规则模板。
+1. **安装前**：现有工具已检查工程版本、预览并配置包源与 Git 依赖；Git 模板可手动采用，文档 / AI 规则模板与可选自动应用仍待实现。
 2. **安装后**：通过 Unity Editor 创建资产目录与 meta、业务 asmdef、Framework Profile 及可选字体资产；不手写场景、Prefab 或字体资产 YAML。
 3. **验收**：检查依赖 revision、编译、最小启动场景、文字显示、Play 生命周期及目标 Player 构建。
 
@@ -45,12 +45,7 @@ Unity MCP 接入的三个步骤与工具边界已转入[接入工具说明](../T
 
 ### Git 模板
 
-值得提供专用于消费工程的模板，而不是直接复制 Framework 仓库的简化配置：
-
-- `.gitignore` 排除 Unity 缓存、本机编辑器数据、IDE 产物、构建输出和测试临时文件，保留 `Assets` 及 meta、`Packages/manifest.json`、`packages-lock.json`、`ProjectSettings`。
-- `.gitattributes` 统一源码、JSON、Unity YAML 的文本处理与换行，保留二进制资产的二进制语义。
-- Git LFS 与 Unity YAML Merge 作为独立选项，检查所需工具和仓库配置后启用。模板不默默建立新的 LFS 服务依赖或覆盖已有过滤器。
-- AI 工具本机状态、访问凭据和未经筛选的日志不进入项目共享规则或版本库。
+专用于消费工程的模板已提供并通过真实工程的 Git 行为检查，下载、采用、已有规则合并与验证步骤统一见[消费工程的 Git 配置](../Tools~/README.md#消费工程的-git-配置)。自动预览 / 应用、LFS 和 Unity YAML Merge 的可选接入仍未实现；它们不应成为普通安装的默认前提。
 
 ### 可选中文字体资源
 

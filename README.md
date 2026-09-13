@@ -94,12 +94,14 @@ https://github.com/heroliss/SSFramework.git
 
 Scope 明细、MCP 连接命令和来源可通过 `-Details` 查看；命令行、保护机制和撤销方法见[工具说明](Tools~/README.md)。工具不会配置渲染管线、生成业务场景或自动完成 Player 构建。
 
+新工程可手动采用[消费工程 Git 模板](Tools~/README.md#消费工程的-git-配置)，配置缓存忽略和文本换行。UPM 安装不会把框架仓库的 Git / AI 规则应用到工程根目录；字体和完整项目目录仍由项目按需准备。
+
 #### 版本固定与升级
 
 上面的普通 Git 地址解析默认分支 main，UPM 用锁文件记录实际提交，不会随每次启动自动升级。希望固定本次发行版时使用下面的地址；接入工具默认也使用这个标签：
 
 ```text
-https://github.com/heroliss/SSFramework.git#v0.1.2
+https://github.com/heroliss/SSFramework.git#v0.1.3
 ```
 
 发布标签不再移动；也可使用 `#<完整 commit SHA>` 固定其他已审查提交。开发框架本身时，可以使用 Package Manager 的本地路径方式引用工作副本。从早期版本升级到 `0.1.1` 时，还需补充 `org.nuget` 和 `com.code-philosophy.hybridclr` 两项 Scope。安装前先检查[依赖前置条件](docs/consuming-framework.md#依赖前置条件)；自己的场景、平台及所用内容构建链仍须在消费工程验收。
@@ -237,6 +239,8 @@ SSFramework 把“让工具能找到事实”作为工程能力的一部分，�
 ## 🧪 验证方式
 
 `v0.1.2` 已在真实 Unity `6000.3.23f1` 消费工程通过 **574 项 Editor 测试（564 项既有测试 + 10 项新增裁剪回归，分批运行）和 15 项 YooAsset PlayMode 测试**。资源包与非 Development Windows x64 IL2CPP Player 已完成构建、解压运行、交互、Offline 加载 / 释放 / 再加载及可见画面验收。具体环境、历史结果与未覆盖范围见[接入指南](docs/consuming-framework.md#v012-发布验证)。
+
+`v0.1.3` 的框架源码与上述版本一致，补充消费工程 Git 模板并修正安装指引。另以独立 Unity 6.3 空工程和单独的空 UPM 缓存验证了首次安装及基础 API；流程与边界见[首次安装验证](docs/consuming-framework.md#v013-接入改进与首次安装验证)。
 
 接入或修改框架后，按改动涉及的范围选择验证方式：
 
