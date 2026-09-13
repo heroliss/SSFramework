@@ -73,7 +73,7 @@ Drawer/fallback Editor；如果某个项目需要 Odin，应在项目或独立�
 | `Game.Framework.UI.Bridge` | `UI.Bridge/` | UGUI/相机内容嵌入 Toolkit 的 RenderTexture Adapter。 | 删除后两套独立 UI 后端仍可用。 |
 | `Game.Framework.UI.Bridge.Tests` | `UI.Bridge/Tests/` | 嵌入输入桥的坐标换算与拖拽阈值契约，只访问 Bridge 自己的内部纯函数 Seam。 | 随 UI Bridge 删除；UGUI 与 Toolkit 的独立测试仍可运行。 |
 | `Game.Framework.Boot` | `Boot/` | HybridCLR/YooAsset 热更启动 AOT 薄壳。 | 可在无热更项目删除；不得反向依赖 Framework Runtime。 |
-| `Game.Framework.Editor` | `Editor/` | 稳定且零付费插件依赖的编辑器工具基座：Core 原生 Drawer/Inspector、跨模块非阻塞反馈、诊断窗口、菜单、项目路径，以及 Module-local 注册的工具/配置/生成输出 claim Catalog；Module Audit 与隔离 Player Build 体积探针共用结构化组合，Source Catalog 统一解析 Assets / Packages / PackageCache。 | 玩家构建不包含。若删除，需一并删除或改接直接依赖它的 Build / Config / Proto / UGUI Editor 工具；所有 Runtime API 与玩家构建仍不受影响。 |
+| `Game.Framework.Editor` | `Editor/` | 稳定且零付费插件依赖的编辑器工具基座：Core 原生 Drawer/Inspector、跨模块反馈、诊断与菜单，以及工具/配置/生成输出 claim Catalog；Source Catalog 统一解析 Assets / Packages / PackageCache，构建回调提交 Package 中 Runtime Module 的相邻 link.xml。Module Audit 与隔离 Player Build 体积探针共用结构化组合。 | 不进入玩家程序。删除时需改接依赖它的 Editor 工具，并为 Package Runtime Module 提供等价的 linker 规则接入；Runtime API 不变，但不能直接假定裁剪结果不受影响。 |
 | `Game.Framework.Editor.Tests` | `Editor/Tests/` | 通用 Editor 工具的 EditMode 契约；覆盖生成 claim 冲突矩阵、写盘前刷新，以及 AI PlayMode 预检的无弹窗保存与未命名场景拒绝。 | 随 Editor Module 删除；不进入玩家构建。 |
 | `Game.Framework.Build.Editor` | `Build/Editor/` | YooAsset 普通 AssetBundle 的 Profile、SBP 构建、人工 latest 部署、CI 精确批次部署、本地 CDN、加密接入与产物路径安全；保留既有程序集名以兼容 Profile 与 CI，但不引用 Boot、HybridCLR 或 dnlib。 | 无资源构建需求时可删；删除下游热更新构建后仍能独立编译与使用。 |
 | `Game.Framework.Build.Editor.Tests` | `Build/Editor/Tests/` | 资源构建工具/配置、批次发布证据、包名常量 claim、可移植产物路径和“零热更工具链引用”的删除契约。 | 随资源构建 Module 删除；不进入玩家构建。 |

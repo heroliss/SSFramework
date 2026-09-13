@@ -16,7 +16,9 @@ namespace Game.Framework
     /// Assembly attribute 让“我提供默认实现”与实现保持 Locality，同时没有运行时初始化顺序竞争。注册数量必须恰好为一：
     /// 未安装时解释如何接入，装了两个后端时列出冲突，不按加载顺序静默选一个。
     /// Adapter 仍必须确保自己的程序集会进入 Player 并在创建资源系统前已加载；反射注册不是 linker 根。
-    /// 推荐让 Adapter 自带 <c>link.xml</c>，并对目标平台 AOT Player 做一次初始化回归。
+    /// Framework Module 的 <c>link.xml</c> 与 asmdef 同目录；Package 安装时由 Framework Editor
+    /// 构建回调提交给 UnityLinker，Assets 安装时由 Unity 发现。其它 Adapter 应提供等价保留入口，
+    /// 并对目标平台 AOT Player 做一次初始化回归；仅把 link.xml 放进 Package 不会自动生效。
     /// </para>
     ///
     /// <para>

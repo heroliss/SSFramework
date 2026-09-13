@@ -1916,6 +1916,8 @@ Object.Destroy(go);                              // 交棒：首场景根 Contex
 
 代码热更是**部署决策**，可以完全不用——很多游戏只热更资源、或什么都不热更。两种搭法：
 
+直接使用普通 Unity IL2CPP 时，先按[构建前设置](consuming-framework.md#构建前选择是否启用热更新)关闭 HybridCLR 的 **Enable**。清空热更程序集列表不会关闭 HybridCLR 的构建预处理，也不能代替所选原生工具链的准备。资源包与 Player 的完整离线验证见[交付验收流程](consuming-framework.md#资源包与-player-交付验收)。
+
 1. **最省**：热更列表清空 → 全部 AOT，并把启用的随包场景从 `HotUpdateLauncher` 改为直接 AOT composition root。所有程序集启动即在 AppDomain，可在首场景挂 `MonoGlobalContext`，由它（或一个启动脚本）调 `GameEntry.Enter()`——**无反射、无 CodePackage**。若只清空列表却仍保留 Launcher，编辑器看起来会旁路成功，但 Player 的 `RunPlayer` 仍会初始化 CodePackage 并读取 manifest；此组合必须用步骤 3 构建一个空清单代码包。"随包场景不得挂热更脚本"的硬边界在直接 AOT 方案中不存在（没有任何程序集热更），业务场景 / prefab 也不必 bundle 化。
 2. **保留统一管线**：想以后随时能打开代码热更，就留着 Boot + `HotUpdateLauncher`，模式设 `Offline`、热更列表留空——管线形态不变，只是永不联网更代码，将来要开热更只需把程序集拖进列表。
 
@@ -3203,6 +3205,8 @@ builder.RegisterOwnedUtility(new WebSocketUtility(serializer: proto));
 | 当前 DLL 快照引用 | 当前已编译变体里哪个 Framework / 项目程序集消费它 | Unity 6000 的 CompilationPipeline 可能返回 Editor DLL；静态元数据也看不到字符串反射、场景和资源根 |
 | linker / 热更根 | `link.xml`、反射保护或 HybridCLR Profile 是否保留 / 部署它 | UnityLinker 做成员裁剪；HybridCLR 代码包则按程序集放完整 DLL |
 | 最终 Player | IL2CPP、引擎模块、压缩与资源合并后的发布结果 | 只能看目标平台 BuildReport / 发布产物，不能从原始 DLL 猜 |
+
+Package 安装的 Framework Runtime Module 会由通用 Editor 构建回调提交 asmdef 相邻的 `link.xml`；项目 Assets 下的规则仍由 Unity 处理。删除通用 Editor Module 时，需要自行接管这些 Package 规则。来源与派生文件位置见[资源包与 Player 交付验收](consuming-framework.md#资源包与-player-交付验收)。
 
 #### 先查原因，再决定是否值得拆
 

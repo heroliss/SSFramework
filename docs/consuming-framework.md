@@ -170,6 +170,20 @@ https://github.com/CoplayDev/unity-mcp.git?path=/MCPForUnity#v10.2.0
 
 通过上述最小闭环后就可以开始玩法开发，再按实际需要接入资源构建、配置表或热更新。完整包依赖已安装，并不要求第一个玩法原型启用所有 Module 或配置所有外部工具链。
 
+### 资源包与 Player 交付验收
+
+使用 YooAsset 资源模块时，可在玩法开发前用一个预制体和一份文本走通下面的流程。普通 IL2CPP 与资源包可以独立组合；不做代码热更新时，先按[构建设置](#构建前选择是否启用热更新)关闭 HybridCLR 的 Enable。
+
+1. **准备最小内容**：在消费工程创建资源目录，将预制体、材质和文本加入 YooAsset 收集器。配置包名与寻址规则；场景按地址加载这些资源，避免直接引用预制体，使测试能够证明内容来自资源包。
+2. **对齐构建与运行配置**：在 **SSFramework → 构建与发布 → 资源构建** 创建或选择 `FrameworkAssetBuildProfile`，同步收集器中的包。验证全部离线随包内容时，首包策略选 **ClearAndCopyAll**，场景 `AssetUtility` 的默认包与列表使用相同包名，运行模式选 **Offline**。默认的“按标签内置”若没有填写标签，只会内置清单，不能用于这项完整离线验收。
+3. **构建真实资源**：按需生成包名与构建常量，等待编译，再构建资源包。核对本轮版本、清单和 bundle 已进入 `Assets/StreamingAssets/yoo/<包名>`。原始构建输出在项目的 `AssetBuild/Bundles`；这些产物应由构建流程重新生成，是否入库由消费工程决定。
+4. **Editor 读取构建产物**：临时将 Editor 运行模式也设为 **Offline**，验证初始化、加载、释放、再次加载与退出再进入 Play。`EditorSimulate` 直接读开发资产，适合日常迭代，但其成功不能代替这一步。
+5. **构建并运行 Player**：资源构建成功后再构建目标平台 Player。除 Development Build 外，还应检查一次非 Development IL2CPP 构建，验证裁剪后的代码、资源版本、文本、材质和交互。运行时应携带完整 Player 目录；将产物复制或解压到另一个目录后再启动，可检查交付文件是否齐全。
+
+**Package 的裁剪规则接入**：保留 `Game.Framework.Editor` 时，构建回调会自动收集目标平台 Framework Runtime asmdef 同目录的 `link.xml`，经 Source Catalog 解析后提交给 UnityLinker。生成文件位于 `Library/SSFramework/Linker/<平台>/link.xml`，Console 会列出本轮来源；无需手动复制到 Assets。该回调只处理 Framework Module 自有规则，不替第三方 Package 接管保留策略。Unity 不会自动采用 Package 内的 `link.xml`，如果裁掉 Framework Editor Module，需要由消费工程提供等价构建入口或 Assets 保留规则。[Unity 裁剪规则说明](https://docs.unity3d.com/6000.3/Documentation/Manual/managed-code-stripping-preserving.html)。
+
+记录构建报告和实际运行结果，区分代码编译、资源构建、随包复制与运行加载各自是否成功。这个离线闭环不覆盖 Host/CDN 更新、HybridCLR 代码热更新或其他平台；选用这些能力时再补对应验收。
+
 ## 本地开发包
 
 调试 Framework 源码时，可以通过 Package Manager 的本地路径引用工作副本。消费方只需要重新导入包即可看到修改；准备提交前仍应切换回明确的 tag 或 commit，避免把本地未提交状态当成版本依赖。
@@ -209,6 +223,8 @@ https://github.com/CoplayDev/unity-mcp.git?path=/MCPForUnity#v10.2.0
 - 安装工具的 30 组接入测试和 17 组包源测试分别在 Windows PowerShell 5.1 / PowerShell 7 通过，含真实消费工程的只读检查与清单副本写入验证。
 
 发行提交仅追加安装入口与发布说明，Runtime / Editor / 测试源码与上述验证提交一致。此结果不覆盖 HybridCLR 热更新、YooAsset 离线 / Host 内容构建、全部渲染设备或大规模 ECS 仿真；真实鼠标 / 键盘体验仍由消费工程人工验收。
+
+后续的真实离线 Player 回归发现：v0.1.1 通过 UPM 安装时，Package 内的保留规则没有进入 UnityLinker，Yoo Adapter 被裁剪，`AssetUtility` 启动时报“没有注册默认资源 Provider”。上面的构建回调修复正在候选分支验证；v0.1.1 的历史通过项不代表这条资源加载路径已通过。
 
 ## 版本升级流程
 

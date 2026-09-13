@@ -52,6 +52,18 @@ Assembly attribute 只负责装配声明，并不天然构成 UnityLinker 根。
 
 没有采用运行期可变全局注册表：默认后端是应用级架构装配，不是每场景状态；可变注册会引入初始化顺序、测试残留和运行期换血所有权问题。也没有把 provider 序列化进场景：它是有状态服务 Implementation，不是 per-instance 数据。
 
+### 4. Package 保留规则必须显式进入 UnityLinker
+
+2026-09-13 的真实 UPM 消费回归中，普通非 Development IL2CPP 成功构建，但离线资源 Player 的 `AssetUtility` 初始化失败。构建响应文件没有 Package 的 `link.xml`，裁剪输出也没有 `Game.Framework.Asset.Yoo.dll`；这是规则未被提交，不能通过增加 Editor 注册测试来证明修复。[Unity 文档](https://docs.unity3d.com/6000.3/Documentation/Manual/managed-code-stripping-preserving.html)明确要求 Package 使用额外接入方式。
+
+`Game.Framework.Editor` 通过 `IUnityLinkerProcessor.GenerateAdditionalLinkXmlFile` 汇总规则：从目标平台 Player 编译图选择 Framework Module，只读取各 asmdef 同目录的 Package `link.xml`，通过 Source Catalog 获取物理路径。规则内容仍归 Module 所有；中央回调没有 Yoo、Toolkit 或 Proto 的名单，不汇总无关第三方 Package，也不重复接入 Unity 已处理的 Assets 规则。
+
+每轮构建在 `Library/SSFramework/Linker/<平台>/link.xml` 重新生成完整集合，包括空集合。所有 XML 校验完成后才写派生文件；缺失、格式错误或不支持的根结构直接阻止构建，并说明来源。类型、成员和条件属性原样转交。Module 删除或退出平台编译图后不再贡献规则；保留 Toolkit/Proto 的既有整程序集规则会影响包体，仍须按模块地图评估。
+
+Player 编译图也包含可被 HybridCLR 从 AOT 输入移除的 Module，不能以 Editor DLL 或已废弃的 `UnityLinkerBuildPipelineData.inputDirectory` 猜测其最终位置。Yoo 自身规则显式声明 `ignoreIfMissing="1"`，允许热更档位下 DLL 缺席；`ignoreIfUnreferenced` 不能替代它，否则仅靠反射装配的 AOT Adapter 又会丢失。引擎/第三方类型的保留仍可能服务于热更代码，所以不因为 owning Module 被配置为热更就一律丢弃其规则。此次验收不包含 HybridCLR 执行链。
+
+这使通用 Editor Module 承担一项构建职责。将它物理删除的精简工程必须自行提供等价保留入口；运行时程序集仍没有 Editor 依赖。回归覆盖 Package 来源解析、选择边界、成员与条件保留、删除后清空，以及坏输入不发布半份规则；最终验收必须包含裁剪后的真实 Player 初始化和资源加载。
+
 ## 结果
 
 - Module Audit 的“显式外部依赖”现在对应 Unity 真正生效的声明，删除判断不再建立在 Auto Reference 假证据上。Unity 6000 的 CompilationPipeline `outputPath` 仍可能指向 Editor 变体，因此界面中的 DLL 闭包只称“当前已编译快照”；目标平台结论由 Auto Reference 门禁、HybridCLR 目标 DLL 与真实 Player Build 共同证明。
