@@ -82,7 +82,7 @@ SSFramework 的 `package.json` 已声明第三方 UPM 包和 NuGet 运行库的 
 
 Registry 配置保存在**消费工程**的 `Packages/manifest.json` 中；Framework 的 `package.json` 不能代替工程设置 `scopedRegistries`。包内 Editor 安装脚本也不能作为解决首次依赖解析失败的前提。因此，工具或手动操作负责“每个工程配置一次包源”，之后由 UPM 自动安装已声明的依赖。相关规则见 [Unity Scoped Registry 文档](https://docs.unity3d.com/6000.3/Documentation/Manual/upm-scoped-use.html)。
 
-`com.cysharp.r3` 提供 Unity 适配层，`org.nuget.r3` 提供 R3 运行库；两者都需要。依赖基线已在真实消费工程的 Unity `6000.3.23f1` 中完成解析与 Runtime / Editor 编译复核。下面的 `bdf01b5` 候选追加包内 C# 10 配置、日志与自检测试修正，以及消费工程传递依赖布局适配。修改程序集已用消费工程的 Unity 引用离线编译通过；业务语言配置与 26 项日志测试在真实 Editor 通过。消费工程仍需通过 Git 更新到完整候选，再完成全部相关回归和 Player 构建验收；这些专项验证不能代替发布验收。
+`com.cysharp.r3` 提供 Unity 适配层，`org.nuget.r3` 提供 R3 运行库；两者都需要。依赖与 C# 10 基线 `bdf01b5` 已在真实 Unity `6000.3.23f1` 消费工程通过 Core PlayMode 580 项、Editor 563 项及其他模块 174 项测试，并完成普通 Windows x64 IL2CPP 构建（0 错误 / 0 警告）及最小场景的启动、Command、状态和 UI 更新验证。15 项 YooAsset 测试暴露了对旧工程收集器和失效图片 GUID 的依赖；下面的 `0d8e5b4` 候选改为自动管理独占测试夹具，已通过 Unity 编译器检查，仍需实际回归。上述 Player 结果不覆盖 HybridCLR 热更新、YooAsset 离线 / Host 内容或大规模 ECS 仿真。
 
 ### 2. 依赖自动解析或逐个手动安装
 
@@ -100,7 +100,7 @@ Registry 配置保存在**消费工程**的 `Packages/manifest.json` 中；Frame
 这是手动路线的第 3 步。在 Package Manager 左上角 **+** 中选择 **Install package from git URL**（部分界面显示 **Add package from git URL**），粘贴下面整行并点击 **Install / Add**。工具自动模式已加入同一个地址时，无需重复添加：
 
 ```text
-https://github.com/heroliss/SSFramework.git#bdf01b583210b83bb4850010b95ddcc633aa66d8
+https://github.com/heroliss/SSFramework.git#0d8e5b439a9e36b902330ef43358b3f86cc6853c
 ```
 
 上面是包含依赖、自检与 C# 10 接入配置的候选提交，尚未完成全部测试与 Player 验收，也尚未合入 main。当前不要使用省略 revision 的地址，否则可能装到缺少依赖声明的旧 main。其他已审查版本同样固定到 tag 或 commit：
