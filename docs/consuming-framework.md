@@ -2,7 +2,7 @@
 
 这份文档面向任何需要在 Unity 工程中使用 `com.liss.ssframework` 的团队。它只描述包本身的公开接入契约，不依赖某个游戏、教程工程或工作区布局。
 
-安装包不会自动配置消费工程根目录的 Git / AI 规则、生成完整项目目录或提供中文字体。已有[可手动采用的消费工程 Git 模板](../Tools~/README.md#消费工程的-git-配置)；其余能力与建议的初始化流程见[新项目准备](project-startup.md)。
+UPM 安装本身不会配置消费工程根目录的 Git / AI 规则。外部接入工具可选择仅创建缺失文件，也可手动采用[Git 模板](../Tools~/README.md#消费工程的-git-配置)和[AI 协作入口模板](../Tools~/README.md#项目-ai-协作入口)，已有规则由项目维护。完整项目目录与中文字体尚未提供，后续规划见[新项目准备](project-startup.md)。
 
 **完整包当前以 Unity 6.3 LTS 为接入目标，版本基线为 `6000.3.22f1`。Unity 6.6 暂不能完整编译此包**：YooAsset 3.0.5 的 Editor 使用了 Unity 6.6 已移除的 `UxmlFactory` / `UxmlTraits`。补齐 DLL 或切换同版本的 Git 来源不能解决这个 API 不兼容；新项目应优先在 6.3 LTS 中创建，不要直接把已经由 6.6 保存的工程降级打开。参见 [Unity 6.6 API 移除说明](https://unity.com/releases/editor/alpha/6000.6.0a5)。
 
@@ -48,9 +48,9 @@ SSFramework 的 `package.json` 已声明第三方 UPM 包和 NuGet 运行库的 
 
 **先运行工具，再打开 Unity；无需先安装 Framework。** Windows 使用者关闭目标工程，双击 [`Tools~/Setup-SSFramework.cmd`](../Tools~/Setup-SSFramework.cmd)，粘贴工程根目录。Framework 默认推荐自动加入清单；MCP 可选 AnkleBreaker / Coplay，新工程推荐跳过，清单中已有单一提供方时推荐保留。选中 MCP 后，其安装方式推荐加入清单。
 
-核对预览与联网检查后输入 `y`，工具一次保存包源、Framework Git 地址和所选 MCP，自动备份原清单。然后打开 Unity，UPM 会下载清单中的包及其依赖，自动模式无需再粘贴 Git 地址。想亲自操作 Package Manager 时选择 Framework / MCP 的手动模式，按工具最后显示的地址安装。
+还可分别选择 Git 配置和 AI 协作入口，有缺失文件时推荐仅创建缺失项。核对预览与联网检查后输入 `y`，工具保存包源、Framework Git 地址、所选 MCP、编译配置与可选项目文件；修改已有清单和响应文件前保留备份，已有项目规则不覆盖。然后打开 Unity，UPM 会下载清单中的包及其依赖，自动模式无需再粘贴 Git 地址。想亲自操作 Package Manager 时选择 Framework / MCP 的手动模式，按工具最后显示的地址安装。
 
-工具只需同目录的 `.cmd` 与 `.ps1`，可单独发布或下载，不必先克隆整个框架仓库。它保留已有 Framework 版本，重复运行不会自动升级；包源、MCP 冲突或联网预检失败时停止写入。旧 `Configure-OpenUPM` 入口仍只配置包源；默认选项、详情输出、命令行、恢复与验证入口见[工具说明](../Tools~/README.md)。`Tools~` 被 Unity 忽略，不会随包导入自动执行。
+建议下载并完整解压[工具 ZIP](https://github.com/heroliss/SSFramework/releases/latest/download/SSFramework-Setup.zip)，其中包含安装器、自检入口和模板，不必克隆整个仓库。只配置包与编译选项时仍可使用同目录的 Setup `.cmd` / `.ps1`；选择 Git / AI 初始化还需附带模板目录。工具保留已有 Framework 版本，重复运行不会自动升级；包源、MCP 冲突或联网预检失败时停止写入。旧 `Configure-OpenUPM` 入口仍只配置包源；默认选项、详情输出、命令行、恢复与验证入口见[工具说明](../Tools~/README.md)。`Tools~` 被 Unity 忽略，不会随包导入自动执行。
 
 ## 手动安装（无需工具）
 
@@ -106,7 +106,7 @@ https://github.com/heroliss/SSFramework.git
 上面解析默认分支 main，适合希望使用简便入口的工程。要固定到本次发行版，使用下面的地址；接入工具默认也使用这个标签。其他已审查版本可使用对应 tag 或完整 commit SHA：
 
 ```text
-https://github.com/heroliss/SSFramework.git#v0.1.3
+https://github.com/heroliss/SSFramework.git#v0.1.4
 ```
 
 正式项目优先使用完整 commit SHA 或发布后不再移动的 tag；`#main` 等分支名仍会随开发变化，不能单靠名字确认包内容。不同地址的解析与升级行为见[版本选择与发布](#版本选择与发布)。等待 UPM 下载和脚本编译后，继续选择下面的开发工具，或直接进行[安装验收](#安装验收)。
@@ -159,6 +159,8 @@ https://github.com/CoplayDev/unity-mcp.git?path=/MCPForUnity#v10.2.0
 - **ECS、Input System、URP / HDRP**：按游戏需求通过 Unity Package Manager 单独选择；它们不是安装 SSFramework 的前置条件。项目 Git 文件、目录和 AI 规则的准备范围见[新项目准备](project-startup.md)。
 
 ## 安装验收
+
+自动和手动安装都可先运行外部工具 `Check-SSFrameworkProject.cmd`，检查清单 / 锁记录、包源、业务语言配置和 HybridCLR 构建选择，并获得对应处理步骤。它只读文件，不启动 Unity、不自动修复；即使显示 `FilesChecked`，下面的编译与运行验收仍须完成。用法与 JSON 输出见[配置自检说明](../Tools~/README.md#安装后配置自检只读)。
 
 手动与自动路线使用同一套验收，包名出现在 Package Manager 中只是第一步。
 
@@ -249,6 +251,14 @@ v0.1.3 仅更新包版本、接入工具提示、消费工程 Git 模板与说�
 更新后的安装工具在 Windows PowerShell 5.1 / PowerShell 7 分别通过 30 组回归，包括对该独立消费工程的只读预览和清单副本写入检查。
 
 此检查验证首次包安装与基础 API；不替代具体项目的场景、字体、输入、签名弹窗、热更新选择或 Player 构建验收。手动接入仍需配置 OpenUPM 和业务 `csc.rsp`，不做代码热更新时仍需关闭 HybridCLR 的 Enable。
+
+### v0.1.4 配置自检与可选项目初始化
+
+2026-09-13，增加外部只读配置自检、可选 Git / AI 文件初始化及通用 AGENTS.md 模板。`src/` 与第三方依赖声明仍与 v0.1.2 一致，不要求已接入工程为使用这些外部工具而升级 UPM 包。
+
+- 在真实消费工程先验证候选工具，再回流到 Framework：仅补齐缺失的 AGENTS.md，已有 Git 规则、清单、锁文件及业务响应文件逐字节不变；再次应用无写入。另一已有消费工程的自检为 0 项错误、0 项需处理；独立首次安装工程正确提示尚未明确 HybridCLR Enable 设置。
+- Windows PowerShell 5.1 与 PowerShell 7 分别验证 20 组自检 / 初始化回归、30 组安装回归和 17 组包源回归。覆盖预览、已有文件保留、模板缺失、目录冲突、并发新建、写入失败回滚、只读快照、局部响应文件和来源漂移；安装与包源回归含真实工程只读检查及清单副本验证。
+- 本轮没有重新运行 Unity 或构建 Player。自检始终报告 `RequiresUnityVerification: true`；锁记录完整、文件检查通过均不等于下载、编译、场景或构建通过。运行时验收范围沿用前述 v0.1.2 证据。
 
 ## 版本升级流程
 

@@ -87,21 +87,21 @@ https://github.com/heroliss/SSFramework.git
 
 #### 方式 B：自动接入工具
 
-1. 下载并解压[接入工具 ZIP](https://github.com/heroliss/SSFramework/releases/latest/download/SSFramework-Setup.zip)；也可分别下载 [`Setup-SSFramework.cmd`](Tools~/Setup-SSFramework.cmd) 和 [`Setup-SSFramework.ps1`](Tools~/Setup-SSFramework.ps1)，放在同一个目录。无需先安装 Framework，也无需克隆整个仓库。
-2. 关闭目标 Unity 工程，双击 `.cmd`，输入工程目录，选择 Framework 安装方式及可选 MCP；每一步都显示推荐默认项。
+1. 下载并完整解压[接入工具 ZIP](https://github.com/heroliss/SSFramework/releases/latest/download/SSFramework-Setup.zip)。无需先安装 Framework，也无需克隆整个仓库。
+2. 关闭目标 Unity 工程，双击 `Setup-SSFramework.cmd`，输入工程目录，选择 Framework 安装方式、可选 MCP，以及是否创建缺失的 Git / AI 规则；每一步都显示推荐默认项，已有规则保留。
 3. 核对变更预览与联网检查，输入 `y` 才应用并备份。默认自动加入固定 Framework Git 地址和所选包；手动模式只显示相应安装指引。
-4. 打开 Unity，等待 UPM 解析、签名确认与编译；自动模式无需再次粘贴 Git 地址。随后执行与手动方式相同的[安装验收](docs/consuming-framework.md#安装验收)。
+4. 打开 Unity，等待 UPM 解析、签名确认与编译；自动模式无需再次粘贴 Git 地址。可运行 `Check-SSFrameworkProject.cmd` 做[只读配置自检](Tools~/README.md#安装后配置自检只读)，再完成与手动方式相同的[安装验收](docs/consuming-framework.md#安装验收)。
 
 Scope 明细、MCP 连接命令和来源可通过 `-Details` 查看；命令行、保护机制和撤销方法见[工具说明](Tools~/README.md)。工具不会配置渲染管线、生成业务场景或自动完成 Player 构建。
 
-新工程可手动采用[消费工程 Git 模板](Tools~/README.md#消费工程的-git-配置)，配置缓存忽略和文本换行。UPM 安装不会把框架仓库的 Git / AI 规则应用到工程根目录；字体和完整项目目录仍由项目按需准备。
+新工程可通过工具或手动采用[消费工程 Git 模板](Tools~/README.md#消费工程的-git-配置)和[AI 协作入口模板](Tools~/README.md#项目-ai-协作入口)。UPM 安装本身不会把这些文件应用到工程根目录；字体和完整项目目录仍由项目按需准备。
 
 #### 版本固定与升级
 
 上面的普通 Git 地址解析默认分支 main，UPM 用锁文件记录实际提交，不会随每次启动自动升级。希望固定本次发行版时使用下面的地址；接入工具默认也使用这个标签：
 
 ```text
-https://github.com/heroliss/SSFramework.git#v0.1.3
+https://github.com/heroliss/SSFramework.git#v0.1.4
 ```
 
 发布标签不再移动；也可使用 `#<完整 commit SHA>` 固定其他已审查提交。开发框架本身时，可以使用 Package Manager 的本地路径方式引用工作副本。从早期版本升级到 `0.1.1` 时，还需补充 `org.nuget` 和 `com.code-philosophy.hybridclr` 两项 Scope。安装前先检查[依赖前置条件](docs/consuming-framework.md#依赖前置条件)；自己的场景、平台及所用内容构建链仍须在消费工程验收。
@@ -241,6 +241,8 @@ SSFramework 把“让工具能找到事实”作为工程能力的一部分，�
 `v0.1.2` 已在真实 Unity `6000.3.23f1` 消费工程通过 **574 项 Editor 测试（564 项既有测试 + 10 项新增裁剪回归，分批运行）和 15 项 YooAsset PlayMode 测试**。资源包与非 Development Windows x64 IL2CPP Player 已完成构建、解压运行、交互、Offline 加载 / 释放 / 再加载及可见画面验收。具体环境、历史结果与未覆盖范围见[接入指南](docs/consuming-framework.md#v012-发布验证)。
 
 `v0.1.3` 的框架源码与上述版本一致，补充消费工程 Git 模板并修正安装指引。另以独立 Unity 6.3 空工程和单独的空 UPM 缓存验证了首次安装及基础 API；流程与边界见[首次安装验证](docs/consuming-framework.md#v013-接入改进与首次安装验证)。
+
+`v0.1.4` 补充安装后只读自检及可选 Git / AI 文件初始化，已验证真实消费工程的文件保留和工具回归。框架源码与依赖继续保持一致；文件检查不会代替 Unity 编译、场景或 Player 验收，详见[工具验证范围](docs/consuming-framework.md#v014-配置自检与可选项目初始化)。
 
 接入或修改框架后，按改动涉及的范围选择验证方式：
 

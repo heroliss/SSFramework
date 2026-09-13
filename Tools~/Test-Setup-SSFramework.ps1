@@ -8,6 +8,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $tool = Join-Path $PSScriptRoot 'Setup-SSFramework.ps1'
 $runRoot = Join-Path $OutputDirectory ([Guid]::NewGuid().ToString('N'))
+$runRoot = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($runRoot)
 $script:passed = 0
 $emptyManifest = '{"dependencies":{"com.unity.inputsystem":"1.20.0"},"testables":["com.example.tests"],"custom":{"nested":[{"keep":true}]}}'
 $ankleId = 'com.anklebreaker.unity-mcp'
@@ -158,7 +159,7 @@ Invoke-Case 'Manifest edited after preview is preserved and application is rejec
     $racePath = Join-Path $root 'Packages/manifest.json'
     function Read-Host { param($Prompt) Write-Json $racePath '{"dependencies":{},"userEdit":true}'; return 'y' }
     $failure = ''
-    try { & $tool -FrameworkInstallMode Manual -ProjectPath $root -UnityMcp AnkleBreaker -McpInstallMode Manifest -Interactive 6>$null } catch { $failure = $_.Exception.Message }
+    try { & $tool -FrameworkInstallMode Manual -ProjectPath $root -UnityMcp AnkleBreaker -McpInstallMode Manifest -Interactive -GitConfiguration Skip -AiRules Skip 6>$null } catch { $failure = $_.Exception.Message }
     Assert ($failure -like '*changed after preview*') "Concurrent edit was not rejected: $failure"
     Assert ((Read-Manifest $root).userEdit) 'User edit was overwritten.'
     Assert (-not (Test-Path -LiteralPath (Join-Path $root 'UserSettings'))) 'Rejected edit created backups.'
@@ -167,7 +168,7 @@ Invoke-Case 'Interactive decline leaves no manifest changes' {
     $root = New-Project 'decline'
     $before = Manifest-Bytes $root
     function Read-Host { param($Prompt) return 'n' }
-    $result = & $tool -FrameworkInstallMode Manual -ProjectPath $root -UnityMcp Coplay -McpInstallMode Manifest -Interactive -PassThru 6>$null
+    $result = & $tool -FrameworkInstallMode Manual -ProjectPath $root -UnityMcp Coplay -McpInstallMode Manifest -Interactive -GitConfiguration Skip -AiRules Skip -PassThru 6>$null
     Assert (-not $result.Applied -and (Manifest-Bytes $root) -ceq $before) 'Decline applied changes.'
 }
 Invoke-Case 'Malformed lock fails before any write' {
@@ -184,7 +185,7 @@ Invoke-Case 'Interactive MCP defaults recommend manifest mode and do not apply i
         if ($providerChoice -ne '') { $answers.Enqueue('') }
         $answers.Enqueue('n')
         function Read-Host { param($Prompt) return $answers.Dequeue() }
-        $result = & $tool -FrameworkInstallMode Manual -ProjectPath $root -Interactive -PassThru 6>$null
+        $result = & $tool -FrameworkInstallMode Manual -ProjectPath $root -Interactive -GitConfiguration Skip -AiRules Skip -PassThru 6>$null
         $expected = switch ($providerChoice) { '' { 'None' }; '1' { 'AnkleBreaker' }; '2' { 'Coplay' } }
         Assert ($result.UnityMcp -ceq $expected -and $result.McpInstallMode -ceq $(if ($providerChoice -eq '') { 'Manual' } else { 'Manifest' })) 'Interactive selection/default is wrong.'
         Assert (-not $result.Applied -and (Manifest-Bytes $root) -ceq $before) 'Interactive defaults changed manifest.'
@@ -193,7 +194,7 @@ Invoke-Case 'Interactive MCP defaults recommend manifest mode and do not apply i
 }
 Invoke-Case 'Interactive cancellation and invalid selections never write files' {
     function Read-Host { param($Prompt) return '' }
-    $result = & $tool -FrameworkInstallMode Manual -Interactive -PassThru 6>$null
+    $result = & $tool -FrameworkInstallMode Manual -Interactive -GitConfiguration Skip -AiRules Skip -PassThru 6>$null
     Assert ($null -eq $result) 'Empty project path did not cancel.'
     foreach ($badMode in @($false, $true)) {
         $root = New-Project ([Guid]::NewGuid().ToString('N'))
@@ -203,7 +204,7 @@ Invoke-Case 'Interactive cancellation and invalid selections never write files' 
         $answers.Enqueue('invalid')
         function Read-Host { param($Prompt) return $answers.Dequeue() }
         $failure = ''
-        try { & $tool -FrameworkInstallMode Manual -ProjectPath $root -Interactive 6>$null } catch { $failure = $_.Exception.Message }
+        try { & $tool -FrameworkInstallMode Manual -ProjectPath $root -Interactive -GitConfiguration Skip -AiRules Skip 6>$null } catch { $failure = $_.Exception.Message }
         Assert ($failure -like '*Invalid*selection*' -or $failure -like '*Invalid install mode*') 'Invalid selection was not rejected.'
         Assert ((Manifest-Bytes $root) -ceq $before) 'Invalid selection changed manifest.'
         Assert (-not (Test-Path -LiteralPath (Join-Path $root 'UserSettings'))) 'Invalid selection created backups.'
@@ -215,7 +216,7 @@ Invoke-Case 'Preview, confirmation, result and next steps are displayed in the c
     $confirmation = [pscustomobject]@{ Index = -1 }
     function Write-Host { param($Object, $ForegroundColor) $messages.Add([string]$Object) }
     function Read-Host { param($Prompt) $confirmation.Index = $messages.Count; return 'y' }
-    $result = & $tool -FrameworkInstallMode Manual -ProjectPath $root -UnityMcp AnkleBreaker -McpInstallMode Manifest -Interactive -PassThru
+    $result = & $tool -FrameworkInstallMode Manual -ProjectPath $root -UnityMcp AnkleBreaker -McpInstallMode Manifest -Interactive -GitConfiguration Skip -AiRules Skip -PassThru
     $beforeConfirmation = ($messages | Select-Object -First $confirmation.Index) -join "`n"
     $afterConfirmation = ($messages | Select-Object -Skip $confirmation.Index) -join "`n"
     Assert ($result.Applied) 'Confirmed application did not run.'
@@ -279,7 +280,7 @@ Invoke-Case 'Recommended framework choice is automatic; apply remains an explici
     $answers = [Collections.Generic.Queue[string]]::new()
     foreach ($answer in @('', '', 'n')) { $answers.Enqueue($answer) }
     function Read-Host { param($Prompt) return $answers.Dequeue() }
-    $result = & $setupTool -ProjectPath $root -Interactive -PassThru 6>$null
+    $result = & $setupTool -ProjectPath $root -Interactive -GitConfiguration Skip -AiRules Skip -PassThru 6>$null
     Assert ($result.FrameworkInstallMode -eq 'Manifest' -and $result.AddedFrameworkPackage) 'Recommended framework default is wrong.'
     Assert (-not $result.Applied -and $answers.Count -eq 0) 'Default selection silently applied or used unexpected prompts.'
 }

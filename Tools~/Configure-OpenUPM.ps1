@@ -1,4 +1,4 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 <#
 .SYNOPSIS
 Compatibility entry point: configure only SSFramework's OpenUPM scopes.
@@ -9,4 +9,4 @@ param(
     [switch] $Apply,
     [switch] $Interactive
 )
-& (Join-Path $PSScriptRoot 'Setup-SSFramework.ps1') @PSBoundParameters -UnityMcp None -FrameworkInstallMode Manual
+& (Join-Path $PSScriptRoot 'Setup-SSFramework.ps1') @PSBoundParameters -UnityMcp None -FrameworkInstallMode Manual -GitConfiguration Skip -AiRules Skip

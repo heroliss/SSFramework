@@ -17,6 +17,10 @@ param(
     [string] $UnityMcp = 'None',
     [ValidateSet('Manual', 'Manifest')]
     [string] $McpInstallMode = 'Manual',
+    [ValidateSet('Skip', 'CreateMissing')]
+    [string] $GitConfiguration = 'Skip',
+    [ValidateSet('Skip', 'CreateMissing')]
+    [string] $AiRules = 'Skip',
     [switch] $SkipOpenUPM,
     [switch] $SkipCompilerConfiguration,
     [switch] $Apply,
@@ -40,6 +44,24 @@ function Test-JsonObject($Value) {
 function Read-JsonBytes([byte[]] $Bytes) {
     $text = [Text.UTF8Encoding]::new($false, $true).GetString($Bytes).TrimStart([char]0xFEFF)
     return ConvertFrom-Json -InputObject $text
+}
+function New-ProjectFilePlan([string] $Root, [string] $Name, [string] $Template, [string] $Purpose) {
+    $path = Join-Path $Root $Name
+    if (Test-Path -LiteralPath $path -PathType Container) { throw "Project template destination is a directory: $path" }
+    $exists = Test-Path -LiteralPath $path -PathType Leaf
+    [byte[]]$updated = @()
+    if (-not $exists) {
+        $source = Join-Path $PSScriptRoot (Join-Path 'Templates/UnityProject' $Template)
+        if (-not (Test-Path -LiteralPath $source -PathType Leaf)) { throw "Missing template $Template. Extract the complete setup ZIP, or select Skip for project files; nothing was changed." }
+        $updated = [IO.File]::ReadAllBytes($source)
+        # Validate template encoding before any manifest/compiler changes are written.
+        [Text.UTF8Encoding]::new($false, $true).GetString($updated) | Out-Null
+    }
+    $action = if ($exists) { '已存在，保留用户文件' } else { '创建缺失文件' }
+    [pscustomobject]@{
+        Path=$path; Kind='project'; Exists=$exists; OriginalBytes=[byte[]]@(); UpdatedBytes=$updated
+        Changed=(-not $exists); Action=$action; Purpose=$Purpose; BackupPath=$null
+    }
 }
 function New-CompilerPlan([string] $Root) {
     $assetRoot = Join-Path $Root 'Assets'
@@ -92,6 +114,7 @@ function New-CompilerPlan([string] $Root) {
 }
 function Save-SetupFiles([object[]] $Files, [string] $BackupDirectory) {
     foreach ($file in $Files) {
+        if ([IO.Directory]::Exists($file.Path)) { throw "Configuration destination became a directory after preview: $($file.Path)" }
         $exists = [IO.File]::Exists($file.Path)
         if ($exists -ne $file.Exists -or ($exists -and
             [Convert]::ToBase64String([IO.File]::ReadAllBytes($file.Path)) -cne [Convert]::ToBase64String($file.OriginalBytes))) {
@@ -231,7 +254,7 @@ $mcpProviders = @(
 )
 
 # Keep this immutable release tag in sync with consuming-framework.md.
-$frameworkGitUrl = 'https://github.com/heroliss/SSFramework.git#v0.1.3'
+$frameworkGitUrl = 'https://github.com/heroliss/SSFramework.git#v0.1.4'
 Write-Host ''
 Write-Host 'SSFramework 接入助手' -ForegroundColor Cyan
 Write-Host '先运行本工具准备安装，再打开 Unity；Unity 会按清单下载框架与依赖。'
@@ -298,6 +321,36 @@ if ($UnityMcp -ne 'None' -and $Interactive -and -not $PSBoundParameters.Contains
         '' { $McpInstallMode = 'Manifest' }; '1' { $McpInstallMode = 'Manual' }
         '2' { $McpInstallMode = 'Manifest' }
         default { throw 'Invalid install mode. Use 1 or 2; nothing was changed.' }
+    }
+}
+
+if ($Interactive -and -not $PSBoundParameters.ContainsKey('GitConfiguration')) {
+    $gitMissing = -not (Test-Path -LiteralPath (Join-Path $projectRoot '.gitignore') -PathType Leaf) -or
+        -not (Test-Path -LiteralPath (Join-Path $projectRoot '.gitattributes') -PathType Leaf)
+    $recommendedGit = if ($gitMissing) { 'CreateMissing' } else { 'Skip' }
+    Write-Host ''
+    Write-Host '项目 Git 配置（可选）：忽略缓存与构建输出，并统一文本换行。'
+    Write-Host '  1  仅创建缺失的 .gitignore / .gitattributes；已有文件保留，不启用 LFS'
+    Write-Host '  0  跳过，由项目自行维护'
+    $recommendation = if ($gitMissing) { '1（检测到缺失文件）' } else { '0（两个文件均已存在）' }
+    Write-Host "  推荐：$recommendation"
+    switch ((Read-Host 'Git 配置 [1/0]，回车使用推荐项').Trim()) {
+        '' { $GitConfiguration=$recommendedGit }; '1' { $GitConfiguration='CreateMissing' }; '0' { $GitConfiguration='Skip' }
+        default { throw 'Invalid Git configuration selection. Use 1 or 0; nothing was changed.' }
+    }
+}
+if ($Interactive -and -not $PSBoundParameters.ContainsKey('AiRules')) {
+    $aiMissing = -not (Test-Path -LiteralPath (Join-Path $projectRoot 'AGENTS.md') -PathType Leaf)
+    $recommendedAi = if ($aiMissing) { 'CreateMissing' } else { 'Skip' }
+    Write-Host ''
+    Write-Host '项目 AI 协作入口（可选）：记录版本来源、资产操作和文档维护规则。'
+    Write-Host '  1  仅在缺失时创建 AGENTS.md；不生成游戏设计或大量空文档'
+    Write-Host '  0  跳过，由项目自行维护'
+    $recommendation = if ($aiMissing) { '1（尚无项目协作入口）' } else { '0（已有规则保留）' }
+    Write-Host "  推荐：$recommendation"
+    switch ((Read-Host 'AI 规则 [1/0]，回车使用推荐项').Trim()) {
+        '' { $AiRules=$recommendedAi }; '1' { $AiRules='CreateMissing' }; '0' { $AiRules='Skip' }
+        default { throw 'Invalid AI rules selection. Use 1 or 0; nothing was changed.' }
     }
 }
 
@@ -376,7 +429,16 @@ $manifestChanged = $addedScopes.Count -gt 0 -or $addedPackage -or $addedFramewor
 $compilerFiles = @()
 if ($FrameworkInstallMode -eq 'Manifest' -and -not $SkipCompilerConfiguration) { $compilerFiles = @(New-CompilerPlan $projectRoot) }
 $compilerChanges = @($compilerFiles | Where-Object Changed)
-$changed = $manifestChanged -or $compilerChanges.Count -gt 0
+$projectFiles = @()
+if ($GitConfiguration -eq 'CreateMissing') {
+    $projectFiles += New-ProjectFilePlan $projectRoot '.gitignore' 'gitignore.template' '排除 Unity / IDE 缓存和资源构建输出，保留源码、meta、包清单和锁文件。'
+    $projectFiles += New-ProjectFilePlan $projectRoot '.gitattributes' 'gitattributes.template' '统一文本换行并保留二进制资产；不自动启用 LFS 或合并驱动。'
+}
+if ($AiRules -eq 'CreateMissing') {
+    $projectFiles += New-ProjectFilePlan $projectRoot 'AGENTS.md' 'AGENTS.md.template' '提供简短的项目 AI 协作入口，不预设玩法、场景或测试结果。'
+}
+$projectChanges = @($projectFiles | Where-Object Changed)
+$changed = $manifestChanged -or $compilerChanges.Count -gt 0 -or $projectChanges.Count -gt 0
 $plan = [pscustomobject]@{
     ProjectPath = $projectRoot; UnityVersion = $versionLine
     ConfigureOpenUPM = -not $SkipOpenUPM; AddedScopes = @($addedScopes)
@@ -384,6 +446,8 @@ $plan = [pscustomobject]@{
     DetectedMcp = @($installedMcp); AddedMcpPackage = $addedPackage
     ManifestChanged = $manifestChanged; Applied = $false; BackupPath = $null
     CompilerChanged = $compilerChanges.Count -gt 0; CompilerFiles = @($compilerFiles | Select-Object Path,Action,Changed,BackupPath)
+    GitConfiguration=$GitConfiguration; AiRules=$AiRules; ProjectFilesChanged=$projectChanges.Count -gt 0
+    ProjectFiles=@($projectFiles | Select-Object Path,Action,Purpose,Changed)
     FrameworkDeclared = $frameworkDeclared; FrameworkGitUrl = $frameworkGitUrl
     FrameworkPresent = $frameworkPresent; FrameworkInstallMode = $FrameworkInstallMode; AddedFrameworkPackage = $addedFramework
     NetworkChecks = @(); NetworkBlocked = $false
@@ -394,7 +458,7 @@ Write-SetupSection '[2/4] 变更预览'
 Write-Host "  工程：$projectRoot"
 Write-Host "  Unity：$versionDisplay"
 if ($frameworkPresent) { Write-Host '  SSFramework：已声明、解析或嵌入，保留现有来源与版本。' }
-elseif ($addedFramework) { Write-Host '  SSFramework：将发布标签 v0.1.3 加入清单，Unity 启动后自动下载。' }
+elseif ($addedFramework) { Write-Host '  SSFramework：将发布标签 v0.1.4 加入清单，Unity 启动后自动下载。' }
 elseif ($FrameworkInstallMode -eq 'Manual') { Write-Host '  SSFramework：仅提供手动安装地址。' }
 else { Write-Host '  SSFramework：本次跳过。' }
 if ($addedFramework) { Write-Host '  框架依赖：含 YooAsset 等整包依赖，目前一并安装。' }
@@ -421,6 +485,11 @@ if ($null -ne $selectedMcp) {
         Write-Host '  提醒：工程已有其他 MCP 提供方，请先核对是否需要切换。' -ForegroundColor Yellow
     }
 } else { Write-Host '  MCP：本次跳过，已有包保持原状。' }
+foreach ($file in $projectFiles) {
+    Write-Host "  项目文件：$($file.Path)；$($file.Action)"
+    Write-Host "  作用：$($file.Purpose)"
+}
+if ($projectFiles.Count -eq 0) { Write-Host '  Git / AI 规则：本次跳过。' }
 if ($changed) {
     if ($manifestChanged) { Write-Host '  写入：Packages/manifest.json（合并所选依赖与包源；JSON 排版可能变化）' }
     foreach ($file in $compilerFiles) { Write-Host "  编译配置：$($file.Path)；$($file.Action)" }
@@ -433,7 +502,7 @@ if (($addedFramework -or $addedPackage) -and $null -eq (Get-Command git -Command
 if ($CheckNetwork -and -not $SkipNetworkCheck -and $manifestChanged) {
     Write-Host '  联网预检：正在检查包元数据（失败会重试一次）……'
     if (-not $SkipOpenUPM) { $plan.NetworkChecks += Test-SetupEndpoint 'OpenUPM' 'https://package.openupm.com/com.cysharp.r3' 'com.cysharp.r3' }
-    if ($addedFramework) { $plan.NetworkChecks += Test-SetupEndpoint 'SSFramework / GitHub' 'https://raw.githubusercontent.com/heroliss/SSFramework/v0.1.3/package.json' 'com.liss.ssframework' }
+    if ($addedFramework) { $plan.NetworkChecks += Test-SetupEndpoint 'SSFramework / GitHub' 'https://raw.githubusercontent.com/heroliss/SSFramework/v0.1.4/package.json' 'com.liss.ssframework' }
     if ($addedPackage) { $plan.NetworkChecks += Test-SetupEndpoint "$UnityMcp / GitHub" $selectedMcp.MetadataUrl $selectedMcp.PackageId }
     foreach ($check in $plan.NetworkChecks) {
         $statusText = if ($check.Success) { '可访问' } else { '检查失败' }
@@ -441,10 +510,14 @@ if ($CheckNetwork -and -not $SkipNetworkCheck -and $manifestChanged) {
     }
     $plan.NetworkBlocked = @($plan.NetworkChecks | Where-Object { -not $_.Success }).Count -gt 0
 } elseif ($manifestChanged) { Write-Host '  联网预检：未执行；可添加 -CheckNetwork 检查包源。' -ForegroundColor DarkGray }
-elseif ($compilerChanges.Count -gt 0) { Write-Host '  联网预检：本次只调整本地编译配置，无需联网。' -ForegroundColor DarkGray }
+elseif ($compilerChanges.Count -gt 0 -or $projectChanges.Count -gt 0) { Write-Host '  联网预检：本次只调整本地文件，无需联网。' -ForegroundColor DarkGray }
 if ($Details) {
     Write-Host ''
     Write-Host '配置明细' -ForegroundColor DarkCyan
+    foreach ($file in $projectChanges) {
+        Write-Host "  新文件内容：$($file.Path)"
+        foreach ($line in ([Text.Encoding]::UTF8.GetString($file.UpdatedBytes) -split '\r?\n')) { Write-Host ('    '+$line) }
+    }
     if (-not $SkipOpenUPM) {
         Write-Host '  Registry：https://package.openupm.com'
         foreach ($scope in $addedScopes) { Write-Host "  新增 Scope：$scope" }
@@ -468,7 +541,7 @@ if ($changed -and -not $plan.NetworkBlocked) {
     if ($Interactive -and -not $Apply -and -not $WhatIfPreference) {
         $Apply = (Read-Host '请先关闭该 Unity 工程。是否应用以上配置？[y/N]').Trim() -ieq 'y'
     }
-    if ($Apply -and $PSCmdlet.ShouldProcess($projectRoot, '应用框架、包源、所选 MCP 与预览中的编译配置，备份已有文件')) {
+    if ($Apply -and $PSCmdlet.ShouldProcess($projectRoot, '应用预览中的包、编译和可选项目文件配置；备份被修改的已有文件')) {
         $unityLockPath = Join-Path $projectRoot 'Temp/UnityLockfile'
         if (Test-Path -LiteralPath $unityLockPath) {
             try {
@@ -477,7 +550,7 @@ if ($changed -and -not $plan.NetworkBlocked) {
             } catch { throw 'The Unity project is open or its lock is inaccessible. Close the Editor and retry.' }
         }
         $backupDirectory = Join-Path $projectRoot 'UserSettings/SSFrameworkSetup'
-        $filesToWrite = @($compilerChanges)
+        $filesToWrite = @($compilerChanges) + @($projectChanges)
         $manifestFile = $null
         if ($manifestChanged) {
             $updatedText = ($manifest | ConvertTo-Json -Depth 100) + [Environment]::NewLine
@@ -507,6 +580,7 @@ if ($plan.NetworkBlocked) {
         Write-Host "    已配置：$($file.Path)；$($file.Action)"
         if ($file.BackupPath) { Write-Host "    原文件备份：$($file.BackupPath)" }
     }
+    foreach ($file in $plan.ProjectFiles | Where-Object Changed) { Write-Host "    已创建：$($file.Path)（原文件不存在，无旧文件备份）" }
 } elseif ($changed) { Write-Host '  仅预览：尚未写入任何配置。' -ForegroundColor Yellow }
 else { Write-Host '  无需修改：所选配置已存在，或本次只查看指引。' -ForegroundColor Green }
 
@@ -550,7 +624,8 @@ if ($null -ne $selectedMcp) {
 }
 Write-Host ''
 Write-Host '提示：配置清单与完成安装是两步；是否成功以 Unity 的解析、编译和连接结果为准。' -ForegroundColor DarkGray
-Write-Host '新工程 Git：可手动采用 Templates/UnityProject 模板；本工具不创建或覆盖 Git / AI 规则。' -ForegroundColor DarkGray
+Write-Host 'Git / AI 规则：仅按所选项创建缺失文件；已有规则由项目维护，包升级不会重写。' -ForegroundColor DarkGray
+Write-Host '安装后自检：Unity 完成解析后运行 Check-SSFrameworkProject.cmd，查看只读文件检查与下一步。' -ForegroundColor DarkGray
 Write-Host '查看 Scope、来源与连接命令：运行脚本时添加 -Details。' -ForegroundColor DarkGray
 Write-Host '安装说明：https://github.com/heroliss/SSFramework/blob/main/Tools~/README.md' -ForegroundColor DarkGray
 if ($PassThru) { return $plan }

@@ -1,0 +1,13 @@
+# Unity 项目协作入口
+
+这份文件是项目采用 SSFramework 时的协作起点。后续由项目维护；计划、历史记录和模板示例不等于已实现功能。
+
+- Unity 版本读取 `ProjectSettings/ProjectVersion.txt`；依赖选择读取 `Packages/manifest.json`，实际解析版本读取 `Packages/packages-lock.json`。
+- 若已有 `README.md` 或 `docs/README.md`，先从其中定位当前任务相关的运行、测试与构建说明。不杜撰尚不存在的场景、命令或验证结果。
+- Framework 通过 UPM 消费，不修改 `Library/PackageCache`，不在业务中复制一份修改过的框架源码。框架问题修复到上游，升级后核对并提交清单与锁文件。
+- 场景、Prefab 和 Unity 配置资产通过 Unity Editor / Editor API 创建与修改，保留 meta 与 GUID；操作前确认目标工程、编译 / Play 状态和未保存改动。
+- 业务程序集按实际职责显式引用所需 Framework 模块，Runtime、Editor 与 Tests 分开。业务 C# 10 使用 `Assets/csc.rsp` 或 asmdef 同目录配置，不修改生成的 csproj。
+- 使用框架 API 时参考所安装版本的文档；资源、订阅与异步任务绑定到明确的生命周期。仿真与表现之间保持清楚的状态所有权。
+- 按改动范围运行实际可用的测试与目标平台验证。区分文件配置检查、脚本编译、场景运行和 Player 构建，不把其中一项的成功替代全部验收。
+- 已有文件和用户改动先审查再合并，不覆盖项目的 Git / LFS / 合并策略。缓存、原始日志、本机客户端配置和凭据不入库。
+- 文档按需创建：少量当前说明先集中在 README；长期取舍记录 ADR，临时排查材料放忽略目录。事项完成后同步当前指南并收尾临时方案，不为每轮对话新增进度文档。
