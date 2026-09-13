@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text;
 using Game.Framework.Editor;
 using UnityEditor;
+using EntityId = UnityEngine.EntityId;
 
 namespace Game.Framework.Network.Proto.Editor
 {
@@ -55,7 +56,7 @@ namespace Game.Framework.Network.Proto.Editor
         }
 
         private const int TimeoutMs = 60_000;
-        private static readonly Dictionary<int, GenerationPrerequisitePreviewEntry>
+        private static readonly Dictionary<EntityId, GenerationPrerequisitePreviewEntry>
             GenerationPrerequisitePreviews = new();
         private static int _previewProfileRevision = -1;
 
@@ -72,7 +73,7 @@ namespace Game.Framework.Network.Proto.Editor
             if (profile == null) return false;
             EnsurePreviewRevision();
 
-            int key = profile.GetInstanceID();
+            EntityId key = profile.GetEntityId();
             if (GenerationPrerequisitePreviews.TryGetValue(
                     key, out GenerationPrerequisitePreviewEntry cached) &&
                 cached.Matches(profile))
@@ -93,11 +94,11 @@ namespace Game.Framework.Network.Proto.Editor
             IEnumerable<ProtoConfigProfile> profiles)
         {
             if (profiles == null) throw new ArgumentNullException(nameof(profiles));
-            var refreshed = new Dictionary<int, GenerationPrerequisitePreviewEntry>();
+            var refreshed = new Dictionary<EntityId, GenerationPrerequisitePreviewEntry>();
             foreach (ProtoConfigProfile profile in profiles.Where(profile => profile != null).Distinct())
             {
                 GenerationPrerequisiteReport report = InspectGenerationPrerequisites(profile);
-                refreshed[profile.GetInstanceID()] = new GenerationPrerequisitePreviewEntry(profile, report);
+                refreshed[profile.GetEntityId()] = new GenerationPrerequisitePreviewEntry(profile, report);
             }
 
             GenerationPrerequisitePreviews.Clear();
@@ -345,7 +346,7 @@ namespace Game.Framework.Network.Proto.Editor
 
             string profilePath = AssetDatabase.GetAssetPath(profile);
             string profileId = string.IsNullOrEmpty(profilePath)
-                ? $"transient:{profile.name}:{profile.GetInstanceID()}"
+                ? $"transient:{profile.name}:{profile.GetEntityId()}"
                 : profilePath;
             claims.Add(FrameworkGeneratedOutputClaim.RecursiveFileSuffix(
                 profileId + ":generated-code",

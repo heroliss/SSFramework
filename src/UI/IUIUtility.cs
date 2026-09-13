@@ -31,7 +31,7 @@ namespace Game.Framework.UI
     {
         /// <summary>
         /// 打开窗口（无参）。已打开则置顶并返回该实例；未获得窗口实例时返回 null（如 Adapter 创建失败，
-        /// 或 UI 生命周期在创建期间结束）。
+        /// 或 UI 生命周期在创建/打开回调期间结束）。
         /// 不可缺席的窗口使用 <see cref="UIUtilityExtensions.OpenRequired{T}(IUIUtility, CancellationToken)"/>。
         /// </summary>
         UniTask<T> Open<T>(CancellationToken ct = default) where T : class, IUIWindow;
@@ -46,7 +46,10 @@ namespace Game.Framework.UI
         /// <summary>关闭指定类型窗口（未打开则忽略）。按其缓存策略隐藏或销毁。</summary>
         void Close<T>() where T : class, IUIWindow;
 
-        /// <summary>关闭指定窗口实例。</summary>
+        /// <summary>
+        /// 关闭当前由本 Utility 打开的指定实例。null、外来实例或已被替代的旧引用均忽略；
+        /// 若要不区分实例地关闭当前同类型窗口，使用 <see cref="Close{T}"/>。
+        /// </summary>
         void Close(IUIWindow window);
 
         /// <summary>关闭某层最上方的窗口。</summary>
@@ -60,7 +63,7 @@ namespace Game.Framework.UI
         /// </summary>
         bool Back();
 
-        /// <summary>关闭某一层的所有窗口。</summary>
+        /// <summary>关闭调用时某一层已打开的窗口；关闭回调中新打开的窗口不属于本次快照。</summary>
         void CloseAll(UILayer layer);
 
         /// <summary>关闭所有层的所有窗口。</summary>

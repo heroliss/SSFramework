@@ -84,6 +84,7 @@ namespace Game.Framework.Editor
         internal sealed class PackageDependencyPlan
         {
             internal string[] ManifestPackages = Array.Empty<string>();
+            internal Dictionary<string, string> ManifestPackageVersions = new(StringComparer.Ordinal);
             internal PackageSourcePlan[] CopiedPackages = Array.Empty<PackageSourcePlan>();
         }
 
@@ -345,7 +346,7 @@ namespace Game.Framework.Editor
                 PackageDependencyPlan dependencies = BuildPackageDependencyPlan(
                     snapshot, assemblies, copiedSourceCache);
                 string minimalManifest = CreateMinimalManifest(
-                    sourceManifest, dependencies.ManifestPackages);
+                    sourceManifest, dependencies.ManifestPackages, dependencies.ManifestPackageVersions);
                 return (item.profile, item.advanced, assemblies, dependencies, minimalManifest);
             }).ToArray();
             var requiredAssemblies = new HashSet<string>(
@@ -463,6 +464,7 @@ namespace Game.Framework.Editor
             var selected = new HashSet<string>(
                 selectedAssemblies.Where(name => !string.IsNullOrWhiteSpace(name)), StringComparer.Ordinal);
             var manifestPackages = new SortedSet<string>(StringComparer.Ordinal);
+            var manifestVersions = new Dictionary<string, string>(StringComparer.Ordinal);
             var copiedPackages = new SortedDictionary<string, PackageSourcePlan>(StringComparer.Ordinal);
             var visited = new HashSet<string>(StringComparer.Ordinal);
             var pending = new Queue<string>(selected.OrderBy(name => name, StringComparer.Ordinal));
@@ -545,6 +547,18 @@ namespace Game.Framework.Editor
                                 $"{assemblyName} → {reference} 的来源类型为 {source.SourceKind}，无法生成可恢复的隔离依赖计划。");
                     }
 
+                    // Framework 的依赖可以经 UPM 传递安装，不一定出现在消费工程的根 manifest。
+                    // 固定 Source Catalog 已解析的版本，避免探针重新解析到另一套实际依赖。
+                    if (manifestPackages.Contains(source.PackageName))
+                    {
+                        if (string.IsNullOrWhiteSpace(source.PackageVersion))
+                            throw new InvalidDataException($"Package 依赖 {source.PackageName} 缺少已解析版本。");
+                        if (manifestVersions.TryGetValue(source.PackageName, out string previousVersion) &&
+                            previousVersion != source.PackageVersion)
+                            throw new InvalidDataException($"Package 依赖 {source.PackageName} 的已解析版本证据不一致。");
+                        manifestVersions[source.PackageName] = source.PackageVersion;
+                    }
+
                     // 外部 Package 的传递依赖由其 package.json 负责；这里仅记录 Framework Module
                     // 直接接触的 Package，避免把主工程 packages-lock 中的偶然传递版本升级成根 manifest 依赖。
                 }
@@ -553,6 +567,7 @@ namespace Game.Framework.Editor
             return new PackageDependencyPlan
             {
                 ManifestPackages = manifestPackages.ToArray(),
+                ManifestPackageVersions = manifestVersions,
                 CopiedPackages = copiedPackages.Values.ToArray(),
             };
         }
@@ -795,7 +810,8 @@ namespace Game.Framework.Editor
 
         internal static string CreateMinimalManifest(
             string sourceManifest,
-            IEnumerable<string> requiredPackageNames)
+            IEnumerable<string> requiredPackageNames,
+            IReadOnlyDictionary<string, string> resolvedPackageVersions = null)
         {
             if (sourceManifest == null) throw new ArgumentNullException(nameof(sourceManifest));
             if (requiredPackageNames == null) throw new ArgumentNullException(nameof(requiredPackageNames));
@@ -807,9 +823,17 @@ namespace Game.Framework.Editor
             foreach (string module in dependencies.Keys.Where(id => id.StartsWith("com.unity.modules.", StringComparison.Ordinal)))
                 required.Add(module);
 
+            foreach (string packageName in required)
+            {
+                if (resolvedPackageVersions != null &&
+                    resolvedPackageVersions.TryGetValue(packageName, out string version) &&
+                    !string.IsNullOrWhiteSpace(version))
+                    dependencies[packageName] = version;
+            }
+
             string[] missing = required.Where(id => !dependencies.ContainsKey(id)).OrderBy(id => id).ToArray();
             if (missing.Length > 0)
-                throw new InvalidOperationException("主工程 Packages/manifest.json 缺少探针所需依赖：" +
+                throw new InvalidOperationException("主工程清单和已解析包证据均缺少探针所需依赖：" +
                                                     string.Join(", ", missing));
 
             var sb = new StringBuilder(4096);

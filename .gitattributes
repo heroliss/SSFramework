@@ -6,3 +6,5 @@
 *.meta text eol=lf
 *.unity text eol=lf
 *.prefab text eol=lf
+*.ps1 text eol=lf
+*.cmd text eol=crlf

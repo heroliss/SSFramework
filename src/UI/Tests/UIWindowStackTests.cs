@@ -76,6 +76,81 @@ namespace Game.Framework.Test
             => _ui.Open<T>(args).GetAwaiter().GetResult();
 
         [Test]
+        public void Close_StaleOrForeignInstance_DoesNotCloseCurrentWindow()
+        {
+            var old = Open<PageA>();
+            _ui.Close(old);
+            var current = Open<PageA>();
+            Assert.AreNotSame(old, current);
+            _ui.Close(old);
+            _ui.Close(new PageA());
+            Assert.AreSame(current, _ui.Get<PageA>());
+            Assert.AreEqual(1, _backend.Count("destroy:PageA"));
+            _ui.Close(current);
+            Assert.IsFalse(_ui.IsOpen<PageA>());
+        }
+
+        [Test]
+        public void CloseAll_ReentrantClose_DoesNotInvalidateTraversal()
+        {
+            var first = Open<PageA>();
+            var second = Open<PageB>();
+            var top = Open<ReentrantCloseWindow>();
+            top.Closing = () => _ui.CloseAll(UILayer.Page);
+            Assert.DoesNotThrow(() => _ui.CloseAll(UILayer.Page));
+            Assert.IsFalse(_ui.IsOpen<PageA>());
+            Assert.IsFalse(_ui.IsOpen<PageB>());
+            Assert.AreEqual(1, first.Calls.Count(call => call == "close"));
+            Assert.AreEqual(1, second.Calls.Count(call => call == "close"));
+        }
+
+        [UIWindow(Layer = UILayer.Page)]
+        private class ReentrantCloseWindow : FakeWindow
+        {
+            public Action Closing;
+            public override void OnClose() { base.OnClose(); Closing?.Invoke(); }
+        }
+
+        [Test]
+        public void CloseAll_CallbackReplacesSnapshotWindow_PreservesReplacement()
+        {
+            var original = Open<PageA>();
+            var top = Open<ReentrantCloseWindow>();
+            PageA replacement = null;
+            top.Closing = () => { _ui.Close(original); replacement = Open<PageA>(); };
+            _ui.CloseAll(UILayer.Page);
+            Assert.AreNotSame(original, replacement);
+            Assert.AreSame(replacement, _ui.Get<PageA>());
+            Assert.AreEqual(1, original.Calls.Count(call => call == "close"));
+        }
+
+        [TestCase(true)]
+        [TestCase(false)]
+        public void Open_HookDisposesOwner_DoesNotPublishWindowOrStartTransition(bool onCreate)
+        {
+            _backend.ConfigureWindow = window =>
+            {
+                var probe = (OwnerDisposingWindow)window;
+                if (onCreate) probe.Creating = _ui.Dispose;
+                else probe.Opening = _ui.Dispose;
+            };
+            Assert.IsNull(Open<OwnerDisposingWindow>());
+            Assert.AreEqual(1, _backend.Count("teardown"));
+            Assert.AreEqual(0, _backend.Count("block:True"));
+        }
+
+        [UIWindow(Layer = UILayer.Page)]
+        private class OwnerDisposingWindow : FakeWindow
+        {
+            public Action Creating;
+            public Action Opening;
+            public override void OnCreate() { base.OnCreate(); Creating?.Invoke(); }
+            public override void OnOpen(object args) { base.OnOpen(args); Opening?.Invoke(); }
+            public override UniTask OnOpenTransition(CancellationToken ct)
+                => throw new InvalidOperationException("已销毁的窗口不应开始过渡。");
+        }
+
+        [Test]
         public void Open_FirstTime_InitializesAndRunsCreateThenOpen()
         {
             var w = Open<PageA>("hi");
@@ -812,6 +887,7 @@ namespace Game.Framework.Test
         // 只记录调用序列，不碰 Unity——验证核心编排逻辑。
         private class FakeBackend : IUIBackend
         {
+            public Action<IUIWindow> ConfigureWindow;
             public readonly List<string> Log = new();
             public int Count(string entry) => Log.Count(x => x == entry);
 
@@ -820,6 +896,7 @@ namespace Game.Framework.Test
             public virtual UniTask<IUIWindow> CreateWindow(UIWindowMeta meta, IGameContext context, CancellationToken ct)
             {
                 var w = (IUIWindow)Activator.CreateInstance(meta.WindowType);
+                ConfigureWindow?.Invoke(w);
                 Log.Add("create:" + meta.WindowType.Name);
                 return UniTask.FromResult(w);
             }

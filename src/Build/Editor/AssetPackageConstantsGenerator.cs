@@ -237,7 +237,7 @@ namespace Game.Framework.Build
         {
             string profilePath = AssetDatabase.GetAssetPath(profile);
             string claimId = string.IsNullOrEmpty(profilePath)
-                ? $"transient:{profile.name}:{profile.GetInstanceID()}:package-constants"
+                ? $"transient:{profile.name}:{profile.GetEntityId()}:package-constants"
                 : profilePath + ":package-constants";
             return FrameworkGeneratedOutputClaim.ExactFile(
                 claimId,

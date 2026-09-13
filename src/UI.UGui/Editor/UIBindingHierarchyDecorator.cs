@@ -29,7 +29,11 @@ namespace Game.Framework.UI.UGui.Editor
 
         static UIBindingHierarchyDecorator()
         {
-            EditorApplication.hierarchyWindowItemOnGUI += OnItem;
+#if UNITY_6000_6_OR_NEWER
+            EditorApplication.hierarchyWindowItemByEntityIdOnGUI += OnItem;
+#else
+            EditorApplication.hierarchyWindowItemOnGUI += OnLegacyItem;
+#endif
         }
 
         // Hierarchy 每帧重绘必须只读：缺配置时使用 Profile 定义的展示默认值，绝不能因为看了一眼层级就创建项目资产。
@@ -42,11 +46,14 @@ namespace Game.Framework.UI.UGui.Editor
             }
         }
 
-        private static void OnItem(int instanceID, Rect rect)
+#if !UNITY_6000_6_OR_NEWER
+        // Unity 6000.3 的旧回调在边界处转换身份；绘制逻辑始终保留完整 EntityId。
+        private static void OnLegacyItem(int instanceId, Rect rect) => OnItem(instanceId, rect);
+#endif
+
+        private static void OnItem(EntityId entityId, Rect rect)
         {
-            // Hierarchy 回调在 Unity 6000.3 仍传 int；这里利用公开的 int → EntityId 隐式转换，
-            // 进入对象域后统一使用强类型 EntityId，避免继续依赖已废弃的 Instance ID API。
-            if (EditorUtility.EntityIdToObject(instanceID) is not GameObject go) return;
+            if (EditorUtility.EntityIdToObject(entityId) is not GameObject go) return;
 
             // 定位该节点归属的 prefab 资产 + 根 + 是否可编辑 / 是否运行实例。
             string assetPath;

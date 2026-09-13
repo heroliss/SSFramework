@@ -12,7 +12,8 @@ namespace Game.Framework.Network
     /// </summary>
     /// <remarks>
     /// proto3 语义：标量字段等于默认值（0 / false / 空串）时不写——读侧用字段初始值兜住。
-    /// 只支持非负 int32（分数 / 计数 / id 类字段的常态；负数需要 zigzag 编码，刻意不做——
+    /// 写入只支持非负 int32（分数 / 计数 / id 类字段的常态；标准 int32 负数用十字节补码 varint，
+    /// sint32 才用 zigzag；本写入器刻意不扩展这两条路径——
     /// 真需要有符号 / 64 位 / 浮点时就该换真 protobuf 库了，见 <see cref="ProtobufNetworkSerializer"/> 的定位说明）。
     /// 纯 C#、无状态依赖，可在任意线程使用。
     /// </remarks>
@@ -22,11 +23,12 @@ namespace Game.Framework.Network
 
         public byte[] ToArray() => _ms.ToArray();
 
-        /// <summary>写非负 int32 字段（varint）。值为 0 按 proto3 语义省略。负数抛——本 wire 层不做 zigzag。</summary>
+        /// <summary>写非负 int32 字段（varint）。值为 0 按 proto3 语义省略；负数不在此写入器支持范围内。</summary>
         public void WriteInt32(int fieldNumber, int value)
         {
+            ValidateFieldNumber(fieldNumber);
             if (value == 0) return;
-            if (value < 0) throw new ArgumentOutOfRangeException(nameof(value), "ProtoWriter 只支持非负 int32（无 zigzag）。");
+            if (value < 0) throw new ArgumentOutOfRangeException(nameof(value), "ProtoWriter 只支持非负 int32。");
             WriteTag(fieldNumber, wireType: 0);
             WriteVarint((uint)value);
         }
@@ -34,6 +36,7 @@ namespace Game.Framework.Network
         /// <summary>写 bool 字段（varint 0/1）。false 按 proto3 语义省略。</summary>
         public void WriteBool(int fieldNumber, bool value)
         {
+            ValidateFieldNumber(fieldNumber);
             if (!value) return;
             WriteTag(fieldNumber, wireType: 0);
             WriteVarint(1);
@@ -42,6 +45,7 @@ namespace Game.Framework.Network
         /// <summary>写 string 字段（UTF-8 length-delimited）。null / 空串按 proto3 语义省略。</summary>
         public void WriteString(int fieldNumber, string value)
         {
+            ValidateFieldNumber(fieldNumber);
             if (string.IsNullOrEmpty(value)) return;
             WriteLengthDelimited(fieldNumber, Encoding.UTF8.GetBytes(value));
         }
@@ -49,6 +53,7 @@ namespace Game.Framework.Network
         /// <summary>写 bytes 字段。null / 空按 proto3 语义省略。</summary>
         public void WriteBytes(int fieldNumber, byte[] value)
         {
+            ValidateFieldNumber(fieldNumber);
             if (value == null || value.Length == 0) return;
             WriteLengthDelimited(fieldNumber, value);
         }
@@ -60,6 +65,7 @@ namespace Game.Framework.Network
         /// </summary>
         public void WriteMessage(int fieldNumber, byte[] encodedMessage)
         {
+            ValidateFieldNumber(fieldNumber);
             WriteLengthDelimited(fieldNumber, encodedMessage ?? Array.Empty<byte>());
         }
 
@@ -71,6 +77,12 @@ namespace Game.Framework.Network
         }
 
         private void WriteTag(int fieldNumber, int wireType) => WriteVarint((uint)((fieldNumber << 3) | wireType));
+
+        private static void ValidateFieldNumber(int fieldNumber)
+        {
+            if (fieldNumber <= 0 || fieldNumber > 0x1FFFFFFF)
+                throw new ArgumentOutOfRangeException(nameof(fieldNumber), "Protobuf 字段号必须在 1 到 536870911 之间。");
+        }
 
         private void WriteVarint(uint value)
         {
@@ -97,7 +109,8 @@ namespace Game.Framework.Network
 
         /// <summary>读取完整的 Protobuf 字节数组。</summary>
         /// <param name="buffer">消息字节；调用方在读取期间不得修改。</param>
-        public ProtoReader(byte[] buffer) : this(buffer, 0, buffer.Length) { }
+        public ProtoReader(byte[] buffer) : this(buffer, 0,
+            buffer?.Length ?? throw new ArgumentNullException(nameof(buffer))) { }
 
         /// <summary>读取字节数组中的指定消息片段。</summary>
         /// <param name="buffer">消息字节；调用方在读取期间不得修改。</param>
@@ -105,6 +118,9 @@ namespace Game.Framework.Network
         /// <param name="length">片段长度。</param>
         public ProtoReader(byte[] buffer, int offset, int length)
         {
+            if (buffer == null) throw new ArgumentNullException(nameof(buffer));
+            if (offset < 0 || offset > buffer.Length) throw new ArgumentOutOfRangeException(nameof(offset));
+            if (length < 0 || length > buffer.Length - offset) throw new ArgumentOutOfRangeException(nameof(length));
             _buf = buffer;
             _pos = offset;
             _end = offset + length;
@@ -119,14 +135,16 @@ namespace Game.Framework.Network
                 wireType = 0;
                 return false;
             }
-            uint tag = ReadVarint();
+            ulong tag = ReadVarint();
+            if (tag > uint.MaxValue) throw new InvalidDataException("Protobuf tag 超出 32 位范围——字节流损坏。");
             fieldNumber = (int)(tag >> 3);
             wireType = (int)(tag & 0x7);
             if (fieldNumber == 0) throw new InvalidDataException("Protobuf 字段号 0 非法——字节流损坏。");
+            if (wireType > 5) throw new InvalidDataException($"未知 protobuf wire 类型 {wireType}——字节流损坏。");
             return true;
         }
 
-        public int ReadInt32() => (int)ReadVarint();
+        public int ReadInt32() => unchecked((int)ReadVarint());
 
         public bool ReadBool() => ReadVarint() != 0;
 
@@ -171,26 +189,29 @@ namespace Game.Framework.Network
 
         private int ReadLength()
         {
-            int len = (int)ReadVarint();
-            if (len < 0 || _pos + len > _end) throw new InvalidDataException("Protobuf 长度字段越界——字节流损坏。");
-            return len;
+            // 先以完整 64 位值验证剩余区间，再缩窄；先转 int 或相加都会让损坏长度溢出后绕过边界。
+            ulong len = ReadVarint();
+            if (len > (ulong)(_end - _pos)) throw new InvalidDataException("Protobuf 长度字段越界——字节流损坏。");
+            return (int)len;
         }
 
         private void Advance(int count)
         {
-            if (_pos + count > _end) throw new InvalidDataException("Protobuf 读取越界——字节流损坏。");
+            if (count < 0 || count > _end - _pos) throw new InvalidDataException("Protobuf 读取越界——字节流损坏。");
             _pos += count;
         }
 
-        private uint ReadVarint()
+        private ulong ReadVarint()
         {
-            uint result = 0;
+            ulong result = 0;
             int shift = 0;
             while (true)
             {
                 if (_pos >= _end) throw new InvalidDataException("Protobuf varint 未终止——字节流损坏。");
                 byte b = _buf[_pos++];
-                if (shift < 32) result |= (uint)(b & 0x7F) << shift;
+                // 第十字节只剩第 64 位可用；更高 payload 或继续位都是溢出，不能静默截断。
+                if (shift == 63 && b > 1) throw new InvalidDataException("Protobuf varint 超出 64 位范围——字节流损坏。");
+                result |= (ulong)(b & 0x7F) << shift;
                 if ((b & 0x80) == 0) return result;
                 shift += 7;
                 if (shift >= 64) throw new InvalidDataException("Protobuf varint 超长——字节流损坏。");

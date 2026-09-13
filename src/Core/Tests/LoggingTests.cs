@@ -16,9 +16,7 @@ namespace Game.Framework.Test
     /// 以及内核 <see cref="FileLogSink"/> 的落盘与滚动。
     /// </summary>
     /// <remarks>
-    /// 本程序集（<c>Game.Framework.Tests</c>）与 <c>Game.Framework</c> 是**不同程序集**，且**没有**声明
-    /// 插值处理器所需的 polyfill attribute——因此这里的 <c>Log.Trace($"...")</c> 同时充当
-    /// 「处理器能否跨程序集被调用方编译器识别」的验证（见 <see cref="Trace_Interpolation_IsLazy_WhenDisabled"/>）。
+    /// 测试程序集与 Core 分开编译，用包内 C# 10 配置验证自动插值处理器转换。
     /// </remarks>
     public class LoggingTests
     {
@@ -198,7 +196,7 @@ namespace Game.Framework.Test
             Assert.IsFalse(Log.IsEnabled(LogLevel.Info), "总闸门挡住时 IsEnabled 应为 false（调用点据此跳过昂贵构造）");
         }
 
-        // ── Trace 门控 + 插值惰性求值（跨程序集验证处理器）─────────────────
+        // ── Trace 门控 + C# 10 跨程序集惰性求值 ─────────────────────────
 
         [Test]
         public void Trace_OnlyDeliveredWhenGlobalGateAllowsIt()
@@ -218,12 +216,7 @@ namespace Game.Framework.Test
         }
 
         /// <summary>
-        /// 本用例是整套插值处理器设计的地基验证，一箭双雕：<br/>
-        /// ① <b>惰性求值</b>——总闸门未放行到 Trace 时 <c>$"..."</c> 里的 <c>Touch()</c> 一次都不该被调用
-        ///    （编译器在调用点插了 <c>if (shouldAppend)</c> 守卫）；<br/>
-        /// ② <b>跨程序集识别</b>——本测试程序集没有声明 polyfill attribute，若编译器仍把
-        ///    <c>Log.Trace($"...")</c> 绑到处理器重载（而不是 string 重载），说明处理器可跨程序集正常工作。
-        ///    若绑错到 string 重载，<c>_touchCount</c> 会变成 1，本用例即失败。
+        /// 验证 C# 10 调用点自动选择处理器：总闸门或所有 sink 拒收时不求值插值。
         /// </summary>
         [Test]
         public void Trace_Interpolation_IsLazy_WhenDisabled()
@@ -233,14 +226,47 @@ namespace Game.Framework.Test
 
             Log.MinLevel = LogLevel.Info;
             Log.Trace($"noise {Touch()}");
-            Assert.AreEqual(0, _touchCount, "总闸门未放行到 Trace 时插值表达式不应求值——否则处理器没生效（绑到了 string 重载）");
+            Assert.AreEqual(0, _touchCount, "总闸门未放行时不构造消息。");
             Assert.AreEqual(0, sink.Entries.Count);
 
             Log.MinLevel = LogLevel.Trace;
+            sink.MinLevel = LogLevel.Info;
+            Log.Trace($"noise {Touch()}");
+            Assert.AreEqual(0, _touchCount, "所有 sink 拒收时也不构造消息。");
+            Assert.AreEqual(0, sink.Entries.Count);
+
+            sink.MinLevel = LogLevel.Trace;
             Log.Trace($"noise {Touch()}");
             Assert.AreEqual(1, _touchCount, "总闸门放行到 Trace 时插值正常求值");
             Assert.AreEqual(1, sink.Entries.Count);
             StringAssert.Contains("touched", sink.Entries[0].Message);
+        }
+
+        [Test]
+        public void Trace_Handler_GatesAppendsAndDeliversAcceptedMessage()
+        {
+            var sink = new CapturingSink { MinLevel = LogLevel.Info };
+            Log.AddSink(sink);
+            Log.MinLevel = LogLevel.Trace;
+
+            var rejected = new TraceInterpolatedStringHandler(0, 1, out bool appendRejected);
+            if (appendRejected) rejected.AppendFormatted(Touch());
+            Log.Trace(rejected);
+            Assert.IsFalse(appendRejected);
+            Assert.AreEqual(0, _touchCount);
+            Assert.IsEmpty(sink.Entries);
+
+            sink.MinLevel = LogLevel.Trace;
+            var accepted = new TraceInterpolatedStringHandler(6, 1, out bool appendAccepted);
+            if (appendAccepted)
+            {
+                accepted.AppendLiteral("value=");
+                accepted.AppendFormatted(Touch());
+            }
+            Log.Trace(accepted);
+            Assert.IsTrue(appendAccepted);
+            Assert.AreEqual(1, _touchCount);
+            Assert.AreEqual("value=touched", sink.Entries.Single().Message);
         }
 
         [Test]

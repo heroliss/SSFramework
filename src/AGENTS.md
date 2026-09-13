@@ -36,7 +36,8 @@
 - 生命周期 token 由调用链传入并默认透传到所有真正支持取消的 await；取消保持 `OperationCanceledException` 语义，不包成普通失败。若第三方 token **只会取消等待、不会终止已经启动的物理 operation**，必须显式拆分 waiter 与 owner：调用者可及时离开，owner 继续观察到可证明的物理终态后才释放互斥/资源，并在边界注释该第三方行为。不要把“await 抛了 OCE”误当成底层已经停止。Fire-and-forget 必须有清晰的所有权和异常观察点。
 - 定义第三方 operation 的“物理终态”时检查推进条件：owner 不能等待一个只有调用方拿到返回 handle 后才能解除的状态。场景预加载这类主动挂起流程应在“内容已读完 / 可交接”的 barrier 返回，再由 handle 暴露恢复动作；否则会形成循环等待并永久占住互斥。
 - 同步快照工厂若与异步维护共享状态，不能在 Writer 活跃或排队时绕过协调，也不能阻塞 Unity 主线程等待；用短同步 Reader admission 原子完成“读世代 + 建快照”，无法立即进入时 fail-fast 并提示维护后重试。
-- 新代码日志统一 `Game.Framework.Logging.Log`。Trace 使用插值处理器且插值表达式无副作用；后台线程可能进入的 sink/回调要说明线程安全约束。
+- 框架默认 C# 10.0；每个一方 asmdef 同目录维护 `csc.rsp`，不能依赖某个开发工程的全局文件。新增程序集同步这项配置，源码定位仍走 Source Catalog。业务接入的语言版本说明见 consuming-framework。
+- 新代码日志统一 `Game.Framework.Logging.Log`。C# 10 的 `Log.Trace($"...")` 使用插值处理器；插值表达式不得有副作用。若消息在调用前构造，先用 `Log.IsEnabled(LogLevel.Trace)` 守卫；不能把处理器的惰性求值扩展成所有调用方或全日志链零分配的承诺。后台线程可能进入的 sink/回调要说明线程安全约束。
 - 新增 Unity Console 转发层时保持整个转发链 `[HideInCallstack]`，并扩充对应回归测试。
 
 ## Mono 层实现
@@ -79,4 +80,3 @@
 - guide 与业务 `AGENTS.md` 只记录调用者真正需要的约束。
 
 避免把一次交互式开发拆成多个互相猜测的实现 Agent；改公共 API 或多文件架构后，按根规则完成独立视角自查，只有已获委派授权时才启动只读 Reviewer。
-

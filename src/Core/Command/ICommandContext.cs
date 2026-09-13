@@ -13,7 +13,7 @@ namespace Game.Framework.Command
     /// </summary>
     /// <remarks>
     /// <b>能做：</b>读取 Model/System/Utility、发送 Event、读取 CancellationToken、调用同步 / 异步子 Command。<br/>
-    /// <b>不能做：</b>注册/反注册层、修改 Container、写 <see cref="Game.Framework.Context.GameContext.Main"/>——
+    /// <b>不能做：</b>通过分层 API 获取 View、注册/反注册层、修改 Container、写 <see cref="Game.Framework.Context.GameContext.Main"/>——
     /// 这些都不是命令应有的副作用。<br/>
     /// <b>谁会拿到：</b>所有 Command 实现（struct + class，含 async 重载）的 <c>Execute / ExecuteAsync</c> 参数。
     /// struct Command 必须通过它访问层（不能用 <c>this.GetXxx</c> 扩展方法，会装箱）；

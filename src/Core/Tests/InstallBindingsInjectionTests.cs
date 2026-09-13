@@ -124,6 +124,49 @@ namespace Game.Framework.Test
             Assert.AreSame(ctx, ((IHasGameContext)service).Context, "值绑定实例应被 AttachTo（GameContext 字段回写）");
         }
 
+        private abstract class VirtualInjectionBase : ISystem
+        {
+            public int MethodCalls;
+            public int PropertyCalls;
+            [Inject] public virtual ProbeUtility Utility { set => PropertyCalls++; }
+            [Inject] public virtual void Initialize(ProbeUtility _) => MethodCalls++;
+        }
+
+        private sealed class VirtualInjectionDerived : VirtualInjectionBase
+        {
+            [Inject] public override ProbeUtility Utility { set => base.Utility = value; }
+            [Inject] public override void Initialize(ProbeUtility utility) => base.Initialize(utility);
+        }
+
+        private sealed class InheritedInjectionDerived : VirtualInjectionBase
+        {
+            public override ProbeUtility Utility { set => base.Utility = value; }
+            public override void Initialize(ProbeUtility utility) => base.Initialize(utility);
+        }
+
+        private sealed class HiddenInjectionDerived : VirtualInjectionBase
+        {
+            [Inject] public new ProbeUtility Utility { set => base.Utility = value; }
+            [Inject] public new void Initialize(ProbeUtility utility) => base.Initialize(utility);
+        }
+
+        [TestCase(typeof(VirtualInjectionDerived), 1)]
+        [TestCase(typeof(InheritedInjectionDerived), 1)]
+        [TestCase(typeof(HiddenInjectionDerived), 2)]
+        public void InjectionPlan_InheritedMembers_PreserveDistinctSlots(Type type, int calls)
+        {
+            using var builder = new ContainerBuilder();
+            builder.RegisterUtility(new ProbeUtility());
+            var target = (VirtualInjectionBase)Activator.CreateInstance(type);
+            builder.RegisterSystem(target);
+            using var context = new GameContext(builder.Build(), inheritFromGlobal: false);
+            Assert.AreEqual(calls, target.MethodCalls);
+            Assert.AreEqual(calls, target.PropertyCalls);
+            context.Inject(target);
+            Assert.AreEqual(calls * 2, target.MethodCalls, "缓存计划在后续 Inject 时仍应按独立槽位调用。");
+            Assert.AreEqual(calls * 2, target.PropertyCalls);
+        }
+
         [Test]
         public void RegisterOwned_InstanceIsInjectedAndAttached_AndStillDisposedWithContext()
         {

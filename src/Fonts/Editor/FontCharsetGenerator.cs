@@ -132,7 +132,7 @@ namespace Game.Framework.Fonts.Editor
         {
             string profilePath = AssetDatabase.GetAssetPath(profile);
             string claimId = string.IsNullOrEmpty(profilePath)
-                ? $"transient:{profile.name}:{profile.GetInstanceID()}:charset"
+                ? $"transient:{profile.name}:{profile.GetEntityId()}:charset"
                 : profilePath + ":charset";
             return FrameworkGeneratedOutputClaim.ExactFile(
                 claimId,

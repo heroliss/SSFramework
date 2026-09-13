@@ -360,7 +360,10 @@ namespace Game.Framework.Editor
             }
             else
             {
-                EditorGUILayout.HelpBox(check.AllOk ? "全部通过" : "尚未全部通过", check.AllOk ? MessageType.Info : MessageType.Warning);
+                string status = check.IsRunning ? "自检进行中，请等待异步检查完成。" :
+                    check.HasCompleted ? (check.AllOk ? "全部通过" : "自检完成，存在失败项。") : "尚未运行自检。";
+                EditorGUILayout.HelpBox(status,
+                    check.HasCompleted && !check.AllOk ? MessageType.Warning : MessageType.Info);
                 foreach (string result in check.Results)
                     EditorGUILayout.LabelField(result, EditorStyles.wordWrappedMiniLabel);
             }

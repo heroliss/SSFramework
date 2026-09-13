@@ -18,12 +18,12 @@ namespace Game.Framework.Editor
         private static void MigrateSelection()
         {
             var candidates = new List<AssetSystemConfigModel>();
-            var seen = new HashSet<int>();
+            var seen = new HashSet<EntityId>();
             foreach (GameObject selected in Selection.gameObjects)
             {
                 if (selected == null) continue;
                 foreach (AssetSystemConfigModel config in selected.GetComponentsInChildren<AssetSystemConfigModel>(true))
-                    if (config != null && seen.Add(config.GetInstanceID())) candidates.Add(config);
+                    if (config != null && seen.Add(config.GetEntityId())) candidates.Add(config);
             }
 
             int migrated = 0;

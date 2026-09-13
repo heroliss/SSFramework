@@ -56,6 +56,8 @@ Game.Framework.UI        (核心，渲染中立)  IUIUtility / UIUtility 编排 
 
 ## Consequences
 
+- 实例关闭按引用身份匹配，陈旧窗口不影响同类型的新实例。分层批量关闭遍历入口快照并保存嵌套批次状态，允许 OnClose 重入；新打开的窗口不加入原批次。OnCreate / OnOpen 等回调释放 UI owner 后，Open 不再发布窗口或推进过渡，返回 null。
+
 - ✅ 换渲染后端零业务改动：开窗代码 `Open<T>()` 与核心对 UGUI/UIToolkit 一无所知。
 - ✅ 核心可单测：`UIUtility` 只依赖注入的 `IUIBackend` + `IGameContext`，fake backend 脱离场景验证栈/层/cover-reveal/模态/缓存/重开置顶/hook 异常隔离（12 个用例，随框架 PlayMode 测试全绿）。
 - ✅ 按需可删：不用某后端整目录删其 adapter asmdef，核心零感知。

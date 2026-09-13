@@ -126,6 +126,72 @@ namespace Game.Framework.Test
 
         // ── ProtobufNetworkSerializer ────────────────────────────────────────
 
+        [Test]
+        public void Reader_RejectsInvalidBufferSlices()
+        {
+            Assert.Throws<ArgumentNullException>(() => new ProtoReader(null));
+            Assert.Throws<ArgumentNullException>(() => new ProtoReader(null, 0, 0));
+            Assert.Throws<ArgumentOutOfRangeException>(() => new ProtoReader(new byte[1], -1, 1));
+            Assert.Throws<ArgumentOutOfRangeException>(() => new ProtoReader(new byte[1], 2, 0));
+            Assert.Throws<ArgumentOutOfRangeException>(() => new ProtoReader(new byte[1], 0, -1));
+            Assert.Throws<ArgumentOutOfRangeException>(() => new ProtoReader(new byte[1], 1, int.MaxValue));
+            Assert.IsFalse(new ProtoReader(new byte[1], 1, 0).TryReadTag(out _, out _));
+        }
+
+        [Test]
+        public void LengthOverflow_ThrowsBeforeAllocatingOrMovingCursor()
+        {
+            // int.MaxValue + 当前游标会溢出；2^32 则会在 uint 截断后伪装成零长度。
+            foreach (var bytes in new[] {
+                new byte[] { 0xFF, 0xFF, 0xFF, 0xFF, 0x07 },
+                new byte[] { 0x80, 0x80, 0x80, 0x80, 0x10 } })
+            {
+                Assert.Throws<InvalidDataException>(() => new ProtoReader(bytes).ReadMessage());
+                Assert.Throws<InvalidDataException>(() => new ProtoReader(bytes).ReadBytes());
+                Assert.Throws<InvalidDataException>(() => new ProtoReader(bytes).SkipField(2));
+            }
+        }
+
+        [Test]
+        public void Varint_RejectsOverflowButCanSkipFullUInt64()
+        {
+            var bytes = new byte[] { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x01 };
+            var reader = new ProtoReader(bytes);
+            reader.SkipField(0);
+            Assert.IsFalse(reader.TryReadTag(out _, out _));
+            bytes[9] = 0x02;
+            Assert.Throws<InvalidDataException>(() => new ProtoReader(bytes).SkipField(0));
+        }
+
+        [TestCase(0)]
+        [TestCase(-1)]
+        [TestCase(0x20000000)]
+        public void Writer_RejectsInvalidFieldNumbers_EvenForOmittedValues(int field)
+        {
+            var writer = new ProtoWriter();
+            Assert.Throws<ArgumentOutOfRangeException>(() => writer.WriteInt32(field, 0));
+            Assert.Throws<ArgumentOutOfRangeException>(() => writer.WriteBool(field, false));
+            Assert.Throws<ArgumentOutOfRangeException>(() => writer.WriteString(field, ""));
+            Assert.Throws<ArgumentOutOfRangeException>(() => writer.WriteBytes(field, null));
+            Assert.Throws<ArgumentOutOfRangeException>(() => writer.WriteMessage(field, null));
+            Assert.IsEmpty(writer.ToArray());
+        }
+
+        [Test]
+        public void Tags_RejectOverflowAndInvalidWireTypes_AndPreserveMaximumField()
+        {
+            Assert.Throws<InvalidDataException>(() =>
+                new ProtoReader(new byte[] { 0x88, 0x80, 0x80, 0x80, 0x10 }).TryReadTag(out _, out _));
+            Assert.Throws<InvalidDataException>(() => new ProtoReader(new byte[] { 0x0E }).TryReadTag(out _, out _));
+            var writer = new ProtoWriter();
+            writer.WriteBool(0x1FFFFFFF, true);
+            var reader = new ProtoReader(writer.ToArray());
+            Assert.IsTrue(reader.TryReadTag(out int field, out int wire));
+            Assert.AreEqual(0x1FFFFFFF, field);
+            Assert.AreEqual(0, wire);
+            Assert.IsTrue(reader.ReadBool());
+        }
+
         private static ProtobufNetworkSerializer CreateSerializer() =>
             new ProtobufNetworkSerializer().Register<Score>(WriteScore, ReadScore);
 
@@ -163,6 +229,24 @@ namespace Game.Framework.Test
             serializer.DecodeEnvelope(frame, out string type, out byte[] decoded);
             Assert.AreEqual("score", type);
             Assert.AreEqual(payload, decoded);
+        }
+
+        [TestCase(0x08)]
+        [TestCase(0x10)]
+        public void Envelope_KnownFieldWithWrongWireType_Throws(int tag)
+        {
+            // 错误 wire=0 不能把随后的 varint 偷换成长度，拼出看似合法的字符串/载荷。
+            var frame = new byte[] { (byte)tag, 1, 65 };
+            Assert.Throws<InvalidDataException>(() => CreateSerializer().DecodeEnvelope(frame, out _, out _));
+        }
+
+        [Test]
+        public void Reader_SliceBoundary_IsIndependentOfBackingBuffer()
+        {
+            var reader = new ProtoReader(new byte[] { 0, 2, 65, 66, 0 }, 1, 2);
+            Assert.Throws<InvalidDataException>(() => reader.ReadString());
+            var negative = new ProtoReader(new byte[] { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 1 });
+            Assert.AreEqual(-1, negative.ReadInt32(), "读取仍兼容对端标准 int32 的十字节负值编码。");
         }
 
         [Test]

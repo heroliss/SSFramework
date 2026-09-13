@@ -310,9 +310,11 @@ public class ProjectileSystem : MonoSystemBase, IProjectileSystem
 | **System** | Model、System、Utility | 修改 Model、发送/监听事件 |
 | **Utility** | Utility | — |
 | **View** | Utility | 发送 Command、监听事件 |
-| **Command** | 通过 `Execute(ICommandContext ctx)` 参数访问一切层 | 调用 System、读取 Model、发送事件 |
+| **Command** | 通过 `Execute(ICommandContext ctx)` 参数获取 Model、System、Utility；不提供 View 获取入口 | 调用 System、读取/修改 Model、发送事件、执行同步/异步子 Command |
 
 > View 不在权限矩阵里直接访问 Model/System/EventBus，是为了强制所有外发动作只走 Command。需要 View 显示状态时，用只读查询 Command 返回值；持续状态用只读查询 Command 返回 `ReadOnlyReactiveProperty<T>` / `Observable<T>` 订阅源。
+
+> Command 不通过分层解析获取 View。让视图更新时，通常返回查询结果/只读订阅源，或发送 Event，由 View 自己响应。这里约束的是分层 API：例如 UI 的 `IUIUtility.Open/Get` 可以返回窗口引用，那是 Utility 对外公开的 UI 编排能力，不等于存在 `GetView` 层访问权限。
 
 > **约束的性质：防误用，不防绕过。** 这套权限是 C# 类型系统能给到的最强形态——顺手写 `this.GetModel<T>()` 在 View 里编译不过、`[Inject]` 越权在注入期被拦；但它不是运行时沙箱：刻意强转（如把 `ICommandContext` cast 回具体 Context）仍然可行。设计目标是让"无意间越界"变得困难、让"刻意越界"在代码评审里显式可见，而不是对抗恶意代码。
 
@@ -523,10 +525,11 @@ ctx.RegisterModel(new ConfigModel());
 
 ### Event：瞬时可观察数据
 
-Event 用于"发生了某件事"的一次性通知，不保留历史。推荐用 `record struct` 定义，零堆分配：
+Event 用于"发生了某件事"的一次性通知，不保留历史。默认用 C# 10 的 `record struct` 简洁声明数据与按值比较；普通 `struct` / `readonly struct` 也支持。业务程序集需按[语言版本约定](consuming-framework.md#c-10-默认约定与原因)配置。值类型不意味着整个调用链零分配，事件内引用数据仍按其自身类型分配：
 
 ```csharp
 public record struct GoldChangedEvent(int Delta) : IEvent;
+
 public record struct ItemAddedEvent(ItemData Item) : IEvent;
 ```
 
@@ -614,6 +617,20 @@ Bag.Subscribe(Observable.EveryUpdate(), _ => Tick());
 ```
 
 逐帧逻辑里 System 直接改 Model、需要广播时 `SendEvent`；View 仍只订阅、不参与仿真。同类 System 的 tick 先后依赖用 `[DefaultExecutionOrder]`（Mono）或一个"编排 System"显式按序调用，别依赖注册顺序。设计理由见 `docs/adr/0014-realtime-simulation-ownership.md`。
+
+#### 与 Unity ECS 配合的边界
+
+上述两条路径适用于 Framework 自己管理的仿真。消费工程也可以将高密度仿真交给 Unity Entities；SSFramework **尚未提供内置 ECS Adapter，也没有对特定实体规模作性能保证**。以下是组合建议，具体桥接必须在消费工程中验证：
+
+- `Unity.Entities.ISystem` 与 `Game.Framework.Systems.ISystem` 是不同契约。ECS System 由 World / SystemGroup 管理，不必为了注册进 Context 而实现 Framework 的分层接口。
+- Framework Command 处理“建造、拆除、改变配方”等离散意图，交给消费方的仿真入口；ECS 的连续计算遵循自己的更新顺序，不为每个 Entity 每帧派发 Command。
+- Entity 数据由 ECS 持有。Framework Model 保存 UI 所需的选中状态或汇总快照，避免再维护一份可独立写入的完整仿真状态。
+- Burst / Job 中使用适合该环境的数据，不在工作线程直接调用 Context、R3 订阅或 View。消费方在满足 Job 依赖的主线程交接点批量提交输入、读取结果，并按 UI 所需频率发布状态。
+- 暂停、倍速、固定仿真步长、World 生命周期、存档标识与加载恢复由消费方明确设计。安装 Entities 不会自动使现有 MonoBehaviour 逻辑并行化；是否获益需由目标 Player 的性能测量证明。
+
+Entities 的数据与 System 概念见 [Unity ECS 文档](https://docs.unity3d.com/Packages/com.unity.entities@1.4/manual/concepts-intro.html)，Burst 的类型边界见 [C# type support](https://docs.unity3d.com/Packages/com.unity.burst@1.8/manual/csharp-type-support.html)。这些组合建议不增加 Framework 对 Entities 或 Input System 的包依赖。
+
+仿真与渲染需要分别检查。只用 Entities 做数据计算，不要求切换渲染管线；若使用 Entities Graphics 1.4 渲染实体，则不支持 Built-in，需使用 URP 或 HDRP，其中 URP 要求 Forward+。在消费工程中先验证实体烘焙、材质、SRP Batcher 和目标 Player，再扩展实体数量；安装 ECS 配套包不会自动把现有工程切换为兼容管线。要求见 [Entities Graphics 兼容性](https://docs.unity3d.com/Packages/com.unity.entities.graphics@1.4/manual/requirements-and-compatibility.html)与[现有工程接入步骤](https://docs.unity3d.com/Packages/com.unity.entities.graphics@1.4/manual/creating-a-new-entities-graphics-project.html)。
 
 ---
 
@@ -2096,7 +2113,7 @@ View 之上的 UI 调度：打开/关闭窗口、固定有序层级、Page 返�
 ### 开窗 / 关窗
 
 ```csharp
-// View / Command / System 里（View 有 ICanGetUtility，同 Bag.Load 心智）
+// View / System 里（View 有 ICanGetUtility，同 Bag.Load 心智）；Command 改用 ctx.GetUtility<IUIUtility>()
 var ui = this.GetUtility<IUIUtility>();
 ShopWindow optional = await ui.Open<ShopWindow>();               // 宽松入口：失败返回 null，由本地决定是否降级
 await ui.OpenRequired<MainPage>();                               // 严格入口：必需页面失败就抛异常，不提交上层状态
@@ -2109,6 +2126,9 @@ var opened = ui.Get<ShopWindow>();                               // 取已打开
 
 `Open` / `Get` 返回的是**借用窗口引用**：物理 GameObject / VisualElement、资源 handle、缓存与销毁都由
 `IUIUtility → IUIBackend` 持有，业务不要自行 `Destroy` / `Dispose`，只调用 `Close` / `CloseAll` 表达关闭意图。
+`Close(window)` 只关闭当前匹配的实例，旧引用或其他 UI owner 的窗口不会关闭同类型的新窗口；按类型关闭用 `Close<T>()`。
+`CloseAll(layer)` 关闭入口时该层的窗口快照，支持关闭回调重入；回调中新开的窗口留给新的 owner 管理。
+创建/打开回调若同步释放 UI owner，`Open` 返回 null，且不再发布窗口或启动过渡。
 Adapter 的 `CreateWindow` 以“完整绑定并进入物理映射”作为提交点；调用方取消保持 `OperationCanceledException`，加载或绑定异常
 原样传播，但返回前会回滚已经创建的部分层级、View 和资源子 Bag，不把半窗口留到整个 UI 销毁时才兜底。
 
@@ -2698,11 +2718,13 @@ locale code 是**开放字符串 + 业务常量**（与音频组、存储 key �
 
 ## 22. 字体（多语言字体链）
 
-CJK 全量字库体积大（单字体 15~30MB），全量随包不现实；砍了字库，生僻字 / 用户输入又变豆腐块。框架的答案是**三层字体策略**，三层都挂在**主字体资产的 fallback 表**上——文本渲染自动逐层找字形，业务代码零感知、零调用。ADR-0025。
+Framework 当前提供字体链与字集生成机制，**不附带中文 / CJK 字体源、预生成字体资产或默认 locale 字体配置**。下文“随游戏发布的主字体”由消费工程提供，不表示安装 SSFramework 后已经有可直接使用的中文字体。
+
+CJK 字库及图集的体积取决于字符覆盖、字重、格式与图集设置。消费工程可以组合常用字静态图集、补充字体和系统字体候选；三层挂在**主字体资产的 fallback 表**上，完成配置后由文本引擎逐层查找字形。字形覆盖仍需验证，fallback 机制不会产生字体中不存在的字符。设计见 ADR-0025。
 
 | 层 | 内容 | 覆盖 |
 |---|---|---|
-| ① 随包主字体 | 精简常用字集烘焙的 static atlas | 已知 UI 文案与配置表文本（99% 显示量） |
+| ① 随游戏发布的主字体 | 按项目字集烘焙的 static atlas | 已知 UI 文案与配置表文本 |
 | ② locale 补充字体 | per-locale 配置的补充字体资产（动态 atlas，如 NotoSansSC） | 生僻字 / 特定语言差集 |
 | ③ OS 字体兜底 | 运行时按族名候选创建动态字体资产，挂链尾 | 用户名 / 聊天等不可预知文本 |
 
@@ -2723,14 +2745,14 @@ CJK 全量字库体积大（单字体 15~30MB），全量随包不现实；砍�
 
 ### ① 主字体怎么来：常用字集生成
 
-工作台 **SSFramework/代码生成/字体字集**（配置为 Charset Profile，全工程单例；缺失时由显式按钮创建）：扫描配置表（`.xlsx` 读 sharedStrings，Luban 源表直配）、代码字符串字面量（`.cs` 只取字面量，注释不进字集）、文案文件（`.json` / `.txt` 全文），去重出按码点排序的 charset 文件 → TMP Font Asset Creator 选主字体 ttf + **Characters from File** 烘焙 static atlas。常用字随包秒显，生僻字交给 ②③。
+工作台 **SSFramework/代码生成/字体字集**（配置为 Charset Profile，全工程单例；缺失时由显式按钮创建）：扫描配置表（`.xlsx` 读 sharedStrings，Luban 源表直配）、代码字符串字面量（`.cs` 只取字面量，注释不进字集）、文案文件（`.json` / `.txt` 全文），去重出按码点排序的 charset 文件 → TMP Font Asset Creator 选择项目提供的字体源 + **Characters from File** 烘焙 static atlas。预生成字形随游戏发布，其余字符由 ②③ 中具有对应字形的字体补充。
 
 工作台会在点击前区分错误与可恢复警告：扫描/输出路径逃逸工程、扫描路径实际是文件、输出目标实际是目录、文件名模式包含路径分隔符，或把 `.` / `..` 当作模式都会阻断，避免读写到扫描根或项目之外；`foo..txt` 仍是普通合法文件名模式。递归由扫描器统一负责，模式只写 `*.txt` 这类文件名。暂不存在的扫描目录会显示“将跳过”但仍允许生成，因为 ASCII 或额外字符可能就是本次的全部输入。未启用 ASCII 且没有额外字符时，预检不会为了绘制窗口而深度枚举全工程，而是提示扫描结果可能为空；生成后若实际得到 0 个字符，会明确以 Warning 报告已写入空字集。生成动作仍会重新检查，窗口提示不承担唯一安全线。
 
 ### 双后端的关键差异（实测 Unity 6000.3）
 
 - **TMP（UGUI 侧）没有引擎级 OS 兜底**：缺字就是豆腐块——②③ 在 TMP 侧是**刚需**。另外 TMP 缺字最后会查全局默认字体（TMP Settings → Default Font Asset）及其链，若主字体恰好就是默认字体，未列管的字体也会「沾光」——别依赖这个巧合。
-- **UI Toolkit 侧引擎内建 OS 字形兜底**（TextCore `TextSettings` 层）：缺字**不豆腐，但字形随平台走**（Windows 雅黑 / macOS 苹方，排版风格不受控）。② 层在 Toolkit 侧的价值是**把字形拿回自己手里**：链上的品牌字体优先于引擎 OS 兜底，各平台排版一致。
+- **UI Toolkit 侧引擎有 OS 字形兜底路径**（TextCore `TextSettings` 层）：只有系统提供可用字体及目标字形时才能补充，字形和排版可能随平台变化，不能保证所有中文、日韩文或用户输入都不缺字。② 层提供明确的项目字体来源，减少系统差异；仍需在目标平台检查实际字符覆盖与排版。
 - **fallback 解析结果有引擎缓存**：框架在链条应用 / 还原时已统一清缓存并强刷存活 TMP 文本；Toolkit 侧本地化文本随换语言重设 text 自然重排，**固定文本 + 链条变化**的罕见场景需业务重设一次 text 触发重排（项目应在切换语言后的 UI 回归中覆盖这一情况）。
 
 ### 使用要点
@@ -2742,7 +2764,7 @@ CJK 全量字库体积大（单字体 15~30MB），全量随包不现实；砍�
 
 ### 刻意不做
 
-- **全字库随包 / 每语言完整字体**：fallback 链的意义就是共享通用字形、语言层只补差集。
+- **Framework 强制附带全量字体**：字体来源、字符覆盖和发行体积由消费工程选择；可选入门字体资源的规划见[新项目准备](project-startup.md)，该资源包尚未提供。
 - **运行时字形卸载 / atlas 调优**：动态 atlas 内存策略交 TMP / TextCore 默认，量化出问题再调。
 - **每文本粒度换字体**：链条挂在主字体上全局生效；个别文本要专属字体直接在 UI 上指定，那不是「兜底」问题。
 
@@ -2751,7 +2773,7 @@ CJK 全量字库体积大（单字体 15~30MB），全量随包不现实；砍�
 > - 场景挂 `MonoLocaleFonts`：主字体列表（TMP / Toolkit 两栏）+ 各 locale 档案（②资产 + ③OS 英文族名）
 > - 换语言由 §21 的 `SetLocale` 一并驱动，字体业务零调用；未配置 locale 降级不炸
 > - ① 在 `SSFramework/代码生成/字体字集` 工作台点“生成常用字集”，再用 TMP Font Asset Creator 烘焙
-> - TMP 缺字真豆腐（②③刚需）；Toolkit 引擎自带 OS 兜底（②管字形归属）
+> - TMP 需显式配置缺字补充；Toolkit 的 OS 兜底也依赖目标平台实际可用的字体与字形
 > - 详见 ADR-0025
 
 ---
@@ -2838,6 +2860,7 @@ var ctx = new GameContext(builder.Build()) { DebugName = "MiniGame" };
 ### 边界（刻意行为）
 
 - **采集仅在 Editor**：存活登记表 / 订阅计数 / Bag 计数在玩家包（含 Development Build）里编译消除，零成本；真机诊断走 `FrameworkSelfCheck` 冒烟 + `Log` 日志（配 `CaptureUnityLogs()` + `FileLogSink` 可把引擎报错 / 崩溃一并落盘，见 §28）。
+- **自检等待异步项结束**：`FrameworkSelfCheck` 在屏显和 Inspector 中区分尚未运行、进行中与最终结果；只有当前轮全部检查完成后才显示通过或失败并输出汇总。重跑或销毁会取消上一轮，旧轮的迟到结果不会写入当前轮。
 - **登记表持强引用**：没 Dispose 的 Context 会一直挂在树上——这不是面板的 bug，这就是它要暴露的泄漏。
 - **回退来源只持弱引用**：实际回退历史不会为了显示来源而延长已替换 Main 的生命周期；来源已经释放时，明细保留次数并显示“已释放的 Context”。
 - 池概要的「借出」只统计已成功发布的 `Active` lease：C# 池按引用身份与真实来源路由精确计数；GameObject 若被调用方直接 Destroy，计数停在借出侧，表示一次没有正常 Despawn 的 lease。空闲栈中的 Unity fake-null 死槽会先清理，不会虚增「空闲」。
@@ -3223,7 +3246,7 @@ CI / AI 只需做最小删除测试时，可直接执行无窗口菜单 `SSFrame
 | Asset Adapter | YooAsset | 由 `Game.Framework.Asset.Yoo` 实现并注册默认 Provider；可替换为另一个 `IAssetProvider` Adapter。 |
 | Editor 增强 | Odin Inspector | 由消费工程或独立扩展包自行接入，不进入 Runtime 基线，也不随 Framework 包重分发。 |
 
-目前 embedded `Packages/nuget-packages` 仍把 R3、ObservableCollections、Google.Protobuf 与支撑 DLL 放在一个物理 package 里，隔离探针会复制这整个来源，因此它能证明 Player 链接结果，却还不能证明“干净消费工程只安装最小 DLL 闭包”。正式 UPM 分发应让 Core / UI / Proto package 各自拥有真实二进制闭包、版本、哈希与 Third Party Notices；在完成干净工程安装/删除矩阵前，不把当前聚合目录冒充最终发布结构。
+当前根 `package.json` 通过 OpenUPM 的独立 `org.nuget.*` 包声明 R3、ObservableCollections、Google.Protobuf 与支撑运行库，不要求消费工程创建 `Packages/nuget-packages` 聚合包。Framework 自身仍以单一 UPM 包分发，完整依赖随包解析；只引用 Core 不会阻止其他无条件 Module 编译。进一步拆分发布包仍需安装、删除和目标 Player 构建证据。当前接入方式与验证限制见[接入与升级](consuming-framework.md)。
 
 ### 参考结构
 
@@ -3314,7 +3337,7 @@ embed.Bind(view);
 - **内容来源两条路**：Inspector 配 `Content Prefab`（静态面板 prefab，自身不带 Canvas）；或代码经 `embed.EnsureContentRoot()` 拿托管 Canvas 的 RectTransform，往里挂 code-built / 动态 UGUI（`Bind` 时自动补隔离层）。
 - **输入穿透**：勾 `MonoUGuiEmbed` 的 `Interactive` 后，指针事件（**点击 / 悬停 / 拖拽 / 滚轮**）穿透 RT 进嵌入 UGUI——按钮 / 开关 / Slider / ScrollRect 都能用（需场景有 EventSystem）。原理：转发器把元素内坐标翻成 RT 空间屏幕点 → 托管 Canvas 上一个 `enabled=false` 的 `GraphicRaycaster`（不被全局输入模块误触发）手动 `Raycast` → `ExecuteEvents` 分发。**文本输入 / IME、多点触控不做**（要在嵌入 UGUI 里打字直接用原生 UGUI 层）。纯显示（TMP 富文本 / 3D 预览 / 小地图）留 `Interactive` 关。
 
-可通过 `UIEmbedTests` 覆盖尺寸换算、输入转发和资源清理，并在真实消费工程中补一次场景渲染与交互验证。
+可通过 `RenderTextureElementTests` 与 `UGuiEmbedInputForwarderTests` 覆盖尺寸换算、输入转发和资源清理，并在真实消费工程中补一次场景渲染与交互验证。
 
 ---
 
@@ -3360,19 +3383,19 @@ Log.Write(LogLevel.Info, "purchase",
 
 `Log.Error(message, exception)` 在日志模型中仍是**一个** `LogEntry`；默认 Unity sink 为保留 Console 的异常定位体验，会显示一条 Error 再调用一次 `Debug.LogException`，因此 Console 可见两条红色项。没有异常的 Error 通常只显示一条。测试断言和教学说明要区分“结构化条目数”与“Unity Console 项数”，不要把正常的双呈现误判为重复日志。
 
-### `Trace` 写成插值 —— 关掉时真·零成本
+### Trace 关闭时避免构造消息
 
 ```csharp
 Log.Trace($"[Container] REGISTER {type.Name}: {label}");
 ```
 
-`Trace` 的插值重载走 **C# 10 插值字符串处理器**：编译器把 `$"..."` 改写成一串 `Append` 调用，外面裹一个 `if (级别放行吗)` 守卫。**总闸门没放行到 `Trace` 时整块跳过——插值表达式一次都不求值、字符串一个字符都不拼。**
+SSFramework 的接入约定是 C# 10.0。上面的调用由插值处理器检查全局级别与 sink 阈值；无人接收 Trace 时，不计算插值表达式，也不构造消息字符串。
 
-对比普通 `string` 参数：`Log.Trace($"解析 {type.Name} 耗时 {ms}ms")` 会**先把字符串拼好**，进到方法里才发现级别没放行、直接丢弃——白拼、白分配。容器每解析一次就白拼一个字符串，这是真实的浪费。
+这要求**调用日志的程序集**也启用 C# 10；只配置框架不会改变业务调用点。Unity 6.3 原生默认是 C# 9，此时该调用选择普通 `string` 重载，先拼字符串再过滤；保留 C# 9 的调用方需写 `if (Log.IsEnabled(LogLevel.Trace)) Log.Trace($"...");`。配置步骤见[接入指南](consuming-framework.md#c-10-默认约定与原因)。
 
-> ⚠ **唯一要守的纪律**：惰性意味着求值语义变了——`Trace` 的插值参数里只放**纯读取**（属性、`ToString()`），**不要放有副作用的表达式**（`i++` / `list.Pop()`），级别没放行时它们不会执行。这与手写 `if (Log.IsEnabled(LogLevel.Trace)) Log.Trace(...)` 是**完全相同**的语义，处理器只是把守卫自动化了。另：别写 `Log.Trace("x " + y)`（字符串拼接会退回「先拼再丢」）。
+插值参数只放纯读取，不要放 `i++` / `list.Pop()` 等副作用；日志级别不应改变业务行为。普通字符串拼接也应放在守卫内。关闭时避免消息分配，不代表开启后的格式化、字符串生成与 sink 写入都没有分配。
 
-处理器所需的两个 C# 10 attribute 在 Unity BCL 里没有，框架自带一份 `internal` polyfill（R3 / ObservableCollections 等库也都这么做）。
+处理器所需的两个 attribute 由框架自带的 `internal` polyfill 补齐；polyfill 不会改变调用方语言版本。发布版仍通过 `Conditional` 移除 Trace 调用及其实参求值。
 
 ### sink：日志去哪
 
@@ -3410,7 +3433,7 @@ Log.CaptureUnityLogs();   // 订阅 Application.logMessageReceivedThreaded
 
 ### 需要结构化 / 遥测时（为什么客户端不上 ZLogger）
 
-内核这两个 sink（Console + File）+ Unity 日志流接管，覆盖了「开发期按级别过滤」「落盘捞日志」「引擎/第三方/崩溃全量捕获」——**绝大多数客户端排查够用**。剩下的**结构化 JSON / 精细滚动 / HTTP 遥测**能力，评估过 Cysharp ZLogger，实测后**客户端不引入**：装它会拖进 `System.Text.Json` 全家桶等 ≈1.4 MB 托管 DLL，而最大的一块纯为客户端几乎不产的 JSON 日志，性价比不划算（详见 ADR-0034 实测复盘）。**而 ZLogger 的另一大卖点「零分配」，我们用插值处理器已经拿到了**——这也是不引它的底气。
+内核的 Console / File sink 与 Unity 日志流接管覆盖分级过滤、落盘与引擎/第三方日志捕获。结构化 JSON、精细滚动与 HTTP 遥测可按需接入其他 sink。客户端暂不引入 ZLogger 的依赖取舍与历史测量见 ADR-0034；当前 Trace 保证的是关闭时避免消息构造，不能据此声称整个日志链零分配。
 
 正确落点是**服务端**（服务端工程通常可以直接使用 .NET 日志生态，无包体顾虑）。客户端将来若确有「结构化日志上报后台」刚需，再实现一个 `ZLoggerLogSink : ILogSink` 接进来即可——**接缝已为此留好位置，业务零改动**。这正是「先做零依赖接缝、把第三方隔在接口后」的价值：试错第三方库的代价被压到「删依赖」，内核不受牵连。
 
@@ -3418,4 +3441,4 @@ Log.CaptureUnityLogs();   // 订阅 Application.logMessageReceivedThreaded
 
 > 日志验证应覆盖多播、两道级别闸门、插值惰性求值、Unity 日志桥和文件 sink；所有故意产生的 Console 或文件副作用都要先说明影响范围与恢复方式。
 
-详见 ADR-0034、AGENTS #34。
+详见 [ADR-0034](adr/0034-framework-logging-seam.md) 与[源码协作规则](../src/AGENTS.md)中的“异步、取消与日志”。

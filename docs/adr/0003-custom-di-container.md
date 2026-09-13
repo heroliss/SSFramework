@@ -13,7 +13,8 @@
 - 按**精确类型键**查找，不做继承扫描。Mono 层自动注册"具体类型 + 派生接口（不含层标记本身）"。
 - 构建期字典的 value 是内部 `ContainerBinding`，显式区分现成值与 Factory；绑定自身管理 Singleton 缓存与诊断状态，不用 `object is Func<...>` 猜类型。构造时机与生命周期所有权的四种组合见 ADR-0035。
 - **主线程独占**：所有解析/注册不加锁；Editor/Development Build 下 `AssertMainThread` 兜底报错。
-- `Container` 对业务**不可见**（`internal`）：业务只能走 `RegisterModel/System/Utility` 受控通道，保证注册一定带层标记。框架内部经 `ContextInternals.GetContainer` 访问。
+- `Container` 类型为 `public`，供 `ContainerBuilder.Build` 和工厂显式接线；已构造 `GameContext.Container` 属性是 `internal`，`IGameContext` / `ICommandContext` 不暴露它。日常层访问走受限接口，组合根仍可保留 Builder 返回的 Container；这是防误用边界，不是运行时沙箱。
+- `[Inject]` 计划按基类先于派生类构建。同一虚方法或属性 setter 按 `GetBaseDefinition()` 去重，实际 override 每次注入只执行一次；`new` 隐藏成员属于不同槽位，仍独立注入。缓存避免重复扫描，不消除赋值和调用本身的反射成本。
 - 运行时分层注册以“具体类型 + 全部派生层 Interface”为一个提交单元：先检查所有精确键是否可写，再统一进入覆盖层。任一活实例冲突都会在写入前失败；已销毁的 Unity 对象仍允许整组替换，不留下半注册 contract。
 - Builder、运行时 Register 与 Mono 自动挂接共用“实例恰好属于一个 Model / System / Utility 层”的校验；多层类型在任何 Container 写入前失败，不能靠换一个注册入口绕过权限模型。
 - Context 初始化采用**提交式事务**：`InstallBindings → Build → GameContext 值注入/Attach → OnInitialized` 全部成功后，`MonoGameContextBase` 才发布 Ready。任一步失败都会释放 Builder/Container 已接管的 owned 资源、保留根异常并进入 Failed；后续调用得到带 inner exception 的明确 `InvalidOperationException`，不会继续在半初始化对象上制造 NRE。父 Context 递归初始化若形成环，也在 `Initializing` 状态边界 fail-fast。

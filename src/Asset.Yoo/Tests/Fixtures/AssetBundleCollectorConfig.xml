@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 历史导出样例，当前测试不读取此文件；YooAssetPlayModeFixture 自动管理临时收集器和资源。 -->
 <root Version="v2025.8.28">
   <Common ShowPackageView="False" ShowEditorAlias="False" UniqueBundleName="True" />
   <Package PackageName="DefaultPackage" PackageDesc="" AutoAddressable="True" SupportExtensionless="True" LocationToLower="False" IncludeAssetGUID="True" IgnoreRuleName="NormalIgnoreRule">
@@ -8,5 +9,4 @@
     </Group>
   </Package>
 </root>
-
 

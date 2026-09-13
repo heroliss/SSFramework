@@ -26,7 +26,7 @@ Drawer/fallback Editor；如果某个项目需要 Odin，应在项目或独立�
 
 窗口还会先只读比较唯一 Profile、HybridCLRSettings、Generate stamp、当前热更加载顺序、AOT 补元数据清单与 DLL 中转目录，再解释当前 Player 编译图发现的每个 Runtime Module、当前 DLL 消费者、完整 asmdef 删除阻塞、热更部署和 linker 根；Module 退出编译图后不会保留一张“未参与”卡片。之后窗口给出 Core-only、Core + UGUI、Core + Toolkit、全部 Runtime Module、Profile 期望热更档位，以及任意 Module 作为入口的 what-if 闭包。`autoReferenced:false` 只关闭 Assembly-CSharp 等预定义程序集的隐式引用，不代表 Module 已退出编译图或会自动从包中消失。空 Profile 不强制 Generate；只有启用场景不依赖 `HotUpdateLauncher` 的直接 AOT composition root 才可省 CodePackage，保留 Launcher 时步骤 3 会产出其 Player 分支需要的空清单包。缺失或重复 Profile 会明确告警。完整闭包、全局 / HybridCLR 生成的 linker 规则和原始报告按需展开。它同时机器执行四条声明 + 当前 DLL 双层删除测试：Core 不反向依赖任意可选 Framework Player Module（含 Boot）、Boot 不接触 Framework Runtime、UGUI 不带 Toolkit/Bridge、Toolkit 不带 UGUI/Bridge。
 
-报告里的大小是链接、AOT、压缩前的原始托管 DLL，只用于发现“一个很小的 Adapter 意外拖入很大的外部依赖”以及比较组合；它不是最终包体承诺。需要真实平台证据时打开 `SSFramework/诊断与分析/真实构建体积`：窗口打开不做全矩阵扫描，读取组合后再选择构建；动作层重新采集当前证据并只为所选组合计算指纹。探针在 `Library` 下创建隔离空工程，只复制所选 Runtime Module 和当前版本依赖，再用当前目标平台 / 脚本后端读取 Player BuildReport。Package 计划由所选 asmdef 声明、当前 Player DLL 元数据引用与 Source Catalog 派生，不按 Module 名猜依赖；Framework 的 declared-only Module 也进入编译闭包；registry Package 复用主 manifest 版本与 scoped registry，整轮启动时冻结每档 manifest 指纹；Git / embedded / local / tarball Package 从已解析源码根整体复制并记录去敏身份与内容指纹。所选程序集完整保留，因此结果是可重复的体积上界。`nuget-packages` 当前仍是聚合物理边界，探针不会把其中 DLL 假装成可独立卸载模块；详情见 ADR-0038。
+报告里的大小是链接、AOT、压缩前的原始托管 DLL，只用于发现“一个很小的 Adapter 意外拖入很大的外部依赖”以及比较组合；它不是最终包体承诺。需要真实平台证据时打开 `SSFramework/诊断与分析/真实构建体积`：窗口打开不做全矩阵扫描，读取组合后再选择构建；动作层重新采集当前证据并只为所选组合计算指纹。探针在 `Library` 下创建隔离空工程，只复制所选 Runtime Module 和当前版本依赖，再用当前目标平台 / 脚本后端读取 Player BuildReport。Package 计划由所选 asmdef 声明、当前 Player DLL 元数据引用与 Source Catalog 派生，不按 Module 名猜依赖；Framework 的 declared-only Module 也进入编译闭包；registry Package 复用主 manifest 版本与 scoped registry，整轮启动时冻结每档 manifest 指纹；Git / embedded / local / tarball Package 从已解析源码根整体复制并记录去敏身份与内容指纹。所选程序集完整保留，因此结果是可重复的体积上界。外部依赖以实际解析的 Package 为物理边界，探针不会把同一包中的 DLL 假装成可独立卸载模块。当前安装声明已使用独立 `org.nuget.*` 包，见[接入与升级](consuming-framework.md)；探针设计见 ADR-0038。
 
 ### 五层状态与当前例外
 
@@ -40,7 +40,7 @@ Drawer/fallback Editor；如果某个项目需要 Odin，应在项目或独立�
 
 当前 `Asset.Yoo`、`Network.Proto`、`UI.Toolkit` Module 目录各有无条件 `link.xml`：分别保留 Yoo Adapter、Google.Protobuf、UIElementsModule。它们不一定是错误，但意味着“业务没有静态调用”不能推出“最终自动消失”。`Asset.Yoo` 的默认 Provider 注册属于 Adapter Assembly，Core 不再保存具体类型名；保守的 `link.xml` 仍覆盖自定义属性 + 反射创建在不同 Unity linker 版本下的可达性差异。`Assets/HybridCLRGenerate/link.xml` 是生成物，第三方目录的规则有自己的升级边界；审计只读展示，不提供一键改写。
 
-当前所有 Runtime Module 都参与 Player 编译并引用 Core。若 Core 热更，仍留在编译图的可选 Module 不能被单独改成 AOT，否则形成 AOT → 热更违规。强裁剪应把“迁移消费者、删除 / 卸载 Module 使其退出编译图、清理 Profile、同步并重新 Generate”作为一项结构事务；不要先只从 Profile 取消再同步。完整决策见 ADR-0039。
+除不依赖 Core 的 AOT 薄壳 Boot 外，当前可热更新 Runtime Module 均依赖 Core；它们参与 Player 编译时，若 Core 热更，就不能被单独改成 AOT，否则形成 AOT → 热更违规。强裁剪应把“迁移消费者、删除 / 卸载 Module 使其退出编译图、清理 Profile、同步并重新 Generate”作为一项结构事务；不要先只从 Profile 取消再同步。完整决策见 ADR-0039。
 
 ## 程序集地图
 
@@ -48,8 +48,8 @@ Drawer/fallback Editor；如果某个项目需要 Odin，应在项目或独立�
 |---|---|---|---|
 | `Game.Framework` | `Core/` | Context、Container、MVCS 权限、Command/Event、生命周期与通用 Interface；含零第三方实现的 Storage/Audio/Flow/Localization/Logging/Network 等能力。 | 不可删除；其余运行时 Module 的稳定依赖方向指向它。 |
 | `Game.Framework.Asset.Yoo` | `Asset.Yoo/` | `IAssetProvider` 的 YooAsset Adapter；YooAsset 接触面和 `[assembly: DefaultAssetProvider]` 默认装配都集中在这里。 | 删除后仅失去 YooAsset Implementation；Core 不含 Yoo 类型名，安装另一个注册 Adapter 即可替换。 |
-| `Game.Framework.Asset.Yoo.Tests` | `Asset.Yoo/Tests/Editor/` | Yoo package 进程级 Reader/Writer、取消、缓存世代、同步快照与后台终态的纯 EditMode 契约。 | 随 Yoo Adapter 删除；不进入玩家构建，也不让通用 Core Test 反向依赖可选 Adapter。 |
-| `Game.Framework.Asset.Yoo.PlayMode.Tests` | `Asset.Yoo/Tests/PlayMode/` | 真实 EditorSimulate Provider、资源引用缓存/并发/释放、下载器缓存世代与挂起场景激活门契约；所需 Prefab、材质、场景及配置集中在相邻 `Fixtures/`。 | 随 Yoo Adapter 与 Fixtures 一起删除；通用 Core Test 不引用 YooAsset，Collector 路径也不再指向通用 `Test/`。 |
+| `Game.Framework.Asset.Yoo.Tests` | `Asset.Yoo/Tests/Editor/` | Yoo package 进程级 Reader/Writer、取消、缓存世代、同步快照与后台终态的 EditMode 契约；向 PlayMode 测试提供临时资源和内存 Collector 夹具。 | 测试桥单向引用 Yoo PlayMode Tests、通用 Editor Catalog 和 YooAsset.Editor；随 Yoo Adapter 删除，不进入玩家构建。 |
+| `Game.Framework.Asset.Yoo.PlayMode.Tests` | `Asset.Yoo/Tests/PlayMode/` | 真实 EditorSimulate Provider、资源引用缓存/并发/释放、下载器缓存世代与挂起场景激活门契约；每例生成独占 Prefab / Sprite / 配置，场景模板从相邻 `Fixtures/` 经 Catalog 解析并复制到临时目录。 | 随 Yoo Adapter 与 Fixtures 一起删除；通用 Core Test 不引用 YooAsset。仅在 Editor 运行，不依赖游戏包名、旧 GUID 或人工导入 Collector。 |
 | `Game.Framework.Config` | `Config/` | 配置运行时编排与 `IConfigUtility<TTables>`；不依赖 Luban。 | 删除后失去配置表 Module，Core 不改。 |
 | `Game.Framework.Config.Editor` | `Config/Editor/` | Luban CLI/Profile/配置总览，以及代码 + 数据 + manifest 的暂存校验、双树差量发布与失败回滚；复用通用 Editor 反馈和输出 claim Catalog。 | 可与 Config 一起删除；不向 Runtime 泄漏 Editor 依赖，也不把 Luban 双树语义塞进 Proto。 |
 | `Game.Framework.Config.Editor.Tests` | `Config/Editor/Tests/` | Luban 配置/claim 注册、受控 CLI 参数、暂存产物边界、`.meta` 保留、零写盘差量与双目录回滚契约。 | 随 Config Editor Module 删除；不进入玩家构建。 |

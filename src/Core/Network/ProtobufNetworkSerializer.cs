@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 
 namespace Game.Framework.Network
 {
@@ -80,6 +81,8 @@ namespace Game.Framework.Network
             var reader = new ProtoReader(frame);
             while (reader.TryReadTag(out int field, out int wireType))
             {
+                if ((field == EnvelopeTypeField || field == EnvelopePayloadField) && wireType != 2)
+                    throw new InvalidDataException($"Protobuf envelope 字段 {field} 必须使用 length-delimited wire 类型 2。");
                 switch (field)
                 {
                     case EnvelopeTypeField: type = reader.ReadString(); break;

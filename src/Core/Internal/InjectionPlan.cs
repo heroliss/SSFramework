@@ -18,7 +18,7 @@ namespace Game.Framework.Internal
     /// <remarks>
     /// <b>注入顺序契约：</b>
     /// <list type="bullet">
-    ///   <item>按"基类先于派生类"扫描（从最派生类型沿 BaseType 链上升，每层先字段、再属性、再方法）。</item>
+    ///   <item>按"基类先于派生类"扫描，每层先字段、再属性、再方法；同一虚方法/属性槽位只注入一次，调用实际 override。</item>
     ///   <item>同一类内的字段/属性/方法之间相对顺序，依赖 <see cref="Type.GetFields"/> 等反射 API 的返回顺序，
     ///         <b>不在 .NET / Mono 规范保证之列</b>。业务代码不应依赖此顺序。</item>
     ///   <item>若多个 <c>[Inject]</c> 字段之间有时序耦合（例如 A 必须在 B 之前赋值），改用构造器/工厂注入，
@@ -50,7 +50,7 @@ namespace Game.Framework.Internal
         /// 这把"哪层能拿哪层"的编译期约束（缺失的 ICanXxx 让 <c>this.GetModel</c> 编译不过）延伸到 <c>[Inject]</c> 反射注入这条路——
         /// 否则 View 写 <c>[Inject] SomeModel</c> 就能绕过只读约束。
         /// <list type="bullet">
-        ///   <item><b>Command 例外：</b>它不实现 ICanXxx，但经 <see cref="Game.Framework.Command.ICommandContext"/> 拥有完整层访问权，故允许注入 Model/System/Utility。</item>
+        ///   <item><b>Command 例外：</b>它不实现 ICanXxx，但经 <see cref="Game.Framework.Command.ICommandContext"/> 可获取 Model/System/Utility，故允许注入这三类层。</item>
         ///   <item><b>GameContext/IGameContext：</b>万能门，任何宿主都禁注，应走扩展方法访问层。</item>
         ///   <item><b>View / Command / Event 等非层类型：</b>不受 ICanGetX 管辖、不在本校验内——能否注入只看容器是否注册（通常它们不注册，注入会自然 resolve 失败）。</item>
         /// </list>
@@ -61,7 +61,7 @@ namespace Game.Framework.Internal
             if (fieldType == typeof(GameContext) || fieldType == typeof(IGameContext))
                 return "GameContext/IGameContext 是全权限入口；请通过分层扩展方法访问 Model/System/Utility";
 
-            // Command 经 ctx 有完整层访问权，等同于持有 ICanGetModel/System/Utility 全部。
+            // Command 经 ctx 可获取 Model/System/Utility，等同于持有这三种 ICanGet 权限。
             bool hostIsCommand = typeof(Game.Framework.Command.ICommandBase).IsAssignableFrom(hostType);
 
             // 三类层注入：宿主须具备对应的"获取"权限（与 this.GetXxx 同源）。
@@ -112,12 +112,13 @@ namespace Game.Framework.Internal
             for (var current = type; current != null && current != typeof(object); current = current.BaseType)
                 hierarchy.Add(current);
 
+            var injectedVirtualSlots = new HashSet<MethodInfo>();
             for (int i = hierarchy.Count - 1; i >= 0; i--)
             {
                 var t = hierarchy[i];
                 CollectFields(t, type, ref list);
-                CollectProperties(t, type, ref list);
-                CollectMethods(t, type, ref list);
+                CollectProperties(t, type, injectedVirtualSlots, ref list);
+                CollectMethods(t, type, injectedVirtualSlots, ref list);
             }
             return new InjectionPlan(list?.ToArray() ?? _empty);
         }
@@ -151,12 +152,14 @@ namespace Game.Framework.Internal
             }
         }
 
-        private static void CollectProperties(Type t, Type hostType, ref List<Action<object, GameContext>> list)
+        private static void CollectProperties(Type t, Type hostType, HashSet<MethodInfo> virtualSlots,
+            ref List<Action<object, GameContext>> list)
         {
             foreach (var prop in t.GetProperties(Flags))
             {
                 if (!prop.IsDefined(typeof(InjectAttribute))) continue;
                 if (!prop.CanWrite) continue;
+                if (!TryClaimVirtualSlot(prop.GetSetMethod(nonPublic: true), virtualSlots)) continue;
                 var p = prop;
                 var pType = prop.PropertyType;
                 var ownerName = t.Name;
@@ -181,11 +184,13 @@ namespace Game.Framework.Internal
             }
         }
 
-        private static void CollectMethods(Type t, Type hostType, ref List<Action<object, GameContext>> list)
+        private static void CollectMethods(Type t, Type hostType, HashSet<MethodInfo> virtualSlots,
+            ref List<Action<object, GameContext>> list)
         {
             foreach (var method in t.GetMethods(Flags))
             {
                 if (!method.IsDefined(typeof(InjectAttribute))) continue;
+                if (!TryClaimVirtualSlot(method, virtualSlots)) continue;
                 var m = method;
                 var pars = method.GetParameters();
                 var paramTypes = new Type[pars.Length];
@@ -224,6 +229,13 @@ namespace Game.Framework.Internal
                     m.Invoke(target, args);
                 });
             }
+        }
+
+        private static bool TryClaimVirtualSlot(MethodInfo method, HashSet<MethodInfo> virtualSlots)
+        {
+            // 在基类 MethodInfo 上 Invoke 也会分派到最派生 override。按名称去重会误伤 new 隐藏成员；
+            // 按虚槽位去重才能既避免重复初始化，又保留不同槽位与非虚基类成员的独立注入。
+            return !method.IsVirtual || virtualSlots.Add(method.GetBaseDefinition());
         }
     }
 }

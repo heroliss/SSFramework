@@ -70,22 +70,22 @@ namespace Game.Framework.Editor
         /// </summary>
         internal static IReadOnlyList<Group> GroupCandidates(IReadOnlyList<Candidate> candidates)
         {
-            var byHostId = candidates.ToDictionary(candidate => candidate.Host.GetInstanceID());
+            var byHostId = candidates.ToDictionary(candidate => candidate.Host.GetEntityId());
             var causesByHostId = candidates.ToDictionary(
-                candidate => candidate.Host.GetInstanceID(),
+                candidate => candidate.Host.GetEntityId(),
                 candidate => DeepestCause(candidate.Snapshot.Failure));
             var adjacent = candidates.ToDictionary(
-                candidate => candidate.Host.GetInstanceID(),
-                _ => new HashSet<int>());
-            var parentInSameCauseChain = new Dictionary<int, int>();
+                candidate => candidate.Host.GetEntityId(),
+                _ => new HashSet<EntityId>());
+            var parentInSameCauseChain = new Dictionary<EntityId, EntityId>();
 
             foreach (Candidate candidate in candidates)
             {
-                int childId = candidate.Host.GetInstanceID();
+                EntityId childId = candidate.Host.GetEntityId();
                 if (candidate.Snapshot.ResolvedParent is not MonoGameContextBase monoParent || monoParent == null)
                     continue;
 
-                int parentId = monoParent.GetInstanceID();
+                EntityId parentId = monoParent.GetEntityId();
                 if (!byHostId.ContainsKey(parentId) ||
                     !BelongsToSameIssueChain(causesByHostId[childId], causesByHostId[parentId]))
                     continue;
@@ -96,19 +96,19 @@ namespace Game.Framework.Editor
             }
 
             var groups = new List<Group>();
-            var unvisited = new HashSet<int>(byHostId.Keys);
+            var unvisited = new HashSet<EntityId>(byHostId.Keys);
             foreach (Candidate start in candidates.OrderBy(candidate => candidate.Path, StringComparer.Ordinal))
             {
-                int startId = start.Host.GetInstanceID();
+                EntityId startId = start.Host.GetEntityId();
                 if (!unvisited.Remove(startId)) continue;
 
-                var componentIds = new HashSet<int> { startId };
-                var queue = new Queue<int>();
+                var componentIds = new HashSet<EntityId> { startId };
+                var queue = new Queue<EntityId>();
                 queue.Enqueue(startId);
                 while (queue.Count > 0)
                 {
-                    int current = queue.Dequeue();
-                    foreach (int neighbor in adjacent[current])
+                    EntityId current = queue.Dequeue();
+                    foreach (EntityId neighbor in adjacent[current])
                     {
                         if (!unvisited.Remove(neighbor)) continue;
                         componentIds.Add(neighbor);
@@ -121,13 +121,13 @@ namespace Game.Framework.Editor
                     .OrderBy(candidate => candidate.Path, StringComparer.Ordinal)
                     .ToList();
                 List<Candidate> roots = affected
-                    .Where(candidate => !parentInSameCauseChain.ContainsKey(candidate.Host.GetInstanceID()))
+                    .Where(candidate => !parentInSameCauseChain.ContainsKey(candidate.Host.GetEntityId()))
                     .ToList();
                 bool hasParentCycle = roots.Count == 0;
                 Candidate origin = hasParentCycle ? affected[0] : roots[0];
                 groups.Add(new Group(
                     origin,
-                    causesByHostId[origin.Host.GetInstanceID()],
+                    causesByHostId[origin.Host.GetEntityId()],
                     affected,
                     hasParentCycle));
             }
@@ -205,14 +205,14 @@ namespace Game.Framework.Editor
             var signature = new StringBuilder(256).Append(editorIsPlaying ? "play;" : "history;");
             foreach (Group group in groups)
             {
-                signature.Append("group:").Append(group.Origin.Host.GetInstanceID()).Append(':')
+                signature.Append("group:").Append(group.Origin.Host.GetEntityId().ToString()).Append(':')
                     .Append(group.Origin.Path).Append(':')
                     .Append(group.HasParentCycle).Append(':')
                     .Append(group.IsTimingConcern).Append(':')
                     .Append(group.RootCause?.ToString()).Append(';');
                 foreach (Candidate candidate in group.Affected)
                 {
-                    signature.Append("host:").Append(candidate.Host.GetInstanceID()).Append(':')
+                    signature.Append("host:").Append(candidate.Host.GetEntityId().ToString()).Append(':')
                         .Append(candidate.Path).Append(':')
                         .Append((int)candidate.Snapshot.State).Append(':')
                         .Append(DescribeParent(candidate.Snapshot.ResolvedParent)).Append(':')

@@ -1,16 +1,18 @@
-# ADR-0025：字体策略 —— 精简字集随包 + 主字体 fallback 链 + OS 字体运行时兜底
+# ADR-0025：字体策略 —— 游戏字体资产 + 主字体 fallback 链 + OS 字体运行时补充
 
 **Status:** Accepted（2026-07-05；2026-07-04 草案随 ADR-0024 一起设计，落地时按 Unity 6000.3 实测 API 细化）
 
 ## Context
 
-CJK 全量字库体积大（单字体 15~30MB，多语言更甚），全量随包不现实；但砍了字库，用户名 / 聊天 / UGC 这类**不可预知文本**又会显示豆腐块。早期规划中的中期⑤策略方向：精简常用字集随包 + fallback 链兜生僻字 + 运行时 OS 系统字体作最后兜底。字体按 locale 切换，信号来自 ADR-0024 的 `ILocalizationUtility.Locale`。
+CJK 字体源及图集的体积随字符覆盖、字重、格式与生成设置变化。为兼顾发行体积与用户名 / 聊天 / UGC 等不可预知文本，消费工程可采用常用字静态图集、补充字体与运行时 OS 字体候选。字体按 locale 切换，信号来自 ADR-0024 的 `ILocalizationUtility.Locale`。
+
+**当前资产边界：SSFramework 只提供机制，没有随包分发任何中文 / CJK 字体源、预生成字体资产或默认语言档案。** 本 ADR 中的主字体和补充字体由消费工程提供并随游戏发行。可选入门字体包属于[初始化规划](../project-startup.md)，尚未实现，也不属于当前已验证的能力。
 
 技术面（Unity 6000.3 实测）：UGUI 侧文本是 TMP（并入 `com.unity.ugui` 2.0，程序集 `Unity.TextMeshPro`）；UI Toolkit 侧是 TextCore `FontAsset`。两套 fallback 机制独立，但**双后端都有 public 可写的 per-font fallback 表**（`TMP_FontAsset.fallbackFontAssetTable` / `FontAsset.fallbackFontAssetTable`）和**按 OS 字体族名直接建动态字体资产**的对称 API（`CreateFontAsset(familyName, styleName, pointSize)`，找不到返回 null、只打 info 日志）。
 
 ⚠ 草案设想的「TMP 全局 fallback + PanelTextSettings fallback」路线实测**不可行了一半**：6000.3 里 `PanelSettings.textSettings` 已被移除、`PanelTextSettings.defaultPanelTextSettings` 是 internal-only——Toolkit 侧的全局路径只剩反射（脆弱、随版本漂移）。
 
-⚠ 实测另一关键差异：**Toolkit 文本引擎在 TextCore `TextSettings` 层内建 OS 字形兜底**（internal `fallbackOSFontAssets`，缺字自动查系统字体）——Toolkit 侧缺字**不豆腐，但字形随平台走**（Windows 雅黑 / macOS 苹方）；**TMP 无此机制，缺字即豆腐块**。因此 ②③ 在 TMP 侧是刚需；在 Toolkit 侧 ② 的价值是「字形归属可控」（链上品牌字体优先于引擎 OS 兜底，各平台排版一致），③ 提供的是候选次序可控（引擎兜底选谁由 OS 决定）。
+⚠ 实测差异：Toolkit 文本引擎在 TextCore `TextSettings` 层有 OS 字形兜底路径（internal `fallbackOSFontAssets`）；TMP 需要显式配置字体补充。系统兜底仍依赖已安装字体及其字形覆盖，无法保证任意字符都能显示；字形与排版也可能随平台变化。项目提供的字体有助于控制来源和地区字形，OS 候选只作为最后的补充。
 
 ## Decision
 
@@ -18,7 +20,7 @@ CJK 全量字库体积大（单字体 15~30MB，多语言更甚），全量随�
 
 | 层 | 内容 | 覆盖 |
 |---|---|---|
-| ① 随包主字体 | 精简常用字集烘焙的 static atlas（`TMP_FontAsset` / TextCore `FontAsset`） | 已知 UI 文案与配置表文本（99% 显示量） |
+| ① 随游戏发布的主字体 | 项目字集烘焙的 static atlas（`TMP_FontAsset` / TextCore `FontAsset`） | 已知 UI 文案与配置表文本 |
 | ② locale 补充字体 | per-locale 配置的补充字体资产（动态 atlas，如 NotoSansSC），链上只补当前语言的差集 | 生僻字 / 特定语言扩展区 |
 | ③ OS 字体兜底 | 运行时按族名候选创建动态字体资产，挂链尾 | 用户名 / 聊天等不可预知文本 |
 
@@ -55,7 +57,7 @@ CJK 全量字库体积大（单字体 15~30MB，多语言更甚），全量随�
 
 ### 6. 刻意不做
 
-- **全字库随包 / 每 locale 独立完整字体**：fallback 链的意义就是共享通用字形、语言层只补差集。
+- **Framework 强制携带全字库**：消费方选择所需字体资产与覆盖范围；可选字体资源应记录版本、来源、许可证、支持语言及真实渲染验证。
 - **运行时字形卸载 / atlas 压缩调优**：动态 atlas 的内存策略交 TMP/TextCore 默认，量化出问题再调。
 - **Web 字体 / 远程字体下发协议**：字体资产就是普通资源，locale 分包（ADR-0024 §4 的多 package 组合）已覆盖「按需下载」。
 - **UGUI 旧版 `Text`（非 TMP）**：旧版动态 Font 引擎自带 OS 回退，无需框架介入；新文本一律 TMP。

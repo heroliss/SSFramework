@@ -72,24 +72,25 @@ namespace Game.Framework.Editor.Tests
                     .All(source => System.IO.Directory.Exists(source.PhysicalDirectory)), Is.True,
                 "隔离构建必须拿到 Assets 或 PackageCache 中真实存在的 Module 源码目录。");
             var core = plans.Single(plan => plan.Key == "core");
-            Assert.That(core.ManifestPackages,
-                Does.Not.Contain("com.cysharp.r3").And.Not.Contain("com.cysharp.unitask"),
-                "Git Package 应冻结已解析源码，不让可变 branch/tag 在不同档位重新解析。 ");
             Assert.That(core.ManifestFingerprint, Has.Length.EqualTo(64));
             Assert.That(core.MinimalManifest,
-                Does.Not.Contain("com.cysharp.r3").And.Not.Contain("com.unity.ugui"),
+                Does.Not.Contain("com.unity.ugui"),
                 "每档应在启动时冻结最小 manifest，后续组合不能重新读取可能已变化的主工程版本。 ");
-            Assert.That(core.CopiedPackages.Select(package => package.PackageName),
-                Does.Contain("nuget-packages").And.Contain("com.cysharp.r3")
-                    .And.Contain("com.cysharp.unitask"),
-                "embedded 与 Git Package 来源必须以已解析内容进入可恢复的 Profile 计划。 ");
+            foreach (string packageName in new[] { "com.cysharp.r3", "com.cysharp.unitask" })
+            {
+                var source = FrameworkModuleSourceCatalog.Resolve("Packages/" + packageName);
+                bool copied = FrameworkBuildSizeProbe.IsCopiedPackageSource(source.Kind);
+                Assert.That(core.CopiedPackages.Any(package => package.PackageName == packageName),
+                    Is.EqualTo(copied), "根据实际来源冻结源码或已解析 Registry 版本，不能假定所有工程均用 Git 包。 ");
+                Assert.That(core.ManifestPackages.Contains(packageName), Is.EqualTo(!copied));
+                if (!copied)
+                    Assert.That(core.MinimalManifest,
+                        Does.Contain($"\"{packageName}\": \"{source.PackageVersion}\""));
+            }
             Assert.That(core.CopiedPackages.All(package => Directory.Exists(package.PhysicalDirectory)), Is.True);
-            Assert.That(core.CopiedPackages.Single(package => package.PackageName == "nuget-packages").PackageId,
-                Is.EqualTo("nuget-packages@1.0.0"),
-                "embedded Package 的 Unity packageId 含本机 file: 路径；报告应使用可移植身份。 ");
-            Assert.That(core.CopiedPackages.Single(package => package.PackageName == "com.cysharp.r3")
-                    .SourceFingerprint,
-                Has.Length.EqualTo(64));
+            Assert.That(core.CopiedPackages.All(package => package.SourceFingerprint.Length == 64), Is.True);
+            Assert.That(core.CopiedPackages.All(package => !package.PackageId.Contains("file:")), Is.True,
+                "复制包的报告身份不能包含本机 file: 路径。 ");
             Assert.That(plans.Single(plan => plan.Key == "ugui").ManifestPackages,
                 Does.Not.Contain("com.unity.inputsystem").And.Contain("com.unity.ugui"),
                 "UI Core 不应因项目返回键接线被迫安装 Input System。");
@@ -144,6 +145,28 @@ namespace Game.Framework.Editor.Tests
             Assert.That(arbitrary, Does.Contain("example.registry"));
             Assert.That(arbitrary, Does.Contain("https://packages.example.invalid"),
                 "隔离 manifest 应保留主工程 scoped registry，不为某个供应商硬编码 registry。 ");
+        }
+
+        [Test]
+        public void MinimalManifest_FreezesResolvedDirectAndTransitiveVersions()
+        {
+            var resolved = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["com.cysharp.r3"] = "1.3.1",
+                ["org.nuget.r3"] = "1.3.1",
+                ["com.unity.entities"] = "1.4.8",
+            };
+            string manifest = FrameworkBuildSizeProbe.CreateMinimalManifest(
+                Manifest, new[] { "com.cysharp.r3", "org.nuget.r3" }, resolved);
+
+            Assert.That(manifest, Does.Contain("\"com.cysharp.r3\": \"1.3.1\""),
+                "根清单的声明不能覆盖已解析的统一版本。 ");
+            Assert.That(manifest, Does.Contain("\"org.nuget.r3\": \"1.3.1\""),
+                "Framework 的传递依赖即使不在工程根清单中，也必须进入探针计划。 ");
+            Assert.That(manifest, Does.Not.Contain("com.unity.entities"));
+            Assert.That(manifest, Does.Contain("https://packages.example.invalid"));
+            Assert.Throws<InvalidOperationException>(() => FrameworkBuildSizeProbe.CreateMinimalManifest(
+                Manifest, new[] { "com.example.unresolved" }, resolved));
         }
 
         [Test]
@@ -1431,5 +1454,4 @@ namespace Game.Framework.Editor.Tests
         }
     }
 }
-
 
