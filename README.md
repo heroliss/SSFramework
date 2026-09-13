@@ -244,7 +244,7 @@ SSFramework 把“让工具能找到事实”作为工程能力的一部分，�
 
 `v0.1.4` 补充安装后只读自检及可选 Git / AI 文件初始化，已验证真实消费工程的文件保留和工具回归。框架源码与依赖继续保持一致；文件检查不会代替 Unity 编译、场景或 Player 验收，详见[工具验证范围](docs/consuming-framework.md#v014-配置自检与可选项目初始化)。
 
-`v0.1.5` 候选增加独立可选的简体中文字体资源，Editor 显示和普通 IL2CPP 构建已通过；可见 Player 画面仍待验收，完成后再发布，见[字体验证范围](docs/consuming-framework.md#v015-可选中文字体资源)。
+`v0.1.5` 增加独立可选的简体中文字体资源，TMP / UI Toolkit 已通过导入、Editor 显示及非 Development Windows x64 IL2CPP Player 的可见画面验收，见[字体验证范围](docs/consuming-framework.md#v015-可选中文字体资源)。
 
 接入或修改框架后，按改动涉及的范围选择验证方式：
 
