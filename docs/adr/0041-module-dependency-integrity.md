@@ -48,7 +48,7 @@ Core 提供公开 Assembly attribute：
 
 具体 Adapter 在自己的 `AssemblyInfo.cs` 声明。Core 扫描已加载 Assembly 的注册并要求恰好一个合法、非抽象、具有无参构造的 `IAssetProvider`；零注册解释安装方式，多注册列出冲突。Yoo Module 保留自己的 `link.xml`，对“自定义属性引用 + 反射构造”在不同 Unity linker 版本下采用保守保护。
 
-Assembly attribute 只负责装配声明，并不天然构成 UnityLinker 根。新的资源 Adapter 必须自带对应 `link.xml`（或等价的静态可达根），保证程序集在创建 `AssetUtility` 前已加载，并用目标平台 AOT Player 验证“发现注册 → 反射构造 → 初始化”的完整链路。Core 的测试友元也不引用具体 Adapter 测试程序集；Adapter 契约测试通过反射访问 internal Composition Root，避免用测试便利重新制造反向名字依赖。当前 Editor 契约与 link.xml 已验证，Core 隔离 IL2CPP 构建也已验证，但“业务完全不静态引用 Asset.Yoo、仅靠 linker 根发现注册”的独立 AOT 启动 Smoke 仍是发布前验证项，不能由 Editor 测试代替。
+Assembly attribute 只负责装配声明，并不天然构成 UnityLinker 根。新的资源 Adapter 必须自带对应 `link.xml`（或等价的静态可达根），保证程序集在创建 `AssetUtility` 前已加载，并用目标平台 AOT Player 验证“发现注册 → 反射构造 → 初始化”的完整链路。Core 的测试友元也不引用具体 Adapter 测试程序集；Adapter 契约测试通过反射访问 internal Composition Root，避免用测试便利重新制造反向名字依赖。2026-09-13 的真实 UPM 消费工程已完成“业务不静态引用 Asset.Yoo、依靠 linker 根发现注册”的非 Development Windows x64 IL2CPP 验收：修复下文 Package 规则接入后，独立 Player 成功初始化并加载、释放、再次加载离线资源。其结果与范围见[发布验证](../consuming-framework.md#v012-发布验证)，不能用 Editor 测试代替目标 Player 检查。
 
 没有采用运行期可变全局注册表：默认后端是应用级架构装配，不是每场景状态；可变注册会引入初始化顺序、测试残留和运行期换血所有权问题。也没有把 provider 序列化进场景：它是有状态服务 Implementation，不是 per-instance 数据。
 
@@ -76,5 +76,6 @@ Player 编译图也包含可被 HybridCLR 从 AOT 输入移除的 Module，不�
 - asmdef 字段 / Auto Reference 门禁与 Module Audit 当前编译快照外部引用测试；
 - 目标热更 DLL 元数据拓扑的排序、数量、边界编码、结构定义、布局、特性参数与 P/Invoke 测试；AOT Player 源输入和 UnityLinker 非代码根指纹测试；
 - Yoo 默认注册、非法注册与多注册失败测试；
+- Package linker 规则来源、成员与条件保留、删除后清空和坏输入回归；真实 UPM 非 Development IL2CPP 的保留响应文件、裁剪 DLL 与离线资源 Player 验收；
 - Unity 编译、EditMode / PlayMode 全量、Core 隔离构建；
 - 正式执行 Generate/All 与 CodePackage 构建，检查 Sirenix 不再出现在生成与中转产物；再次 Generate 时字体源资产字节保持不变。

@@ -106,7 +106,7 @@ https://github.com/heroliss/SSFramework.git
 上面解析默认分支 main，适合希望使用简便入口的工程。要固定到本次发行版，使用下面的地址；接入工具默认也使用这个标签。其他已审查版本可使用对应 tag 或完整 commit SHA：
 
 ```text
-https://github.com/heroliss/SSFramework.git#v0.1.1
+https://github.com/heroliss/SSFramework.git#v0.1.2
 ```
 
 正式项目优先使用完整 commit SHA 或发布后不再移动的 tag；`#main` 等分支名仍会随开发变化，不能单靠名字确认包内容。不同地址的解析与升级行为见[版本选择与发布](#版本选择与发布)。等待 UPM 下载和脚本编译后，继续选择下面的开发工具，或直接进行[安装验收](#安装验收)。
@@ -224,7 +224,19 @@ https://github.com/CoplayDev/unity-mcp.git?path=/MCPForUnity#v10.2.0
 
 发行提交仅追加安装入口与发布说明，Runtime / Editor / 测试源码与上述验证提交一致。此结果不覆盖 HybridCLR 热更新、YooAsset 离线 / Host 内容构建、全部渲染设备或大规模 ECS 仿真；真实鼠标 / 键盘体验仍由消费工程人工验收。
 
-后续的真实离线 Player 回归发现：v0.1.1 通过 UPM 安装时，Package 内的保留规则没有进入 UnityLinker，Yoo Adapter 被裁剪，`AssetUtility` 启动时报“没有注册默认资源 Provider”。上面的构建回调修复正在候选分支验证；v0.1.1 的历史通过项不代表这条资源加载路径已通过。
+后续的真实离线 Player 回归发现：v0.1.1 通过 UPM 安装时，Package 内的保留规则没有进入 UnityLinker，Yoo Adapter 被裁剪，`AssetUtility` 启动时报“没有注册默认资源 Provider”。此问题已在 v0.1.2 修复；v0.1.1 的历史通过项不代表这条资源加载路径已通过。
+
+### v0.1.2 发布验证
+
+2026-09-13，在真实 Unity `6000.3.23f1` UPM 消费工程完成资源包与普通 IL2CPP 交付验收。Player 使用源码提交 `b07620359798f02e421f3a68b8f91a409bfa8c0d`；发行提交的 `src/` 与其一致，仅更新包版本、接入工具默认标签和文档。
+
+- Editor 测试分批通过 **564 项既有测试 + 10 项新增裁剪回归，共 574 项**；15 项 YooAsset PlayMode 测试通过，均零失败、零跳过。v0.1.1 的 769 项 PlayMode 全量结果保留为历史证据，本次未声称重新全量运行。
+- 实际构建响应文件包含 Framework 汇总的保留规则，裁剪后的输出保留 `Game.Framework.Asset.Yoo.dll`。消费业务 asmdef 虽声明了允许引用，但实际 Player DLL 的程序集引用表没有该 Adapter；Player 仍能发现注册并初始化。
+- YooAsset 资源构建、全部内置复制和非 Development Windows x64 IL2CPP Player 构建成功，BuildReport **0 错误 / 0 警告**。交付 ZIP 解压后逐文件哈希与原文件一致。
+- 解压后的 Player 在 RTX 3070 上以默认图形 API 启动，计数命令、Offline 包内文本与版本、URP 材质、加载 / 释放 / 再加载均通过，运行无错误、退出码 0。可见窗口截图经检查确认模型和界面正常显示；消费方也人工打开程序确认显示正常。
+- 更新默认标签后的接入工具，30 组安装测试和 17 组包源测试分别在 Windows PowerShell 5.1 / PowerShell 7 通过，包含真实工程只读检查和清单副本写入验证。
+
+使用完整 Framework Editor Module 的工程更新 UPM 包后即可获得修复，无需手动复制 `link.xml`。本轮不覆盖 HybridCLR 代码热更新、Host/CDN 更新、其他平台 / 显卡或大规模 ECS 仿真；选用这些能力时补对应验收。
 
 ## 版本升级流程
 

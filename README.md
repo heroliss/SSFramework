@@ -99,7 +99,7 @@ Scope 明细、MCP 连接命令和来源可通过 `-Details` 查看；命令行�
 上面的普通 Git 地址解析默认分支 main，UPM 用锁文件记录实际提交，不会随每次启动自动升级。希望固定本次发行版时使用下面的地址；接入工具默认也使用这个标签：
 
 ```text
-https://github.com/heroliss/SSFramework.git#v0.1.1
+https://github.com/heroliss/SSFramework.git#v0.1.2
 ```
 
 发布标签不再移动；也可使用 `#<完整 commit SHA>` 固定其他已审查提交。开发框架本身时，可以使用 Package Manager 的本地路径方式引用工作副本。从早期版本升级到 `0.1.1` 时，还需补充 `org.nuget` 和 `com.code-philosophy.hybridclr` 两项 Scope。安装前先检查[依赖前置条件](docs/consuming-framework.md#依赖前置条件)；自己的场景、平台及所用内容构建链仍须在消费工程验收。
@@ -236,7 +236,7 @@ SSFramework 把“让工具能找到事实”作为工程能力的一部分，�
 
 ## 🧪 验证方式
 
-`v0.1.1` 已在真实 Unity `6000.3.23f1` 消费工程通过 **564 项 Editor / 769 项 PlayMode 测试**，完成普通 Windows x64 IL2CPP 构建（0 错误 / 0 警告）及最小场景的启动和交互验证。验证范围与后续发布标准见[接入指南](docs/consuming-framework.md#版本选择与发布)。
+`v0.1.2` 已在真实 Unity `6000.3.23f1` 消费工程通过 **574 项 Editor 测试（564 项既有测试 + 10 项新增裁剪回归，分批运行）和 15 项 YooAsset PlayMode 测试**。资源包与非 Development Windows x64 IL2CPP Player 已完成构建、解压运行、交互、Offline 加载 / 释放 / 再加载及可见画面验收。具体环境、历史结果与未覆盖范围见[接入指南](docs/consuming-framework.md#v012-发布验证)。
 
 接入或修改框架后，按改动涉及的范围选择验证方式：
 
