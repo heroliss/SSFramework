@@ -8,32 +8,22 @@ SSFramework 将依赖注入、Context 作用域、Model / System / View 分层�
 
 [📖 使用指南](docs/framework-guide.md) · [🧭 文档索引](docs/README.md) · [🔧 接入与升级](docs/consuming-framework.md) · [🧾 架构决策](docs/adr/README.md)
 
-默认语言版本为 **C# 10.0**，用于 `record struct` 数据类型与日志插值处理器。包内各程序集自带编译配置，业务工程由安装工具配置，或按[手动说明](docs/consuming-framework.md#c-10-默认约定与原因)添加 `csc.rsp`；该设置不会升级 Unity 的 .NET 运行库。
-
 ![SSFramework 架构图](docs/SSFramework-architecture.png)
 
 ## ✨ 核心特点
 
 | 设计 | 能解决的问题 |
 |---|---|
-| **Context 组合根** | 把依赖注册、解析、事件总线、命令分发和取消边界集中到可命名的作用域中；场景、功能和测试可以各自拥有清楚的边界。 |
-| **Model / System / View + Command** | View 表达“要做什么”，Command 连接意图与受限上下文，System 执行规则并修改 Model；复杂逻辑不会逐渐堆成一个巨型 MonoBehaviour。 |
-| **类型化的层权限** | IModel、ISystem、IUtility、IView、ICommand 等接口表达访问方向，常见的越权会在编译期或注入期暴露。 |
-| **状态与事件分工** | 有当前值、需要晚加入者立即读取的内容使用 RP<T> / ReadOnlyReactiveProperty<T>；只表示“某件事发生”的瞬时通知使用 IEvent。 |
-| **单向、可追踪的数据流** | 常见路径是 View → Command → System → Model，变化再经响应式属性或 Event 返回 View；每个写入点都有明确的代码入口。 |
-| **层级与平行 Context** | 子 Context 可继承父级服务，也可以保持自己的状态和事件范围；不同功能可以共享基础设施，同时避免互相读取局部状态。 |
-| **Mono 与纯 C# 双路径** | 需要 Inspector、Hierarchy 和 Unity 生命周期时使用 Mono*Base；纯规则、服务和测试可以直接使用 C# 类型与 GameContext。 |
-| **可替换的 Command 分发器** | ICommandSystem 是基础设施接缝，不是业务五层中的 ISystem；可替换为日志、回放、撤销、优先级或调试装饰器。 |
-| **值类型 Command 路径** | 同步和异步 Command 都提供双泛型重载；readonly struct Command 可避免装箱，class Command 则可按需使用 [Inject]。 |
-| **统一的生命周期 Bag** | 订阅、异步操作、资源句柄和对象租借可以登记到 DisposableBag；宿主销毁或 Context 释放时统一清理，并继续处理后续清理项。 |
-| **取消沿宿主边界传递** | Context、Mono View 和调用方可以组成清晰的取消边界；异步 Command 收到已经决定好的 token，并在完成、失败或取消后回到 Unity 主线程交付。 |
-| **资源与服务的 Adapter 边界** | 资源加载、存储、网络、日志、音频、配置和 UI 后端以 Interface / Adapter 连接，第三方类型不会反向渗入 Core 业务规则。 |
-| **可裁剪的程序集边界** | 可选能力按 Runtime / Editor / Tests 划分程序集，依赖方向和删除阻塞记录在模块地图中；项目不需要的能力可以单独评估。 |
-| **渲染中立的 UI 编排** | 窗口层级、栈、模态、过渡和增量列表绑定位于 UI Core，UGUI、UI Toolkit 和桥接能力分别作为后端接入。 |
-| **编辑器工具有稳定入口** | 模块审计、配置与生成工具、资源构建、热更新构建和诊断窗口通过注册表接入通用工具中心；删除可选 Module 后对应入口会自然消失。 |
-| **面向证据的工程接口** | 测试、预检、模块依赖报告和隔离体积探针都能留下可复核结果；“源码存在、参与编译、被消费、进入 Player”不会被混成一个状态。 |
+| **清晰的业务分层** | Model 保存状态、System 执行规则、View 表达交互意图，Command 连接操作与规则；各层通过类型化接口约束访问方向。 |
+| **可追踪的数据流** | 用户操作沿 View → Command → System → Model 传递，变化再经响应式状态或事件反馈到界面，便于定位行为的来源。 |
+| **有边界的功能组织** | Context 管理依赖与生命周期，支持层级和并列作用域；场景、功能和测试可以共享服务并保留自己的局部状态。 |
+| **统一的资源清理** | 订阅、资源句柄和对象租借可交给 DisposableBag 管理，异步操作可随宿主生命周期取消，减少遗漏清理。 |
+| **Mono 与纯 C# 双路径** | 组件使用 Unity 的 Inspector 和生命周期；纯规则与服务可以使用普通 C# 类型，便于独立测试。 |
+| **模块与第三方实现可替换** | 资源、UI、配置、网络等能力通过独立模块与 Adapter 接入，业务按需引用，依赖与裁剪边界有文档可查。 |
+| **集中的编辑器工具** | 配置生成、资源构建、热更新构建和诊断通过通用工具中心提供入口，便于发现和使用。 |
+| **支持人工与自动化验证** | 包内测试、运行前检查和模块依赖报告提供可复核结果，可接入 Unity MCP、CI 或其他自动化工具。 |
 
-这些设计的共同目标是让代码更容易定位和替换：新功能有明确落点，View 不需要了解基础设施实现，第三方升级的影响面可见，纯规则可以在不启动完整场景的情况下验证。
+这些设计的共同目标是让代码更容易定位和替换：新功能有明确落点，View 不需要了解基础设施实现，第三方升级的影响面可见，纯规则可以在不启动完整场景的情况下验证。各层 API、Command 分发与性能细节见[框架使用指南](docs/framework-guide.md)。
 
 ## 📐 架构与数据流
 
@@ -52,6 +42,22 @@ SSFramework 将依赖注入、Context 作用域、Model / System / View 分层�
 - **RP<T>** 适合有当前值的状态；Event 不保存历史，也不会向新订阅者回放过去消息。
 
 事件和响应式状态都应交给宿主的 DisposableBag 管理。Context 释放时会取消其生命周期 token，MonoViewBase 销毁时会释放自己的 Bag；业务代码仍需对自己拥有的外部资源负责。
+
+## 🧰 能力模块
+
+| 模块 | 内容 | 适用边界 |
+|---|---|---|
+| **Core** | Context、容器、Model / System / Utility / View、Command / Event、响应式属性、生命周期、对象池、异步取消、存储 / 音频 / Flow / 本地化 / 日志 / 网络的稳定 Interface | 所有项目的基础运行时；不包含具体游戏玩法 |
+| **基础依赖** | R3 提供响应式数据流，UniTask 提供异步任务与取消协作；Unity 原生 UI、Editor 和序列化能力通过公开边界接入 | 业务可以直接使用这些基础能力，但不需要把第三方类型扩散到所有模块 |
+| **Asset.Yoo** | IAssetProvider 的 YooAsset Adapter、资源引用和运行时装配 | 项目选择 YooAsset 时接入；Core 不保存 YooAsset 类型 |
+| **UI** | 渲染中立的窗口、层级、栈、模态、过渡和响应式列表绑定 | 业务 UI 的编排与生命周期 |
+| **UI.UGui / UI.Toolkit / UI.Bridge** | UGUI、UI Toolkit 和内容嵌入桥的后端实现 | 业务只引用和装配实际使用的后端；当前仍随完整 UPM 包分发 |
+| **Config / Network.Proto** | 配置运行时、Luban Editor 工具、Protobuf 序列化 Adapter 和生成入口 | 配置表与协议生成属于项目构建链 |
+| **Fonts** | TMP 多语言字体 fallback、常用字集工具和相关测试 | 有多语言字体链需求时接入 |
+| **Build / Boot** | 资源构建、HybridCLR 热更新构建、CodePackage 和启动薄壳 | 仅在项目采用对应发布链时接入 |
+| **Editor** | 原生 Drawer / Inspector、诊断、模块审计、工具注册、输出声明和隔离体积探针 | 只编译到 Editor，不进入玩家运行时 |
+
+模块职责、程序集引用和删除测试见[模块地图](docs/framework-module-map.md)；第三方依赖的版本和来源以 package.json、项目 manifest 与锁文件为准。
 
 ## 🚀 快速开始
 
@@ -90,8 +96,6 @@ Scope 明细、MCP 连接命令和来源可通过 `-Details` 查看；命令行�
 
 #### 版本固定与升级
 
-`v0.1.1` 包含依赖与自检修复、包内 C# 10 配置、消费工程依赖布局适配和 YooAsset 独立测试夹具。真实 Unity `6000.3.23f1` 消费工程已通过 **564 项 Editor / 769 项 PlayMode 测试**，完成普通 Windows x64 IL2CPP 构建（0 错误 / 0 警告）及最小场景的启动和交互验证。验证范围与后续发布标准见[接入指南](docs/consuming-framework.md#版本选择与发布)。
-
 上面的普通 Git 地址解析默认分支 main，UPM 用锁文件记录实际提交，不会随每次启动自动升级。希望固定本次发行版时使用下面的地址；接入工具默认也使用这个标签：
 
 ```text
@@ -100,7 +104,15 @@ https://github.com/heroliss/SSFramework.git#v0.1.1
 
 发布标签不再移动；也可使用 `#<完整 commit SHA>` 固定其他已审查提交。开发框架本身时，可以使用 Package Manager 的本地路径方式引用工作副本。从早期版本升级到 `0.1.1` 时，还需补充 `org.nuget` 和 `com.code-philosophy.hybridclr` 两项 Scope。安装前先检查[依赖前置条件](docs/consuming-framework.md#依赖前置条件)；自己的场景、平台及所用内容构建链仍须在消费工程验收。
 
-### 2. 为业务程序集显式引用 Framework
+### 2. 配置业务程序集
+
+#### 语言版本：C# 10.0
+
+Framework 与本文示例默认使用 **C# 10.0**：`record struct` 简化事件等数据类型的声明，日志插值处理器让被关闭的 Trace 日志跳过消息构造。
+
+包内各程序集已自带编译配置；业务工程使用自动接入工具时会配置，手动接入时需按[说明添加 `csc.rsp`](docs/consuming-framework.md#c-10-默认约定与原因)。请在运行下方示例前完成业务程序集的语言配置。语言版本设置不会升级 Unity 的 .NET 运行库；选择原因、配置作用范围和兼容性限制也见该说明。
+
+#### 显式引用所需程序集
 
 Core 与可热更新 Runtime 程序集使用 autoReferenced:false，业务 asmdef 应明确引用需要的程序集；AOT 启动薄壳 Game.Framework.Boot 是 autoReferenced:true 的例外。最小运行时通常引用 Game.Framework；使用 UI、YooAsset、Luban、Protobuf 或构建工具时，再按模块地图添加对应程序集。显式引用控制业务访问关系，不会让完整包里未被引用的 Module 自动停止编译。
 
@@ -209,22 +221,6 @@ public sealed class HudView : MonoViewBase
 
 在场景中创建一个 MainContext，将 PlayerModel、PlayerSystem 和 HudView 放到它的子层级，在 Canvas 中创建 TMP 文本和按钮，并在 Inspector 中绑定引用。新 Input System 工程的 EventSystem 使用 InputSystemUIInputModule，避免按钮只显示却收不到输入。保存场景，进入 Play 后点击按钮，应看到数值从 100 逐次减 10。实际项目应把这些类型放进自己的 asmdef；完整的 Context、生命周期、异步 Command 和 UI 接入说明见[框架使用指南](docs/framework-guide.md)。
 
-## 🧰 能力模块
-
-| 模块 | 内容 | 适用边界 |
-|---|---|---|
-| **Core** | Context、容器、Model / System / Utility / View、Command / Event、响应式属性、生命周期、对象池、异步取消、存储 / 音频 / Flow / 本地化 / 日志 / 网络的稳定 Interface | 所有项目的基础运行时；不包含具体游戏玩法 |
-| **基础依赖** | R3 提供响应式数据流，UniTask 提供异步任务与取消协作；Unity 原生 UI、Editor 和序列化能力通过公开边界接入 | 业务可以直接使用这些基础能力，但不需要把第三方类型扩散到所有模块 |
-| **Asset.Yoo** | IAssetProvider 的 YooAsset Adapter、资源引用和运行时装配 | 项目选择 YooAsset 时接入；Core 不保存 YooAsset 类型 |
-| **UI** | 渲染中立的窗口、层级、栈、模态、过渡和响应式列表绑定 | 业务 UI 的编排与生命周期 |
-| **UI.UGui / UI.Toolkit / UI.Bridge** | UGUI、UI Toolkit 和内容嵌入桥的后端实现 | 业务只引用和装配实际使用的后端；当前仍随完整 UPM 包分发 |
-| **Config / Network.Proto** | 配置运行时、Luban Editor 工具、Protobuf 序列化 Adapter 和生成入口 | 配置表与协议生成属于项目构建链 |
-| **Fonts** | TMP 多语言字体 fallback、常用字集工具和相关测试 | 有多语言字体链需求时接入 |
-| **Build / Boot** | 资源构建、HybridCLR 热更新构建、CodePackage 和启动薄壳 | 仅在项目采用对应发布链时接入 |
-| **Editor** | 原生 Drawer / Inspector、诊断、模块审计、工具注册、输出声明和隔离体积探针 | 只编译到 Editor，不进入玩家运行时 |
-
-模块职责、程序集引用和删除测试以 Framework 模块地图为准；第三方依赖的版本和来源以 package.json、项目 manifest 与锁文件为准。
-
 ## 🤖 AI 友好与验证 Harness
 
 SSFramework 把“让工具能找到事实”作为工程能力的一部分，但不绑定某个 AI 客户端：
@@ -239,6 +235,10 @@ SSFramework 把“让工具能找到事实”作为工程能力的一部分，�
 这些能力可以由 Unity MCP、CI 或其他自动化宿主调用；宿主的 CLI 适配脚本不属于 Framework Package，本 README 也不要求项目采用某一个客户端。
 
 ## 🧪 验证方式
+
+`v0.1.1` 已在真实 Unity `6000.3.23f1` 消费工程通过 **564 项 Editor / 769 项 PlayMode 测试**，完成普通 Windows x64 IL2CPP 构建（0 错误 / 0 警告）及最小场景的启动和交互验证。验证范围与后续发布标准见[接入指南](docs/consuming-framework.md#版本选择与发布)。
+
+接入或修改框架后，按改动涉及的范围选择验证方式：
 
 | 改动类型 | 建议证据 |
 |---|---|
